@@ -675,7 +675,11 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
       s = rollback_batch->Put(cf_handle, key, pinnable_val);
       assert(s.ok());
     } else if (s.IsNotFound()) {
-      s = rollback_batch->Delete(cf_handle, key);
+      if (wupt_db_->ShouldRollbackWithSingleDelete(cf_handle, key)) {
+        s = rollback_batch->SingleDelete(cf_handle, key);
+      } else {
+        s = rollback_batch->Delete(cf_handle, key);
+      }
       assert(s.ok());
     } else {
       return s;

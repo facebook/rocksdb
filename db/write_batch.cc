@@ -152,14 +152,6 @@ struct SavePoints {
   std::stack<SavePoint, autovector<SavePoint>> stack;
 };
 
-WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes)
-    : content_flags_(0), max_bytes_(max_bytes), rep_() {
-  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader)
-                   ? reserved_bytes
-                   : WriteBatchInternal::kHeader);
-  rep_.resize(WriteBatchInternal::kHeader);
-}
-
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes,
                        size_t protection_bytes_per_key, size_t default_cf_ts_sz)
     : content_flags_(0),
@@ -580,14 +572,16 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkBeginPrepare();
         assert(s.ok());
         empty_batch = false;
-        if (!handler->WriteAfterCommit()) {
+        if (handler->WriteAfterCommit() ==
+            WriteBatch::Handler::OptionState::kDisabled) {
           s = Status::NotSupported(
               "WriteCommitted txn tag when write_after_commit_ is disabled (in "
               "WritePrepared/WriteUnprepared mode). If it is not due to "
               "corruption, the WAL must be emptied before changing the "
               "WritePolicy.");
         }
-        if (handler->WriteBeforePrepare()) {
+        if (handler->WriteBeforePrepare() ==
+            WriteBatch::Handler::OptionState::kEnabled) {
           s = Status::NotSupported(
               "WriteCommitted txn tag when write_before_prepare_ is enabled "
               "(in WriteUnprepared mode). If it is not due to corruption, the "
@@ -600,7 +594,8 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkBeginPrepare();
         assert(s.ok());
         empty_batch = false;
-        if (handler->WriteAfterCommit()) {
+        if (handler->WriteAfterCommit() ==
+            WriteBatch::Handler::OptionState::kEnabled) {
           s = Status::NotSupported(
               "WritePrepared/WriteUnprepared txn tag when write_after_commit_ "
               "is enabled (in default WriteCommitted mode). If it is not due "
@@ -614,13 +609,15 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkBeginPrepare(true /* unprepared */);
         assert(s.ok());
         empty_batch = false;
-        if (handler->WriteAfterCommit()) {
+        if (handler->WriteAfterCommit() ==
+            WriteBatch::Handler::OptionState::kEnabled) {
           s = Status::NotSupported(
               "WriteUnprepared txn tag when write_after_commit_ is enabled (in "
               "default WriteCommitted mode). If it is not due to corruption, "
               "the WAL must be emptied before changing the WritePolicy.");
         }
-        if (!handler->WriteBeforePrepare()) {
+        if (handler->WriteBeforePrepare() ==
+            WriteBatch::Handler::OptionState::kDisabled) {
           s = Status::NotSupported(
               "WriteUnprepared txn tag when write_before_prepare_ is disabled "
               "(in WriteCommitted/WritePrepared mode). If it is not due to "
@@ -1494,6 +1491,8 @@ Status WriteBatch::UpdateTimestamps(
   return s;
 }
 
+namespace {
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;
@@ -1581,9 +1580,24 @@ class MemTableInserter : public WriteBatch::Handler {
     return res;
   }
 
+  void DecrementProtectionInfoIdxForTryAgain() {
+    if (prot_info_ != nullptr) --prot_info_idx_;
+  }
+
+  void ResetProtectionInfo() {
+    prot_info_idx_ = 0;
+    prot_info_ = nullptr;
+  }
+
  protected:
-  bool WriteBeforePrepare() const override { return write_before_prepare_; }
-  bool WriteAfterCommit() const override { return write_after_commit_; }
+  Handler::OptionState WriteBeforePrepare() const override {
+    return write_before_prepare_ ? Handler::OptionState::kEnabled
+                                 : Handler::OptionState::kDisabled;
+  }
+  Handler::OptionState WriteAfterCommit() const override {
+    return write_after_commit_ ? Handler::OptionState::kEnabled
+                               : Handler::OptionState::kDisabled;
+  }
 
  public:
   // cf_mems should not be shared with concurrent inserters
@@ -1871,15 +1885,25 @@ class MemTableInserter : public WriteBatch::Handler {
   Status PutCF(uint32_t column_family_id, const Slice& key,
                const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
+    Status ret_status;
     if (kv_prot_info != nullptr) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-      return PutCFImpl(column_family_id, key, value, kTypeValue,
-                       &mem_kv_prot_info);
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
+                             &mem_kv_prot_info);
+    } else {
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeValue,
+                             nullptr /* kv_prot_info */);
     }
-    return PutCFImpl(column_family_id, key, value, kTypeValue,
-                     nullptr /* kv_prot_info */);
+    // TODO: this assumes that if TryAgain status is returned to the caller,
+    // the operation is actually tried again. The proper way to do this is to
+    // pass a `try_again` parameter to the operation itself and decrement
+    // prot_info_idx_ based on that
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
+    return ret_status;
   }
 
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
@@ -1926,6 +1950,9 @@ class MemTableInserter : public WriteBatch::Handler {
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
       }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
+      }
       return ret_status;
     }
 
@@ -1957,6 +1984,9 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status =
           WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
     return ret_status;
   }
 
@@ -1985,6 +2015,9 @@ class MemTableInserter : public WriteBatch::Handler {
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
       }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
+      }
       return ret_status;
     }
     assert(ret_status.ok());
@@ -2008,6 +2041,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // TODO(ajkr): propagate `ProtectionInfoKVOS64`.
       ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                     column_family_id, key);
+    }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
     }
     return ret_status;
   }
@@ -2037,6 +2073,9 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
+      }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
       }
       return ret_status;
     }
@@ -2092,6 +2131,9 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status = WriteBatchInternal::DeleteRange(
           rebuilding_trx_, column_family_id, begin_key, end_key);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
     return ret_status;
   }
 
@@ -2120,6 +2162,9 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       } else if (ret_status.ok()) {
         MaybeAdvanceSeq(false /* batch_boundary */);
+      }
+      if (UNLIKELY(ret_status.IsTryAgain())) {
+        DecrementProtectionInfoIdxForTryAgain();
       }
       return ret_status;
     }
@@ -2242,23 +2287,31 @@ class MemTableInserter : public WriteBatch::Handler {
       ret_status = WriteBatchInternal::Merge(rebuilding_trx_, column_family_id,
                                              key, value);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
     return ret_status;
   }
 
   Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
                         const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
+    Status ret_status;
     if (kv_prot_info != nullptr) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
       // Same as PutCF except for value type.
-      return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                       &mem_kv_prot_info);
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
+                             &mem_kv_prot_info);
     } else {
-      return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                       nullptr /* kv_prot_info */);
+      ret_status = PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
+                             nullptr /* kv_prot_info */);
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
+    return ret_status;
   }
 
   void CheckMemtableFull() {
@@ -2401,6 +2454,7 @@ class MemTableInserter : public WriteBatch::Handler {
           const auto& batch_info = trx->batches_.begin()->second;
           // all inserts must reference this trx log number
           log_number_ref_ = batch_info.log_number_;
+          ResetProtectionInfo();
           s = batch_info.batch_->Iterate(this);
           log_number_ref_ = 0;
         }
@@ -2421,6 +2475,10 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     const bool batch_boundry = true;
     MaybeAdvanceSeq(batch_boundry);
+
+    if (UNLIKELY(s.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
 
     return s;
   }
@@ -2466,6 +2524,7 @@ class MemTableInserter : public WriteBatch::Handler {
                 return ucmp->timestamp_size();
               });
           if (s.ok()) {
+            ResetProtectionInfo();
             s = batch_info.batch_->Iterate(this);
             log_number_ref_ = 0;
           }
@@ -2487,6 +2546,10 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     constexpr bool batch_boundary = true;
     MaybeAdvanceSeq(batch_boundary);
+
+    if (UNLIKELY(s.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
 
     return s;
   }
@@ -2522,6 +2585,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return &GetPostMap()[mem];
   }
 };
+
+}  // namespace
 
 // This function can only be called in these conditions:
 // 1) During Recovery()
@@ -2613,11 +2678,94 @@ Status WriteBatchInternal::InsertInto(
   return s;
 }
 
+namespace {
+
+// This class updates protection info for a WriteBatch.
+class ProtectionInfoUpdater : public WriteBatch::Handler {
+ public:
+  explicit ProtectionInfoUpdater(WriteBatch::ProtectionInfo* prot_info)
+      : prot_info_(prot_info) {}
+
+  ~ProtectionInfoUpdater() override {}
+
+  Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    return UpdateProtInfo(cf, key, val, kTypeValue);
+  }
+
+  Status DeleteCF(uint32_t cf, const Slice& key) override {
+    return UpdateProtInfo(cf, key, "", kTypeDeletion);
+  }
+
+  Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+    return UpdateProtInfo(cf, key, "", kTypeSingleDeletion);
+  }
+
+  Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
+                       const Slice& end_key) override {
+    return UpdateProtInfo(cf, begin_key, end_key, kTypeRangeDeletion);
+  }
+
+  Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+    return UpdateProtInfo(cf, key, val, kTypeMerge);
+  }
+
+  Status PutBlobIndexCF(uint32_t cf, const Slice& key,
+                        const Slice& val) override {
+    return UpdateProtInfo(cf, key, val, kTypeBlobIndex);
+  }
+
+  Status MarkBeginPrepare(bool /* unprepare */) override {
+    return Status::OK();
+  }
+
+  Status MarkEndPrepare(const Slice& /* xid */) override {
+    return Status::OK();
+  }
+
+  Status MarkCommit(const Slice& /* xid */) override { return Status::OK(); }
+
+  Status MarkCommitWithTimestamp(const Slice& /* xid */,
+                                 const Slice& /* ts */) override {
+    return Status::OK();
+  }
+
+  Status MarkRollback(const Slice& /* xid */) override { return Status::OK(); }
+
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
+
+ private:
+  Status UpdateProtInfo(uint32_t cf, const Slice& key, const Slice& val,
+                        const ValueType op_type) {
+    if (prot_info_) {
+      prot_info_->entries_.emplace_back(
+          ProtectionInfo64().ProtectKVO(key, val, op_type).ProtectC(cf));
+    }
+    return Status::OK();
+  }
+
+  // No copy or move.
+  ProtectionInfoUpdater(const ProtectionInfoUpdater&) = delete;
+  ProtectionInfoUpdater(ProtectionInfoUpdater&&) = delete;
+  ProtectionInfoUpdater& operator=(const ProtectionInfoUpdater&) = delete;
+  ProtectionInfoUpdater& operator=(ProtectionInfoUpdater&&) = delete;
+
+  WriteBatch::ProtectionInfo* const prot_info_ = nullptr;
+};
+
+}  // namespace
+
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
-  assert(b->prot_info_ == nullptr);
+
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
+
+  // If we have a prot_info_, update protection info entries for the batch.
+  if (b->prot_info_) {
+    ProtectionInfoUpdater prot_info_updater(b->prot_info_.get());
+    return b->Iterate(&prot_info_updater);
+  }
+
   return Status::OK();
 }
 

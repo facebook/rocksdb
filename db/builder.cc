@@ -115,6 +115,7 @@ Status BuildTable(
   assert(fs);
 
   TableProperties tp;
+  bool table_file_created = false;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions.compaction_filter_factory != nullptr &&
@@ -158,6 +159,8 @@ Status BuildTable(
             file_checksum_func_name);
         return s;
       }
+
+      table_file_created = true;
       FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
@@ -371,15 +374,17 @@ Status BuildTable(
 
     constexpr IODebugContext* dbg = nullptr;
 
-    Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
-    ignored.PermitUncheckedError();
+    if (table_file_created) {
+      Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
+      ignored.PermitUncheckedError();
+    }
 
     assert(blob_file_additions || blob_file_paths.empty());
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
-        ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
-                               /*force_bg=*/false, /*force_fg=*/false);
+        Status ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
+                                      /*force_bg=*/false, /*force_fg=*/false);
         ignored.PermitUncheckedError();
         TEST_SYNC_POINT("BuildTable::AfterDeleteFile");
       }

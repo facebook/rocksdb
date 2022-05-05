@@ -13,6 +13,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
@@ -934,7 +935,8 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        NewClockCache(capacity, num_shard_bits)}) {
+        NewClockCache(capacity, num_shard_bits),
+        NewFastLRUCache(capacity, num_shard_bits)}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;
@@ -1288,7 +1290,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
-         {NewLRUCache(capacity), NewClockCache(capacity)}) {
+         {NewLRUCache(capacity), NewClockCache(capacity),
+          NewFastLRUCache(capacity)}) {
       if (!cache) {
         // Skip clock cache when not supported
         continue;

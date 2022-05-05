@@ -374,7 +374,9 @@ Status WritePreparedTxn::RollbackInternal() {
     }
 
    protected:
-    bool WriteAfterCommit() const override { return false; }
+    Handler::OptionState WriteAfterCommit() const override {
+      return Handler::OptionState::kDisabled;
+    }
   } rollback_handler(db_impl_, wpt_db_, read_at_seq, &rollback_batch,
                      *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                      wpt_db_->txn_db_options_.rollback_merge_operands,
