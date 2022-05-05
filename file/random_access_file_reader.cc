@@ -283,7 +283,7 @@ IOStatus RandomAccessFileReader::MultiRead(
 #endif  // !NDEBUG
 
   // To be paranoid modify scratch a little bit, so in case underlying
-  // FileSystem doesn't fill the buffer but return succee and `scratch` returns
+  // FileSystem doesn't fill the buffer but return success and `scratch` returns
   // contains a previous block, returned value will not pass checksum.
   // This byte might not change anything for direct I/O case, but it's OK.
   for (size_t i = 0; i < num_reqs; i++) {

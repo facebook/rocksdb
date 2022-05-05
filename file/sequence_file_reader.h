@@ -57,15 +57,18 @@ class SequentialFileReader {
   FSSequentialFilePtr file_;
   std::atomic<size_t> offset_{0};  // read offset
   std::vector<std::shared_ptr<EventListener>> listeners_{};
+  RateLimiter* rate_limiter_;
 
  public:
   explicit SequentialFileReader(
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
-      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      RateLimiter* rate_limiter = nullptr)
       : file_name_(_file_name),
         file_(std::move(_file), io_tracer, _file_name),
-        listeners_() {
+        listeners_(),
+        rate_limiter_(rate_limiter) {
 #ifndef ROCKSDB_LITE
     AddFileIOListeners(listeners);
 #else
@@ -77,11 +80,13 @@ class SequentialFileReader {
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
       size_t _readahead_size,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
-      const std::vector<std::shared_ptr<EventListener>>& listeners = {})
+      const std::vector<std::shared_ptr<EventListener>>& listeners = {},
+      RateLimiter* rate_limiter = nullptr)
       : file_name_(_file_name),
         file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
               io_tracer, _file_name),
-        listeners_() {
+        listeners_(),
+        rate_limiter_(rate_limiter) {
 #ifndef ROCKSDB_LITE
     AddFileIOListeners(listeners);
 #else
@@ -91,12 +96,12 @@ class SequentialFileReader {
   static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
                          const std::string& fname, const FileOptions& file_opts,
                          std::unique_ptr<SequentialFileReader>* reader,
-                         IODebugContext* dbg);
+                         IODebugContext* dbg, RateLimiter *rate_limiter=nullptr);
 
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;
 
-  IOStatus Read(size_t n, Slice* result, char* scratch);
+  IOStatus Read(size_t n, Slice* result, char* scratch, Env::IOPriority rate_limiter_priority);
 
   IOStatus Skip(uint64_t n);
 
