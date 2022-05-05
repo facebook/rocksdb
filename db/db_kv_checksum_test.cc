@@ -79,7 +79,7 @@ class DbKvChecksumTest
 
   void CorruptNextByteCallBack(void* arg) {
     Slice encoded = *static_cast<Slice*>(arg);
-    if (entry_len_ == port::kMaxSizet) {
+    if (entry_len_ == std::numeric_limits<size_t>::max()) {
       // We learn the entry size on the first attempt
       entry_len_ = encoded.size();
     }
@@ -96,7 +96,7 @@ class DbKvChecksumTest
   WriteBatchOpType op_type_;
   char corrupt_byte_addend_;
   size_t corrupt_byte_offset_ = 0;
-  size_t entry_len_ = port::kMaxSizet;
+  size_t entry_len_ = std::numeric_limits<size_t>::max();
 };
 
 std::string GetTestNameSuffix(

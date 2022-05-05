@@ -4082,9 +4082,10 @@ TEST_F(OptionsParserTest, IntegerParsing) {
   ASSERT_EQ(ParseUint32("4294967295"), 4294967295U);
   ASSERT_EQ(ParseSizeT("18446744073709551615"), 18446744073709551615U);
   ASSERT_EQ(ParseInt64("9223372036854775807"), 9223372036854775807);
-  ASSERT_EQ(ParseInt64("-9223372036854775808"), port::kMinInt64);
+  ASSERT_EQ(ParseInt64("-9223372036854775808"),
+            std::numeric_limits<int64_t>::min());
   ASSERT_EQ(ParseInt32("2147483647"), 2147483647);
-  ASSERT_EQ(ParseInt32("-2147483648"), port::kMinInt32);
+  ASSERT_EQ(ParseInt32("-2147483648"), std::numeric_limits<int32_t>::min());
   ASSERT_EQ(ParseInt("-32767"), -32767);
   ASSERT_EQ(ParseDouble("-1.234567"), -1.234567);
 }

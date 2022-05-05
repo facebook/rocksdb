@@ -2029,11 +2029,11 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   if (FLAGS_long_running_snapshots) {
     // Hold 10% of snapshots for 10x more
     if (thread->rand.OneIn(10)) {
-      assert(hold_for < port::kMaxInt64 / 10);
+      assert(hold_for < std::numeric_limits<uint64_t>::max() / 10);
       hold_for *= 10;
       // Hold 1% of snapshots for 100x more
       if (thread->rand.OneIn(10)) {
-        assert(hold_for < port::kMaxInt64 / 10);
+        assert(hold_for < std::numeric_limits<uint64_t>::max() / 10);
         hold_for *= 10;
       }
     }
@@ -2065,8 +2065,9 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                                   const Slice& start_key,
                                   ColumnFamilyHandle* column_family) {
   int64_t end_key_num;
-  if (port::kMaxInt64 - rand_key < FLAGS_compact_range_width) {
-    end_key_num = port::kMaxInt64;
+  if (std::numeric_limits<int64_t>::max() - rand_key <
+      FLAGS_compact_range_width) {
+    end_key_num = std::numeric_limits<int64_t>::max();
   } else {
     end_key_num = FLAGS_compact_range_width + rand_key;
   }

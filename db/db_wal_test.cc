@@ -1009,7 +1009,7 @@ TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
       if (log_files.size() > 0) {
         earliest_log_nums[i] = log_files[0]->LogNumber();
       } else {
-        earliest_log_nums[i] = port::kMaxUint64;
+        earliest_log_nums[i] = std::numeric_limits<uint64_t>::max();
       }
     }
     // Check at least the first WAL was cleaned up during the recovery.

@@ -65,7 +65,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
   uint64_t compensated_compact_bytes =
       level_files[start]->compensated_file_size;
-  size_t compact_bytes_per_del_file = port::kMaxSizet;
+  size_t compact_bytes_per_del_file = std::numeric_limits<size_t>::max();
   // Compaction range will be [start, limit).
   size_t limit;
   // Pull in files until the amount of compaction work per deleted file begins
@@ -717,7 +717,7 @@ Compaction* CompactionPicker::CompactRange(
   // files that are created during the current compaction.
   if (compact_range_options.bottommost_level_compaction ==
           BottommostLevelCompaction::kForceOptimized &&
-      max_file_num_to_ignore != port::kMaxUint64) {
+      max_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
     assert(input_level == output_level);
     // inputs_shrunk holds a continuous subset of input files which were all
     // created before the current manual compaction

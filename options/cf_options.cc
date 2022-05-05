@@ -886,7 +886,7 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
   if (op1 == 0 || op2 <= 0) {
     return 0;
   }
-  if (port::kMaxUint64 / op1 < op2) {
+  if (std::numeric_limits<uint64_t>::max() / op1 < op2) {
     return op1;
   }
   return static_cast<uint64_t>(op1 * op2);
@@ -915,8 +915,9 @@ size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options) {
   // or a former larger `write_buffer_size` value to avoid surprising users with
   // pinned memory usage. We use a factor of 1.5 to account for overhead
   // introduced during flush in most cases.
-  if (port::kMaxSizet / 3 < cf_options.write_buffer_size / 2) {
-    return port::kMaxSizet;
+  if (std::numeric_limits<size_t>::max() / 3 <
+      cf_options.write_buffer_size / 2) {
+    return std::numeric_limits<size_t>::max();
   }
   return cf_options.write_buffer_size / 2 * 3;
 }

@@ -90,7 +90,8 @@ inline bool IsExtendedValueType(ValueType t) {
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
-static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
+static const SequenceNumber kDisableGlobalSequenceNumber =
+    std::numeric_limits<uint64_t>::max();
 
 constexpr uint64_t kNumInternalBytes = 8;
 

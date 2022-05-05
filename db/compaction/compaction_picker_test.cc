@@ -2653,8 +2653,8 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
       universal_compaction_picker.CompactRange(
           cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
           ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(),
-          nullptr, nullptr, &manual_end, &manual_conflict, port::kMaxUint64,
-          ""));
+          nullptr, nullptr, &manual_end, &manual_conflict,
+          std::numeric_limits<uint64_t>::max(), ""));
 
   ASSERT_TRUE(compaction);
 
