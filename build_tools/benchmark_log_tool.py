@@ -14,6 +14,7 @@ from collections import namedtuple
 import datetime
 import email
 import itertools
+import os
 import pickle
 from keyword import iskeyword
 import random
@@ -31,13 +32,15 @@ logging.basicConfig(level=logging.DEBUG)
 class Configuration:
     graphite_server = 'cherry.evolvedbinary.com'
     graphite_pickle_port = 2004
-    circle_user_id = 'e7d4aab13e143360f95e258be0a89b5c8e256773'  # rotate those tokens !!
     circle_vcs = 'github'
     circle_username = 'facebook'
     circle_project = 'rocksdb'
     circle_ci_api = 'https://circleci.com/api/v2'
     graphite_name_prefix = 'rocksdb.benchmark'
-
+    circle_user_id = os.environ['CIRCLE_USER_ID']
+    opensearch_doc = 'https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc'
+    opensearch_user = os.environ['ES_USER']
+    opensearch_pass = os.environ['ES_PASS']
 
 class TupleObject:
 
@@ -135,13 +138,13 @@ class CircleAPIV2:
 class Predicates:
     def is_my_pull_request(pipeline):
         try:
-            return pipeline.vcs.branch == "pull/9676"
+            return pipeline.vcs.branch == "pull/9723"
         except AttributeError:
             return False
 
     def is_benchmark_linux(step):
         try:
-            return step.name == "benchmark-linux"
+            return step.name == "benchmark-linux" or step.name == "benchmark-linux-dev"
         except AttributeError:
             return False
 
@@ -226,6 +229,12 @@ class BenchmarkUtils:
         (dt, _) = parser.parse(row['test_date'], fuzzy_with_tokens=True)
         row['timestamp'] = int(dt.timestamp())
         return row
+
+    def conform_opensearch(row):
+        (dt, _) = parser.parse(row['test_date'], fuzzy_with_tokens=True)
+        row['test_date'] = dt.isoformat()
+        return dict((key.replace('.', '_'), value)
+                    for (key, value) in row.items())
 
     def graphite(row, metric_path=Configuration.graphite_name_prefix):
         '''Convert a row (dictionary of values)
@@ -405,10 +414,13 @@ class CircleLogReader:
     def get_log_urls(self) -> List[BenchmarkResult]:
         pipeline_ids = self.api_v2.get_pipeline_ids(
             filter=Predicates.is_my_pull_request)
+        logging.debug(f"Fetched from CircleCI pipeline_ids: {pipeline_ids}")
         workflows = flatten([self.api_v2.get_workflow_items(
             pipeline_id, filter=Predicates.is_benchmark_linux) for pipeline_id in pipeline_ids])
+        logging.debug(f"Fetched from CircleCI workflows: {workflows}")
         jobs = flatten([self.api_v2.get_jobs(workflow_id)
                        for workflow_id in workflows])
+        logging.debug(f"Fetched from CircleCI jobs: {jobs}")
 
         urls = [self.api_v1.get_log_mime_url(
             job_number=job_id) for job_id in jobs]
@@ -429,7 +441,8 @@ def fetch_results_from_circle():
     reader = CircleLogReader(
         {'user_id': Configuration.circle_user_id,
          'username': Configuration.circle_username,
-         'project': Configuration.circle_project})
+         'project': Configuration.circle_project,
+         'vcs': Configuration.circle_vcs})
     urls = reader.get_log_urls()
     results = [result.fetch().parse_report() for result in urls]
     # Each object with a successful parse will have a .report field
@@ -462,6 +475,21 @@ def load_reports_from_tsv(filename: str):
     report = parser.parse(contents)
     logging.debug(f"Loaded TSV Report: {report}")
     return report
+
+
+def push_report_to_opensearch(reports):
+    sanitized = [[BenchmarkUtils.conform_opensearch(row)
+                 for row in rows if BenchmarkUtils.sanity_check(row)] for rows in reports]
+    for report in sanitized:
+        logging.debug(f"upload {len(report)} benchmarks to opensearch")
+        for single_benchmark in report:
+            logging.debug(f"upload benchmark: {single_benchmark}")
+            response = requests.post(
+                Configuration.opensearch_doc,
+                json=single_benchmark, auth=(os.environ['ES_USER'], os.environ['ES_PASS']))
+            logging.debug(
+                f"Sent to OpenSearch, status: {response.status_code}, result: {response.text}")
+            response.raise_for_status()
 
 
 def push_pickle_to_graphite(reports, test_values: bool):
@@ -533,14 +561,14 @@ def main():
     # push results presented as a TSV file (slightly different proposed format)
     # this is how the script is invoked on the CircleCI test machine when running benchmarks
     #
-    parser.add_argument('--action', choices=['fetch', 'push', 'all', 'tsv'], default='tsv',
+    parser.add_argument('--action', choices=['fetch', 'graphite', 'opensearch', 'all', 'tsv'], default='tsv',
                         help='Which action to perform')
     parser.add_argument('--picklefile', default='reports.pickle',
                         help='File in which to save pickled report')
     parser.add_argument('--tsvfile', default='build_tools/circle_api_scraper_input.txt',
                         help='File from which to read tsv report')
     parser.add_argument('--testvalues', default=False,
-                        help='Use as test values; apply a timeshift and preprend "test." to the keys')
+                        help='Use as test values; apply a timeshift and prepend "test." to the keys')
 
     args = parser.parse_args()
     logging.debug(f"Arguments: {args}")
@@ -552,12 +580,15 @@ def main():
         reports = fetch_results_from_circle()
         save_reports_to_local(reports, args.picklefile)
         pass
-    elif args.action == 'push':
+    elif args.action == 'graphite':
         reports = load_reports_from_local(args.picklefile)
         push_pickle_to_graphite(reports, args.testvalues)
+    elif args.action == 'opensearch':
+        reports = load_reports_from_local(args.picklefile)
+        push_report_to_opensearch(reports)
     elif args.action == 'tsv':
         reports = [load_reports_from_tsv(args.tsvfile)]
-        push_pickle_to_graphite(reports, args.testvalues)
+        push_report_to_opensearch(reports)
 
 
 if __name__ == '__main__':
