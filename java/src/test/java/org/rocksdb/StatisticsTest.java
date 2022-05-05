@@ -155,7 +155,7 @@ public class StatisticsTest {
   }
 
   @Test
-  public void toString() throws RocksDBException {
+  public void ToString() throws RocksDBException {
     try (final Statistics statistics = new Statistics();
          final Options opt = new Options()
              .setStatistics(statistics)
