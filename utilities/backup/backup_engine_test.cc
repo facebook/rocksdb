@@ -3756,7 +3756,8 @@ TEST_F(BackupEngineTest, WriteOnlyEngineNoSharedFileDeletion) {
     }
     CloseDBAndBackupEngine();
 
-    engine_options_->max_valid_backups_to_open = port::kMaxInt32;
+    engine_options_->max_valid_backups_to_open =
+        std::numeric_limits<int32_t>::max();
     AssertBackupConsistency(i + 1, 0, (i + 1) * kNumKeys);
   }
 }

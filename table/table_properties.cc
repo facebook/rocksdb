@@ -17,7 +17,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 const uint32_t TablePropertiesCollectorFactory::Context::kUnknownColumnFamily =
-    port::kMaxInt32;
+    std::numeric_limits<int32_t>::max();
 
 namespace {
   void AppendProperty(

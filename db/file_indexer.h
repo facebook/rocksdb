@@ -59,8 +59,7 @@ class FileIndexer {
                    std::vector<FileMetaData*>* const files);
 
   enum {
-    // MSVC version 1800 still does not have constexpr for ::max()
-    kLevelMaxIndex = ROCKSDB_NAMESPACE::port::kMaxInt32
+    kLevelMaxIndex = std::numeric_limits<int32_t>::max()
   };
 
  private:

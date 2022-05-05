@@ -315,7 +315,8 @@ uint32_t ParseUint32(const std::string& value) {
 
 int32_t ParseInt32(const std::string& value) {
   int64_t num = ParseInt64(value);
-  if (num <= port::kMaxInt32 && num >= port::kMinInt32) {
+  if (num <= std::numeric_limits<int32_t>::max() &&
+      num >= std::numeric_limits<int32_t>::min()) {
     return static_cast<int32_t>(num);
   } else {
     throw std::out_of_range(value);

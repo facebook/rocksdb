@@ -1012,8 +1012,9 @@ IOStatus BackupEngineImpl::Initialize() {
     // we might need to clean up from previous crash or I/O errors
     might_need_garbage_collect_ = true;
 
-    if (options_.max_valid_backups_to_open != port::kMaxInt32) {
-      options_.max_valid_backups_to_open = port::kMaxInt32;
+    if (options_.max_valid_backups_to_open !=
+        std::numeric_limits<int32_t>::max()) {
+      options_.max_valid_backups_to_open = std::numeric_limits<int32_t>::max();
       ROCKS_LOG_WARN(
           options_.info_log,
           "`max_valid_backups_to_open` is not set to the default value. Ignoring "

@@ -827,8 +827,8 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
   // condition.
   // Or twice as compaction trigger, if it is smaller.
   int64_t res = std::min(twice_level0_trigger, one_fourth_trigger_slowdown);
-  if (res >= port::kMaxInt32) {
-    return port::kMaxInt32;
+  if (res >= std::numeric_limits<int32_t>::max()) {
+    return std::numeric_limits<int32_t>::max();
   } else {
     // res fits in int
     return static_cast<int>(res);
