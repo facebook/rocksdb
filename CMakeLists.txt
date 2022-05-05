@@ -1124,8 +1124,8 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 
   configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}.pc.in
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc
+    ${PROJECT_NAME}.pc.in
+    ${PROJECT_NAME}.pc
     @ONLY
   )
 
