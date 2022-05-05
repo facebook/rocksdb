@@ -325,14 +325,7 @@ class PosixFileSystem : public FileSystem {
     SetFD_CLOEXEC(fd, &options);
 
     if (options.use_mmap_writes) {
-      if (!checkedDiskForMmap_) {
-        // this will be executed once in the program's lifetime.
-        // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-        if (!SupportsFastAllocate(fname)) {
-          forceMmapOff_ = true;
-        }
-        checkedDiskForMmap_ = true;
-      }
+      MaybeForceDisableMmap(fd);
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options));
@@ -431,14 +424,7 @@ class PosixFileSystem : public FileSystem {
     }
 
     if (options.use_mmap_writes) {
-      if (!checkedDiskForMmap_) {
-        // this will be executed once in the program's lifetime.
-        // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-        if (!SupportsFastAllocate(fname)) {
-          forceMmapOff_ = true;
-        }
-        checkedDiskForMmap_ = true;
-      }
+      MaybeForceDisableMmap(fd);
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options));
@@ -753,8 +739,10 @@ class PosixFileSystem : public FileSystem {
                     const IOOptions& /*opts*/,
                     IODebugContext* /*dbg*/) override {
     if (link(src.c_str(), target.c_str()) != 0) {
-      if (errno == EXDEV) {
-        return IOStatus::NotSupported("No cross FS links allowed");
+      if (errno == EXDEV || errno == ENOTSUP) {
+        return IOStatus::NotSupported(errno == EXDEV
+                                          ? "No cross FS links allowed"
+                                          : "Links not supported by FS");
       }
       return IOError("while link file to " + target, src, errno);
     }
@@ -997,8 +985,7 @@ class PosixFileSystem : public FileSystem {
   }
 #endif
  private:
-  bool checkedDiskForMmap_;
-  bool forceMmapOff_;  // do we override Env options?
+  bool forceMmapOff_ = false;  // do we override Env options?
 
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname) {
@@ -1009,10 +996,10 @@ class PosixFileSystem : public FileSystem {
     return false;  // stat() failed return false
   }
 
-  bool SupportsFastAllocate(const std::string& path) {
+  bool SupportsFastAllocate(int fd) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     struct statfs s;
-    if (statfs(path.c_str(), &s)) {
+    if (fstatfs(fd, &s)) {
       return false;
     }
     switch (s.f_type) {
@@ -1026,9 +1013,24 @@ class PosixFileSystem : public FileSystem {
         return false;
     }
 #else
-    (void)path;
+    (void)fd;
     return false;
 #endif
+  }
+
+  void MaybeForceDisableMmap(int fd) {
+    static std::once_flag s_check_disk_for_mmap_once;
+    assert(this == FileSystem::Default().get());
+    std::call_once(
+        s_check_disk_for_mmap_once,
+        [this](int fdesc) {
+          // this will be executed once in the program's lifetime.
+          // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
+          if (!SupportsFastAllocate(fdesc)) {
+            forceMmapOff_ = true;
+          }
+        },
+        fd);
   }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -1040,6 +1042,94 @@ class PosixFileSystem : public FileSystem {
     }
   }
 #endif  // ROCKSDB_IOURING_PRESENT
+
+  // EXPERIMENTAL
+  //
+  // TODO akankshamahajan:
+  // 1. Update Poll API to take into account min_completions
+  // and returns if number of handles in io_handles (any order) completed is
+  // equal to atleast min_completions.
+  // 2. Currently in case of direct_io, Read API is called because of which call
+  // to Poll API fails as it expects IOHandle to be populated.
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
+                        size_t /*min_completions*/) override {
+#if defined(ROCKSDB_IOURING_PRESENT)
+    // io_uring_queue_init.
+    struct io_uring* iu = nullptr;
+    if (thread_local_io_urings_) {
+      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    }
+
+    // Init failed, platform doesn't support io_uring.
+    if (iu == nullptr) {
+      return IOStatus::NotSupported("Poll");
+    }
+
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      // The request has been completed in earlier runs.
+      if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
+        continue;
+      }
+      // Loop until IO for io_handles[i] is completed.
+      while (true) {
+        // io_uring_wait_cqe.
+        struct io_uring_cqe* cqe = nullptr;
+        ssize_t ret = io_uring_wait_cqe(iu, &cqe);
+        if (ret) {
+          // abort as it shouldn't be in indeterminate state and there is no
+          // good way currently to handle this error.
+          abort();
+        }
+
+        // Step 3: Populate the request.
+        assert(cqe != nullptr);
+        Posix_IOHandle* posix_handle =
+            static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
+        assert(posix_handle->iu == iu);
+        if (posix_handle->iu != iu) {
+          return IOStatus::IOError("");
+        }
+        // Reset cqe data to catch any stray reuse of it
+        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+
+        FSReadRequest req;
+        req.scratch = posix_handle->scratch;
+        req.offset = posix_handle->offset;
+        req.len = posix_handle->len;
+        size_t finished_len = 0;
+        size_t bytes_read = 0;
+        UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
+                     true /*async_read*/, finished_len, &req, bytes_read);
+        posix_handle->is_finished = true;
+        io_uring_cqe_seen(iu, cqe);
+        posix_handle->cb(req, posix_handle->cb_arg);
+        (void)finished_len;
+        (void)bytes_read;
+
+        if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+          break;
+        }
+      }
+    }
+    return IOStatus::OK();
+#else
+    (void)io_handles;
+    return IOStatus::NotSupported("Poll");
+#endif
+  }
+
+  // TODO akanksha: Look into flags and see how to provide support for AbortIO
+  // in posix for IOUring requests. Currently it calls Poll to wait for requests
+  // to complete the request.
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    IOStatus s = Poll(io_handles, io_handles.size());
+    // If Poll is not supported then it didn't submit any request and it should
+    // return OK.
+    if (s.IsNotSupported()) {
+      return IOStatus::OK();
+    }
+    return s;
+  }
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
@@ -1094,8 +1184,7 @@ size_t PosixFileSystem::GetLogicalBlockSizeForWriteIfNeeded(
 }
 
 PosixFileSystem::PosixFileSystem()
-    : checkedDiskForMmap_(false),
-      forceMmapOff_(false),
+    : forceMmapOff_(false),
       page_size_(getpagesize()),
       allow_non_owner_access_(true) {
 #if defined(ROCKSDB_IOURING_PRESENT)

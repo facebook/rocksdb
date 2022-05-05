@@ -67,14 +67,13 @@ class CompactionJob {
       int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
       const MutableDBOptions& mutable_db_options,
       const FileOptions& file_options, VersionSet* versions,
-      const std::atomic<bool>* shutting_down,
-      const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
+      const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
       FSDirectory* db_directory, FSDirectory* output_directory,
       FSDirectory* blob_output_directory, Statistics* stats,
       InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
       std::vector<SequenceNumber> existing_snapshots,
       SequenceNumber earliest_write_conflict_snapshot,
-      const SnapshotChecker* snapshot_checker,
+      const SnapshotChecker* snapshot_checker, JobContext* job_context,
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       bool paranoid_file_checks, bool measure_io_stats,
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
@@ -82,7 +81,7 @@ class CompactionJob {
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
-      std::string full_history_ts_low = "",
+      std::string full_history_ts_low = "", std::string trim_ts = "",
       BlobFileCompletionCallback* blob_callback = nullptr);
 
   virtual ~CompactionJob();
@@ -196,7 +195,6 @@ class CompactionJob {
   const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;
   const std::atomic<bool>* manual_compaction_canceled_;
-  const SequenceNumber preserve_deletes_seqnum_;
   FSDirectory* db_directory_;
   FSDirectory* blob_output_directory_;
   InstrumentedMutex* db_mutex_;
@@ -214,6 +212,8 @@ class CompactionJob {
 
   const SnapshotChecker* const snapshot_checker_;
 
+  JobContext* job_context_;
+
   std::shared_ptr<Cache> table_cache_;
 
   EventLogger* event_logger_;
@@ -226,6 +226,7 @@ class CompactionJob {
   std::vector<uint64_t> sizes_;
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
+  std::string trim_ts_;
   BlobFileCompletionCallback* blob_callback_;
 
   uint64_t GetCompactionId(SubcompactionState* sub_compact);
@@ -344,6 +345,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
       std::vector<SequenceNumber> existing_snapshots,
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
+      const std::atomic<bool>* manual_compaction_canceled,
       const std::string& db_id, const std::string& db_session_id,
       const std::string& output_path,
       const CompactionServiceInput& compaction_service_input,

@@ -97,7 +97,10 @@ class MultiGetContext {
   // that need to be performed
   static const int MAX_BATCH_SIZE = 32;
 
-  static_assert(MAX_BATCH_SIZE < 64, "MAX_BATCH_SIZE cannot exceed 63");
+  // A bitmask of at least MAX_BATCH_SIZE - 1 bits, so that
+  // Mask{1} << MAX_BATCH_SIZE is well defined
+  using Mask = uint64_t;
+  static_assert(MAX_BATCH_SIZE < sizeof(Mask) * 8);
 
   MultiGetContext(autovector<KeyContext*, MAX_BATCH_SIZE>* sorted_keys,
                   size_t begin, size_t num_keys, SequenceNumber snapshot,
@@ -138,7 +141,7 @@ class MultiGetContext {
     char lookup_key_stack_buf[sizeof(LookupKey) * MAX_LOOKUP_KEYS_ON_STACK];
   std::array<KeyContext*, MAX_BATCH_SIZE> sorted_keys_;
   size_t num_keys_;
-  uint64_t value_mask_;
+  Mask value_mask_;
   uint64_t value_size_;
   std::unique_ptr<char[]> lookup_key_heap_buf;
   LookupKey* lookup_key_ptr_;
@@ -171,7 +174,7 @@ class MultiGetContext {
       Iterator(const Range* range, size_t idx)
           : range_(range), ctx_(range->ctx_), index_(idx) {
         while (index_ < range_->end_ &&
-               (uint64_t{1} << index_) &
+               (Mask{1} << index_) &
                    (range_->ctx_->value_mask_ | range_->skip_mask_))
           index_++;
       }
@@ -181,7 +184,7 @@ class MultiGetContext {
 
       Iterator& operator++() {
         while (++index_ < range_->end_ &&
-               (uint64_t{1} << index_) &
+               (Mask{1} << index_) &
                    (range_->ctx_->value_mask_ | range_->skip_mask_))
           ;
         return *this;
@@ -235,22 +238,22 @@ class MultiGetContext {
 
     bool empty() const { return RemainingMask() == 0; }
 
-    void SkipIndex(size_t index) { skip_mask_ |= uint64_t{1} << index; }
+    void SkipIndex(size_t index) { skip_mask_ |= Mask{1} << index; }
 
     void SkipKey(const Iterator& iter) { SkipIndex(iter.index_); }
 
     bool IsKeySkipped(const Iterator& iter) const {
-      return skip_mask_ & (uint64_t{1} << iter.index_);
+      return skip_mask_ & (Mask{1} << iter.index_);
     }
 
     // Update the value_mask_ in MultiGetContext so its
     // immediately reflected in all the Range Iterators
     void MarkKeyDone(Iterator& iter) {
-      ctx_->value_mask_ |= (uint64_t{1} << iter.index_);
+      ctx_->value_mask_ |= (Mask{1} << iter.index_);
     }
 
     bool CheckKeyDone(Iterator& iter) const {
-      return ctx_->value_mask_ & (uint64_t{1} << iter.index_);
+      return ctx_->value_mask_ & (Mask{1} << iter.index_);
     }
 
     uint64_t KeysLeft() const { return BitsSetToOne(RemainingMask()); }
@@ -269,15 +272,15 @@ class MultiGetContext {
     MultiGetContext* ctx_;
     size_t start_;
     size_t end_;
-    uint64_t skip_mask_;
+    Mask skip_mask_;
 
     Range(MultiGetContext* ctx, size_t num_keys)
         : ctx_(ctx), start_(0), end_(num_keys), skip_mask_(0) {
       assert(num_keys < 64);
     }
 
-    uint64_t RemainingMask() const {
-      return (((uint64_t{1} << end_) - 1) & ~((uint64_t{1} << start_) - 1) &
+    Mask RemainingMask() const {
+      return (((Mask{1} << end_) - 1) & ~((Mask{1} << start_) - 1) &
               ~(ctx_->value_mask_ | skip_mask_));
     }
   };

@@ -507,6 +507,9 @@ struct DBOptions {
   // - Reads associated with a `ReadOptions` can be charged at
   //   `ReadOptions::rate_limiter_priority` (see that option's API doc for usage
   //   and limitations).
+  // - Writes associated with a `WriteOptions` can be charged at
+  //   `WriteOptions::rate_limiter_priority` (see that option's API doc for
+  //   usage and limitations).
   //
   // Rate limiting is disabled if nullptr. If rate limiter is enabled,
   // bytes_per_sync is set to 1MB by default.
@@ -547,6 +550,10 @@ struct DBOptions {
   // files opened are always kept open. You can estimate number of files based
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
+  //
+  // A high value or -1 for this option can cause high memory usage.
+  // See BlockBasedTableOptions::reserve_table_reader_memory to constrain
+  // memory usage in case of block based table format.
   //
   // Default: -1
   //
@@ -760,6 +767,14 @@ struct DBOptions {
 
   // Allow the OS to mmap file for reading sst tables.
   // Not recommended for 32-bit OS.
+  // When the option is set to true and compression is disabled, the blocks
+  // will not be copied and will be read directly from the mmap-ed memory
+  // area, and the block will not be inserted into the block cache. However,
+  // checksums will still be checked if ReadOptions.verify_checksums is set
+  // to be true. It means a checksum check every time a block is read, more
+  // than the setup where the option is set to false and the block cache is
+  // used. The common use of the options is to run RocksDB on ramfs, where
+  // checksum verification is usually not needed.
   // Default: false
   bool allow_mmap_reads = false;
 
@@ -1598,6 +1613,15 @@ struct ReadOptions {
   // Default: `Env::IO_TOTAL`.
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
+  // Experimental
+  //
+  // If async_io is enabled, RocksDB will prefetch some of data asynchronously.
+  // RocksDB apply it if reads are sequential and its internal automatic
+  // prefetching.
+  //
+  // Default: false
+  bool async_io;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -1659,13 +1683,29 @@ struct WriteOptions {
   // Default: false
   bool memtable_insert_hint_per_batch;
 
+  // For writes associated with this option, charge the internal rate
+  // limiter (see `DBOptions::rate_limiter`) at the specified priority. The
+  // special value `Env::IO_TOTAL` disables charging the rate limiter.
+  //
+  // Currently the support covers automatic WAL flushes, which happen during
+  // live updates (`Put()`, `Write()`, `Delete()`, etc.)
+  // when `WriteOptions::disableWAL == false`
+  // and `DBOptions::manual_wal_flush == false`.
+  //
+  // Only `Env::IO_USER` and `Env::IO_TOTAL` are allowed
+  // due to implementation constraints.
+  //
+  // Default: `Env::IO_TOTAL`
+  Env::IOPriority rate_limiter_priority;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
         low_pri(false),
-        memtable_insert_hint_per_batch(false) {}
+        memtable_insert_hint_per_batch(false),
+        rate_limiter_priority(Env::IO_TOTAL) {}
 };
 
 // Options that control flush operations
@@ -1823,6 +1863,14 @@ struct IngestExternalFileOptions {
   // ingestion. However, if no checksum information is provided with the
   // ingested files, DB will generate the checksum and store in the Manifest.
   bool verify_file_checksum = true;
+  // Set to TRUE if user wants file to be ingested to the bottommost level. An
+  // error of Status::TryAgain() will be returned if a file cannot fit in the
+  // bottommost level when calling
+  // DB::IngestExternalFile()/DB::IngestExternalFiles(). The user should clear
+  // the bottommost level in the overlapping range before re-attempt.
+  //
+  // ingest_behind takes precedence over fail_if_not_bottommost_level.
+  bool fail_if_not_bottommost_level = false;
 };
 
 enum TraceFilterType : uint64_t {
@@ -1900,10 +1948,23 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<TableFactory> table_factory;
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // Only subsets of events are triggered in remote compaction worker, like:
+  // `OnTableFileCreated`, `OnTableFileCreationStarted`,
+  // `ShouldBeNotifiedOnFileIO` `OnSubcompactionBegin`,
+  // `OnSubcompactionCompleted`, etc. Worth mentioning, `OnCompactionBegin` and
+  // `OnCompactionCompleted` won't be triggered. They will be triggered on the
+  // primary DB side.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+
   // statistics is used to collect DB operation metrics, the metrics won't be
   // returned to CompactionService primary host, to collect that, the user needs
   // to set it here.
   std::shared_ptr<Statistics> statistics = nullptr;
+};
+
+struct OpenAndCompactOptions {
+  // Allows cancellation of an in-progress compaction.
+  std::atomic<bool>* canceled = nullptr;
 };
 
 #ifndef ROCKSDB_LITE

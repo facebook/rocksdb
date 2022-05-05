@@ -49,8 +49,10 @@
 #include <zstd.h>
 #if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
 #include <zdict.h>
-#define ZSTD_STREAMING
 #endif  // ZSTD_VERSION_NUMBER >= 10103
+#if ZSTD_VERSION_NUMBER >= 10400  // v1.4.0+
+#define ZSTD_STREAMING
+#endif  // ZSTD_VERSION_NUMBER >= 10400
 namespace ROCKSDB_NAMESPACE {
 // Need this for the context allocation override
 // On windows we need to do this explicitly
@@ -516,8 +518,8 @@ inline bool ZSTDNotFinal_Supported() {
 }
 
 inline bool ZSTD_Streaming_Supported() {
-#ifdef ZSTD
-  return ZSTD_versionNumber() >= 10300;
+#if defined(ZSTD) && defined(ZSTD_STREAMING)
+  return true;
 #else
   return false;
 #endif
@@ -779,7 +781,8 @@ inline bool Zlib_Compress(const CompressionInfo& info,
   }
 
   // Get an upper bound on the compressed size.
-  size_t upper_bound = deflateBound(&_stream, length);
+  size_t upper_bound =
+      deflateBound(&_stream, static_cast<unsigned long>(length));
   output->resize(output_header_len + upper_bound);
 
   // Compress the input, and put compressed data in output.
@@ -1622,7 +1625,7 @@ class StreamingCompress {
   // Returns -1 for errors, the remaining size of the input buffer that needs to
   // be compressed
   virtual int Compress(const char* input, size_t input_size, char* output,
-                       size_t* output_size) = 0;
+                       size_t* output_pos) = 0;
   // static method to create object of a class inherited from StreamingCompress
   // based on the actual compression type.
   static StreamingCompress* Create(CompressionType compression_type,
@@ -1662,7 +1665,7 @@ class StreamingUncompress {
   // output_size - size of the output buffer
   // Returns -1 for errors, remaining input to be processed otherwise.
   virtual int Uncompress(const char* input, size_t input_size, char* output,
-                         size_t* output_size) = 0;
+                         size_t* output_pos) = 0;
   static StreamingUncompress* Create(CompressionType compression_type,
                                      uint32_t compress_format_version,
                                      size_t max_output_len);
@@ -1693,7 +1696,7 @@ class ZSTDStreamingCompress final : public StreamingCompress {
 #endif
   }
   int Compress(const char* input, size_t input_size, char* output,
-               size_t* output_size) override;
+               size_t* output_pos) override;
   void Reset() override;
 #ifdef ZSTD_STREAMING
   ZSTD_CCtx* cctx_;

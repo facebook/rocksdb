@@ -31,8 +31,8 @@ size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
 
     if (alignment > 0) {
       // Here we may actually require more than burst and block
-      // but we can not write less than one page at a time on direct I/O
-      // thus we may want not to use ratelimiter
+      // as we can not write/read less than one page at a time on direct I/O
+      // thus we do not want to be strictly constrained by burst
       bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
     }
     Request(bytes, io_priority, stats, op_type);

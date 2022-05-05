@@ -3752,6 +3752,9 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
+    }
     // No need to override GetFilterBitsBuilder if this one is overridden
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
         const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
@@ -3789,6 +3792,9 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_ribbon_format(
     const FilterPolicy* rep_;
     ~Wrapper() override { delete rep_; }
     const char* Name() const override { return rep_->Name(); }
+    const char* CompatibilityName() const override {
+      return rep_->CompatibilityName();
+    }
     ROCKSDB_NAMESPACE::FilterBitsBuilder* GetBuilderWithContext(
         const ROCKSDB_NAMESPACE::FilterBuildingContext& context)
         const override {
@@ -4184,6 +4190,14 @@ void rocksdb_lru_cache_options_set_memory_allocator(
 rocksdb_cache_t* rocksdb_cache_create_lru(size_t capacity) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = NewLRUCache(capacity);
+  return c;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_lru_with_strict_capacity_limit(
+    size_t capacity) {
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = NewLRUCache(capacity);
+  c->rep->SetStrictCapacityLimit(true);
   return c;
 }
 

@@ -12,13 +12,16 @@ namespace ROCKSDB_NAMESPACE {
 
 class MyTestCompactionService : public CompactionService {
  public:
-  MyTestCompactionService(std::string db_path, Options& options,
-                          std::shared_ptr<Statistics>& statistics)
+  MyTestCompactionService(
+      std::string db_path, Options& options,
+      std::shared_ptr<Statistics>& statistics,
+      std::vector<std::shared_ptr<EventListener>>& listeners)
       : db_path_(std::move(db_path)),
         options_(options),
         statistics_(statistics),
         start_info_("na", "na", "na", 0, Env::TOTAL),
-        wait_info_("na", "na", "na", 0, Env::TOTAL) {}
+        wait_info_("na", "na", "na", 0, Env::TOTAL),
+        listeners_(listeners) {}
 
   static const char* kClassName() { return "MyTestCompactionService"; }
 
@@ -71,9 +74,16 @@ class MyTestCompactionService : public CompactionService {
     options_override.table_factory = options_.table_factory;
     options_override.sst_partitioner_factory = options_.sst_partitioner_factory;
     options_override.statistics = statistics_;
+    if (!listeners_.empty()) {
+      options_override.listeners = listeners_;
+    }
+
+    OpenAndCompactOptions options;
+    options.canceled = &canceled_;
 
     Status s = DB::OpenAndCompact(
-        db_path_, db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(info.job_id),
+        options, db_path_,
+        db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(info.job_id),
         compaction_input, compaction_service_result, options_override);
     if (is_override_wait_result_) {
       *compaction_service_result = override_wait_result_;
@@ -112,6 +122,8 @@ class MyTestCompactionService : public CompactionService {
     is_override_wait_status_ = false;
   }
 
+  void SetCanceled(bool canceled) { canceled_ = canceled; }
+
  private:
   InstrumentedMutex mutex_;
   std::atomic_int compaction_num_{0};
@@ -129,6 +141,8 @@ class MyTestCompactionService : public CompactionService {
       CompactionServiceJobStatus::kFailure;
   bool is_override_wait_result_ = false;
   std::string override_wait_result_;
+  std::vector<std::shared_ptr<EventListener>> listeners_;
+  std::atomic_bool canceled_{false};
 };
 
 class CompactionServiceTest : public DBTestBase {
@@ -144,7 +158,7 @@ class CompactionServiceTest : public DBTestBase {
     compactor_statistics_ = CreateDBStatistics();
 
     compaction_service_ = std::make_shared<MyTestCompactionService>(
-        dbname_, *options, compactor_statistics_);
+        dbname_, *options, compactor_statistics_, remote_listeners);
     options->compaction_service = compaction_service_;
     DestroyAndReopen(*options);
   }
@@ -191,6 +205,8 @@ class CompactionServiceTest : public DBTestBase {
       }
     }
   }
+
+  std::vector<std::shared_ptr<EventListener>> remote_listeners;
 
  private:
   std::shared_ptr<Statistics> compactor_statistics_;
@@ -319,6 +335,51 @@ TEST_F(CompactionServiceTest, ManualCompaction) {
   comp_num = my_cs->GetCompactionNum();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_GE(my_cs->GetCompactionNum(), comp_num + 1);
+  VerifyTestData();
+}
+
+TEST_F(CompactionServiceTest, CancelCompactionOnRemoteSide) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+
+  auto my_cs = GetCompactionService();
+
+  std::string start_str = Key(15);
+  std::string end_str = Key(45);
+  Slice start(start_str);
+  Slice end(end_str);
+  uint64_t comp_num = my_cs->GetCompactionNum();
+
+  // Test cancel compaction at the beginning
+  my_cs->SetCanceled(true);
+  auto s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_TRUE(s.IsIncomplete());
+  // compaction number is not increased
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
+  VerifyTestData();
+
+  // Test cancel compaction in progress
+  ReopenWithCompactionService(&options);
+  GenerateTestData();
+  my_cs = GetCompactionService();
+  my_cs->SetCanceled(false);
+
+  std::atomic_bool cancel_issued{false};
+  SyncPoint::GetInstance()->SetCallBack("CompactionJob::Run():Inprogress",
+                                        [&](void* /*arg*/) {
+                                          cancel_issued = true;
+                                          my_cs->SetCanceled(true);
+                                        });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  s = db_->CompactRange(CompactRangeOptions(), &start, &end);
+  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(cancel_issued);
+  // compaction number is not increased
+  ASSERT_GE(my_cs->GetCompactionNum(), comp_num);
   VerifyTestData();
 }
 
@@ -683,6 +744,88 @@ TEST_F(CompactionServiceTest, FallbackLocalManual) {
 
   // verify result after 2 manual compactions
   VerifyTestData();
+}
+
+TEST_F(CompactionServiceTest, RemoteEventListener) {
+  class RemoteEventListenerTest : public EventListener {
+   public:
+    const char* Name() const override { return "RemoteEventListenerTest"; }
+
+    void OnSubcompactionBegin(const SubcompactionJobInfo& info) override {
+      auto result = on_going_compactions.emplace(info.job_id);
+      ASSERT_TRUE(result.second);  // make sure there's no duplication
+      compaction_num++;
+      EventListener::OnSubcompactionBegin(info);
+    }
+    void OnSubcompactionCompleted(const SubcompactionJobInfo& info) override {
+      auto num = on_going_compactions.erase(info.job_id);
+      ASSERT_TRUE(num == 1);  // make sure the compaction id exists
+      EventListener::OnSubcompactionCompleted(info);
+    }
+    void OnTableFileCreated(const TableFileCreationInfo& info) override {
+      ASSERT_EQ(on_going_compactions.count(info.job_id), 1);
+      file_created++;
+      EventListener::OnTableFileCreated(info);
+    }
+    void OnTableFileCreationStarted(
+        const TableFileCreationBriefInfo& info) override {
+      ASSERT_EQ(on_going_compactions.count(info.job_id), 1);
+      file_creation_started++;
+      EventListener::OnTableFileCreationStarted(info);
+    }
+
+    bool ShouldBeNotifiedOnFileIO() override {
+      file_io_notified++;
+      return EventListener::ShouldBeNotifiedOnFileIO();
+    }
+
+    std::atomic_uint64_t file_io_notified{0};
+    std::atomic_uint64_t file_creation_started{0};
+    std::atomic_uint64_t file_created{0};
+
+    std::set<int> on_going_compactions;  // store the job_id
+    std::atomic_uint64_t compaction_num{0};
+  };
+
+  auto listener = new RemoteEventListenerTest();
+  remote_listeners.emplace_back(listener);
+
+  Options options = CurrentOptions();
+  ReopenWithCompactionService(&options);
+
+  for (int i = 0; i < 20; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 10 + j;
+      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 10; j++) {
+      int key_id = i * 20 + j * 2;
+      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // check the events are triggered
+  ASSERT_TRUE(listener->file_io_notified > 0);
+  ASSERT_TRUE(listener->file_creation_started > 0);
+  ASSERT_TRUE(listener->file_created > 0);
+  ASSERT_TRUE(listener->compaction_num > 0);
+  ASSERT_TRUE(listener->on_going_compactions.empty());
+
+  // verify result
+  for (int i = 0; i < 200; i++) {
+    auto result = Get(Key(i));
+    if (i % 2) {
+      ASSERT_EQ(result, "value" + ToString(i));
+    } else {
+      ASSERT_EQ(result, "value_new" + ToString(i));
+    }
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
