@@ -130,7 +130,6 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -I$LIBGCC_BASE/include/c++/11.x/"
   CFLAGS+=" -I$LIBGCC_BASE/include/c++/11.x/x86_64-facebook-linux/"
   CFLAGS+=" -I$LIBGCC_BASE/include/c++/11.x/backward"
-  CFLAGS+=" -isystem $GLIBC_INCLUDE -I$GLIBC_INCLUDE"
   JEMALLOC=1
 else
   # clang
