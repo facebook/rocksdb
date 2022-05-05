@@ -1434,7 +1434,8 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
               contents.size(), db_options.statistics.get(), 0 /* size_limit */,
               false /* shared_checksum */, options.progress_callback, contents);
         } /* create_file_cb */,
-        &sequence_number, options.flush_before_backup ? 0 : port::kMaxUint64,
+        &sequence_number,
+        options.flush_before_backup ? 0 : std::numeric_limits<uint64_t>::max(),
         compare_checksum));
     if (io_s.ok()) {
       new_backup->SetSequenceNumber(sequence_number);
@@ -2171,7 +2172,7 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
         return io_s;
       }
     }
-    if (size_bytes == port::kMaxUint64) {
+    if (size_bytes == std::numeric_limits<uint64_t>::max()) {
       return IOStatus::NotFound("File missing: " + src_path);
     }
     // dst_relative depends on the following conditions:

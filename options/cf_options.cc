@@ -886,7 +886,7 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
   if (op1 == 0 || op2 <= 0) {
     return 0;
   }
-  if (port::kMaxUint64 / op1 < op2) {
+  if (std::numeric_limits<uint64_t>::max() / op1 < op2) {
     return op1;
   }
   return static_cast<uint64_t>(op1 * op2);

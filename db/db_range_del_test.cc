@@ -500,7 +500,8 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       1 /* input_level */, 2 /* output_level */, CompactRangeOptions(),
       nullptr /* begin */, nullptr /* end */, true /* exclusive */,
       true /* disallow_trivial_move */,
-      port::kMaxUint64 /* max_file_num_to_ignore */, "" /*trim_ts*/));
+      std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+      "" /*trim_ts*/));
 }
 #endif  // ROCKSDB_LITE
 

@@ -717,7 +717,7 @@ Compaction* CompactionPicker::CompactRange(
   // files that are created during the current compaction.
   if (compact_range_options.bottommost_level_compaction ==
           BottommostLevelCompaction::kForceOptimized &&
-      max_file_num_to_ignore != port::kMaxUint64) {
+      max_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
     assert(input_level == output_level);
     // inputs_shrunk holds a continuous subset of input files which were all
     // created before the current manual compaction

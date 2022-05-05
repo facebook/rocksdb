@@ -282,7 +282,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (ParseIntArg(argv[i], "--compression_max_dict_bytes=",
                            "compression_max_dict_bytes must be numeric",
                            &tmp_val)) {
-      if (tmp_val < 0 || tmp_val > port::kMaxUint32) {
+      if (tmp_val < 0 || tmp_val > std::numeric_limits<uint32_t>::max()) {
         fprintf(stderr, "compression_max_dict_bytes must be a uint32_t: '%s'\n",
                 argv[i]);
         print_help(/*to_stderr*/ true);
@@ -292,7 +292,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (ParseIntArg(argv[i], "--compression_zstd_max_train_bytes=",
                            "compression_zstd_max_train_bytes must be numeric",
                            &tmp_val)) {
-      if (tmp_val < 0 || tmp_val > port::kMaxUint32) {
+      if (tmp_val < 0 || tmp_val > std::numeric_limits<uint32_t>::max()) {
         fprintf(stderr,
                 "compression_zstd_max_train_bytes must be a uint32_t: '%s'\n",
                 argv[i]);

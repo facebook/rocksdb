@@ -97,7 +97,7 @@ class MockMemTableRepFactory : public MemTableRepFactory {
 
  private:
   MockMemTableRep* mock_rep_;
-  // workaround since there's no port::kMaxUint32 yet.
+  // workaround since there's no std::numeric_limits<uint32_t>::max() yet.
   uint32_t last_column_family_id_ = static_cast<uint32_t>(-1);
 };
 
