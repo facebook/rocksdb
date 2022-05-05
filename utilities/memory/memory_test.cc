@@ -36,7 +36,7 @@ class MemoryTest : public testing::Test {
     EXPECT_OK(Env::Default()->DeleteDir(kDbDir));
   }
 
-  const int kNumDBs = 10;
+  constexpr int kNumDBs = 10;
 
   std::string GetDBName(int id) { return kDbDir + "db_" + ToString(id); }
 
