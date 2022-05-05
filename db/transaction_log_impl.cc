@@ -93,6 +93,15 @@ bool TransactionLogIteratorImpl::RestrictedRead(Slice* record) {
   return current_log_reader_->ReadRecord(record, &scratch_);
 }
 
+bool TransactionLogIteratorImpl::RestrictedRead(Slice* record, SequenceNumber *sn) {
+  // Don't read if no more complete entries to read from logs
+  *sn = versions_->LastSequence();
+  if (current_last_seq_ >= *sn) {
+    return false;
+  }
+  return current_log_reader_->ReadRecord(record, &scratch_);
+}
+
 void TransactionLogIteratorImpl::SeekToStartSequence(uint64_t start_file_index,
                                                      bool strict) {
   Slice record;
@@ -181,12 +190,13 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     // Runs every time until we can seek to the start sequence
     SeekToStartSequence();
   }
+  SequenceNumber sn;
   while(true) {
     assert(current_log_reader_);
     if (current_log_reader_->IsEOF()) {
       current_log_reader_->UnmarkEOF();
     }
-    while (RestrictedRead(&record)) {
+    while (RestrictedRead(&record, &sn)) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter_.Corruption(
           record.size(), Status::Corruption("very small log record"));
@@ -215,7 +225,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       }
     } else {
       is_valid_ = false;
-      if (current_last_seq_ == versions_->LastSequence()) {
+      if (current_last_seq_ == sn) {
         current_status_ = Status::OK();
       } else {
         const char* msg = "Create a new iterator to fetch the new tail.";
