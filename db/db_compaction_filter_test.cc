@@ -998,7 +998,7 @@ TEST_F(DBTestCompactionFilter, DropKeyWithSingleDelete) {
                       std::string* /*new_value*/,
                       std::string* /*skip_until*/) const override {
       if (key.starts_with("b")) {
-        return Decision::kRemoveWithSingleDelete;
+        return Decision::kPurge;
       }
       return Decision::kRemove;
     }

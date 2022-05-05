@@ -307,7 +307,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // no value associated with delete
     value_.clear();
     iter_stats_.num_record_drop_user++;
-  } else if (filter == CompactionFilter::Decision::kRemoveWithSingleDelete) {
+  } else if (filter == CompactionFilter::Decision::kPurge) {
     // convert the current key to a single delete; key_ is pointing into
     // current_key_ at this point, so updating current_key_ updates key()
     ikey_.type = kTypeSingleDeletion;
