@@ -11,6 +11,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/customizable_util.h"
+#include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/format.h"
@@ -62,7 +63,7 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
         data_block_builder_.EstimateSizeAfterKV(key, value);
 
     if (align_) {
-      estimated_size_after += kBlockTrailerSize;
+      estimated_size_after += BlockBasedTable::kBlockTrailerSize;
       return estimated_size_after > block_size_;
     }
 
@@ -93,7 +94,7 @@ FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
 #ifndef ROCKSDB_LITE
 static int RegisterFlushBlockPolicyFactories(ObjectLibrary& library,
                                              const std::string& /*arg*/) {
-  library.Register<FlushBlockPolicyFactory>(
+  library.AddFactory<FlushBlockPolicyFactory>(
       FlushBlockBySizePolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FlushBlockPolicyFactory>* guard,
@@ -101,7 +102,7 @@ static int RegisterFlushBlockPolicyFactories(ObjectLibrary& library,
         guard->reset(new FlushBlockBySizePolicyFactory());
         return guard->get();
       });
-  library.Register<FlushBlockPolicyFactory>(
+  library.AddFactory<FlushBlockPolicyFactory>(
       FlushBlockEveryKeyPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FlushBlockPolicyFactory>* guard,

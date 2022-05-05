@@ -201,7 +201,7 @@ class WinFileSystem : public FileSystem {
                             IODebugContext* dbg) override;
 
   // Create and returns a default logger (an instance of EnvLogger) for storing
-  // informational messages. Derived classes can overide to provide custom
+  // informational messages. Derived classes can override to provide custom
   // logger.
   IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                      std::shared_ptr<Logger>* result,
@@ -260,6 +260,9 @@ class WinEnv : public CompositeEnv {
   WinEnv();
 
   ~WinEnv();
+  static const char* kClassName() { return "WinEnv"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
 
   Status GetHostName(char* name, uint64_t len) override;
 

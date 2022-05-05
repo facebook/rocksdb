@@ -11,10 +11,13 @@
 
 #include "db/forward_iterator.h"
 #include "env/mock_env.h"
+#include "port/lang.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/unique_id.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "table/format.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -359,6 +362,17 @@ Options DBTestBase::GetOptions(
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "NewWritableFile:O_DIRECT");
 #endif
+  // kMustFreeHeapAllocations -> indicates ASAN build
+  if (kMustFreeHeapAllocations && !options_override.full_block_cache) {
+    // Detecting block cache use-after-free is normally difficult in unit
+    // tests, because as a cache, it tends to keep unreferenced entries in
+    // memory, and we normally want unit tests to take advantage of block
+    // cache for speed. However, we also want a strong chance of detecting
+    // block cache use-after-free in unit tests in ASAN builds, so for ASAN
+    // builds we use a trivially small block cache to which entries can be
+    // added but are immediately freed on no more references.
+    table_options.block_cache = NewLRUCache(/* too small */ 1);
+  }
 
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config) {
@@ -425,7 +439,6 @@ Options DBTestBase::GetOptions(
       break;
     case kFullFilterWithNewTableReaderForCompactions:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-      options.new_table_reader_for_compaction_inputs = true;
       options.compaction_readahead_size = 10 * 1024 * 1024;
       break;
     case kPartitionedFilterWithNewTableReaderForCompactions:
@@ -433,7 +446,6 @@ Options DBTestBase::GetOptions(
       table_options.partition_filters = true;
       table_options.index_type =
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-      options.new_table_reader_for_compaction_inputs = true;
       options.compaction_readahead_size = 10 * 1024 * 1024;
       break;
     case kUncompressed:
@@ -455,7 +467,6 @@ Options DBTestBase::GetOptions(
       options.max_manifest_file_size = 50;  // 50 bytes
       break;
     case kPerfOptions:
-      options.soft_rate_limit = 2.0;
       options.delayed_write_rate = 8 * 1024 * 1024;
       options.report_bg_io_stats = true;
       // TODO(3.13) -- test more options
@@ -477,6 +488,8 @@ Options DBTestBase::GetOptions(
       break;
     case kXXH3Checksum: {
       table_options.checksum = kXXH3;
+      // Thrown in here for basic coverage:
+      options.DisableExtraChecks();
       break;
     }
     case kFIFOCompaction: {
@@ -514,6 +527,11 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithIndexRestartInterval: {
       table_options.index_block_restart_interval = 8;
+      break;
+    }
+    case kBlockBasedTableWithLatestFormat: {
+      // In case different from default
+      table_options.format_version = kLatestFormatVersion;
       break;
     }
     case kOptimizeFiltersForHits: {
@@ -779,10 +797,6 @@ Status DBTestBase::SingleDelete(int cf, const std::string& k) {
   return db_->SingleDelete(WriteOptions(), handles_[cf], k);
 }
 
-bool DBTestBase::SetPreserveDeletesSequenceNumber(SequenceNumber sn) {
-  return db_->SetPreserveDeletesSequenceNumber(sn);
-}
-
 std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot) {
   ReadOptions options;
   options.verify_checksums = true;
@@ -830,7 +844,7 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
   std::vector<Status> s;
   if (!batched) {
     s = db_->MultiGet(options, handles, keys, &result);
-    for (unsigned int i = 0; i < s.size(); ++i) {
+    for (size_t i = 0; i < s.size(); ++i) {
       if (s[i].IsNotFound()) {
         result[i] = "NOT_FOUND";
       } else if (!s[i].ok()) {
@@ -843,13 +857,16 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
     s.resize(cfs.size());
     db_->MultiGet(options, cfs.size(), handles.data(), keys.data(),
                   pin_values.data(), s.data());
-    for (unsigned int i = 0; i < s.size(); ++i) {
+    for (size_t i = 0; i < s.size(); ++i) {
       if (s[i].IsNotFound()) {
         result[i] = "NOT_FOUND";
       } else if (!s[i].ok()) {
         result[i] = s[i].ToString();
       } else {
         result[i].assign(pin_values[i].data(), pin_values[i].size());
+        // Increase likelihood of detecting potential use-after-free bugs with
+        // PinnableSlices tracking the same resource
+        pin_values[i].Reset();
       }
     }
   }
@@ -862,23 +879,25 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
   options.verify_checksums = true;
   options.snapshot = snapshot;
   std::vector<Slice> keys;
-  std::vector<std::string> result;
+  std::vector<std::string> result(k.size());
   std::vector<Status> statuses(k.size());
   std::vector<PinnableSlice> pin_values(k.size());
 
-  for (unsigned int i = 0; i < k.size(); ++i) {
+  for (size_t i = 0; i < k.size(); ++i) {
     keys.push_back(k[i]);
   }
   db_->MultiGet(options, dbfull()->DefaultColumnFamily(), keys.size(),
                 keys.data(), pin_values.data(), statuses.data());
-  result.resize(k.size());
-  for (auto iter = result.begin(); iter != result.end(); ++iter) {
-    iter->assign(pin_values[iter - result.begin()].data(),
-                 pin_values[iter - result.begin()].size());
-  }
-  for (unsigned int i = 0; i < statuses.size(); ++i) {
+  for (size_t i = 0; i < statuses.size(); ++i) {
     if (statuses[i].IsNotFound()) {
       result[i] = "NOT_FOUND";
+    } else if (!statuses[i].ok()) {
+      result[i] = statuses[i].ToString();
+    } else {
+      result[i].assign(pin_values[i].data(), pin_values[i].size());
+      // Increase likelihood of detecting potential use-after-free bugs with
+      // PinnableSlices tracking the same resource
+      pin_values[i].Reset();
     }
   }
   return result;
@@ -1124,7 +1143,7 @@ std::string DBTestBase::FilesPerLevel(int cf) {
 #endif  // !ROCKSDB_LITE
 
 std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -1142,7 +1161,8 @@ std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
   result.reserve(blob_files.size());
 
   for (const auto& blob_file : blob_files) {
-    result.emplace_back(blob_file.first);
+    assert(blob_file);
+    result.emplace_back(blob_file->GetBlobFileNumber());
   }
 
   return result;

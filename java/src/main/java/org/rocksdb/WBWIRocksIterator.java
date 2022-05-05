@@ -31,7 +31,7 @@ public class WBWIRocksIterator
    */
   public WriteEntry entry() {
     assert(isOwningHandle());
-    final long ptrs[] = entry1(nativeHandle_);
+    final long[] ptrs = entry1(nativeHandle_);
 
     entry.type = WriteType.fromId((byte)ptrs[0]);
     entry.key.resetNativeHandle(ptrs[1], ptrs[1] != 0);
@@ -51,7 +51,17 @@ public class WBWIRocksIterator
   @Override final native void seekForPrev0(long handle, byte[] target, int targetLen);
   @Override final native void status0(long handle) throws RocksDBException;
   @Override
-  final native void seekDirect0(long handle, ByteBuffer target, int targetOffset, int targetLen);
+  final native void seekDirect0(
+      final long handle, final ByteBuffer target, final int targetOffset, final int targetLen);
+  @Override
+  final native void seekForPrevDirect0(
+      final long handle, final ByteBuffer target, final int targetOffset, final int targetLen);
+  @Override
+  final native void seekByteArray0(
+      final long handle, final byte[] target, final int targetOffset, final int targetLen);
+  @Override
+  final native void seekForPrevByteArray0(
+      final long handle, final byte[] target, final int targetOffset, final int targetLen);
 
   private native long[] entry1(final long handle);
 
@@ -189,10 +199,5 @@ public class WBWIRocksIterator
       value.close();
       key.close();
     }
-  }
-
-  @Override
-  void seekForPrevDirect0(long handle, ByteBuffer target, int targetOffset, int targetLen) {
-    throw new IllegalAccessError("Not implemented");
   }
 }

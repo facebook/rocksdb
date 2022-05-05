@@ -99,7 +99,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_garbage_collection_age_cutoff(
           options.blob_garbage_collection_age_cutoff),
       blob_garbage_collection_force_threshold(
-          options.blob_garbage_collection_force_threshold) {
+          options.blob_garbage_collection_force_threshold),
+      blob_compaction_readahead_size(options.blob_compaction_readahead_size) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -276,8 +277,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "  Options.hard_pending_compaction_bytes_limit: %" PRIu64,
                      hard_pending_compaction_bytes_limit);
-    ROCKS_LOG_HEADER(log, "      Options.rate_limit_delay_max_milliseconds: %u",
-                     rate_limit_delay_max_milliseconds);
     ROCKS_LOG_HEADER(log, "               Options.disable_auto_compactions: %d",
                      disable_auto_compactions);
 
@@ -405,6 +404,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      blob_garbage_collection_age_cutoff);
     ROCKS_LOG_HEADER(log, "Options.blob_garbage_collection_force_threshold: %f",
                      blob_garbage_collection_force_threshold);
+    ROCKS_LOG_HEADER(
+        log, "         Options.blob_compaction_readahead_size: %" PRIu64,
+        blob_compaction_readahead_size);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
@@ -467,6 +469,19 @@ Options* Options::OptimizeForSmallDb() {
 
   ColumnFamilyOptions::OptimizeForSmallDb(&cache);
   DBOptions::OptimizeForSmallDb(&cache);
+  return this;
+}
+
+Options* Options::DisableExtraChecks() {
+  // See https://github.com/facebook/rocksdb/issues/9354
+  force_consistency_checks = false;
+  // Considered but no clear performance impact seen:
+  // * check_flush_compaction_key_order
+  // * paranoid_checks
+  // * flush_verify_memtable_count
+  // By current API contract, not including
+  // * verify_checksums
+  // because checking storage data integrity is a more standard practice.
   return this;
 }
 
@@ -645,12 +660,13 @@ ReadOptions::ReadOptions()
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
-      iter_start_seqnum(0),
       timestamp(nullptr),
       iter_start_ts(nullptr),
       deadline(std::chrono::microseconds::zero()),
       io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
+      value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
+      adaptive_readahead(false),
+      async_io(false) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -669,11 +685,12 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
-      iter_start_seqnum(0),
       timestamp(nullptr),
       iter_start_ts(nullptr),
       deadline(std::chrono::microseconds::zero()),
       io_timeout(std::chrono::microseconds::zero()),
-      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
+      value_size_soft_limit(std::numeric_limits<uint64_t>::max()),
+      adaptive_readahead(false),
+      async_io(false) {}
 
 }  // namespace ROCKSDB_NAMESPACE

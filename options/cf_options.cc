@@ -29,23 +29,14 @@
 #include "rocksdb/utilities/options_type.h"
 #include "util/cast_util.h"
 
-namespace ROCKSDB_NAMESPACE {
-// offset_of is used to get the offset of a class data member
-// ex: offset_of(&ColumnFamilyOptions::num_levels)
-// This call will return the offset of num_levels in ColumnFamilyOptions class
-//
-// This is the same as offsetof() but allow us to work with non standard-layout
-// classes and structures
-// refs:
-// http://en.cppreference.com/w/cpp/concept/StandardLayoutType
-// https://gist.github.com/graphitemaster/494f21190bb2c63c5516
-#ifndef ROCKSDB_LITE
-static ImmutableCFOptions dummy_cf_options;
-template <typename T1>
-int offset_of(T1 ImmutableCFOptions::*member) {
-  return int(size_t(&(dummy_cf_options.*member)) - size_t(&dummy_cf_options));
-}
+// NOTE: in this file, many option flags that were deprecated
+// and removed from the rest of the code have to be kept here
+// and marked as kDeprecated in order to be able to read old
+// OPTIONS files.
 
+namespace ROCKSDB_NAMESPACE {
+
+#ifndef ROCKSDB_LITE
 static Status ParseCompressionOptions(const std::string& value,
                                       const std::string& name,
                                       CompressionOptions& compression_opts) {
@@ -405,6 +396,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, periodic_compaction_seconds),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"bottommost_temperature",
+         {offsetof(struct MutableCFOptions, bottommost_temperature),
+          OptionType::kTemperature, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"enable_blob_files",
          {offsetof(struct MutableCFOptions, enable_blob_files),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -434,6 +429,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    blob_garbage_collection_force_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_compaction_readahead_size",
+         {offsetof(struct MutableCFOptions, blob_compaction_readahead_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -442,6 +441,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, bottommost_compression),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"compression_per_level",
+         OptionTypeInfo::Vector<CompressionType>(
+             offsetof(struct MutableCFOptions, compression_per_level),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             {0, OptionType::kCompressionType})},
         {kOptNameCompOpts,
          OptionTypeInfo::Struct(
              kOptNameCompOpts, &compression_options_type_info,
@@ -501,58 +505,57 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"compaction_measure_io_stats",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
+        {"purge_redundant_kvs_while_flush",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone}},
         {"inplace_update_support",
-         {offset_of(&ImmutableCFOptions::inplace_update_support),
+         {offsetof(struct ImmutableCFOptions, inplace_update_support),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"level_compaction_dynamic_level_bytes",
-         {offset_of(&ImmutableCFOptions::level_compaction_dynamic_level_bytes),
+         {offsetof(struct ImmutableCFOptions,
+                   level_compaction_dynamic_level_bytes),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"optimize_filters_for_hits",
-         {offset_of(&ImmutableCFOptions::optimize_filters_for_hits),
+         {offsetof(struct ImmutableCFOptions, optimize_filters_for_hits),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"force_consistency_checks",
-         {offset_of(&ImmutableCFOptions::force_consistency_checks),
+         {offsetof(struct ImmutableCFOptions, force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"purge_redundant_kvs_while_flush",
-         {offset_of(&ImmutableCFOptions::purge_redundant_kvs_while_flush),
-          OptionType::kBoolean, OptionVerificationType::kDeprecated,
-          OptionTypeFlags::kNone}},
+        // Need to keep this around to be able to read old OPTIONS files.
         {"max_mem_compaction_level",
          {0, OptionType::kInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"max_write_buffer_number_to_maintain",
-         {offset_of(&ImmutableCFOptions::max_write_buffer_number_to_maintain),
+         {offsetof(struct ImmutableCFOptions,
+                   max_write_buffer_number_to_maintain),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
         {"max_write_buffer_size_to_maintain",
-         {offset_of(&ImmutableCFOptions::max_write_buffer_size_to_maintain),
+         {offsetof(struct ImmutableCFOptions,
+                   max_write_buffer_size_to_maintain),
           OptionType::kInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"min_write_buffer_number_to_merge",
-         {offset_of(&ImmutableCFOptions::min_write_buffer_number_to_merge),
+         {offsetof(struct ImmutableCFOptions, min_write_buffer_number_to_merge),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone, 0}},
         {"num_levels",
-         {offset_of(&ImmutableCFOptions::num_levels), OptionType::kInt,
+         {offsetof(struct ImmutableCFOptions, num_levels), OptionType::kInt,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"bloom_locality",
-         {offset_of(&ImmutableCFOptions::bloom_locality), OptionType::kUInt32T,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+         {offsetof(struct ImmutableCFOptions, bloom_locality),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"rate_limit_delay_max_milliseconds",
          {0, OptionType::kUInt, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
-        {"compression_per_level",
-         OptionTypeInfo::Vector<CompressionType>(
-             offset_of(&ImmutableCFOptions::compression_per_level),
-             OptionVerificationType::kNormal, OptionTypeFlags::kNone,
-             {0, OptionType::kCompressionType})},
         {"comparator",
          OptionTypeInfo::AsCustomRawPtr<const Comparator>(
-             offset_of(&ImmutableCFOptions::user_comparator),
+             offsetof(struct ImmutableCFOptions, user_comparator),
              OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
              // Serializes a Comparator
              [](const ConfigOptions& opts, const std::string&, const void* addr,
@@ -579,11 +582,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
              /* Use the default match function*/ nullptr)},
         {"memtable_insert_with_hint_prefix_extractor",
          OptionTypeInfo::AsCustomSharedPtr<const SliceTransform>(
-             offset_of(&ImmutableCFOptions::
-                           memtable_insert_with_hint_prefix_extractor),
+             offsetof(struct ImmutableCFOptions,
+                      memtable_insert_with_hint_prefix_extractor),
              OptionVerificationType::kByNameAllowNull, OptionTypeFlags::kNone)},
         {"memtable_factory",
-         {offset_of(&ImmutableCFOptions::memtable_factory),
+         {offsetof(struct ImmutableCFOptions, memtable_factory),
           OptionType::kCustomizable, OptionVerificationType::kByName,
           OptionTypeFlags::kShared,
           [](const ConfigOptions& opts, const std::string&,
@@ -593,13 +596,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
                 MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (s.ok()) {
+            if (factory && s.ok()) {
               shared->reset(factory.release());
             }
             return s;
           }}},
         {"memtable",
-         {offset_of(&ImmutableCFOptions::memtable_factory),
+         {offsetof(struct ImmutableCFOptions, memtable_factory),
           OptionType::kCustomizable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared,
           [](const ConfigOptions& opts, const std::string&,
@@ -609,19 +612,20 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
                 MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (s.ok()) {
+            if (factory && s.ok()) {
               shared->reset(factory.release());
             }
             return s;
           }}},
-        {"table_factory", OptionTypeInfo::AsCustomSharedPtr<TableFactory>(
-                              offset_of(&ImmutableCFOptions::table_factory),
-                              OptionVerificationType::kByName,
-                              (OptionTypeFlags::kCompareLoose |
-                               OptionTypeFlags::kStringNameOnly |
-                               OptionTypeFlags::kDontPrepare))},
+        {"table_factory",
+         OptionTypeInfo::AsCustomSharedPtr<TableFactory>(
+             offsetof(struct ImmutableCFOptions, table_factory),
+             OptionVerificationType::kByName,
+             (OptionTypeFlags::kCompareLoose |
+              OptionTypeFlags::kStringNameOnly |
+              OptionTypeFlags::kDontPrepare))},
         {"block_based_table_factory",
-         {offset_of(&ImmutableCFOptions::table_factory),
+         {offsetof(struct ImmutableCFOptions, table_factory),
           OptionType::kCustomizable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           // Parses the input value and creates a BlockBasedTableFactory
@@ -653,7 +657,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
           }}},
         {"plain_table_factory",
-         {offset_of(&ImmutableCFOptions::table_factory),
+         {offsetof(struct ImmutableCFOptions, table_factory),
           OptionType::kCustomizable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           // Parses the input value and creates a PlainTableFactory
@@ -686,35 +690,35 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"table_properties_collectors",
          OptionTypeInfo::Vector<
              std::shared_ptr<TablePropertiesCollectorFactory>>(
-             offset_of(
-                 &ImmutableCFOptions::table_properties_collector_factories),
+             offsetof(struct ImmutableCFOptions,
+                      table_properties_collector_factories),
              OptionVerificationType::kByName, OptionTypeFlags::kNone,
              OptionTypeInfo::AsCustomSharedPtr<TablePropertiesCollectorFactory>(
                  0, OptionVerificationType::kByName, OptionTypeFlags::kNone))},
         {"compaction_filter",
          OptionTypeInfo::AsCustomRawPtr<const CompactionFilter>(
-             offset_of(&ImmutableCFOptions::compaction_filter),
+             offsetof(struct ImmutableCFOptions, compaction_filter),
              OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"compaction_filter_factory",
          OptionTypeInfo::AsCustomSharedPtr<CompactionFilterFactory>(
-             offset_of(&ImmutableCFOptions::compaction_filter_factory),
+             offsetof(struct ImmutableCFOptions, compaction_filter_factory),
              OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
         {"merge_operator",
          OptionTypeInfo::AsCustomSharedPtr<MergeOperator>(
-             offset_of(&ImmutableCFOptions::merge_operator),
+             offsetof(struct ImmutableCFOptions, merge_operator),
              OptionVerificationType::kByNameAllowFromNull,
              OptionTypeFlags::kCompareLoose | OptionTypeFlags::kAllowNull)},
         {"compaction_style",
-         {offset_of(&ImmutableCFOptions::compaction_style),
+         {offsetof(struct ImmutableCFOptions, compaction_style),
           OptionType::kCompactionStyle, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"compaction_pri",
-         {offset_of(&ImmutableCFOptions::compaction_pri),
+         {offsetof(struct ImmutableCFOptions, compaction_pri),
           OptionType::kCompactionPri, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"sst_partitioner_factory",
          OptionTypeInfo::AsCustomSharedPtr<SstPartitionerFactory>(
-             offset_of(&ImmutableCFOptions::sst_partitioner_factory),
+             offsetof(struct ImmutableCFOptions, sst_partitioner_factory),
              OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
 };
 
@@ -845,9 +849,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       table_properties_collector_factories(
           cf_options.table_properties_collector_factories),
       bloom_locality(cf_options.bloom_locality),
-      purge_redundant_kvs_while_flush(
-          cf_options.purge_redundant_kvs_while_flush),
-      compression_per_level(cf_options.compression_per_level),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
       num_levels(cf_options.num_levels),
@@ -1055,6 +1056,11 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_garbage_collection_age_cutoff);
   ROCKS_LOG_INFO(log, "  blob_garbage_collection_force_threshold: %f",
                  blob_garbage_collection_force_threshold);
+  ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
+                 blob_compaction_readahead_size);
+
+  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
+                 static_cast<int>(bottommost_temperature));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

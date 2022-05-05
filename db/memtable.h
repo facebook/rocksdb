@@ -13,7 +13,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -31,6 +30,7 @@
 #include "table/multiget_context.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -144,6 +144,13 @@ class MemTable {
   // require external synchronization. The value may be less accurate though
   size_t ApproximateMemoryUsageFast() const {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
+  }
+
+  // used by MemTableListVersion::MemoryAllocatedBytesExcludingLast
+  size_t MemoryAllocatedBytes() const {
+    return table_->ApproximateMemoryUsage() +
+           range_del_table_->ApproximateMemoryUsage() +
+           arena_.MemoryAllocatedBytes();
   }
 
   // Returns a vector of unique random memtable entries of size 'sample_size'.
@@ -559,7 +566,7 @@ class MemTable {
   const SliceTransform* insert_with_hint_prefix_extractor_;
 
   // Insert hints for each prefix.
-  std::unordered_map<Slice, void*, SliceHasher> insert_hints_;
+  UnorderedMapH<Slice, void*, SliceHasher> insert_hints_;
 
   // Timestamp of oldest key
   std::atomic<uint64_t> oldest_key_time_;
@@ -593,6 +600,10 @@ class MemTable {
                     std::string* value, std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);
+
+  // Always returns non-null and assumes certain pre-checks are done
+  FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
+      const ReadOptions& read_options, SequenceNumber read_seq);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

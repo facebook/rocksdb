@@ -105,6 +105,11 @@ Status WalManager::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options,
     VersionSet* version_set) {
+  if (seq_per_batch_) {
+    return Status::NotSupported();
+  }
+
+  assert(!seq_per_batch_);
 
   //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.

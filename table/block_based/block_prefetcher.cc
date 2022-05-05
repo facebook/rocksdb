@@ -8,22 +8,24 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_prefetcher.h"
 
+#include "table/block_based/block_based_table_reader.h"
+
 namespace ROCKSDB_NAMESPACE {
 void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                                        const BlockHandle& handle,
                                        size_t readahead_size,
-                                       bool is_for_compaction) {
+                                       bool is_for_compaction, bool async_io) {
   if (is_for_compaction) {
-    rep->CreateFilePrefetchBufferIfNotExists(compaction_readahead_size_,
-                                             compaction_readahead_size_,
-                                             &prefetch_buffer_, false);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        compaction_readahead_size_, compaction_readahead_size_,
+        &prefetch_buffer_, false, async_io);
     return;
   }
 
   // Explicit user requested readahead.
   if (readahead_size > 0) {
-    rep->CreateFilePrefetchBufferIfNotExists(readahead_size, readahead_size,
-                                             &prefetch_buffer_, false);
+    rep->CreateFilePrefetchBufferIfNotExists(
+        readahead_size, readahead_size, &prefetch_buffer_, false, async_io);
     return;
   }
 
@@ -32,11 +34,11 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   // If max_auto_readahead_size is set to be 0 by user, no data will be
   // prefetched.
   size_t max_auto_readahead_size = rep->table_options.max_auto_readahead_size;
-  if (max_auto_readahead_size == 0) {
+  if (max_auto_readahead_size == 0 || initial_auto_readahead_size_ == 0) {
     return;
   }
 
-  size_t len = static_cast<size_t>(block_size(handle));
+  size_t len = BlockBasedTable::BlockSizeWithTrailer(handle);
   size_t offset = handle.offset();
 
   // If FS supports prefetching (readahead_limit_ will be non zero in that case)
@@ -48,7 +50,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
 
   if (!IsBlockSequential(offset)) {
     UpdateReadPattern(offset, len);
-    ResetValues();
+    ResetValues(rep->table_options.initial_auto_readahead_size);
     return;
   }
   UpdateReadPattern(offset, len);
@@ -62,15 +64,14 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
     return;
   }
 
-  size_t initial_auto_readahead_size = BlockBasedTable::kInitAutoReadaheadSize;
-  if (initial_auto_readahead_size > max_auto_readahead_size) {
-    initial_auto_readahead_size = max_auto_readahead_size;
+  if (initial_auto_readahead_size_ > max_auto_readahead_size) {
+    initial_auto_readahead_size_ = max_auto_readahead_size;
   }
 
   if (rep->file->use_direct_io()) {
-    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size,
+    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
                                              max_auto_readahead_size,
-                                             &prefetch_buffer_, true);
+                                             &prefetch_buffer_, true, async_io);
     return;
   }
 
@@ -81,12 +82,13 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   // If prefetch is not supported, fall back to use internal prefetch buffer.
   // Discarding other return status of Prefetch calls intentionally, as
   // we can fallback to reading from disk if Prefetch fails.
-  Status s = rep->file->Prefetch(handle.offset(),
-                                 block_size(handle) + readahead_size_);
+  Status s = rep->file->Prefetch(
+      handle.offset(),
+      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
   if (s.IsNotSupported()) {
-    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size,
+    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
                                              max_auto_readahead_size,
-                                             &prefetch_buffer_, true);
+                                             &prefetch_buffer_, true, async_io);
     return;
   }
 

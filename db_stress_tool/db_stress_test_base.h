@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+struct TransactionDBOptions;
 
 class StressTest {
  public:
@@ -29,10 +30,12 @@ class StressTest {
 
   bool BuildOptionsTable();
 
-  void InitDb();
+  void InitDb(SharedState*);
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
-  void FinishInitDb(SharedState*);
+  virtual void FinishInitDb(SharedState*);
+
+  void TrackExpectedState(SharedState* shared);
 
   // Return false if verification fails.
   bool VerifySecondaries();
@@ -64,6 +67,9 @@ class StressTest {
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
+
+  // Returns true if DB state is tracked by the stress test.
+  virtual bool IsStateTracked() const = 0;
 
   virtual std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */, int rand_column_family) const {
@@ -200,6 +206,12 @@ class StressTest {
       const std::vector<int64_t>& rand_keys);
 #endif  // !ROCKSDB_LITE
 
+  virtual Status TestCustomOperations(
+      ThreadState* /*thread*/,
+      const std::vector<int>& /*rand_column_families*/) {
+    return Status::NotSupported("TestCustomOperations() must be overridden");
+  }
+
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
@@ -207,11 +219,18 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open();
+  void Open(SharedState* shared);
 
   void Reopen(ThreadState* thread);
 
   void CheckAndSetOptionsForUserTimestamp();
+
+  virtual void RegisterAdditionalListeners() {}
+
+#ifndef ROCKSDB_LITE
+  virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
+                                   TransactionDBOptions& /*txn_db_opts*/) {}
+#endif
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

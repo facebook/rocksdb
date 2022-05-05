@@ -43,6 +43,7 @@ class CompactionFilter : public Customizable {
     kRemoveAndSkipUntil,
     kChangeBlobIndex,  // used internally by BlobDB.
     kIOError,          // used internally by BlobDB.
+    kPurge,            // used for keys that can only be SingleDelete'ed
     kUndetermined,
   };
 
@@ -248,7 +249,7 @@ class CompactionFilterFactory : public Customizable {
       const CompactionFilter::Context& context) = 0;
 
   // Returns a name that identifies this `CompactionFilter` factory.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

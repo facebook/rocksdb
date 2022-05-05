@@ -28,6 +28,11 @@ IOStatus WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
                                     const FileOptions& file_opts,
                                     std::unique_ptr<WritableFileWriter>* writer,
                                     IODebugContext* dbg) {
+  if (file_opts.use_direct_writes &&
+      0 == file_opts.writable_file_max_buffer_size) {
+    return IOStatus::InvalidArgument(
+        "Direct write requires writable_file_max_buffer_size > 0");
+  }
   std::unique_ptr<FSWritableFile> file;
   IOStatus io_s = fs->NewWritableFile(fname, file_opts, &file, dbg);
   if (io_s.ok()) {
@@ -36,8 +41,8 @@ IOStatus WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
   return io_s;
 }
 
-IOStatus WritableFileWriter::Append(const Slice& data,
-                                    uint32_t crc32c_checksum) {
+IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
+                                    Env::IOPriority op_rate_limiter_priority) {
   const char* src = data.data();
   size_t left = data.size();
   IOStatus s;
@@ -74,7 +79,7 @@ IOStatus WritableFileWriter::Append(const Slice& data,
   // Flush only when buffered I/O
   if (!use_direct_io() && (buf_.Capacity() - buf_.CurrentSize()) < left) {
     if (buf_.CurrentSize() > 0) {
-      s = Flush();
+      s = Flush(op_rate_limiter_priority);
       if (!s.ok()) {
         return s;
       }
@@ -104,7 +109,7 @@ IOStatus WritableFileWriter::Append(const Slice& data,
           src += appended;
 
           if (left > 0) {
-            s = Flush();
+            s = Flush(op_rate_limiter_priority);
             if (!s.ok()) {
               break;
             }
@@ -114,7 +119,7 @@ IOStatus WritableFileWriter::Append(const Slice& data,
     } else {
       assert(buf_.CurrentSize() == 0);
       buffered_data_crc32c_checksum_ = crc32c_checksum;
-      s = WriteBufferedWithChecksum(src, left);
+      s = WriteBufferedWithChecksum(src, left, op_rate_limiter_priority);
     }
   } else {
     // In this case, either we do not need to do the data verification or
@@ -134,7 +139,7 @@ IOStatus WritableFileWriter::Append(const Slice& data,
         src += appended;
 
         if (left > 0) {
-          s = Flush();
+          s = Flush(op_rate_limiter_priority);
           if (!s.ok()) {
             break;
           }
@@ -145,9 +150,9 @@ IOStatus WritableFileWriter::Append(const Slice& data,
       assert(buf_.CurrentSize() == 0);
       if (perform_data_verification_ && buffered_data_with_checksum_) {
         buffered_data_crc32c_checksum_ = crc32c::Value(src, left);
-        s = WriteBufferedWithChecksum(src, left);
+        s = WriteBufferedWithChecksum(src, left, op_rate_limiter_priority);
       } else {
-        s = WriteBuffered(src, left);
+        s = WriteBuffered(src, left, op_rate_limiter_priority);
       }
     }
   }
@@ -159,7 +164,8 @@ IOStatus WritableFileWriter::Append(const Slice& data,
   return s;
 }
 
-IOStatus WritableFileWriter::Pad(const size_t pad_bytes) {
+IOStatus WritableFileWriter::Pad(const size_t pad_bytes,
+                                 Env::IOPriority op_rate_limiter_priority) {
   assert(pad_bytes < kDefaultPageSize);
   size_t left = pad_bytes;
   size_t cap = buf_.Capacity() - buf_.CurrentSize();
@@ -173,7 +179,7 @@ IOStatus WritableFileWriter::Pad(const size_t pad_bytes) {
     buf_.PadWith(append_bytes, 0);
     left -= append_bytes;
     if (left > 0) {
-      IOStatus s = Flush();
+      IOStatus s = Flush(op_rate_limiter_priority);
       if (!s.ok()) {
         return s;
       }
@@ -220,6 +226,10 @@ IOStatus WritableFileWriter::Close() {
       if (ShouldNotifyListeners()) {
         auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileTruncateFinish(start_ts, finish_ts, s);
+        if (!interim.ok()) {
+          NotifyOnIOError(interim, FileOperationType::kTruncate, file_name(),
+                          filesize_);
+        }
       }
 #endif
     }
@@ -237,6 +247,9 @@ IOStatus WritableFileWriter::Close() {
           auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileSyncFinish(start_ts, finish_ts, s,
                                  FileOperationType::kFsync);
+          if (!interim.ok()) {
+            NotifyOnIOError(interim, FileOperationType::kFsync, file_name());
+          }
         }
 #endif
       }
@@ -259,6 +272,9 @@ IOStatus WritableFileWriter::Close() {
     if (ShouldNotifyListeners()) {
       auto finish_ts = FileOperationInfo::FinishNow();
       NotifyOnFileCloseFinish(start_ts, finish_ts, s);
+      if (!interim.ok()) {
+        NotifyOnIOError(interim, FileOperationType::kClose, file_name());
+      }
     }
 #endif
   }
@@ -279,7 +295,7 @@ IOStatus WritableFileWriter::Close() {
 
 // write out the cached data to the OS cache or storage if direct I/O
 // enabled
-IOStatus WritableFileWriter::Flush() {
+IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
   IOStatus s;
   TEST_KILL_RANDOM_WITH_WEIGHT("WritableFileWriter::Flush:0", REDUCE_ODDS2);
 
@@ -288,17 +304,19 @@ IOStatus WritableFileWriter::Flush() {
 #ifndef ROCKSDB_LITE
       if (pending_sync_) {
         if (perform_data_verification_ && buffered_data_with_checksum_) {
-          s = WriteDirectWithChecksum();
+          s = WriteDirectWithChecksum(op_rate_limiter_priority);
         } else {
-          s = WriteDirect();
+          s = WriteDirect(op_rate_limiter_priority);
         }
       }
 #endif  // !ROCKSDB_LITE
     } else {
       if (perform_data_verification_ && buffered_data_with_checksum_) {
-        s = WriteBufferedWithChecksum(buf_.BufferStart(), buf_.CurrentSize());
+        s = WriteBufferedWithChecksum(buf_.BufferStart(), buf_.CurrentSize(),
+                                      op_rate_limiter_priority);
       } else {
-        s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
+        s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize(),
+                          op_rate_limiter_priority);
       }
     }
     if (!s.ok()) {
@@ -318,6 +336,9 @@ IOStatus WritableFileWriter::Flush() {
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileFlushFinish(start_ts, finish_ts, s);
+      if (!s.ok()) {
+        NotifyOnIOError(s, FileOperationType::kFlush, file_name());
+      }
     }
 #endif
   }
@@ -425,6 +446,11 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
     NotifyOnFileSyncFinish(
         start_ts, finish_ts, s,
         use_fsync ? FileOperationType::kFsync : FileOperationType::kSync);
+    if (!s.ok()) {
+      NotifyOnIOError(
+          s, (use_fsync ? FileOperationType::kFsync : FileOperationType::kSync),
+          file_name());
+    }
   }
 #endif
   SetPerfLevel(prev_perf_level);
@@ -445,6 +471,10 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   if (ShouldNotifyListeners()) {
     auto finish_ts = std::chrono::steady_clock::now();
     NotifyOnFileRangeSyncFinish(offset, nbytes, start_ts, finish_ts, s);
+    if (!s.ok()) {
+      NotifyOnIOError(s, FileOperationType::kRangeSync, file_name(), nbytes,
+                      offset);
+    }
   }
 #endif
   return s;
@@ -452,7 +482,8 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
 
 // This method writes to disk the specified data and makes use of the rate
 // limiter if available
-IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
+IOStatus WritableFileWriter::WriteBuffered(
+    const char* data, size_t size, Env::IOPriority op_rate_limiter_priority) {
   IOStatus s;
   assert(!use_direct_io());
   const char* src = data;
@@ -462,10 +493,14 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 
   while (left > 0) {
     size_t allowed;
-    if (rate_limiter_ != nullptr) {
-      allowed = rate_limiter_->RequestToken(
-          left, 0 /* alignment */, writable_file_->GetIOPriority(), stats_,
-          RateLimiter::OpType::kWrite);
+    Env::IOPriority rate_limiter_priority_used =
+        WritableFileWriter::DecideRateLimiterPriority(
+            writable_file_->GetIOPriority(), op_rate_limiter_priority);
+    if (rate_limiter_ != nullptr &&
+        rate_limiter_priority_used != Env::IO_TOTAL) {
+      allowed = rate_limiter_->RequestToken(left, 0 /* alignment */,
+                                            rate_limiter_priority_used, stats_,
+                                            RateLimiter::OpType::kWrite);
     } else {
       allowed = left;
     }
@@ -494,12 +529,29 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
         } else {
           s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
         }
+        if (!s.ok()) {
+          // If writable_file_->Append() failed, then the data may or may not
+          // exist in the underlying memory buffer, OS page cache, remote file
+          // system's buffer, etc. If WritableFileWriter keeps the data in
+          // buf_, then a future Close() or write retry may send the data to
+          // the underlying file again. If the data does exist in the
+          // underlying buffer and gets written to the file eventually despite
+          // returning error, the file may end up with two duplicate pieces of
+          // data. Therefore, clear the buf_ at the WritableFileWriter layer
+          // and let caller determine error handling.
+          buf_.Size(0);
+          buffered_data_crc32c_checksum_ = 0;
+        }
         SetPerfLevel(prev_perf_level);
       }
 #ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(old_size, allowed, start_ts, finish_ts, s);
+        if (!s.ok()) {
+          NotifyOnIOError(s, FileOperationType::kAppend, file_name(), allowed,
+                          old_size);
+        }
       }
 #endif
       if (!s.ok()) {
@@ -518,8 +570,8 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   return s;
 }
 
-IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
-                                                       size_t size) {
+IOStatus WritableFileWriter::WriteBufferedWithChecksum(
+    const char* data, size_t size, Env::IOPriority op_rate_limiter_priority) {
   IOStatus s;
   assert(!use_direct_io());
   assert(perform_data_verification_ && buffered_data_with_checksum_);
@@ -533,12 +585,15 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
   // TODO: need to be improved since it sort of defeats the purpose of the rate
   // limiter
   size_t data_size = left;
-  if (rate_limiter_ != nullptr) {
+  Env::IOPriority rate_limiter_priority_used =
+      WritableFileWriter::DecideRateLimiterPriority(
+          writable_file_->GetIOPriority(), op_rate_limiter_priority);
+  if (rate_limiter_ != nullptr && rate_limiter_priority_used != Env::IO_TOTAL) {
     while (data_size > 0) {
       size_t tmp_size;
-      tmp_size = rate_limiter_->RequestToken(
-          data_size, buf_.Alignment(), writable_file_->GetIOPriority(), stats_,
-          RateLimiter::OpType::kWrite);
+      tmp_size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
+                                             rate_limiter_priority_used, stats_,
+                                             RateLimiter::OpType::kWrite);
       data_size -= tmp_size;
     }
   }
@@ -570,9 +625,24 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileWriteFinish(old_size, left, start_ts, finish_ts, s);
+      if (!s.ok()) {
+        NotifyOnIOError(s, FileOperationType::kAppend, file_name(), left,
+                        old_size);
+      }
     }
 #endif
     if (!s.ok()) {
+      // If writable_file_->Append() failed, then the data may or may not
+      // exist in the underlying memory buffer, OS page cache, remote file
+      // system's buffer, etc. If WritableFileWriter keeps the data in
+      // buf_, then a future Close() or write retry may send the data to
+      // the underlying file again. If the data does exist in the
+      // underlying buffer and gets written to the file eventually despite
+      // returning error, the file may end up with two duplicate pieces of
+      // data. Therefore, clear the buf_ at the WritableFileWriter layer
+      // and let caller determine error handling.
+      buf_.Size(0);
+      buffered_data_crc32c_checksum_ = 0;
       return s;
     }
   }
@@ -615,20 +685,21 @@ void WritableFileWriter::Crc32cHandoffChecksumCalculation(const char* data,
 // only write on aligned
 // offsets.
 #ifndef ROCKSDB_LITE
-IOStatus WritableFileWriter::WriteDirect() {
+IOStatus WritableFileWriter::WriteDirect(
+    Env::IOPriority op_rate_limiter_priority) {
   assert(use_direct_io());
   IOStatus s;
   const size_t alignment = buf_.Alignment();
   assert((next_write_offset_ % alignment) == 0);
 
   // Calculate whole page final file advance if all writes succeed
-  size_t file_advance = TruncateToPageBoundary(alignment, buf_.CurrentSize());
+  const size_t file_advance =
+      TruncateToPageBoundary(alignment, buf_.CurrentSize());
 
   // Calculate the leftover tail, we write it here padded with zeros BUT we
-  // will write
-  // it again in the future either on Close() OR when the current whole page
-  // fills out
-  size_t leftover_tail = buf_.CurrentSize() - file_advance;
+  // will write it again in the future either on Close() OR when the current
+  // whole page fills out.
+  const size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
   // Round up and pad
   buf_.PadToAlignmentWith(0);
@@ -642,7 +713,11 @@ IOStatus WritableFileWriter::WriteDirect() {
   while (left > 0) {
     // Check how much is allowed
     size_t size;
-    if (rate_limiter_ != nullptr) {
+    Env::IOPriority rate_limiter_priority_used =
+        WritableFileWriter::DecideRateLimiterPriority(
+            writable_file_->GetIOPriority(), op_rate_limiter_priority);
+    if (rate_limiter_ != nullptr &&
+        rate_limiter_priority_used != Env::IO_TOTAL) {
       size = rate_limiter_->RequestToken(left, buf_.Alignment(),
                                          writable_file_->GetIOPriority(),
                                          stats_, RateLimiter::OpType::kWrite);
@@ -671,6 +746,10 @@ IOStatus WritableFileWriter::WriteDirect() {
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);
+        if (!s.ok()) {
+          NotifyOnIOError(s, FileOperationType::kPositionedAppend, file_name(),
+                          size, write_offset);
+        }
       }
       if (!s.ok()) {
         buf_.Size(file_advance + leftover_tail);
@@ -699,7 +778,8 @@ IOStatus WritableFileWriter::WriteDirect() {
   return s;
 }
 
-IOStatus WritableFileWriter::WriteDirectWithChecksum() {
+IOStatus WritableFileWriter::WriteDirectWithChecksum(
+    Env::IOPriority op_rate_limiter_priority) {
   assert(use_direct_io());
   assert(perform_data_verification_ && buffered_data_with_checksum_);
   IOStatus s;
@@ -707,13 +787,13 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
   assert((next_write_offset_ % alignment) == 0);
 
   // Calculate whole page final file advance if all writes succeed
-  size_t file_advance = TruncateToPageBoundary(alignment, buf_.CurrentSize());
+  const size_t file_advance =
+      TruncateToPageBoundary(alignment, buf_.CurrentSize());
 
   // Calculate the leftover tail, we write it here padded with zeros BUT we
-  // will write
-  // it again in the future either on Close() OR when the current whole page
-  // fills out
-  size_t leftover_tail = buf_.CurrentSize() - file_advance;
+  // will write it again in the future either on Close() OR when the current
+  // whole page fills out.
+  const size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
   // Round up, pad, and combine the checksum.
   size_t last_cur_size = buf_.CurrentSize();
@@ -735,7 +815,10 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
   // TODO: need to be improved since it sort of defeats the purpose of the rate
   // limiter
   size_t data_size = left;
-  if (rate_limiter_ != nullptr) {
+  Env::IOPriority rate_limiter_priority_used =
+      WritableFileWriter::DecideRateLimiterPriority(
+          writable_file_->GetIOPriority(), op_rate_limiter_priority);
+  if (rate_limiter_ != nullptr && rate_limiter_priority_used != Env::IO_TOTAL) {
     while (data_size > 0) {
       size_t size;
       size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
@@ -761,6 +844,10 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
       NotifyOnFileWriteFinish(write_offset, left, start_ts, finish_ts, s);
+      if (!s.ok()) {
+        NotifyOnIOError(s, FileOperationType::kPositionedAppend, file_name(),
+                        left, write_offset);
+      }
     }
     if (!s.ok()) {
       // In this case, we do not change buffered_data_crc32c_checksum_ because
@@ -793,4 +880,18 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
   return s;
 }
 #endif  // !ROCKSDB_LITE
+Env::IOPriority WritableFileWriter::DecideRateLimiterPriority(
+    Env::IOPriority writable_file_io_priority,
+    Env::IOPriority op_rate_limiter_priority) {
+  if (writable_file_io_priority == Env::IO_TOTAL &&
+      op_rate_limiter_priority == Env::IO_TOTAL) {
+    return Env::IO_TOTAL;
+  } else if (writable_file_io_priority == Env::IO_TOTAL) {
+    return op_rate_limiter_priority;
+  } else if (op_rate_limiter_priority == Env::IO_TOTAL) {
+    return writable_file_io_priority;
+  } else {
+    return op_rate_limiter_priority;
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE

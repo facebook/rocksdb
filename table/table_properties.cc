@@ -5,14 +5,13 @@
 
 #include "rocksdb/table_properties.h"
 
+#include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/unique_id.h"
-#include "table/block_based/block.h"
-#include "table/internal_iterator.h"
 #include "table/table_properties_internal.h"
 #include "table/unique_id_impl.h"
+#include "util/random.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -43,31 +42,6 @@ namespace {
     AppendProperty(
         props, key, ToString(value), prop_delim, kv_delim
     );
-  }
-
-  // Seek to the specified meta block.
-  // Return true if it successfully seeks to that block.
-  Status SeekToMetaBlock(InternalIterator* meta_iter,
-                         const std::string& block_name, bool* is_found,
-                         BlockHandle* block_handle = nullptr) {
-    if (block_handle != nullptr) {
-      *block_handle = BlockHandle::NullBlockHandle();
-    }
-    *is_found = true;
-    meta_iter->Seek(block_name);
-    if (meta_iter->status().ok()) {
-      if (meta_iter->Valid() && meta_iter->key() == block_name) {
-        *is_found = true;
-        if (block_handle) {
-          Slice v = meta_iter->value();
-          return block_handle->DecodeFrom(&v);
-        }
-      } else {
-        *is_found = false;
-        return Status::OK();
-      }
-    }
-    return meta_iter->status();
   }
 }
 
@@ -240,6 +214,36 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   return rv;
 }
 
+// WARNING: manual update to this function is needed
+// whenever a new string property is added to TableProperties
+// to reduce approximation error.
+//
+// TODO: eliminate the need of manually updating this function
+// for new string properties
+std::size_t TableProperties::ApproximateMemoryUsage() const {
+  std::size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size((void*)this);
+#else
+  usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+
+  std::size_t string_props_mem_usage =
+      db_id.size() + db_session_id.size() + db_host_id.size() +
+      column_family_name.size() + filter_policy_name.size() +
+      comparator_name.size() + merge_operator_name.size() +
+      prefix_extractor_name.size() + property_collectors_names.size() +
+      compression_name.size() + compression_options.size();
+  usage += string_props_mem_usage;
+
+  for (auto iter = user_collected_properties.begin();
+       iter != user_collected_properties.end(); ++iter) {
+    usage += (iter->first.size() + iter->second.size());
+  }
+
+  return usage;
+}
+
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";
 const std::string TablePropertiesNames::kDbSessionId =
     "rocksdb.creating.session.identity";
@@ -306,55 +310,46 @@ const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
 const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.fast.data.size";
 
-extern const std::string kPropertiesBlock = "rocksdb.properties";
-// Old property block name for backward compatibility
-extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
-extern const std::string kCompressionDictBlock = "rocksdb.compression_dict";
-extern const std::string kRangeDelBlock = "rocksdb.range_del";
-
 #ifndef NDEBUG
+// WARNING: TEST_SetRandomTableProperties assumes the following layout of
+// TableProperties
+//
+// struct TableProperties {
+//    int64_t orig_file_number = 0;
+//    ...
+//    ... int64_t properties only
+//    ...
+//    std::string db_id;
+//    ...
+//    ... std::string properties only
+//    ...
+//    std::string compression_options;
+//    UserCollectedProperties user_collected_properties;
+//    ...
+//    ... Other extra properties: non-int64_t/non-std::string properties only
+//    ...
+// }
 void TEST_SetRandomTableProperties(TableProperties* props) {
   Random* r = Random::GetTLSInstance();
-  // For now, TableProperties is composed of a number of uint64_t followed by
-  // a number of std::string, followed by some extras starting with
-  // user_collected_properties.
   uint64_t* pu = &props->orig_file_number;
   assert(static_cast<void*>(pu) == static_cast<void*>(props));
   std::string* ps = &props->db_id;
   const uint64_t* const pu_end = reinterpret_cast<const uint64_t*>(ps);
-  const std::string* const ps_end =
-      reinterpret_cast<const std::string*>(&props->user_collected_properties);
+  // Use the last string property's address instead of
+  // the first extra property (e.g `user_collected_properties`)'s address
+  // in the for-loop to avoid advancing pointer to pointing to
+  // potential non-zero padding bytes between these two addresses due to
+  // user_collected_properties's alignment requirement
+  const std::string* const ps_end_inclusive = &props->compression_options;
 
   for (; pu < pu_end; ++pu) {
     *pu = r->Next64();
   }
   assert(static_cast<void*>(pu) == static_cast<void*>(ps));
-  for (; ps < ps_end; ++ps) {
+  for (; ps <= ps_end_inclusive; ++ps) {
     *ps = r->RandomBinaryString(13);
   }
 }
 #endif
-
-// Seek to the properties block.
-// Return true if it successfully seeks to the properties block.
-Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
-  Status status = SeekToMetaBlock(meta_iter, kPropertiesBlock, is_found);
-  if (!*is_found && status.ok()) {
-    status = SeekToMetaBlock(meta_iter, kPropertiesBlockOldName, is_found);
-  }
-  return status;
-}
-
-// Seek to the compression dictionary block.
-// Return true if it successfully seeks to that block.
-Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
-                                  BlockHandle* block_handle) {
-  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found, block_handle);
-}
-
-Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
-                           BlockHandle* block_handle = nullptr) {
-  return SeekToMetaBlock(meta_iter, kRangeDelBlock, is_found, block_handle);
-}
 
 }  // namespace ROCKSDB_NAMESPACE

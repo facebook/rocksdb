@@ -109,8 +109,8 @@ Slice FullFilterBlockBuilder::Finish(
   *status = Status::OK();
   if (any_added_) {
     any_added_ = false;
-    Slice filter_content =
-        filter_bits_builder_->Finish(filter_data ? filter_data : &filter_data_);
+    Slice filter_content = filter_bits_builder_->Finish(
+        filter_data ? filter_data : &filter_data_, status);
     return filter_content;
   }
   return Slice();

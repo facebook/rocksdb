@@ -7,43 +7,17 @@
 
 #include <array>
 #include <cstdint>
-#include <unordered_map>
+#include <memory>
+#include <type_traits>
 
 #include "rocksdb/cache.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// Classifications of block cache entries, for reporting statistics
-// Adding new enum to this class requires corresponding updates to
-// kCacheEntryRoleToCamelString and kCacheEntryRoleToHyphenString
-enum class CacheEntryRole {
-  // Block-based table data block
-  kDataBlock,
-  // Block-based table filter block (full or partitioned)
-  kFilterBlock,
-  // Block-based table metadata block for partitioned filter
-  kFilterMetaBlock,
-  // Block-based table deprecated filter block (old "block-based" filter)
-  kDeprecatedFilterBlock,
-  // Block-based table index block
-  kIndexBlock,
-  // Other kinds of block-based table block
-  kOtherBlock,
-  // WriteBufferManager reservations to account for memtable usage
-  kWriteBuffer,
-  // BlockBasedTableBuilder reservations to account for
-  // compression dictionary building buffer's memory usage
-  kCompressionDictionaryBuildingBuffer,
-  // Default bucket, for miscellaneous cache entries. Do not use for
-  // entries that could potentially add up to large usage.
-  kMisc,
-};
-constexpr uint32_t kNumCacheEntryRoles =
-    static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
-
-extern std::array<const char*, kNumCacheEntryRoles>
+extern std::array<std::string, kNumCacheEntryRoles>
     kCacheEntryRoleToCamelString;
-extern std::array<const char*, kNumCacheEntryRoles>
+extern std::array<std::string, kNumCacheEntryRoles>
     kCacheEntryRoleToHyphenString;
 
 // To associate cache entries with their role, we use a hack on the
@@ -70,7 +44,7 @@ void RegisterCacheDeleterRole(Cache::DeleterFn fn, CacheEntryRole role);
 // * This is suitable for preparing for batch operations, like with
 // CacheEntryStatsCollector.
 // * The number of mappings should be sufficiently small (dozens).
-std::unordered_map<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap();
+UnorderedMap<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap();
 
 // ************************************************************** //
 // An automatic registration infrastructure. This enables code
@@ -90,7 +64,9 @@ struct RegisteredDeleter {
   // These have global linkage to help ensure compiler optimizations do not
   // break uniqueness for each <T,R>
   static void Delete(const Slice& /* key */, void* value) {
-    delete static_cast<T*>(value);
+    // Supports T == Something[], unlike delete operator
+    std::default_delete<T>()(
+        static_cast<typename std::remove_extent<T>::type*>(value));
   }
 };
 
@@ -98,9 +74,9 @@ template <CacheEntryRole R>
 struct RegisteredNoopDeleter {
   RegisteredNoopDeleter() { RegisterCacheDeleterRole(Delete, R); }
 
-  static void Delete(const Slice& /* key */, void* value) {
-    (void)value;
-    assert(value == nullptr);
+  static void Delete(const Slice& /* key */, void* /* value */) {
+    // Here was `assert(value == nullptr);` but we can also put pointers
+    // to static data in Cache, for testing at least.
   }
 };
 

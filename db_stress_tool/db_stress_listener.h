@@ -10,7 +10,9 @@
 #include <unordered_set>
 
 #include "file/filename.h"
+#include "file/writable_file_writer.h"
 #include "rocksdb/db.h"
+#include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
@@ -26,7 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 // Verify across process executions that all seen IDs are unique
 class UniqueIdVerifier {
  public:
-  explicit UniqueIdVerifier(const std::string& db_name);
+  explicit UniqueIdVerifier(const std::string& db_name, Env* env);
   ~UniqueIdVerifier();
 
   void Verify(const std::string& id);
@@ -38,7 +40,7 @@ class UniqueIdVerifier {
   std::mutex mutex_;
   // IDs persisted to a hidden file inside DB dir
   std::string path_;
-  std::unique_ptr<FSWritableFile> data_file_writer_;
+  std::unique_ptr<WritableFileWriter> data_file_writer_;
   // Starting byte for which 8 bytes to check in memory within 24 byte ID
   size_t offset_;
   // Working copy of the set of 8 byte pieces
@@ -49,12 +51,13 @@ class DbStressListener : public EventListener {
  public:
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
-                   const std::vector<ColumnFamilyDescriptor>& column_families)
+                   const std::vector<ColumnFamilyDescriptor>& column_families,
+                   Env* env)
       : db_name_(db_name),
         db_paths_(db_paths),
         column_families_(column_families),
         num_pending_file_creations_(0),
-        unique_ids_(db_name) {}
+        unique_ids_(db_name, env) {}
 
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "DBStressListener"; }

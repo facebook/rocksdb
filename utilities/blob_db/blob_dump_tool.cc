@@ -103,8 +103,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     }
     buffer_.reset(new char[buffer_size_]);
   }
-  Status s =
-      reader_->Read(IOOptions(), offset, size, result, buffer_.get(), nullptr);
+  Status s = reader_->Read(IOOptions(), offset, size, result, buffer_.get(),
+                           nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
   if (!s.ok()) {
     return s;
   }

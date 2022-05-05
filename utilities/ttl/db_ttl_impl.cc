@@ -280,14 +280,14 @@ Status TtlCompactionFilterFactory::ValidateOptions(
 }
 
 int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
-  library.Register<MergeOperator>(
+  library.AddFactory<MergeOperator>(
       TtlMergeOperator::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<MergeOperator>* guard,
          std::string* /* errmsg */) {
         guard->reset(new TtlMergeOperator(nullptr, nullptr));
         return guard->get();
       });
-  library.Register<CompactionFilterFactory>(
+  library.AddFactory<CompactionFilterFactory>(
       TtlCompactionFilterFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CompactionFilterFactory>* guard,
@@ -295,7 +295,7 @@ int RegisterTtlObjects(ObjectLibrary& library, const std::string& /*arg*/) {
         guard->reset(new TtlCompactionFilterFactory(0, nullptr, nullptr));
         return guard->get();
       });
-  library.Register<CompactionFilter>(
+  library.AddFactory<CompactionFilter>(
       TtlCompactionFilter::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<CompactionFilter>* /*guard*/,
@@ -325,18 +325,6 @@ Status DBWithTTLImpl::Close() {
     closed_ = true;
   }
   return ret;
-}
-
-Status UtilityDB::OpenTtlDB(const Options& options, const std::string& dbname,
-                            StackableDB** dbptr, int32_t ttl, bool read_only) {
-  DBWithTTL* db;
-  Status s = DBWithTTL::Open(options, dbname, &db, ttl, read_only);
-  if (s.ok()) {
-    *dbptr = db;
-  } else {
-    *dbptr = nullptr;
-  }
-  return s;
 }
 
 void DBWithTTLImpl::RegisterTtlClasses() {

@@ -75,12 +75,25 @@ class FilterBlockBuilder {
   }
   // If filter_data is not nullptr, Finish() may transfer ownership of
   // underlying filter data to the caller,  so that it can be freed as soon as
-  // possible.
+  // possible. BlockBasedFilterBlock will ignore this parameter.
+  //
   virtual Slice Finish(
       const BlockHandle& tmp /* only used in PartitionedFilterBlock as
                                 last_partition_block_handle */
       ,
       Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
+
+  // This is called when finishes using the FilterBitsBuilder
+  // in order to release memory usage and cache reservation
+  // associated with it timely
+  virtual void ResetFilterBitsBuilder() {}
+
+  // To optionally post-verify the filter returned from
+  // FilterBlockBuilder::Finish.
+  // Return Status::OK() if skipped.
+  virtual Status MaybePostVerifyFilter(const Slice& /* filter_content */) {
+    return Status::OK();
+  }
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

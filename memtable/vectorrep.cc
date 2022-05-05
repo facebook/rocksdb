@@ -21,8 +21,6 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 
-using namespace stl_wrappers;
-
 class VectorRep : public MemTableRep {
  public:
   VectorRep(const KeyComparator& compare, Allocator* allocator, size_t count);
@@ -157,14 +155,16 @@ void VectorRep::Iterator::DoSort() const {
   if (!sorted_ && vrep_ != nullptr) {
     WriteLock l(&vrep_->rwlock_);
     if (!vrep_->sorted_) {
-      std::sort(bucket_->begin(), bucket_->end(), Compare(compare_));
+      std::sort(bucket_->begin(), bucket_->end(),
+                stl_wrappers::Compare(compare_));
       cit_ = bucket_->begin();
       vrep_->sorted_ = true;
     }
     sorted_ = true;
   }
   if (!sorted_) {
-    std::sort(bucket_->begin(), bucket_->end(), Compare(compare_));
+    std::sort(bucket_->begin(), bucket_->end(),
+              stl_wrappers::Compare(compare_));
     cit_ = bucket_->begin();
     sorted_ = true;
   }

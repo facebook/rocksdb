@@ -9,6 +9,8 @@
 
 #if defined(OS_WIN)
 
+#include "port/win/env_win.h"
+
 #include <direct.h>  // _rmdir, _mkdir, _getcwd
 #include <errno.h>
 #include <io.h>   // _access
@@ -17,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <windows.h>
+#include <winioctl.h>
 
 #include <algorithm>
 #include <ctime>
@@ -27,7 +30,6 @@
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/port_dirent.h"
-#include "port/win/env_win.h"
 #include "port/win/io_win.h"
 #include "port/win/win_logger.h"
 #include "rocksdb/env.h"
@@ -144,8 +146,8 @@ uint64_t WinClock::NowMicros() {
     li.QuadPart /= c_FtToMicroSec;
     return li.QuadPart;
   }
-  using namespace std::chrono;
-  return duration_cast<microseconds>(system_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
 
@@ -165,9 +167,8 @@ uint64_t WinClock::NowNanos() {
     li.QuadPart *= nano_seconds_per_period_;
     return li.QuadPart;
   }
-  using namespace std::chrono;
-  return duration_cast<nanoseconds>(
-             high_resolution_clock::now().time_since_epoch())
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::high_resolution_clock::now().time_since_epoch())
       .count();
 }
 
@@ -298,9 +299,9 @@ IOStatus WinFileSystem::NewRandomAccessFile(
 
   UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
 
-  // CAUTION! This will map the entire file into the process address space
-  if (options.use_mmap_reads && sizeof(void*) >= 8) {
-    // Use mmap when virtual address-space is plentiful.
+  // CAUTION! This will map the entire file into the process address space.
+  // Not recommended for 32-bit platforms.
+  if (options.use_mmap_reads) {
     uint64_t fileSize;
 
     s = GetFileSize(fname, IOOptions(), &fileSize, dbg);
@@ -1412,10 +1413,6 @@ const std::shared_ptr<SystemClock>& SystemClock::Default() {
   static std::shared_ptr<SystemClock> clock =
       std::make_shared<port::WinClock>();
   return clock;
-}
-
-std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
-  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
 }
 }  // namespace ROCKSDB_NAMESPACE
 
