@@ -16,6 +16,7 @@
 
 #include "utilities/fault_injection_fs.h"
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 
@@ -305,8 +306,8 @@ IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
   if (sync_limit < buf_begin) {
     return io_s;
   }
-  uint64_t num_to_sync =
-      std::min(state_.buffer_.size(), sync_limit - buf_begin);
+  uint64_t num_to_sync = std::min(static_cast<uint64_t>(state_.buffer_.size()),
+                                  sync_limit - buf_begin);
   Slice buf_to_sync(state_.buffer_.data(), num_to_sync);
   io_s = target_->Append(buf_to_sync, options, dbg);
   state_.buffer_ = state_.buffer_.substr(num_to_sync);
