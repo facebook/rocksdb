@@ -11,7 +11,9 @@
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/table.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -276,6 +278,58 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   // This file should have been deleted during last compaction
   ASSERT_EQ(Status::NotFound(), env_->FileExists(dbname_ + file_on_L2));
   listener->VerifyMatchedCount(1);
+}
+
+// Test that producing an empty .sst file does not write it out to
+// disk, and that the DeleteFile() env method is not called for
+// removing the non-existing file later.
+TEST_F(DBSSTTest, DeleteFileNotCalledForNotCreatedSSTFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  OnFileDeletionListener* listener = new OnFileDeletionListener();
+  options.listeners.emplace_back(listener);
+
+  Reopen(options);
+
+  // Flush the empty database.
+  ASSERT_OK(Flush());
+  ASSERT_EQ("", FilesPerLevel(0));
+
+  // We expect no .sst files.
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(metadata.size(), 0U);
+
+  // We expect no file deletions.
+  listener->VerifyMatchedCount(0);
+}
+
+// Test that producing a non-empty .sst file does write it out to
+// disk, and that the DeleteFile() env method is not called for removing
+// the file later.
+TEST_F(DBSSTTest, DeleteFileNotCalledForCreatedSSTFile) {
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  OnFileDeletionListener* listener = new OnFileDeletionListener();
+  options.listeners.emplace_back(listener);
+
+  Reopen(options);
+
+  ASSERT_OK(Put("pika", "choo"));
+
+  // Flush the non-empty database.
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1", FilesPerLevel(0));
+
+  // We expect 1 .sst files.
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(metadata.size(), 1U);
+
+  // We expect no file deletions.
+  listener->VerifyMatchedCount(0);
 }
 
 TEST_F(DBSSTTest, DBWithSstFileManager) {
@@ -1389,6 +1443,69 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
     for (int i = 0; i < 12; i++) {
       ASSERT_EQ(Get("L0_" + Key(i)), "L0_" + Key(i) + std::string(1000, 'a'));
       ASSERT_EQ(Get("L2_" + Key(i)), "L2_" + Key(i) + std::string(1000, 'a'));
+    }
+  }
+}
+
+TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
+  for (bool reserve_table_builder_memory : {true, false}) {
+    // Open DB with infinite max open files
+    //  - First iteration use 1 thread to open files
+    //  - Second iteration use 5 threads to open files
+    for (int iter = 0; iter < 2; iter++) {
+      Options options;
+      options.create_if_missing = true;
+      options.write_buffer_size = 100000;
+      options.disable_auto_compactions = true;
+      options.max_open_files = -1;
+
+      BlockBasedTableOptions table_options;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      if (iter == 0) {
+        options.max_file_opening_threads = 1;
+      } else {
+        options.max_file_opening_threads = 5;
+      }
+
+      DestroyAndReopen(options);
+
+      // Create 5 Files in L0 (then move then to L2)
+      for (int i = 0; i < 5; i++) {
+        std::string k = "L2_" + Key(i);
+        ASSERT_OK(Put(k, k + std::string(1000, 'a')));
+        ASSERT_OK(Flush()) << i;
+      }
+      CompactRangeOptions compact_options;
+      compact_options.change_level = true;
+      compact_options.target_level = 2;
+      ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+      // Create 5 Files in L0
+      for (int i = 0; i < 5; i++) {
+        std::string k = "L0_" + Key(i);
+        ASSERT_OK(Put(k, k + std::string(1000, 'a')));
+        ASSERT_OK(Flush());
+      }
+      Close();
+
+      table_options.reserve_table_reader_memory = reserve_table_builder_memory;
+      table_options.block_cache =
+          NewLRUCache(1024 /* capacity */, 0 /* num_shard_bits */,
+                      true /* strict_capacity_limit */);
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+      // Reopening the DB will try to load all existing files, conditionally
+      // subject to memory limit
+      Status s = TryReopen(options);
+      if (table_options.reserve_table_reader_memory) {
+        EXPECT_TRUE(s.IsMemoryLimit());
+        EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
+                    std::string::npos);
+
+      } else {
+        EXPECT_TRUE(s.ok());
+        ASSERT_EQ("5,0,5", FilesPerLevel(0));
+      }
     }
   }
 }

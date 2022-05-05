@@ -550,11 +550,17 @@ Status WriteUnpreparedTxn::CommitInternal() {
   assert(s.ok());
 
   const bool for_recovery = use_only_the_last_commit_time_batch_for_recovery_;
-  if (!empty && for_recovery) {
+  if (!empty) {
     // When not writing to memtable, we can still cache the latest write batch.
     // The cached batch will be written to memtable in WriteRecoverableState
     // during FlushMemTable
-    WriteBatchInternal::SetAsLatestPersistentState(working_batch);
+    if (for_recovery) {
+      WriteBatchInternal::SetAsLatestPersistentState(working_batch);
+    } else {
+      return Status::InvalidArgument(
+          "Commit-time-batch can only be used if "
+          "use_only_the_last_commit_time_batch_for_recovery is true");
+    }
   }
 
   const bool includes_data = !empty && !for_recovery;
@@ -669,7 +675,11 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
       s = rollback_batch->Put(cf_handle, key, pinnable_val);
       assert(s.ok());
     } else if (s.IsNotFound()) {
-      s = rollback_batch->Delete(cf_handle, key);
+      if (wupt_db_->ShouldRollbackWithSingleDelete(cf_handle, key)) {
+        s = rollback_batch->SingleDelete(cf_handle, key);
+      } else {
+        s = rollback_batch->Delete(cf_handle, key);
+      }
       assert(s.ok());
     } else {
       return s;

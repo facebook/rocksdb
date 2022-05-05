@@ -34,6 +34,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 #if defined OS_LINUX || defined OS_WIN
 #ifndef __clang__
+#ifndef ROCKSDB_UBSAN_RUN
 
 class OptionsSettableTest : public testing::Test {
  public:
@@ -189,12 +190,14 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;detect_filter_"
       "construct_corruption=false;"
       "reserve_table_builder_memory=false;"
+      "reserve_table_reader_memory=false;"
       "format_version=1;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
       "enable_index_compression=false;"
       "block_align=true;"
       "max_auto_readahead_size=0;"
-      "prepopulate_block_cache=kDisable",
+      "prepopulate_block_cache=kDisable;"
+      "initial_auto_readahead_size=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -579,6 +582,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] mcfo2_ptr;
   delete[] cfo_clean_ptr;
 }
+#endif  // !ROCKSDB_UBSAN_RUN
 #endif  // !__clang__
 #endif  // OS_LINUX || OS_WIN
 #endif  // !ROCKSDB_LITE

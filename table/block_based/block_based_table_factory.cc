@@ -16,6 +16,7 @@
 #include <string>
 
 #include "cache/cache_entry_roles.h"
+#include "cache/cache_reservation_manager.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -330,6 +331,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, reserve_table_builder_memory),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"reserve_table_reader_memory",
+         {offsetof(struct BlockBasedTableOptions, reserve_table_reader_memory),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"skip_table_builder_flush",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -408,6 +413,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct BlockBasedTableOptions, prepopulate_block_cache),
              &block_base_table_prepopulate_block_cache_string_map,
              OptionTypeFlags::kMutable)},
+        {"initial_auto_readahead_size",
+         {offsetof(struct BlockBasedTableOptions, initial_auto_readahead_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 
 #endif  // ROCKSDB_LITE
 };
@@ -419,6 +428,14 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     : table_options_(_table_options) {
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info);
+
+  if (table_options_.reserve_table_reader_memory &&
+      table_options_.no_block_cache == false) {
+    table_reader_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
+        std::make_shared<CacheReservationManagerImpl<
+            CacheEntryRole::kBlockBasedTableReader>>(
+            table_options_.block_cache)));
+  }
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
@@ -582,10 +599,10 @@ Status BlockBasedTableFactory::NewTableReader(
   return BlockBasedTable::Open(
       ro, table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, table_reader_options.prefix_extractor,
-      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
-      table_reader_options.level, table_reader_options.immortal,
-      table_reader_options.largest_seqno,
+      file_size, table_reader, table_reader_cache_res_mgr_,
+      table_reader_options.prefix_extractor, prefetch_index_and_filter_in_cache,
+      table_reader_options.skip_filters, table_reader_options.level,
+      table_reader_options.immortal, table_reader_options.largest_seqno,
       table_reader_options.force_direct_prefetch, &tail_prefetch_stats_,
       table_reader_options.block_cache_tracer,
       table_reader_options.max_file_size_for_l0_meta_pin,
@@ -618,6 +635,12 @@ Status BlockBasedTableFactory::ValidateOptions(
       table_options_.no_block_cache) {
     return Status::InvalidArgument(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
+        ", but block cache is disabled");
+  }
+  if (table_options_.reserve_table_reader_memory &&
+      table_options_.no_block_cache) {
+    return Status::InvalidArgument(
+        "Enable reserve_table_reader_memory, "
         ", but block cache is disabled");
   }
   if (!IsSupportedFormatVersion(table_options_.format_version)) {
@@ -795,6 +818,10 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  prepopulate_block_cache: %d\n",
            static_cast<int>(table_options_.prepopulate_block_cache));
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  initial_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
+           table_options_.initial_auto_readahead_size);
   ret.append(buffer);
   return ret;
 }

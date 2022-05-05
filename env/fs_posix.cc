@@ -1052,9 +1052,12 @@ class PosixFileSystem : public FileSystem {
 
   // EXPERIMENTAL
   //
-  // TODO akankshamahajan: Update Poll API to take into account min_completions
+  // TODO akankshamahajan:
+  // 1. Update Poll API to take into account min_completions
   // and returns if number of handles in io_handles (any order) completed is
   // equal to atleast min_completions.
+  // 2. Currently in case of direct_io, Read API is called because of which call
+  // to Poll API fails as it expects IOHandle to be populated.
   virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t /*min_completions*/) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
@@ -1101,12 +1104,14 @@ class PosixFileSystem : public FileSystem {
         req.offset = posix_handle->offset;
         req.len = posix_handle->len;
         size_t finished_len = 0;
+        size_t bytes_read = 0;
         UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
-                     true /*async_read*/, finished_len, &req);
+                     true /*async_read*/, finished_len, &req, bytes_read);
         posix_handle->is_finished = true;
         io_uring_cqe_seen(iu, cqe);
         posix_handle->cb(req, posix_handle->cb_arg);
         (void)finished_len;
+        (void)bytes_read;
 
         if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           break;
@@ -1118,6 +1123,19 @@ class PosixFileSystem : public FileSystem {
     (void)io_handles;
     return IOStatus::NotSupported("Poll");
 #endif
+  }
+
+  // TODO akanksha: Look into flags and see how to provide support for AbortIO
+  // in posix for IOUring requests. Currently it calls Poll to wait for requests
+  // to complete the request.
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    IOStatus s = Poll(io_handles, io_handles.size());
+    // If Poll is not supported then it didn't submit any request and it should
+    // return OK.
+    if (s.IsNotSupported()) {
+      return IOStatus::OK();
+    }
+    return s;
   }
 
 #if defined(ROCKSDB_IOURING_PRESENT)

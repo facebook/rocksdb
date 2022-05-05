@@ -417,16 +417,17 @@ CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const MutableDBOptions& mutable_db_options, const FileOptions& file_options,
     VersionSet* versions, const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-    FSDirectory* db_directory, FSDirectory* output_directory,
-    FSDirectory* blob_output_directory, Statistics* stats,
-    InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
+    LogBuffer* log_buffer, FSDirectory* db_directory,
+    FSDirectory* output_directory, FSDirectory* blob_output_directory,
+    Statistics* stats, InstrumentedMutex* db_mutex,
+    ErrorHandler* db_error_handler,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
-    EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
-    const std::string& dbname, CompactionJobStats* compaction_job_stats,
-    Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+    const SnapshotChecker* snapshot_checker, JobContext* job_context,
+    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
+    bool paranoid_file_checks, bool measure_io_stats, const std::string& dbname,
+    CompactionJobStats* compaction_job_stats, Env::Priority thread_pri,
+    const std::shared_ptr<IOTracer>& io_tracer,
     const std::atomic<int>* manual_compaction_paused,
     const std::atomic<bool>* manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
@@ -456,7 +457,6 @@ CompactionJob::CompactionJob(
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
       manual_compaction_canceled_(manual_compaction_canceled),
-      preserve_deletes_seqnum_(preserve_deletes_seqnum),
       db_directory_(db_directory),
       blob_output_directory_(blob_output_directory),
       db_mutex_(db_mutex),
@@ -464,6 +464,7 @@ CompactionJob::CompactionJob(
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
+      job_context_(job_context),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
@@ -1252,7 +1253,7 @@ void CompactionJob::NotifyOnSubcompactionBegin(
   if (shutting_down_->load(std::memory_order_acquire)) {
     return;
   }
-  if (c->is_manual_compaction() &&
+  if (c->is_manual_compaction() && manual_compaction_paused_ &&
       manual_compaction_paused_->load(std::memory_order_acquire) > 0) {
     return;
   }
@@ -1341,6 +1342,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   CompactionRangeDelAggregator range_del_agg(&cfd->internal_comparator(),
                                              existing_snapshots_);
 
+  // TODO: since we already use C++17, should use
+  // std::optional<const Slice> instead.
   const Slice* const start = sub_compact->start;
   const Slice* const end = sub_compact->end;
 
@@ -1362,9 +1365,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
-  std::unique_ptr<InternalIterator> raw_input(
-      versions_->MakeInputIterator(read_options, sub_compact->compaction,
-                                   &range_del_agg, file_options_for_read_));
+  std::unique_ptr<InternalIterator> raw_input(versions_->MakeInputIterator(
+      read_options, sub_compact->compaction, &range_del_agg,
+      file_options_for_read_,
+      (start == nullptr) ? std::optional<const Slice>{}
+                         : std::optional<const Slice>{*start},
+      (end == nullptr) ? std::optional<const Slice>{}
+                       : std::optional<const Slice>{*end}));
   InternalIterator* input = raw_input.get();
 
   IterKey start_ikey;
@@ -1463,15 +1470,18 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
+  const SequenceNumber job_snapshot_seq =
+      job_context_ ? job_context_->GetJobSnapshotSequence()
+                   : kMaxSequenceNumber;
   sub_compact->c_iter.reset(new CompactionIterator(
       input, cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, earliest_write_conflict_snapshot_,
+      &existing_snapshots_, earliest_write_conflict_snapshot_, job_snapshot_seq,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, &range_del_agg,
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      preserve_deletes_seqnum_, manual_compaction_paused_,
-      manual_compaction_canceled_, db_options_.info_log, full_history_ts_low));
+      manual_compaction_paused_, manual_compaction_canceled_,
+      db_options_.info_log, full_history_ts_low));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -1523,11 +1533,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       break;
     }
 
+    const ParsedInternalKey& ikey = c_iter->ikey();
+    status = sub_compact->current_output()->meta.UpdateBoundaries(
+        key, value, ikey.sequence, ikey.type);
+    if (!status.ok()) {
+      break;
+    }
+
     sub_compact->current_output_file_size =
         sub_compact->builder->EstimatedFileSize();
-    const ParsedInternalKey& ikey = c_iter->ikey();
-    sub_compact->current_output()->meta.UpdateBoundaries(
-        key, value, ikey.sequence, ikey.type);
     sub_compact->num_output_records++;
 
     // Close output file if it is big enough. Two possibilities determine it's
@@ -2482,19 +2496,20 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     std::vector<SequenceNumber> existing_snapshots,
     std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
     const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
+    const std::atomic<bool>* manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
     const std::string& output_path,
     const CompactionServiceInput& compaction_service_input,
     CompactionServiceResult* compaction_service_result)
     : CompactionJob(
           job_id, compaction, db_options, mutable_db_options, file_options,
-          versions, shutting_down, 0, log_buffer, nullptr, output_directory,
+          versions, shutting_down, log_buffer, nullptr, output_directory,
           nullptr, stats, db_mutex, db_error_handler, existing_snapshots,
-          kMaxSequenceNumber, nullptr, table_cache, event_logger,
+          kMaxSequenceNumber, nullptr, nullptr, table_cache, event_logger,
           compaction->mutable_cf_options()->paranoid_file_checks,
           compaction->mutable_cf_options()->report_bg_io_stats, dbname,
           &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
-          nullptr, nullptr, db_id, db_session_id,
+          nullptr, manual_compaction_canceled, db_id, db_session_id,
           compaction->column_family_data()->GetFullHistoryTsLow()),
       output_path_(output_path),
       compaction_input_(compaction_service_input),

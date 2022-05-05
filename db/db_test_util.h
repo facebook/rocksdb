@@ -104,6 +104,9 @@ struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
   // These will be used only if filter_policy is set
   bool partition_filters = false;
+  // Force using a default block cache. (Setting to false allows ASAN build
+  // use a trivially small block cache for better UAF error detection.)
+  bool full_block_cache = false;
   uint64_t metadata_block_size = 1024;
 
   // Used as a bit mask of individual enums in which to skip an XF test point

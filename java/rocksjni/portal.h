@@ -3468,7 +3468,7 @@ class BackupEngineJni
                                 BackupEngineJni> {
  public:
   /**
-   * Get the Java Class org.rocksdb.BackupableEngine
+   * Get the Java Class org.rocksdb.BackupEngine
    *
    * @param env A pointer to the Java environment
    *
@@ -5586,7 +5586,13 @@ class HistogramTypeJni {
       case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
         return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
-        return 0x31;
+        return 0x32;
+      case ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES:
+        return 0x33;
+      case ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS:
+        return 0x34;
+      case ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED:
+        return 0x35;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5704,6 +5710,12 @@ class HistogramTypeJni {
       case 0x32:
         return ROCKSDB_NAMESPACE::Histograms::
             ERROR_HANDLER_AUTORESUME_RETRY_COUNT;
+      case 0x33:
+        return ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES;
+      case 0x34:
+        return ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS;
+      case 0x35:
+        return ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;

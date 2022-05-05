@@ -551,6 +551,10 @@ struct DBOptions {
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
   //
+  // A high value or -1 for this option can cause high memory usage.
+  // See BlockBasedTableOptions::reserve_table_reader_memory to constrain
+  // memory usage in case of block based table format.
+  //
   // Default: -1
   //
   // Dynamically changeable through SetDBOptions() API.
@@ -763,6 +767,14 @@ struct DBOptions {
 
   // Allow the OS to mmap file for reading sst tables.
   // Not recommended for 32-bit OS.
+  // When the option is set to true and compression is disabled, the blocks
+  // will not be copied and will be read directly from the mmap-ed memory
+  // area, and the block will not be inserted into the block cache. However,
+  // checksums will still be checked if ReadOptions.verify_checksums is set
+  // to be true. It means a checksum check every time a block is read, more
+  // than the setup where the option is set to false and the block cache is
+  // used. The common use of the options is to run RocksDB on ramfs, where
+  // checksum verification is usually not needed.
   // Default: false
   bool allow_mmap_reads = false;
 
@@ -1851,6 +1863,14 @@ struct IngestExternalFileOptions {
   // ingestion. However, if no checksum information is provided with the
   // ingested files, DB will generate the checksum and store in the Manifest.
   bool verify_file_checksum = true;
+  // Set to TRUE if user wants file to be ingested to the bottommost level. An
+  // error of Status::TryAgain() will be returned if a file cannot fit in the
+  // bottommost level when calling
+  // DB::IngestExternalFile()/DB::IngestExternalFiles(). The user should clear
+  // the bottommost level in the overlapping range before re-attempt.
+  //
+  // ingest_behind takes precedence over fail_if_not_bottommost_level.
+  bool fail_if_not_bottommost_level = false;
 };
 
 enum TraceFilterType : uint64_t {
@@ -1928,10 +1948,23 @@ struct CompactionServiceOptionsOverride {
   std::shared_ptr<TableFactory> table_factory;
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // Only subsets of events are triggered in remote compaction worker, like:
+  // `OnTableFileCreated`, `OnTableFileCreationStarted`,
+  // `ShouldBeNotifiedOnFileIO` `OnSubcompactionBegin`,
+  // `OnSubcompactionCompleted`, etc. Worth mentioning, `OnCompactionBegin` and
+  // `OnCompactionCompleted` won't be triggered. They will be triggered on the
+  // primary DB side.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+
   // statistics is used to collect DB operation metrics, the metrics won't be
   // returned to CompactionService primary host, to collect that, the user needs
   // to set it here.
   std::shared_ptr<Statistics> statistics = nullptr;
+};
+
+struct OpenAndCompactOptions {
+  // Allows cancellation of an in-progress compaction.
+  std::atomic<bool>* canceled = nullptr;
 };
 
 #ifndef ROCKSDB_LITE

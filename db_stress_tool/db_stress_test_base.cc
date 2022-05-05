@@ -21,7 +21,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
-#include "utilities/backupable/backupable_db_impl.h"
+#include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
 
@@ -281,12 +281,12 @@ bool StressTest::BuildOptionsTable() {
   return true;
 }
 
-void StressTest::InitDb() {
+void StressTest::InitDb(SharedState* shared) {
   uint64_t now = clock_->NowMicros();
   fprintf(stdout, "%s Initializing db_stress\n",
           clock_->TimeToString(now / 1000000).c_str());
   PrintEnv();
-  Open();
+  Open(shared);
   BuildOptionsTable();
 }
 
@@ -568,7 +568,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
     fprintf(stdout, "%s Reopening database in read-only\n",
             clock_->TimeToString(now / 1000000).c_str());
     // Reopen as read-only, can ignore all options related to updates
-    Open();
+    Open(shared);
   } else {
     fprintf(stderr, "Failed to preload db");
     exit(1);
@@ -2296,14 +2296,18 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
+  fprintf(stdout, "WAL compression           : %s\n",
+          FLAGS_wal_compression.c_str());
 
   fprintf(stdout, "------------------------------------------------\n");
 }
 
-void StressTest::Open() {
+void StressTest::Open(SharedState* shared) {
   assert(db_ == nullptr);
 #ifndef ROCKSDB_LITE
   assert(txn_db_ == nullptr);
+#else
+  (void)shared;
 #endif
   if (FLAGS_options_file.empty()) {
     BlockBasedTableOptions block_based_options;
@@ -2319,6 +2323,8 @@ void StressTest::Open() {
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
+    block_based_options.reserve_table_reader_memory =
+        FLAGS_reserve_table_reader_memory;
     block_based_options.format_version =
         static_cast<uint32_t>(FLAGS_format_version);
     block_based_options.index_block_restart_interval =
@@ -2436,6 +2442,9 @@ void StressTest::Open() {
         FLAGS_blob_garbage_collection_force_threshold;
     options_.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
+
+    options_.wal_compression =
+        StringToCompressionType(FLAGS_wal_compression.c_str());
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2606,6 +2615,7 @@ void StressTest::Open() {
     options_.listeners.emplace_back(new DbStressListener(
         FLAGS_db, options_.db_paths, cf_descriptors, db_stress_listener_env));
 #endif  // !ROCKSDB_LITE
+    RegisterAdditionalListeners();
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef NDEBUG
@@ -2744,6 +2754,7 @@ void StressTest::Open() {
           static_cast<size_t>(FLAGS_wp_snapshot_cache_bits);
       txn_db_options.wp_commit_cache_bits =
           static_cast<size_t>(FLAGS_wp_commit_cache_bits);
+      PrepareTxnDbOptions(shared, txn_db_options);
       s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                               cf_descriptors, &column_families_, &txn_db_);
       if (!s.ok()) {
@@ -2903,7 +2914,7 @@ void StressTest::Reopen(ThreadState* thread) {
   auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
-  Open();
+  Open(thread->shared);
 
   if ((FLAGS_sync_fault_injection || FLAGS_disable_wal) && IsStateTracked()) {
     Status s = thread->shared->SaveAtAndAfter(db_);

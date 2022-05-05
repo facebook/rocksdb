@@ -14,6 +14,7 @@
 #include <string>
 
 #include "file/readahead_file_info.h"
+#include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -36,7 +37,6 @@ struct BufferInfo {
 class FilePrefetchBuffer {
  public:
   static const int kMinNumFileReadsToStartAutoReadahead = 2;
-  static const size_t kInitAutoReadaheadSize = 8 * 1024;
 
   // Constructor.
   //
@@ -65,9 +65,11 @@ class FilePrefetchBuffer {
   FilePrefetchBuffer(size_t readahead_size = 0, size_t max_readahead_size = 0,
                      bool enable = true, bool track_min_offset = false,
                      bool implicit_auto_readahead = false,
-                     bool async_io = false)
+                     bool async_io = false, FileSystem* fs = nullptr,
+                     SystemClock* clock = nullptr, Statistics* stats = nullptr)
       : curr_(0),
         readahead_size_(readahead_size),
+        initial_auto_readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
         min_offset_read_(port::kMaxSizet),
         enable_(enable),
@@ -79,11 +81,41 @@ class FilePrefetchBuffer {
         io_handle_(nullptr),
         del_fn_(nullptr),
         async_read_in_progress_(false),
-        async_io_(async_io) {
+        async_io_(async_io),
+        fs_(fs),
+        clock_(clock),
+        stats_(stats) {
     // If async_io_ is enabled, data is asynchronously filled in second buffer
     // while curr_ is being consumed. If data is overlapping in two buffers,
     // data is copied to third buffer to return continuous buffer.
     bufs_.resize(3);
+  }
+
+  ~FilePrefetchBuffer() {
+    // Abort any pending async read request before destroying the class object.
+    if (async_read_in_progress_ && fs_ != nullptr) {
+      std::vector<void*> handles;
+      handles.emplace_back(io_handle_);
+      Status s = fs_->AbortIO(handles);
+      assert(s.ok());
+    }
+
+    // Prefetch buffer bytes discarded.
+    uint64_t bytes_discarded = 0;
+    if (bufs_[curr_].buffer_.CurrentSize() != 0) {
+      bytes_discarded = bufs_[curr_].buffer_.CurrentSize();
+    }
+    if (bufs_[curr_ ^ 1].buffer_.CurrentSize() != 0) {
+      bytes_discarded += bufs_[curr_ ^ 1].buffer_.CurrentSize();
+    }
+    RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
+
+    // Release io_handle_.
+    if (io_handle_ != nullptr && del_fn_ != nullptr) {
+      del_fn_(io_handle_);
+      io_handle_ = nullptr;
+      del_fn_ = nullptr;
+    }
   }
 
   // Load data into the buffer from a file.
@@ -100,8 +132,7 @@ class FilePrefetchBuffer {
                   Env::IOPriority rate_limiter_priority);
 
   Status PrefetchAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                       FileSystem* fs, uint64_t offset, size_t length,
-                       size_t readahead_size,
+                       uint64_t offset, size_t length, size_t readahead_size,
                        Env::IOPriority rate_limiter_priority,
                        bool& copy_to_third_buffer);
 
@@ -129,7 +160,7 @@ class FilePrefetchBuffer {
                              RandomAccessFileReader* reader, uint64_t offset,
                              size_t n, Slice* result, Status* status,
                              Env::IOPriority rate_limiter_priority,
-                             bool for_compaction /* = false */, FileSystem* fs);
+                             bool for_compaction /* = false */);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
@@ -169,9 +200,8 @@ class FilePrefetchBuffer {
            bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) &&
           IsBlockSequential(offset) &&
           (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
-        size_t initial_auto_readahead_size = kInitAutoReadaheadSize;
         readahead_size_ =
-            std::max(initial_auto_readahead_size,
+            std::max(initial_auto_readahead_size_,
                      (readahead_size_ >= value ? readahead_size_ - value : 0));
       }
     }
@@ -223,7 +253,7 @@ class FilePrefetchBuffer {
   // Called in case of implicit auto prefetching.
   void ResetValues() {
     num_file_reads_ = 1;
-    readahead_size_ = kInitAutoReadaheadSize;
+    readahead_size_ = initial_auto_readahead_size_;
   }
 
   std::vector<BufferInfo> bufs_;
@@ -231,6 +261,7 @@ class FilePrefetchBuffer {
   // consumed currently.
   uint32_t curr_;
   size_t readahead_size_;
+  size_t initial_auto_readahead_size_;
   // FilePrefetchBuffer object won't be created from Iterator flow if
   // max_readahead_size_ = 0.
   size_t max_readahead_size_;
@@ -256,5 +287,8 @@ class FilePrefetchBuffer {
   IOHandleDeleter del_fn_;
   bool async_read_in_progress_;
   bool async_io_;
+  FileSystem* fs_;
+  SystemClock* clock_;
+  Statistics* stats_;
 };
 }  // namespace ROCKSDB_NAMESPACE

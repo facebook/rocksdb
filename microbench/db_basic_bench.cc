@@ -118,7 +118,8 @@ class KeyGenerator {
   }
 };
 
-static void SetupDB(benchmark::State& state, Options& options, DB** dpptr,
+static void SetupDB(benchmark::State& state, Options& options,
+                    std::unique_ptr<DB>* db,
                     const std::string& test_name = "") {
   options.create_if_missing = true;
   auto env = Env::Default();
@@ -132,15 +133,17 @@ static void SetupDB(benchmark::State& state, Options& options, DB** dpptr,
       db_path + kFilePathSeparator + test_name + std::to_string(getpid());
   DestroyDB(db_name, options);
 
-  s = DB::Open(options, db_name, dpptr);
+  DB* db_ptr = nullptr;
+  s = DB::Open(options, db_name, &db_ptr);
   if (!s.ok()) {
     state.SkipWithError(s.ToString().c_str());
     return;
   }
+  db->reset(db_ptr);
 }
 
-static void TeardownDB(benchmark::State& state, DB* db, const Options& options,
-                       KeyGenerator& kg) {
+static void TeardownDB(benchmark::State& state, const std::unique_ptr<DB>& db,
+                       const Options& options, KeyGenerator& kg) {
   char min_buff[256], max_buff[256];
   const Range r(kg.MinKey(min_buff), kg.MaxKey(max_buff));
   uint64_t size;
@@ -160,7 +163,7 @@ static void TeardownDB(benchmark::State& state, DB* db, const Options& options,
 
 static void DBOpen(benchmark::State& state) {
   // create DB
-  DB* db = nullptr;
+  std::unique_ptr<DB> db;
   Options options;
   SetupDB(state, options, &db, "DBOpen");
 
@@ -172,12 +175,17 @@ static void DBOpen(benchmark::State& state) {
   auto rnd = Random(123);
 
   for (auto _ : state) {
-    Status s = DB::Open(options, db_name, &db);
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
+    {
+      DB* db_ptr = nullptr;
+      Status s = DB::Open(options, db_name, &db_ptr);
+      if (!s.ok()) {
+        state.SkipWithError(s.ToString().c_str());
+      }
+      db.reset(db_ptr);
     }
     state.PauseTiming();
     auto wo = WriteOptions();
+    Status s;
     for (int i = 0; i < 2; i++) {
       for (int j = 0; j < 100; j++) {
         s = db->Put(wo, rnd.RandomString(10), rnd.RandomString(100));
@@ -204,7 +212,7 @@ BENCHMARK(DBOpen)->Iterations(200);  // specify iteration number as the db size
 
 static void DBClose(benchmark::State& state) {
   // create DB
-  DB* db;
+  std::unique_ptr<DB> db;
   Options options;
   SetupDB(state, options, &db, "DBClose");
 
@@ -217,11 +225,16 @@ static void DBClose(benchmark::State& state) {
 
   for (auto _ : state) {
     state.PauseTiming();
-    Status s = DB::Open(options, db_name, &db);
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
+    {
+      DB* db_ptr = nullptr;
+      Status s = DB::Open(options, db_name, &db_ptr);
+      if (!s.ok()) {
+        state.SkipWithError(s.ToString().c_str());
+      }
+      db.reset(db_ptr);
     }
     auto wo = WriteOptions();
+    Status s;
     for (int i = 0; i < 2; i++) {
       for (int j = 0; j < 100; j++) {
         s = db->Put(wo, rnd.RandomString(10), rnd.RandomString(100));
@@ -255,7 +268,7 @@ static void DBPut(benchmark::State& state) {
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db = nullptr;
+  static std::unique_ptr<DB> db = nullptr;
   Options options;
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
@@ -284,7 +297,7 @@ static void DBPut(benchmark::State& state) {
   }
 
   if (state.thread_index() == 0) {
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -332,7 +345,7 @@ static void ManualCompaction(benchmark::State& state) {
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   Options options;
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
@@ -391,7 +404,7 @@ static void ManualCompaction(benchmark::State& state) {
   }
 
   if (state.thread_index() == 0) {
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -453,7 +466,7 @@ static void ManualFlush(benchmark::State& state) {
   bool enable_statistics = true;
 
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   Options options;
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
@@ -489,7 +502,7 @@ static void ManualFlush(benchmark::State& state) {
   }
 
   if (state.thread_index() == 0) {
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -525,21 +538,30 @@ static void DBGet(benchmark::State& state) {
   bool enable_statistics = state.range(3);
   bool negative_query = state.range(4);
   bool enable_filter = state.range(5);
+  bool mmap = state.range(6);
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   Options options;
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
   }
+  if (mmap) {
+    options.allow_mmap_reads = true;
+    options.compression = kNoCompression;
+  }
   options.compaction_style = compaction_style;
 
+  BlockBasedTableOptions table_options;
   if (enable_filter) {
-    BlockBasedTableOptions table_options;
     table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  if (mmap) {
+    table_options.no_block_cache = true;
+    table_options.block_restart_interval = 1;
+  }
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   auto rnd = Random(301 + state.thread_index());
   KeyGenerator kg(&rnd, key_num);
@@ -564,7 +586,7 @@ static void DBGet(benchmark::State& state) {
       state.SkipWithError(s.ToString().c_str());
     }
 
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -573,6 +595,9 @@ static void DBGet(benchmark::State& state) {
   }
 
   auto ro = ReadOptions();
+  if (mmap) {
+    ro.verify_checksums = false;
+  }
   size_t not_found = 0;
   if (negative_query) {
     for (auto _ : state) {
@@ -616,8 +641,10 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
         for (bool enable_statistics : {false, true}) {
           for (bool negative_query : {false, true}) {
             for (bool enable_filter : {false, true}) {
-              b->Args({comp_style, max_data, per_key_size, enable_statistics,
-                       negative_query, enable_filter});
+              for (bool mmap : {false, true}) {
+                b->Args({comp_style, max_data, per_key_size, enable_statistics,
+                         negative_query, enable_filter, mmap});
+              }
             }
           }
         }
@@ -625,16 +652,16 @@ static void DBGetArguments(benchmark::internal::Benchmark* b) {
     }
   }
   b->ArgNames({"comp_style", "max_data", "per_key_size", "enable_statistics",
-               "negative_query", "enable_filter"});
+               "negative_query", "enable_filter", "mmap"});
 }
 
-static constexpr uint64_t kDBGetNum = 10l << 10;
+static constexpr uint64_t kDBGetNum = 1l << 20;
 BENCHMARK(DBGet)->Threads(1)->Iterations(kDBGetNum)->Apply(DBGetArguments);
 BENCHMARK(DBGet)->Threads(8)->Iterations(kDBGetNum / 8)->Apply(DBGetArguments);
 
 static void SimpleGetWithPerfContext(benchmark::State& state) {
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   std::string db_name;
   Options options;
   options.create_if_missing = true;
@@ -654,10 +681,14 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
     db_name = db_path + "/simple_get_" + std::to_string(getpid());
     DestroyDB(db_name, options);
 
-    s = DB::Open(options, db_name, &db);
-    if (!s.ok()) {
-      state.SkipWithError(s.ToString().c_str());
-      return;
+    {
+      DB* db_ptr = nullptr;
+      s = DB::Open(options, db_name, &db_ptr);
+      if (!s.ok()) {
+        state.SkipWithError(s.ToString().c_str());
+        return;
+      }
+      db.reset(db_ptr);
     }
     // load db
     auto wo = WriteOptions();
@@ -668,7 +699,7 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -844,7 +875,7 @@ static void IteratorSeek(benchmark::State& state) {
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   Options options;
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
@@ -880,7 +911,7 @@ static void IteratorSeek(benchmark::State& state) {
       state.SkipWithError(s.ToString().c_str());
     }
 
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -947,7 +978,7 @@ static void IteratorNext(benchmark::State& state) {
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   Options options;
   options.compaction_style = compaction_style;
 
@@ -973,7 +1004,7 @@ static void IteratorNext(benchmark::State& state) {
       state.SkipWithError(s.ToString().c_str());
     }
 
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -1022,7 +1053,7 @@ BENCHMARK(IteratorNext)
 
 static void IteratorNextWithPerfContext(benchmark::State& state) {
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   Options options;
 
   auto rnd = Random(301 + state.thread_index());
@@ -1039,7 +1070,7 @@ static void IteratorNextWithPerfContext(benchmark::State& state) {
         state.SkipWithError(s.ToString().c_str());
       }
     }
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     Status s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -1114,7 +1145,7 @@ static void IteratorPrev(benchmark::State& state) {
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   std::string db_name;
   Options options;
   options.compaction_style = compaction_style;
@@ -1141,7 +1172,7 @@ static void IteratorPrev(benchmark::State& state) {
       state.SkipWithError(s.ToString().c_str());
     }
 
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());
@@ -1198,7 +1229,7 @@ static void PrefixSeek(benchmark::State& state) {
   uint64_t key_num = max_data / per_key_size;
 
   // setup DB
-  static DB* db;
+  static std::unique_ptr<DB> db;
   Options options;
   if (enable_statistics) {
     options.statistics = CreateDBStatistics();
@@ -1235,7 +1266,7 @@ static void PrefixSeek(benchmark::State& state) {
       state.SkipWithError(s.ToString().c_str());
     }
 
-    auto db_full = static_cast_with_check<DBImpl>(db);
+    auto db_full = static_cast_with_check<DBImpl>(db.get());
     s = db_full->WaitForCompact(true);
     if (!s.ok()) {
       state.SkipWithError(s.ToString().c_str());

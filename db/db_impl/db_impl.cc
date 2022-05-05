@@ -101,6 +101,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
+#include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -1889,6 +1890,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       return s;
     }
   }
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
+  TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
@@ -1905,8 +1908,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   {
     PERF_TIMER_GUARD(get_post_process_time);
-
-    ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     size_t size = 0;
@@ -1934,6 +1935,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
     RecordInHistogram(stats_, BYTES_PER_READ, size);
+
+    ReturnAndCleanupSuperVersion(cfd, sv);
   }
   return s;
 }
@@ -1998,7 +2001,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   SequenceNumber consistent_seqnum;
 
-  std::unordered_map<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
+  UnorderedMap<uint32_t, MultiGetColumnFamilyData> multiget_cf_data(
       column_family.size());
   for (auto cf : column_family) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(cf);
@@ -2010,13 +2013,13 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   std::function<MultiGetColumnFamilyData*(
-      std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&)>
+      UnorderedMap<uint32_t, MultiGetColumnFamilyData>::iterator&)>
       iter_deref_lambda =
-          [](std::unordered_map<uint32_t, MultiGetColumnFamilyData>::iterator&
+          [](UnorderedMap<uint32_t, MultiGetColumnFamilyData>::iterator&
                  cf_iter) { return &cf_iter->second; };
 
   bool unref_only =
-      MultiCFSnapshot<std::unordered_map<uint32_t, MultiGetColumnFamilyData>>(
+      MultiCFSnapshot<UnorderedMap<uint32_t, MultiGetColumnFamilyData>>(
           read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
           &consistent_seqnum);
 
@@ -3679,6 +3682,11 @@ Status DBImpl::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options) {
   RecordTick(stats_, GET_UPDATES_SINCE_CALLS);
+  if (seq_per_batch_) {
+    return Status::NotSupported(
+        "This API is not yet compatible with write-prepared/write-unprepared "
+        "transactions");
+  }
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
   }
@@ -5115,8 +5123,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                      fmeta->file_checksum_func_name, fname,
                                      read_options);
         } else {
-          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
-                                                       read_options, fname);
+          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(
+              opts, file_options_, read_options, fname, fd.largest_seqno);
         }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
                    IOSTATS(bytes_read) - prev_bytes_read);

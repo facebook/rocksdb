@@ -131,7 +131,7 @@ extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 // Options structure for configuring a SecondaryCache instance based on
 // LRUCache. The LRUCacheOptions.secondary_cache is not used and
 // should not be set.
-struct LRUSecondaryCacheOptions : LRUCacheOptions {
+struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // The compression method (if any) that is used to compress data.
   CompressionType compression_type = CompressionType::kLZ4Compression;
 
@@ -142,8 +142,8 @@ struct LRUSecondaryCacheOptions : LRUCacheOptions {
   // header in varint32 format.
   uint32_t compress_format_version = 2;
 
-  LRUSecondaryCacheOptions() {}
-  LRUSecondaryCacheOptions(
+  CompressedSecondaryCacheOptions() {}
+  CompressedSecondaryCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
       double _high_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
@@ -161,7 +161,7 @@ struct LRUSecondaryCacheOptions : LRUCacheOptions {
 
 // EXPERIMENTAL
 // Create a new Secondary Cache that is implemented on top of LRUCache.
-extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
+extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
@@ -171,8 +171,8 @@ extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
     CompressionType compression_type = CompressionType::kLZ4Compression,
     uint32_t compress_format_version = 2);
 
-extern std::shared_ptr<SecondaryCache> NewLRUSecondaryCache(
-    const LRUSecondaryCacheOptions& opts);
+extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
+    const CompressedSecondaryCacheOptions& opts);
 
 // Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
@@ -538,6 +538,60 @@ class Cache {
 
  private:
   std::shared_ptr<MemoryAllocator> memory_allocator_;
+};
+
+// Classifications of block cache entries.
+//
+// Developer notes: Adding a new enum to this class requires corresponding
+// updates to `kCacheEntryRoleToCamelString` and
+// `kCacheEntryRoleToHyphenString`. Do not add to this enum after `kMisc` since
+// `kNumCacheEntryRoles` assumes `kMisc` comes last.
+enum class CacheEntryRole {
+  // Block-based table data block
+  kDataBlock,
+  // Block-based table filter block (full or partitioned)
+  kFilterBlock,
+  // Block-based table metadata block for partitioned filter
+  kFilterMetaBlock,
+  // Block-based table deprecated filter block (old "block-based" filter)
+  kDeprecatedFilterBlock,
+  // Block-based table index block
+  kIndexBlock,
+  // Other kinds of block-based table block
+  kOtherBlock,
+  // WriteBufferManager reservations to account for memtable usage
+  kWriteBuffer,
+  // BlockBasedTableBuilder reservations to account for
+  // compression dictionary building buffer's memory usage
+  kCompressionDictionaryBuildingBuffer,
+  // Filter reservations to account for
+  // (new) bloom and ribbon filter construction's memory usage
+  kFilterConstruction,
+  // BlockBasedTableReader reservations to account for
+  // its memory usage
+  kBlockBasedTableReader,
+  // Default bucket, for miscellaneous cache entries. Do not use for
+  // entries that could potentially add up to large usage.
+  kMisc,
+};
+constexpr uint32_t kNumCacheEntryRoles =
+    static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
+
+// Obtain a hyphen-separated, lowercase name of a `CacheEntryRole`.
+const std::string& GetCacheEntryRoleName(CacheEntryRole);
+
+// For use with `GetMapProperty()` for property
+// `DB::Properties::kBlockCacheEntryStats`. On success, the map will
+// be populated with all keys that can be obtained from these functions.
+struct BlockCacheEntryStatsMapKeys {
+  static const std::string& CacheId();
+  static const std::string& CacheCapacityBytes();
+  static const std::string& LastCollectionDurationSeconds();
+  static const std::string& LastCollectionAgeSeconds();
+
+  static std::string EntryCount(CacheEntryRole);
+  static std::string UsedBytes(CacheEntryRole);
+  static std::string UsedPercent(CacheEntryRole);
 };
 
 }  // namespace ROCKSDB_NAMESPACE
