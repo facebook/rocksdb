@@ -40,7 +40,8 @@ Status VerifySstFileChecksum(const Options& options,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& read_options,
-                             const std::string& file_path) {
+                             const std::string& file_path,
+                             const SequenceNumber& largest_seqno) {
   std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size;
   InternalKeyComparator internal_comparator(options.comparator);
@@ -56,14 +57,18 @@ Status VerifySstFileChecksum(const Options& options,
   }
   std::unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file), file_path));
+      new RandomAccessFileReader(
+          std::move(file), file_path, ioptions.clock, nullptr /* io_tracer */,
+          nullptr /* stats */, 0 /* hist_type */, nullptr /* file_read_hist */,
+          ioptions.rate_limiter.get()));
   const bool kImmortal = true;
+  auto reader_options = TableReaderOptions(
+      ioptions, options.prefix_extractor, env_options, internal_comparator,
+      false /* skip_filters */, !kImmortal, false /* force_direct_prefetch */,
+      -1 /* level */);
+  reader_options.largest_seqno = largest_seqno;
   s = ioptions.table_factory->NewTableReader(
-      TableReaderOptions(ioptions, options.prefix_extractor, env_options,
-                         internal_comparator, false /* skip_filters */,
-                         !kImmortal, false /* force_direct_prefetch */,
-                         -1 /* level */),
-      std::move(file_reader), file_size, &table_reader,
+      reader_options, std::move(file_reader), file_size, &table_reader,
       false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {
     return s;

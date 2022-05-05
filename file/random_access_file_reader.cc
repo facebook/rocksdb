@@ -22,85 +22,43 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-inline void IOStatsAddBytesByTemperature(Temperature file_temperature,
-                                         size_t value) {
-  if (file_temperature == Temperature::kUnknown) {
-    return;
-  }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      IOSTATS_ADD(file_io_stats_by_temperature.hot_file_bytes_read, value);
-      break;
-    case Temperature::kWarm:
-      IOSTATS_ADD(file_io_stats_by_temperature.warm_file_bytes_read, value);
-      break;
-    case Temperature::kCold:
-      IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, value);
-      break;
-    default:
-      break;
-  }
-}
 
-inline void IOStatsAddCountByTemperature(Temperature file_temperature,
-                                         size_t value) {
-  if (file_temperature == Temperature::kUnknown) {
-    return;
+inline void RecordIOStats(Statistics* stats, Temperature file_temperature,
+                          bool is_last_level, size_t size) {
+  IOSTATS_ADD(bytes_read, size);
+  // record for last/non-last level
+  if (is_last_level) {
+    RecordTick(stats, LAST_LEVEL_READ_BYTES, size);
+    RecordTick(stats, LAST_LEVEL_READ_COUNT, 1);
+  } else {
+    RecordTick(stats, NON_LAST_LEVEL_READ_BYTES, size);
+    RecordTick(stats, NON_LAST_LEVEL_READ_COUNT, 1);
   }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      IOSTATS_ADD(file_io_stats_by_temperature.hot_file_read_count, value);
-      break;
-    case Temperature::kWarm:
-      IOSTATS_ADD(file_io_stats_by_temperature.warm_file_read_count, value);
-      break;
-    case Temperature::kCold:
-      IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, value);
-      break;
-    default:
-      break;
-  }
-}
 
-inline void StatisticAddBytesByTemperature(Statistics* stats,
-                                           Temperature file_temperature,
-                                           size_t value) {
-  if (stats == nullptr || file_temperature == Temperature::kUnknown) {
-    return;
-  }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      RecordTick(stats, HOT_FILE_READ_BYTES, value);
-      break;
-    case Temperature::kWarm:
-      RecordTick(stats, WARM_FILE_READ_BYTES, value);
-      break;
-    case Temperature::kCold:
-      RecordTick(stats, COLD_FILE_READ_BYTES, value);
-      break;
-    default:
-      break;
-  }
-}
-
-inline void StatisticAddCountByTemperature(Statistics* stats,
-                                           Temperature file_temperature,
-                                           size_t value) {
-  if (stats == nullptr || file_temperature == Temperature::kUnknown) {
-    return;
-  }
-  switch (file_temperature) {
-    case Temperature::kHot:
-      RecordTick(stats, HOT_FILE_READ_COUNT, value);
-      break;
-    case Temperature::kWarm:
-      RecordTick(stats, WARM_FILE_READ_COUNT, value);
-      break;
-    case Temperature::kCold:
-      RecordTick(stats, COLD_FILE_READ_COUNT, value);
-      break;
-    default:
-      break;
+  // record for temperature file
+  if (file_temperature != Temperature::kUnknown) {
+    switch (file_temperature) {
+      case Temperature::kHot:
+        IOSTATS_ADD(file_io_stats_by_temperature.hot_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.hot_file_read_count, 1);
+        RecordTick(stats, HOT_FILE_READ_BYTES, size);
+        RecordTick(stats, HOT_FILE_READ_COUNT, 1);
+        break;
+      case Temperature::kWarm:
+        IOSTATS_ADD(file_io_stats_by_temperature.warm_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.warm_file_read_count, 1);
+        RecordTick(stats, WARM_FILE_READ_BYTES, size);
+        RecordTick(stats, WARM_FILE_READ_COUNT, 1);
+        break;
+      case Temperature::kCold:
+        IOSTATS_ADD(file_io_stats_by_temperature.cold_file_bytes_read, size);
+        IOSTATS_ADD(file_io_stats_by_temperature.cold_file_read_count, 1);
+        RecordTick(stats, COLD_FILE_READ_BYTES, size);
+        RecordTick(stats, COLD_FILE_READ_COUNT, 1);
+        break;
+      default:
+        break;
+    }
   }
 }
 
@@ -116,10 +74,10 @@ IOStatus RandomAccessFileReader::Create(
   return io_s;
 }
 
-IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
-                                      size_t n, Slice* result, char* scratch,
-                                      AlignedBuf* aligned_buf,
-                                      bool for_compaction) const {
+IOStatus RandomAccessFileReader::Read(
+    const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+    char* scratch, AlignedBuf* aligned_buf,
+    Env::IOPriority rate_limiter_priority) const {
   (void)aligned_buf;
 
   TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::Read", nullptr);
@@ -153,10 +111,11 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       buf.AllocateNewBuffer(read_size);
       while (buf.CurrentSize() < read_size) {
         size_t allowed;
-        if (for_compaction && rate_limiter_ != nullptr) {
+        if (rate_limiter_priority != Env::IO_TOTAL &&
+            rate_limiter_ != nullptr) {
           allowed = rate_limiter_->RequestToken(
               buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
-              Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
+              rate_limiter_priority, stats_, RateLimiter::OpType::kRead);
         } else {
           assert(buf.CurrentSize() == 0);
           allowed = read_size;
@@ -212,12 +171,13 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       const char* res_scratch = nullptr;
       while (pos < n) {
         size_t allowed;
-        if (for_compaction && rate_limiter_ != nullptr) {
+        if (rate_limiter_priority != Env::IO_TOTAL &&
+            rate_limiter_ != nullptr) {
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStart();
           }
           allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
-                                                Env::IOPriority::IO_LOW, stats_,
+                                                rate_limiter_priority, stats_,
                                                 RateLimiter::OpType::kRead);
           if (rate_limiter_->IsRateLimited(RateLimiter::OpType::kRead)) {
             sw.DelayStop();
@@ -271,11 +231,7 @@ IOStatus RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
       }
       *result = Slice(res_scratch, io_s.ok() ? pos : 0);
     }
-    IOSTATS_ADD(bytes_read, result->size());
-    IOStatsAddBytesByTemperature(file_temperature_, result->size());
-    IOStatsAddCountByTemperature(file_temperature_, 1);
-    StatisticAddBytesByTemperature(stats_, file_temperature_, result->size());
-    StatisticAddCountByTemperature(stats_, file_temperature_, 1);
+    RecordIOStats(stats_, file_temperature_, is_last_level_, result->size());
     SetPerfLevel(prev_perf_level);
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
@@ -311,10 +267,12 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   return true;
 }
 
-IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
-                                           FSReadRequest* read_reqs,
-                                           size_t num_reqs,
-                                           AlignedBuf* aligned_buf) const {
+IOStatus RandomAccessFileReader::MultiRead(
+    const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
+    AlignedBuf* aligned_buf, Env::IOPriority rate_limiter_priority) const {
+  if (rate_limiter_priority != Env::IO_TOTAL) {
+    return IOStatus::NotSupported("Unable to rate limit MultiRead()");
+  }
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
@@ -446,13 +404,8 @@ IOStatus RandomAccessFileReader::MultiRead(const IOOptions& opts,
       }
 
 #endif  // ROCKSDB_LITE
-      IOSTATS_ADD(bytes_read, read_reqs[i].result.size());
-      IOStatsAddBytesByTemperature(file_temperature_,
-                                   read_reqs[i].result.size());
-      IOStatsAddCountByTemperature(file_temperature_, 1);
-      StatisticAddBytesByTemperature(stats_, file_temperature_,
-                                     read_reqs[i].result.size());
-      StatisticAddCountByTemperature(stats_, file_temperature_, 1);
+      RecordIOStats(stats_, file_temperature_, is_last_level_,
+                    read_reqs[i].result.size());
     }
     SetPerfLevel(prev_perf_level);
   }
@@ -470,5 +423,77 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
   } else {
     return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts);
   }
+}
+
+// TODO akanksha:
+// 1. Handle use_direct_io case which currently calls Read API.
+IOStatus RandomAccessFileReader::ReadAsync(
+    FSReadRequest& req, const IOOptions& opts,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn,
+    Env::IOPriority rate_limiter_priority) {
+  if (use_direct_io()) {
+    // For direct_io, it calls Read API.
+    req.status = Read(opts, req.offset, req.len, &(req.result), req.scratch,
+                      nullptr /*dbg*/, rate_limiter_priority);
+    cb(req, cb_arg);
+    return IOStatus::OK();
+  }
+
+  // Create a callback and populate info.
+  auto read_async_callback =
+      std::bind(&RandomAccessFileReader::ReadAsyncCallback, this,
+                std::placeholders::_1, std::placeholders::_2);
+  ReadAsyncInfo* read_async_info = new ReadAsyncInfo;
+  read_async_info->cb_ = cb;
+  read_async_info->cb_arg_ = cb_arg;
+  read_async_info->start_time_ = clock_->NowMicros();
+
+#ifndef ROCKSDB_LITE
+  if (ShouldNotifyListeners()) {
+    read_async_info->fs_start_ts_ = FileOperationInfo::StartNow();
+  }
+#endif
+
+  IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
+                                io_handle, del_fn, nullptr /*dbg*/);
+  if (!s.ok()) {
+    delete read_async_info;
+  }
+  return s;
+}
+
+void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
+                                               void* cb_arg) {
+  ReadAsyncInfo* read_async_info = static_cast<ReadAsyncInfo*>(cb_arg);
+  assert(read_async_info);
+  assert(read_async_info->cb_);
+
+  read_async_info->cb_(req, read_async_info->cb_arg_);
+
+  // Update stats and notify listeners.
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    // elapsed doesn't take into account delay and overwrite as StopWatch does
+    // in Read.
+    uint64_t elapsed = clock_->NowMicros() - read_async_info->start_time_;
+    file_read_hist_->Add(elapsed);
+  }
+  if (req.status.ok()) {
+    RecordInHistogram(stats_, ASYNC_READ_BYTES, req.result.size());
+  }
+#ifndef ROCKSDB_LITE
+  if (ShouldNotifyListeners()) {
+    auto finish_ts = FileOperationInfo::FinishNow();
+    NotifyOnFileReadFinish(req.offset, req.result.size(),
+                           read_async_info->fs_start_ts_, finish_ts,
+                           req.status);
+  }
+  if (!req.status.ok()) {
+    NotifyOnIOError(req.status, FileOperationType::kRead, file_name(),
+                    req.result.size(), req.offset);
+  }
+#endif
+  RecordIOStats(stats_, file_temperature_, is_last_level_, req.result.size());
+  delete read_async_info;
 }
 }  // namespace ROCKSDB_NAMESPACE

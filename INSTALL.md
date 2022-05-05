@@ -47,7 +47,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 
 * If you wish to build the RocksJava static target, then cmake is required for building Snappy.
 
-* If you wish to run microbench (e.g, `make microbench`, `make ribbon_bench` or `cmake -DWITH_BENCHMARK=1`), Google benchmark < 1.6.0 is needed.
+* If you wish to run microbench (e.g, `make microbench`, `make ribbon_bench` or `cmake -DWITH_BENCHMARK=1`), Google benchmark >= 1.6.0 is needed.
 
 ## Supported platforms
 
@@ -180,8 +180,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 * **iOS**:
   * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.
 
-* **Windows**:
-  * For building with MS Visual Studio 13 you will need Update 4 installed.
+* **Windows** (Visual Studio 2017 to up):
   * Read and follow the instructions at CMakeLists.txt
   * Or install via [vcpkg](https://github.com/microsoft/vcpkg)
        * run `vcpkg install rocksdb:x64-windows`

@@ -29,7 +29,7 @@ enum TxnDBWritePolicy {
   WRITE_UNPREPARED  // write data before the prepare phase of 2pc
 };
 
-const uint32_t kInitialMaxDeadlocks = 5;
+constexpr uint32_t kInitialMaxDeadlocks = 5;
 
 class LockManager;
 struct RangeLockInfo;
@@ -160,8 +160,7 @@ struct TransactionDBOptions {
 
   // Increasing this value will increase the concurrency by dividing the lock
   // table (per column family) into more sub-tables, each with their own
-  // separate
-  // mutex.
+  // separate mutex.
   size_t num_stripes = 16;
 
   // If positive, specifies the default wait timeout in milliseconds when
@@ -171,8 +170,7 @@ struct TransactionDBOptions {
   // If 0, no waiting is done if a lock cannot instantly be acquired.
   // If negative, there is no timeout.  Not using a timeout is not recommended
   // as it can lead to deadlocks.  Currently, there is no deadlock-detection to
-  // recover
-  // from a deadlock.
+  // recover from a deadlock.
   int64_t transaction_lock_timeout = 1000;  // 1 second
 
   // If positive, specifies the wait timeout in milliseconds when writing a key
@@ -224,10 +222,28 @@ struct TransactionDBOptions {
   // pending writes into the database. A value of 0 or less means no limit.
   int64_t default_write_batch_flush_threshold = 0;
 
+  // This option is valid only for write-prepared/write-unprepared. Transaction
+  // will rely on this callback to determine if a key should be rolled back
+  // with Delete or SingleDelete when necessary. If the callback returns true,
+  // then SingleDelete should be used. If the callback is not callable or the
+  // callback returns false, then a Delete is used.
+  // The application should ensure thread-safety of this callback.
+  // The callback should not throw because RocksDB is not exception-safe.
+  // The callback may be removed if we allow mixing Delete and SingleDelete in
+  // the future.
+  std::function<bool(TransactionDB* /*db*/,
+                     ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*key*/)>
+      rollback_deletion_type_callback;
+
  private:
   // 128 entries
+  // Should the default value change, please also update wp_snapshot_cache_bits
+  // in db_stress_gflags.cc
   size_t wp_snapshot_cache_bits = static_cast<size_t>(7);
   // 8m entry, 64MB size
+  // Should the default value change, please also update wp_commit_cache_bits
+  // in db_stress_gflags.cc
   size_t wp_commit_cache_bits = static_cast<size_t>(23);
 
   // For testing, whether transaction name should be auto-generated or not. This
@@ -239,6 +255,7 @@ struct TransactionDBOptions {
   friend class WritePreparedTransactionTestBase;
   friend class TransactionTestBase;
   friend class MySQLStyleTransactionTest;
+  friend class StressTest;
 };
 
 struct TransactionOptions {
@@ -256,6 +273,8 @@ struct TransactionOptions {
   // meant to be used later during recovery. It enables an optimization to
   // postpone updating the memtable with CommitTimeWriteBatch to only
   // SwitchMemtable or recovery.
+  // This option does not affect write-committed. Only
+  // write-prepared/write-unprepared transactions will be affected.
   bool use_only_the_last_commit_time_batch_for_recovery = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow

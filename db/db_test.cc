@@ -1078,6 +1078,11 @@ void CheckColumnFamilyMeta(
       ASSERT_LE(file_meta_from_cf.file_creation_time, end_time);
       ASSERT_GE(file_meta_from_cf.oldest_ancester_time, start_time);
       ASSERT_LE(file_meta_from_cf.oldest_ancester_time, end_time);
+      // More from FileStorageInfo
+      ASSERT_EQ(file_meta_from_cf.file_type, kTableFile);
+      ASSERT_EQ(file_meta_from_cf.name,
+                "/" + file_meta_from_cf.relative_filename);
+      ASSERT_EQ(file_meta_from_cf.directory, file_meta_from_cf.db_path);
     }
 
     ASSERT_EQ(level_meta_from_cf.size, level_size);
@@ -1121,6 +1126,11 @@ void CheckLiveFilesMeta(
     ASSERT_EQ(meta.largestkey, expected_meta.largest.user_key().ToString());
     ASSERT_EQ(meta.oldest_blob_file_number,
               expected_meta.oldest_blob_file_number);
+
+    // More from FileStorageInfo
+    ASSERT_EQ(meta.file_type, kTableFile);
+    ASSERT_EQ(meta.name, "/" + meta.relative_filename);
+    ASSERT_EQ(meta.directory, meta.db_path);
 
     ++i;
   }
@@ -2417,8 +2427,8 @@ TEST_F(DBTest, SnapshotFiles) {
 
     // Also test GetLiveFilesStorageInfo
     std::vector<LiveFileStorageInfo> new_infos;
-    ASSERT_OK(dbfull()->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
-                                                &new_infos));
+    ASSERT_OK(db_->GetLiveFilesStorageInfo(LiveFilesStorageInfoOptions(),
+                                           &new_infos));
 
     // Close DB (while deletions disabled)
     Close();
@@ -7022,6 +7032,51 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
       memory_limit_exceeded = false;
     }
   }
+}
+
+TEST_F(DBTest, ManualFlushWithStoppedWritesTest) {
+  Options options = CurrentOptions();
+
+  // Setting a small write buffer size. This will block writes
+  // rather quickly until a flush is made.
+  constexpr unsigned int memtableSize = 1000;
+  options.db_write_buffer_size = memtableSize;
+  options.max_background_flushes = 1;
+  Reopen(options);
+
+  std::atomic<bool> done(false);
+
+  // Will suppress future flushes.
+  // This simulates a situation where the writes will be stopped for any reason.
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  port::Thread backgroundWriter([&]() {
+    Random rnd(301);
+    // These writes won't finish.
+    ASSERT_OK(Put("k1", rnd.RandomString(memtableSize / 2)));
+    ASSERT_OK(Put("k2", rnd.RandomString(memtableSize / 2)));
+    ASSERT_OK(Put("k3", rnd.RandomString(memtableSize / 2)));
+    ASSERT_OK(Put("k4", rnd.RandomString(memtableSize / 2)));
+    done.store(true);
+  });
+
+  env_->SleepForMicroseconds(1000000 / 2);
+  // make sure thread is stuck waiting for flush.
+  ASSERT_FALSE(done.load());
+
+  FlushOptions flushOptions;
+  flushOptions.wait = false;
+  flushOptions.allow_write_stall = true;
+
+  // This is the main goal of the test. This manual flush should not deadlock
+  // as we use wait=false, and even allow_write_stall=true for extra safety.
+  ASSERT_OK(dbfull()->Flush(flushOptions));
+
+  // This will re-allow background flushes.
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+
+  backgroundWriter.join();
+  ASSERT_TRUE(done.load());
 }
 
 #endif

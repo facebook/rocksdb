@@ -26,9 +26,8 @@ class Slice;
 struct ConfigOptions;
 
 // A SliceTransform is a generic pluggable way of transforming one string
-// to another. Its primary use-case is in configuring rocksdb
-// to store prefix blooms by setting prefix_extractor in
-// ColumnFamilyOptions.
+// to another. Its primary use-case is in configuring RocksDB prefix Bloom
+// filters, by setting prefix_extractor in ColumnFamilyOptions.
 //
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
@@ -50,20 +49,18 @@ class SliceTransform : public Customizable {
   // and any additional properties.
   std::string AsString() const;
 
-  // Extract a prefix from a specified key. This method is called when
-  // a key is inserted into the db, and the returned slice is used to
-  // create a bloom filter.
+  // Extract a prefix from a specified key, partial key, iterator upper bound,
+  // etc. This is normally used for building and checking prefix Bloom filters
+  // but should accept any string for which InDomain() returns true.
+  // See ColumnFamilyOptions::prefix_extractor for specific properties that
+  // must be satisfied by prefix extractors.
   virtual Slice Transform(const Slice& key) const = 0;
 
   // Determine whether the specified key is compatible with the logic
-  // specified in the Transform method. This method is invoked for every
-  // key that is inserted into the db. If this method returns true,
-  // then Transform is called to translate the key to its prefix and
-  // that returned prefix is inserted into the bloom filter. If this
-  // method returns false, then the call to Transform is skipped and
-  // no prefix is inserted into the bloom filters.
+  // specified in the Transform method. Keys for which InDomain returns
+  // false will not be added to or queried against prefix Bloom filters.
   //
-  // For example, if the Transform method operates on a fixed length
+  // For example, if the Transform method returns a fixed length
   // prefix of size 4, then an invocation to InDomain("abc") returns
   // false because the specified key length(3) is shorter than the
   // prefix size of 4.
@@ -73,12 +70,22 @@ class SliceTransform : public Customizable {
   //
   virtual bool InDomain(const Slice& key) const = 0;
 
-  // This is currently not used and remains here for backward compatibility.
+  // DEPRECATED: This is currently not used and remains here for backward
+  // compatibility.
   virtual bool InRange(const Slice& /*dst*/) const { return false; }
 
-  // Some SliceTransform will have a full length which can be used to
-  // determine if two keys are consecutive. Can be disabled by always
-  // returning 0
+  // Returns information on maximum prefix length, if there is one.
+  // If Transform(x).size() == n for some keys and otherwise < n,
+  // should return true and set *len = n. Returning false is safe but
+  // currently disables some auto_prefix_mode filtering.
+  // Specifically, if the iterate_upper_bound is the immediate successor (see
+  // Comparator::IsSameLengthImmediateSuccessor) of the seek key's prefix,
+  // we require this function return true and iterate_upper_bound.size() == n
+  // to recognize and optimize the prefix seek.
+  // Otherwise (including FullLengthEnabled returns false, or prefix length is
+  // less than maximum), Seek with auto_prefix_mode is only optimized if the
+  // iterate_upper_bound and seek key have the same prefix.
+  // NOTE/TODO: We hope to revise this requirement in the future.
   virtual bool FullLengthEnabled(size_t* /*len*/) const { return false; }
 
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.
@@ -93,15 +100,17 @@ class SliceTransform : public Customizable {
   // by setting ReadOptions.total_order_seek = true.
   //
   // Here is an example: Suppose we implement a slice transform that returns
-  // the first part of the string after splitting it using delimiter ",":
+  // the first part of the string up to and including first ",":
   // 1. SameResultWhenAppended("abc,") should return true. If applying prefix
-  //    bloom filter using it, all slices matching "abc:.*" will be extracted
+  //    bloom filter using it, all slices matching "abc,.*" will be extracted
   //    to "abc,", so any SST file or memtable containing any of those key
   //    will not be filtered out.
-  // 2. SameResultWhenAppended("abc") should return false. A user will not
-  //    guaranteed to see all the keys matching "abc.*" if a user seek to "abc"
-  //    against a DB with the same setting. If one SST file only contains
-  //    "abcd,e", the file can be filtered out and the key will be invisible.
+  // 2. SameResultWhenAppended("abc") should return false. A user will not be
+  //    guaranteed to see all the keys matching "abc.*" if a user prefix
+  //    seeks to "abc" against a DB with the same setting. If one SST file
+  //    only contains "abcd,e", the file can be filtered out and the key will
+  //    be invisible, because the prefix according to the configured extractor
+  //    is "abcd,".
   //
   // i.e., an implementation always returning false is safe.
   virtual bool SameResultWhenAppended(const Slice& /*prefix*/) const {

@@ -9,6 +9,7 @@
 
 #include "db/version_edit.h"
 
+#include "db/blob/blob_index.h"
 #include "rocksdb/advanced_options.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
@@ -609,6 +610,128 @@ TEST_F(VersionEditTest, IgnorableTags) {
   ASSERT_EQ(edit.GetColumnFamily(), kColumnFamilyId);
 
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST(FileMetaDataTest, UpdateBoundariesBlobIndex) {
+  FileMetaData meta;
+
+  {
+    constexpr uint64_t file_number = 10;
+    constexpr uint32_t path_id = 0;
+    constexpr uint64_t file_size = 0;
+
+    meta.fd = FileDescriptor(file_number, path_id, file_size);
+  }
+
+  constexpr char key[] = "foo";
+
+  constexpr uint64_t expected_oldest_blob_file_number = 20;
+
+  // Plain old value (does not affect oldest_blob_file_number)
+  {
+    constexpr char value[] = "value";
+    constexpr SequenceNumber seq = 200;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, value, seq, kTypeValue));
+    ASSERT_EQ(meta.oldest_blob_file_number, kInvalidBlobFileNumber);
+  }
+
+  // Non-inlined, non-TTL blob index (sets oldest_blob_file_number)
+  {
+    constexpr uint64_t blob_file_number = 25;
+    static_assert(blob_file_number > expected_oldest_blob_file_number,
+                  "unexpected");
+
+    constexpr uint64_t offset = 1000;
+    constexpr uint64_t size = 100;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                          kNoCompression);
+
+    constexpr SequenceNumber seq = 201;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, blob_file_number);
+  }
+
+  // Another one, with the oldest blob file number (updates
+  // oldest_blob_file_number)
+  {
+    constexpr uint64_t offset = 2000;
+    constexpr uint64_t size = 300;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, expected_oldest_blob_file_number, offset,
+                          size, kNoCompression);
+
+    constexpr SequenceNumber seq = 202;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Inlined TTL blob index (does not affect oldest_blob_file_number)
+  {
+    constexpr uint64_t expiration = 9876543210;
+    constexpr char value[] = "value";
+
+    std::string blob_index;
+    BlobIndex::EncodeInlinedTTL(&blob_index, expiration, value);
+
+    constexpr SequenceNumber seq = 203;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Non-inlined TTL blob index (does not affect oldest_blob_file_number, even
+  // though file number is smaller)
+  {
+    constexpr uint64_t expiration = 9876543210;
+    constexpr uint64_t blob_file_number = 15;
+    static_assert(blob_file_number < expected_oldest_blob_file_number,
+                  "unexpected");
+
+    constexpr uint64_t offset = 2000;
+    constexpr uint64_t size = 500;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlobTTL(&blob_index, expiration, blob_file_number, offset,
+                             size, kNoCompression);
+
+    constexpr SequenceNumber seq = 204;
+
+    ASSERT_OK(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex));
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Corrupt blob index
+  {
+    constexpr char corrupt_blob_index[] = "!corrupt!";
+    constexpr SequenceNumber seq = 205;
+
+    ASSERT_TRUE(
+        meta.UpdateBoundaries(key, corrupt_blob_index, seq, kTypeBlobIndex)
+            .IsCorruption());
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
+
+  // Invalid blob file number
+  {
+    constexpr uint64_t offset = 10000;
+    constexpr uint64_t size = 1000;
+
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, kInvalidBlobFileNumber, offset, size,
+                          kNoCompression);
+
+    constexpr SequenceNumber seq = 206;
+
+    ASSERT_TRUE(meta.UpdateBoundaries(key, blob_index, seq, kTypeBlobIndex)
+                    .IsCorruption());
+    ASSERT_EQ(meta.oldest_blob_file_number, expected_oldest_blob_file_number);
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

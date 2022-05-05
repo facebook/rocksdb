@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+struct TransactionDBOptions;
 
 class StressTest {
  public:
@@ -29,7 +30,7 @@ class StressTest {
 
   bool BuildOptionsTable();
 
-  void InitDb();
+  void InitDb(SharedState*);
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
@@ -218,11 +219,18 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open();
+  void Open(SharedState* shared);
 
   void Reopen(ThreadState* thread);
 
   void CheckAndSetOptionsForUserTimestamp();
+
+  virtual void RegisterAdditionalListeners() {}
+
+#ifndef ROCKSDB_LITE
+  virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
+                                   TransactionDBOptions& /*txn_db_opts*/) {}
+#endif
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

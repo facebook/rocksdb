@@ -13,6 +13,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
@@ -934,7 +935,8 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        NewClockCache(capacity, num_shard_bits)}) {
+        NewClockCache(capacity, num_shard_bits),
+        NewFastLRUCache(capacity, num_shard_bits)}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;
@@ -1288,7 +1290,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
-         {NewLRUCache(capacity), NewClockCache(capacity)}) {
+         {NewLRUCache(capacity), NewClockCache(capacity),
+          NewFastLRUCache(capacity)}) {
       if (!cache) {
         // Skip clock cache when not supported
         continue;
@@ -1404,21 +1407,11 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       ASSERT_TRUE(
           db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
 
-      EXPECT_EQ(
-          ToString(expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]),
-          values["count.index-block"]);
-      EXPECT_EQ(
-          ToString(expected[static_cast<size_t>(CacheEntryRole::kDataBlock)]),
-          values["count.data-block"]);
-      EXPECT_EQ(
-          ToString(expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)]),
-          values["count.filter-block"]);
-      EXPECT_EQ(
-          ToString(
-              prev_expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
-          values["count.write-buffer"]);
-      EXPECT_EQ(ToString(expected[static_cast<size_t>(CacheEntryRole::kMisc)]),
-                values["count.misc"]);
+      for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+        auto role = static_cast<CacheEntryRole>(i);
+        EXPECT_EQ(ToString(expected[i]),
+                  values[BlockCacheEntryStatsMapKeys::EntryCount(role)]);
+      }
 
       // Add one for kWriteBuffer
       {
@@ -1431,7 +1424,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         env_->MockSleepForSeconds(1);
         EXPECT_EQ(ToString(prev_expected[static_cast<size_t>(
                       CacheEntryRole::kWriteBuffer)]),
-                  values["count.write-buffer"]);
+                  values[BlockCacheEntryStatsMapKeys::EntryCount(
+                      CacheEntryRole::kWriteBuffer)]);
         // Not enough for a "background" miss but enough for a "foreground" miss
         env_->MockSleepForSeconds(45);
 
@@ -1440,7 +1434,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         EXPECT_EQ(
             ToString(
                 expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
-            values["count.write-buffer"]);
+            values[BlockCacheEntryStatsMapKeys::EntryCount(
+                CacheEntryRole::kWriteBuffer)]);
       }
       prev_expected = expected;
 

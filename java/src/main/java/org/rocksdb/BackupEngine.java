@@ -226,8 +226,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
         restoreOptions.nativeHandle_);
   }
 
-  private native static long open(final long env,
-      final long backupableDbOptions) throws RocksDBException;
+  private native static long open(final long env, final long backupEngineOptions)
+      throws RocksDBException;
 
   private native void createNewBackup(final long handle, final long dbHandle,
       final boolean flushBeforeBackup) throws RocksDBException;

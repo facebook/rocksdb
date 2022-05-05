@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
+#include "table/table_properties_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"

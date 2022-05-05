@@ -175,7 +175,10 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
-TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+// TODO akanksha: Update the test to check that combination
+// does not actually write to FS (use open read-only with
+// CompositeEnvWrapper+ReadOnlyFileSystem).
+TEST_F(DBBasicTest, DISABLED_ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
   ASSERT_OK(Put("foo", "v3"));
@@ -1956,8 +1959,9 @@ TEST_F(DBBasicTest, MultiGetStats) {
   int total_keys = 2000;
   std::vector<std::string> keys_str(total_keys);
   std::vector<Slice> keys(total_keys);
-  std::vector<PinnableSlice> values(total_keys);
-  std::vector<Status> s(total_keys);
+  static size_t kMultiGetBatchSize = 100;
+  std::vector<PinnableSlice> values(kMultiGetBatchSize);
+  std::vector<Status> s(kMultiGetBatchSize);
   ReadOptions read_opts;
 
   Random rnd(309);
@@ -1994,15 +1998,16 @@ TEST_F(DBBasicTest, MultiGetStats) {
     }
   }
   ASSERT_OK(Flush(1));
+  MoveFilesToLevel(1, 1);
   Close();
 
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_OK(options.statistics->Reset());
 
-  db_->MultiGet(read_opts, handles_[1], total_keys, keys.data(), values.data(),
-                s.data(), false);
+  db_->MultiGet(read_opts, handles_[1], kMultiGetBatchSize, &keys[1250],
+                values.data(), s.data(), false);
 
-  ASSERT_EQ(values.size(), total_keys);
+  ASSERT_EQ(values.size(), kMultiGetBatchSize);
   HistogramData hist_data_blocks;
   HistogramData hist_index_and_filter_blocks;
   HistogramData hist_sst;
@@ -2014,16 +2019,16 @@ TEST_F(DBBasicTest, MultiGetStats) {
   options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
 
   // Maximum number of blocks read from a file system in a level.
-  ASSERT_GT(hist_data_blocks.max, 0);
+  ASSERT_EQ(hist_data_blocks.max, 32);
   ASSERT_GT(hist_index_and_filter_blocks.max, 0);
   // Maximum number of sst files read from file system in a level.
-  ASSERT_GT(hist_sst.max, 0);
+  ASSERT_EQ(hist_sst.max, 2);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 3);
+  ASSERT_EQ(hist_data_blocks.min, 4);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
-  ASSERT_GT(hist_sst.max, 0);
+  ASSERT_EQ(hist_sst.min, 1);
 }
 
 // Test class for batched MultiGet with prefix extractor

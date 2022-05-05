@@ -15,6 +15,45 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
+namespace {
+bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
+  // If it is numeric, everything up to the match must be a number
+  int digits = 0;
+  if (target[start] == '-') {
+    start++;  // Allow negative numbers
+  }
+  while (start < pos) {
+    if (!isdigit(target[start++])) {
+      return false;
+    } else {
+      digits++;
+    }
+  }
+  return (digits > 0);
+}
+
+bool MatchesDecimal(const std::string &target, size_t start, size_t pos) {
+  int digits = 0;
+  if (target[start] == '-') {
+    start++;  // Allow negative numbers
+  }
+  for (bool point = false; start < pos; start++) {
+    if (target[start] == '.') {
+      if (point) {
+        return false;
+      } else {
+        point = true;
+      }
+    } else if (!isdigit(target[start])) {
+      return false;
+    } else {
+      digits++;
+    }
+  }
+  return (digits > 0);
+}
+}  // namespace
+
 size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     size_t start, Quantifier mode, const std::string &target, size_t tlen,
     const std::string &separator) const {
@@ -36,12 +75,13 @@ size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     }
     if (pos == std::string::npos) {
       return pos;
-    } else if (mode == kMatchNumeric) {
-      // If it is numeric, everything up to the match must be a number
-      while (start < pos) {
-        if (!isdigit(target[start++])) {
-          return std::string::npos;
-        }
+    } else if (mode == kMatchInteger) {
+      if (!MatchesInteger(target, start, pos)) {
+        return std::string::npos;
+      }
+    } else if (mode == kMatchDecimal) {
+      if (!MatchesDecimal(target, start, pos)) {
+        return std::string::npos;
       }
     }
     return pos + slen;
@@ -84,12 +124,10 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
       return (start == tlen);
     } else if (start > tlen || (start == tlen && mode != kMatchZeroOrMore)) {
       return false;
-    } else if (mode == kMatchNumeric) {
-      while (start < tlen) {
-        if (!isdigit(target[start++])) {
-          return false;
-        }
-      }
+    } else if (mode == kMatchInteger) {
+      return MatchesInteger(target, start, tlen);
+    } else if (mode == kMatchDecimal) {
+      return MatchesDecimal(target, start, tlen);
     }
   }
   return true;
@@ -121,16 +159,18 @@ size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
 
 void ObjectLibrary::Dump(Logger *logger) const {
   std::unique_lock<std::mutex> lock(mu_);
-  for (const auto &iter : factories_) {
-    ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
-                     iter.first.c_str());
-    bool printed_one = false;
-    for (const auto &e : iter.second) {
-      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':', e->Name());
-      printed_one = true;
+  if (logger != nullptr && !factories_.empty()) {
+    ROCKS_LOG_HEADER(logger, "    Registered Library: %s\n", id_.c_str());
+    for (const auto &iter : factories_) {
+      ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
+                       iter.first.c_str());
+      bool printed_one = false;
+      for (const auto &e : iter.second) {
+        ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':', e->Name());
+        printed_one = true;
+      }
     }
   }
-  ROCKS_LOG_HEADER(logger, "\n");
 }
 
 // Returns the Default singleton instance of the ObjectLibrary
@@ -141,6 +181,13 @@ std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   STATIC_AVOID_DESTRUCTION(std::shared_ptr<ObjectLibrary>, instance)
   (std::make_shared<ObjectLibrary>("default"));
   return instance;
+}
+
+ObjectRegistry::ObjectRegistry(const std::shared_ptr<ObjectLibrary> &library) {
+  libraries_.push_back(library);
+  for (const auto &b : builtins_) {
+    RegisterPlugin(b.first, b.second);
+  }
 }
 
 std::shared_ptr<ObjectRegistry> ObjectRegistry::Default() {
@@ -230,14 +277,34 @@ Status ObjectRegistry::ListManagedObjects(
 }
 
 void ObjectRegistry::Dump(Logger *logger) const {
-  {
+  if (logger != nullptr) {
     std::unique_lock<std::mutex> lock(library_mutex_);
+    if (!plugins_.empty()) {
+      ROCKS_LOG_HEADER(logger, "    Registered Plugins:");
+      bool printed_one = false;
+      for (const auto &plugin : plugins_) {
+        ROCKS_LOG_HEADER(logger, "%s%s", (printed_one) ? ", " : " ",
+                         plugin.c_str());
+        printed_one = true;
+      }
+      ROCKS_LOG_HEADER(logger, "\n");
+    }
     for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
       iter->get()->Dump(logger);
     }
   }
   if (parent_ != nullptr) {
     parent_->Dump(logger);
+  }
+}
+
+int ObjectRegistry::RegisterPlugin(const std::string &name,
+                                   const RegistrarFunc &func) {
+  if (!name.empty() && func != nullptr) {
+    plugins_.push_back(name);
+    return AddLibrary(name)->Register(func, name);
+  } else {
+    return -1;
   }
 }
 
