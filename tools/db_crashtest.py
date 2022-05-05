@@ -132,6 +132,8 @@ default_params = {
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync" : lambda : random.choice(
         [1 if t == 0 else 0 for t in range(0, 20)]),
+    "bytes_per_sync": lambda: random.choice([0, 262144]),
+    "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
     # Disable compaction_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
@@ -153,7 +155,7 @@ default_params = {
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
-    "sync_fault_injection": False,
+    "sync_fault_injection": lambda: random.randint(0, 1),
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(

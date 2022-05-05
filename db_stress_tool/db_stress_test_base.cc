@@ -2368,6 +2368,8 @@ void StressTest::Open(SharedState* shared) {
     options_.statistics = dbstats;
     options_.env = db_stress_env;
     options_.use_fsync = FLAGS_use_fsync;
+    options_.bytes_per_sync = FLAGS_bytes_per_sync;
+    options_.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
     options_.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options_.allow_mmap_reads = FLAGS_mmap_read;
     options_.allow_mmap_writes = FLAGS_mmap_write;
