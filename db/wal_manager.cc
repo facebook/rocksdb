@@ -36,6 +36,11 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
+void WalManager::TEST_ClearFirstRecordCache() {
+  MutexLock l(&read_first_record_cache_mutex_);
+  read_first_record_cache_.clear();
+}
+
 Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   auto s = env_->DeleteFile(wal_dir_ + "/" + fname);
   if (s.ok()) {
@@ -45,14 +50,14 @@ Status WalManager::DeleteFile(const std::string& fname, uint64_t number) {
   return s;
 }
 
-Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
+Status WalManager::GetSortedWalFiles(VectorLogPtr& files, SequenceNumber seq) {
   // First get sorted files in db dir, then get sorted files from archived
   // dir, to avoid a race condition where a log file is moved to archived
   // dir in between.
   Status s;
   // list wal files in main db dir.
   VectorLogPtr logs;
-  s = GetSortedWalsOfType(wal_dir_, logs, kAliveLogFile);
+  s = GetSortedWalsOfType(wal_dir_, logs, kAliveLogFile, seq);
   if (!s.ok()) {
     return s;
   }
@@ -68,7 +73,7 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
   std::string archivedir = ArchivalDirectory(wal_dir_);
   Status exists = env_->FileExists(archivedir);
   if (exists.ok()) {
-    s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile);
+    s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile, seq);
     if (!s.ok()) {
       return s;
     }
@@ -114,8 +119,8 @@ Status WalManager::GetUpdatesSince(
   //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.
 
-  std::unique_ptr<VectorLogPtr> wal_files(new VectorLogPtr);
-  Status s = GetSortedWalFiles(*wal_files);
+  auto wal_files = std::make_unique<VectorLogPtr>();
+  Status s = GetSortedWalFiles(*wal_files, seq);
   if (!s.ok()) {
     return s;
   }
@@ -124,9 +129,9 @@ Status WalManager::GetUpdatesSince(
   if (!s.ok()) {
     return s;
   }
-  iter->reset(new TransactionLogIteratorImpl(
+  *iter = std::make_unique<TransactionLogIteratorImpl>(
       wal_dir_, &db_options_, read_options, file_options_, seq,
-      std::move(wal_files), version_set, seq_per_batch_, io_tracer_));
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_);
   return (*iter)->status();
 }
 
@@ -289,7 +294,35 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
 
 Status WalManager::GetSortedWalsOfType(const std::string& path,
                                        VectorLogPtr& log_files,
-                                       WalFileType log_type) {
+                                       WalFileType log_type,
+                                       SequenceNumber seq_hint) {
+  uint64_t min_logfile_number_to_keep = 0;
+  if (seq_hint > 0) {
+    // target lower bound sequence number was specified.
+    // try to find the minimum logfile number that contains the
+    // target range, by checking the logfile to sequence number
+    // cache.
+    // this is only a performance optimization to avoid peeking
+    // into every logfile. if the cache is not yet populated, we
+    // may look into more logfiles than necessary, but the result
+    // should still be correct.
+    SequenceNumber min_sequence_found = 0;
+
+    MutexLock l(&read_first_record_cache_mutex_);
+    for (auto const& entry : read_first_record_cache_) {
+      // the cache maps logfile numbers to sequence numbers
+      uint64_t file_number = entry.first;
+      SequenceNumber file_seq = entry.second;
+      if (file_seq <= seq_hint) {
+        if (min_sequence_found == 0 || file_seq > min_sequence_found) {
+          min_logfile_number_to_keep = file_number;
+          min_sequence_found = file_seq;
+        }
+      }
+    }
+    assert(min_sequence_found <= seq_hint);
+  }
+
   std::vector<std::string> all_files;
   const Status status = env_->GetChildren(path, &all_files);
   if (!status.ok()) {
@@ -300,6 +333,12 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
     uint64_t number;
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kWalFile) {
+      if (number < min_logfile_number_to_keep) {
+        // quickly filter out logfiles if they contain data older
+        // than what we are interested in
+        continue;
+      }
+
       SequenceNumber sequence;
       Status s = ReadFirstRecord(log_type, number, &sequence);
       if (!s.ok()) {
@@ -308,6 +347,17 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       if (sequence == 0) {
         // empty file
         continue;
+      }
+
+      if (sequence <= seq_hint) {
+        // found a logfile with data that is potentially older than what
+        // we are interested in.
+        if (min_logfile_number_to_keep == 0 ||
+            min_logfile_number_to_keep > number) {
+          // adjust our lower bound, so that we can ignore all files older
+          // than this one.
+          min_logfile_number_to_keep = number;
+        }
       }
 
       // Reproduce the race condition where a log file is moved
@@ -377,7 +427,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
                                    SequenceNumber* sequence) {
   *sequence = 0;
   if (type != kAliveLogFile && type != kArchivedLogFile) {
-    ROCKS_LOG_ERROR(db_options_.info_log, "[WalManger] Unknown file type %s",
+    ROCKS_LOG_ERROR(db_options_.info_log, "[WalManager] Unknown file type %s",
                     ToString(type).c_str());
     return Status::NotSupported(
         "File Type Not Known " + ToString(type));

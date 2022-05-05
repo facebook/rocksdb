@@ -49,7 +49,13 @@ class WalManager {
         wal_in_db_path_(db_options_.IsWalDirSameAsDBPath()),
         io_tracer_(io_tracer) {}
 
-  Status GetSortedWalFiles(VectorLogPtr& files);
+  // Get WAL files sorted by file number. The lower bound sequence number
+  // seq_hint can be given as an optional hint if only certain WAL files are
+  // needed. The hint is a performance optimization only. The function can
+  // still return files outside the specified range, so its result needs to
+  // be post-filtered to restrict the files to a certain range of sequence
+  // numbers.
+  Status GetSortedWalFiles(VectorLogPtr& files, SequenceNumber seq_hint = 0);
 
   // Allow user to tail transaction log to find all recent changes to the
   // database that are newer than `seq_number`.
@@ -61,6 +67,8 @@ class WalManager {
   void PurgeObsoleteWALFiles();
 
   void ArchiveWALFile(const std::string& fname, uint64_t number);
+
+  void TEST_ClearFirstRecordCache();
 
   Status DeleteFile(const std::string& fname, uint64_t number);
 
@@ -77,8 +85,14 @@ class WalManager {
   }
 
  private:
+  // Get WAL files of specified type, sorted by file number.
+  // The lower bound sequence number seq_hint can be given as an optional hint
+  // if only certain WAL files are needed. The hint is a performance
+  // optimization only. The function can still return files outside the
+  // specified range, so its result needs to be post-filtered to restrict the
+  // files to a certain range of sequence numbers.
   Status GetSortedWalsOfType(const std::string& path, VectorLogPtr& log_files,
-                             WalFileType type);
+                             WalFileType type, SequenceNumber seq_hint = 0);
   // Requires: all_logs should be sorted with earliest log file first
   // Retains all log files in all_logs which contain updates with seq no.
   // Greater Than or Equal to the requested SequenceNumber.
