@@ -2029,11 +2029,11 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   if (FLAGS_long_running_snapshots) {
     // Hold 10% of snapshots for 10x more
     if (thread->rand.OneIn(10)) {
-      assert(hold_for < std::numeric_limits<int64_t>::max() / 10);
+      assert(hold_for < std::numeric_limits<uint64_t>::max() / 10);
       hold_for *= 10;
       // Hold 1% of snapshots for 100x more
       if (thread->rand.OneIn(10)) {
-        assert(hold_for < std::numeric_limits<int64_t>::max() / 10);
+        assert(hold_for < std::numeric_limits<uint64_t>::max() / 10);
         hold_for *= 10;
       }
     }

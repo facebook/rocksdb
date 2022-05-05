@@ -58,9 +58,7 @@ class FileIndexer {
   void UpdateIndex(Arena* arena, const size_t num_levels,
                    std::vector<FileMetaData*>* const files);
 
-  enum {
-    kLevelMaxIndex = std::numeric_limits<int32_t>::max()
-  };
+  enum { kLevelMaxIndex = std::numeric_limits<int32_t>::max() };
 
  private:
   size_t num_levels_;
