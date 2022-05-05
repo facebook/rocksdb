@@ -188,11 +188,8 @@ commands:
           path: /tmp/benchmark-results
           destination: test_logs
       - run:
-          name: Output logs as MIME
-          command: ./build_tools/benchmark_log_mime.py --logdirectory /tmp/benchmark-results
-      - run:
           name: Send benchmark report to visualisation
-          command: ./build_tools/benchmark_log_tool.py --action tsv --tsvfile /tmp/benchmark-results/report.tsv
+          command: ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
 
 executors:
   windows-2xlarge:
