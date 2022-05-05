@@ -647,6 +647,14 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
   }
 
   if (enable_pipelined_write_) {
+    // We insert a dummy Writer right before our current write_group. This
+    // allows us to unlink our write_group without the risk that a subsequent
+    // writer becomes a new leader and might overtake use before we can add our
+    // group to the memtable-writer-list.
+
+    // This must happen before completeing the writers from our group to prevent
+    // a race where the owning thread of one of these writers can start a new
+    // write operation.
     Writer dummy;
     Writer* head = newest_writer_.load(std::memory_order_acquire);
     if (head != last_writer ||
@@ -657,7 +665,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
       dummy.link_newer = last_writer->link_newer;
     }
 
-    // Unlink writers that don't write to memtable
+    // Complete writers that don't write to memtable
     for (Writer* w = last_writer; w != leader;) {
       Writer* next = w->link_older;
       w->status = status;
@@ -685,6 +693,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
       }
     }
 
+    // Unlink the dummy writer from the list and identify the new leader
     head = newest_writer_.load(std::memory_order_acquire);
     if (head != &dummy ||
         !newest_writer_.compare_exchange_strong(head, nullptr)) {
