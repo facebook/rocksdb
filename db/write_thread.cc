@@ -4,9 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/write_thread.h"
+
 #include <atomic>
 #include <chrono>
 #include <thread>
+
 #include "db/column_family.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"

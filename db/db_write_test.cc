@@ -341,6 +341,7 @@ TEST_P(DBWriteTest, PipelinedWriteRace) {
   options.two_write_queues = false;
   options.enable_pipelined_write = true;
   std::vector<port::Thread> threads;
+
   std::atomic<int> write_counter(0);
   std::atomic<int> active_writers{0};
   std::atomic<bool> second_write_starting{false};
