@@ -51,8 +51,7 @@ class DbStressCompactionFilter : public CompactionFilter {
     key_mutex->Unlock();
 
     if (!key_exists) {
-      return allow_overwrite ? Decision::kRemove
-                             : Decision::kRemoveWithSingleDelete;
+      return allow_overwrite ? Decision::kRemove : Decision::kPurge;
     }
     return Decision::kKeep;
   }
