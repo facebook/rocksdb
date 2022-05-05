@@ -82,8 +82,7 @@ class MyTestCompactionService : public CompactionService {
     options.canceled = &canceled_;
 
     Status s = DB::OpenAndCompact(
-        options, db_path_,
-        db_path_ + "/" + ROCKSDB_NAMESPACE::ToString(info.job_id),
+        options, db_path_, db_path_ + "/" + std::to_string(info.job_id),
         compaction_input, compaction_service_result, options_override);
     if (is_override_wait_result_) {
       *compaction_service_result = override_wait_result_;
@@ -177,7 +176,7 @@ class CompactionServiceTest : public DBTestBase {
     for (int i = 0; i < 20; i++) {
       for (int j = 0; j < 10; j++) {
         int key_id = i * 10 + j;
-        ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+        ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
       }
       ASSERT_OK(Flush());
     }
@@ -187,7 +186,7 @@ class CompactionServiceTest : public DBTestBase {
     for (int i = 0; i < 10; i++) {
       for (int j = 0; j < 10; j++) {
         int key_id = i * 20 + j * 2;
-        ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+        ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
       }
       ASSERT_OK(Flush());
     }
@@ -199,9 +198,9 @@ class CompactionServiceTest : public DBTestBase {
     for (int i = 0; i < 200; i++) {
       auto result = Get(Key(i));
       if (i % 2) {
-        ASSERT_EQ(result, "value" + ToString(i));
+        ASSERT_EQ(result, "value" + std::to_string(i));
       } else {
-        ASSERT_EQ(result, "value_new" + ToString(i));
+        ASSERT_EQ(result, "value_new" + std::to_string(i));
       }
     }
   }
@@ -224,7 +223,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -232,7 +231,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -242,9 +241,9 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 200; i++) {
     auto result = Get(Key(i));
     if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + std::to_string(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + std::to_string(i));
     }
   }
   auto my_cs = GetCompactionService();
@@ -281,7 +280,7 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      s = Put(Key(key_id), "value_new" + ToString(key_id));
+      s = Put(Key(key_id), "value_new" + std::to_string(key_id));
       if (s.IsAborted()) {
         break;
       }
@@ -468,7 +467,7 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -476,7 +475,7 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -490,9 +489,9 @@ TEST_F(CompactionServiceTest, CompactionFilter) {
     if (i > 5 && i <= 105) {
       ASSERT_EQ(result, "NOT_FOUND");
     } else if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + std::to_string(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + std::to_string(i));
     }
   }
   auto my_cs = GetCompactionService();
@@ -547,9 +546,9 @@ TEST_F(CompactionServiceTest, ConcurrentCompaction) {
   for (int i = 0; i < 200; i++) {
     auto result = Get(Key(i));
     if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + std::to_string(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + std::to_string(i));
     }
   }
   auto my_cs = GetCompactionService();
@@ -564,7 +563,7 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -572,7 +571,7 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -617,7 +616,7 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -625,7 +624,7 @@ TEST_F(CompactionServiceTest, CompactionInfo) {
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -653,7 +652,7 @@ TEST_F(CompactionServiceTest, FallbackLocalAuto) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -661,7 +660,7 @@ TEST_F(CompactionServiceTest, FallbackLocalAuto) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -671,9 +670,9 @@ TEST_F(CompactionServiceTest, FallbackLocalAuto) {
   for (int i = 0; i < 200; i++) {
     auto result = Get(Key(i));
     if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + std::to_string(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + std::to_string(i));
     }
   }
 
@@ -796,7 +795,7 @@ TEST_F(CompactionServiceTest, RemoteEventListener) {
   for (int i = 0; i < 20; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -804,7 +803,7 @@ TEST_F(CompactionServiceTest, RemoteEventListener) {
   for (int i = 0; i < 10; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value_new" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value_new" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -821,9 +820,9 @@ TEST_F(CompactionServiceTest, RemoteEventListener) {
   for (int i = 0; i < 200; i++) {
     auto result = Get(Key(i));
     if (i % 2) {
-      ASSERT_EQ(result, "value" + ToString(i));
+      ASSERT_EQ(result, "value" + std::to_string(i));
     } else {
-      ASSERT_EQ(result, "value_new" + ToString(i));
+      ASSERT_EQ(result, "value_new" + std::to_string(i));
     }
   }
 }

@@ -1153,7 +1153,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
     IoctlFriendlyTmpdir ift;
     std::vector<std::string> fnames;
     for (int i = 0; i < 1000; ++i) {
-      fnames.push_back(ift.name() + "/" + "testfile" + ToString(i));
+      fnames.push_back(ift.name() + "/" + "testfile" + std::to_string(i));
 
       // Create file.
       std::unique_ptr<WritableFile> wfile;

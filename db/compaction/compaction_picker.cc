@@ -401,7 +401,7 @@ Status CompactionPicker::GetCompactionInputsFromFileNumbers(
         "Cannot find matched SST files for the following file numbers:");
     for (auto fn : *input_set) {
       message += " ";
-      message += ToString(fn);
+      message += std::to_string(fn);
     }
     return Status::InvalidArgument(message);
   }
@@ -1004,14 +1004,14 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
     return Status::InvalidArgument(
         "Output level for column family " + cf_meta.name +
         " must between [0, " +
-        ToString(cf_meta.levels[cf_meta.levels.size() - 1].level) + "].");
+        std::to_string(cf_meta.levels[cf_meta.levels.size() - 1].level) + "].");
   }
 
   if (output_level > MaxOutputLevel()) {
     return Status::InvalidArgument(
         "Exceed the maximum output level defined by "
         "the current compaction algorithm --- " +
-        ToString(MaxOutputLevel()));
+        std::to_string(MaxOutputLevel()));
   }
 
   if (output_level < 0) {
@@ -1061,8 +1061,8 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
       return Status::InvalidArgument(
           "Cannot compact file to up level, input file: " +
           MakeTableFileName("", file_num) + " level " +
-          ToString(input_file_level) + " > output level " +
-          ToString(output_level));
+          std::to_string(input_file_level) + " > output level " +
+          std::to_string(output_level));
     }
   }
 

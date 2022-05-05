@@ -2458,7 +2458,7 @@ void CompactionJob::LogCompaction() {
            << "compaction_reason"
            << GetCompactionReasonString(compaction->compaction_reason());
     for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
-      stream << ("files_L" + ToString(compaction->level(i)));
+      stream << ("files_L" + std::to_string(compaction->level(i)));
       stream.StartArray();
       for (auto f : *compaction->inputs(i)) {
         stream << f->fd.GetNumber();
@@ -3008,7 +3008,7 @@ Status CompactionServiceInput::Read(const std::string& data_str,
   } else {
     return Status::NotSupported(
         "Compaction Service Input data version not supported: " +
-        ToString(format_version));
+        std::to_string(format_version));
   }
 }
 
@@ -3037,7 +3037,7 @@ Status CompactionServiceResult::Read(const std::string& data_str,
   } else {
     return Status::NotSupported(
         "Compaction Service Result data version not supported: " +
-        ToString(format_version));
+        std::to_string(format_version));
   }
 }
 

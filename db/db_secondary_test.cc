@@ -212,20 +212,20 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   const int kRangeL2 = 10;
   const int kRangeL1 = 30;
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i * kRangeL2), "value" + ToString(i)));
-    ASSERT_OK(Put(Key((i + 1) * kRangeL2 - 1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * kRangeL2), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL2 - 1), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(2);
   for (int i = 0; i < 5; i++) {
-    ASSERT_OK(Put(Key(i * kRangeL1), "value" + ToString(i)));
-    ASSERT_OK(Put(Key((i + 1) * kRangeL1 - 1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * kRangeL1), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL1 - 1), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(1);
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put(Key(i * 30), "value" + ToString(i)));
-    ASSERT_OK(Put(Key(i * 30 + 50), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * 30), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key(i * 30 + 50), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
 

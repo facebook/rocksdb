@@ -190,9 +190,10 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_EQ(NumTableFilesAtLevel(2), 2);
 
-  ASSERT_OK(db_->SetOptions(
-      db_->DefaultColumnFamily(),
-      {{"target_file_size_base", ToString(100 * opts.max_compaction_bytes)}}));
+  ASSERT_OK(
+      db_->SetOptions(db_->DefaultColumnFamily(),
+                      {{"target_file_size_base",
+                        std::to_string(100 * opts.max_compaction_bytes)}}));
 
   // It spans the whole key-range, thus will be included in all output files
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),

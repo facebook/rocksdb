@@ -686,8 +686,7 @@ Status BlockBasedTableFactory::ValidateOptions(
                                    table_options_.checksum, &garbage)) {
     return Status::InvalidArgument(
         "Unrecognized ChecksumType for checksum: " +
-        ROCKSDB_NAMESPACE::ToString(
-            static_cast<uint32_t>(table_options_.checksum)));
+        std::to_string(static_cast<uint32_t>(table_options_.checksum)));
   }
   return TableFactory::ValidateOptions(db_opts, cf_opts);
 }

@@ -119,7 +119,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
         break;
     }
     state.append("@");
-    state.append(ROCKSDB_NAMESPACE::ToString(ikey.sequence));
+    state.append(std::to_string(ikey.sequence));
   }
   if (!s.ok()) {
     state.append(s.ToString());

@@ -38,10 +38,10 @@ class DBTest2 : public DBTestBase {
 #ifndef ROCKSDB_LITE
   uint64_t GetSstSizeHelper(Temperature temperature) {
     std::string prop;
-    EXPECT_TRUE(
-        dbfull()->GetProperty(DB::Properties::kLiveSstFilesSizeAtTemperature +
-                                  ToString(static_cast<uint8_t>(temperature)),
-                              &prop));
+    EXPECT_TRUE(dbfull()->GetProperty(
+        DB::Properties::kLiveSstFilesSizeAtTemperature +
+            std::to_string(static_cast<uint8_t>(temperature)),
+        &prop));
     return static_cast<uint64_t>(std::atoi(prop.c_str()));
   }
 #endif  // ROCKSDB_LITE
@@ -1694,9 +1694,9 @@ class CompactionCompressionListener : public EventListener {
     int bottommost_level = 0;
     for (int level = 0; level < db->NumberLevels(); level++) {
       std::string files_at_level;
-      ASSERT_TRUE(db->GetProperty(
-          "rocksdb.num-files-at-level" + ROCKSDB_NAMESPACE::ToString(level),
-          &files_at_level));
+      ASSERT_TRUE(
+          db->GetProperty("rocksdb.num-files-at-level" + std::to_string(level),
+                          &files_at_level));
       if (files_at_level != "0") {
         bottommost_level = level;
       }
@@ -2492,14 +2492,14 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 
   const size_t kNumEntries = 10;
   for (size_t i = 0; i < kNumEntries; ++i) {
-    ASSERT_OK(Put("k" + ToString(i), "v" + ToString(i)));
+    ASSERT_OK(Put("k" + std::to_string(i), "v" + std::to_string(i)));
   }
   ASSERT_OK(Flush());
   for (size_t i = 0; i < kNumEntries; ++i) {
-    ASSERT_EQ("v" + ToString(i), Get("k" + ToString(i)));
+    ASSERT_EQ("v" + std::to_string(i), Get("k" + std::to_string(i)));
   }
-  std::string last_key = "k" + ToString(kNumEntries - 1);
-  std::string last_value = "v" + ToString(kNumEntries - 1);
+  std::string last_key = "k" + std::to_string(kNumEntries - 1);
+  std::string last_value = "v" + std::to_string(kNumEntries - 1);
   env_->now_cpu_count_.store(0);
   env_->SetMockSleep();
 
@@ -5553,7 +5553,7 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
   Options options = CurrentOptions();
   std::vector<std::string> dbnames;
   for (int i = 0; i < kNumDbs; ++i) {
-    dbnames.emplace_back(test::PerThreadDBPath(env_, "db" + ToString(i)));
+    dbnames.emplace_back(test::PerThreadDBPath(env_, "db" + std::to_string(i)));
     ASSERT_OK(DestroyDB(dbnames.back(), options));
   }
 

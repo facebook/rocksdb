@@ -817,7 +817,7 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" temperature: ");
       // Maybe change to human readable format whenthe feature becomes
       // permanent
-      r.append(ToString(static_cast<int>(f.temperature)));
+      r.append(std::to_string(static_cast<int>(f.temperature)));
     }
   }
 
@@ -928,7 +928,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
       jw << "FileChecksumFuncName" << f.file_checksum_func_name;
       if (f.temperature != Temperature::kUnknown) {
-        jw << "temperature" << ToString(static_cast<int>(f.temperature));
+        jw << "temperature" << std::to_string(static_cast<int>(f.temperature));
       }
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;

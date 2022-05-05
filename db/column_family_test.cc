@@ -383,7 +383,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
   int NumTableFilesAtLevel(int level, int cf) {
     return GetProperty(cf,
-                       "rocksdb.num-files-at-level" + ToString(level));
+                       "rocksdb.num-files-at-level" + std::to_string(level));
   }
 
 #ifndef ROCKSDB_LITE
@@ -783,7 +783,7 @@ TEST_P(ColumnFamilyTest, BulkAddDrop) {
   std::vector<std::string> cf_names;
   std::vector<ColumnFamilyHandle*> cf_handles;
   for (int i = 1; i <= kNumCF; i++) {
-    cf_names.push_back("cf1-" + ToString(i));
+    cf_names.push_back("cf1-" + std::to_string(i));
   }
   ASSERT_OK(db_->CreateColumnFamilies(cf_options, cf_names, &cf_handles));
   for (int i = 1; i <= kNumCF; i++) {
@@ -796,7 +796,8 @@ TEST_P(ColumnFamilyTest, BulkAddDrop) {
   }
   cf_handles.clear();
   for (int i = 1; i <= kNumCF; i++) {
-    cf_descriptors.emplace_back("cf2-" + ToString(i), ColumnFamilyOptions());
+    cf_descriptors.emplace_back("cf2-" + std::to_string(i),
+                                ColumnFamilyOptions());
   }
   ASSERT_OK(db_->CreateColumnFamilies(cf_descriptors, &cf_handles));
   for (int i = 1; i <= kNumCF; i++) {
@@ -820,7 +821,7 @@ TEST_P(ColumnFamilyTest, DropTest) {
     Open({"default"});
     CreateColumnFamiliesAndReopen({"pikachu"});
     for (int i = 0; i < 100; ++i) {
-      ASSERT_OK(Put(1, ToString(i), "bar" + ToString(i)));
+      ASSERT_OK(Put(1, std::to_string(i), "bar" + std::to_string(i)));
     }
     ASSERT_OK(Flush(1));
 
@@ -1344,7 +1345,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
     PutRandomData(1, 10, 12000);
     PutRandomData(1, 1, 10);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
 
   // SETUP column family "two" -- level style with 4 levels
@@ -1352,7 +1353,7 @@ TEST_P(ColumnFamilyTest, DifferentCompactionStyles) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
 
   // TRIGGER compaction "one"
@@ -1416,7 +1417,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
   bool cf_1_1 = true;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
@@ -1446,7 +1447,7 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
   threads.emplace_back([&] {
     TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:1");
@@ -1533,7 +1534,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:1");
@@ -1543,7 +1544,7 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
   ROCKSDB_NAMESPACE::port::Thread threads([&] {
     CompactRangeOptions compact_options;
@@ -1615,7 +1616,7 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
   bool cf_1_1 = true;
   bool cf_1_2 = true;
@@ -1650,7 +1651,7 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
     PutRandomData(2, 10, 12000);
     PutRandomData(2, 1, 10);
     WaitForFlush(2);
-    AssertFilesPerLevel(ToString(i + 1), 2);
+    AssertFilesPerLevel(std::to_string(i + 1), 2);
   }
   TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:5");
   threads.join();
@@ -1709,7 +1710,7 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
   bool cf_1_1 = true;
   bool cf_1_2 = true;
@@ -1748,8 +1749,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
-                        1);
+    AssertFilesPerLevel(
+        std::to_string(one.level0_file_num_compaction_trigger + i), 1);
   }
 
   ROCKSDB_NAMESPACE::port::Thread threads1([&] {
@@ -1811,7 +1812,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
   bool cf_1_1 = true;
   bool cf_1_2 = true;
@@ -1849,8 +1850,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
-                        1);
+    AssertFilesPerLevel(
+        std::to_string(one.level0_file_num_compaction_trigger + i), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:1");
@@ -1904,7 +1905,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
   bool cf_1_1 = true;
   bool cf_1_2 = true;
@@ -1942,8 +1943,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
-                        1);
+    AssertFilesPerLevel(
+        std::to_string(one.level0_file_num_compaction_trigger + i), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:1");
@@ -2024,7 +2025,7 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
     PutRandomData(1, 10, 12000, true);
     PutRandomData(1, 1, 10, true);
     WaitForFlush(1);
-    AssertFilesPerLevel(ToString(i + 1), 1);
+    AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
 
   TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:5");
