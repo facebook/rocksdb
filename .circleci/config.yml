@@ -959,6 +959,9 @@ workflows:
                 - main
     jobs:
       - benchmark-linux
+  benchmark-linux-dev:
+    jobs:
+      - benchmark-linux
   nightly:
     triggers:
       - schedule:
