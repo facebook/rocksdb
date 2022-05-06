@@ -17,6 +17,7 @@
 #include <sstream>
 
 #include "db/dbformat.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/slice.h"
@@ -290,17 +291,18 @@ class ComparatorWithU64TsImpl : public Comparator {
 }// namespace
 
 const Comparator* BytewiseComparator() {
-  static BytewiseComparatorImpl bytewise;
+  STATIC_AVOID_DESTRUCTION(BytewiseComparatorImpl, bytewise);
   return &bytewise;
 }
 
 const Comparator* ReverseBytewiseComparator() {
-  static ReverseBytewiseComparatorImpl rbytewise;
+  STATIC_AVOID_DESTRUCTION(ReverseBytewiseComparatorImpl, rbytewise);
   return &rbytewise;
 }
 
 const Comparator* BytewiseComparatorWithU64Ts() {
-  static ComparatorWithU64TsImpl<BytewiseComparatorImpl> comp_with_u64_ts;
+  STATIC_AVOID_DESTRUCTION(ComparatorWithU64TsImpl<BytewiseComparatorImpl>,
+                           comp_with_u64_ts);
   return &comp_with_u64_ts;
 }
 

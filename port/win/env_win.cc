@@ -192,8 +192,8 @@ WinFileSystem::WinFileSystem(const std::shared_ptr<SystemClock>& clock)
 }
 
 const std::shared_ptr<WinFileSystem>& WinFileSystem::Default() {
-  static std::shared_ptr<WinFileSystem> fs =
-      std::make_shared<WinFileSystem>(WinClock::Default());
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<WinFileSystem>, fs)
+  (std::make_shared<WinFileSystem>(WinClock::Default()));
   return fs;
 }
 
@@ -1410,8 +1410,8 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 }
 
 const std::shared_ptr<SystemClock>& SystemClock::Default() {
-  static std::shared_ptr<SystemClock> clock =
-      std::make_shared<port::WinClock>();
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<SystemClock>, clock)
+  (std::make_shared<port::WinClock>());
   return clock;
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -488,7 +488,7 @@ Env* Env::Default() {
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
   // ~PosixEnv must be called on exit
-  static PosixEnv default_env;
+  STATIC_AVOID_DESTRUCTION(PosixEnv, default_env);
   return &default_env;
 }
 
@@ -496,9 +496,9 @@ Env* Env::Default() {
 // Default Posix SystemClock
 //
 const std::shared_ptr<SystemClock>& SystemClock::Default() {
-  static std::shared_ptr<SystemClock> default_clock =
-      std::make_shared<PosixClock>();
-  return default_clock;
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<SystemClock>, instance)
+  (std::make_shared<PosixClock>());
+  return instance;
 }
 }  // namespace ROCKSDB_NAMESPACE
 
