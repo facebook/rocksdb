@@ -315,7 +315,7 @@ class MemTableList {
   // PickMemtablesToFlush() is called.
   void FlushRequested() {
     flush_requested_ = true;
-    // If there are some memtables stored in imm() that dont trigger
+    // If there are some memtables stored in imm() that don't trigger
     // flush (eg: mempurge output memtable), then update imm_flush_needed.
     // Note: if race condition and imm_flush_needed is set to true
     // when there is num_flush_not_started_==0, then there is no
