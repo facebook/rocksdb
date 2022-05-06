@@ -431,7 +431,7 @@ TEST_P(DBWriteTest, PipelinedWriteRace) {
   // start another writer thread to be enqueued before the leader can
   // complete the writers from its write_group
   threads.emplace_back(write_one_doc);
-          
+
   for (auto& t : threads) {
     t.join();
   }
