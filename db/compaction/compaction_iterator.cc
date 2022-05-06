@@ -1075,12 +1075,62 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
   }
 }
 
+void CompactionIterator::DecideOutputLevel() {
+#ifndef NDEBUG
+  // TODO: will be set by sequence number or key range, for now, it will only be
+  // set by unittest
+  PerKeyPlacementContext context(level_, ikey_.user_key, value_,
+                                 ikey_.sequence);
+  TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
+                           &context);
+  output_to_penultimate_level_ = context.output_to_penultimate_level;
+#endif /* !NDEBUG */
+
+  // if the key is within the earliest snapshot, it has to output to the
+  // penultimate level.
+  if (ikey_.sequence > earliest_snapshot_) {
+    output_to_penultimate_level_ = true;
+  }
+
+  if (output_to_penultimate_level_) {
+    // If it's decided to output to the penultimate level, but unsafe to do so,
+    // still output to the last level. For example, moving the data from a lower
+    // level to a higher level outside of the higher-level input key range is
+    // considered unsafe, because the key may conflict with higher-level SSTs
+    // not from this compaction.
+    // TODO: add statistic for declined output_to_penultimate_level
+    bool safe_to_penultimate_level =
+        compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key);
+    if (!safe_to_penultimate_level) {
+      output_to_penultimate_level_ = false;
+      // It could happen when disable/enable `bottommost_temperature` while
+      // holding a snapshot. When `bottommost_temperature` is not set
+      // (==kUnknown), the data newer than any snapshot is pushed to the last
+      // level, but when the per_key_placement feature is enabled on the fly,
+      // the data later than the snapshot has to be moved to the penultimate
+      // level, which may or may not be safe. So the user needs to make sure all
+      // snapshot is released before enabling `bottommost_temperature` feature
+      // We will migrate the feature to `last_level_temperature` and maybe make
+      // it not dynamically changeable.
+      if (ikey_.sequence > earliest_snapshot_) {
+        status_ = Status::Corruption(
+            "Unsafe to store Seq later than snapshot in the last level if "
+            "per_key_placement is enabled");
+      }
+    }
+  }
+}
+
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
     if (ikey_.type == kTypeValue) {
       ExtractLargeValueIfNeeded();
     } else if (ikey_.type == kTypeBlobIndex) {
       GarbageCollectBlobIfNeeded();
+    }
+
+    if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
+      DecideOutputLevel();
     }
 
     // Zeroing out the sequence number leads to better compression.
@@ -1097,7 +1147,8 @@ void CompactionIterator::PrepareOutput() {
     if (valid_ && compaction_ != nullptr &&
         !compaction_->allow_ingest_behind() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-        ikey_.type != kTypeMerge && current_key_committed_) {
+        ikey_.type != kTypeMerge && current_key_committed_ &&
+        !output_to_penultimate_level_) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(

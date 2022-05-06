@@ -30,10 +30,100 @@ namespace ROCKSDB_NAMESPACE {
 // SYNC_POINT is not supported in released Windows mode.
 #if !defined(ROCKSDB_LITE)
 
+class CompactionStatsCollector : public EventListener {
+ public:
+  CompactionStatsCollector()
+      : compaction_completed_(
+            static_cast<int>(CompactionReason::kNumOfReasons)) {
+    for (auto& v : compaction_completed_) {
+      v.store(0);
+    }
+  }
+
+  ~CompactionStatsCollector() override {}
+
+  void OnCompactionCompleted(DB* /* db */,
+                             const CompactionJobInfo& info) override {
+    int k = static_cast<int>(info.compaction_reason);
+    int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+    assert(k >= 0 && k < num_of_reasons);
+    compaction_completed_[k]++;
+  }
+
+  void OnExternalFileIngested(
+      DB* /* db */, const ExternalFileIngestionInfo& /* info */) override {
+    int k = static_cast<int>(CompactionReason::kExternalSstIngestion);
+    compaction_completed_[k]++;
+  }
+
+  void OnFlushCompleted(DB* /* db */, const FlushJobInfo& /* info */) override {
+    int k = static_cast<int>(CompactionReason::kFlush);
+    compaction_completed_[k]++;
+  }
+
+  int NumberOfCompactions(CompactionReason reason) const {
+    int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
+    int k = static_cast<int>(reason);
+    assert(k >= 0 && k < num_of_reasons);
+    return compaction_completed_.at(k).load();
+  }
+
+ private:
+  std::vector<std::atomic<int>> compaction_completed_;
+};
+
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {}
+
+ protected:
+#ifndef ROCKSDB_LITE
+  uint64_t GetSstSizeHelper(Temperature temperature) {
+    std::string prop;
+    EXPECT_TRUE(dbfull()->GetProperty(
+        DB::Properties::kLiveSstFilesSizeAtTemperature +
+            std::to_string(static_cast<uint8_t>(temperature)),
+        &prop));
+    return static_cast<uint64_t>(std::atoi(prop.c_str()));
+  }
+#endif  // ROCKSDB_LITE
+
+  /*
+   * Verifies compaction stats of cfd are valid.
+   *
+   * For each level of cfd, its compaction stats are valid if
+   * 1) sum(stat.counts) == stat.count, and
+   * 2) stat.counts[i] == collector.NumberOfCompactions(i)
+   */
+  void VerifyCompactionStats(ColumnFamilyData& cfd,
+                             const CompactionStatsCollector& collector) {
+#ifndef NDEBUG
+    InternalStats* internal_stats_ptr = cfd.internal_stats();
+    ASSERT_NE(internal_stats_ptr, nullptr);
+    const std::vector<InternalStats::CompactionStats>& comp_stats =
+        internal_stats_ptr->TEST_GetCompactionStats();
+    const int num_of_reasons =
+        static_cast<int>(CompactionReason::kNumOfReasons);
+    std::vector<int> counts(num_of_reasons, 0);
+    // Count the number of compactions caused by each CompactionReason across
+    // all levels.
+    for (const auto& stat : comp_stats) {
+      int sum = 0;
+      for (int i = 0; i < num_of_reasons; i++) {
+        counts[i] += stat.counts[i];
+        sum += stat.counts[i];
+      }
+      ASSERT_EQ(sum, stat.count);
+    }
+    // Verify InternalStats bookkeeping matches that of
+    // CompactionStatsCollector, assuming that all compactions complete.
+    for (int i = 0; i < num_of_reasons; i++) {
+      ASSERT_EQ(collector.NumberOfCompactions(static_cast<CompactionReason>(i)),
+                counts[i]);
+    }
+#endif /* NDEBUG */
+  }
 };
 
 class DBCompactionTestWithParam
@@ -108,47 +198,6 @@ class FlushedFileCollector : public EventListener {
  private:
   std::vector<std::string> flushed_files_;
   std::mutex mutex_;
-};
-
-class CompactionStatsCollector : public EventListener {
-public:
-  CompactionStatsCollector()
-      : compaction_completed_(static_cast<int>(CompactionReason::kNumOfReasons)) {
-    for (auto& v : compaction_completed_) {
-      v.store(0);
-    }
-  }
-
-  ~CompactionStatsCollector() override {}
-
-  void OnCompactionCompleted(DB* /* db */,
-                             const CompactionJobInfo& info) override {
-    int k = static_cast<int>(info.compaction_reason);
-    int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
-    assert(k >= 0 && k < num_of_reasons);
-    compaction_completed_[k]++;
-  }
-
-  void OnExternalFileIngested(
-      DB* /* db */, const ExternalFileIngestionInfo& /* info */) override {
-    int k = static_cast<int>(CompactionReason::kExternalSstIngestion);
-    compaction_completed_[k]++;
-  }
-
-  void OnFlushCompleted(DB* /* db */, const FlushJobInfo& /* info */) override {
-    int k = static_cast<int>(CompactionReason::kFlush);
-    compaction_completed_[k]++;
-  }
-
-  int NumberOfCompactions(CompactionReason reason) const {
-    int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
-    int k = static_cast<int>(reason);
-    assert(k >= 0 && k < num_of_reasons);
-    return compaction_completed_.at(k).load();
-  }
-
-private:
-  std::vector<std::atomic<int>> compaction_completed_;
 };
 
 class SstStatsCollector : public EventListener {
@@ -245,40 +294,6 @@ void VerifyCompactionResult(
     }
   }
 #endif
-}
-
-/*
- * Verifies compaction stats of cfd are valid.
- *
- * For each level of cfd, its compaction stats are valid if
- * 1) sum(stat.counts) == stat.count, and
- * 2) stat.counts[i] == collector.NumberOfCompactions(i)
- */
-void VerifyCompactionStats(ColumnFamilyData& cfd,
-    const CompactionStatsCollector& collector) {
-#ifndef NDEBUG
-  InternalStats* internal_stats_ptr = cfd.internal_stats();
-  ASSERT_NE(internal_stats_ptr, nullptr);
-  const std::vector<InternalStats::CompactionStats>& comp_stats =
-      internal_stats_ptr->TEST_GetCompactionStats();
-  const int num_of_reasons = static_cast<int>(CompactionReason::kNumOfReasons);
-  std::vector<int> counts(num_of_reasons, 0);
-  // Count the number of compactions caused by each CompactionReason across
-  // all levels.
-  for (const auto& stat : comp_stats) {
-    int sum = 0;
-    for (int i = 0; i < num_of_reasons; i++) {
-      counts[i] += stat.counts[i];
-      sum += stat.counts[i];
-    }
-    ASSERT_EQ(sum, stat.count);
-  }
-  // Verify InternalStats bookkeeping matches that of CompactionStatsCollector,
-  // assuming that all compactions complete.
-  for (int i = 0; i < num_of_reasons; i++) {
-    ASSERT_EQ(collector.NumberOfCompactions(static_cast<CompactionReason>(i)), counts[i]);
-  }
-#endif /* NDEBUG */
 }
 
 const SstFileMetaData* PickFileRandomly(
