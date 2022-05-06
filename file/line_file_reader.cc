@@ -21,12 +21,15 @@ IOStatus LineFileReader::Create(const std::shared_ptr<FileSystem>& fs,
   std::unique_ptr<FSSequentialFile> file;
   IOStatus io_s = fs->NewSequentialFile(fname, file_opts, &file, dbg);
   if (io_s.ok()) {
-    reader->reset(new LineFileReader(std::move(file), fname, nullptr, std::vector<std::shared_ptr<EventListener>>{}, rate_limiter));
+    reader->reset(new LineFileReader(
+        std::move(file), fname, nullptr,
+        std::vector<std::shared_ptr<EventListener>>{}, rate_limiter));
   }
   return io_s;
 }
 
-bool LineFileReader::ReadLine(std::string* out, Env::IOPriority rate_limiter_priority) {
+bool LineFileReader::ReadLine(std::string* out,
+                              Env::IOPriority rate_limiter_priority) {
   assert(out);
   if (!io_status_.ok()) {
     // Status should be checked (or permit unchecked) any time we return false.
@@ -52,8 +55,8 @@ bool LineFileReader::ReadLine(std::string* out, Env::IOPriority rate_limiter_pri
     // else flush and reload buffer
     out->append(buf_begin_, buf_end_ - buf_begin_);
     Slice result;
-    // TODO: rate limit line reader
-    io_status_ = sfr_.Read(buf_.size(), &result, buf_.data(), rate_limiter_priority);
+    io_status_ =
+        sfr_.Read(buf_.size(), &result, buf_.data(), rate_limiter_priority);
     IOSTATS_ADD(bytes_read, result.size());
     if (!io_status_.ok()) {
       io_status_.MustCheck();

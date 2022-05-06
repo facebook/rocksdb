@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
-
 #include <stdint.h>
 #include <windows.h>
 
@@ -129,6 +128,8 @@ class WinSequentialFile : protected WinFileData, public FSSequentialFile {
   virtual bool use_direct_io() const override {
     return WinFileData::use_direct_io();
   }
+
+  IOStatus GetFileSize(uint64_t& size) const override;
 };
 
 // mmap() based random-access

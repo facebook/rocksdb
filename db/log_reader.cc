@@ -305,7 +305,7 @@ void Reader::UnmarkEOFInternal() {
   Slice read_buffer;
   // TODO: rate limit log reader
   Status status = file_->Read(remaining, &read_buffer,
-    backing_store_ + eof_offset_, Env::IO_TOTAL);
+                              backing_store_ + eof_offset_, Env::IO_TOTAL);
 
   size_t added = read_buffer.size();
   end_of_buffer_offset_ += added;
@@ -351,7 +351,8 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
     // TODO: rate limit log reader
-    Status status = file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
+    Status status =
+        file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
     TEST_SYNC_POINT_CALLBACK("LogReader::ReadMore:AfterReadFile", &status);
     end_of_buffer_offset_ += buffer_.size();
     if (!status.ok()) {
@@ -642,7 +643,8 @@ bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
     // TODO: rate limit log reader
-    Status status = file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
+    Status status =
+        file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
     end_of_buffer_offset_ += buffer_.size();
     if (!status.ok()) {
       buffer_.clear();

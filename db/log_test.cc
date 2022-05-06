@@ -12,6 +12,7 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
+#include "rocksdb/io_status.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
@@ -60,6 +61,8 @@ class LogTest
     size_t force_eof_position_;
     bool returned_partial_;
     bool fail_after_read_partial_;
+    // actual "file size" = content_.size() + removed_content_size_
+    size_t removed_content_size_;
     explicit StringSource(Slice& contents, bool fail_after_read_partial)
         : contents_(contents),
           force_error_(false),
@@ -67,7 +70,8 @@ class LogTest
           force_eof_(false),
           force_eof_position_(0),
           returned_partial_(false),
-          fail_after_read_partial_(fail_after_read_partial) {}
+          fail_after_read_partial_(fail_after_read_partial),
+          removed_content_size_(0) {}
 
     IOStatus Read(size_t n, const IOOptions& /*opts*/, Slice* result,
                   char* scratch, IODebugContext* /*dbg*/) override {
@@ -81,6 +85,7 @@ class LogTest
         } else {
           *result = Slice(contents_.data(), force_error_position_);
           contents_.remove_prefix(force_error_position_);
+          removed_content_size_ += force_eof_position_;
           force_error_ = false;
           returned_partial_ = true;
           return IOStatus::Corruption("read error");
@@ -108,6 +113,7 @@ class LogTest
       *result = Slice(scratch, n);
 
       contents_.remove_prefix(n);
+      removed_content_size_ += n;
       return IOStatus::OK();
     }
 
@@ -118,7 +124,12 @@ class LogTest
       }
 
       contents_.remove_prefix(n);
+      removed_content_size_ += n;
+      return IOStatus::OK();
+    }
 
+    IOStatus GetFileSize(uint64_t& size) const override {
+      size = contents_.size() + removed_content_size_;
       return IOStatus::OK();
     }
   };

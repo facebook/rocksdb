@@ -96,12 +96,14 @@ class SequentialFileReader {
   static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
                          const std::string& fname, const FileOptions& file_opts,
                          std::unique_ptr<SequentialFileReader>* reader,
-                         IODebugContext* dbg, RateLimiter *rate_limiter=nullptr);
+                         IODebugContext* dbg,
+                         RateLimiter* rate_limiter = nullptr);
 
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;
 
-  IOStatus Read(size_t n, Slice* result, char* scratch, Env::IOPriority rate_limiter_priority);
+  IOStatus Read(size_t n, Slice* result, char* scratch,
+                Env::IOPriority rate_limiter_priority);
 
   IOStatus Skip(uint64_t n);
 

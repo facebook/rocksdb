@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/file_system.h"
+#include "rocksdb/io_status.h"
 #ifdef ROCKSDB_LIB_IO_POSIX
 #include "env/io_posix.h"
 #include <errno.h>
@@ -318,6 +320,13 @@ IOStatus PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
   }
   return IOStatus::OK();
 #endif
+}
+
+IOStatus PosixSequentialFile::GetFileSize(uint64_t& size) const {
+  IOOptions io_opts;
+  IOStatus io_s =
+      FileSystem::Default()->GetFileSize(filename_, io_opts, &size, nullptr);
+  return io_s;
 }
 
 /*

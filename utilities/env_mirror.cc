@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/status.h"
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/env_mirror.h"
@@ -61,6 +62,18 @@ class SequentialFileMirror : public SequentialFile {
     assert(as == bs);
     return as;
   };
+
+  Status GetFileSize(uint64_t& size) const override {
+    uint64_t asize = 0, bsize = 0;
+    Status as = a_->GetFileSize(asize);
+    Status bs = b_->GetFileSize(bsize);
+    assert(as == bs);
+    if (as == Status::OK()) {
+      assert(asize == bsize);
+      size = asize;
+    }
+    return as;
+  }
 };
 
 class RandomAccessFileMirror : public RandomAccessFile {

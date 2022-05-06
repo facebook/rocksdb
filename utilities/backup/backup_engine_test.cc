@@ -171,10 +171,16 @@ class TestFs : public FileSystemWrapper {
       return IOStatus::OK();
     }
 
+    IOStatus GetFileSize(uint64_t& size) const override {
+      size = file_size_;
+      return IOStatus::OK();
+    }
+
    private:
     size_t size_left = 200;
     Random rnd_;
     bool fail_reads_;
+    uint64_t file_size_ = 200;
   };
 
   IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
@@ -2806,28 +2812,22 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
 
   OpenBackupEngine(false /* destroy_old_data */);
   ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-  std::cout << "num request 1" << restore_rate_limiter->GetTotalRequests() << std::endl;
-  int num_rate_limiter_request_with_no_read_charged = restore_rate_limiter->GetTotalRequests();
-  // std::int64_t total_bytes_through_with_no_read_charged =
-      // restore_rate_limiter->GetTotalBytesThrough();
+  std::int64_t total_bytes_through_with_no_read_charged =
+      restore_rate_limiter->GetTotalBytesThrough();
   CloseBackupEngine();
   DestroyDB(dbname_, Options());
 
   restore_rate_limiter.reset(NewGenericRateLimiter(
       restore_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
-      10 /* fairness */,
-      RateLimiter::Mode::kAllIo /* mode */));
+      10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
   engine_options_->restore_rate_limiter = restore_rate_limiter;
 
   OpenBackupEngine(false /* destroy_old_data */);
   ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-  // std::int64_t total_bytes_through_with_read_charged =
-      // restore_rate_limiter->GetTotalBytesThrough();
-  std::cout << "num request 2" << restore_rate_limiter->GetTotalRequests() << std::endl;
-  int num_rate_limiter_request_with_read_charged = restore_rate_limiter->GetTotalRequests();
-  // EXPECT_EQ(total_bytes_through_with_read_charged,
-            // total_bytes_through_with_no_read_charged * 2);
-  EXPECT_EQ(num_rate_limiter_request_with_no_read_charged * 2, num_rate_limiter_request_with_read_charged);
+  std::int64_t total_bytes_through_with_read_charged =
+      restore_rate_limiter->GetTotalBytesThrough();
+  EXPECT_EQ(total_bytes_through_with_read_charged,
+            total_bytes_through_with_no_read_charged * 2);
   CloseBackupEngine();
   AssertBackupConsistency(1, 0, 10, 20);
   DestroyDB(dbname_, Options());

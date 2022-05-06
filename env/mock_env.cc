@@ -16,6 +16,7 @@
 #include "file/filename.h"
 #include "port/sys_time.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/utilities/options_type.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
@@ -287,6 +288,11 @@ class MockSequentialFile : public FSSequentialFile {
       n = available;
     }
     pos_ += static_cast<size_t>(n);
+    return IOStatus::OK();
+  }
+
+  IOStatus GetFileSize(uint64_t& size) const override {
+    size = file_->Size();
     return IOStatus::OK();
   }
 
