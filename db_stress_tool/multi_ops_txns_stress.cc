@@ -12,9 +12,7 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/defer.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif  // NDEBUG
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace ROCKSDB_NAMESPACE {

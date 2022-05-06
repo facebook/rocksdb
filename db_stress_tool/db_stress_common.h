@@ -67,6 +67,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
+#include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -296,12 +297,7 @@ constexpr int kValueMaxLen = 100;
 // wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
-#ifndef NDEBUG
-namespace ROCKSDB_NAMESPACE {
-class FaultInjectionTestFS;
-}  // namespace ROCKSDB_NAMESPACE
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
-#endif
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
