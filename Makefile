@@ -8,7 +8,7 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
-include python.mk
+include common.mk
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
@@ -842,18 +842,6 @@ coverage: clean
 	# Delete intermediate files
 	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
-ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
-# Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
-# and create a randomly-named rocksdb.XXXX directory therein.
-# We'll use that directory in the "make check" rules.
-ifeq ($(TMPD),)
-TMPDIR := $(shell echo $${TMPDIR:-/tmp})
-TMPD := $(shell f=/dev/shm; test -k $$f || f=$(TMPDIR);     \
-  perl -le 'use File::Temp "tempdir";'					\
-    -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
-endif
-endif
-
 # Run all tests in parallel, accumulating per-test logs in t/log-*.
 #
 # Each t/run-* file is a tiny generated bourne shell script that invokes one of
@@ -893,7 +881,7 @@ $(parallel_tests):
 		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
     printf '%s\n' \
       '#!/bin/sh' \
-      "d=\$(TMPD)$$TEST_SCRIPT" \
+      "d=\$(TEST_TMPDIR)$$TEST_SCRIPT" \
       'mkdir -p $$d' \
       "TEST_TMPDIR=\$$d $(DRIVER) ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
 		> $$TEST_SCRIPT; \
@@ -953,7 +941,6 @@ endif
 
 .PHONY: check_0
 check_0:
-	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
@@ -964,7 +951,8 @@ check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(EXCLUDE_TESTS_REGEX)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu '{} $(parallel_redir)' ; \
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu \
+	    --tmpdir=$(TEST_TMPDIR) '{} $(parallel_redir)' ; \
 	parallel_retcode=$$? ; \
 	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG ; \
 	awk_retcode=$$?; \
@@ -975,7 +963,6 @@ valgrind-exclude-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.
 .PHONY: valgrind_check_0
 valgrind_check_0: test_log_prefix := valgrind_
 valgrind_check_0:
-	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
@@ -987,10 +974,11 @@ valgrind_check_0:
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(valgrind-exclude-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu \
-	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) \
+	   --tmpdir=$(TEST_TMPDIR) \
+	   '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) \
 	  $(parallel_redir)' \
 
-CLEAN_FILES += t LOG $(TMPD)
+CLEAN_FILES += t LOG $(TEST_TMPDIR)
 
 # When running parallel "make check", you can monitor its progress
 # from another window.
@@ -1013,12 +1001,12 @@ check: all
 	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
+	    $(MAKE) T="$$t" check_0;                       \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
 	      echo "===== Running $$t (`date`)"; ./$$t || exit 1; done;          \
 	fi
-	rm -rf $(TMPD)
+	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
@@ -1115,11 +1103,11 @@ valgrind_test_some:
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
-	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
+	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-      $(MAKE) TMPD=$(TMPD)                                        \
-      DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0; \
+	  $(MAKE)                                                       \
+	  DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0;   \
 	else                                                            \
 		for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
 			$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
@@ -1139,51 +1127,12 @@ valgrind_check_some: $(ROCKSDBTESTS_SUBSET)
 		fi; \
 	done
 
-ifneq ($(PAR_TEST),)
-parloop:
-	ret_bad=0;							\
-	for t in $(PAR_TEST); do		\
-		echo "===== Running $$t in parallel $(NUM_PAR) (`date`)";\
-		if [ $(db_test) -eq 1 ]; then \
-			seq $(J) | v="$$t" build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
-				'timeout 2m ./db_test --gtest_filter=$$v >> $$s/log-{} 2>1'; \
-		else\
-			seq $(J) | v="./$$t" build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{};' \
-			     'export TEST_TMPDIR=$$s; timeout 10m $$v >> $$s/log-{} 2>1'; \
-		fi; \
-		ret_code=$$?; \
-		if [ $$ret_code -ne 0 ]; then \
-			ret_bad=$$ret_code; \
-			echo $$t exited with $$ret_code; \
-		fi; \
-	done; \
-	exit $$ret_bad;
-endif
-
 test_names = \
   ./db_test --gtest_list_tests						\
     | perl -n								\
       -e 's/ *\#.*//;'							\
       -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
       -e 'print qq! $$p$$2!'
-
-parallel_check: $(TESTS)
-	$(AM_V_GEN)if test "$(J)" > 1                                  \
-	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
-	        grep -q 'GNU Parallel';                                 \
-	then                                                            \
-	    echo Running in parallel $(J);			\
-	else                                                            \
-	    echo "Need to have GNU Parallel and J > 1"; exit 1;		\
-	fi;								\
-	ret_bad=0;							\
-	echo $(J);\
-	echo Test Dir: $(TMPD); \
-        seq $(J) | build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
-	$(MAKE)  PAR_TEST="$(shell $(test_names))" TMPD=$(TMPD) \
-		J=$(J) db_test=1 parloop; \
-	$(MAKE) PAR_TEST="$(filter-out db_test, $(TESTS))" \
-		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
 
 analyze: clean
 	USE_CLANG=1 $(MAKE) analyze_incremental
