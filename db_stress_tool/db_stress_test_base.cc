@@ -674,6 +674,7 @@ void StressTest::OperateDb(ThreadState* thread) {
     fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
                                             FLAGS_read_fault_one_in);
   }
+#endif  // NDEBUG
   if (FLAGS_write_fault_one_in) {
     IOStatus error_msg;
     if (FLAGS_injest_error_severity <= 1 || FLAGS_injest_error_severity > 2) {
@@ -691,7 +692,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
         /*inject_for_all_file_types=*/false, types);
   }
-#endif // NDEBUG
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
     if (thread->shared->HasVerificationFailedYet() ||
@@ -2621,7 +2621,6 @@ void StressTest::Open(SharedState* shared) {
     RegisterAdditionalListeners();
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
-#ifndef NDEBUG
       // Determine whether we need to ingest file metadata write failures
       // during DB reopen. If it does, enable it.
       // Only ingest metadata error if it is reopening, as initial open
@@ -2663,7 +2662,6 @@ void StressTest::Open(SharedState* shared) {
         }
       }
       while (true) {
-#endif  // NDEBUG
 #ifndef ROCKSDB_LITE
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
@@ -2693,7 +2691,6 @@ void StressTest::Open(SharedState* shared) {
           }
         }
 
-#ifndef NDEBUG
         if (ingest_meta_error || ingest_write_error || ingest_read_error) {
           fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
@@ -2705,7 +2702,7 @@ void StressTest::Open(SharedState* shared) {
             // wait for all compactions to finish to make sure DB is in
             // clean state before executing queries.
             s = static_cast_with_check<DBImpl>(db_->GetRootDB())
-                    ->TEST_WaitForCompact(true);
+                    ->WaitForCompact(true /* wait_unscheduled */);
             if (!s.ok()) {
               for (auto cf : column_families_) {
                 delete cf;
@@ -2738,7 +2735,6 @@ void StressTest::Open(SharedState* shared) {
         }
         break;
       }
-#endif  // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       TransactionDBOptions txn_db_options;

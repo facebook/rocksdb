@@ -415,6 +415,8 @@ multiops_wp_txn_params = {
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
+    if is_release_mode():
+        dest_params['read_fault_one_in'] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
         dest_params["compression_zstd_max_train_bytes"] = 0
         dest_params["compression_max_dict_buffer_bytes"] = 0
