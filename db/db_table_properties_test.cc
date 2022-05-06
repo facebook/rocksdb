@@ -84,7 +84,8 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     }
     // Build file
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), ToString(table * 100 + i), "val"));
+      ASSERT_OK(
+          db_->Put(WriteOptions(), std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
@@ -113,7 +114,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 2; ++i) {
-    Get(ToString(i * 100 + 0));
+    Get(std::to_string(i * 100 + 0));
   }
 
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
@@ -122,7 +123,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   Reopen(options);
   // fetch key from all tables, which will place them in table cache.
   for (int i = 0; i < 4; ++i) {
-    Get(ToString(i * 100 + 0));
+    Get(std::to_string(i * 100 + 0));
   }
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 
@@ -156,7 +157,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
     } else {
       bool found_corruption = false;
       for (int i = 0; i < 4; ++i) {
-        std::string result = Get(ToString(i * 100 + 0));
+        std::string result = Get(std::to_string(i * 100 + 0));
         if (result.find_first_of("Corruption: block checksum mismatch") !=
             std::string::npos) {
           found_corruption = true;
@@ -187,7 +188,7 @@ TEST_F(DBTablePropertiesTest, InvalidIgnored) {
 
   // Build file
   for (int i = 0; i < 10; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i), "val"));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i), "val"));
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
 

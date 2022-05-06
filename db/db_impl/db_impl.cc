@@ -849,7 +849,8 @@ void DBImpl::PersistStats() {
           if (stats_slice_.find(stat.first) != stats_slice_.end()) {
             uint64_t delta = stat.second - stats_slice_[stat.first];
             s = batch.Put(persist_stats_cf_handle_,
-                          Slice(key, std::min(100, length)), ToString(delta));
+                          Slice(key, std::min(100, length)),
+                          std::to_string(delta));
           }
         }
       }
@@ -3355,7 +3356,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     bool ret_value =
         GetIntPropertyInternal(cfd, *property_info, false, &int_value);
     if (ret_value) {
-      *value = ToString(int_value);
+      *value = std::to_string(int_value);
     }
     return ret_value;
   } else if (property_info->handle_string) {
@@ -3990,8 +3991,8 @@ Status DBImpl::CheckConsistency() {
       } else if (fsize != md.size) {
         corruption_messages += "Sst file size mismatch: " + file_path +
                                ". Size recorded in manifest " +
-                               ToString(md.size) + ", actual size " +
-                               ToString(fsize) + "\n";
+                               std::to_string(md.size) + ", actual size " +
+                               std::to_string(fsize) + "\n";
       }
     }
   }

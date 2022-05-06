@@ -96,7 +96,7 @@ Status RandomTransactionInserter::DBGet(
   assert(set_i + 1 <= 9999);
   snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
   // key format:  [SET#][random#]
-  std::string skey = ToString(ikey);
+  std::string skey = std::to_string(ikey);
   Slice base_key(skey);
   *full_key = std::string(prefix_buf) + base_key.ToString();
   Slice key(*full_key);
@@ -163,7 +163,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 
     if (s.ok()) {
       // Increment key
-      std::string sum = ToString(int_value + incr);
+      std::string sum = std::to_string(int_value + incr);
       if (txn != nullptr) {
         if ((set_i % 4) != 0) {
           s = txn->SingleDelete(key);

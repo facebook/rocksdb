@@ -305,11 +305,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
     }
 
     if (slice_.size() != block_size_with_trailer_) {
-      return IOStatus::Corruption("truncated block read from " +
-                                  file_->file_name() + " offset " +
-                                  ToString(handle_.offset()) + ", expected " +
-                                  ToString(block_size_with_trailer_) +
-                                  " bytes, got " + ToString(slice_.size()));
+      return IOStatus::Corruption(
+          "truncated block read from " + file_->file_name() + " offset " +
+          std::to_string(handle_.offset()) + ", expected " +
+          std::to_string(block_size_with_trailer_) + " bytes, got " +
+          std::to_string(slice_.size()));
     }
 
     ProcessTrailerIfPresent();

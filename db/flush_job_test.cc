@@ -191,7 +191,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   //   range-delete "9995" -> "9999" at seqno 10000
   //   blob references with seqnos 10001..10006
   for (int i = 1; i < 10000; ++i) {
-    std::string key(ToString((i + 1000) % 10000));
+    std::string key(std::to_string((i + 1000) % 10000));
     std::string value("value" + key);
     ASSERT_OK(new_mem->Add(SequenceNumber(i), kTypeValue, key, value,
                            nullptr /* kv_prot_info */));
@@ -214,7 +214,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   constexpr std::array<uint64_t, 6> blob_file_numbers{{
       kInvalidBlobFileNumber, 5, 103, 17, 102, 101}};
   for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
-    std::string key(ToString(i + 10001));
+    std::string key(std::to_string(i + 10001));
     std::string blob_index;
     if (i == 0) {
       BlobIndex::EncodeInlinedTTL(&blob_index, /* expiration */ 1234567890ULL,
@@ -265,7 +265,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   db_options_.statistics->histogramData(FLUSH_TIME, &hist);
   ASSERT_GT(hist.average, 0.0);
 
-  ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
+  ASSERT_EQ(std::to_string(0), file_meta.smallest.user_key().ToString());
   ASSERT_EQ("9999a", file_meta.largest.user_key().ToString());
   ASSERT_EQ(1, file_meta.fd.smallest_seqno);
   ASSERT_EQ(10006, file_meta.fd.largest_seqno);
@@ -291,7 +291,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
     memtable_ids.push_back(mem->GetID());
 
     for (size_t j = 0; j < num_keys_per_table; ++j) {
-      std::string key(ToString(j + i * num_keys_per_table));
+      std::string key(std::to_string(j + i * num_keys_per_table));
       std::string value("value" + key);
       ASSERT_OK(mem->Add(SequenceNumber(j + i * num_keys_per_table), kTypeValue,
                          key, value, nullptr /* kv_prot_info */));
@@ -326,7 +326,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   db_options_.statistics->histogramData(FLUSH_TIME, &hist);
   ASSERT_GT(hist.average, 0.0);
 
-  ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
+  ASSERT_EQ(std::to_string(0), file_meta.smallest.user_key().ToString());
   ASSERT_EQ("99", file_meta.largest.user_key().ToString());
   ASSERT_EQ(0, file_meta.fd.smallest_seqno);
   ASSERT_EQ(SequenceNumber(num_mems_to_flush * num_keys_per_table - 1),
@@ -364,7 +364,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
       mem->Ref();
 
       for (size_t j = 0; j != num_keys_per_memtable; ++j) {
-        std::string key(ToString(j + i * num_keys_per_memtable));
+        std::string key(std::to_string(j + i * num_keys_per_memtable));
         std::string value("value" + key);
         ASSERT_OK(mem->Add(curr_seqno++, kTypeValue, key, value,
                            nullptr /* kv_prot_info */));
@@ -439,7 +439,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   ASSERT_GT(hist.average, 0.0);
   k = 0;
   for (const auto& file_meta : file_metas) {
-    ASSERT_EQ(ToString(0), file_meta.smallest.user_key().ToString());
+    ASSERT_EQ(std::to_string(0), file_meta.smallest.user_key().ToString());
     ASSERT_EQ("999", file_meta.largest.user_key()
                          .ToString());  // max key by bytewise comparator
     ASSERT_EQ(smallest_seqs[k], file_meta.fd.smallest_seqno);
@@ -480,7 +480,7 @@ TEST_F(FlushJobTest, Snapshots) {
   SequenceNumber current_seqno = 0;
   auto inserted_keys = mock::MakeMockFile();
   for (int i = 1; i < keys; ++i) {
-    std::string key(ToString(i));
+    std::string key(std::to_string(i));
     int insertions = rnd.Uniform(max_inserts_per_keys);
     for (int j = 0; j < insertions; ++j) {
       std::string value(rnd.HumanReadableString(10));

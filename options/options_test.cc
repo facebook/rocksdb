@@ -3346,31 +3346,31 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
     if (case_id == 0) {
       // same version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     } else if (case_id == 1) {
       // higher minor version
       should_ignore = true;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR + 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR + 1) + ".0";
     } else if (case_id == 2) {
       // higher major version.
       should_ignore = true;
-      version_string = ToString(ROCKSDB_MAJOR + 1) + ".0.0";
+      version_string = std::to_string(ROCKSDB_MAJOR + 1) + ".0.0";
     } else if (case_id == 3) {
       // lower minor version
 #if ROCKSDB_MINOR == 0
       continue;
 #else
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR - 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR - 1) + ".0";
       should_ignore = false;
 #endif
     } else {
       // lower major version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR - 1) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR - 1) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     }
 
     std::string options_file_content =

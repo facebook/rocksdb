@@ -704,20 +704,19 @@ void InternalStats::CacheEntryRoleStats::ToMap(
   auto& v = *values;
   v[BlockCacheEntryStatsMapKeys::CacheId()] = cache_id;
   v[BlockCacheEntryStatsMapKeys::CacheCapacityBytes()] =
-      ROCKSDB_NAMESPACE::ToString(cache_capacity);
+      std::to_string(cache_capacity);
   v[BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds()] =
-      ROCKSDB_NAMESPACE::ToString(GetLastDurationMicros() / 1000000.0);
+      std::to_string(GetLastDurationMicros() / 1000000.0);
   v[BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds()] =
-      ROCKSDB_NAMESPACE::ToString((clock->NowMicros() - last_end_time_micros_) /
-                                  1000000U);
+      std::to_string((clock->NowMicros() - last_end_time_micros_) / 1000000U);
   for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
     auto role = static_cast<CacheEntryRole>(i);
     v[BlockCacheEntryStatsMapKeys::EntryCount(role)] =
-        ROCKSDB_NAMESPACE::ToString(entry_counts[i]);
+        std::to_string(entry_counts[i]);
     v[BlockCacheEntryStatsMapKeys::UsedBytes(role)] =
-        ROCKSDB_NAMESPACE::ToString(total_charges[i]);
+        std::to_string(total_charges[i]);
     v[BlockCacheEntryStatsMapKeys::UsedPercent(role)] =
-        ROCKSDB_NAMESPACE::ToString(100.0 * total_charges[i] / cache_capacity);
+        std::to_string(100.0 * total_charges[i] / cache_capacity);
   }
 }
 
@@ -763,7 +762,7 @@ bool InternalStats::HandleLiveSstFilesSizeAtTemperature(std::string* value,
     }
   }
 
-  *value = ToString(size);
+  *value = std::to_string(size);
   return true;
 }
 
@@ -919,7 +918,7 @@ bool InternalStats::HandleCompressionRatioAtLevelPrefix(std::string* value,
   if (!ok || level >= static_cast<uint64_t>(number_levels_)) {
     return false;
   }
-  *value = ToString(
+  *value = std::to_string(
       vstorage->GetEstimatedCompressionRatioAtLevel(static_cast<int>(level)));
   return true;
 }
@@ -1006,7 +1005,7 @@ static std::map<std::string, std::string> MapUint64ValuesToString(
     const std::map<std::string, uint64_t>& from) {
   std::map<std::string, std::string> to;
   for (const auto& e : from) {
-    to[e.first] = ToString(e.second);
+    to[e.first] = std::to_string(e.second);
   }
   return to;
 }
@@ -1500,7 +1499,7 @@ void InternalStats::DumpCFMapStats(
   DumpCFMapStats(vstorage, &levels_stats, &compaction_stats_sum);
   for (auto const& level_ent : levels_stats) {
     auto level_str =
-        level_ent.first == -1 ? "Sum" : "L" + ToString(level_ent.first);
+        level_ent.first == -1 ? "Sum" : "L" + std::to_string(level_ent.first);
     for (auto const& stat_ent : level_ent.second) {
       auto stat_type = stat_ent.first;
       auto key_str =
@@ -1651,7 +1650,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   DumpCFMapStats(vstorage, &levels_stats, &compaction_stats_sum);
   for (int l = 0; l < number_levels_; ++l) {
     if (levels_stats.find(l) != levels_stats.end()) {
-      PrintLevelStats(buf, sizeof(buf), "L" + ToString(l), levels_stats[l]);
+      PrintLevelStats(buf, sizeof(buf), "L" + std::to_string(l),
+                      levels_stats[l]);
       value->append(buf);
     }
   }

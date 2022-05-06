@@ -1492,8 +1492,8 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
 
   // random data
   for (int i = 0; i < 3; i++) {
-    auto key = ToString(i * 10);
-    auto value = ToString(i * 10);
+    auto key = std::to_string(i * 10);
+    auto value = std::to_string(i * 10);
     Slice key_slice = key;
     Slice value_slice = value;
     ASSERT_OK(db_->Put(write_opts, key_slice, ts, value_slice));
@@ -1824,8 +1824,8 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
   DataVisibilityTest() : DBBasicTestWithTimestampBase("data_visibility_test") {
     // Initialize test data
     for (int i = 0; i < kTestDataSize; i++) {
-      test_data_[i].key = "key" + ToString(i);
-      test_data_[i].value = "value" + ToString(i);
+      test_data_[i].key = "key" + std::to_string(i);
+      test_data_[i].value = "value" + std::to_string(i);
       test_data_[i].timestamp = Timestamp(i, 0);
       test_data_[i].ts = i;
       test_data_[i].seq_num = kMaxSequenceNumber;

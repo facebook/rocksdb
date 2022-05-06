@@ -432,7 +432,7 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
     if (i > 0) {
       *value += ":";
     }
-    *value += ToString(vec[i]);
+    *value += std::to_string(vec[i]);
   }
   return true;
 }

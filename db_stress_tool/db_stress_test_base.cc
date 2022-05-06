@@ -185,69 +185,69 @@ bool StressTest::BuildOptionsTable() {
 
   std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
       {"write_buffer_size",
-       {ToString(options_.write_buffer_size),
-        ToString(options_.write_buffer_size * 2),
-        ToString(options_.write_buffer_size * 4)}},
+       {std::to_string(options_.write_buffer_size),
+        std::to_string(options_.write_buffer_size * 2),
+        std::to_string(options_.write_buffer_size * 4)}},
       {"max_write_buffer_number",
-       {ToString(options_.max_write_buffer_number),
-        ToString(options_.max_write_buffer_number * 2),
-        ToString(options_.max_write_buffer_number * 4)}},
+       {std::to_string(options_.max_write_buffer_number),
+        std::to_string(options_.max_write_buffer_number * 2),
+        std::to_string(options_.max_write_buffer_number * 4)}},
       {"arena_block_size",
        {
-           ToString(options_.arena_block_size),
-           ToString(options_.write_buffer_size / 4),
-           ToString(options_.write_buffer_size / 8),
+           std::to_string(options_.arena_block_size),
+           std::to_string(options_.write_buffer_size / 4),
+           std::to_string(options_.write_buffer_size / 8),
        }},
-      {"memtable_huge_page_size", {"0", ToString(2 * 1024 * 1024)}},
+      {"memtable_huge_page_size", {"0", std::to_string(2 * 1024 * 1024)}},
       {"max_successive_merges", {"0", "2", "4"}},
       {"inplace_update_num_locks", {"100", "200", "300"}},
       // TODO(ljin): enable test for this option
       // {"disable_auto_compactions", {"100", "200", "300"}},
       {"level0_file_num_compaction_trigger",
        {
-           ToString(options_.level0_file_num_compaction_trigger),
-           ToString(options_.level0_file_num_compaction_trigger + 2),
-           ToString(options_.level0_file_num_compaction_trigger + 4),
+           std::to_string(options_.level0_file_num_compaction_trigger),
+           std::to_string(options_.level0_file_num_compaction_trigger + 2),
+           std::to_string(options_.level0_file_num_compaction_trigger + 4),
        }},
       {"level0_slowdown_writes_trigger",
        {
-           ToString(options_.level0_slowdown_writes_trigger),
-           ToString(options_.level0_slowdown_writes_trigger + 2),
-           ToString(options_.level0_slowdown_writes_trigger + 4),
+           std::to_string(options_.level0_slowdown_writes_trigger),
+           std::to_string(options_.level0_slowdown_writes_trigger + 2),
+           std::to_string(options_.level0_slowdown_writes_trigger + 4),
        }},
       {"level0_stop_writes_trigger",
        {
-           ToString(options_.level0_stop_writes_trigger),
-           ToString(options_.level0_stop_writes_trigger + 2),
-           ToString(options_.level0_stop_writes_trigger + 4),
+           std::to_string(options_.level0_stop_writes_trigger),
+           std::to_string(options_.level0_stop_writes_trigger + 2),
+           std::to_string(options_.level0_stop_writes_trigger + 4),
        }},
       {"max_compaction_bytes",
        {
-           ToString(options_.target_file_size_base * 5),
-           ToString(options_.target_file_size_base * 15),
-           ToString(options_.target_file_size_base * 100),
+           std::to_string(options_.target_file_size_base * 5),
+           std::to_string(options_.target_file_size_base * 15),
+           std::to_string(options_.target_file_size_base * 100),
        }},
       {"target_file_size_base",
        {
-           ToString(options_.target_file_size_base),
-           ToString(options_.target_file_size_base * 2),
-           ToString(options_.target_file_size_base * 4),
+           std::to_string(options_.target_file_size_base),
+           std::to_string(options_.target_file_size_base * 2),
+           std::to_string(options_.target_file_size_base * 4),
        }},
       {"target_file_size_multiplier",
        {
-           ToString(options_.target_file_size_multiplier),
+           std::to_string(options_.target_file_size_multiplier),
            "1",
            "2",
        }},
       {"max_bytes_for_level_base",
        {
-           ToString(options_.max_bytes_for_level_base / 2),
-           ToString(options_.max_bytes_for_level_base),
-           ToString(options_.max_bytes_for_level_base * 2),
+           std::to_string(options_.max_bytes_for_level_base / 2),
+           std::to_string(options_.max_bytes_for_level_base),
+           std::to_string(options_.max_bytes_for_level_base * 2),
        }},
       {"max_bytes_for_level_multiplier",
        {
-           ToString(options_.max_bytes_for_level_multiplier),
+           std::to_string(options_.max_bytes_for_level_multiplier),
            "1",
            "2",
        }},
@@ -418,7 +418,7 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   if (snap_state.status != s) {
     return Status::Corruption(
         "The snapshot gave inconsistent results for key " +
-        ToString(Hash(snap_state.key.c_str(), snap_state.key.size(), 0)) +
+        std::to_string(Hash(snap_state.key.c_str(), snap_state.key.size(), 0)) +
         " in cf " + cf->GetName() + ": (" + snap_state.status.ToString() +
         ") vs. (" + s.ToString() + ")");
   }
@@ -1424,8 +1424,9 @@ void StressTest::TestCompactFiles(ThreadState* /* thread */,
 Status StressTest::TestBackupRestore(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& rand_keys) {
-  std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
-  std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
+  std::string backup_dir = FLAGS_db + "/.backup" + std::to_string(thread->tid);
+  std::string restore_dir =
+      FLAGS_db + "/.restore" + std::to_string(thread->tid);
   BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
@@ -1717,7 +1718,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
                                   const std::vector<int>& rand_column_families,
                                   const std::vector<int64_t>& rand_keys) {
   std::string checkpoint_dir =
-      FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+      FLAGS_db + "/.checkpoint" + std::to_string(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
   tmp_opts.env = db_stress_env;
@@ -2204,7 +2205,7 @@ void StressTest::PrintEnv() const {
           (unsigned long)FLAGS_ops_per_thread);
   std::string ttl_state("unused");
   if (FLAGS_ttl > 0) {
-    ttl_state = ToString(FLAGS_ttl);
+    ttl_state = std::to_string(FLAGS_ttl);
   }
   fprintf(stdout, "Time to live(sec)         : %s\n", ttl_state.c_str());
   fprintf(stdout, "Read percentage           : %d%%\n", FLAGS_readpercent);
@@ -2608,7 +2609,7 @@ void StressTest::Open(SharedState* shared) {
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
     }
     while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
-      std::string name = ToString(new_column_family_name_.load());
+      std::string name = std::to_string(new_column_family_name_.load());
       new_column_family_name_++;
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
       column_family_names_.push_back(name);

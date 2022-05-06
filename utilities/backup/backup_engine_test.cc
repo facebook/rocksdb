@@ -564,8 +564,8 @@ size_t FillDB(DB* db, int from, int to,
               FillDBFlushAction flush_action = kFlushMost) {
   size_t bytes_written = 0;
   for (int i = from; i < to; ++i) {
-    std::string key = "testkey" + ToString(i);
-    std::string value = "testvalue" + ToString(i);
+    std::string key = "testkey" + std::to_string(i);
+    std::string value = "testvalue" + std::to_string(i);
     bytes_written += key.size() + value.size();
 
     EXPECT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
@@ -582,17 +582,17 @@ size_t FillDB(DB* db, int from, int to,
 
 void AssertExists(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
-    std::string key = "testkey" + ToString(i);
+    std::string key = "testkey" + std::to_string(i);
     std::string value;
     Status s = db->Get(ReadOptions(), Slice(key), &value);
-    ASSERT_EQ(value, "testvalue" + ToString(i));
+    ASSERT_EQ(value, "testvalue" + std::to_string(i));
   }
 }
 
 void AssertEmpty(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
-    std::string key = "testkey" + ToString(i);
-    std::string value = "testvalue" + ToString(i);
+    std::string key = "testkey" + std::to_string(i);
+    std::string value = "testvalue" + std::to_string(i);
 
     Status s = db->Get(ReadOptions(), Slice(key), &value);
     ASSERT_TRUE(s.IsNotFound());
@@ -955,7 +955,7 @@ class BackupEngineTest : public testing::Test {
       ASSERT_LT(last_underscore, last_dot);
       std::string s = child.name.substr(last_underscore + 1,
                                         last_dot - (last_underscore + 1));
-      ASSERT_EQ(s, ToString(child.size_bytes));
+      ASSERT_EQ(s, std::to_string(child.size_bytes));
       ++found_count;
     }
     ASSERT_GE(found_count, minimum_count);
@@ -3285,7 +3285,7 @@ TEST_F(BackupEngineTest, MetaSchemaVersion2_SizeCorruption) {
 
   for (int id = 1; id <= 3; ++id) {
     ASSERT_OK(file_manager_->WriteToFile(
-        private_dir + "/" + ToString(id) + "/CURRENT", "x"));
+        private_dir + "/" + std::to_string(id) + "/CURRENT", "x"));
   }
   // Except corrupt Backup 4 with same size CURRENT file
   {
@@ -3518,7 +3518,7 @@ TEST_F(BackupEngineTest, Concurrency) {
           ASSERT_EQ(ids.size(), 0U);
 
           // (Eventually, see below) Restore one of the backups, or "latest"
-          std::string restore_db_dir = dbname_ + "/restore" + ToString(i);
+          std::string restore_db_dir = dbname_ + "/restore" + std::to_string(i);
           DestroyDir(test_db_env_.get(), restore_db_dir).PermitUncheckedError();
           BackupID to_restore;
           if (latest) {
@@ -4111,7 +4111,7 @@ TEST_F(BackupEngineTest, FileTemperatures) {
     }
 
     // Restore backup to another virtual (tiered) dir
-    const std::string restore_dir = "/restore" + ToString(i);
+    const std::string restore_dir = "/restore" + std::to_string(i);
     ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(
         RestoreOptions(), restore_dir, restore_dir));
 

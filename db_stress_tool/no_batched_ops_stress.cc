@@ -189,7 +189,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (thread->rand.OneInOpt(FLAGS_clear_column_family_one_in)) {
         // drop column family and then create it again (can't drop default)
         int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;
-        std::string new_name = ToString(new_column_family_name_.fetch_add(1));
+        std::string new_name =
+            std::to_string(new_column_family_name_.fetch_add(1));
         {
           MutexLock l(thread->shared->GetMutex());
           fprintf(
@@ -789,7 +790,7 @@ class NonBatchedOpsStressTest : public StressTest {
                               const std::vector<int64_t>& rand_keys,
                               std::unique_ptr<MutexLock>& lock) override {
     const std::string sst_filename =
-        FLAGS_db + "/." + ToString(thread->tid) + ".sst";
+        FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
     if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file

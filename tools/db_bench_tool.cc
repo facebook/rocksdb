@@ -1952,9 +1952,9 @@ class ReporterAgent {
       auto secs_elapsed =
           (clock->NowMicros() - time_started + kMicrosInSecond / 2) /
           kMicrosInSecond;
-      std::string report = ToString(secs_elapsed) + "," +
-                           ToString(total_ops_done_snapshot - last_report_) +
-                           "\n";
+      std::string report =
+          std::to_string(secs_elapsed) + "," +
+          std::to_string(total_ops_done_snapshot - last_report_) + "\n";
       auto s = report_file_->Append(report);
       if (s.ok()) {
         s = report_file_->Flush();
@@ -2208,7 +2208,7 @@ class Stats {
                     if (db->GetProperty(
                             db_with_cfh->cfh[i],
                             "rocksdb.aggregated-table-properties-at-level" +
-                                ToString(level),
+                                std::to_string(level),
                             &stats)) {
                       if (stats.find("# entries=0") == std::string::npos) {
                         fprintf(stderr, "Level[%d]: %s\n", level,
@@ -2232,7 +2232,7 @@ class Stats {
                 for (int level = 0; level < FLAGS_num_levels; ++level) {
                   if (db->GetProperty(
                           "rocksdb.aggregated-table-properties-at-level" +
-                              ToString(level),
+                              std::to_string(level),
                           &stats)) {
                     if (stats.find("# entries=0") == std::string::npos) {
                       fprintf(stderr, "Level[%d]: %s\n", level, stats.c_str());
@@ -3142,7 +3142,7 @@ class Benchmark {
       }
 #endif
     }
-    return base_name + ToString(id);
+    return base_name + std::to_string(id);
   }
 
   void VerifyDBFromDB(std::string& truth_db_name) {
@@ -3791,7 +3791,7 @@ class Benchmark {
   static inline void ChecksumBenchmark(FnType fn, ThreadState* thread,
                                        Args... args) {
     const int size = FLAGS_block_size; // use --block_size option for db_bench
-    std::string labels = "(" + ToString(FLAGS_block_size) + " per op)";
+    std::string labels = "(" + std::to_string(FLAGS_block_size) + " per op)";
     const char* label = labels.c_str();
 
     std::string data(size, 'x');
@@ -4429,7 +4429,7 @@ class Benchmark {
           Status s = FilterPolicy::CreateFromString(
               ConfigOptions(),
               "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
-                  ROCKSDB_NAMESPACE::ToString(FLAGS_bloom_bits),
+                  std::to_string(FLAGS_bloom_bits),
               &table_options->filter_policy);
           if (!s.ok()) {
             fprintf(stderr,

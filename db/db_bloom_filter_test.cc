@@ -858,7 +858,7 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
 
-    std::string prefix = ToString(i) + "_";
+    std::string prefix = std::to_string(i) + "_";
     ASSERT_OK(Put(prefix + "A", "val"));
     ASSERT_OK(Put(prefix + "Z", "val"));
     ASSERT_OK(Flush());
@@ -873,7 +873,7 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen(options);
     for (size_t j = 0; j < kCompatibilityConfigs.size(); ++j) {
-      std::string prefix = ToString(j) + "_";
+      std::string prefix = std::to_string(j) + "_";
       ASSERT_EQ("val", Get(prefix + "A"));  // Filter positive
       ASSERT_EQ("val", Get(prefix + "Z"));  // Filter positive
       // Filter negative, with high probability
@@ -1713,11 +1713,11 @@ class TestingContextCustomFilterPolicy
     test_report_ +=
         OptionsHelper::compaction_style_to_string[context.compaction_style];
     test_report_ += ",n=";
-    test_report_ += ROCKSDB_NAMESPACE::ToString(context.num_levels);
+    test_report_ += std::to_string(context.num_levels);
     test_report_ += ",l=";
-    test_report_ += ROCKSDB_NAMESPACE::ToString(context.level_at_creation);
+    test_report_ += std::to_string(context.level_at_creation);
     test_report_ += ",b=";
-    test_report_ += ROCKSDB_NAMESPACE::ToString(int{context.is_bottommost});
+    test_report_ += std::to_string(int{context.is_bottommost});
     test_report_ += ",r=";
     test_report_ += table_file_creation_reason_to_string[context.reason];
     test_report_ += "\n";

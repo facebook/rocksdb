@@ -578,15 +578,15 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     std::string value;
     MergeContext merge_context;
 
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i),
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", std::to_string(i),
                        nullptr /* kv_prot_info */));
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN",
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + std::to_string(i), "valueN",
                        nullptr /* kv_prot_info */));
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value",
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + std::to_string(i), "value",
                        nullptr /* kv_prot_info */));
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM",
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + std::to_string(i), "valueM",
                        nullptr /* kv_prot_info */));
-    ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "",
+    ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + std::to_string(i), "",
                        nullptr /* kv_prot_info */));
 
     tables.push_back(mem);
@@ -860,15 +860,15 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
 
       std::string value;
 
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i),
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", std::to_string(i),
                          nullptr /* kv_prot_info */));
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN",
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + std::to_string(i),
+                         "valueN", nullptr /* kv_prot_info */));
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + std::to_string(i), "value",
                          nullptr /* kv_prot_info */));
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value",
-                         nullptr /* kv_prot_info */));
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM",
-                         nullptr /* kv_prot_info */));
-      ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "",
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + std::to_string(i),
+                         "valueM", nullptr /* kv_prot_info */));
+      ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + std::to_string(i), "",
                          nullptr /* kv_prot_info */));
 
       elem.push_back(mem);

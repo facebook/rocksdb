@@ -1342,7 +1342,7 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
   auto statistics_share = CreateDBStatistics();
   Statistics* statistics = enable_statistics ? statistics_share.get() : nullptr;
   for (int i = 0; i < kFileNum; i++) {
-    std::string fname = fname_base + ToString(i);
+    std::string fname = fname_base + std::to_string(i);
     std::string content = rand.RandomString(kDefaultPageSize);
     std::unique_ptr<WritableFile> tgt_file;
     env->NewWritableFile(fname, &tgt_file, EnvOptions());
@@ -1375,7 +1375,7 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
 
   // clean up
   for (int i = 0; i < kFileNum; i++) {
-    std::string fname = fname_base + ToString(i);
+    std::string fname = fname_base + std::to_string(i);
     env->DeleteFile(fname);  // ignore return, okay to fail cleanup
   }
 }

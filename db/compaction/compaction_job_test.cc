@@ -236,8 +236,8 @@ class CompactionJobTestBase : public testing::Test {
     for (int i = 0; i < 2; ++i) {
       auto contents = mock::MakeMockFile();
       for (int k = 0; k < kKeysPerFile; ++k) {
-        auto key = ToString(i * kMatchingKeys + k);
-        auto value = ToString(i * kKeysPerFile + k);
+        auto key = std::to_string(i * kMatchingKeys + k);
+        auto value = std::to_string(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
 
         // This is how the key will look like once it's written in bottommost

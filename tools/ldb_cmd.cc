@@ -2198,8 +2198,7 @@ std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
   std::vector<std::string> ret;
   ret.push_back("reduce_levels");
   ret.push_back("--" + ARG_DB + "=" + db_path);
-  ret.push_back("--" + ARG_NEW_LEVELS + "=" +
-                ROCKSDB_NAMESPACE::ToString(new_levels));
+  ret.push_back("--" + ARG_NEW_LEVELS + "=" + std::to_string(new_levels));
   if(print_old_level) {
     ret.push_back("--" + ARG_PRINT_OLD_LEVELS);
   }
@@ -2393,7 +2392,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string property;
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
+    db_->GetProperty(GetCfHandle(),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2421,7 +2421,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
   files_per_level = "";
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
+    db_->GetProperty(GetCfHandle(),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2436,7 +2437,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level 0 after compaction is " +
-          ToString(num_files) + ", not 1.\n");
+          std::to_string(num_files) + ", not 1.\n");
       return;
     }
     // other levels should have no file
@@ -2444,8 +2445,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level " +
-          ToString(i) + " after compaction is " + ToString(num_files) +
-          ", not 0.\n");
+          std::to_string(i) + " after compaction is " +
+          std::to_string(num_files) + ", not 0.\n");
       return;
     }
   }
