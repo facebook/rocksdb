@@ -34,7 +34,7 @@ default_params = {
     "acquire_snapshot_one_in": 10000,
     "backup_max_size": 100 * 1024 * 1024,
     # Consider larger number when backups considered more stable
-    "backup_one_in": 100000,
+    "backup_one_in": 100,
     "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
@@ -42,7 +42,7 @@ default_params = {
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 8388608,
     "reserve_table_reader_memory": lambda: random.choice([0, 1]),
-    "checkpoint_one_in": 1000000,
+    "checkpoint_one_in": 100,
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "bottommost_compression_type": lambda:
@@ -317,6 +317,9 @@ best_efforts_recovery_params = {
     "skip_verifydb": True,
     "verify_db_one_in": 0,
     "continuous_verification_interval": 0,
+    "atomic_flush": 0,
+    "disable_wal": 1,
+    "sync_fault_injection": 0,
 }
 
 blob_params = {
@@ -502,6 +505,13 @@ def finalize_and_sanitize(src_params):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
     if dest_params.get("two_write_queues") == 1:
         dest_params["enable_pipelined_write"] = 0
+    if dest_params.get("best_efforts_recovery") == 1:
+        dest_params["disable_wal"] = 1
+        dest_params["atomic_flush"] = 0
+        dest_params["enable_compaction_filter"] = 0
+        dest_params["sync"] = 0
+        dest_params["write_fault_one_in"] = 0
+
     return dest_params
 
 def gen_cmd_params(args):
@@ -648,9 +658,6 @@ def blackbox_crash_main(args, unknown_args):
                 print('***' + line + '***')
 
         time.sleep(1)  # time to stabilize before the next run
-
-        if args.test_best_efforts_recovery:
-            inject_inconsistencies_to_db_dir(dbname)
 
         time.sleep(1)  # time to stabilize before the next run
 
