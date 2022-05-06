@@ -28,6 +28,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "port/port_dirent.h"
 #include "port/win/io_win.h"
