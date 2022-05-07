@@ -816,6 +816,39 @@ void rocksdb_options_set_uint64add_merge_operator(rocksdb_options_t* opt) {
       ROCKSDB_NAMESPACE::MergeOperators::CreateUInt64AddOperator();
 }
 
+rocksdb_t* rocksdb_open_and_trim_history(
+  const rocksdb_options_t* db_options, const char* name, int num_column_families,
+  const char* const* column_family_names,
+  const rocksdb_options_t* const* column_family_options,
+  rocksdb_column_family_handle_t** column_family_handles, char* trim_ts, size_t trim_tslen, char** errptr) {
+
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i < num_column_families; i++) {
+    column_families.push_back(ColumnFamilyDescriptor(
+      std::string(column_family_names[i]),
+      ColumnFamilyOptions(column_family_options[i]->rep)));
+  }
+
+  std::string trim_ts_;
+  trim_ts_.assign(trim_ts, trim_tslen);
+
+  DB* db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, DB::OpenAndTrimHistory(DBOptions(db_options->rep),
+    std::string(name), column_families, &handles, &db, trim_ts_))) {
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < handles.size(); i++) {
+    rocksdb_column_family_handle_t* c_handle = new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
 rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* db_options, const char* name,
     int num_column_families, const char* const* column_family_names,

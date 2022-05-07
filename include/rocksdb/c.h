@@ -360,6 +360,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_checkpoint_create(
 extern ROCKSDB_LIBRARY_API void rocksdb_checkpoint_object_destroy(
     rocksdb_checkpoint_t* checkpoint);
 
+extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_and_trim_history(
+    const rocksdb_options_t* options, const char* name, int num_column_families,
+    const char* const* column_family_names,
+    const rocksdb_options_t* const* column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles, char* trim_ts, size_t trim_tslen, char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
     const char* const* column_family_names,
