@@ -19,6 +19,7 @@
 #include "db/dbformat.h"
 #include "db/wal_edit.h"
 #include "memory/arena.h"
+#include "port/malloc.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
@@ -292,6 +293,25 @@ struct FileMetaData {
       return fd.table_reader->GetTableProperties()->file_creation_time;
     }
     return kUnknownFileCreationTime;
+  }
+
+  // WARNING: manual update to this function is needed
+  // whenever a new string property is added to FileMetaData
+  // to reduce approximation error.
+  //
+  // TODO: eliminate the need of manually updating this function
+  // for new string properties
+  size_t ApproximateMemoryUsage() const {
+    size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    usage += malloc_usable_size(const_cast<FileMetaData*>(this));
+#else
+    usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    usage += smallest.size() + largest.size() + file_checksum.size() +
+             file_checksum_func_name.size() + min_timestamp.size() +
+             max_timestamp.size();
+    return usage;
   }
 };
 

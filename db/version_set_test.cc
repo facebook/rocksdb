@@ -12,6 +12,7 @@
 #include <algorithm>
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "db/log_writer.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/convenience.h"
@@ -3446,6 +3447,124 @@ TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
   }
 }
 
+class ChargeFileMetadataTest : public DBTestBase {
+ public:
+  ChargeFileMetadataTest()
+      : DBTestBase("charge_file_metadata_test", /*env_do_fsync=*/true) {}
+};
+
+class ChargeFileMetadataTestWithParam
+    : public ChargeFileMetadataTest,
+      public testing::WithParamInterface<CacheEntryRoleOptions::Decision> {
+ public:
+  ChargeFileMetadataTestWithParam() {}
+};
+
+#ifndef ROCKSDB_LITE
+INSTANTIATE_TEST_CASE_P(
+    ChargeFileMetadataTestWithParam, ChargeFileMetadataTestWithParam,
+    ::testing::Values(CacheEntryRoleOptions::Decision::kEnabled,
+                      CacheEntryRoleOptions::Decision::kDisabled));
+
+TEST_P(ChargeFileMetadataTestWithParam, Basic) {
+  Options options;
+  BlockBasedTableOptions table_options;
+  CacheEntryRoleOptions::Decision charge_file_metadata = GetParam();
+  table_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kFileMetadata, {/*.charged = */ charge_file_metadata}});
+  std::shared_ptr<TargetCacheChargeTrackingCache<CacheEntryRole::kFileMetadata>>
+      file_metadata_charge_only_cache = std::make_shared<
+          TargetCacheChargeTrackingCache<CacheEntryRole::kFileMetadata>>(
+          NewLRUCache(
+              4 * CacheReservationManagerImpl<
+                      CacheEntryRole::kFileMetadata>::GetDummyEntrySize(),
+              0 /* num_shard_bits */, true /* strict_capacity_limit */));
+  table_options.block_cache = file_metadata_charge_only_cache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Create 128 file metadata, each of which is roughly 1024 bytes.
+  // This results in 1 *
+  // CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>::GetDummyEntrySize()
+  // cache reservation for file metadata.
+  for (int i = 1; i <= 128; ++i) {
+    ASSERT_OK(Put(std::string(1024, 'a'), "va"));
+    ASSERT_OK(Put("b", "vb"));
+    ASSERT_OK(Flush());
+  }
+  if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
+    EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
+              1 * CacheReservationManagerImpl<
+                      CacheEntryRole::kFileMetadata>::GetDummyEntrySize());
+
+  } else {
+    EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(), 0);
+  }
+
+  // Create another 128 file metadata.
+  // This increases the file metadata cache reservation to 2 *
+  // CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>::GetDummyEntrySize().
+  for (int i = 1; i <= 128; ++i) {
+    ASSERT_OK(Put(std::string(1024, 'a'), "vva"));
+    ASSERT_OK(Put("b", "vvb"));
+    ASSERT_OK(Flush());
+  }
+  if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
+    EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
+              2 * CacheReservationManagerImpl<
+                      CacheEntryRole::kFileMetadata>::GetDummyEntrySize());
+  } else {
+    EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(), 0);
+  }
+  // Compaction will create 1 new file metadata, obsolete and delete all 256
+  // file metadata above. This results in 1 *
+  // CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>::GetDummyEntrySize()
+  // cache reservation for file metadata.
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+
+  if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
+    EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
+              1 * CacheReservationManagerImpl<
+                      CacheEntryRole::kFileMetadata>::GetDummyEntrySize());
+  } else {
+    EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(), 0);
+  }
+
+  // Destroying the db will delete the remaining 1 new file metadata
+  // This results in no cache reservation for file metadata.
+  Destroy(options);
+  EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
+            0 * CacheReservationManagerImpl<
+                    CacheEntryRole::kFileMetadata>::GetDummyEntrySize());
+
+  // Reopen the db with a smaller cache in order to test failure in allocating
+  // file metadata due to memory limit based on cache capacity
+  file_metadata_charge_only_cache = std::make_shared<
+      TargetCacheChargeTrackingCache<CacheEntryRole::kFileMetadata>>(
+      NewLRUCache(1 * CacheReservationManagerImpl<
+                          CacheEntryRole::kFileMetadata>::GetDummyEntrySize(),
+                  0 /* num_shard_bits */, true /* strict_capacity_limit */));
+  table_options.block_cache = file_metadata_charge_only_cache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  ASSERT_OK(Put(std::string(1024, 'a'), "va"));
+  ASSERT_OK(Put("b", "vb"));
+  Status s = Flush();
+  if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
+    EXPECT_TRUE(s.IsMemoryLimit());
+    EXPECT_TRUE(s.ToString().find(
+                    kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+                        CacheEntryRole::kFileMetadata)]) != std::string::npos);
+    EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
+                std::string::npos);
+  } else {
+    EXPECT_TRUE(s.ok());
+  }
+}
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

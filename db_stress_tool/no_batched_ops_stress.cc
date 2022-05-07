@@ -9,8 +9,8 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
-#include "utilities/fault_injection_fs.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
