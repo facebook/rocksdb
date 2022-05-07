@@ -884,6 +884,13 @@ class Version {
   // This accumulated stats will be used in compaction.
   void UpdateAccumulatedStats();
 
+  Status MultiGetFromSST(
+      const ReadOptions& read_options, MultiGetRange file_range,
+      int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
+      std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs,
+      uint64_t& num_filter_read, uint64_t& num_index_read,
+      uint64_t& num_data_read, uint64_t& num_sst_read);
+
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
   Statistics* db_statistics_;
