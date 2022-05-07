@@ -115,7 +115,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
              std::string* value) {
             const auto* factory =
                 static_cast<const CompactOnDeletionCollectorFactory*>(addr);
-            *value = ToString(factory->GetWindowSize());
+            *value = std::to_string(factory->GetWindowSize());
             return Status::OK();
           },
           nullptr}},
@@ -133,7 +133,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
              std::string* value) {
             const auto* factory =
                 static_cast<const CompactOnDeletionCollectorFactory*>(addr);
-            *value = ToString(factory->GetDeletionTrigger());
+            *value = std::to_string(factory->GetDeletionTrigger());
             return Status::OK();
           },
           nullptr}},
@@ -151,7 +151,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
              std::string* value) {
             const auto* factory =
                 static_cast<const CompactOnDeletionCollectorFactory*>(addr);
-            *value = ToString(factory->GetDeletionRatio());
+            *value = std::to_string(factory->GetDeletionRatio());
             return Status::OK();
           },
           nullptr}},
@@ -194,7 +194,7 @@ NewCompactOnDeletionCollectorFactory(size_t sliding_window_size,
 namespace {
 static int RegisterTablePropertiesCollectorFactories(
     ObjectLibrary& library, const std::string& /*arg*/) {
-  library.Register<TablePropertiesCollectorFactory>(
+  library.AddFactory<TablePropertiesCollectorFactory>(
       CompactOnDeletionCollectorFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<TablePropertiesCollectorFactory>* guard,

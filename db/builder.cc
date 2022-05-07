@@ -62,9 +62,9 @@ Status BuildTable(
     FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
-    InternalStats* internal_stats, IOStatus* io_status,
-    const std::shared_ptr<IOTracer>& io_tracer,
+    SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
+    bool paranoid_file_checks, InternalStats* internal_stats,
+    IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
@@ -115,6 +115,7 @@ Status BuildTable(
   assert(fs);
 
   TableProperties tp;
+  bool table_file_created = false;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions.compaction_filter_factory != nullptr &&
@@ -158,6 +159,8 @@ Status BuildTable(
             file_checksum_func_name);
         return s;
       }
+
+      table_file_created = true;
       FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
@@ -189,12 +192,13 @@ Status BuildTable(
     CompactionIterator c_iter(
         iter, tboptions.internal_comparator.user_comparator(), &merge,
         kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
-        snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
+        job_snapshot, snapshot_checker, env,
+        ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr,
-        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, db_options.info_log,
         full_history_ts_low);
 
@@ -211,7 +215,11 @@ Status BuildTable(
         break;
       }
       builder->Add(key, value);
-      meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+
+      s = meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
+      if (!s.ok()) {
+        break;
+      }
 
       // TODO(noetzli): Update stats after flush, too.
       if (io_priority == Env::IO_HIGH &&
@@ -318,6 +326,7 @@ Status BuildTable(
 
     // TODO Also check the IO status when create the Iterator.
 
+    TEST_SYNC_POINT("BuildTable:BeforeOutputValidation");
     if (s.ok() && !empty) {
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
@@ -328,8 +337,8 @@ Status BuildTable(
       ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           read_options, file_options, tboptions.internal_comparator, *meta,
-          nullptr /* range_del_agg */,
-          mutable_cf_options.prefix_extractor.get(), nullptr,
+          nullptr /* range_del_agg */, mutable_cf_options.prefix_extractor,
+          nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           TableReaderCaller::kFlush, /*arena=*/nullptr,
@@ -365,15 +374,17 @@ Status BuildTable(
 
     constexpr IODebugContext* dbg = nullptr;
 
-    Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
-    ignored.PermitUncheckedError();
+    if (table_file_created) {
+      Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
+      ignored.PermitUncheckedError();
+    }
 
     assert(blob_file_additions || blob_file_paths.empty());
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
-        ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
-                               /*force_bg=*/false, /*force_fg=*/false);
+        Status ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
+                                      /*force_bg=*/false, /*force_fg=*/false);
         ignored.PermitUncheckedError();
         TEST_SYNC_POINT("BuildTable::AfterDeleteFile");
       }

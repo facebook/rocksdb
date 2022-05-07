@@ -25,6 +25,11 @@
 
 #define ROCKSDB_NOEXCEPT noexcept
 
+// thread_local is part of C++11 and later (TODO: clean up this define)
+#ifndef __thread
+#define __thread thread_local
+#endif
+
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>
@@ -90,16 +95,6 @@ namespace ROCKSDB_NAMESPACE {
 extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
-const int kMaxInt32 = std::numeric_limits<int32_t>::max();
-const int kMinInt32 = std::numeric_limits<int32_t>::min();
-const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
-const int64_t kMinInt64 = std::numeric_limits<int64_t>::min();
-const size_t kMaxSizet = std::numeric_limits<size_t>::max();
-
 constexpr bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 #undef PLATFORM_IS_LITTLE_ENDIAN
 
@@ -193,7 +188,7 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define ALIGN_AS(n) /*empty*/
 #else
 #if defined(__s390__)
-#if defined(__GNUC__) && __GNUC__ < 6
+#if defined(__GNUC__) && __GNUC__ < 7
 #define CACHE_LINE_SIZE 64U
 #else
 #define CACHE_LINE_SIZE 256U

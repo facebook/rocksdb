@@ -53,6 +53,7 @@
 #define GTEST_INCLUDE_GTEST_GTEST_H_
 
 #include <limits>
+#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -2442,6 +2443,10 @@ GTEST_API_ bool IsTrue(bool condition);
 
 // Defines scoped_ptr.
 
+// RocksDB: use unique_ptr to work around some clang-analyze false reports
+template <typename T>
+using scoped_ptr = std::unique_ptr<T>;
+/*
 // This implementation of scoped_ptr is PARTIAL - it only contains
 // enough stuff to satisfy Google Test's need.
 template <typename T>
@@ -2481,6 +2486,7 @@ class scoped_ptr {
 
   GTEST_DISALLOW_COPY_AND_ASSIGN_(scoped_ptr);
 };
+*/
 
 // Defines RE.
 

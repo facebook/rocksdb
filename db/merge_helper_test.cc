@@ -32,8 +32,10 @@ class MergeHelperTest : public testing::Test {
     merge_helper_.reset(new MergeHelper(env_, icmp_.user_comparator(),
                                         merge_op_.get(), filter_.get(), nullptr,
                                         false, latest_snapshot));
-    return merge_helper_->MergeUntil(iter_.get(), nullptr /* range_del_agg */,
-                                     stop_before, at_bottom);
+    return merge_helper_->MergeUntil(
+        iter_.get(), nullptr /* range_del_agg */, stop_before, at_bottom,
+        false /* allow_data_in_errors */, nullptr /* blob_fetcher */,
+        nullptr /* prefetch_buffers */, nullptr /* c_iter_stats */);
   }
 
   void AddKeyVal(const std::string& user_key, const SequenceNumber& seq,

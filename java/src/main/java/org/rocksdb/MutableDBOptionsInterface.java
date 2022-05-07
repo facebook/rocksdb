@@ -23,34 +23,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
 
   /**
    * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. This option is ignored.
-   *
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: -1
-   *
-   * @param baseBackgroundCompactions Suggested number of background compaction
-   *     jobs
-   *
-   * @deprecated Use {@link #setMaxBackgroundJobs(int)}
-   */
-  @Deprecated
-  void setBaseBackgroundCompactions(int baseBackgroundCompactions);
-
-  /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
-   * value of max_background_jobs. This option is ignored.
-   *
-   * Suggested number of concurrent background compaction jobs, submitted to
-   * the default LOW priority thread pool.
-   * Default: -1
-   *
-   * @return Suggested number of background compaction jobs
-   */
-  int baseBackgroundCompactions();
-
-  /**
-   * NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
    * value of max_background_jobs. For backwards compatibility we will set
    * `max_background_jobs = max_background_compactions + max_background_flushes`
    * in the case where user sets at least one of `max_background_compactions` or
@@ -202,12 +174,24 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   long delayedWriteRate();
 
   /**
-   * <p>Once write-ahead logs exceed this size, we will start forcing the
-   * flush of column families whose memtables are backed by the oldest live
-   * WAL file (i.e. the ones that are causing all the space amplification).
+   * <p>Set the max total write-ahead log size. Once write-ahead logs exceed this size, we will
+   * start forcing the flush of column families whose memtables are backed by the oldest live WAL
+   * file
    * </p>
+   * <p>The oldest WAL files are the ones that are causing all the space amplification.
+   * </p>
+   *  For example, with 15 column families, each with
+   *  <code>write_buffer_size = 128 MB</code>
+   *  <code>max_write_buffer_number = 6</code>
+   *  <code>max_total_wal_size</code> will be calculated to be <code>[15 * 128MB * 6] * 4 =
+   * 45GB</code>
+   * <p>
+   *  The RocksDB wiki has some discussion about how the WAL interacts
+   *  with memtables and flushing of column families, at
+   * <a href="https://github.com/facebook/rocksdb/wiki/Column-Families">...</a>
+   *  </p>
    * <p>If set to 0 (default), we will dynamically choose the WAL size limit to
-   * be [sum of all write_buffer_size * max_write_buffer_number] * 2</p>
+   * be [sum of all write_buffer_size * max_write_buffer_number] * 4</p>
    * <p>This option takes effect only when there are more than one column family as
    * otherwise the wal size is dictated by the write_buffer_size.</p>
    * <p>Default: 0</p>
@@ -218,13 +202,30 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
   T setMaxTotalWalSize(long maxTotalWalSize);
 
   /**
-   * <p>Returns the max total wal size. Once write-ahead logs exceed this size,
+   * <p>Returns the max total write-ahead log size. Once write-ahead logs exceed this size,
    * we will start forcing the flush of column families whose memtables are
-   * backed by the oldest live WAL file (i.e. the ones that are causing all
-   * the space amplification).</p>
+   * backed by the oldest live WAL file.</p>
+   * <p>The oldest WAL files are the ones that are causing all the space amplification.
+   * </p>
+   *  For example, with 15 column families, each with
+   *  <code>write_buffer_size = 128 MB</code>
+   *  <code>max_write_buffer_number = 6</code>
+   *  <code>max_total_wal_size</code> will be calculated to be <code>[15 * 128MB * 6] * 4 =
+   * 45GB</code>
+   * <p>
+   *  The RocksDB wiki has some discussion about how the WAL interacts
+   *  with memtables and flushing of column families, at
+   * <a href="https://github.com/facebook/rocksdb/wiki/Column-Families">...</a>
+   *  </p>
+   * <p>If set to 0 (default), we will dynamically choose the WAL size limit to
+   * be [sum of all write_buffer_size * max_write_buffer_number] * 4</p>
+   * <p>This option takes effect only when there are more than one column family as
+   * otherwise the wal size is dictated by the write_buffer_size.</p>
+   * <p>Default: 0</p>
+   *
    *
    * <p>If set to 0 (default), we will dynamically choose the WAL size limit
-   * to be [sum of all write_buffer_size * max_write_buffer_number] * 2
+   * to be [sum of all write_buffer_size * max_write_buffer_number] * 4
    * </p>
    *
    * @return max total wal size
@@ -416,8 +417,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * running RocksDB on spinning disks, you should set this to at least 2MB.
    *
    * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force
-   * {@link DBOptionsInterface#newTableReaderForCompactionInputs()} to true.
    *
    * Default: 0
    *
@@ -432,8 +431,6 @@ public interface MutableDBOptionsInterface<T extends MutableDBOptionsInterface<T
    * running RocksDB on spinning disks, you should set this to at least 2MB.
    *
    * That way RocksDB's compaction is doing sequential instead of random reads.
-   * When non-zero, we also force
-   * {@link DBOptionsInterface#newTableReaderForCompactionInputs()} to true.
    *
    * Default: 0
    *

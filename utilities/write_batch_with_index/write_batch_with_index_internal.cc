@@ -33,6 +33,7 @@ BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
       comparator_(comparator),
       iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
                                         : nullptr) {
+  assert(comparator_);
   wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
 }
 
@@ -95,8 +96,9 @@ void BaseDeltaIterator::Next() {
       AdvanceBase();
     }
     if (DeltaValid() && BaseValid()) {
-      if (comparator_->Equal(delta_iterator_->Entry().key,
-                             base_iterator_->key())) {
+      if (0 == comparator_->CompareWithoutTimestamp(
+                   delta_iterator_->Entry().key, /*a_has_ts=*/false,
+                   base_iterator_->key(), /*b_has_ts=*/false)) {
         equal_keys_ = true;
       }
     }
@@ -131,8 +133,9 @@ void BaseDeltaIterator::Prev() {
       AdvanceBase();
     }
     if (DeltaValid() && BaseValid()) {
-      if (comparator_->Equal(delta_iterator_->Entry().key,
-                             base_iterator_->key())) {
+      if (0 == comparator_->CompareWithoutTimestamp(
+                   delta_iterator_->Entry().key, /*a_has_ts=*/false,
+                   base_iterator_->key(), /*b_has_ts=*/false)) {
         equal_keys_ = true;
       }
     }
@@ -218,8 +221,9 @@ void BaseDeltaIterator::AssertInvariants() {
   // we don't support those yet
   assert(delta_iterator_->Entry().type != kMergeRecord &&
          delta_iterator_->Entry().type != kLogDataRecord);
-  int compare =
-      comparator_->Compare(delta_iterator_->Entry().key, base_iterator_->key());
+  int compare = comparator_->CompareWithoutTimestamp(
+      delta_iterator_->Entry().key, /*a_has_ts=*/false, base_iterator_->key(),
+      /*b_has_ts=*/false);
   if (forward_) {
     // current_at_base -> compare < 0
     assert(!current_at_base_ || compare < 0);
@@ -301,7 +305,9 @@ void BaseDeltaIterator::UpdateCurrent() {
         return;
       }
       if (iterate_upper_bound_) {
-        if (comparator_->Compare(delta_entry.key, *iterate_upper_bound_) >= 0) {
+        if (comparator_->CompareWithoutTimestamp(
+                delta_entry.key, /*a_has_ts=*/false, *iterate_upper_bound_,
+                /*b_has_ts=*/false) >= 0) {
           // out of upper bound -> finished.
           return;
         }
@@ -319,8 +325,9 @@ void BaseDeltaIterator::UpdateCurrent() {
       return;
     } else {
       int compare =
-          (forward_ ? 1 : -1) *
-          comparator_->Compare(delta_entry.key, base_iterator_->key());
+          (forward_ ? 1 : -1) * comparator_->CompareWithoutTimestamp(
+                                    delta_entry.key, /*a_has_ts=*/false,
+                                    base_iterator_->key(), /*b_has_ts=*/false);
       if (compare <= 0) {  // delta bigger or equal
         if (compare == 0) {
           equal_keys_ = true;
@@ -507,7 +514,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
       break;
     default:
       return Status::Corruption("unknown WriteBatch tag ",
-                                ToString(static_cast<unsigned int>(tag)));
+                                std::to_string(static_cast<unsigned int>(tag)));
   }
   return Status::OK();
 }
@@ -572,10 +579,26 @@ int WriteBatchEntryComparator::CompareKey(uint32_t column_family,
                                           const Slice& key2) const {
   if (column_family < cf_comparators_.size() &&
       cf_comparators_[column_family] != nullptr) {
-    return cf_comparators_[column_family]->Compare(key1, key2);
+    return cf_comparators_[column_family]->CompareWithoutTimestamp(
+        key1, /*a_has_ts=*/false, key2, /*b_has_ts=*/false);
   } else {
-    return default_comparator_->Compare(key1, key2);
+    return default_comparator_->CompareWithoutTimestamp(
+        key1, /*a_has_ts=*/false, key2, /*b_has_ts=*/false);
   }
+}
+
+const Comparator* WriteBatchEntryComparator::GetComparator(
+    const ColumnFamilyHandle* column_family) const {
+  return column_family ? column_family->GetComparator() : default_comparator_;
+}
+
+const Comparator* WriteBatchEntryComparator::GetComparator(
+    uint32_t column_family) const {
+  if (column_family < cf_comparators_.size() &&
+      cf_comparators_[column_family]) {
+    return cf_comparators_[column_family];
+  }
+  return default_comparator_;
 }
 
 WriteEntry WBWIIteratorImpl::Entry() const {
@@ -591,6 +614,12 @@ WriteEntry WBWIIteratorImpl::Entry() const {
   assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
          ret.type == kSingleDeleteRecord || ret.type == kDeleteRangeRecord ||
          ret.type == kMergeRecord);
+  // Make sure entry.key does not include user-defined timestamp.
+  const Comparator* const ucmp = comparator_->GetComparator(column_family_id_);
+  size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz > 0) {
+    ret.key = StripTimestampFromUserKey(ret.key, ts_sz);
+  }
   return ret;
 }
 
@@ -671,7 +700,7 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
   auto result = iter->FindLatestUpdate(key, context);
   if (result == WBWIIteratorImpl::kError) {
     (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                              ToString(iter->Entry().type));
+                              std::to_string(iter->Entry().type));
     return result;
   } else if (result == WBWIIteratorImpl::kNotFound) {
     return result;

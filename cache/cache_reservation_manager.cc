@@ -17,34 +17,54 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/reader_common.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
-CacheReservationManager::CacheReservationManager(std::shared_ptr<Cache> cache,
-                                                 bool delayed_decrease)
-    : delayed_decrease_(delayed_decrease), cache_allocated_size_(0) {
-  assert(cache != nullptr);
-  cache_ = cache;
-  std::memset(cache_key_, 0, kCacheKeyPrefixSize + kMaxVarint64Length);
-  EncodeVarint64(cache_key_, cache_->NewId());
+
+template <CacheEntryRole R>
+CacheReservationManagerImpl<R>::CacheReservationHandle::CacheReservationHandle(
+    std::size_t incremental_memory_used,
+    std::shared_ptr<CacheReservationManagerImpl> cache_res_mgr)
+    : incremental_memory_used_(incremental_memory_used) {
+  assert(cache_res_mgr);
+  cache_res_mgr_ = cache_res_mgr;
 }
 
-CacheReservationManager::~CacheReservationManager() {
+template <CacheEntryRole R>
+CacheReservationManagerImpl<
+    R>::CacheReservationHandle::~CacheReservationHandle() {
+  Status s = cache_res_mgr_->ReleaseCacheReservation(incremental_memory_used_);
+  s.PermitUncheckedError();
+}
+
+template <CacheEntryRole R>
+CacheReservationManagerImpl<R>::CacheReservationManagerImpl(
+    std::shared_ptr<Cache> cache, bool delayed_decrease)
+    : delayed_decrease_(delayed_decrease),
+      cache_allocated_size_(0),
+      memory_used_(0) {
+  assert(cache != nullptr);
+  cache_ = cache;
+}
+
+template <CacheEntryRole R>
+CacheReservationManagerImpl<R>::~CacheReservationManagerImpl() {
   for (auto* handle : dummy_handles_) {
     cache_->Release(handle, true);
   }
 }
 
 template <CacheEntryRole R>
-Status CacheReservationManager::UpdateCacheReservation(
+Status CacheReservationManagerImpl<R>::UpdateCacheReservation(
     std::size_t new_mem_used) {
+  memory_used_ = new_mem_used;
   std::size_t cur_cache_allocated_size =
       cache_allocated_size_.load(std::memory_order_relaxed);
   if (new_mem_used == cur_cache_allocated_size) {
     return Status::OK();
   } else if (new_mem_used > cur_cache_allocated_size) {
-    Status s = IncreaseCacheReservation<R>(new_mem_used);
+    Status s = IncreaseCacheReservation(new_mem_used);
     return s;
   } else {
     // In delayed decrease mode, we don't decrease cache reservation
@@ -65,19 +85,32 @@ Status CacheReservationManager::UpdateCacheReservation(
   }
 }
 
-// Explicitly instantiate templates for "CacheEntryRole" values we use.
-// This makes it possible to keep the template definitions in the .cc file.
-template Status CacheReservationManager::UpdateCacheReservation<
-    CacheEntryRole::kWriteBuffer>(std::size_t new_mem_used);
-template Status CacheReservationManager::UpdateCacheReservation<
-    CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
-    std::size_t new_mem_used);
-// For cache reservation manager unit tests
-template Status CacheReservationManager::UpdateCacheReservation<
-    CacheEntryRole::kMisc>(std::size_t new_mem_used);
+template <CacheEntryRole R>
+Status CacheReservationManagerImpl<R>::MakeCacheReservation(
+    std::size_t incremental_memory_used,
+    std::unique_ptr<CacheReservationManager::CacheReservationHandle>* handle) {
+  assert(handle);
+  Status s =
+      UpdateCacheReservation(GetTotalMemoryUsed() + incremental_memory_used);
+  (*handle).reset(new CacheReservationManagerImpl::CacheReservationHandle(
+      incremental_memory_used,
+      std::enable_shared_from_this<
+          CacheReservationManagerImpl<R>>::shared_from_this()));
+  return s;
+}
 
 template <CacheEntryRole R>
-Status CacheReservationManager::IncreaseCacheReservation(
+Status CacheReservationManagerImpl<R>::ReleaseCacheReservation(
+    std::size_t incremental_memory_used) {
+  assert(GetTotalMemoryUsed() >= incremental_memory_used);
+  std::size_t updated_total_mem_used =
+      GetTotalMemoryUsed() - incremental_memory_used;
+  Status s = UpdateCacheReservation(updated_total_mem_used);
+  return s;
+}
+
+template <CacheEntryRole R>
+Status CacheReservationManagerImpl<R>::IncreaseCacheReservation(
     std::size_t new_mem_used) {
   Status return_status = Status::OK();
   while (new_mem_used > cache_allocated_size_.load(std::memory_order_relaxed)) {
@@ -95,7 +128,8 @@ Status CacheReservationManager::IncreaseCacheReservation(
   return return_status;
 }
 
-Status CacheReservationManager::DecreaseCacheReservation(
+template <CacheEntryRole R>
+Status CacheReservationManagerImpl<R>::DecreaseCacheReservation(
     std::size_t new_mem_used) {
   Status return_status = Status::OK();
 
@@ -114,18 +148,36 @@ Status CacheReservationManager::DecreaseCacheReservation(
   return return_status;
 }
 
-std::size_t CacheReservationManager::GetTotalReservedCacheSize() {
+template <CacheEntryRole R>
+std::size_t CacheReservationManagerImpl<R>::GetTotalReservedCacheSize() {
   return cache_allocated_size_.load(std::memory_order_relaxed);
 }
 
-Slice CacheReservationManager::GetNextCacheKey() {
+template <CacheEntryRole R>
+std::size_t CacheReservationManagerImpl<R>::GetTotalMemoryUsed() {
+  return memory_used_;
+}
+
+template <CacheEntryRole R>
+Slice CacheReservationManagerImpl<R>::GetNextCacheKey() {
   // Calling this function will have the side-effect of changing the
   // underlying cache_key_ that is shared among other keys generated from this
   // fucntion. Therefore please make sure the previous keys are saved/copied
   // before calling this function.
-  std::memset(cache_key_ + kCacheKeyPrefixSize, 0, kMaxVarint64Length);
-  char* end =
-      EncodeVarint64(cache_key_ + kCacheKeyPrefixSize, next_cache_key_id_++);
-  return Slice(cache_key_, static_cast<std::size_t>(end - cache_key_));
+  cache_key_ = CacheKey::CreateUniqueForCacheLifetime(cache_.get());
+  return cache_key_.AsSlice();
 }
+
+template <CacheEntryRole R>
+Cache::DeleterFn CacheReservationManagerImpl<R>::TEST_GetNoopDeleterForRole() {
+  return GetNoopDeleterForRole<R>();
+}
+
+template class CacheReservationManagerImpl<
+    CacheEntryRole::kBlockBasedTableReader>;
+template class CacheReservationManagerImpl<
+    CacheEntryRole::kCompressionDictionaryBuildingBuffer>;
+template class CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>;
+template class CacheReservationManagerImpl<CacheEntryRole::kMisc>;
+template class CacheReservationManagerImpl<CacheEntryRole::kWriteBuffer>;
 }  // namespace ROCKSDB_NAMESPACE

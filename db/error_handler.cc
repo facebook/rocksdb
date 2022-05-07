@@ -9,6 +9,7 @@
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
+#include "port/lang.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -251,6 +252,8 @@ void ErrorHandler::CancelErrorRecovery() {
 #endif
 }
 
+STATIC_AVOID_DESTRUCTION(const Status, kOkStatus){Status::OK()};
+
 // This is the main function for looking at an error during a background
 // operation and deciding the severity, and error recovery strategy. The high
 // level algorithm is as follows -
@@ -269,11 +272,11 @@ void ErrorHandler::CancelErrorRecovery() {
 // This can also get called as part of a recovery operation. In that case, we
 // also track the error separately in recovery_error_ so we can tell in the
 // end whether recovery succeeded or not
-const Status& ErrorHandler::SetBGError(const Status& bg_err,
-                                       BackgroundErrorReason reason) {
+const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
+                                              BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_err.ok()) {
-    return bg_err;
+    return kOkStatus;
   }
 
   if (bg_error_stats_ != nullptr) {
@@ -379,11 +382,14 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
 //    c) all other errors are mapped to hard error.
 // 3) for other cases, SetBGError(const Status& bg_err, BackgroundErrorReason
 //    reason) will be called to handle other error cases.
-const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
+const Status& ErrorHandler::SetBGError(const Status& bg_status,
                                        BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
+  Status tmp_status = bg_status;
+  IOStatus bg_io_err = status_to_io_status(std::move(tmp_status));
+
   if (bg_io_err.ok()) {
-    return bg_io_err;
+    return kOkStatus;
   }
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
@@ -406,10 +412,7 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     // it can directly overwrite any existing bg_error_.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
-    bg_error_ = bg_err;
-    if (recovery_in_prog_ && recovery_error_.ok()) {
-      recovery_error_ = bg_err;
-    }
+    CheckAndSetRecoveryAndBGError(bg_err);
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
@@ -468,24 +471,14 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       // to many small memtable being generated during auto resume, the flush
       // reason is set to kErrorRecoveryRetryFlush.
       Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
-      if (recovery_in_prog_ && recovery_error_.ok()) {
-        recovery_error_ = bg_err;
-      }
-      if (bg_err.severity() > bg_error_.severity()) {
-        bg_error_ = bg_err;
-      }
+      CheckAndSetRecoveryAndBGError(bg_err);
       soft_error_no_bg_work_ = true;
       context.flush_reason = FlushReason::kErrorRecoveryRetryFlush;
       recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     } else {
       Status bg_err(new_bg_io_err, Status::Severity::kHardError);
-      if (recovery_in_prog_ && recovery_error_.ok()) {
-        recovery_error_ = bg_err;
-      }
-      if (bg_err.severity() > bg_error_.severity()) {
-        bg_error_ = bg_err;
-      }
+      CheckAndSetRecoveryAndBGError(bg_err);
       recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     }
@@ -493,7 +486,11 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
     }
-    return SetBGError(new_bg_io_err, reason);
+    // HandleKnownErrors() will use recovery_error_, so ignore
+    // recovery_io_error_.
+    // TODO: Do some refactoring and use only one recovery_error_
+    recovery_io_error_.PermitUncheckedError();
+    return HandleKnownErrors(new_bg_io_err, reason);
   }
 }
 
@@ -553,6 +550,8 @@ Status ErrorHandler::ClearBGError() {
   // Signal that recovery succeeded
   if (recovery_error_.ok()) {
     Status old_bg_error = bg_error_;
+    // old_bg_error is only for notifying listeners, so may not be checked
+    old_bg_error.PermitUncheckedError();
     // Clear and check the recovery IO and BG error
     bg_error_ = Status::OK();
     recovery_io_error_ = IOStatus::OK();
@@ -560,8 +559,8 @@ Status ErrorHandler::ClearBGError() {
     recovery_io_error_.PermitUncheckedError();
     recovery_in_prog_ = false;
     soft_error_no_bg_work_ = false;
-    EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
-                                                 old_bg_error, db_mutex_);
+    EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, old_bg_error,
+                                           bg_error_, db_mutex_);
   }
   return recovery_error_;
 #else
@@ -636,7 +635,7 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   if (bg_error_.ok()) {
     return bg_error_;
   } else if (io_error.ok()) {
-    return io_error;
+    return kOkStatus;
   } else if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
@@ -663,7 +662,6 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   if (recovery_io_error_.ok() && recovery_error_.ok()) {
     return recovery_error_;
   } else {
-    TEST_SYNC_POINT("StartRecoverRetryableBGIOError:RecoverFail");
     return bg_error_;
   }
 #else
@@ -677,9 +675,11 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
 void ErrorHandler::RecoverFromRetryableBGIOError() {
 #ifndef ROCKSDB_LITE
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart");
-  TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeStart1");
   InstrumentedMutexLock l(db_mutex_);
   if (end_recovery_) {
+    EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                           Status::ShutdownInProgress(),
+                                           db_mutex_);
     return;
   }
   DBRecoverContext context = recover_context_;
@@ -689,6 +689,9 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   // Recover from the retryable error. Create a separate thread to do it.
   while (resume_count > 0) {
     if (end_recovery_) {
+      EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                             Status::ShutdownInProgress(),
+                                             db_mutex_);
       return;
     }
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume0");
@@ -697,8 +700,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     recovery_error_ = Status::OK();
     retry_count++;
     Status s = db_->ResumeImpl(context);
-    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume0");
-    TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume1");
     if (bg_error_stats_ != nullptr) {
       RecordTick(bg_error_stats_.get(),
                  ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT);
@@ -707,12 +708,13 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         bg_error_.severity() >= Status::Severity::kFatalError) {
       // If DB shutdown in progress or the error severity is higher than
       // Hard Error, stop auto resume and returns.
-      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail0");
       recovery_in_prog_ = false;
       if (bg_error_stats_ != nullptr) {
         RecordInHistogram(bg_error_stats_.get(),
                           ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
       }
+      EventHelpers::NotifyOnErrorRecoveryEnd(db_options_.listeners, bg_error_,
+                                             bg_error_, db_mutex_);
       return;
     }
     if (!recovery_io_error_.ok() &&
@@ -725,7 +727,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait1");
       int64_t wait_until = db_options_.clock->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
-      TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterWait0");
     } else {
       // There are three possibility: 1) recover_io_error is set during resume
       // and the error is not retryable, 2) recover is successful, 3) other
@@ -737,8 +738,8 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         Status old_bg_error = bg_error_;
         bg_error_ = Status::OK();
         bg_error_.PermitUncheckedError();
-        EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
-                                                     old_bg_error, db_mutex_);
+        EventHelpers::NotifyOnErrorRecoveryEnd(
+            db_options_.listeners, old_bg_error, bg_error_, db_mutex_);
         if (bg_error_stats_ != nullptr) {
           RecordTick(bg_error_stats_.get(),
                      ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT);
@@ -751,7 +752,6 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         }
         return;
       } else {
-        TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail1");
         // In this case: 1) recovery_io_error is more serious or not retryable
         // 2) other Non IO recovery_error happens. The auto recovery stops.
         recovery_in_prog_ = false;
@@ -759,12 +759,21 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
           RecordInHistogram(bg_error_stats_.get(),
                             ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
         }
+        EventHelpers::NotifyOnErrorRecoveryEnd(
+            db_options_.listeners, bg_error_,
+            !recovery_io_error_.ok()
+                ? recovery_io_error_
+                : (!recovery_error_.ok() ? recovery_error_ : s),
+            db_mutex_);
         return;
       }
     }
     resume_count--;
   }
   recovery_in_prog_ = false;
+  EventHelpers::NotifyOnErrorRecoveryEnd(
+      db_options_.listeners, bg_error_,
+      Status::Aborted("Exceeded resume retry count"), db_mutex_);
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
   if (bg_error_stats_ != nullptr) {
     RecordInHistogram(bg_error_stats_.get(),
@@ -774,6 +783,16 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
 #else
   return;
 #endif
+}
+
+void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
+  if (recovery_in_prog_ && recovery_error_.ok()) {
+    recovery_error_ = bg_err;
+  }
+  if (bg_err.severity() > bg_error_.severity()) {
+    bg_error_ = bg_err;
+  }
+  return;
 }
 
 void ErrorHandler::EndAutoRecovery() {

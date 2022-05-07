@@ -215,7 +215,7 @@ class SstFileReaderTimestampTest : public testing::Test {
 
     options_.env = env;
 
-    options_.comparator = test::ComparatorWithU64Ts();
+    options_.comparator = test::BytewiseComparatorWithU64TsWrapper();
 
     sst_name_ = test::PerThreadDBPath("sst_file_ts");
   }
@@ -414,14 +414,6 @@ TEST_F(SstFileReaderTimestampTest, TimestampSizeMismatch) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-  void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

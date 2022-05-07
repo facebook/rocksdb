@@ -24,14 +24,14 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
+static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper>
+    dbsl_env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 }  // namespace
 
@@ -64,27 +64,22 @@ int db_stress_tool(int argc, char** argv) {
 
   Env* raw_env;
 
-  int env_opts =
-      !FLAGS_hdfs.empty() + !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
+  int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {
-    fprintf(stderr,
-            "Error: --hdfs, --env_uri and --fs_uri are mutually exclusive\n");
+    fprintf(stderr, "Error: --env_uri and --fs_uri are mutually exclusive\n");
     exit(1);
   }
 
-  if (!FLAGS_hdfs.empty()) {
-    raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
-  } else {
-    Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
-                                  &raw_env, &env_guard);
-    if (!s.ok()) {
-      fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
-              s.ToString().c_str());
-      exit(1);
-    }
+  Status s = Env::CreateFromUri(ConfigOptions(), FLAGS_env_uri, FLAGS_fs_uri,
+                                &raw_env, &env_guard);
+  if (!s.ok()) {
+    fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
+            s.ToString().c_str());
+    exit(1);
   }
+  dbsl_env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
+  db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
-#ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
       FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
       FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) {
@@ -100,18 +95,10 @@ int db_stress_tool(int argc, char** argv) {
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
   }
-  if (FLAGS_write_fault_one_in) {
-    SyncPoint::GetInstance()->SetCallBack(
-        "BuildTable:BeforeFinishBuildTable",
-        [&](void*) { fault_fs_guard->EnableWriteErrorInjection(); });
-    SyncPoint::GetInstance()->EnableProcessing();
-  }
-#endif
 
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
 
-#ifndef NDEBUG
   if (FLAGS_write_fault_one_in) {
     // In the write injection case, we need to use the FS interface and returns
     // the IOStatus with different error and flags. Therefore,
@@ -120,7 +107,6 @@ int db_stress_tool(int argc, char** argv) {
     // CompositeEnvWrapper of env and fault_fs.
     db_stress_env = raw_env;
   }
-#endif
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
@@ -150,14 +136,18 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent +
-       FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent) != 100) {
-    fprintf(stderr,
-            "Error: "
-            "Read(%d)+Prefix(%d)+Write(%d)+Delete(%d)+DeleteRange(%d)"
-            "+Iterate(%d) percents != "
-            "100!\n",
-            FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
-            FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent);
+       FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent +
+       FLAGS_customopspercent) != 100) {
+    fprintf(
+        stderr,
+        "Error: "
+        "Read(-readpercent=%d)+Prefix(-prefixpercent=%d)+Write(-writepercent=%"
+        "d)+Delete(-delpercent=%d)+DeleteRange(-delrangepercent=%d)"
+        "+Iterate(-iterpercent=%d)+CustomOps(-customopspercent=%d) percents != "
+        "100!\n",
+        FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
+        FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent,
+        FLAGS_customopspercent);
     exit(1);
   }
   if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
@@ -234,8 +224,7 @@ int db_stress_tool(int argc, char** argv) {
     std::string default_secondaries_path;
     db_stress_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";
-    ROCKSDB_NAMESPACE::Status s =
-        db_stress_env->CreateDirIfMissing(default_secondaries_path);
+    s = db_stress_env->CreateDirIfMissing(default_secondaries_path);
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n",
               default_secondaries_path.c_str(), s.ToString().c_str());
@@ -287,6 +276,9 @@ int db_stress_tool(int argc, char** argv) {
             "batch_protection_bytes_per_key > 0\n");
     exit(1);
   }
+  if (FLAGS_test_multi_ops_txns) {
+    CheckAndSetOptionsForMultiOpsTxnStressTest();
+  }
 
 #ifndef NDEBUG
   KillPoint* kp = KillPoint::GetInstance();
@@ -331,6 +323,8 @@ int db_stress_tool(int argc, char** argv) {
     stress.reset(CreateCfConsistencyStressTest());
   } else if (FLAGS_test_batches_snapshots) {
     stress.reset(CreateBatchedOpsStressTest());
+  } else if (FLAGS_test_multi_ops_txns) {
+    stress.reset(CreateMultiOpsTxnsStressTest());
   } else {
     stress.reset(CreateNonBatchedOpsStressTest());
   }

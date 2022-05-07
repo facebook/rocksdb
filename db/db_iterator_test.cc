@@ -111,9 +111,12 @@ TEST_P(DBIteratorTest, PersistedTierOnIterator) {
 TEST_P(DBIteratorTest, NonBlockingIteration) {
   do {
     ReadOptions non_blocking_opts, regular_opts;
-    Options options = CurrentOptions();
+    anon::OptionsOverride options_override;
+    options_override.full_block_cache = true;
+    Options options = CurrentOptions(options_override);
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     non_blocking_opts.read_tier = kBlockCacheTier;
+
     CreateAndReopenWithCF({"pikachu"}, options);
     // write one kv to the database.
     ASSERT_OK(Put(1, "a", "b"));
@@ -3157,7 +3160,7 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   uint64_t num_versions =
       CurrentOptions().max_sequential_skip_in_iterations + 10;
   for (uint64_t i = 0; i < num_versions; i++) {
-    ASSERT_OK(Put("bar", ToString(i)));
+    ASSERT_OK(Put("bar", std::to_string(i)));
   }
   SequenceNumber seq3 = db_->GetLatestSequenceNumber();
   TestReadCallback callback2(seq3);
@@ -3186,7 +3189,7 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("bar", iter->key());
-  ASSERT_EQ(ToString(num_versions - 1), iter->value());
+  ASSERT_EQ(std::to_string(num_versions - 1), iter->value());
 
   delete iter;
 }

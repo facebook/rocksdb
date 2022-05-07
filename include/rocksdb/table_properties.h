@@ -71,10 +71,6 @@ struct TablePropertiesNames {
   static const std::string kFastCompressionEstimatedDataSize;
 };
 
-extern const std::string kPropertiesBlock;
-extern const std::string kCompressionDictBlock;
-extern const std::string kRangeDelBlock;
-
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own properties that they are interested in. This class is essentially
 // a collection of callback functions that will be invoked during table
@@ -155,7 +151,7 @@ class TablePropertiesCollectorFactory : public Customizable {
     static const int kUnknownLevelAtCreation = -1;
   };
 
-  virtual ~TablePropertiesCollectorFactory() {}
+  ~TablePropertiesCollectorFactory() override {}
   static const char* Type() { return "TablePropertiesCollectorFactory"; }
   static Status CreateFromString(
       const ConfigOptions& options, const std::string& value,
@@ -166,7 +162,7 @@ class TablePropertiesCollectorFactory : public Customizable {
       TablePropertiesCollectorFactory::Context context) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Can be overridden by sub-classes to return the Name, followed by
   // configuration info that will // be logged to the info log when the
@@ -236,6 +232,10 @@ struct TableProperties {
   // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
   // 0 means unknown.
   uint64_t fast_compression_estimated_data_size = 0;
+  // Offset of the value of the property "external sst file global seqno" in the
+  // file if the property exists.
+  // 0 means not exists.
+  uint64_t external_sst_file_global_seqno_offset = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created
@@ -288,9 +288,6 @@ struct TableProperties {
   UserCollectedProperties user_collected_properties;
   UserCollectedProperties readable_properties;
 
-  // The offset of the value of each property in the file.
-  std::map<std::string, uint64_t> properties_offsets;
-
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.
   std::string ToString(const std::string& prop_delim = "; ",
@@ -304,6 +301,10 @@ struct TableProperties {
   // between tables. Keys match field names in this class instead
   // of using full property names.
   std::map<std::string, uint64_t> GetAggregatablePropertiesAsMap() const;
+
+  // Return the approximated memory usage of this TableProperties object,
+  // including memory used by the string properties and UserCollectedProperties
+  std::size_t ApproximateMemoryUsage() const;
 };
 
 // Extra properties

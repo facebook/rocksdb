@@ -253,17 +253,32 @@ struct AdvancedColumnFamilyOptions {
   // ignored.
   int max_write_buffer_number_to_maintain = 0;
 
-  // The total maximum size(bytes) of write buffers to maintain in memory
-  // including copies of buffers that have already been flushed. This parameter
-  // only affects trimming of flushed buffers and does not affect flushing.
-  // This controls the maximum amount of write history that will be available
-  // in memory for conflict checking when Transactions are used. The actual
-  // size of write history (flushed Memtables) might be higher than this limit
-  // if further trimming will reduce write history total size below this
-  // limit. For example, if max_write_buffer_size_to_maintain is set to 64MB,
-  // and there are three flushed Memtables, with sizes of 32MB, 20MB, 20MB.
-  // Because trimming the next Memtable of size 20MB will reduce total memory
-  // usage to 52MB which is below the limit, RocksDB will stop trimming.
+  // The target number of write history bytes to hold in memory. Write history
+  // comprises the latest write buffers (memtables). To reach the target, write
+  // buffers that were most recently flushed to SST files may be retained in
+  // memory.
+  //
+  // This controls the target amount of write history that will be available
+  // in memory for conflict checking when Transactions are used.
+  //
+  // This target may be undershot when the CF first opens and has not recovered
+  // or received enough writes to reach the target. After reaching the target
+  // once, it is guaranteed to never undershoot again. That guarantee is
+  // implemented by retaining flushed write buffers in-memory until the oldest
+  // one can be trimmed without dropping below the target.
+  //
+  // Examples with `max_write_buffer_size_to_maintain` set to 32MB:
+  //
+  // - One mutable memtable of 64MB, one unflushed immutable memtable of 64MB,
+  //   and zero flushed immutable memtables. Nothing trimmable exists.
+  // - One mutable memtable of 16MB, zero unflushed immutable memtables, and
+  //   one flushed immutable memtable of 64MB. Trimming is disallowed because
+  //   dropping the earliest (only) flushed immutable memtable would result in
+  //   write history of 16MB < 32MB.
+  // - One mutable memtable of 24MB, one unflushed immutable memtable of 16MB,
+  //   and one flushed immutable memtable of 16MB. The earliest (only) flushed
+  //   immutable memtable is trimmed because without it we still have
+  //   16MB + 24MB = 40MB > 32MB of write history.
   //
   // When using an OptimisticTransactionDB:
   // If this value is too low, some transactions may fail at commit time due
@@ -351,12 +366,18 @@ struct AdvancedColumnFamilyOptions {
                                    Slice delta_value,
                                    std::string* merged_value) = nullptr;
 
-  // if prefix_extractor is set and memtable_prefix_bloom_size_ratio is not 0,
-  // create prefix bloom for memtable with the size of
+  // Should really be called `memtable_bloom_size_ratio`. Enables a dynamic
+  // Bloom filter in memtable to optimize many queries that must go beyond
+  // the memtable. The size in bytes of the filter is
   // write_buffer_size * memtable_prefix_bloom_size_ratio.
-  // If it is larger than 0.25, it is sanitized to 0.25.
+  // * If prefix_extractor is set, the filter includes prefixes.
+  // * If memtable_whole_key_filtering, the filter includes whole keys.
+  // * If both, the filter includes both.
+  // * If neither, the feature is disabled.
   //
-  // Default: 0 (disable)
+  // If this value is larger than 0.25, it is sanitized to 0.25.
+  //
+  // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
   double memtable_prefix_bloom_size_ratio = 0.0;
@@ -365,7 +386,7 @@ struct AdvancedColumnFamilyOptions {
   // if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
   // can potentially reduce CPU usage for point-look-ups.
   //
-  // Default: false (disable)
+  // Default: false (disabled)
   //
   // Dynamically changeable through SetOptions() API
   bool memtable_whole_key_filtering = false;
@@ -400,7 +421,7 @@ struct AdvancedColumnFamilyOptions {
   // example would be updating the same key over and over again, in which case
   // the prefix can be the key itself.
   //
-  // Default: nullptr (disable)
+  // Default: nullptr (disabled)
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor = nullptr;
 
@@ -450,6 +471,14 @@ struct AdvancedColumnFamilyOptions {
   // according to compression_per_level[1], L3 using compression_per_level[2]
   // and L4 using compression_per_level[3]. Compaction for each level can
   // change when data grows.
+  //
+  // NOTE: if the vector size is smaller than the level number, the undefined
+  // lower level uses the last option in the vector, for example, for 3 level
+  // LSM tree the following settings are the same:
+  // {kNoCompression, kSnappyCompression}
+  // {kNoCompression, kSnappyCompression, kSnappyCompression}
+  //
+  // Dynamically changeable through SetOptions() API
   std::vector<CompressionType> compression_per_level;
 
   // Number of levels for this database
@@ -721,7 +750,9 @@ struct AdvancedColumnFamilyOptions {
   // LSM changes (Flush, Compaction, AddFile). When this option is true, these
   // checks are also enabled in release mode. These checks were historically
   // disabled in release mode, but are now enabled by default for proactive
-  // corruption detection, at almost no cost in extra CPU.
+  // corruption detection. The CPU overhead is negligible for normal mixed
+  // operations but can slow down saturated writing. See
+  // Options::DisableExtraChecks().
   // Default: true
   bool force_consistency_checks = true;
 
@@ -797,6 +828,8 @@ struct AdvancedColumnFamilyOptions {
   // If this option is set, when creating bottommost files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
+  //
+  // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
 
   // When set, large values (blobs) are written to separate blob files, and
@@ -804,8 +837,9 @@ struct AdvancedColumnFamilyOptions {
   // amplification for large-value use cases at the cost of introducing a level
   // of indirection for reads. See also the options min_blob_size,
   // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
-  // blob_garbage_collection_age_cutoff, and
-  // blob_garbage_collection_force_threshold below.
+  // blob_garbage_collection_age_cutoff,
+  // blob_garbage_collection_force_threshold, and blob_compaction_readahead_size
+  // below.
   //
   // Default: false
   //
@@ -878,35 +912,19 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   double blob_garbage_collection_force_threshold = 1.0;
 
+  // Compaction readahead for blob files.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t blob_compaction_readahead_size = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
   explicit AdvancedColumnFamilyOptions(const Options& options);
 
   // ---------------- OPTIONS NOT SUPPORTED ANYMORE ----------------
-
-  // NOT SUPPORTED ANYMORE
-  // This does not do anything anymore.
-  int max_mem_compaction_level;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  // Puts are delayed to options.delayed_write_rate when any level has a
-  // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
-  //
-  // Default: 0 (disabled)
-  //
-  // Dynamically changeable through SetOptions() API
-  double soft_rate_limit = 0.0;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  double hard_rate_limit = 0.0;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  unsigned int rate_limit_delay_max_milliseconds = 100;
-
-  // NOT SUPPORTED ANYMORE
-  // Does not have any effect.
-  bool purge_redundant_kvs_while_flush = true;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

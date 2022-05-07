@@ -105,7 +105,7 @@ class WalFilter : public Customizable {
 
   // Returns a name that identifies this WAL filter.
   // The name will be printed to LOG file on start up for diagnosis.
-  virtual const char* Name() const = 0;
+  virtual const char* Name() const override = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

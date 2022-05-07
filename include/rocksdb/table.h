@@ -44,6 +44,9 @@ class WritableFileWriter;
 struct ConfigOptions;
 struct EnvOptions;
 
+// Types of checksums to use for checking integrity of logical blocks within
+// files. All checksums currently use 32 bits of checking power (1 in 4B
+// chance of failing to detect random corruption).
 enum ChecksumType : char {
   kNoChecksum = 0x0,
   kCRC32c = 0x1,
@@ -224,9 +227,8 @@ struct BlockBasedTableOptions {
   // kDataBlockBinaryAndHash.
   double data_block_hash_table_util_ratio = 0.75;
 
-  // This option is now deprecated. No matter what value it is set to,
-  // it will behave as if hash_index_allow_collision=true.
-  bool hash_index_allow_collision = true;
+  // Option hash_index_allow_collision is now deleted.
+  // It will behave as if hash_index_allow_collision=true.
 
   // Use the specified checksum type. Newly created table files will be
   // protected with this checksum type. Old table files will still be readable,
@@ -256,7 +258,7 @@ struct BlockBasedTableOptions {
   // block size specified here corresponds to uncompressed data.  The
   // actual size of the unit read from disk may be smaller if
   // compression is enabled.  This parameter can be changed dynamically.
-  size_t block_size = 4 * 1024;
+  uint64_t block_size = 4 * 1024;
 
   // This is used to close a block before it reaches the configured
   // 'block_size'. If the percentage of free space in the current block is less
@@ -284,6 +286,48 @@ struct BlockBasedTableOptions {
   // TODO(myabandeh): remove the note above when filter partitions are cut
   // separately
   uint64_t metadata_block_size = 4096;
+
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table building, will occur to account
+  // the memory, if block cache available.
+  //
+  // Charged memory usage includes:
+  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
+  // 2. More to come...
+  //
+  // Note:
+  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
+  //
+  // If additional temporary memory of Ribbon Filter uses up too much memory
+  // relative to the avaible space left in the block cache
+  // at some point (i.e, causing a cache full under
+  // LRUCacheOptions::strict_capacity_limit = true), construction will fall back
+  // to Bloom Filter.
+  //
+  // Default: false
+  bool reserve_table_builder_memory = false;
+
+  // If true, a dynamically updating charge to block cache, loosely based
+  // on the actual memory usage of table reader, will occur to account
+  // the memory, if block cache available.
+  //
+  // Charged memory usage includes:
+  // 1. Table properties
+  // 2. Index block/Filter block/Uncompression dictionary if stored in table
+  // reader (i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
+  // false)
+  // 3. Some internal data structures
+  // 4. More to come...
+  //
+  // Note:
+  // If creation of a table reader uses up too much memory
+  // relative to the avaible space left in the block cache
+  // at some point (i.e, causing a cache full under
+  // LRUCacheOptions::strict_capacity_limit = true), such creation will fail
+  // with Status::MemoryLimit().
+  //
+  // Default: false
+  bool reserve_table_reader_memory = false;
 
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.
@@ -343,6 +387,20 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
+  // If true, detect corruption during Bloom Filter (format_version >= 5)
+  // and Ribbon Filter construction.
+  //
+  // This is an extra check that is only
+  // useful in detecting software bugs or CPU+memory malfunction.
+  // Turning on this feature increases filter construction time by 30%.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{detect_filter_construct_corruption=true;}"}});
+  //
+  // TODO: optimize this performance
+  bool detect_filter_construct_corruption = false;
+
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression
   // algorithms.
@@ -371,10 +429,9 @@ struct BlockBasedTableOptions {
   // Default: 0 (disabled)
   uint32_t read_amp_bytes_per_bit = 0;
 
-  // We currently have five versions:
-  // 0 -- This version is currently written out by all RocksDB's versions by
-  // default.  Can be read by really old RocksDB's. Doesn't support changing
-  // checksum (default is CRC32).
+  // We currently have these versions:
+  // 0 -- This version can be read by really old RocksDB's. Doesn't support
+  // changing checksum type (default is CRC32).
   // 1 -- Can be read by RocksDB's versions since 3.0. Supports non-default
   // checksum, like xxHash. It is written by RocksDB when
   // BlockBasedTableOptions::checksum is something other than kCRC32c. (version
@@ -444,14 +501,15 @@ struct BlockBasedTableOptions {
 
   // RocksDB does auto-readahead for iterators on noticing more than two reads
   // for a table file if user doesn't provide readahead_size. The readahead
-  // starts at 8KB and doubles on every additional read upto
-  // max_auto_readahead_size and max_auto_readahead_size can be configured.
+  // starts at BlockBasedTableOptions.initial_auto_readahead_size (default: 8KB)
+  // and doubles on every additional read upto max_auto_readahead_size and
+  // max_auto_readahead_size can be configured.
   //
-  // Special Value: 0 - If max_auto_readahead_size is set 0 then no implicit
-  // auto prefetching will be done. If max_auto_readahead_size provided is less
-  // than 8KB (which is initial readahead size used by rocksdb in case of
-  // auto-readahead), readahead size will remain same as
-  // max_auto_readahead_size.
+  // Special Value: 0 - If max_auto_readahead_size is set 0 then it will disable
+  // the implicit auto prefetching.
+  // If max_auto_readahead_size provided is less
+  // than initial_auto_readahead_size, then RocksDB will sanitize the
+  // initial_auto_readahead_size and set it to max_auto_readahead_size.
   //
   // Value should be provided along with KB i.e. 256 * 1024 as it will prefetch
   // the blocks.
@@ -490,6 +548,35 @@ struct BlockBasedTableOptions {
 
   PrepopulateBlockCache prepopulate_block_cache =
       PrepopulateBlockCache::kDisable;
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size. The readahead size
+  // starts at initial_auto_readahead_size and doubles on every additional read
+  // upto BlockBasedTableOptions.max_auto_readahead_size.
+  // max_auto_readahead_size can also be configured.
+  //
+  // Scenarios:
+  // - If initial_auto_readahead_size is set 0 then it will disabled the
+  //   implicit auto prefetching irrespective of max_auto_readahead_size.
+  // - If max_auto_readahead_size is set 0, it will disable the internal
+  //    prefetching irrespective of initial_auto_readahead_size.
+  // - If initial_auto_readahead_size > max_auto_readahead_size, then RocksDB
+  //   will sanitize the value of initial_auto_readahead_size to
+  //   max_auto_readahead_size and readahead_size will be
+  //   max_auto_readahead_size.
+  //
+  // Value should be provided along with KB i.e. 8 * 1024 as it will prefetch
+  // the blocks.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{initial_auto_readahead_size=0;}"}}));
+  //
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 8 KB (8 * 1024).
+  size_t initial_auto_readahead_size = 8 * 1024;
 };
 
 // Table Properties that are specific to block-based table properties.

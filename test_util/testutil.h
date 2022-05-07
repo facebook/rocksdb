@@ -25,6 +25,14 @@
 #include "table/internal_iterator.h"
 #include "util/mutexlock.h"
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int argc, char** argv);
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 namespace ROCKSDB_NAMESPACE {
 class FileSystem;
 class MemTableRepFactory;
@@ -36,7 +44,7 @@ class SequentialFileReader;
 namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
-extern const uint32_t kLatestFormatVersion;
+extern const std::set<uint32_t> kFooterFormatVersionsToTest;
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
@@ -49,29 +57,6 @@ extern std::string RandomKey(Random* rnd, int len,
 // the generated data.
 extern Slice CompressibleString(Random* rnd, double compressed_fraction,
                                 int len, std::string* dst);
-
-// A wrapper that allows injection of errors.
-class ErrorEnv : public EnvWrapper {
- public:
-  bool writable_file_error_;
-  int num_writable_file_errors_;
-
-  ErrorEnv(Env* _target)
-      : EnvWrapper(_target),
-        writable_file_error_(false),
-        num_writable_file_errors_(0) {}
-
-  virtual Status NewWritableFile(const std::string& fname,
-                                 std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions) override {
-    result->reset();
-    if (writable_file_error_) {
-      ++num_writable_file_errors_;
-      return Status::IOError(fname, "fake error");
-    }
-    return target()->NewWritableFile(fname, result, soptions);
-  }
-};
 
 #ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
@@ -127,6 +112,9 @@ class SimpleSuffixReverseComparator : public Comparator {
 // Symantics of comparison would differ from Bytewise comparator in little
 // endian machines.
 extern const Comparator* Uint64Comparator();
+
+// A wrapper api for getting the ComparatorWithU64Ts<BytewiseComparator>
+extern const Comparator* BytewiseComparatorWithU64TsWrapper();
 
 class StringSink : public FSWritableFile {
  public:
@@ -809,8 +797,6 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 // number of entries exceeds a threshold.
 extern MemTableRepFactory* NewSpecialSkipListFactory(int num_entries_per_flush);
 
-extern const Comparator* ComparatorWithU64Ts();
-
 CompressionType RandomCompressionType(Random* rnd);
 
 void RandomCompressionTypeVector(const size_t count,
@@ -832,11 +818,6 @@ bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
 
 // Return the number of lines where a given pattern was found in a file.
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);
-
-// TEST_TMPDIR may be set to /dev/shm in Makefile,
-// but /dev/shm does not support direct IO.
-// Tries to set TEST_TMPDIR to a directory supporting direct IO.
-void ResetTmpDirForDirectIO();
 
 Status CorruptFile(Env* env, const std::string& fname, int offset,
                    int bytes_to_corrupt, bool verify_checksum = true);

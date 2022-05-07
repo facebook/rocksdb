@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
@@ -51,9 +52,8 @@ struct LRUCacheOptions {
   // Capacity of the cache.
   size_t capacity = 0;
 
-  // Cache is sharded into 2^num_shard_bits shards,
-  // by hash of key. Refer to NewLRUCache for further
-  // information.
+  // Cache is sharded into 2^num_shard_bits shards, by hash of key.
+  // Refer to NewLRUCache for further information.
   int num_shard_bits = -1;
 
   // If strict_capacity_limit is set,
@@ -90,7 +90,7 @@ struct LRUCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
-  // A SecondaryCache instance to use a the non-volatile tier
+  // A SecondaryCache instance to use a the non-volatile tier.
   std::shared_ptr<SecondaryCache> secondary_cache;
 
   LRUCacheOptions() {}
@@ -126,6 +126,53 @@ extern std::shared_ptr<Cache> NewLRUCache(
         kDefaultCacheMetadataChargePolicy);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
+
+// EXPERIMENTAL
+// Options structure for configuring a SecondaryCache instance based on
+// LRUCache. The LRUCacheOptions.secondary_cache is not used and
+// should not be set.
+struct CompressedSecondaryCacheOptions : LRUCacheOptions {
+  // The compression method (if any) that is used to compress data.
+  CompressionType compression_type = CompressionType::kLZ4Compression;
+
+  // compress_format_version can have two values:
+  // compress_format_version == 1 -- decompressed size is not included in the
+  // block header.
+  // compress_format_version == 2 -- decompressed size is included in the block
+  // header in varint32 format.
+  uint32_t compress_format_version = 2;
+
+  CompressedSecondaryCacheOptions() {}
+  CompressedSecondaryCacheOptions(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
+      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy,
+      CompressionType _compression_type = CompressionType::kLZ4Compression,
+      uint32_t _compress_format_version = 2)
+      : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
+                        _high_pri_pool_ratio, std::move(_memory_allocator),
+                        _use_adaptive_mutex, _metadata_charge_policy),
+        compression_type(_compression_type),
+        compress_format_version(_compress_format_version) {}
+};
+
+// EXPERIMENTAL
+// Create a new Secondary Cache that is implemented on top of LRUCache.
+extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
+    std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
+    bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy,
+    CompressionType compression_type = CompressionType::kLZ4Compression,
+    uint32_t compress_format_version = 2);
+
+extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
+    const CompressedSecondaryCacheOptions& opts);
 
 // Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
@@ -206,7 +253,7 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  using CreateCallback = std::function<Status(void* buf, size_t size,
+  using CreateCallback = std::function<Status(const void* buf, size_t size,
                                               void** out_obj, size_t* charge)>;
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
@@ -280,17 +327,16 @@ class Cache {
 
   /**
    * Release a mapping returned by a previous Lookup(). A released entry might
-   * still  remain in cache in case it is later looked up by others. If
-   * force_erase is set then it also erase it from the cache if there is no
-   * other reference to  it. Erasing it should call the deleter function that
-   * was provided when the
-   * entry was inserted.
+   * still remain in cache in case it is later looked up by others. If
+   * erase_if_last_ref is set then it also erases it from the cache if there is
+   * no other reference to  it. Erasing it should call the deleter function that
+   * was provided when the entry was inserted.
    *
    * Returns true if the entry was also erased.
    */
   // REQUIRES: handle must not have been released yet.
   // REQUIRES: handle must have been returned by a method on *this.
-  virtual bool Release(Handle* handle, bool force_erase = false) = 0;
+  virtual bool Release(Handle* handle, bool erase_if_last_ref = false) = 0;
 
   // Return the value encapsulated in a handle returned by a
   // successful Lookup().
@@ -298,7 +344,7 @@ class Cache {
   // REQUIRES: handle must have been returned by a method on *this.
   virtual void* Value(Handle* handle) = 0;
 
-  // If the cache contains entry for key, erase it.  Note that the
+  // If the cache contains the entry for the key, erase it.  Note that the
   // underlying entry will be kept around until all existing handles
   // to it have been released.
   virtual void Erase(const Slice& key) = 0;
@@ -322,19 +368,19 @@ class Cache {
   // full capacity.
   virtual bool HasStrictCapacityLimit() const = 0;
 
-  // returns the maximum configured capacity of the cache
+  // Returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() const = 0;
 
-  // returns the memory size for the entries residing in the cache.
+  // Returns the memory size for the entries residing in the cache.
   virtual size_t GetUsage() const = 0;
 
-  // returns the memory size for a specific entry in the cache.
+  // Returns the memory size for a specific entry in the cache.
   virtual size_t GetUsage(Handle* handle) const = 0;
 
-  // returns the memory size for the entries in use by the system
+  // Returns the memory size for the entries in use by the system
   virtual size_t GetPinnedUsage() const = 0;
 
-  // returns the charge for the specific entry in the cache.
+  // Returns the charge for the specific entry in the cache.
   virtual size_t GetCharge(Handle* handle) const = 0;
 
   // Returns the deleter for the specified entry. This might seem useless
@@ -393,9 +439,8 @@ class Cache {
   // The Insert and Lookup APIs below are intended to allow cached objects
   // to be demoted/promoted between the primary block cache and a secondary
   // cache. The secondary cache could be a non-volatile cache, and will
-  // likely store the object in a different representation more suitable
-  // for on disk storage. They rely on a per object CacheItemHelper to do
-  // the conversions.
+  // likely store the object in a different representation. They rely on a
+  // per object CacheItemHelper to do the conversions.
   // The secondary cache may persist across process and system restarts,
   // and may even be moved between hosts. Therefore, the cache key must
   // be repeatable across restarts/reboots, and globally unique if
@@ -469,8 +514,9 @@ class Cache {
   // parameter specifies whether the data was actually used or not,
   // which may be used by the cache implementation to decide whether
   // to consider it as a hit for retention purposes.
-  virtual bool Release(Handle* handle, bool /*useful*/, bool force_erase) {
-    return Release(handle, force_erase);
+  virtual bool Release(Handle* handle, bool /*useful*/,
+                       bool erase_if_last_ref) {
+    return Release(handle, erase_if_last_ref);
   }
 
   // Determines if the handle returned by Lookup() has a valid value yet. The
@@ -492,6 +538,60 @@ class Cache {
 
  private:
   std::shared_ptr<MemoryAllocator> memory_allocator_;
+};
+
+// Classifications of block cache entries.
+//
+// Developer notes: Adding a new enum to this class requires corresponding
+// updates to `kCacheEntryRoleToCamelString` and
+// `kCacheEntryRoleToHyphenString`. Do not add to this enum after `kMisc` since
+// `kNumCacheEntryRoles` assumes `kMisc` comes last.
+enum class CacheEntryRole {
+  // Block-based table data block
+  kDataBlock,
+  // Block-based table filter block (full or partitioned)
+  kFilterBlock,
+  // Block-based table metadata block for partitioned filter
+  kFilterMetaBlock,
+  // Block-based table deprecated filter block (old "block-based" filter)
+  kDeprecatedFilterBlock,
+  // Block-based table index block
+  kIndexBlock,
+  // Other kinds of block-based table block
+  kOtherBlock,
+  // WriteBufferManager reservations to account for memtable usage
+  kWriteBuffer,
+  // BlockBasedTableBuilder reservations to account for
+  // compression dictionary building buffer's memory usage
+  kCompressionDictionaryBuildingBuffer,
+  // Filter reservations to account for
+  // (new) bloom and ribbon filter construction's memory usage
+  kFilterConstruction,
+  // BlockBasedTableReader reservations to account for
+  // its memory usage
+  kBlockBasedTableReader,
+  // Default bucket, for miscellaneous cache entries. Do not use for
+  // entries that could potentially add up to large usage.
+  kMisc,
+};
+constexpr uint32_t kNumCacheEntryRoles =
+    static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
+
+// Obtain a hyphen-separated, lowercase name of a `CacheEntryRole`.
+const std::string& GetCacheEntryRoleName(CacheEntryRole);
+
+// For use with `GetMapProperty()` for property
+// `DB::Properties::kBlockCacheEntryStats`. On success, the map will
+// be populated with all keys that can be obtained from these functions.
+struct BlockCacheEntryStatsMapKeys {
+  static const std::string& CacheId();
+  static const std::string& CacheCapacityBytes();
+  static const std::string& LastCollectionDurationSeconds();
+  static const std::string& LastCollectionAgeSeconds();
+
+  static std::string EntryCount(CacheEntryRole);
+  static std::string UsedBytes(CacheEntryRole);
+  static std::string UsedPercent(CacheEntryRole);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

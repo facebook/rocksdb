@@ -28,6 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 // ValueType, not the lowest).
 const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
+const std::string kDisableUserTimestamp("");
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {

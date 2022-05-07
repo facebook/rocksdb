@@ -53,14 +53,30 @@ class RandomAccessFileReader {
       const FileOperationInfo::FinishTimePoint& finish_ts,
       const Status& status) const {
     FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
-                           finish_ts, status);
+                           finish_ts, status, file_temperature_);
     info.offset = offset;
     info.length = length;
 
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);
     }
+    info.status.PermitUncheckedError();
   }
+
+  void NotifyOnIOError(const IOStatus& io_status, FileOperationType operation,
+                       const std::string& file_path, size_t length,
+                       uint64_t offset) const {
+    if (listeners_.empty()) {
+      return;
+    }
+    IOErrorInfo io_error_info(io_status, operation, file_path, length, offset);
+
+    for (auto& listener : listeners_) {
+      listener->OnIOError(io_error_info);
+    }
+    io_status.PermitUncheckedError();
+  }
+
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
@@ -73,7 +89,17 @@ class RandomAccessFileReader {
   HistogramImpl* file_read_hist_;
   RateLimiter* rate_limiter_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
-  Temperature file_temperature_;
+  const Temperature file_temperature_;
+  const bool is_last_level_;
+
+  struct ReadAsyncInfo {
+#ifndef ROCKSDB_LITE
+    FileOperationInfo::StartTimePoint fs_start_ts_;
+#endif
+    uint64_t start_time_;
+    std::function<void(const FSReadRequest&, void*)> cb_;
+    void* cb_arg_;
+  };
 
  public:
   explicit RandomAccessFileReader(
@@ -84,7 +110,8 @@ class RandomAccessFileReader {
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      Temperature file_temperature = Temperature::kUnknown)
+      Temperature file_temperature = Temperature::kUnknown,
+      bool is_last_level = false)
       : file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
         clock_(clock),
@@ -93,7 +120,8 @@ class RandomAccessFileReader {
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
         listeners_(),
-        file_temperature_(file_temperature) {
+        file_temperature_(file_temperature),
+        is_last_level_(is_last_level) {
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
@@ -123,17 +151,26 @@ class RandomAccessFileReader {
   // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
+  //
+  // `rate_limiter_priority` is used to charge the internal rate limiter when
+  // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
+  // rate limiter.
   IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
                 char* scratch, AlignedBuf* aligned_buf,
-                bool for_compaction = false) const;
+                Env::IOPriority rate_limiter_priority) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
   // In non-direct IO mode, aligned_buf should be null;
   // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
   // MultiRead, the result Slices in reqs refer to aligned_buf.
+  //
+  // `rate_limiter_priority` will be used to charge the internal rate limiter.
+  // It is not yet supported so the client must provide the special value
+  // `Env::IO_TOTAL` to bypass the rate limiter.
   IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
-                     size_t num_reqs, AlignedBuf* aligned_buf) const;
+                     size_t num_reqs, AlignedBuf* aligned_buf,
+                     Env::IOPriority rate_limiter_priority) const;
 
   IOStatus Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);
@@ -146,5 +183,12 @@ class RandomAccessFileReader {
   bool use_direct_io() const { return file_->use_direct_io(); }
 
   IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
+
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     Env::IOPriority rate_limiter_priority);
+
+  void ReadAsyncCallback(const FSReadRequest& req, void* cb_arg);
 };
 }  // namespace ROCKSDB_NAMESPACE

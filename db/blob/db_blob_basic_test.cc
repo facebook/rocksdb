@@ -366,19 +366,26 @@ TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
   Reopen(options);
 
   constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
 
-  // Fake a corrupt blob index.
-  const std::string blob_index("foobar");
-
-  WriteBatch batch;
-  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
-  ASSERT_OK(db_->Write(WriteOptions(), &batch));
-
+  ASSERT_OK(Put(key, blob));
   ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::Get::TamperWithBlobIndex", [](void* arg) {
+        Slice* const blob_index = static_cast<Slice*>(arg);
+        assert(blob_index);
+        assert(!blob_index->empty());
+        blob_index->remove_prefix(1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
                   .IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
@@ -401,16 +408,26 @@ TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
   }
 
   constexpr char key[] = "key";
-  {
-    // Fake a corrupt blob index.
-    const std::string blob_index("foobar");
-    WriteBatch batch;
-    ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
-    ASSERT_OK(db_->Write(WriteOptions(), &batch));
-    keys[kNumOfKeys] = Slice(static_cast<const char*>(key), sizeof(key) - 1);
-  }
+  constexpr char blob[] = "blob";
+  ASSERT_OK(Put(key, blob));
+  keys[kNumOfKeys] = key;
 
   ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::MultiGet::TamperWithBlobIndex", [&key](void* arg) {
+        KeyContext* const key_context = static_cast<KeyContext*>(arg);
+        assert(key_context);
+        assert(key_context->key);
+
+        if (*(key_context->key) == key) {
+          Slice* const blob_index = key_context->value;
+          assert(blob_index);
+          assert(!blob_index->empty());
+          blob_index->remove_prefix(1);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   std::array<PinnableSlice, kNumOfKeys + 1> values;
   std::array<Status, kNumOfKeys + 1> statuses;
@@ -425,6 +442,9 @@ TEST_F(DBBlobBasicTest, MultiGetBlob_CorruptIndex) {
       ASSERT_TRUE(statuses[i].IsCorruption());
     }
   }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlob_ExceedSoftLimit) {
@@ -694,18 +714,21 @@ TEST_F(DBBlobBasicTest, Properties) {
   constexpr char key3[] = "key3";
   constexpr size_t key3_size = sizeof(key3) - 1;
 
-  constexpr char blob[] = "0000000000";
+  constexpr char blob[] = "00000000000000";
   constexpr size_t blob_size = sizeof(blob) - 1;
 
+  constexpr char longer_blob[] = "00000000000000000000";
+  constexpr size_t longer_blob_size = sizeof(longer_blob) - 1;
+
   ASSERT_OK(Put(key1, blob));
-  ASSERT_OK(Put(key2, blob));
+  ASSERT_OK(Put(key2, longer_blob));
   ASSERT_OK(Flush());
 
   constexpr size_t first_blob_file_expected_size =
       BlobLogHeader::kSize +
       BlobLogRecord::CalculateAdjustmentForRecordHeader(key1_size) + blob_size +
-      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) + blob_size +
-      BlobLogFooter::kSize;
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) +
+      longer_blob_size + BlobLogFooter::kSize;
 
   ASSERT_OK(Put(key3, blob));
   ASSERT_OK(Flush());
@@ -730,6 +753,14 @@ TEST_F(DBBlobBasicTest, Properties) {
                                   &live_blob_file_size));
   ASSERT_EQ(live_blob_file_size, total_expected_size);
 
+  // Total amount of garbage in live blob files
+  {
+    uint64_t live_blob_file_garbage_size = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileGarbageSize,
+                                    &live_blob_file_garbage_size));
+    ASSERT_EQ(live_blob_file_garbage_size, 0);
+  }
+
   // Total size of all blob files across all versions
   // Note: this should be the same as above since we only have one
   // version at this point.
@@ -747,7 +778,12 @@ TEST_F(DBBlobBasicTest, Properties) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   constexpr size_t expected_garbage_size =
-      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) + blob_size;
+      BlobLogRecord::CalculateAdjustmentForRecordHeader(key2_size) +
+      longer_blob_size;
+
+  constexpr double expected_space_amp =
+      static_cast<double>(total_expected_size) /
+      (total_expected_size - expected_garbage_size);
 
   // Blob file stats
   std::string blob_stats;
@@ -757,9 +793,17 @@ TEST_F(DBBlobBasicTest, Properties) {
   oss << "Number of blob files: 2\nTotal size of blob files: "
       << total_expected_size
       << "\nTotal size of garbage in blob files: " << expected_garbage_size
-      << '\n';
+      << "\nBlob file space amplification: " << expected_space_amp << '\n';
 
   ASSERT_EQ(blob_stats, oss.str());
+
+  // Total amount of garbage in live blob files
+  {
+    uint64_t live_blob_file_garbage_size = 0;
+    ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kLiveBlobFileGarbageSize,
+                                    &live_blob_file_garbage_size));
+    ASSERT_EQ(live_blob_file_garbage_size, expected_garbage_size);
+  }
 }
 
 TEST_F(DBBlobBasicTest, PropertiesMultiVersion) {
@@ -1017,14 +1061,6 @@ TEST_P(DBBlobBasicIOErrorTest, CompactionFilterReadBlob_IOError) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

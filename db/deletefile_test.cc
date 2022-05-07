@@ -56,7 +56,7 @@ class DeleteFileTest : public DBTestBase {
     options.sync = false;
     ReadOptions roptions;
     for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = ToString(i);
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));
@@ -595,14 +595,6 @@ TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

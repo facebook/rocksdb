@@ -341,14 +341,12 @@ public abstract class AbstractMutableOptions {
           return setIntArray(key, value);
 
         case ENUM:
-          final Optional<CompressionType> compressionType =
-              CompressionType.getFromInternal(valueStr);
-          if (compressionType.isPresent()) {
-            return setEnum(key, compressionType.get());
-          }
-      }
+          final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
+          return setEnum(key, compressionType);
 
-      throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
+        default:
+          throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
+      }
     }
 
     /**

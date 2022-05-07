@@ -166,13 +166,15 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   bool allow_ingest_behind() const override { return is_allow_ingest_behind; }
 
-  bool preserve_deletes() const override { return false; }
+  bool allow_mmap_reads() const override { return false; }
 
   bool enable_blob_garbage_collection() const override { return false; }
 
   double blob_garbage_collection_age_cutoff() const override { return 0.0; }
 
-  Version* input_version() const override { return nullptr; }
+  uint64_t blob_compaction_readahead_size() const override { return 0; }
+
+  const Version* input_version() const override { return nullptr; }
 
   bool DoesInputReferenceBlobFiles() const override { return false; }
 
@@ -273,11 +275,11 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
-        earliest_write_conflict_snapshot, snapshot_checker_.get(),
-        Env::Default(), false /* report_detailed_time */, false,
-        range_del_agg_.get(), nullptr /* blob_file_builder */,
-        true /*allow_data_in_errors*/, std::move(compaction), filter,
-        &shutting_down_, /*preserve_deletes_seqnum=*/0,
+        earliest_write_conflict_snapshot, kMaxSequenceNumber,
+        snapshot_checker_.get(), Env::Default(),
+        false /* report_detailed_time */, false, range_del_agg_.get(),
+        nullptr /* blob_file_builder */, true /*allow_data_in_errors*/,
+        std::move(compaction), filter, &shutting_down_,
         /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, /*info_log=*/nullptr,
         full_history_ts_low));
@@ -311,7 +313,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
                   key_not_exists_beyond_output_level, full_history_ts_low);
     c_iter_->SeekToFirst();
     for (size_t i = 0; i < expected_keys.size(); i++) {
-      std::string info = "i = " + ToString(i);
+      std::string info = "i = " + std::to_string(i);
       ASSERT_TRUE(c_iter_->Valid()) << info;
       ASSERT_OK(c_iter_->status()) << info;
       ASSERT_EQ(expected_keys[i], c_iter_->key().ToString()) << info;
@@ -1075,7 +1077,7 @@ INSTANTIATE_TEST_CASE_P(CompactionIteratorWithAllowIngestBehindTestInstance,
 class CompactionIteratorTsGcTest : public CompactionIteratorTest {
  public:
   CompactionIteratorTsGcTest()
-      : CompactionIteratorTest(test::ComparatorWithU64Ts()) {}
+      : CompactionIteratorTest(test::BytewiseComparatorWithU64TsWrapper()) {}
 };
 
 TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {
@@ -1171,9 +1173,10 @@ TEST_P(CompactionIteratorTsGcTest, NewHidesOldSameSnapshot) {
     std::string full_history_ts_low;
     // Keys whose timestamps larger than or equal to 102 will be preserved.
     PutFixed64(&full_history_ts_low, 102);
-    const std::vector<std::string> expected_keys = {input_keys[0],
-                                                    input_keys[1]};
-    const std::vector<std::string> expected_values = {"", "a2"};
+    const std::vector<std::string> expected_keys = {
+        input_keys[0], input_keys[1], input_keys[2]};
+    const std::vector<std::string> expected_values = {"", input_values[1],
+                                                      input_values[2]};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,

@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "cache/cache_key.h"
+#include "table/block_based/block_based_table_reader.h"
 #ifndef ROCKSDB_LITE
 
 #include "utilities/cache_dump_load_impl.h"
@@ -33,8 +35,21 @@ Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
       return s;
     }
     for (auto id = ptc.begin(); id != ptc.end(); id++) {
-      assert(id->second->db_session_id.size() == 20);
-      prefix_filter_.insert(id->second->db_session_id);
+      OffsetableCacheKey base;
+      // We only want to save cache entries that are portable to another
+      // DB::Open, so only save entries with stable keys.
+      bool is_stable;
+      // WART: if the file is extremely large (> kMaxFileSizeStandardEncoding)
+      // then the prefix will be different. But this should not be a concern
+      // in practice because that limit is currently 4TB on a single file.
+      BlockBasedTable::SetupBaseCacheKey(
+          id->second.get(), /*cur_db_session_id*/ "", /*cur_file_num*/ 0,
+          /*file_size*/ 42, &base, &is_stable);
+      if (is_stable) {
+        Slice prefix_slice = base.CommonPrefixSlice();
+        assert(prefix_slice.size() == OffsetableCacheKey::kCommonPrefixSize);
+        prefix_filter_.insert(prefix_slice.ToString());
+      }
     }
   }
   return s;
@@ -82,16 +97,13 @@ IOStatus CacheDumperImpl::DumpCacheEntriesToWriter() {
 
 // Check if we need to filter out the block based on its key
 bool CacheDumperImpl::ShouldFilterOut(const Slice& key) {
-  // Since now we use db_session_id as the prefix, the prefix size is 20. If
-  // Anything changes in the future, we need to update it here.
-  bool filter_out = true;
-  size_t prefix_size = 20;
-  Slice key_prefix(key.data(), prefix_size);
-  std::string prefix = key_prefix.ToString();
-  if (prefix_filter_.find(prefix) != prefix_filter_.end()) {
-    filter_out = false;
+  if (key.size() < OffsetableCacheKey::kCommonPrefixSize) {
+    return /*filter out*/ true;
   }
-  return filter_out;
+  Slice key_prefix(key.data(), OffsetableCacheKey::kCommonPrefixSize);
+  std::string prefix = key_prefix.ToString();
+  // Filter out if not found
+  return prefix_filter_.find(prefix) == prefix_filter_.end();
 }
 
 // This is the callback function which will be applied to

@@ -10,6 +10,7 @@
 #include "db/version_edit_handler.h"
 
 #include <cinttypes>
+#include <sstream>
 
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
@@ -68,6 +69,26 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
   CheckIterationResult(reader, &s);
 
   if (!s.ok()) {
+    if (s.IsCorruption()) {
+      // when we find a Corruption error, something is
+      // wrong with the underlying file. in this case we
+      // want to report the filename, so in here we append
+      // the filename to the Corruption message
+      assert(reader.file());
+
+      // build a new error message
+      std::stringstream message;
+      // append previous dynamic state message
+      const char* state = s.getState();
+      if (state != nullptr) {
+        message << state;
+        message << ' ';
+      }
+      // append the filename to the corruption message
+      message << "in file " << reader.file()->file_name();
+      // overwrite the status with the extended status
+      s = Status(s.code(), s.subcode(), s.severity(), message.str());
+    }
     status_ = s;
   }
   TEST_SYNC_POINT_CALLBACK("VersionEditHandlerBase::Iterate:Finish",
@@ -373,7 +394,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
   if (s->ok()) {
     version_set_->GetColumnFamilySet()->UpdateMaxColumnFamily(
         version_edit_params_.max_column_family_);
-    version_set_->MarkMinLogNumberToKeep2PC(
+    version_set_->MarkMinLogNumberToKeep(
         version_edit_params_.min_log_number_to_keep_);
     version_set_->MarkFileNumberUsed(version_edit_params_.prev_log_number_);
     version_set_->MarkFileNumberUsed(version_edit_params_.log_number_);
@@ -442,6 +463,14 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
         last_seq > version_set_->last_sequence_.load()) {
       version_set_->last_sequence_.store(last_seq);
     }
+    if (last_seq != kMaxSequenceNumber &&
+        last_seq > version_set_->descriptor_last_sequence_) {
+      // This is the maximum last sequence of all `VersionEdit`s iterated. It
+      // may be greater than the maximum `largest_seqno` of all files in case
+      // the newest data referred to by the MANIFEST has been dropped or had its
+      // sequence number zeroed through compaction.
+      version_set_->descriptor_last_sequence_ = last_seq;
+    }
     version_set_->prev_log_number_ = version_edit_params_.prev_log_number_;
   }
 }
@@ -503,7 +532,7 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     s = builder->SaveTo(v->storage_info());
     if (s.ok()) {
       // Install new version
-      v->PrepareApply(
+      v->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(),
           !(version_set_->db_options_->skip_stats_update_on_db_open));
       version_set_->AppendVersion(cfd, v);
@@ -517,7 +546,11 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool prefetch_index_and_filter_in_cache,
                                       bool is_initial_load) {
-  if (skip_load_table_files_) {
+  bool skip_load_table_files = skip_load_table_files_;
+  TEST_SYNC_POINT_CALLBACK(
+      "VersionEditHandler::LoadTables:skip_load_table_files",
+      &skip_load_table_files);
+  if (skip_load_table_files) {
     return Status::OK();
   }
   assert(cfd != nullptr);
@@ -531,7 +564,7 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       cfd->internal_stats(),
       version_set_->db_options_->max_file_opening_threads,
       prefetch_index_and_filter_in_cache, is_initial_load,
-      cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+      cfd->GetLatestMutableCFOptions()->prefix_extractor,
       MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
   if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
@@ -593,6 +626,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                    edit.min_log_number_to_keep_);
     }
     if (edit.has_last_sequence_) {
+      // `VersionEdit::last_sequence_`s are assumed to be non-decreasing. This
+      // is legacy behavior that cannot change without breaking downgrade
+      // compatibility.
+      assert(!version_edit_params_.has_last_sequence_ ||
+             version_edit_params_.last_sequence_ <= edit.last_sequence_);
       version_edit_params_.SetLastSequence(edit.last_sequence_);
     }
     if (!version_edit_params_.has_prev_log_number_) {
@@ -634,6 +672,11 @@ void VersionEditHandlerPointInTime::CheckIterationResult(
         versions_.erase(v_iter);
       }
     }
+  } else {
+    for (const auto& elem : versions_) {
+      delete elem.second;
+    }
+    versions_.clear();
   }
 }
 
@@ -763,7 +806,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
                                 version_set_->current_version_number_++);
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {
-      version->PrepareApply(
+      version->PrepareAppend(
           *cfd->GetLatestMutableCFOptions(),
           !version_set_->db_options_->skip_stats_update_on_db_open);
       auto v_iter = versions_.find(cfd->GetID());
@@ -870,7 +913,7 @@ Status ManifestTailer::OnColumnFamilyAdd(VersionEdit& edit,
 
 #ifndef NDEBUG
   auto version_iter = versions_.find(edit.GetColumnFamily());
-  assert(version_iter != versions_.end());
+  assert(version_iter == versions_.end());
 #endif  // !NDEBUG
   return Status::OK();
 }
@@ -927,12 +970,11 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
   fprintf(stdout,
           "next_file_number %" PRIu64 " last_sequence %" PRIu64
           "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
-          " min_log_number_to_keep "
-          "%" PRIu64 "\n",
+          " min_log_number_to_keep %" PRIu64 "\n",
           version_set_->current_next_file_number(),
           version_set_->LastSequence(), version_set_->prev_log_number(),
           version_set_->column_family_set_->GetMaxColumnFamily(),
-          version_set_->min_log_number_to_keep_2pc());
+          version_set_->min_log_number_to_keep());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

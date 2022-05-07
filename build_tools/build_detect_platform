@@ -45,11 +45,11 @@ if test -z "$OUTPUT"; then
   exit 1
 fi
 
-# we depend on C++11, but should be compatible with newer standards
+# we depend on C++17, but should be compatible with newer standards
 if [ "$ROCKSDB_CXX_STANDARD" ]; then
   PLATFORM_CXXFLAGS="-std=$ROCKSDB_CXX_STANDARD"
 else
-  PLATFORM_CXXFLAGS="-std=c++11"
+  PLATFORM_CXXFLAGS="-std=c++17"
 fi
 
 # we currently depend on POSIX platform
@@ -58,15 +58,13 @@ COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX"
 # Default to fbcode gcc on internal fb machines
 if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
-    # If we're compiling with TSAN we need pic build
+    # If we're compiling with TSAN or shared lib, we need pic build
     PIC_BUILD=$COMPILE_WITH_TSAN
-    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
-      # we need this to build with MySQL. Don't use for other purposes.
-      source "$PWD/build_tools/fbcode_config4.8.1.sh"
-    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_5xx" ]; then
-      source "$PWD/build_tools/fbcode_config.sh"
-    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007" ]; then
-      source "$PWD/build_tools/fbcode_config_platform007.sh"
+    if [ "$LIB_MODE" == "shared" ]; then
+      PIC_BUILD=1
+    fi
+    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM010" ]; then
+      source "$PWD/build_tools/fbcode_config_platform010.sh"
     elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
       source "$PWD/build_tools/fbcode_config_platform009.sh"
     else
@@ -176,7 +174,7 @@ case "$TARGET_OS" in
         fi
         if test "$ROCKSDB_USE_IO_URING" -ne 0; then
             # check for liburing
-            $CXX $PLATFORM_CXXFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
+            $CXX $PLATFORM_CXXFLAGS -x c++ - -luring -o test.o 2>/dev/null  <<EOF
               #include <liburing.h>
               int main() {
                 struct io_uring ring;
@@ -271,7 +269,7 @@ esac
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
-JAVAC_ARGS="-source 7"
+JAVAC_ARGS="-source 8"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
@@ -284,7 +282,7 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
 else
     if ! test $ROCKSDB_DISABLE_FALLOCATE; then
         # Test whether fallocate is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <fcntl.h>
           #include <linux/falloc.h>
           int main() {
@@ -300,7 +298,7 @@ EOF
     if ! test $ROCKSDB_DISABLE_SNAPPY; then
         # Test whether Snappy library is installed
         # http://code.google.com/p/snappy/
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <snappy.h>
           int main() {}
 EOF
@@ -315,7 +313,7 @@ EOF
         # Test whether gflags library is installed
         # http://gflags.github.io/gflags/
         # check if the namespace is gflags
-        if $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        if $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null << EOF
           #include <gflags/gflags.h>
           using namespace GFLAGS_NAMESPACE;
           int main() {}
@@ -324,7 +322,7 @@ EOF
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
           PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         # check if namespace is gflags
-        elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null << EOF
             #include <gflags/gflags.h>
             using namespace gflags;
             int main() {}
@@ -333,7 +331,7 @@ EOF
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=gflags"
           PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         # check if namespace is google
-        elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        elif $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null << EOF
             #include <gflags/gflags.h>
             using namespace google;
             int main() {}
@@ -346,7 +344,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_ZLIB; then
         # Test whether zlib library is installed
-        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <zlib.h>
           int main() {}
 EOF
@@ -359,7 +357,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_BZIP; then
         # Test whether bzip library is installed
-        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <bzlib.h>
           int main() {}
 EOF
@@ -372,7 +370,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_LZ4; then
         # Test whether lz4 library is installed
-        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <lz4.h>
           #include <lz4hc.h>
           int main() {}
@@ -399,7 +397,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_NUMA; then
         # Test whether numa is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lnuma 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o -lnuma 2>/dev/null  <<EOF
           #include <numa.h>
           #include <numaif.h>
           int main() {}
@@ -413,7 +411,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_TBB; then
         # Test whether tbb is available
-        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o /dev/null -ltbb 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -ltbb 2>/dev/null  <<EOF
           #include <tbb/tbb.h>
           int main() {}
 EOF
@@ -426,7 +424,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_JEMALLOC; then
         # Test whether jemalloc is available
-        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -ljemalloc \
+        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o -ljemalloc \
           2>/dev/null; then
             # This will enable some preprocessor identifiers in the Makefile
             JEMALLOC=1
@@ -447,7 +445,7 @@ EOF
     fi
     if ! test $JEMALLOC && ! test $ROCKSDB_DISABLE_TCMALLOC; then
         # jemalloc is not available. Let's try tcmalloc
-        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null \
+        if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o \
           -ltcmalloc 2>/dev/null; then
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
             JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
@@ -456,7 +454,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_MALLOC_USABLE_SIZE; then
         # Test whether malloc_usable_size is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <malloc.h>
           int main() {
             size_t res = malloc_usable_size(0);
@@ -471,7 +469,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_MEMKIND; then
         # Test whether memkind library is installed
-        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o /dev/null -lmemkind 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -lmemkind 2>/dev/null  <<EOF
           #include <memkind.h>
           int main() {
             memkind_malloc(MEMKIND_DAX_KMEM, 1024);
@@ -487,7 +485,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
         # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <pthread.h>
           int main() {
             int x = PTHREAD_MUTEX_ADAPTIVE_NP;
@@ -502,7 +500,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_BACKTRACE; then
         # Test whether backtrace is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <execinfo.h>
           int main() {
             void* frames[1];
@@ -514,7 +512,7 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
         else
             # Test whether execinfo library is installed
-            $CXX $PLATFORM_CXXFLAGS -lexecinfo -x c++ - -o /dev/null 2>/dev/null  <<EOF
+            $CXX $PLATFORM_CXXFLAGS -lexecinfo -x c++ - -o test.o 2>/dev/null  <<EOF
               #include <execinfo.h>
               int main() {
                 void* frames[1];
@@ -531,7 +529,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_PG; then
         # Test if -pg is supported
-        $CXX $PLATFORM_CXXFLAGS -pg -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -pg -x c++ - -o test.o 2>/dev/null  <<EOF
           int main() {
             return 0;
           }
@@ -543,7 +541,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_SYNC_FILE_RANGE; then
         # Test whether sync_file_range is supported for compatibility with an old glibc
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <fcntl.h>
           int main() {
             int fd = open("/dev/null", 0);
@@ -557,7 +555,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_SCHED_GETCPU; then
         # Test whether sched_getcpu is supported
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <sched.h>
           int main() {
             int cpuid = sched_getcpu();
@@ -571,7 +569,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_AUXV_GETAUXVAL; then
         # Test whether getauxval is supported
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <sys/auxv.h>
           int main() {
             uint64_t auxv = getauxval(AT_HWCAP);
@@ -585,7 +583,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_ALIGNED_NEW; then
         # Test whether c++17 aligned-new is supported
-        $CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o /dev/null 2>/dev/null <<EOF
+        $CXX $PLATFORM_CXXFLAGS -faligned-new -x c++ - -o test.o 2>/dev/null <<EOF
             struct alignas(1024) t {int a;};
             int main() {}
 EOF
@@ -595,7 +593,7 @@ EOF
     fi
     if ! test $ROCKSDB_DISABLE_BENCHMARK; then
         # Test whether google benchmark is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark -lpthread 2>/dev/null  <<EOF
           #include <benchmark/benchmark.h>
           int main() {}
 EOF
@@ -609,28 +607,12 @@ fi
 # -Wshorten-64-to-32 breaks compilation on FreeBSD aarch64 and i386
 if ! { [ "$TARGET_OS" = FreeBSD ] && [ "$TARGET_ARCHITECTURE" = arm64 -o "$TARGET_ARCHITECTURE" = i386 ]; }; then
   # Test whether -Wshorten-64-to-32 is available
-  $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -Wshorten-64-to-32 2>/dev/null  <<EOF
+  $CXX $PLATFORM_CXXFLAGS -x c++ - -o test.o -Wshorten-64-to-32 2>/dev/null  <<EOF
     int main() {}
 EOF
   if [ "$?" = 0 ]; then
     COMMON_FLAGS="$COMMON_FLAGS -Wshorten-64-to-32"
   fi
-fi
-
-# shall we use HDFS?
-
-if test "$USE_HDFS"; then
-  if test -z "$JAVA_HOME"; then
-    echo "JAVA_HOME has to be set for HDFS usage." >&2
-    exit 1
-  fi
-  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS -I$HADOOP_HOME/include"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64 -L$HADOOP_HOME/lib/native"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
-  COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"
-  PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $HDFS_LDFLAGS"
-  JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
 if test "0$PORTABLE" -eq 0; then
@@ -645,12 +627,15 @@ if test "0$PORTABLE" -eq 0; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     if echo 'int main() {}' | $CXX $PLATFORM_CXXFLAGS -x c++ \
-      -fsyntax-only -march=native - -o /dev/null 2>/dev/null; then
+      -march=native - -o /dev/null 2>/dev/null; then
       COMMON_FLAGS="$COMMON_FLAGS -march=native "
     else
       COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
     fi
     COMMON_FLAGS="$COMMON_FLAGS"
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
   elif [ "$TARGET_OS" == "IOS" ]; then
     COMMON_FLAGS="$COMMON_FLAGS"
   elif [ "$TARGET_OS" == "AIX" ] || [ "$TARGET_OS" == "SunOS" ]; then
@@ -671,11 +656,17 @@ else
     COMMON_FLAGS="$COMMON_FLAGS -march=z196 "
   fi
 
+  if test -n "`echo $TARGET_ARCHITECTURE | grep ^riscv64`"; then
+    RISC_ISA=$(cat /proc/cpuinfo | grep isa | head -1 | cut --delimiter=: -f 2 | cut -b 2-)
+    COMMON_FLAGS="$COMMON_FLAGS -march=${RISC_ISA}"
+  fi
+
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
     # For portability compile for macOS 10.12 (2016) or newer
     COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
     PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
-    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -mmacosx-version-min=10.12"
+    # -mmacosx-version-min must come first here.
+    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.12 $PLATFORM_SHARED_LDFLAGS"
     PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.12"
     JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.12"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
@@ -722,7 +713,7 @@ if test "$TRY_SSE_ETC"; then
   TRY_LZCNT="-mlzcnt"
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o test.o 2>/dev/null <<EOF
   #include <cstdint>
   #include <nmmintrin.h>
   int main() {
@@ -736,7 +727,7 @@ elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling" >&2
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_PCLMUL -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_PCLMUL -x c++ - -o test.o 2>/dev/null <<EOF
   #include <cstdint>
   #include <wmmintrin.h>
   int main() {
@@ -753,7 +744,7 @@ elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling" >&2
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_AVX2 -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_AVX2 -x c++ - -o test.o 2>/dev/null <<EOF
   #include <cstdint>
   #include <immintrin.h>
   int main() {
@@ -768,7 +759,7 @@ elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use AVX2 intrinsics, disabling" >&2
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_BMI -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_BMI -x c++ - -o test.o 2>/dev/null <<EOF
   #include <cstdint>
   #include <immintrin.h>
   int main(int argc, char *argv[]) {
@@ -782,7 +773,7 @@ elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use BMI intrinsics, disabling" >&2
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_LZCNT -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_LZCNT -x c++ - -o test.o 2>/dev/null <<EOF
   #include <cstdint>
   #include <immintrin.h>
   int main(int argc, char *argv[]) {
@@ -796,7 +787,7 @@ elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use LZCNT intrinsics, disabling" >&2
 fi
 
-$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null <<EOF
   #include <cstdint>
   int main() {
     uint64_t a = 0xffffFFFFffffFFFF;
@@ -809,37 +800,35 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_UINT128_EXTENSION"
 fi
 
-# iOS doesn't support thread-local storage, but this check would erroneously
-# succeed because the cross-compiler flags are added by the Makefile, not this
-# script.
-if [ "$PLATFORM" != IOS ]; then
-  $CXX $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
-  #if defined(_MSC_VER) && !defined(__thread)
-  #define __thread __declspec(thread)
-  #endif
-  int main() {
-    static __thread int tls;
-    (void)tls;
-  }
-EOF
-  if [ "$?" = 0 ]; then
-    COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
-  fi
-fi
-
+# thread_local is part of C++11 and later (TODO: clean up this define)
+COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
 
 if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
   $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF
   void dummy_func() {}
 EOF
   if [ "$?" = 0 ]; then
-    $CXX $COMMON_FLAGS $PLATFORM_SHARED_LDFLAGS test_dl.o -o /dev/null 2>/dev/null
+    $CXX $COMMON_FLAGS $PLATFORM_SHARED_LDFLAGS test_dl.o -o test.o 2>/dev/null
     if [ "$?" = 0 ]; then
       EXEC_LDFLAGS+="-ldl"
       rm -f test_dl.o
     fi
   fi
 fi
+
+# check for F_FULLFSYNC
+$CXX $PLATFORM_CXXFALGS -x c++ - -o test.o 2>/dev/null  <<EOF
+  #include <fcntl.h>
+  int main() {
+    fcntl(0, F_FULLFSYNC);
+    return 0;
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_FULLFSYNC"
+fi
+
+rm -f test.o test_dl.o
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
@@ -891,8 +880,8 @@ if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
-if test -n "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-  echo "USE_FOLLY_DISTRIBUTED_MUTEX=$USE_FOLLY_DISTRIBUTED_MUTEX" >> "$OUTPUT"
+if test -n "$USE_FOLLY"; then
+  echo "USE_FOLLY=$USE_FOLLY" >> "$OUTPUT"
 fi
 if test -n "$PPC_LIBC_IS_GNU"; then
   echo "PPC_LIBC_IS_GNU=$PPC_LIBC_IS_GNU" >> "$OUTPUT"

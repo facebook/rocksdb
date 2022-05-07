@@ -41,7 +41,6 @@
 #include "db_stress_tool/db_stress_listener.h"
 #include "db_stress_tool/db_stress_shared_state.h"
 #include "db_stress_tool/db_stress_test_base.h"
-#include "hdfs/env_hdfs.h"
 #include "logging/logging.h"
 #include "monitoring/histogram.h"
 #include "options/options_helper.h"
@@ -51,7 +50,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/debug.h"
@@ -68,6 +67,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
+#include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -87,6 +87,7 @@ DECLARE_int64(active_width);
 DECLARE_bool(test_batches_snapshots);
 DECLARE_bool(atomic_flush);
 DECLARE_bool(test_cf_consistency);
+DECLARE_bool(test_multi_ops_txns);
 DECLARE_int32(threads);
 DECLARE_int32(ttl);
 DECLARE_int32(value_size_mult);
@@ -115,6 +116,7 @@ DECLARE_int32(level0_stop_writes_trigger);
 DECLARE_int32(block_size);
 DECLARE_int32(format_version);
 DECLARE_int32(index_block_restart_interval);
+DECLARE_bool(disable_auto_compactions);
 DECLARE_int32(max_background_compactions);
 DECLARE_int32(num_bottom_pri_threads);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
@@ -133,6 +135,7 @@ DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
 DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
+DECLARE_bool(reserve_table_reader_memory);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
@@ -149,6 +152,7 @@ DECLARE_bool(use_block_based_filter);
 DECLARE_int32(ribbon_starting_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
+DECLARE_bool(detect_filter_construct_corruption);
 DECLARE_int32(index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
@@ -163,6 +167,8 @@ DECLARE_bool(mock_direct_io);
 DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
+DECLARE_uint64(bytes_per_sync);
+DECLARE_uint64(wal_bytes_per_sync);
 DECLARE_int32(kill_random_test);
 DECLARE_string(kill_exclude_prefixes);
 DECLARE_bool(disable_wal);
@@ -174,6 +180,8 @@ DECLARE_double(max_bytes_for_level_multiplier);
 DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
+DECLARE_bool(rate_limit_user_ops);
+DECLARE_bool(rate_limit_auto_wal_flush);
 DECLARE_uint64(sst_file_manager_bytes_per_sec);
 DECLARE_uint64(sst_file_manager_bytes_per_truncate);
 DECLARE_bool(use_txn);
@@ -203,6 +211,7 @@ DECLARE_int32(delrangepercent);
 DECLARE_int32(nooverwritepercent);
 DECLARE_int32(iterpercent);
 DECLARE_uint64(num_iterations);
+DECLARE_int32(customopspercent);
 DECLARE_string(compression_type);
 DECLARE_string(bottommost_compression_type);
 DECLARE_int32(compression_max_dict_bytes);
@@ -210,7 +219,6 @@ DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
 DECLARE_string(checksum_type);
-DECLARE_string(hdfs);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
 DECLARE_uint64(ops_per_thread);
@@ -253,6 +261,7 @@ DECLARE_string(blob_compression_type);
 DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);
 DECLARE_double(blob_garbage_collection_force_threshold);
+DECLARE_uint64(blob_compaction_readahead_size);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -266,19 +275,29 @@ DECLARE_uint64(batch_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
+DECLARE_int32(secondary_cache_fault_one_in);
+
+DECLARE_int32(prepopulate_block_cache);
+
+DECLARE_bool(two_write_queues);
+#ifndef ROCKSDB_LITE
+DECLARE_bool(use_only_the_last_commit_time_batch_for_recovery);
+DECLARE_uint64(wp_snapshot_cache_bits);
+DECLARE_uint64(wp_commit_cache_bits);
+#endif  // !ROCKSDB_LITE
+
+DECLARE_bool(adaptive_readahead);
+DECLARE_bool(async_io);
+DECLARE_string(wal_compression);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
 
-// wrapped posix or hdfs environment
+// wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
-#ifndef NDEBUG
-namespace ROCKSDB_NAMESPACE {
-class FaultInjectionTestFS;
-}  // namespace ROCKSDB_NAMESPACE
+extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
-#endif
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;
@@ -402,17 +421,15 @@ inline bool GetNextPrefix(const ROCKSDB_NAMESPACE::Slice& src, std::string* v) {
 #pragma warning(pop)
 #endif
 
-// convert long to a big-endian slice key
-extern inline std::string GetStringFromInt(int64_t val) {
-  std::string little_endian_key;
-  std::string big_endian_key;
-  PutFixed64(&little_endian_key, val);
-  assert(little_endian_key.size() == sizeof(val));
-  big_endian_key.resize(sizeof(val));
-  for (size_t i = 0; i < sizeof(val); ++i) {
-    big_endian_key[i] = little_endian_key[sizeof(val) - 1 - i];
+// Append `val` to `*key` in fixed-width big-endian format
+extern inline void AppendIntToString(uint64_t val, std::string* key) {
+  // PutFixed64 uses little endian
+  PutFixed64(key, val);
+  // Reverse to get big endian
+  char* int_data = &((*key)[key->size() - sizeof(uint64_t)]);
+  for (size_t i = 0; i < sizeof(uint64_t) / 2; ++i) {
+    std::swap(int_data[i], int_data[sizeof(uint64_t) - 1 - i]);
   }
-  return big_endian_key;
 }
 
 // A struct for maintaining the parameters for generating variable length keys
@@ -438,13 +455,22 @@ extern inline std::string Key(int64_t val) {
   uint64_t window = key_gen_ctx.window;
   size_t levels = key_gen_ctx.weights.size();
   std::string key;
+  // Over-reserve and for now do not bother `shrink_to_fit()` since the key
+  // strings are transient.
+  key.reserve(FLAGS_max_key_len * 8);
 
+  uint64_t window_idx = static_cast<uint64_t>(val) / window;
+  uint64_t offset = static_cast<uint64_t>(val) % window;
   for (size_t level = 0; level < levels; ++level) {
     uint64_t weight = key_gen_ctx.weights[level];
-    uint64_t offset = static_cast<uint64_t>(val) % window;
-    uint64_t mult = static_cast<uint64_t>(val) / window;
-    uint64_t pfx = mult * weight + (offset >= weight ? weight - 1 : offset);
-    key.append(GetStringFromInt(pfx));
+    uint64_t pfx;
+    if (level == 0) {
+      pfx = window_idx * weight;
+    } else {
+      pfx = 0;
+    }
+    pfx += offset >= weight ? weight - 1 : offset;
+    AppendIntToString(pfx, &key);
     if (offset < weight) {
       // Use the bottom 3 bits of offset as the number of trailing 'x's in the
       // key. If the next key is going to be of the next level, then skip the
@@ -456,8 +482,7 @@ extern inline std::string Key(int64_t val) {
       }
       break;
     }
-    val = offset - weight;
-    window -= weight;
+    offset -= weight;
   }
 
   return key;
@@ -561,10 +586,13 @@ extern std::vector<int64_t> GenerateNKeys(ThreadState* thread, int num_keys,
                                           uint64_t iteration);
 
 extern size_t GenerateValue(uint32_t rand, char* v, size_t max_sz);
+extern uint32_t GetValueBase(Slice s);
 
 extern StressTest* CreateCfConsistencyStressTest();
 extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
+extern StressTest* CreateMultiOpsTxnsStressTest();
+extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
