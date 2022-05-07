@@ -234,6 +234,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
         /* currently not supported
           std::shared_ptr<Cache> block_cache = nullptr;
           std::shared_ptr<Cache> block_cache_compressed = nullptr;
+          CacheUsageOptions cache_usage_options;
          */
         {"flush_block_policy_factory",
          OptionTypeInfo::AsCustomSharedPtr<FlushBlockPolicyFactory>(
@@ -327,14 +328,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    detect_filter_construct_corruption),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
-        {"reserve_table_builder_memory",
-         {offsetof(struct BlockBasedTableOptions, reserve_table_builder_memory),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
-        {"reserve_table_reader_memory",
-         {offsetof(struct BlockBasedTableOptions, reserve_table_reader_memory),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
         {"skip_table_builder_flush",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -429,8 +422,11 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info);
 
-  if (table_options_.reserve_table_reader_memory &&
-      table_options_.no_block_cache == false) {
+  if (table_options_.block_cache &&
+      table_options_.cache_usage_options
+              .options_overrides[static_cast<uint32_t>(
+                  CacheEntryRole::kBlockBasedTableReader)]
+              .charged == CacheEntryRoleOptions::Decision::kEnabled) {
     table_reader_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
         std::make_shared<CacheReservationManagerImpl<
             CacheEntryRole::kBlockBasedTableReader>>(
@@ -473,6 +469,17 @@ void BlockBasedTableFactory::InitializeOptions() {
           BlockBasedTableOptions::kTwoLevelIndexSearch) {
     // We do not support partitioned filters without partitioning indexes
     table_options_.partition_filters = false;
+  }
+  auto& cache_usage_overrides_options =
+      table_options_.cache_usage_options.options_overrides;
+  const auto& cache_usage_default_options =
+      table_options_.cache_usage_options.default_options;
+  for (std::size_t i = 0; i < cache_usage_overrides_options.size(); ++i) {
+    CacheEntryRoleOptions& override_options = cache_usage_overrides_options[i];
+    if (override_options.charged ==
+        CacheEntryRoleOptions::Decision::kFallback) {
+      override_options.charged = cache_usage_default_options.charged;
+    }
   }
 }
 
@@ -637,12 +644,6 @@ Status BlockBasedTableFactory::ValidateOptions(
         "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
-  if (table_options_.reserve_table_reader_memory &&
-      table_options_.no_block_cache) {
-    return Status::InvalidArgument(
-        "Enable reserve_table_reader_memory, "
-        ", but block cache is disabled");
-  }
   if (!IsSupportedFormatVersion(table_options_.format_version)) {
     return Status::InvalidArgument(
         "Unsupported BlockBasedTable format_version. Please check "
@@ -674,6 +675,31 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "max_successive_merges larger than 0 is currently inconsistent with "
         "unordered_write");
+  }
+  const auto& options_overrides =
+      table_options_.cache_usage_options.options_overrides;
+  for (std::size_t i = 0; i < options_overrides.size(); ++i) {
+    const CacheEntryRoleOptions& cache_entry_role_option = options_overrides[i];
+    static const std::set<CacheEntryRole> kMemoryChargingSupported = {
+        CacheEntryRole::kCompressionDictionaryBuildingBuffer,
+        CacheEntryRole::kFilterConstruction,
+        CacheEntryRole::kBlockBasedTableReader};
+    if (cache_entry_role_option.charged !=
+            CacheEntryRoleOptions::Decision::kFallback &&
+        kMemoryChargingSupported.count(static_cast<CacheEntryRole>(i)) == 0) {
+      return Status::NotSupported(
+          "Enable/Disable CacheEntryRoleOptions::charged"
+          "for CacheEntryRole  " +
+          kCacheEntryRoleToCamelString[i] + " is not supported");
+    }
+    if (table_options_.no_block_cache &&
+        cache_entry_role_option.charged ==
+            CacheEntryRoleOptions::Decision::kEnabled) {
+      return Status::InvalidArgument(
+          "Enable CacheEntryRoleOptions::charged"
+          "for CacheEntryRole  " +
+          kCacheEntryRoleToCamelString[i] + " but block cache is disabled");
+    }
   }
   {
     Status s = CheckCacheOptionCompatibility(table_options_);

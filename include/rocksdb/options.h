@@ -552,7 +552,7 @@ struct DBOptions {
   // compaction. For universal-style compaction, you can usually set it to -1.
   //
   // A high value or -1 for this option can cause high memory usage.
-  // See BlockBasedTableOptions::reserve_table_reader_memory to constrain
+  // See BlockBasedTableOptions::cache_usage_options to constrain
   // memory usage in case of block based table format.
   //
   // Default: -1

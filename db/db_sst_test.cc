@@ -1448,7 +1448,9 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
 }
 
 TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
-  for (bool reserve_table_builder_memory : {true, false}) {
+  for (CacheEntryRoleOptions::Decision charge_table_reader :
+       {CacheEntryRoleOptions::Decision::kEnabled,
+        CacheEntryRoleOptions::Decision::kDisabled}) {
     // Open DB with infinite max open files
     //  - First iteration use 1 thread to open files
     //  - Second iteration use 5 threads to open files
@@ -1488,7 +1490,10 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
       }
       Close();
 
-      table_options.reserve_table_reader_memory = reserve_table_builder_memory;
+      table_options.cache_usage_options
+          .options_overrides[static_cast<uint32_t>(
+              CacheEntryRole::kBlockBasedTableReader)]
+          .charged = charge_table_reader;
       table_options.block_cache =
           NewLRUCache(1024 /* capacity */, 0 /* num_shard_bits */,
                       true /* strict_capacity_limit */);
@@ -1497,7 +1502,10 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
       // Reopening the DB will try to load all existing files, conditionally
       // subject to memory limit
       Status s = TryReopen(options);
-      if (table_options.reserve_table_reader_memory) {
+      if (table_options.cache_usage_options
+              .options_overrides[static_cast<uint32_t>(
+                  CacheEntryRole::kBlockBasedTableReader)]
+              .charged == CacheEntryRoleOptions::Decision::kEnabled) {
         EXPECT_TRUE(s.IsMemoryLimit());
         EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
                     std::string::npos);
