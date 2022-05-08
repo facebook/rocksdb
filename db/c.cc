@@ -1234,6 +1234,51 @@ char* rocksdb_get_cf(
   return result;
 }
 
+char* rocksdb_get_with_ts(
+  rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+  size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr) {
+  char* result = nullptr;
+  std::string tmp_val;
+  std::string tmp_ts;
+  Status s = db->rep->Get(options->rep, Slice(key, keylen), &tmp_val, &tmp_ts);
+  if (s.ok()) {
+    *vallen = tmp_val.size();
+    result = CopyString(tmp_val);
+    *tslen = tmp_ts.size();
+    *ts = CopyString(tmp_ts);
+  } else {
+    *vallen = 0;
+    *tslen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
+char* rocksdb_get_cf_with_ts(
+  rocksdb_t* db, const rocksdb_readoptions_t* options,
+  rocksdb_column_family_handle_t* column_family,
+  const char* key, size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  std::string tmp_ts;
+  Status s = db->rep->Get(options->rep, column_family->rep, Slice(key, keylen), &tmp, &tmp_ts);
+  if (s.ok()) {
+    *vallen = tmp.size();
+    result = CopyString(tmp);
+    *tslen = tmp_ts.size();
+    *ts = CopyString(tmp_ts);
+  } else {
+    *vallen = 0;
+    *tslen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
 void rocksdb_multi_get(
     rocksdb_t* db,
     const rocksdb_readoptions_t* options,
@@ -1258,6 +1303,42 @@ void rocksdb_multi_get(
       if (!statuses[i].IsNotFound()) {
         errs[i] = strdup(statuses[i].ToString().c_str());
       } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+}
+
+void rocksdb_multi_get_with_ts(
+  rocksdb_t* db,
+  const rocksdb_readoptions_t* options, size_t num_keys, 
+  const char* const* keys_list, const size_t* keys_list_sizes,
+  char** values_list, size_t* values_list_sizes,
+  char** timestamp_list, size_t* timestamp_list_sizes,
+  char** errs) {
+  std::vector<Slice> keys(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<std::string> timestamps(num_keys);
+  std::vector<Status> statuses = db->rep->MultiGet(options->rep, keys, &values, &timestamps);
+  for (size_t i = 0; i < num_keys; i++) {
+    if (statuses[i].ok()) {
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].size();
+      timestamp_list[i] = CopyString(timestamps[i]);
+      timestamp_list_sizes[i] = timestamps[i].size();
+      errs[i] = nullptr;
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      timestamp_list[i] = nullptr;
+      timestamp_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      }
+      else {
         errs[i] = nullptr;
       }
     }
@@ -1291,6 +1372,47 @@ void rocksdb_multi_get_cf(
       if (!statuses[i].IsNotFound()) {
         errs[i] = strdup(statuses[i].ToString().c_str());
       } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+}
+
+
+void rocksdb_multi_get_cf_with_ts(
+  rocksdb_t* db,
+  const rocksdb_readoptions_t* options,
+  const rocksdb_column_family_handle_t* const* column_families,
+  size_t num_keys, 
+  const char* const* keys_list, const size_t* keys_list_sizes,
+  char** values_list, size_t* values_list_sizes,
+  char** timestamps_list, size_t* timestamps_list_sizes,
+  char** errs) {
+  std::vector<Slice> keys(num_keys);
+  std::vector<ColumnFamilyHandle*> cfs(num_keys);
+  for (size_t i = 0; i < num_keys; i++) {
+    keys[i] = Slice(keys_list[i], keys_list_sizes[i]);
+    cfs[i] = column_families[i]->rep;
+  }
+  std::vector<std::string> values(num_keys);
+  std::vector<std::string> timestamps(num_keys);
+  std::vector<Status> statuses = db->rep->MultiGet(options->rep, cfs, keys, &values, &timestamps);
+  for (size_t i = 0; i < num_keys; i++) {
+    if (statuses[i].ok()) {
+      values_list[i] = CopyString(values[i]);
+      values_list_sizes[i] = values[i].size();
+      timestamps_list[i] = CopyString(timestamps[i]);
+      timestamps_list_sizes[i] = timestamps[i].size();
+      errs[i] = nullptr;
+    } else {
+      values_list[i] = nullptr;
+      values_list_sizes[i] = 0;
+      timestamps_list[i] = nullptr;
+      timestamps_list_sizes[i] = 0;
+      if (!statuses[i].IsNotFound()) {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      }
+      else {
         errs[i] = nullptr;
       }
     }
@@ -1722,6 +1844,12 @@ const char* rocksdb_iter_key(const rocksdb_iterator_t* iter, size_t* klen) {
 const char* rocksdb_iter_value(const rocksdb_iterator_t* iter, size_t* vlen) {
   Slice s = iter->rep->value();
   *vlen = s.size();
+  return s.data();
+}
+
+const char* rocksdb_iter_timestamp(const rocksdb_iterator_t* iter, size_t* tslen) {
+  Slice s = iter->rep->timestamp();
+  *tslen = s.size();
   return s.data();
 }
 

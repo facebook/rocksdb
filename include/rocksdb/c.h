@@ -462,10 +462,19 @@ extern ROCKSDB_LIBRARY_API char* rocksdb_get(
     rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
     size_t keylen, size_t* vallen, char** errptr);
 
+extern ROCKSDB_LIBRARY_API char* rocksdb_get_with_ts(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr);
+
 extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, size_t* vallen, char** errptr);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_get_cf_with_ts(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, 
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen, size_t* vallen, char** ts, size_t* tslen, char** errptr);
 
 // if values_list[i] == NULL and errs[i] == NULL,
 // then we got status.IsNotFound(), which we will not return.
@@ -483,12 +492,28 @@ extern ROCKSDB_LIBRARY_API void rocksdb_multi_get(
     const char* const* keys_list, const size_t* keys_list_sizes,
     char** values_list, size_t* values_list_sizes, char** errs);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_with_ts(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes, 
+    char** timestamp_list, size_t* timestamp_list_sizes, 
+    char** errs);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     const rocksdb_column_family_handle_t* const* column_families,
     size_t num_keys, const char* const* keys_list,
     const size_t* keys_list_sizes, char** values_list,
     size_t* values_list_sizes, char** errs);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf_with_ts(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, 
+    const char* const* keys_list, const size_t* keys_list_sizes,
+     char** values_list, size_t* values_list_sizes,
+     char** timestamps_list, size_t* timestamps_list_sizes,
+    char** errs);
 
 // The MultiGet API that improves performance by batching operations
 // in the read path for greater efficiency. Currently, only the block based
@@ -659,6 +684,8 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_key(
     const rocksdb_iterator_t*, size_t* klen);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_value(
     const rocksdb_iterator_t*, size_t* vlen);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_timestamp(
+    const rocksdb_iterator_t*, size_t* tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_get_error(
     const rocksdb_iterator_t*, char** errptr);
 
