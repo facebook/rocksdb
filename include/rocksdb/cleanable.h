@@ -88,7 +88,7 @@ class Cleanable {
 // It will prevent cleanups from ever happening!
 class SharedCleanablePtr {
  public:
-  // Empy/null pointer
+  // Empty/null pointer
   SharedCleanablePtr() {}
   // Copy and move constructors and assignment
   SharedCleanablePtr(const SharedCleanablePtr& from);
