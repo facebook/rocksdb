@@ -417,7 +417,7 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
-      - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test
+      - run: make V=1 -j8 unity_test
       - run: make V=1 -j8 -k check-headers # could be moved to a different build
       - post-steps
 
