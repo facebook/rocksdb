@@ -828,7 +828,8 @@ static void DBGetMergeOperandsInMemtable(benchmark::State& state) {
   std::vector<PinnableSlice> value_operands;
   value_operands.resize(kNumEntriesPerKey);
   GetMergeOperandsOptions get_merge_ops_opts;
-  get_merge_ops_opts.expected_max_number_of_operands = kNumEntriesPerKey;
+  get_merge_ops_opts.expected_max_number_of_operands =
+      static_cast<int>(kNumEntriesPerKey);
   for (auto _ : state) {
     int num_value_operands = 0;
     Status s = db->GetMergeOperands(
@@ -922,7 +923,8 @@ static void DBGetMergeOperandsInSstFile(benchmark::State& state) {
   std::vector<PinnableSlice> value_operands;
   value_operands.resize(kNumEntriesPerKey);
   GetMergeOperandsOptions get_merge_ops_opts;
-  get_merge_ops_opts.expected_max_number_of_operands = kNumEntriesPerKey;
+  get_merge_ops_opts.expected_max_number_of_operands =
+      static_cast<int>(kNumEntriesPerKey);
   for (auto _ : state) {
     int num_value_operands = 0;
     ReadOptions read_opts;
