@@ -15,6 +15,7 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_builder.h"
 #include "util/random.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -32,7 +33,11 @@ class KeyGenerator {
     if (is_sequential_) {
       assert(next_sequential_key_ < max_key_);
       k = (next_sequential_key_ % max_key_) * MULTIPLIER + offset;
-      next_sequential_key_++;
+      if (next_sequential_key_ + 1 == max_key_) {
+        next_sequential_key_ = 0;
+      } else {
+        next_sequential_key_++;
+      }
     } else {
       k = (rnd_->Next() % max_key_) * MULTIPLIER + offset;
     }
@@ -785,6 +790,191 @@ static void SimpleGetWithPerfContext(benchmark::State& state) {
 }
 
 BENCHMARK(SimpleGetWithPerfContext)->Iterations(1000000);
+
+static void DBGetMergeOperandsInMemtable(benchmark::State& state) {
+  const uint64_t kDataLen = 16 << 20;  // 16MB
+  const uint64_t kValueLen = 64;
+  const uint64_t kNumEntries = kDataLen / kValueLen;
+  const uint64_t kNumEntriesPerKey = state.range(0);
+  const uint64_t kNumKeys = kNumEntries / kNumEntriesPerKey;
+
+  // setup DB
+  static std::unique_ptr<DB> db;
+
+  Options options;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  // Make memtable large enough that automatic flush will not be triggered.
+  options.write_buffer_size = 2 * kDataLen;
+
+  KeyGenerator sequential_key_gen(kNumKeys);
+  auto rnd = Random(301 + state.thread_index());
+
+  if (state.thread_index() == 0) {
+    SetupDB(state, options, &db, "DBGetMergeOperandsInMemtable");
+
+    // load db
+    auto write_opts = WriteOptions();
+    write_opts.disableWAL = true;
+    for (uint64_t i = 0; i < kNumEntries; i++) {
+      Status s = db->Merge(write_opts, sequential_key_gen.Next(),
+                           rnd.RandomString(static_cast<int>(kValueLen)));
+      if (!s.ok()) {
+        state.SkipWithError(s.ToString().c_str());
+      }
+    }
+  }
+
+  KeyGenerator random_key_gen(kNumKeys);
+  std::vector<PinnableSlice> value_operands;
+  value_operands.resize(kNumEntriesPerKey);
+  GetMergeOperandsOptions get_merge_ops_opts;
+  get_merge_ops_opts.expected_max_number_of_operands =
+      static_cast<int>(kNumEntriesPerKey);
+  for (auto _ : state) {
+    int num_value_operands = 0;
+    Status s = db->GetMergeOperands(
+        ReadOptions(), db->DefaultColumnFamily(), random_key_gen.Next(),
+        value_operands.data(), &get_merge_ops_opts, &num_value_operands);
+    if (!s.ok()) {
+      state.SkipWithError(s.ToString().c_str());
+    }
+    if (num_value_operands != static_cast<int>(kNumEntriesPerKey)) {
+      state.SkipWithError("Unexpected number of merge operands found for key");
+    }
+  }
+
+  if (state.thread_index() == 0) {
+    TeardownDB(state, db, options, random_key_gen);
+  }
+}
+
+static void DBGetMergeOperandsInSstFile(benchmark::State& state) {
+  const uint64_t kDataLen = 16 << 20;  // 16MB
+  const uint64_t kValueLen = 64;
+  const uint64_t kNumEntries = kDataLen / kValueLen;
+  const uint64_t kNumEntriesPerKey = state.range(0);
+  const uint64_t kNumKeys = kNumEntries / kNumEntriesPerKey;
+  const bool kMmap = state.range(1);
+
+  // setup DB
+  static std::unique_ptr<DB> db;
+
+  BlockBasedTableOptions table_options;
+  if (kMmap) {
+    table_options.no_block_cache = true;
+  } else {
+    // Make block cache large enough that eviction will not be triggered.
+    table_options.block_cache = NewLRUCache(2 * kDataLen);
+  }
+
+  Options options;
+  if (kMmap) {
+    options.allow_mmap_reads = true;
+  }
+  options.compression = kNoCompression;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  // Make memtable large enough that automatic flush will not be triggered.
+  options.write_buffer_size = 2 * kDataLen;
+
+  KeyGenerator sequential_key_gen(kNumKeys);
+  auto rnd = Random(301 + state.thread_index());
+
+  if (state.thread_index() == 0) {
+    SetupDB(state, options, &db, "DBGetMergeOperandsInBlockCache");
+
+    // load db
+    //
+    // Take a snapshot after each cycle of merges to ensure flush cannot
+    // merge any entries.
+    std::vector<const Snapshot*> snapshots;
+    snapshots.resize(kNumEntriesPerKey);
+    auto write_opts = WriteOptions();
+    write_opts.disableWAL = true;
+    for (uint64_t i = 0; i < kNumEntriesPerKey; i++) {
+      for (uint64_t j = 0; j < kNumKeys; j++) {
+        Status s = db->Merge(write_opts, sequential_key_gen.Next(),
+                             rnd.RandomString(static_cast<int>(kValueLen)));
+        if (!s.ok()) {
+          state.SkipWithError(s.ToString().c_str());
+        }
+      }
+      snapshots[i] = db->GetSnapshot();
+    }
+
+    // Flush to an L0 file; read back to prime the cache/mapped memory.
+    db->Flush(FlushOptions());
+    for (uint64_t i = 0; i < kNumKeys; ++i) {
+      std::string value;
+      Status s = db->Get(ReadOptions(), sequential_key_gen.Next(), &value);
+      if (!s.ok()) {
+        state.SkipWithError(s.ToString().c_str());
+      }
+    }
+
+    if (state.thread_index() == 0) {
+      for (uint64_t i = 0; i < kNumEntriesPerKey; ++i) {
+        db->ReleaseSnapshot(snapshots[i]);
+      }
+    }
+  }
+
+  KeyGenerator random_key_gen(kNumKeys);
+  std::vector<PinnableSlice> value_operands;
+  value_operands.resize(kNumEntriesPerKey);
+  GetMergeOperandsOptions get_merge_ops_opts;
+  get_merge_ops_opts.expected_max_number_of_operands =
+      static_cast<int>(kNumEntriesPerKey);
+  for (auto _ : state) {
+    int num_value_operands = 0;
+    ReadOptions read_opts;
+    read_opts.verify_checksums = false;
+    Status s = db->GetMergeOperands(
+        read_opts, db->DefaultColumnFamily(), random_key_gen.Next(),
+        value_operands.data(), &get_merge_ops_opts, &num_value_operands);
+    if (!s.ok()) {
+      state.SkipWithError(s.ToString().c_str());
+    }
+    if (num_value_operands != static_cast<int>(kNumEntriesPerKey)) {
+      state.SkipWithError("Unexpected number of merge operands found for key");
+    }
+  }
+
+  if (state.thread_index() == 0) {
+    TeardownDB(state, db, options, random_key_gen);
+  }
+}
+
+static void DBGetMergeOperandsInMemtableArguments(
+    benchmark::internal::Benchmark* b) {
+  for (int entries_per_key : {1, 32, 1024}) {
+    b->Args({entries_per_key});
+  }
+  b->ArgNames({"entries_per_key"});
+}
+
+static void DBGetMergeOperandsInSstFileArguments(
+    benchmark::internal::Benchmark* b) {
+  for (int entries_per_key : {1, 32, 1024}) {
+    for (bool mmap : {false, true}) {
+      b->Args({entries_per_key, mmap});
+    }
+  }
+  b->ArgNames({"entries_per_key", "mmap"});
+}
+
+BENCHMARK(DBGetMergeOperandsInMemtable)
+    ->Threads(1)
+    ->Apply(DBGetMergeOperandsInMemtableArguments);
+BENCHMARK(DBGetMergeOperandsInMemtable)
+    ->Threads(8)
+    ->Apply(DBGetMergeOperandsInMemtableArguments);
+BENCHMARK(DBGetMergeOperandsInSstFile)
+    ->Threads(1)
+    ->Apply(DBGetMergeOperandsInSstFileArguments);
+BENCHMARK(DBGetMergeOperandsInSstFile)
+    ->Threads(8)
+    ->Apply(DBGetMergeOperandsInSstFileArguments);
 
 std::string GenerateKey(int primary_key, int secondary_key, int padding_size,
                         Random* rnd) {
