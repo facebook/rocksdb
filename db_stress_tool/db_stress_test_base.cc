@@ -455,6 +455,7 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg,
   fprintf(stderr, "Verification failed: %s. Status is %s\n", msg.c_str(),
           s.ToString().c_str());
   shared->SetVerificationFailure();
+  assert(false);
 }
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
@@ -465,6 +466,7 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
           "Verification failed for column family %d key %s (%" PRIi64 "): %s\n",
           cf, key_slice.ToString(true).c_str(), key, msg.c_str());
   shared->SetVerificationFailure();
+  assert(false);
 }
 
 void StressTest::PrintStatistics() {
