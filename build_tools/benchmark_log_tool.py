@@ -9,13 +9,10 @@ Send these results on to OpenSearch graphing service
 '''
 
 import argparse
-from collections import namedtuple
 import itertools
 import os
-from keyword import iskeyword
 import re
 import sys
-from typing import Mapping
 import requests
 from dateutil import parser
 import logging
