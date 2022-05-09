@@ -621,7 +621,8 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
 TEST(FullBloomFilterConstructionReserveMemTest,
      RibbonFilterFallBackOnLargeBanding) {
   constexpr std::size_t kCacheCapacity =
-      8 * CacheReservationManager::GetDummyEntrySize();
+      8 * CacheReservationManagerImpl<
+              CacheEntryRole::kFilterConstruction>::GetDummyEntrySize();
   constexpr std::size_t num_entries_for_cache_full = kCacheCapacity / 8;
 
   for (bool reserve_builder_mem : {true, false}) {
@@ -662,12 +663,19 @@ TEST(FullBloomFilterConstructionReserveMemTest,
 
     if (reserve_builder_mem) {
       const size_t dummy_entry_num = static_cast<std::size_t>(std::ceil(
-          filter.size() * 1.0 / CacheReservationManager::GetDummyEntrySize()));
-      EXPECT_GE(cache->GetPinnedUsage(),
-                dummy_entry_num * CacheReservationManager::GetDummyEntrySize());
+          filter.size() * 1.0 /
+          CacheReservationManagerImpl<
+              CacheEntryRole::kFilterConstruction>::GetDummyEntrySize()));
+      EXPECT_GE(
+          cache->GetPinnedUsage(),
+          dummy_entry_num *
+              CacheReservationManagerImpl<
+                  CacheEntryRole::kFilterConstruction>::GetDummyEntrySize());
       EXPECT_LT(
           cache->GetPinnedUsage(),
-          (dummy_entry_num + 1) * CacheReservationManager::GetDummyEntrySize());
+          (dummy_entry_num + 1) *
+              CacheReservationManagerImpl<
+                  CacheEntryRole::kFilterConstruction>::GetDummyEntrySize());
     } else {
       EXPECT_EQ(cache->GetPinnedUsage(), 0);
     }
@@ -1249,7 +1257,7 @@ TEST_P(FullBloomTest, CorruptFilters) {
   ASSERT_TRUE(Matches("hello"));
   ASSERT_TRUE(Matches("world"));
   // Need many queries to find a "true negative"
-  for (int i = 0; Matches(ToString(i)); ++i) {
+  for (int i = 0; Matches(std::to_string(i)); ++i) {
     ASSERT_LT(i, 1000);
   }
 

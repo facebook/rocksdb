@@ -471,6 +471,11 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
       break;
     }
 
+    if (w->rate_limiter_priority != leader->rate_limiter_priority) {
+      // Do not mix writes with different rate limiter priorities.
+      break;
+    }
+
     if (w->batch == nullptr) {
       // Do not include those writes with nullptr batch. Those are not writes,
       // those are something else. They want to be alone

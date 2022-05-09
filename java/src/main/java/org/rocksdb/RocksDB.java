@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.rocksdb.util.Environment;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 /**
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for
  * concurrent access from multiple threads without any external synchronization.
@@ -21,7 +23,7 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
-  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes();
+  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes(UTF_8);
   public static final int NOT_FOUND = -1;
 
   private enum LibraryState {
@@ -2296,6 +2298,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys and passed values
    * do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ByteBuffer> keys, final List<ByteBuffer> values) throws RocksDBException {
@@ -2318,6 +2321,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,
@@ -2341,6 +2345,7 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if error happens in underlying native library.
    * @throws IllegalArgumentException thrown if the number of passed keys, passed values and
    * passed column family handles do not match.
+   * @return the list of values for the given list of keys
    */
   public List<ByteBufferGetStatus> multiGetByteBuffers(final ReadOptions readOptions,
       final List<ColumnFamilyHandle> columnFamilyHandleList, final List<ByteBuffer> keys,

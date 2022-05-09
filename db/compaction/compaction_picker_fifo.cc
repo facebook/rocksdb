@@ -115,7 +115,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       std::move(inputs), 0, 0, 0, 0, kNoCompression,
       mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
-      vstorage->CompactionScore(0),
+      /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
   return c;
 }
@@ -157,8 +157,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             0 /* max compaction bytes, not applicable */,
             0 /* output path ID */, mutable_cf_options.compression,
             mutable_cf_options.compression_opts, Temperature::kUnknown,
-            0 /* max_subcompactions */, {},
-            /* is manual */ false, vstorage->CompactionScore(0),
+            0 /* max_subcompactions */, {}, /* is manual */ false,
+            /* trim_ts */ "", vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
         return c;
@@ -208,7 +208,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       std::move(inputs), 0, 0, 0, 0, kNoCompression,
       mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
-      vstorage->CompactionScore(0),
+      /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }
@@ -313,7 +313,7 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
       0 /* max compaction bytes, not applicable */, 0 /* output path ID */,
       mutable_cf_options.compression, mutable_cf_options.compression_opts,
       Temperature::kWarm,
-      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      /* max_subcompactions */ 0, {}, /* is manual */ false, /* trim_ts */ "",
       vstorage->CompactionScore(0),
       /* is deletion compaction */ false, CompactionReason::kChangeTemperature);
   return c;
@@ -349,7 +349,7 @@ Compaction* FIFOCompactionPicker::CompactRange(
     const CompactRangeOptions& /*compact_range_options*/,
     const InternalKey* /*begin*/, const InternalKey* /*end*/,
     InternalKey** compaction_end, bool* /*manual_conflict*/,
-    uint64_t /*max_file_num_to_ignore*/) {
+    uint64_t /*max_file_num_to_ignore*/, const std::string& /*trim_ts*/) {
 #ifdef NDEBUG
   (void)input_level;
   (void)output_level;

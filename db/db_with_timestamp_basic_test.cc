@@ -704,6 +704,77 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  auto check_value_by_ts = [](DB* db, Slice key, std::string readTs,
+                              Status status, std::string checkValue) {
+    ReadOptions ropts;
+    Slice ts = readTs;
+    ropts.timestamp = &ts;
+    std::string value;
+    Status s = db->Get(ropts, key, &value);
+    ASSERT_TRUE(s == status);
+    if (s.ok()) {
+      ASSERT_EQ(checkValue, value);
+    }
+  };
+  // Construct data of different versions with different ts
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(2, 0), "v1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(4, 0), "v2"));
+  ASSERT_OK(db_->Delete(WriteOptions(), "k1", Timestamp(5, 0)));
+  ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(6, 0), "v3"));
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v3");
+  ASSERT_OK(Flush());
+  Close();
+
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  DBOptions db_options(options);
+
+  // Trim data whose version > Timestamp(5, 0), read(k1, ts(7)) <- NOT_FOUND.
+  ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
+                                   &handles_, &db_, Timestamp(5, 0)));
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::NotFound(), "");
+  Close();
+
+  // Trim data whose timestamp > Timestamp(4, 0), read(k1, ts(7)) <- v2
+  ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
+                                   &handles_, &db_, Timestamp(4, 0)));
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v2");
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, OpenAndTrimHistoryInvalidOptionTest) {
+  Destroy(last_options_);
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  DBOptions db_options(options);
+
+  // OpenAndTrimHistory should not work with avoid_flush_during_recovery
+  db_options.avoid_flush_during_recovery = true;
+  ASSERT_TRUE(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
+                                     &handles_, &db_, Timestamp(0, 0))
+                  .IsInvalidArgument());
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTestWithTimestamp, GetTimestampTableProperties) {
   Options options = CurrentOptions();
@@ -1421,8 +1492,8 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
 
   // random data
   for (int i = 0; i < 3; i++) {
-    auto key = ToString(i * 10);
-    auto value = ToString(i * 10);
+    auto key = std::to_string(i * 10);
+    auto value = std::to_string(i * 10);
     Slice key_slice = key;
     Slice value_slice = value;
     ASSERT_OK(db_->Put(write_opts, key_slice, ts, value_slice));
@@ -1753,8 +1824,8 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
   DataVisibilityTest() : DBBasicTestWithTimestampBase("data_visibility_test") {
     // Initialize test data
     for (int i = 0; i < kTestDataSize; i++) {
-      test_data_[i].key = "key" + ToString(i);
-      test_data_[i].value = "value" + ToString(i);
+      test_data_[i].key = "key" + std::to_string(i);
+      test_data_[i].value = "value" + std::to_string(i);
       test_data_[i].timestamp = Timestamp(i, 0);
       test_data_[i].ts = i;
       test_data_[i].seq_num = kMaxSequenceNumber;

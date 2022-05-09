@@ -187,6 +187,7 @@ JAVA_TESTS = \
 	org.rocksdb.TtlDBTest\
 	org.rocksdb.StatisticsTest\
 	org.rocksdb.StatisticsCollectorTest\
+	org.rocksdb.VerifyChecksumsTest\
 	org.rocksdb.WalFilterTest\
 	org.rocksdb.WALRecoveryModeTest\
 	org.rocksdb.WriteBatchHandlerTest\

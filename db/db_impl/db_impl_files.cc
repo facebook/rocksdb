@@ -23,11 +23,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 uint64_t DBImpl::MinLogNumberToKeep() {
-  if (allow_2pc()) {
-    return versions_->min_log_number_to_keep_2pc();
-  } else {
-    return versions_->MinLogNumberWithUnflushedData();
-  }
+  return versions_->min_log_number_to_keep();
 }
 
 uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
@@ -224,7 +220,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     // Add log files in wal_dir
-
     if (!immutable_db_options_.IsWalDirSameAsDBPath(dbname_)) {
       std::vector<std::string> log_files;
       Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
@@ -234,6 +229,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.wal_dir);
       }
     }
+
     // Add info log files in db_log_dir
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {
@@ -765,7 +761,7 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
   assert(!cfds_to_flush.empty());
   assert(cfds_to_flush.size() == edit_lists.size());
 
-  uint64_t min_log_number_to_keep = port::kMaxUint64;
+  uint64_t min_log_number_to_keep = std::numeric_limits<uint64_t>::max();
   for (const auto& edit_list : edit_lists) {
     uint64_t log = 0;
     for (const auto& e : edit_list) {
@@ -777,7 +773,7 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
       min_log_number_to_keep = std::min(min_log_number_to_keep, log);
     }
   }
-  if (min_log_number_to_keep == port::kMaxUint64) {
+  if (min_log_number_to_keep == std::numeric_limits<uint64_t>::max()) {
     min_log_number_to_keep = cfds_to_flush[0]->GetLogNumber();
     for (size_t i = 1; i < cfds_to_flush.size(); i++) {
       min_log_number_to_keep =

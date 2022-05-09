@@ -10,6 +10,7 @@
 #include "db/log_writer.h"
 
 #include <stdint.h>
+
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
@@ -26,7 +27,8 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       log_number_(log_number),
       recycle_log_files_(recycle_log_files),
       manual_flush_(manual_flush),
-      compression_type_(compression_type) {
+      compression_type_(compression_type),
+      compress_(nullptr) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -36,6 +38,9 @@ Writer::Writer(std::unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
 Writer::~Writer() {
   if (dest_) {
     WriteBuffer().PermitUncheckedError();
+  }
+  if (compress_) {
+    delete compress_;
   }
 }
 
@@ -50,7 +55,8 @@ IOStatus Writer::Close() {
   return s;
 }
 
-IOStatus Writer::AddRecord(const Slice& slice) {
+IOStatus Writer::AddRecord(const Slice& slice,
+                           Env::IOPriority rate_limiter_priority) {
   const char* ptr = slice.data();
   size_t left = slice.size();
 
@@ -63,6 +69,12 @@ IOStatus Writer::AddRecord(const Slice& slice) {
   // zero-length record
   IOStatus s;
   bool begin = true;
+  int compress_remaining = 0;
+  bool compress_start = false;
+  if (compress_) {
+    compress_->Reset();
+    compress_start = true;
+  }
   do {
     const int64_t leftover = kBlockSize - block_offset_;
     assert(leftover >= 0);
@@ -73,7 +85,8 @@ IOStatus Writer::AddRecord(const Slice& slice) {
         // kRecyclableHeaderSize being <= 11)
         assert(header_size <= 11);
         s = dest_->Append(Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
-                                static_cast<size_t>(leftover)));
+                                static_cast<size_t>(leftover)),
+                          0 /* crc32c_checksum */, rate_limiter_priority);
         if (!s.ok()) {
           break;
         }
@@ -85,10 +98,34 @@ IOStatus Writer::AddRecord(const Slice& slice) {
     assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size);
 
     const size_t avail = kBlockSize - block_offset_ - header_size;
+
+    // Compress the record if compression is enabled.
+    // Compress() is called at least once (compress_start=true) and after the
+    // previous generated compressed chunk is written out as one or more
+    // physical records (left=0).
+    if (compress_ && (compress_start || left == 0)) {
+      compress_remaining = compress_->Compress(slice.data(), slice.size(),
+                                               compressed_buffer_.get(), &left);
+
+      if (compress_remaining < 0) {
+        // Set failure status
+        s = IOStatus::IOError("Unexpected WAL compression error");
+        s.SetDataLoss(true);
+        break;
+      } else if (left == 0) {
+        // Nothing left to compress
+        if (!compress_start) {
+          break;
+        }
+      }
+      compress_start = false;
+      ptr = compressed_buffer_.get();
+    }
+
     const size_t fragment_length = (left < avail) ? left : avail;
 
     RecordType type;
-    const bool end = (left == fragment_length);
+    const bool end = (left == fragment_length && compress_remaining == 0);
     if (begin && end) {
       type = recycle_log_files_ ? kRecyclableFullType : kFullType;
     } else if (begin) {
@@ -99,15 +136,15 @@ IOStatus Writer::AddRecord(const Slice& slice) {
       type = recycle_log_files_ ? kRecyclableMiddleType : kMiddleType;
     }
 
-    s = EmitPhysicalRecord(type, ptr, fragment_length);
+    s = EmitPhysicalRecord(type, ptr, fragment_length, rate_limiter_priority);
     ptr += fragment_length;
     left -= fragment_length;
     begin = false;
-  } while (s.ok() && left > 0);
+  } while (s.ok() && (left > 0 || compress_remaining > 0));
 
   if (s.ok()) {
     if (!manual_flush_) {
-      s = dest_->Flush();
+      s = dest_->Flush(rate_limiter_priority);
     }
   }
 
@@ -132,6 +169,18 @@ IOStatus Writer::AddCompressionTypeRecord() {
     if (!manual_flush_) {
       s = dest_->Flush();
     }
+    // Initialize fields required for compression
+    const size_t max_output_buffer_len =
+        kBlockSize - (recycle_log_files_ ? kRecyclableHeaderSize : kHeaderSize);
+    CompressionOptions opts;
+    constexpr uint32_t compression_format_version = 2;
+    compress_ = StreamingCompress::Create(compression_type_, opts,
+                                          compression_format_version,
+                                          max_output_buffer_len);
+    assert(compress_ != nullptr);
+    compressed_buffer_ =
+        std::unique_ptr<char[]>(new char[max_output_buffer_len]);
+    assert(compressed_buffer_);
   } else {
     // Disable compression if the record could not be added.
     compression_type_ = kNoCompression;
@@ -141,7 +190,8 @@ IOStatus Writer::AddCompressionTypeRecord() {
 
 bool Writer::TEST_BufferIsEmpty() { return dest_->TEST_BufferIsEmpty(); }
 
-IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
+IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n,
+                                    Env::IOPriority rate_limiter_priority) {
   assert(n <= 0xffff);  // Must fit in two bytes
 
   size_t header_size;
@@ -180,9 +230,10 @@ IOStatus Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   EncodeFixed32(buf, crc);
 
   // Write the header and the payload
-  IOStatus s = dest_->Append(Slice(buf, header_size));
+  IOStatus s = dest_->Append(Slice(buf, header_size), 0 /* crc32c_checksum */,
+                             rate_limiter_priority);
   if (s.ok()) {
-    s = dest_->Append(Slice(ptr, n), payload_crc);
+    s = dest_->Append(Slice(ptr, n), payload_crc, rate_limiter_priority);
   }
   block_offset_ += header_size + n;
   return s;

@@ -7,6 +7,7 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/customizable.h"
 #include "test_util/testharness.h"
 
@@ -117,23 +118,25 @@ TEST_F(ObjRegistryTest, LocalRegistry) {
   ASSERT_NE(env, nullptr);
 }
 
-TEST_F(ObjRegistryTest, CheckShared) {
-  std::shared_ptr<Env> shared;
-  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("shared");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
+static int RegisterTestUnguarded(ObjectLibrary& library,
+                                 const std::string& /*arg*/) {
+  library.AddFactory<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
+  library.AddFactory<Env>(
       "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
                     std::string* /* errmsg */) {
         guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
+  return 2;
+}
+
+TEST_F(ObjRegistryTest, CheckShared) {
+  std::shared_ptr<Env> shared;
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  registry->AddLibrary("shared", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewSharedObject<Env>("guarded", &shared));
   ASSERT_NE(shared, nullptr);
@@ -145,20 +148,7 @@ TEST_F(ObjRegistryTest, CheckShared) {
 TEST_F(ObjRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("static");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
-      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new WrappedEnv(Env::Default(), uri));
-        return guard->get();
-      });
+  registry->AddLibrary("static", RegisterTestUnguarded, "");
 
   ASSERT_NOK(registry->NewStaticObject<Env>("guarded", &env));
   ASSERT_EQ(env, nullptr);
@@ -170,20 +160,7 @@ TEST_F(ObjRegistryTest, CheckStatic) {
 TEST_F(ObjRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("unique");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
-      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new WrappedEnv(Env::Default(), uri));
-        return guard->get();
-      });
+  registry->AddLibrary("unique", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewUniqueObject<Env>("guarded", &unique));
   ASSERT_NE(unique, nullptr);
@@ -268,6 +245,7 @@ TEST_F(ObjRegistryTest, TestRegistryParents) {
   ASSERT_NOK(child->NewUniqueObject<Env>("cousin", &guard));
   ASSERT_NOK(uncle->NewUniqueObject<Env>("cousin", &guard));
 }
+
 class MyCustomizable : public Customizable {
  public:
   static const char* Type() { return "MyCustomizable"; }
@@ -493,6 +471,18 @@ TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
   ASSERT_EQ(2, obj.use_count());
 }
 
+TEST_F(ObjRegistryTest, RegisterPlugin) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::unique_ptr<Env> guard;
+  Env* env = nullptr;
+
+  ASSERT_NOK(registry->NewObject<Env>("unguarded", &env, &guard));
+  ASSERT_EQ(registry->RegisterPlugin("Missing", nullptr), -1);
+  ASSERT_EQ(registry->RegisterPlugin("", RegisterTestUnguarded), -1);
+  ASSERT_GT(registry->RegisterPlugin("Valid", RegisterTestUnguarded), 0);
+  ASSERT_OK(registry->NewObject<Env>("unguarded", &env, &guard));
+  ASSERT_NE(env, nullptr);
+}
 class PatternEntryTest : public testing::Test {};
 
 TEST_F(PatternEntryTest, TestSimpleEntry) {

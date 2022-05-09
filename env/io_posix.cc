@@ -284,9 +284,9 @@ IOStatus PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
   }
   if (r < 0) {
     // An error: return a non-ok status
-    s = IOError(
-        "While pread " + ToString(n) + " bytes from offset " + ToString(offset),
-        filename_, errno);
+    s = IOError("While pread " + std::to_string(n) + " bytes from offset " +
+                    std::to_string(offset),
+                filename_, errno);
   }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
@@ -294,8 +294,8 @@ IOStatus PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
 
 IOStatus PosixSequentialFile::Skip(uint64_t n) {
   if (fseek(file_, static_cast<long int>(n), SEEK_CUR)) {
-    return IOError("While fseek to skip " + ToString(n) + " bytes", filename_,
-                   errno);
+    return IOError("While fseek to skip " + std::to_string(n) + " bytes",
+                   filename_, errno);
   }
   return IOStatus::OK();
 }
@@ -310,8 +310,9 @@ IOStatus PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
     // free OS pages
     int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret != 0) {
-      return IOError("While fadvise NotNeeded offset " + ToString(offset) +
-                         " len " + ToString(length),
+      return IOError("While fadvise NotNeeded offset " +
+                         std::to_string(offset) + " len " +
+                         std::to_string(length),
                      filename_, errno);
     }
   }
@@ -596,9 +597,9 @@ IOStatus PosixRandomAccessFile::Read(uint64_t offset, size_t n,
   }
   if (r < 0) {
     // An error: return a non-ok status
-    s = IOError(
-        "While pread offset " + ToString(offset) + " len " + ToString(n),
-        filename_, errno);
+    s = IOError("While pread offset " + std::to_string(offset) + " len " +
+                    std::to_string(n),
+                filename_, errno);
   }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
@@ -704,8 +705,8 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
         }
       }
       return IOStatus::IOError("io_uring_submit_and_wait() requested " +
-                               ToString(this_reqs) + " but returned " +
-                               ToString(ret));
+                               std::to_string(this_reqs) + " but returned " +
+                               std::to_string(ret));
     }
 
     for (size_t i = 0; i < this_reqs; i++) {
@@ -718,7 +719,8 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
       TEST_SYNC_POINT_CALLBACK(
           "PosixRandomAccessFile::MultiRead:io_uring_wait_cqe:return", &ret);
       if (ret) {
-        ios = IOStatus::IOError("io_uring_wait_cqe() returns " + ToString(ret));
+        ios = IOStatus::IOError("io_uring_wait_cqe() returns " +
+                                std::to_string(ret));
 
         if (cqe != nullptr) {
           io_uring_cqe_seen(iu, cqe);
@@ -738,24 +740,20 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                 req_wrap);
         port::PrintStack();
         ios = IOStatus::IOError("io_uring_cqe_get_data() returned " +
-                                ToString((uint64_t)req_wrap));
+                                std::to_string((uint64_t)req_wrap));
         continue;
       }
       wrap_cache.erase(wrap_check);
 
       FSReadRequest* req = req_wrap->req;
-      if (cqe->res < 0) {
-        req->result = Slice(req->scratch, 0);
-        req->status = IOError("Req failed", filename_, cqe->res);
-      } else {
-        size_t bytes_read = static_cast<size_t>(cqe->res);
-        TEST_SYNC_POINT_CALLBACK(
-            "PosixRandomAccessFile::MultiRead:io_uring_result", &bytes_read);
-        if (bytes_read == req_wrap->iov.iov_len) {
-          req->result = Slice(req->scratch, req->len);
-          req->status = IOStatus::OK();
-        } else if (bytes_read == 0) {
-          // cqe->res == 0 can means EOF, or can mean partial results. See
+      size_t bytes_read = 0;
+      UpdateResult(cqe, filename_, req->len, req_wrap->iov.iov_len,
+                   false /*async_read*/, req_wrap->finished_len, req,
+                   bytes_read);
+      int32_t res = cqe->res;
+      if (res >= 0) {
+        if (bytes_read == 0) {
+          /// cqe->res == 0 can means EOF, or can mean partial results. See
           // comment
           // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
           // Fall back to pread in this case.
@@ -776,14 +774,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                 Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
           }
         } else if (bytes_read < req_wrap->iov.iov_len) {
-          assert(bytes_read > 0);
-          assert(bytes_read + req_wrap->finished_len < req->len);
-          req_wrap->finished_len += bytes_read;
           incomplete_rq_list.push_back(req_wrap);
-        } else {
-          req->result = Slice(req->scratch, 0);
-          req->status = IOError("Req returned more bytes than requested",
-                                filename_, cqe->res);
         }
       }
       io_uring_cqe_seen(iu, cqe);
@@ -812,8 +803,8 @@ IOStatus PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n,
     r = fcntl(fd_, F_RDADVISE, &advice);
 #endif
     if (r == -1) {
-      s = IOError("While prefetching offset " + ToString(offset) + " len " +
-                      ToString(n),
+      s = IOError("While prefetching offset " + std::to_string(offset) +
+                      " len " + std::to_string(n),
                   filename_, errno);
     }
   }
@@ -866,9 +857,83 @@ IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   if (ret == 0) {
     return IOStatus::OK();
   }
-  return IOError("While fadvise NotNeeded offset " + ToString(offset) +
-                     " len " + ToString(length),
+  return IOError("While fadvise NotNeeded offset " + std::to_string(offset) +
+                     " len " + std::to_string(length),
                  filename_, errno);
+#endif
+}
+
+IOStatus PosixRandomAccessFile::ReadAsync(
+    FSReadRequest& req, const IOOptions& /*opts*/,
+    std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+    void** io_handle, IOHandleDeleter* del_fn, IODebugContext* /*dbg*/) {
+  if (use_direct_io()) {
+    assert(IsSectorAligned(req.offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.len, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(req.scratch, GetRequiredBufferAlignment()));
+  }
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+  // io_uring_queue_init.
+  struct io_uring* iu = nullptr;
+  if (thread_local_io_urings_) {
+    iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    if (iu == nullptr) {
+      iu = CreateIOUring();
+      if (iu != nullptr) {
+        thread_local_io_urings_->Reset(iu);
+      }
+    }
+  }
+
+  // Init failed, platform doesn't support io_uring.
+  if (iu == nullptr) {
+    return IOStatus::NotSupported("ReadAsync");
+  }
+
+  // Allocate io_handle.
+  IOHandleDeleter deletefn = [](void* args) -> void {
+    delete (static_cast<Posix_IOHandle*>(args));
+    args = nullptr;
+  };
+
+  Posix_IOHandle* posix_handle = new Posix_IOHandle();
+  *io_handle = static_cast<void*>(posix_handle);
+  *del_fn = deletefn;
+
+  // Initialize Posix_IOHandle.
+  posix_handle->iu = iu;
+  posix_handle->iov.iov_base = req.scratch;
+  posix_handle->iov.iov_len = req.len;
+  posix_handle->cb = cb;
+  posix_handle->cb_arg = cb_arg;
+  posix_handle->offset = req.offset;
+  posix_handle->len = req.len;
+  posix_handle->scratch = req.scratch;
+
+  // Step 3: io_uring_sqe_set_data
+  struct io_uring_sqe* sqe;
+  sqe = io_uring_get_sqe(iu);
+
+  io_uring_prep_readv(sqe, fd_, &posix_handle->iov, 1, posix_handle->offset);
+
+  io_uring_sqe_set_data(sqe, posix_handle);
+
+  // Step 4: io_uring_submit
+  ssize_t ret = io_uring_submit(iu);
+  if (ret < 0) {
+    fprintf(stderr, "io_uring_submit error: %ld\n", long(ret));
+    return IOStatus::IOError("io_uring_submit() requested but returned " +
+                             std::to_string(ret));
+  }
+  return IOStatus::OK();
+#else
+  (void)req;
+  (void)cb;
+  (void)cb_arg;
+  (void)io_handle;
+  (void)del_fn;
+  return IOStatus::NotSupported("ReadAsync");
 #endif
 }
 
@@ -907,8 +972,8 @@ IOStatus PosixMmapReadableFile::Read(uint64_t offset, size_t n,
   IOStatus s;
   if (offset > length_) {
     *result = Slice();
-    return IOError("While mmap read offset " + ToString(offset) +
-                       " larger than file length " + ToString(length_),
+    return IOError("While mmap read offset " + std::to_string(offset) +
+                       " larger than file length " + std::to_string(length_),
                    filename_, EINVAL);
   } else if (offset + n > length_) {
     n = static_cast<size_t>(length_ - offset);
@@ -928,8 +993,8 @@ IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
   if (ret == 0) {
     return IOStatus::OK();
   }
-  return IOError("While fadvise not needed. Offset " + ToString(offset) +
-                     " len" + ToString(length),
+  return IOError("While fadvise not needed. Offset " + std::to_string(offset) +
+                     " len" + std::to_string(length),
                  filename_, errno);
 #endif
 }
@@ -1181,9 +1246,9 @@ IOStatus PosixMmapFile::Allocate(uint64_t offset, uint64_t len,
   if (alloc_status == 0) {
     return IOStatus::OK();
   } else {
-    return IOError(
-        "While fallocate offset " + ToString(offset) + " len " + ToString(len),
-        filename_, errno);
+    return IOError("While fallocate offset " + std::to_string(offset) +
+                       " len " + std::to_string(len),
+                   filename_, errno);
   }
 }
 #endif
@@ -1248,7 +1313,7 @@ IOStatus PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset,
   const char* src = data.data();
   size_t nbytes = data.size();
   if (!PosixPositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
-    return IOError("While pwrite to file at offset " + ToString(offset),
+    return IOError("While pwrite to file at offset " + std::to_string(offset),
                    filename_, errno);
   }
   filesize_ = offset + nbytes;
@@ -1260,8 +1325,8 @@ IOStatus PosixWritableFile::Truncate(uint64_t size, const IOOptions& /*opts*/,
   IOStatus s;
   int r = ftruncate(fd_, size);
   if (r < 0) {
-    s = IOError("While ftruncate file to size " + ToString(size), filename_,
-                errno);
+    s = IOError("While ftruncate file to size " + std::to_string(size),
+                filename_, errno);
   } else {
     filesize_ = size;
   }
@@ -1418,9 +1483,9 @@ IOStatus PosixWritableFile::Allocate(uint64_t offset, uint64_t len,
   if (alloc_status == 0) {
     return IOStatus::OK();
   } else {
-    return IOError(
-        "While fallocate offset " + ToString(offset) + " len " + ToString(len),
-        filename_, errno);
+    return IOError("While fallocate offset " + std::to_string(offset) +
+                       " len " + std::to_string(len),
+                   filename_, errno);
   }
 }
 #endif
@@ -1445,7 +1510,7 @@ IOStatus PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
                             static_cast<off_t>(nbytes), SYNC_FILE_RANGE_WRITE);
     }
     if (ret != 0) {
-      return IOError("While sync_file_range returned " + ToString(ret),
+      return IOError("While sync_file_range returned " + std::to_string(ret),
                      filename_, errno);
     }
     return IOStatus::OK();
@@ -1481,9 +1546,9 @@ IOStatus PosixRandomRWFile::Write(uint64_t offset, const Slice& data,
   const char* src = data.data();
   size_t nbytes = data.size();
   if (!PosixPositionedWrite(fd_, src, nbytes, static_cast<off_t>(offset))) {
-    return IOError(
-        "While write random read/write file at offset " + ToString(offset),
-        filename_, errno);
+    return IOError("While write random read/write file at offset " +
+                       std::to_string(offset),
+                   filename_, errno);
   }
 
   return IOStatus::OK();
@@ -1503,7 +1568,7 @@ IOStatus PosixRandomRWFile::Read(uint64_t offset, size_t n,
         continue;
       }
       return IOError("While reading random read/write file offset " +
-                         ToString(offset) + " len " + ToString(n),
+                         std::to_string(offset) + " len " + std::to_string(n),
                      filename_, errno);
     } else if (done == 0) {
       // Nothing more to read

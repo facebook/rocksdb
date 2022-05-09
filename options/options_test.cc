@@ -850,11 +850,12 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
-      "checksum=kxxHash;hash_index_allow_collision=1;"
+      "checksum=kxxHash;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
       "reserve_table_builder_memory=true;"
+      "reserve_table_reader_memory=true;"
       "filter_policy=bloomfilter:4.567:false;detect_filter_construct_"
       "corruption=true;"
       // A bug caused read_amp_bytes_per_bit to be a large integer in OPTIONS
@@ -866,7 +867,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
-  ASSERT_TRUE(new_opt.hash_index_allow_collision);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
   ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
@@ -878,6 +878,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_EQ(new_opt.detect_filter_construct_corruption, true);
   ASSERT_EQ(new_opt.reserve_table_builder_memory, true);
+  ASSERT_EQ(new_opt.reserve_table_reader_memory, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   auto bfp = new_opt.filter_policy->CheckedCast<BloomFilterPolicy>();
   ASSERT_NE(bfp, nullptr);
@@ -2814,7 +2815,7 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       table_opt,
       "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
-      "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
+      "checksum=kxxHash;no_block_cache=1;"
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
@@ -2823,7 +2824,6 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
   ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
-  ASSERT_TRUE(new_opt.hash_index_allow_collision);
   ASSERT_TRUE(new_opt.no_block_cache);
   ASSERT_TRUE(new_opt.block_cache != nullptr);
   ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
@@ -3346,31 +3346,31 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
     if (case_id == 0) {
       // same version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     } else if (case_id == 1) {
       // higher minor version
       should_ignore = true;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR + 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR + 1) + ".0";
     } else if (case_id == 2) {
       // higher major version.
       should_ignore = true;
-      version_string = ToString(ROCKSDB_MAJOR + 1) + ".0.0";
+      version_string = std::to_string(ROCKSDB_MAJOR + 1) + ".0.0";
     } else if (case_id == 3) {
       // lower minor version
 #if ROCKSDB_MINOR == 0
       continue;
 #else
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR - 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR - 1) + ".0";
       should_ignore = false;
 #endif
     } else {
       // lower major version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR - 1) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR - 1) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     }
 
     std::string options_file_content =
@@ -4082,9 +4082,10 @@ TEST_F(OptionsParserTest, IntegerParsing) {
   ASSERT_EQ(ParseUint32("4294967295"), 4294967295U);
   ASSERT_EQ(ParseSizeT("18446744073709551615"), 18446744073709551615U);
   ASSERT_EQ(ParseInt64("9223372036854775807"), 9223372036854775807);
-  ASSERT_EQ(ParseInt64("-9223372036854775808"), port::kMinInt64);
+  ASSERT_EQ(ParseInt64("-9223372036854775808"),
+            std::numeric_limits<int64_t>::min());
   ASSERT_EQ(ParseInt32("2147483647"), 2147483647);
-  ASSERT_EQ(ParseInt32("-2147483648"), port::kMinInt32);
+  ASSERT_EQ(ParseInt32("-2147483648"), std::numeric_limits<int32_t>::min());
   ASSERT_EQ(ParseInt("-32767"), -32767);
   ASSERT_EQ(ParseDouble("-1.234567"), -1.234567);
 }

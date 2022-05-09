@@ -140,8 +140,8 @@ size_t MemTable::ApproximateMemoryUsage() {
   for (size_t usage : usages) {
     // If usage + total_usage >= kMaxSizet, return kMaxSizet.
     // the following variation is to avoid numeric overflow.
-    if (usage >= port::kMaxSizet - total_usage) {
-      return port::kMaxSizet;
+    if (usage >= std::numeric_limits<size_t>::max() - total_usage) {
+      return std::numeric_limits<size_t>::max();
     }
     total_usage += usage;
   }

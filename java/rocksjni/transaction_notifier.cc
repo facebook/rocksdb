@@ -9,6 +9,7 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_AbstractTransactionNotifier.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/transaction_notifier_jnicallback.h"
 
 /*
@@ -23,7 +24,7 @@ jlong Java_org_rocksdb_AbstractTransactionNotifier_createNewTransactionNotifier(
   auto* sptr_transaction_notifier =
       new std::shared_ptr<ROCKSDB_NAMESPACE::TransactionNotifierJniCallback>(
           transaction_notifier);
-  return reinterpret_cast<jlong>(sptr_transaction_notifier);
+  return GET_CPLUSPLUS_POINTER(sptr_transaction_notifier);
 }
 
 /*

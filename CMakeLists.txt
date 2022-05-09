@@ -2,7 +2,7 @@
 #     This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:
-#     You must have at least Visual Studio 2015 Update 3. Start the Developer Command Prompt window that is a part of Visual Studio installation.
+#     You must have at least Visual Studio 2019. Start the Developer Command Prompt window that is a part of Visual Studio installation.
 #     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
 #     You must have git.exe in your %PATH% environment variable.
 #
@@ -40,6 +40,8 @@ include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
+  DESCRIPTION "An embeddable persistent key-value store for fast storage"
+  HOMEPAGE_URL https://rocksdb.org/
   LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
@@ -76,19 +78,6 @@ endif()
 if ($ENV{CIRCLECI})
   message(STATUS "Build for CircieCI env, a few tests may be disabled")
   add_definitions(-DCIRCLECI)
-endif()
-
-# third-party/folly is only validated to work on Linux and Windows for now.
-# So only turn it on there by default.
-if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
-  if(MSVC AND MSVC_VERSION LESS 1910)
-    # Folly does not compile with MSVC older than VS2017
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
-  else()
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
-  endif()
-else()
-  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
 endif()
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
@@ -182,26 +171,6 @@ else()
   endif()
 endif()
 
-string(TIMESTAMP TS "%Y-%m-%d %H:%M:%S" UTC)
-set(BUILD_DATE "${TS}" CACHE STRING "the time we first built rocksdb")
-
-find_package(Git)
-
-if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD )
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE GIT_MOD COMMAND "${GIT_EXECUTABLE}" diff-index HEAD --quiet)
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_DATE COMMAND "${GIT_EXECUTABLE}" log -1 --date=format:"%Y-%m-%d %T" --format="%ad")
-  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG RESULT_VARIABLE rv COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
-  if (rv AND NOT rv EQUAL 0)
-    execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match OUTPUT_STRIP_TRAILING_WHITESPACE)
-  endif()
-else()
-  set(GIT_SHA 0)
-  set(GIT_MOD 1)
-endif()
-string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
-string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
-
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
   if(WITH_MD_LIBRARY)
@@ -210,9 +179,6 @@ if(WIN32 AND MSVC)
     set(RUNTIME_LIBRARY "MT")
   endif()
 endif()
-
-set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
-configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
@@ -321,7 +287,8 @@ if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-CHECK_CXX_SOURCE_COMPILES("
+if (NOT PORTABLE OR FORCE_SSE42)
+  CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
 #include <wmmintrin.h>
@@ -333,11 +300,12 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-if(HAVE_SSE42)
-  add_definitions(-DHAVE_SSE42)
-  add_definitions(-DHAVE_PCLMUL)
-elseif(FORCE_SSE42)
-  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  if(HAVE_SSE42)
+    add_definitions(-DHAVE_SSE42)
+    add_definitions(-DHAVE_PCLMUL)
+  elseif(FORCE_SSE42)
+    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  endif()
 endif()
 
 # Check if -latomic is required or not
@@ -454,28 +422,30 @@ if (ASSERT_STATUS_CHECKED)
   add_definitions(-DROCKSDB_ASSERT_STATUS_CHECKED)
 endif()
 
-if(DEFINED USE_RTTI)
-  if(USE_RTTI)
-    message(STATUS "Enabling RTTI")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
-  else()
-    if(MSVC)
-      message(STATUS "Disabling RTTI in Release builds. Always on in Debug.")
-      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
-      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
-    else()
-      message(STATUS "Disabling RTTI in Release builds")
-      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
-      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
-    endif()
-  endif()
-else()
+
+# RTTI is by default AUTO which enables it in debug and disables it in release.
+set(USE_RTTI AUTO CACHE STRING "Enable RTTI in builds")
+set_property(CACHE USE_RTTI PROPERTY STRINGS AUTO ON OFF)
+if(USE_RTTI STREQUAL "AUTO")
   message(STATUS "Enabling RTTI in Debug builds only (default)")
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
   if(MSVC)
-     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
   else()
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
+  endif()
+elseif(USE_RTTI)
+  message(STATUS "Enabling RTTI in all builds")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
+else()
+  if(MSVC)
+    message(STATUS "Disabling RTTI in Release builds. Always on in Debug.")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+  else()
+    message(STATUS "Disabling RTTI in all builds")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
   endif()
 endif()
@@ -613,8 +583,9 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
 endif()
 find_package(Threads REQUIRED)
 
@@ -626,6 +597,8 @@ set(SOURCES
         cache/cache_key.cc
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
+        cache/compressed_secondary_cache.cc
+        cache/fast_lru_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
@@ -826,9 +799,11 @@ set(SOURCES
         trace_replay/trace_record_result.cc
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
+        util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
+        util/compression.cc
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
@@ -845,7 +820,8 @@ set(SOURCES
         util/thread_local.cc
         util/threadpool_imp.cc
         util/xxhash.cc
-        utilities/backupable/backupable_db.cc
+        utilities/agg_merge/agg_merge.cc
+        utilities/backup/backup_engine.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
@@ -994,13 +970,12 @@ else()
     env/io_posix.cc)
 endif()
 
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   list(APPEND SOURCES
-    third-party/folly/folly/detail/Futex.cpp
-    third-party/folly/folly/synchronization/AtomicNotification.cpp
-    third-party/folly/folly/synchronization/DistributedMutex.cpp
-    third-party/folly/folly/synchronization/ParkingLot.cpp
-    third-party/folly/folly/synchronization/WaitOptions.cpp)
+    third-party/folly/folly/container/detail/F14Table.cpp
+    third-party/folly/folly/lang/SafeAssert.cpp
+    third-party/folly/folly/lang/ToAscii.cpp
+    third-party/folly/folly/ScopeGuard.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -1014,6 +989,60 @@ if(WIN32)
 else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
 endif()
+
+set(ROCKSDB_PLUGIN_EXTERNS "")
+set(ROCKSDB_PLUGIN_BUILTINS "")
+message(STATUS "ROCKSDB PLUGINS TO BUILD ${ROCKSDB_PLUGINS}")
+list(APPEND PLUGINS ${ROCKSDB_PLUGINS})
+foreach(PLUGIN IN LISTS PLUGINS)
+  set(PLUGIN_ROOT "${CMAKE_SOURCE_DIR}/plugin/${PLUGIN}/")
+  message("including rocksb plugin ${PLUGIN_ROOT}")
+  set(PLUGINMKFILE "${PLUGIN_ROOT}${PLUGIN}.mk")
+  if (NOT EXISTS ${PLUGINMKFILE})
+    message(FATAL_ERROR "Missing plugin makefile: ${PLUGINMKFILE}")
+  endif()
+  file(READ ${PLUGINMKFILE} PLUGINMK)
+  string(REGEX MATCH "SOURCES = ([^\n]*)" FOO ${PLUGINMK})
+  set(MK_SOURCES ${CMAKE_MATCH_1})
+  separate_arguments(MK_SOURCES)
+  foreach(MK_FILE IN LISTS MK_SOURCES)
+    list(APPEND SOURCES "${PLUGIN_ROOT}${MK_FILE}")
+  endforeach()
+  string(REGEX MATCH "_FUNC = ([^\n]*)" FOO ${PLUGINMK})
+  if (NOT ${CMAKE_MATCH_1} STREQUAL "")
+    string(APPEND ROCKSDB_PLUGIN_BUILTINS "{\"${PLUGIN}\", " ${CMAKE_MATCH_1} "},")
+    string(APPEND ROCKSDB_PLUGIN_EXTERNS "int " ${CMAKE_MATCH_1} "(ROCKSDB_NAMESPACE::ObjectLibrary&, const std::string&); ")
+  endif()
+  string(REGEX MATCH "_LIBS = ([^\n]*)" FOO ${PLUGINMK})
+  if (NOT ${CMAKE_MATCH_1} STREQUAL "")
+    list(APPEND THIRDPARTY_LIBS "${CMAKE_MATCH_1}")
+  endif()
+  message("THIRDPARTY_LIBS=${THIRDPARTY_LIBS}")
+  #TODO: We need to set any compile/link-time flags and add any link libraries
+endforeach()
+
+string(TIMESTAMP TS "%Y-%m-%d %H:%M:%S" UTC)
+set(BUILD_DATE "${TS}" CACHE STRING "the time we first built rocksdb")
+
+find_package(Git)
+
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD )
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE GIT_MOD COMMAND "${GIT_EXECUTABLE}" diff-index HEAD --quiet)
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_DATE COMMAND "${GIT_EXECUTABLE}" log -1 --date=format:"%Y-%m-%d %T" --format="%ad")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG RESULT_VARIABLE rv COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (rv AND NOT rv EQUAL 0)
+    execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match OUTPUT_STRIP_TRAILING_WHITESPACE)
+  endif()
+else()
+  set(GIT_SHA 0)
+  set(GIT_MOD 1)
+endif()
+string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
+string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
+
+set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
+configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
@@ -1094,6 +1123,12 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     COMPATIBILITY SameMajorVersion
   )
 
+  configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc
+    @ONLY
+  )
+
   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
@@ -1132,6 +1167,13 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     COMPONENT devel
     DESTINATION ${package_config_destination}
   )
+
+  install(
+    FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc
+    COMPONENT devel
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+  )
 endif()
 
 option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
@@ -1153,6 +1195,7 @@ if(WITH_TESTS)
     list(APPEND TESTS
         cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
+        cache/compressed_secondary_cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
@@ -1310,7 +1353,8 @@ if(WITH_TESTS)
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc
-        utilities/backupable/backupable_db_test.cc
+        utilities/agg_merge/agg_merge_test.cc
+        utilities/backup/backup_engine_test.cc
         utilities/blob_db/blob_db_test.cc
         utilities/cassandra/cassandra_functional_test.cc
         utilities/cassandra/cassandra_format_test.cc
@@ -1331,6 +1375,7 @@ if(WITH_TESTS)
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
         utilities/transactions/lock/point/point_lock_manager_test.cc
+        utilities/transactions/write_committed_transaction_ts_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/transactions/lock/range/range_locking_test.cc
@@ -1340,14 +1385,11 @@ if(WITH_TESTS)
     )
   endif()
 
-  if(WITH_FOLLY_DISTRIBUTED_MUTEX)
-    list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
-  endif()
-
   set(TESTUTIL_SOURCE
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
+      utilities/agg_merge/test_agg_merge.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()

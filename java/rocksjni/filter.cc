@@ -9,11 +9,13 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <string>
 
 #include "include/org_rocksdb_BloomFilter.h"
 #include "include/org_rocksdb_Filter.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -27,7 +29,7 @@ jlong Java_org_rocksdb_BloomFilter_createNewBloomFilter(JNIEnv* /*env*/,
   auto* sptr_filter =
       new std::shared_ptr<const ROCKSDB_NAMESPACE::FilterPolicy>(
           ROCKSDB_NAMESPACE::NewBloomFilterPolicy(bits_per_key));
-  return reinterpret_cast<jlong>(sptr_filter);
+  return GET_CPLUSPLUS_POINTER(sptr_filter);
 }
 
 /*

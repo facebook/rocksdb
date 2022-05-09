@@ -89,6 +89,12 @@ struct IOOptions {
   // Priority - high or low
   IOPriority prio;
 
+  // Priority used to charge rate limiter configured in file system level (if
+  // any)
+  // Limitation: right now RocksDB internal does not consider this
+  // rate_limiter_priority
+  Env::IOPriority rate_limiter_priority;
+
   // Type of data being read/written
   IOType type;
 
@@ -109,6 +115,7 @@ struct IOOptions {
   explicit IOOptions(bool force_dir_fsync_)
       : timeout(std::chrono::microseconds::zero()),
         prio(IOPriority::kIOLow),
+        rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_) {}
 };
@@ -221,10 +228,10 @@ struct IODebugContext {
   }
 };
 
-// IOHandle is used by underlying file system to store any information it needs
-// during Async Read requests.
+// A function pointer type for custom destruction of void pointer passed to
+// ReadAsync API. RocksDB/caller is responsible for deleting the void pointer
+// allocated by FS in ReadAsync API.
 using IOHandleDeleter = std::function<void(void*)>;
-using IOHandle = std::unique_ptr<void, IOHandleDeleter>;
 
 // The FileSystem, FSSequentialFile, FSRandomAccessFile, FSWritableFile,
 // FSRandomRWFileclass, and FSDIrectory classes define the interface between
@@ -647,14 +654,28 @@ class FileSystem : public Customizable {
 
   // EXPERIMENTAL
   // Poll for completion of read IO requests. The Poll() method should call the
-  // callback functions to indicate completion of read requests. If Poll is not
-  // supported it means callee should be informed of IO completions via the
-  // callback on another thread.
+  // callback functions to indicate completion of read requests.
+  // Underlying FS is required to support Poll API. Poll implementation should
+  // ensure that the callback gets called at IO completion, and return only
+  // after the callback has been called.
+  // If Poll returns partial results for any reads, its caller reponsibility to
+  // call Read or ReadAsync in order to get the remaining bytes.
   //
   // Default implementation is to return IOStatus::OK.
 
-  virtual IOStatus Poll(std::vector<IOHandle*>& /*io_handles*/,
+  virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
                         size_t /*min_completions*/) {
+    return IOStatus::OK();
+  }
+
+  // EXPERIMENTAL
+  // Abort the read IO requests submitted asynchronously. Underlying FS is
+  // required to support AbortIO API. AbortIO implementation should ensure that
+  // the all the read requests related to io_handles should be aborted and
+  // it shouldn't call the callback for these io_handles.
+  //
+  // Default implementation is to return IOStatus::OK.
+  virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
     return IOStatus::OK();
   }
 
@@ -865,9 +886,13 @@ class FSRandomAccessFile {
   // cb_arg should be used by the callback to track the original request
   // submitted.
   //
-  // This API should also populate IOHandle which should be used by
+  // This API should also populate io_handle which should be used by
   // underlying FileSystem to store the context in order to distinguish the read
-  // requests at their side.
+  // requests at their side and provide the custom deletion function in del_fn.
+  // RocksDB guarantees that the del_fn for io_handle will be called after
+  // receiving the callback. Furthermore, RocksDB guarantees that if it calls
+  // the Poll API for this io_handle, del_fn will be called after the Poll
+  // returns. RocksDB is responsible for managing the lifetime of io_handle.
   //
   // req contains the request offset and size passed as input parameter of read
   // request and result and status fields are output parameter set by underlying
@@ -877,7 +902,7 @@ class FSRandomAccessFile {
   virtual IOStatus ReadAsync(
       FSReadRequest& req, const IOOptions& opts,
       std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-      IOHandle* /*io_handle*/, IODebugContext* dbg) {
+      void** /*io_handle*/, IOHandleDeleter* /*del_fn*/, IODebugContext* dbg) {
     req.status =
         Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
     cb(req, cb_arg);
@@ -1025,6 +1050,17 @@ class FSWritableFile {
     write_hint_ = hint;
   }
 
+  /*
+   * If rate limiting is enabled, change the file-granularity priority used in
+   * rate-limiting writes.
+   *
+   * In the presence of finer-granularity priority such as
+   * `WriteOptions::rate_limiter_priority`, this file-granularity priority may
+   * be overridden by a non-Env::IO_TOTAL finer-granularity priority and used as
+   * a fallback for Env::IO_TOTAL finer-granularity priority.
+   *
+   * If rate limiting is not enabled, this call has no effect.
+   */
   virtual void SetIOPriority(Env::IOPriority pri) { io_priority_ = pri; }
 
   virtual Env::IOPriority GetIOPriority() { return io_priority_; }
@@ -1470,9 +1506,13 @@ class FileSystemWrapper : public FileSystem {
                                const std::string& header) const override;
 #endif  // ROCKSDB_LITE
 
-  virtual IOStatus Poll(std::vector<IOHandle*>& io_handles,
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t min_completions) override {
     return target_->Poll(io_handles, min_completions);
+  }
+
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    return target_->AbortIO(io_handles);
   }
 
  protected:
@@ -1557,9 +1597,9 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
                      std::function<void(const FSReadRequest&, void*)> cb,
-                     void* cb_arg, IOHandle* io_handle,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      IODebugContext* dbg) override {
-    return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, dbg);
+    return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
   }
   Temperature GetTemperature() const override {
     return target_->GetTemperature();
