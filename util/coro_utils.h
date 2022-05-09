@@ -7,6 +7,7 @@
 #include "folly/experimental/coro/Coroutine.h"
 #include "folly/experimental/coro/Task.h"
 #endif
+#include "rocksdb/rocksdb_namespace.h"
 
 // This file has two sctions. The first section applies to all instances of
 // header file inclusion and has an include guard. The second section is

@@ -1180,10 +1180,17 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
   Destroy(options);
 }
 
-class DBMultiGetTestWithParam : public DBBasicTest,
-                                public testing::WithParamInterface<bool> {};
+class DBMultiGetTestWithParam
+    : public DBBasicTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {};
 
 TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1240,7 +1247,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
     keys.push_back(std::get<1>(cf_kv_vec[i]));
   }
 
-  values = MultiGet(cfs, keys, nullptr, GetParam());
+  values = MultiGet(cfs, keys, nullptr, std::get<0>(GetParam()),
+                    std::get<1>(GetParam()));
   ASSERT_EQ(values.size(), num_keys);
   for (unsigned int j = 0; j < values.size(); ++j) {
     ASSERT_EQ(values[j], std::get<2>(cf_kv_vec[j]) + "_2");
@@ -1254,7 +1262,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   keys.push_back(std::get<1>(cf_kv_vec[3]));
   cfs.push_back(std::get<0>(cf_kv_vec[4]));
   keys.push_back(std::get<1>(cf_kv_vec[4]));
-  values = MultiGet(cfs, keys, nullptr, GetParam());
+  values = MultiGet(cfs, keys, nullptr, std::get<0>(GetParam()),
+                    std::get<1>(GetParam()));
   ASSERT_EQ(values[0], std::get<2>(cf_kv_vec[0]) + "_2");
   ASSERT_EQ(values[1], std::get<2>(cf_kv_vec[3]) + "_2");
   ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[4]) + "_2");
@@ -1267,7 +1276,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
   keys.push_back(std::get<1>(cf_kv_vec[6]));
   cfs.push_back(std::get<0>(cf_kv_vec[1]));
   keys.push_back(std::get<1>(cf_kv_vec[1]));
-  values = MultiGet(cfs, keys, nullptr, GetParam());
+  values = MultiGet(cfs, keys, nullptr, std::get<0>(GetParam()),
+                    std::get<1>(GetParam()));
   ASSERT_EQ(values[0], std::get<2>(cf_kv_vec[7]) + "_2");
   ASSERT_EQ(values[1], std::get<2>(cf_kv_vec[6]) + "_2");
   ASSERT_EQ(values[2], std::get<2>(cf_kv_vec[1]) + "_2");
@@ -1283,6 +1293,12 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCF) {
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1328,7 +1344,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
     keys.push_back("cf" + std::to_string(i) + "_key");
   }
 
-  values = MultiGet(cfs, keys, nullptr, GetParam());
+  values = MultiGet(cfs, keys, nullptr, std::get<0>(GetParam()),
+                    std::get<1>(GetParam()));
   ASSERT_TRUE(last_try);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1345,6 +1362,12 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFMutex) {
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
@@ -1389,7 +1412,8 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
   }
 
   const Snapshot* snapshot = db_->GetSnapshot();
-  values = MultiGet(cfs, keys, snapshot, GetParam());
+  values = MultiGet(cfs, keys, snapshot, std::get<0>(GetParam()),
+                    std::get<1>(GetParam()));
   db_->ReleaseSnapshot(snapshot);
   ASSERT_EQ(values.size(), 8);
   for (unsigned int j = 0; j < values.size(); ++j) {
@@ -1405,6 +1429,12 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFSnapshot) {
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFUnsorted) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two"}, options);
 
@@ -1417,8 +1447,9 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFUnsorted) {
   std::vector<std::string> keys{"foo", "baz", "abc"};
   std::vector<std::string> values;
 
-  values =
-      MultiGet(cfs, keys, /* snapshot */ nullptr, /* batched */ GetParam());
+  values = MultiGet(cfs, keys, /* snapshot */ nullptr,
+                    /* batched */ std::get<0>(GetParam()),
+                    /* async */ std::get<1>(GetParam()));
 
   ASSERT_EQ(values.size(), 3);
   ASSERT_EQ(values[0], "bar");
@@ -1426,10 +1457,18 @@ TEST_P(DBMultiGetTestWithParam, MultiGetMultiCFUnsorted) {
   ASSERT_EQ(values[2], "def");
 }
 
-INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
-                        testing::Bool());
-
-TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedSimpleUnsorted) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    return;
+  }
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     SetPerfLevel(kEnableCount);
@@ -1448,8 +1487,10 @@ TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
     std::vector<Status> s(keys.size());
 
-    db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
-                  values.data(), s.data(), false);
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                  s.data(), false);
 
     ASSERT_EQ(values.size(), keys.size());
     ASSERT_EQ(std::string(values[5].data(), values[5].size()), "v1");
@@ -1470,7 +1511,18 @@ TEST_F(DBBasicTest, MultiGetBatchedSimpleUnsorted) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedSortedMultiFile) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    return;
+  }
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     SetPerfLevel(kEnableCount);
@@ -1493,8 +1545,10 @@ TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
     std::vector<Status> s(keys.size());
 
-    db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
-                  values.data(), s.data(), true);
+    ReadOptions ro;
+    ro.async_io = std::get<1>(GetParam());
+    db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                  s.data(), true);
 
     ASSERT_EQ(values.size(), keys.size());
     ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v1");
@@ -1515,7 +1569,18 @@ TEST_F(DBBasicTest, MultiGetBatchedSortedMultiFile) {
   } while (ChangeOptions());
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedDuplicateKeys) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedDuplicateKeys) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    return;
+  }
   Options opts = CurrentOptions();
   opts.merge_operator = MergeOperators::CreateStringAppendOperator();
   CreateAndReopenWithCF({"pikachu"}, opts);
@@ -1546,8 +1611,10 @@ TEST_F(DBBasicTest, MultiGetBatchedDuplicateKeys) {
   std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
   std::vector<Status> s(keys.size());
 
-  db_->MultiGet(ReadOptions(), handles_[1], keys.size(), keys.data(),
-                values.data(), s.data(), false);
+  ReadOptions ro;
+  ro.async_io = std::get<1>(GetParam());
+  db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
+                s.data(), false);
 
   ASSERT_EQ(values.size(), keys.size());
   ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v8");
@@ -1566,7 +1633,18 @@ TEST_F(DBBasicTest, MultiGetBatchedDuplicateKeys) {
   SetPerfLevel(kDisable);
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevel) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    return;
+  }
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   Reopen(options);
@@ -1625,7 +1703,7 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
     keys.push_back("key_" + std::to_string(i));
   }
 
-  values = MultiGet(keys, nullptr);
+  values = MultiGet(keys, nullptr, std::get<1>(GetParam()));
   ASSERT_EQ(values.size(), 16);
   for (unsigned int j = 0; j < values.size(); ++j) {
     int key = j + 64;
@@ -1641,7 +1719,18 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevel) {
   }
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevelMerge) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    return;
+  }
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
@@ -1705,7 +1794,7 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
     keys.push_back("key_" + std::to_string(i));
   }
 
-  values = MultiGet(keys, nullptr);
+  values = MultiGet(keys, nullptr, std::get<1>(GetParam()));
   ASSERT_EQ(values.size(), keys.size());
   for (unsigned int j = 0; j < 48; ++j) {
     int key = j + 32;
@@ -1727,7 +1816,18 @@ TEST_F(DBBasicTest, MultiGetBatchedMultiLevelMerge) {
   }
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedValueSizeInMemory) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeInMemory) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    return;
+  }
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   SetPerfLevel(kEnableCount);
   ASSERT_OK(Put(1, "k1", "v_1"));
@@ -1744,6 +1844,7 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeInMemory) {
   get_perf_context()->Reset();
   ReadOptions ro;
   ro.value_size_soft_limit = 11;
+  ro.async_io = std::get<1>(GetParam());
   db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
                 s.data(), false);
 
@@ -1761,7 +1862,17 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeInMemory) {
   SetPerfLevel(kDisable);
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedValueSize) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSize) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    return;
+  }
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     SetPerfLevel(kEnableCount);
@@ -1801,6 +1912,7 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSize) {
 
     ReadOptions ro;
     ro.value_size_soft_limit = 20;
+    ro.async_io = std::get<1>(GetParam());
     db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
                   s.data(), false);
 
@@ -1836,7 +1948,18 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSize) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
+TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
+#ifndef USE_COROUTINES
+  if (std::get<1>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    return;
+  }
+#endif  // USE_COROUTINES
+  // Skip for unbatched MultiGet
+  if (!std::get<0>(GetParam())) {
+    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    return;
+  }
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
@@ -1908,6 +2031,7 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
   read_options.value_size_soft_limit = 380;
+  read_options.async_io = std::get<1>(GetParam());
   db_->MultiGet(read_options, dbfull()->DefaultColumnFamily(), keys.size(),
                 keys.data(), values.data(), statuses.data());
 
@@ -1938,6 +2062,9 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
     ASSERT_TRUE(statuses[j].IsAborted());
   }
 }
+
+INSTANTIATE_TEST_CASE_P(DBMultiGetTestWithParam, DBMultiGetTestWithParam,
+                        testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST_F(DBBasicTest, MultiGetStats) {
   Options options;

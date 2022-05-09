@@ -830,10 +830,12 @@ std::string DBTestBase::Get(int cf, const std::string& k,
 std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
                                               const std::vector<std::string>& k,
                                               const Snapshot* snapshot,
-                                              const bool batched) {
+                                              const bool batched,
+                                              const bool async) {
   ReadOptions options;
   options.verify_checksums = true;
   options.snapshot = snapshot;
+  options.async_io = async;
   std::vector<ColumnFamilyHandle*> handles;
   std::vector<Slice> keys;
   std::vector<std::string> result;
@@ -875,10 +877,12 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
 }
 
 std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
-                                              const Snapshot* snapshot) {
+                                              const Snapshot* snapshot,
+                                              const bool async) {
   ReadOptions options;
   options.verify_checksums = true;
   options.snapshot = snapshot;
+  options.async_io = async;
   std::vector<Slice> keys;
   std::vector<std::string> result(k.size());
   std::vector<Status> statuses(k.size());
