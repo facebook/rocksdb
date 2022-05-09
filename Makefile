@@ -1166,17 +1166,22 @@ unity_test: $(OBJ_DIR)/db/db_basic_test.o $(OBJ_DIR)/db/db_test_util.o $(TEST_OB
 rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 	build_tools/amalgamate.py -I. -i./include unity.cc -x include/rocksdb/c.h -H rocksdb.h -o rocksdb.cc
 
-clean: clean-ext-libraries-all clean-rocks clean-rocksjava
+clean: clean-ext-libraries-all clean-rocks-0 clean-rocksjava
+
+clean-full: clean-ext-libraries-all clean-rocks clean-rocksjava
 
 clean-not-downloaded: clean-ext-libraries-bin clean-rocks clean-not-downloaded-rocksjava
 
-clean-rocks:
+clean-rocks-0:
 	echo shared=$(ALL_SHARED_LIBS)
 	echo static=$(ALL_STATIC_LIBS)
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
 	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
+
+clean-rocks: clean-rocks-0
+	rm -rf $(CLEAN_FILES)
 
 clean-rocksjava: clean-rocks
 	rm -rf jl jls
