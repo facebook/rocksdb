@@ -3,23 +3,26 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#pragma once
+#include "util/coro_utils.h"
+
+#if defined(WITHOUT_COROUTINES) || \
+    (defined(USE_COROUTINES) && defined(WITH_COROUTINES))
 
 namespace ROCKSDB_NAMESPACE {
 
 // Lookup a batch of keys in a single SST file
-Status Version::MultiGetFromSST(
-    const ReadOptions& read_options, MultiGetRange file_range,
-    int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
-    std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs,
-    uint64_t& num_filter_read, uint64_t& num_index_read,
-    uint64_t& num_data_read, uint64_t& num_sst_read) {
+DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
+(const ReadOptions& read_options, MultiGetRange file_range, int hit_file_level,
+ bool is_hit_file_last_in_level, FdWithKeyRange* f,
+ std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs,
+ uint64_t& num_filter_read, uint64_t& num_index_read, uint64_t& num_data_read,
+ uint64_t& num_sst_read) {
   bool timer_enabled = GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
                        get_perf_context()->per_level_perf_context_enabled;
 
   Status s;
   StopWatchNano timer(clock_, timer_enabled /* auto_start */);
-  s = table_cache_->MultiGet(
+  s = CO_AWAIT(table_cache_->MultiGet)(
       read_options, *internal_comparator(), *f->file_metadata, &file_range,
       mutable_cf_options_.prefix_extractor,
       cfd_->internal_stats()->GetFileReadHist(hit_file_level),
@@ -37,7 +40,7 @@ Status Version::MultiGetFromSST(
       *iter->s = s;
       file_range.MarkKeyDone(iter);
     }
-    return s;
+    CO_RETURN s;
   }
   uint64_t batch_size = 0;
   for (auto iter = file_range.begin(); s.ok() && iter != file_range.end();
@@ -145,7 +148,7 @@ Status Version::MultiGetFromSST(
   }
 
   RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
-  return s;
+  CO_RETURN s;
 }
 } // ROCKSDB_NAMESPACE
-
+#endif

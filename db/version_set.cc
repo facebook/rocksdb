@@ -38,6 +38,10 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
+#if USE_COROUTINES
+#include "folly/experimental/coro/BlockingWait.h"
+#include "folly/experimental/coro/Collect.h"
+#endif
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "file/read_write_util.h"
@@ -63,11 +67,18 @@
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
+#include "util/coro_utils.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/user_comparator_wrapper.h"
 
+// Generate the regular and coroutine versions of some methods by
+// including version_set_coro.h twice
 // clang-format off
+#define WITHOUT_COROUTINES
+#include "db/version_set_coro.h"
+#undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
 #include "db/version_set_coro.h"
 // clang-format on
 
@@ -2251,15 +2262,49 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       level = fp.GetHitFileLevel();
     }
 
-    if (f) {
-      // Call MultiGetFromSST for looking up a single file
-      s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
-                          fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
-                          blob_rqs, num_filter_read, num_index_read,
-                          num_data_read, num_sst_read);
+    // Avoid using the coroutine version if we're looking in a L0 file, since
+    // L0 files won't be parallelized anyway. The regular synchronous version
+    // is faster.
+    if (!read_options.async_io || !using_coroutines() ||
+        fp.GetHitFileLevel() == 0) {
+      if (f) {
+        // Call MultiGetFromSST for looking up a single file
+        s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
+                            fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
+                            blob_rqs, num_filter_read, num_index_read,
+                            num_data_read, num_sst_read);
+      }
       if (s.ok()) {
         f = fp.GetNextFileInLevel();
       }
+#if USE_COROUTINES
+    } else {
+      std::vector<folly::coro::Task<Status>> mget_tasks;
+      while (f != nullptr) {
+        mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
+            read_options, fp.CurrentFileRange(), fp.GetHitFileLevel(),
+            fp.IsHitFileLastInLevel(), f, blob_rqs, num_filter_read,
+            num_index_read, num_data_read, num_sst_read));
+        if (fp.KeyMaySpanNextFile()) {
+          break;
+        }
+        f = fp.GetNextFileInLevel();
+      }
+      if (mget_tasks.size() > 0) {
+        // Collect all results so far
+        std::vector<Status> statuses = folly::coro::blockingWait(
+            folly::coro::collectAllRange(std::move(mget_tasks)));
+        for (Status stat : statuses) {
+          if (!stat.ok()) {
+            s = stat;
+          }
+        }
+
+        if (s.ok() && fp.KeyMaySpanNextFile()) {
+          f = fp.GetNextFileInLevel();
+        }
+      }
+#endif  // USE_COROUTINES
     }
     // If bad status or we found final result for all the keys
     if (!s.ok() || file_picker_range.empty()) {

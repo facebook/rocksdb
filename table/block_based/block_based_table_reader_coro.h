@@ -3,19 +3,12 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#pragma once
+#include "util/coro_utils.h"
+
+#if defined(WITHOUT_COROUTINES) || \
+    (defined(USE_COROUTINES) && defined(WITH_COROUTINES))
 
 namespace ROCKSDB_NAMESPACE {
-
-namespace {
-
-CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
-  CacheAllocationPtr heap_buf;
-  heap_buf = AllocateBlock(buf.size(), allocator);
-  memcpy(heap_buf.get(), buf.data(), buf.size());
-  return heap_buf;
-}
-}
 
 // This function reads multiple data blocks from disk using Env::MultiRead()
 // and optionally inserts them into the block cache. It uses the scratch
@@ -34,12 +27,12 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 //         found in cache
 // handles - A vector of block handles. Some of them me be NULL handles
 // scratch - An optional contiguous buffer to read compressed blocks into
-void BlockBasedTable::RetrieveMultipleBlocks(
-    const ReadOptions& options, const MultiGetRange* batch,
-    const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
-    autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
-    autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
-    char* scratch, const UncompressionDict& uncompression_dict) const {
+DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
+(const ReadOptions& options, const MultiGetRange* batch,
+ const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
+ autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
+ autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>* results,
+ char* scratch, const UncompressionDict& uncompression_dict) const {
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
   const ImmutableOptions& ioptions = rep_->ioptions;
@@ -64,7 +57,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
                         /* for_compaction */ false, /* use_cache */ true,
                         /* wait_for_cache */ true);
     }
-    return;
+    CO_RETURN;
   }
 
   // In direct IO mode, blocks share the direct io buffer.
@@ -310,14 +303,13 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 }
 
 using MultiGetRange = MultiGetContext::Range;
-void BlockBasedTable::MultiGet(const ReadOptions& read_options,
-                               const MultiGetRange* mget_range,
-                               const SliceTransform* prefix_extractor,
-                               bool skip_filters) {
+DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
+(const ReadOptions& read_options, const MultiGetRange* mget_range,
+ const SliceTransform* prefix_extractor, bool skip_filters) {
   if (mget_range->empty()) {
     // Caller should ensure non-empty (performance bug)
     assert(false);
-    return;  // Nothing to do
+    CO_RETURN;  // Nothing to do
   }
 
   FilterBlockReader* const filter =
@@ -524,8 +516,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             block_buf.reset(scratch);
           }
         }
-        RetrieveMultipleBlocks(read_options, &data_block_range, &block_handles,
-                               &statuses, &results, scratch, dict);
+        CO_AWAIT(RetrieveMultipleBlocks)
+        (read_options, &data_block_range, &block_handles, &statuses, &results,
+         scratch, dict);
         if (sst_file_range.begin()->get_context) {
           ++(sst_file_range.begin()
                  ->get_context->get_context_stats_.num_sst_read);
@@ -745,4 +738,5 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   }
 }
-} // ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
+#endif

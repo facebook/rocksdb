@@ -327,7 +327,15 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
-    ], deps=["//folly/container:f14_hash"], headers=None, link_whole=False, extra_test_libs=False)
+    ],
+    deps=[
+        "//folly/container:f14_hash",
+        "//folly/experimental/coro:blocking_wait",
+        "//folly/experimental/coro:collect",
+        "//folly/experimental/coro:coroutine",
+        "//folly/experimental/coro:task",
+    ],
+    headers=None, link_whole=False, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "cache/cache.cc",
@@ -648,7 +656,15 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "utilities/wal_filter.cc",
         "utilities/write_batch_with_index/write_batch_with_index.cc",
         "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
-    ], deps=["//folly/container:f14_hash"], headers=None, link_whole=True, extra_test_libs=False)
+    ],
+    deps=[
+        "//folly/container:f14_hash",
+        "//folly/experimental/coro:blocking_wait",
+        "//folly/experimental/coro:collect",
+        "//folly/experimental/coro:coroutine",
+        "//folly/experimental/coro:task",
+    ],
+    headers=None, link_whole=True, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "db/db_test_util.cc",
@@ -697,6 +713,8 @@ cpp_binary_wrapper(name="db_stress", srcs=["db_stress_tool/db_stress.cc"], deps=
 cpp_binary_wrapper(name="ribbon_bench", srcs=["microbench/ribbon_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
 
 cpp_binary_wrapper(name="db_basic_bench", srcs=["microbench/db_basic_bench.cc"], deps=[], extra_preprocessor_flags=[], extra_bench_libs=True)
+
+cpp_binary_wrapper(name="db_bench", srcs=["tools/db_bench.cc"], deps=[":rocksdb_tools_lib"], extra_preprocessor_flags=[], extra_bench_libs=False)
 
 add_c_test_wrapper()
 

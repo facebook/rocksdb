@@ -74,7 +74,25 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 
+namespace ROCKSDB_NAMESPACE {
+namespace {
+
+CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
+  CacheAllocationPtr heap_buf;
+  heap_buf = AllocateBlock(buf.size(), allocator);
+  memcpy(heap_buf.get(), buf.data(), buf.size());
+  return heap_buf;
+}
+}  // namespace
+}  // namespace ROCKSDB_NAMESPACE
+
+// Generate the regular and coroutine versions of some methods by
+// including block_based_table_reader_coro.h twice
 // clang-format off
+#define WITHOUT_COROUTINES
+#include "table/block_based/block_based_table_reader_coro.h"
+#undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
 #include "table/block_based/block_based_table_reader_coro.h"
 // clang-format on
 

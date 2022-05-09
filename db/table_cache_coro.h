@@ -3,26 +3,21 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#pragma once
+#include "util/coro_utils.h"
 
+#if defined(WITHOUT_COROUTINES) || \
+    (defined(USE_COROUTINES) && defined(WITH_COROUTINES))
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-template <class T>
-static void DeleteEntry(const Slice& /*key*/, void* value) {
-  T* typed_value = reinterpret_cast<T*>(value);
-  delete typed_value;
-}
-}
+#if defined(WITHOUT_COROUTINES)
+#endif
 
 // Batched version of TableCache::MultiGet.
-Status TableCache::MultiGet(
-    const ReadOptions& options,
-    const InternalKeyComparator& internal_comparator,
-    const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
-    const std::shared_ptr<const SliceTransform>& prefix_extractor,
-    HistogramImpl* file_read_hist, bool skip_filters, int level) {
+DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
+(const ReadOptions& options, const InternalKeyComparator& internal_comparator,
+ const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
+ const std::shared_ptr<const SliceTransform>& prefix_extractor,
+ HistogramImpl* file_read_hist, bool skip_filters, int level) {
   auto& fd = file_meta.fd;
   Status s;
   TableReader* t = fd.table_reader;
@@ -93,7 +88,8 @@ Status TableCache::MultiGet(
       }
     }
     if (s.ok()) {
-      t->MultiGet(options, &table_range, prefix_extractor.get(), skip_filters);
+      CO_AWAIT(t->MultiGet)
+      (options, &table_range, prefix_extractor.get(), skip_filters);
     } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
       for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
         Status* status = iter->s;
@@ -138,6 +134,7 @@ Status TableCache::MultiGet(
   if (handle != nullptr) {
     ReleaseHandle(handle);
   }
-  return s;
+  CO_RETURN s;
 }
 } // ROCKSDB_NAMESPACE
+#endif

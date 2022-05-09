@@ -54,6 +54,7 @@
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/coro_utils.h"
 #include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -884,7 +885,8 @@ class Version {
   // This accumulated stats will be used in compaction.
   void UpdateAccumulatedStats();
 
-  Status MultiGetFromSST(
+  DECLARE_SYNC_AND_ASYNC(
+      /* ret_type */ Status, /* func_name */ MultiGetFromSST,
       const ReadOptions& read_options, MultiGetRange file_range,
       int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
       std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs,

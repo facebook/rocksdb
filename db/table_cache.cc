@@ -31,7 +31,23 @@
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
+namespace ROCKSDB_NAMESPACE {
+namespace {
+template <class T>
+static void DeleteEntry(const Slice& /*key*/, void* value) {
+  T* typed_value = reinterpret_cast<T*>(value);
+  delete typed_value;
+}
+}  // namespace
+}  // namespace ROCKSDB_NAMESPACE
+
+// Generate the regular and coroutine versions of some methods by
+// including table_cache_coro.h twice
 // clang-format off
+#define WITHOUT_COROUTINES
+#include "db/table_cache_coro.h"
+#undef WITHOUT_COROUTINES
+#define WITH_COROUTINES
 #include "db/table_cache_coro.h"
 // clang-format on
 
