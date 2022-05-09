@@ -943,14 +943,16 @@ static void DBGetMergeOperandsInSstFile(benchmark::State& state) {
   }
 }
 
-static void DBGetMergeOperandsInMemtableArguments(benchmark::internal::Benchmark* b) {
+static void DBGetMergeOperandsInMemtableArguments(
+    benchmark::internal::Benchmark* b) {
   for (int entries_per_key : {1, 32, 1024}) {
     b->Args({entries_per_key});
   }
   b->ArgNames({"entries_per_key"});
 }
 
-static void DBGetMergeOperandsInSstFileArguments(benchmark::internal::Benchmark* b) {
+static void DBGetMergeOperandsInSstFileArguments(
+    benchmark::internal::Benchmark* b) {
   for (int entries_per_key : {1, 32, 1024}) {
     for (bool mmap : {false, true}) {
       b->Args({entries_per_key, mmap});
