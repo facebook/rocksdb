@@ -468,8 +468,7 @@ Status TableCache::Get(
 #ifndef ROCKSDB_LITE
   // Put the replay log in row cache only if something was found.
   if (!done && s.ok() && row_cache_entry && !row_cache_entry->empty()) {
-    size_t charge =
-        row_cache_key.Size() + row_cache_entry->size() + sizeof(std::string);
+    size_t charge = row_cache_entry->capacity() + sizeof(std::string);
     void* row_ptr = new std::string(std::move(*row_cache_entry));
     // If row cache is full, it's OK to continue.
     ioptions_.row_cache
@@ -592,8 +591,7 @@ Status TableCache::MultiGet(
                                user_key.size());
       // Put the replay log in row cache only if something was found.
       if (s.ok() && !row_cache_entry.empty()) {
-        size_t charge =
-            row_cache_key.Size() + row_cache_entry.size() + sizeof(std::string);
+        size_t charge = row_cache_entry.capacity() + sizeof(std::string);
         void* row_ptr = new std::string(std::move(row_cache_entry));
         // If row cache is full, it's OK.
         ioptions_.row_cache
