@@ -136,5 +136,5 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   }
   CO_RETURN s;
 }
-} // ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 #endif

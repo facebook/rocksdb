@@ -150,5 +150,5 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
   RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
   CO_RETURN s;
 }
-} // ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE
 #endif

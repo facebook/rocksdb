@@ -259,7 +259,8 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   for (auto& key_ctx : key_context) {
     sorted_keys.emplace_back(&key_ctx);
   }
-  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, ReadOptions());
+  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, ReadOptions(),
+                      fs_.get(), nullptr);
 
   // Execute MultiGet.
   MultiGetContext::Range range = ctx.GetMultiGetRange();

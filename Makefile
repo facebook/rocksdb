@@ -2350,7 +2350,7 @@ checkout_folly:
 	cd third-party/folly && git reset --hard 98b9b2c1124e99f50f9085ddee74ce32afffc665
 	@# A hack to remove boost dependency.
 	@# NOTE: this hack is not needed if using FBCODE compiler config
-	@#perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
+	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
 
 # ---------------------------------------------------------------------------
 #   Build size testing

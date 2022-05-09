@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "util/async_file_reader.h"
 #include "util/coro_utils.h"
 
 #if defined(WITHOUT_COROUTINES) || \
@@ -139,8 +140,13 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     IOOptions opts;
     IOStatus s = file->PrepareIOOptions(options, opts);
     if (s.ok()) {
+#if defined(WITHOUT_COROUTINES)
       s = file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf,
                           options.rate_limiter_priority);
+#else   // WITH_COROUTINES
+      co_await batch->context()->reader().MultiReadAsync(
+          file, opts, &read_reqs[0], read_reqs.size(), &direct_io_buf);
+#endif  // WITH_COROUTINES
     }
     if (!s.ok()) {
       // Discard all the results in this batch if there is any time out

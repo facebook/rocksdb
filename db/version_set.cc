@@ -2293,7 +2293,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       if (mget_tasks.size() > 0) {
         // Collect all results so far
         std::vector<Status> statuses = folly::coro::blockingWait(
-            folly::coro::collectAllRange(std::move(mget_tasks)));
+            folly::coro::collectAllRange(std::move(mget_tasks))
+                .scheduleOn(&range->context()->executor()));
         for (Status stat : statuses) {
           if (!stat.ok()) {
             s = stat;
