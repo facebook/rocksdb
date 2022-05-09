@@ -160,7 +160,7 @@ class DBLoaderCommand : public LDBCommand {
                   const std::vector<std::string>& flags);
 
   static void Help(std::string& ret);
- 
+
   void DoCommand() override;
 
   void OverrideBaseOptions() override;
