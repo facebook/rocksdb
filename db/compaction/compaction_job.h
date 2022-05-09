@@ -259,6 +259,9 @@ struct CompactionServiceInput {
   std::vector<std::string> input_files;
   int output_level;
 
+  // db_id is used to generate unique id of sst on the remote compactor
+  std::string db_id;
+
   // information for subcompaction
   bool has_begin = false;
   std::string begin;
@@ -290,13 +293,15 @@ struct CompactionServiceOutputFile {
   uint64_t file_creation_time;
   uint64_t paranoid_hash;
   bool marked_for_compaction;
+  UniqueId64x2 unique_id;
 
   CompactionServiceOutputFile() = default;
   CompactionServiceOutputFile(
       const std::string& name, SequenceNumber smallest, SequenceNumber largest,
       std::string _smallest_internal_key, std::string _largest_internal_key,
       uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
-      uint64_t _paranoid_hash, bool _marked_for_compaction)
+      uint64_t _paranoid_hash, bool _marked_for_compaction,
+      UniqueId64x2 _unique_id)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),
@@ -305,7 +310,8 @@ struct CompactionServiceOutputFile {
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
         paranoid_hash(_paranoid_hash),
-        marked_for_compaction(_marked_for_compaction) {}
+        marked_for_compaction(_marked_for_compaction),
+        unique_id(std::move(_unique_id)) {}
 };
 
 // CompactionServiceResult contains the compaction result from a different db

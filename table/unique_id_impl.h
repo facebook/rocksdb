@@ -64,6 +64,9 @@ void ExternalUniqueIdToInternal(UniqueIdPtr in_out);
 // Convert numerical format to byte format for public API
 std::string EncodeUniqueIdBytes(UniqueIdPtr in);
 
+// Reverse of EncodeUniqueIdBytes.
+Status DecodeUniqueIdBytes(const std::string &unique_id, UniqueIdPtr out);
+
 // For presenting internal IDs for debugging purposes. Visually distinct from
 // UniqueIdToHumanString for external IDs.
 std::string InternalUniqueIdToHumanString(UniqueIdPtr in);

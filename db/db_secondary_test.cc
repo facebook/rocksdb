@@ -181,6 +181,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
   Close();
 
   options.max_open_files = -1;
@@ -241,6 +242,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   input1.input_files.push_back(meta.levels[1].files[2].name);
 
   input1.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input1.db_id));
 
   options.max_open_files = -1;
   Close();
@@ -261,6 +263,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   }
 
   input2.output_level = 2;
+  input2.db_id = input1.db_id;
   ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
       OpenAndCompactOptions(), cfh, input2, &result));
   ASSERT_OK(result.status);
@@ -305,6 +308,7 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
 
   // trigger compaction to delete the files for secondary instance compaction
   ASSERT_OK(Put("foo", "foo_value" + std::to_string(3)));
@@ -346,6 +350,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
 
   Close();
 

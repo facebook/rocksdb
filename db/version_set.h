@@ -851,6 +851,8 @@ class Version {
 
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
+  Status VerifySstUniqueIds() const;
+
  private:
   Env* env_;
   SystemClock* clock_;

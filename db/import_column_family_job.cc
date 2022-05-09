@@ -15,6 +15,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/unique_id_impl.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -159,7 +160,7 @@ Status ImportColumnFamilyJob::Run() {
                   file_metadata.largest_seqno, false, file_metadata.temperature,
                   kInvalidBlobFileNumber, oldest_ancester_time, current_time,
                   kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                  kDisableUserTimestamp, kDisableUserTimestamp);
+                  kDisableUserTimestamp, kDisableUserTimestamp, f.unique_id);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -287,6 +288,15 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
 
   file_to_import->table_properties = *props;
+
+  auto s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                  props->orig_file_number,
+                                  &(file_to_import->unique_id));
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get SST unique id for file %s",
+                   file_to_import->internal_file_path.c_str());
+  }
 
   return status;
 }

@@ -772,12 +772,19 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   const int job_id = next_job_id_.fetch_add(1);
 
+  // use primary host's db_id for running the compaction, but db_session_id is
+  // using the local one, which is to make sure the unique id is unique from
+  // the remote compactors. Because the id is generated from db_id,
+  // db_session_id and orig_file_number, unlike the local compaction, remote
+  // compaction cannot guarantee the uniqueness of orig_file_number, the file
+  // number is only assigned when compaction is done.
   CompactionServiceCompactionJob compaction_job(
       job_id, c.get(), immutable_db_options_, mutable_db_options_,
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       &log_buffer, output_dir.get(), stats_, &mutex_, &error_handler_,
       input.snapshots, table_cache_, &event_logger_, dbname_, io_tracer_,
-      options.canceled, db_id_, db_session_id_, secondary_path_, input, result);
+      options.canceled, input.db_id, db_session_id_, secondary_path_, input,
+      result);
 
   mutex_.Unlock();
   s = compaction_job.Run();
