@@ -518,7 +518,7 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
     }
   }
 
-  if (max_output_file_size_ != port::kMaxUint64 &&
+  if (max_output_file_size_ != std::numeric_limits<uint64_t>::max() &&
       (immutable_options_.compaction_style == kCompactionStyleLevel ||
        output_level() > 0)) {
     preallocation_size = std::min(max_output_file_size_, preallocation_size);
@@ -616,7 +616,7 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
 
 uint64_t Compaction::MinInputFileOldestAncesterTime(
     const InternalKey* start, const InternalKey* end) const {
-  uint64_t min_oldest_ancester_time = port::kMaxUint64;
+  uint64_t min_oldest_ancester_time = std::numeric_limits<uint64_t>::max();
   const InternalKeyComparator& icmp =
       column_family_data()->internal_comparator();
   for (const auto& level_files : inputs_) {

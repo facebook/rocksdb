@@ -1596,9 +1596,9 @@ TEST_P(WritePreparedTransactionTest, SmallestUnCommittedSeq) {
   const int cnt = 100;
   for (int i = 0; i < cnt; i++) {
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
-    ASSERT_OK(txn->SetName("xid" + ToString(i)));
-    auto key = "key1" + ToString(i);
-    auto value = "value1" + ToString(i);
+    ASSERT_OK(txn->SetName("xid" + std::to_string(i)));
+    auto key = "key1" + std::to_string(i);
+    auto value = "value1" + std::to_string(i);
     ASSERT_OK(txn->Put(Slice(key), Slice(value)));
     ASSERT_OK(txn->Prepare());
     txns.push_back(txn);
@@ -2229,7 +2229,7 @@ TEST_P(WritePreparedTransactionTest, Rollback) {
       for (bool crash : {false, true}) {
         ASSERT_OK(ReOpen());
         WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-        std::string key_str = "key" + ToString(ikey);
+        std::string key_str = "key" + std::to_string(ikey);
         switch (ivalue) {
           case 0:
             break;
@@ -2335,7 +2335,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecovery) {
   std::vector<KeyVersion> versions;
   uint64_t seq = 0;
   for (uint64_t i = 1; i <= 1024; i++) {
-    std::string v = "bar" + ToString(i);
+    std::string v = "bar" + std::to_string(i);
     ASSERT_OK(db->Put(WriteOptions(), "foo", v));
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
@@ -3292,7 +3292,7 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_OK(ReOpen());
 
   for (size_t i = 0; i < kNumTransactions; i++) {
-    std::string key = "key" + ToString(i);
+    std::string key = "key" + std::to_string(i);
     std::string value = "value0";
     ASSERT_OK(db->Put(WriteOptions(), key, value));
     current_data[key] = value;
@@ -3302,16 +3302,16 @@ TEST_P(WritePreparedTransactionTest,
   for (size_t iter = 0; iter < kNumIterations; iter++) {
     auto r = rnd.Next() % (kNumTransactions + 1);
     if (r < kNumTransactions) {
-      std::string key = "key" + ToString(r);
+      std::string key = "key" + std::to_string(r);
       if (transactions[r] == nullptr) {
-        std::string value = "value" + ToString(versions[r] + 1);
+        std::string value = "value" + std::to_string(versions[r] + 1);
         auto* txn = db->BeginTransaction(WriteOptions());
-        ASSERT_OK(txn->SetName("txn" + ToString(r)));
+        ASSERT_OK(txn->SetName("txn" + std::to_string(r)));
         ASSERT_OK(txn->Put(key, value));
         ASSERT_OK(txn->Prepare());
         transactions[r] = txn;
       } else {
-        std::string value = "value" + ToString(++versions[r]);
+        std::string value = "value" + std::to_string(++versions[r]);
         ASSERT_OK(transactions[r]->Commit());
         delete transactions[r];
         transactions[r] = nullptr;
@@ -3888,7 +3888,7 @@ TEST_P(WritePreparedTransactionTest, CommitOfDelayedPrepared) {
           Transaction* txn =
               db->BeginTransaction(WriteOptions(), TransactionOptions());
           ASSERT_OK(txn->SetName("xid"));
-          std::string val_str = "value" + ToString(i);
+          std::string val_str = "value" + std::to_string(i);
           for (size_t b = 0; b < sub_batch_cnt; b++) {
             ASSERT_OK(txn->Put(Slice("key2"), val_str));
           }

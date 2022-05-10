@@ -1009,7 +1009,7 @@ TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
       if (log_files.size() > 0) {
         earliest_log_nums[i] = log_files[0]->LogNumber();
       } else {
-        earliest_log_nums[i] = port::kMaxUint64;
+        earliest_log_nums[i] = std::numeric_limits<uint64_t>::max();
       }
     }
     // Check at least the first WAL was cleaned up during the recovery.
@@ -1288,7 +1288,7 @@ class RecoveryTestHelper {
 
       WriteBatch batch;
       for (int i = 0; i < kKeysPerWALFile; i++) {
-        std::string key = "key" + ToString((*count)++);
+        std::string key = "key" + std::to_string((*count)++);
         std::string value = test->DummyString(kValueSize);
         ASSERT_NE(current_log_writer.get(), nullptr);
         uint64_t seq = versions->LastSequence() + 1;
@@ -1319,7 +1319,7 @@ class RecoveryTestHelper {
   static size_t GetData(DBWALTestBase* test) {
     size_t count = 0;
     for (size_t i = 0; i < kWALFilesCount * kKeysPerWALFile; i++) {
-      if (test->Get("key" + ToString(i)) != "NOT_FOUND") {
+      if (test->Get("key" + std::to_string(i)) != "NOT_FOUND") {
         ++count;
       }
     }
@@ -1616,7 +1616,7 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   if (!trunc || corrupt_offset != 0) {
     bool expect_data = true;
     for (size_t k = 0; k < maxkeys; ++k) {
-      bool found = Get("key" + ToString(k)) != "NOT_FOUND";
+      bool found = Get("key" + std::to_string(k)) != "NOT_FOUND";
       if (expect_data && !found) {
         expect_data = false;
       }
@@ -1752,7 +1752,7 @@ TEST_F(DBWALTest, RecoverWithoutFlush) {
   size_t count = RecoveryTestHelper::FillData(this, &options);
   auto validateData = [this, count]() {
     for (size_t i = 0; i < count; i++) {
-      ASSERT_NE(Get("key" + ToString(i)), "NOT_FOUND");
+      ASSERT_NE(Get("key" + std::to_string(i)), "NOT_FOUND");
     }
   };
   Reopen(options);
@@ -1891,7 +1891,7 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
   ASSERT_OK(TryReopen(options));
   // Append some more data.
   for (int k = 0; k < kAppendKeys; k++) {
-    std::string key = "extra_key" + ToString(k);
+    std::string key = "extra_key" + std::to_string(k);
     std::string value = DummyString(RecoveryTestHelper::kValueSize);
     ASSERT_OK(Put(key, value));
   }
@@ -1925,7 +1925,7 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
   std::string value_300k(300 * kKB, 'v');
   ASSERT_OK(Put(0, "foo", "v1"));
   for (int i = 0; i < 9; i++) {
-    ASSERT_OK(Put(1, "key" + ToString(i), value_100k));
+    ASSERT_OK(Put(1, "key" + std::to_string(i), value_100k));
   }
   // Get log files before reopen.
   VectorLogPtr log_files_before;

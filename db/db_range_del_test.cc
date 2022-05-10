@@ -190,9 +190,10 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_EQ(NumTableFilesAtLevel(2), 2);
 
-  ASSERT_OK(db_->SetOptions(
-      db_->DefaultColumnFamily(),
-      {{"target_file_size_base", ToString(100 * opts.max_compaction_bytes)}}));
+  ASSERT_OK(
+      db_->SetOptions(db_->DefaultColumnFamily(),
+                      {{"target_file_size_base",
+                        std::to_string(100 * opts.max_compaction_bytes)}}));
 
   // It spans the whole key-range, thus will be included in all output files
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
@@ -500,7 +501,8 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       1 /* input_level */, 2 /* output_level */, CompactRangeOptions(),
       nullptr /* begin */, nullptr /* end */, true /* exclusive */,
       true /* disallow_trivial_move */,
-      port::kMaxUint64 /* max_file_num_to_ignore */, "" /*trim_ts*/));
+      std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+      "" /*trim_ts*/));
 }
 #endif  // ROCKSDB_LITE
 

@@ -9,9 +9,7 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif // NDEBUG
 #include "rocksdb/utilities/transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -191,7 +189,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (thread->rand.OneInOpt(FLAGS_clear_column_family_one_in)) {
         // drop column family and then create it again (can't drop default)
         int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;
-        std::string new_name = ToString(new_column_family_name_.fetch_add(1));
+        std::string new_name =
+            std::to_string(new_column_family_name_.fetch_add(1));
         {
           MutexLock l(thread->shared->GetMutex());
           fprintf(
@@ -234,20 +233,15 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string from_db;
     int error_count = 0;
 
-#ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->EnableErrorInjection();
       SharedState::ignore_read_error = false;
     }
-#endif // NDEBUG
     Status s = db_->Get(read_opts, cfh, key, &from_db);
-#ifndef NDEBUG
     if (fault_fs_guard) {
       error_count = fault_fs_guard->GetAndResetErrorCount();
     }
-#endif // NDEBUG
     if (s.ok()) {
-#ifndef NDEBUG
       if (fault_fs_guard) {
         if (error_count && !SharedState::ignore_read_error) {
           // Grab mutex so multiple thread don't try to print the
@@ -259,7 +253,6 @@ class NonBatchedOpsStressTest : public StressTest {
           std::terminate();
         }
       }
-#endif // NDEBUG
       // found case
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
@@ -273,11 +266,9 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->stats.AddVerifiedErrors(1);
       }
     }
-#ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->DisableErrorInjection();
     }
-#endif // NDEBUG
     return s;
   }
 
@@ -365,19 +356,15 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!use_txn) {
-#ifndef NDEBUG
       if (fault_fs_guard) {
         fault_fs_guard->EnableErrorInjection();
         SharedState::ignore_read_error = false;
       }
-#endif // NDEBUG
       db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-#ifndef NDEBUG
       if (fault_fs_guard) {
         error_count = fault_fs_guard->GetAndResetErrorCount();
       }
-#endif // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
@@ -385,7 +372,6 @@ class NonBatchedOpsStressTest : public StressTest {
 #endif
     }
 
-#ifndef NDEBUG
     if (fault_fs_guard && error_count && !SharedState::ignore_read_error) {
       int stat_nok = 0;
       for (const auto& s : statuses) {
@@ -409,7 +395,6 @@ class NonBatchedOpsStressTest : public StressTest {
     if (fault_fs_guard) {
       fault_fs_guard->DisableErrorInjection();
     }
-#endif // NDEBUG
 
     for (size_t i = 0; i < statuses.size(); ++i) {
       Status s = statuses[i];
@@ -805,7 +790,7 @@ class NonBatchedOpsStressTest : public StressTest {
                               const std::vector<int64_t>& rand_keys,
                               std::unique_ptr<MutexLock>& lock) override {
     const std::string sst_filename =
-        FLAGS_db + "/." + ToString(thread->tid) + ".sst";
+        FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
     if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file

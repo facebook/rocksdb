@@ -463,43 +463,43 @@ bool SerializeSingleOptionHelper(const void* opt_address,
       *value = *(static_cast<const bool*>(opt_address)) ? "true" : "false";
       break;
     case OptionType::kInt:
-      *value = ToString(*(static_cast<const int*>(opt_address)));
+      *value = std::to_string(*(static_cast<const int*>(opt_address)));
       break;
     case OptionType::kInt32T:
-      *value = ToString(*(static_cast<const int32_t*>(opt_address)));
+      *value = std::to_string(*(static_cast<const int32_t*>(opt_address)));
       break;
     case OptionType::kInt64T:
       {
         int64_t v;
         GetUnaligned(static_cast<const int64_t*>(opt_address), &v);
-        *value = ToString(v);
+        *value = std::to_string(v);
       }
       break;
     case OptionType::kUInt:
-      *value = ToString(*(static_cast<const unsigned int*>(opt_address)));
+      *value = std::to_string(*(static_cast<const unsigned int*>(opt_address)));
       break;
     case OptionType::kUInt8T:
-      *value = ToString(*(static_cast<const uint8_t*>(opt_address)));
+      *value = std::to_string(*(static_cast<const uint8_t*>(opt_address)));
       break;
     case OptionType::kUInt32T:
-      *value = ToString(*(static_cast<const uint32_t*>(opt_address)));
+      *value = std::to_string(*(static_cast<const uint32_t*>(opt_address)));
       break;
     case OptionType::kUInt64T:
       {
         uint64_t v;
         GetUnaligned(static_cast<const uint64_t*>(opt_address), &v);
-        *value = ToString(v);
+        *value = std::to_string(v);
       }
       break;
     case OptionType::kSizeT:
       {
         size_t v;
         GetUnaligned(static_cast<const size_t*>(opt_address), &v);
-        *value = ToString(v);
+        *value = std::to_string(v);
       }
       break;
     case OptionType::kDouble:
-      *value = ToString(*(static_cast<const double*>(opt_address)));
+      *value = std::to_string(*(static_cast<const double*>(opt_address)));
       break;
     case OptionType::kString:
       *value =

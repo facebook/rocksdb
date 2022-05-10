@@ -1974,7 +1974,8 @@ Status CompactionJob::FinishCompactionOutputFile(
         refined_oldest_ancester_time =
             sub_compact->compaction->MinInputFileOldestAncesterTime(
                 &(meta->smallest), &(meta->largest));
-        if (refined_oldest_ancester_time != port::kMaxUint64) {
+        if (refined_oldest_ancester_time !=
+            std::numeric_limits<uint64_t>::max()) {
           meta->oldest_ancester_time = refined_oldest_ancester_time;
         }
       }
@@ -2264,7 +2265,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->MinInputFileOldestAncesterTime(
           (sub_compact->start != nullptr) ? &tmp_start : nullptr,
           (sub_compact->end != nullptr) ? &tmp_end : nullptr);
-  if (oldest_ancester_time == port::kMaxUint64) {
+  if (oldest_ancester_time == std::numeric_limits<uint64_t>::max()) {
     oldest_ancester_time = current_time;
   }
 
@@ -2458,7 +2459,7 @@ void CompactionJob::LogCompaction() {
            << "compaction_reason"
            << GetCompactionReasonString(compaction->compaction_reason());
     for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
-      stream << ("files_L" + ToString(compaction->level(i)));
+      stream << ("files_L" + std::to_string(compaction->level(i)));
       stream.StartArray();
       for (auto f : *compaction->inputs(i)) {
         stream << f->fd.GetNumber();
@@ -3009,7 +3010,7 @@ Status CompactionServiceInput::Read(const std::string& data_str,
   } else {
     return Status::NotSupported(
         "Compaction Service Input data version not supported: " +
-        ToString(format_version));
+        std::to_string(format_version));
   }
 }
 
@@ -3038,7 +3039,7 @@ Status CompactionServiceResult::Read(const std::string& data_str,
   } else {
     return Status::NotSupported(
         "Compaction Service Result data version not supported: " +
-        ToString(format_version));
+        std::to_string(format_version));
   }
 }
 

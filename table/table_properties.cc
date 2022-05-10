@@ -17,7 +17,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 const uint32_t TablePropertiesCollectorFactory::Context::kUnknownColumnFamily =
-    port::kMaxInt32;
+    std::numeric_limits<int32_t>::max();
 
 namespace {
   void AppendProperty(
@@ -39,9 +39,7 @@ namespace {
       const TValue& value,
       const std::string& prop_delim,
       const std::string& kv_delim) {
-    AppendProperty(
-        props, key, ToString(value), prop_delim, kv_delim
-    );
+    AppendProperty(props, key, std::to_string(value), prop_delim, kv_delim);
   }
 }
 
@@ -107,7 +105,7 @@ std::string TableProperties::ToString(
                          ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory::
                              Context::kUnknownColumnFamily
                      ? std::string("N/A")
-                     : ROCKSDB_NAMESPACE::ToString(column_family_id),
+                     : std::to_string(column_family_id),
                  prop_delim, kv_delim);
   AppendProperty(
       result, "column family name",

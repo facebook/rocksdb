@@ -63,6 +63,9 @@ scriptpath=`dirname ${BASH_SOURCE[0]}`
 test_dir=${TEST_TMPDIR:-"/tmp"}"/rocksdb_format_compatible_$USER"
 rm -rf ${test_dir:?}
 
+# Prevent 'make clean' etc. from wiping out test_dir
+export TEST_TMPDIR=$test_dir"/misc"
+
 # For saving current version of scripts as we checkout different versions to test
 script_copy_dir=$test_dir"/script_copy"
 mkdir -p $script_copy_dir

@@ -71,7 +71,7 @@ class FilePrefetchBuffer {
         readahead_size_(readahead_size),
         initial_auto_readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
-        min_offset_read_(port::kMaxSizet),
+        min_offset_read_(std::numeric_limits<size_t>::max()),
         enable_(enable),
         track_min_offset_(track_min_offset),
         implicit_auto_readahead_(implicit_auto_readahead),

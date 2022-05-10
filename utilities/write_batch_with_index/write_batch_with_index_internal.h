@@ -95,7 +95,7 @@ struct WriteBatchIndexEntry {
                        bool is_forward_direction, bool is_seek_to_first)
       // For SeekForPrev(), we need to make the dummy entry larger than any
       // entry who has the same search key. Otherwise, we'll miss those entries.
-      : offset(is_forward_direction ? 0 : port::kMaxSizet),
+      : offset(is_forward_direction ? 0 : std::numeric_limits<size_t>::max()),
         column_family(_column_family),
         key_offset(0),
         key_size(is_seek_to_first ? kFlagMinInCf : 0),
@@ -105,7 +105,7 @@ struct WriteBatchIndexEntry {
 
   // If this flag appears in the key_size, it indicates a
   // key that is smaller than any other entry for the same column family.
-  static const size_t kFlagMinInCf = port::kMaxSizet;
+  static const size_t kFlagMinInCf = std::numeric_limits<size_t>::max();
 
   bool is_min_in_cf() const {
     assert(key_size != kFlagMinInCf ||

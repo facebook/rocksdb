@@ -133,13 +133,21 @@ class SharedState {
     for (int i = 0; i < FLAGS_column_families; ++i) {
       key_locks_[i].reset(new port::Mutex[num_locks]);
     }
-#ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
+#ifdef NDEBUG
+      // Unsupported in release mode because it relies on
+      // `IGNORE_STATUS_IF_ERROR` to distinguish faults not expected to lead to
+      // failure.
+      fprintf(stderr,
+              "Cannot set nonzero value for --read_fault_one_in in "
+              "release mode.");
+      exit(1);
+#else   // NDEBUG
       SyncPoint::GetInstance()->SetCallBack("FaultInjectionIgnoreError",
                                             IgnoreReadErrorCallback);
       SyncPoint::GetInstance()->EnableProcessing();
+#endif  // NDEBUG
     }
-#endif // NDEBUG
   }
 
   ~SharedState() {

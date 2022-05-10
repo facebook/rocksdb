@@ -5,7 +5,7 @@
 # build DB_STRESS_CMD so it must exist prior.
 DB_STRESS_CMD?=./db_stress
 
-include python.mk
+include common.mk
 
 CRASHTEST_MAKE=$(MAKE) -f crash_test.mk
 CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD)

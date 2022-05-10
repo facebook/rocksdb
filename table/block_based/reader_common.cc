@@ -43,10 +43,10 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
       computed = crc32c::Unmask(computed);
     }
     return Status::Corruption(
-        "block checksum mismatch: stored = " + ToString(stored) +
-        ", computed = " + ToString(computed) + ", type = " + ToString(type) +
-        "  in " + file_name + " offset " + ToString(offset) + " size " +
-        ToString(block_size));
+        "block checksum mismatch: stored = " + std::to_string(stored) +
+        ", computed = " + std::to_string(computed) +
+        ", type = " + std::to_string(type) + "  in " + file_name + " offset " +
+        std::to_string(offset) + " size " + std::to_string(block_size));
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

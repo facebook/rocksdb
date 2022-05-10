@@ -295,7 +295,7 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset) {
     format_version_ = DecodeFixed32(part3_ptr);
     if (!IsSupportedFormatVersion(format_version_)) {
       return Status::Corruption("Corrupt or unsupported format_version: " +
-                                ROCKSDB_NAMESPACE::ToString(format_version_));
+                                std::to_string(format_version_));
     }
     // All known format versions >= 1 occupy exactly this many bytes.
     if (input.size() < kNewVersionsEncodedLength) {
@@ -308,9 +308,8 @@ Status Footer::DecodeFrom(Slice input, uint64_t input_offset) {
     char chksum = input.data()[0];
     checksum_type_ = lossless_cast<ChecksumType>(chksum);
     if (!IsSupportedChecksumType(checksum_type())) {
-      return Status::Corruption(
-          "Corrupt or unsupported checksum type: " +
-          ROCKSDB_NAMESPACE::ToString(lossless_cast<uint8_t>(chksum)));
+      return Status::Corruption("Corrupt or unsupported checksum type: " +
+                                std::to_string(lossless_cast<uint8_t>(chksum)));
     }
     // Consume checksum type field
     input.remove_prefix(1);
@@ -333,15 +332,15 @@ std::string Footer::ToString() const {
   if (legacy) {
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("table_magic_number: " +
-                  ROCKSDB_NAMESPACE::ToString(table_magic_number_) + "\n  ");
+    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
+                  "\n  ");
   } else {
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("table_magic_number: " +
-                  ROCKSDB_NAMESPACE::ToString(table_magic_number_) + "\n  ");
-    result.append("format version: " +
-                  ROCKSDB_NAMESPACE::ToString(format_version_) + "\n  ");
+    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
+                  "\n  ");
+    result.append("format version: " + std::to_string(format_version_) +
+                  "\n  ");
   }
   return result;
 }
@@ -351,7 +350,8 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
                           uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
-    return Status::Corruption("file is too short (" + ToString(file_size) +
+    return Status::Corruption("file is too short (" +
+                              std::to_string(file_size) +
                               " bytes) to be an "
                               "sstable: " +
                               file->file_name());
@@ -390,7 +390,8 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    return Status::Corruption("file is too short (" + ToString(file_size) +
+    return Status::Corruption("file is too short (" +
+                              std::to_string(file_size) +
                               " bytes) to be an "
                               "sstable" +
                               file->file_name());
@@ -402,10 +403,11 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   }
   if (enforce_table_magic_number != 0 &&
       enforce_table_magic_number != footer->table_magic_number()) {
-    return Status::Corruption(
-        "Bad table magic number: expected " +
-        ToString(enforce_table_magic_number) + ", found " +
-        ToString(footer->table_magic_number()) + " in " + file->file_name());
+    return Status::Corruption("Bad table magic number: expected " +
+                              std::to_string(enforce_table_magic_number) +
+                              ", found " +
+                              std::to_string(footer->table_magic_number()) +
+                              " in " + file->file_name());
   }
   return Status::OK();
 }
