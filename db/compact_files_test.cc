@@ -220,7 +220,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   // create couple files
   for (int i = 1000; i < 2000; ++i) {
     ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i),
-                      std::string(kWriteBufferSize / 10, 'a' + (i % 26))));
+                       std::string(kWriteBufferSize / 10, 'a' + (i % 26))));
   }
 
   auto l0_files = collector->GetFlushedFiles();
@@ -252,14 +252,14 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   // create couple files
   for (int i = 0; i < 500; ++i) {
     ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i),
-                      std::string(1000, 'a' + (i % 26))));
+                       std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForFlushMemTable());
   auto l0_files_1 = collector->GetFlushedFiles();
   collector->ClearFlushedFiles();
   for (int i = 0; i < 500; ++i) {
     ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i),
-                      std::string(1000, 'a' + (i % 26))));
+                       std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForFlushMemTable());
   auto l0_files_2 = collector->GetFlushedFiles();
