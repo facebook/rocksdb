@@ -48,6 +48,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/math.h"
+#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
@@ -179,6 +180,61 @@ class BackupEngineImpl {
   ShareFilesNaming GetNamingFlags() const {
     return options_.share_files_with_checksum_naming &
            BackupEngineOptions::kMaskNamingFlags;
+  }
+
+  void TEST_SetDefaultRateLimitersClock(
+      const std::shared_ptr<SystemClock>& backup_rate_limiter_clock,
+      const std::shared_ptr<SystemClock>& restore_rate_limiter_clock) {
+    if (backup_rate_limiter_clock) {
+      assert(options_.backup_rate_limiter->IsInstanceOf(
+          GenericRateLimiter::kClassName()));
+      auto* backup_rate_limiter_options =
+          options_.backup_rate_limiter
+              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
+
+      assert(backup_rate_limiter_options);
+      RateLimiter::Mode backup_rate_limiter_mode;
+      if (!options_.backup_rate_limiter->IsRateLimited(
+              RateLimiter::OpType::kRead)) {
+        backup_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
+      } else if (!options_.backup_rate_limiter->IsRateLimited(
+                     RateLimiter::OpType::kWrite)) {
+        backup_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
+      } else {
+        backup_rate_limiter_mode = RateLimiter::Mode::kAllIo;
+      }
+      options_.backup_rate_limiter.reset(new GenericRateLimiter(
+          backup_rate_limiter_options->max_bytes_per_sec,
+          backup_rate_limiter_options->refill_period_us,
+          backup_rate_limiter_options->fairness, backup_rate_limiter_mode,
+          backup_rate_limiter_clock, backup_rate_limiter_options->auto_tuned));
+    }
+
+    if (restore_rate_limiter_clock) {
+      assert(options_.restore_rate_limiter->IsInstanceOf(
+          GenericRateLimiter::kClassName()));
+      auto* restore_rate_limiter_options =
+          options_.restore_rate_limiter
+              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
+      assert(restore_rate_limiter_options);
+
+      RateLimiter::Mode restore_rate_limiter_mode;
+      if (!options_.restore_rate_limiter->IsRateLimited(
+              RateLimiter::OpType::kRead)) {
+        restore_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
+      } else if (!options_.restore_rate_limiter->IsRateLimited(
+                     RateLimiter::OpType::kWrite)) {
+        restore_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
+      } else {
+        restore_rate_limiter_mode = RateLimiter::Mode::kAllIo;
+      }
+      options_.restore_rate_limiter.reset(new GenericRateLimiter(
+          restore_rate_limiter_options->max_bytes_per_sec,
+          restore_rate_limiter_options->refill_period_us,
+          restore_rate_limiter_options->fairness, restore_rate_limiter_mode,
+          restore_rate_limiter_clock,
+          restore_rate_limiter_options->auto_tuned));
+    }
   }
 
  private:
@@ -940,6 +996,15 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   void TEST_SetBackupMetaSchemaOptions(
       const TEST_BackupMetaSchemaOptions& options) {
     impl_.schema_test_options_.reset(new TEST_BackupMetaSchemaOptions(options));
+  }
+
+  // Not public API but used in testing
+  void TEST_SetDefaultRateLimitersClock(
+      const std::shared_ptr<SystemClock>& backup_rate_limiter_clock = nullptr,
+      const std::shared_ptr<SystemClock>& restore_rate_limiter_clock =
+          nullptr) {
+    impl_.TEST_SetDefaultRateLimitersClock(backup_rate_limiter_clock,
+                                           restore_rate_limiter_clock);
   }
 
  private:
@@ -3162,6 +3227,15 @@ void TEST_SetBackupMetaSchemaOptions(
   impl->TEST_SetBackupMetaSchemaOptions(options);
 }
 
+void TEST_SetDefaultRateLimitersClock(
+    BackupEngine* engine,
+    const std::shared_ptr<SystemClock>& backup_rate_limiter_clock,
+    const std::shared_ptr<SystemClock>& restore_rate_limiter_clock) {
+  BackupEngineImplThreadSafe* impl =
+      static_cast_with_check<BackupEngineImplThreadSafe>(engine);
+  impl->TEST_SetDefaultRateLimitersClock(backup_rate_limiter_clock,
+                                         restore_rate_limiter_clock);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE
