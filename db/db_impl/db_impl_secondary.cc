@@ -247,15 +247,16 @@ Status DBImplSecondary::RecoverLogFiles(
           if (seq_of_batch <= seq) {
             continue;
           }
-          auto curr_log_num = port::kMaxUint64;
+          auto curr_log_num = std::numeric_limits<uint64_t>::max();
           if (cfd_to_current_log_.count(cfd) > 0) {
             curr_log_num = cfd_to_current_log_[cfd];
           }
           // If the active memtable contains records added by replaying an
           // earlier WAL, then we need to seal the memtable, add it to the
           // immutable memtable list and create a new active memtable.
-          if (!cfd->mem()->IsEmpty() && (curr_log_num == port::kMaxUint64 ||
-                                         curr_log_num != log_number)) {
+          if (!cfd->mem()->IsEmpty() &&
+              (curr_log_num == std::numeric_limits<uint64_t>::max() ||
+               curr_log_num != log_number)) {
             const MutableCFOptions mutable_cf_options =
                 *cfd->GetLatestMutableCFOptions();
             MemTable* new_mem =

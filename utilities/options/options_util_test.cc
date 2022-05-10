@@ -505,7 +505,7 @@ static void WriteOptionsFile(Env* env, const std::string& path,
       "\n"
       "[Version]\n"
       "  rocksdb_version=" +
-      ToString(major) + "." + ToString(minor) +
+      std::to_string(major) + "." + std::to_string(minor) +
       ".0\n"
       "  options_file_version=1\n";
 

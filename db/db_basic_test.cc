@@ -3784,7 +3784,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
 
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
-      std::string key = "k" + ToString(i);
+      std::string key = "k" + std::to_string(i);
       ASSERT_OK(Put(key, rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());
@@ -3867,7 +3867,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
 
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
-      std::string key = "k" + ToString(i);
+      std::string key = "k" + std::to_string(i);
       ASSERT_OK(Put(key, rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());

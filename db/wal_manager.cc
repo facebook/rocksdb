@@ -378,9 +378,8 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   *sequence = 0;
   if (type != kAliveLogFile && type != kArchivedLogFile) {
     ROCKS_LOG_ERROR(db_options_.info_log, "[WalManger] Unknown file type %s",
-                    ToString(type).c_str());
-    return Status::NotSupported(
-        "File Type Not Known " + ToString(type));
+                    std::to_string(type).c_str());
+    return Status::NotSupported("File Type Not Known " + std::to_string(type));
   }
   {
     MutexLock l(&read_first_record_cache_mutex_);

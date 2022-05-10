@@ -268,10 +268,10 @@ class CompactionJobStatsTest : public testing::Test,
     if (cf == 0) {
       // default cfd
       EXPECT_TRUE(db_->GetProperty(
-          "rocksdb.num-files-at-level" + ToString(level), &property));
+          "rocksdb.num-files-at-level" + std::to_string(level), &property));
     } else {
       EXPECT_TRUE(db_->GetProperty(
-          handles_[cf], "rocksdb.num-files-at-level" + ToString(level),
+          handles_[cf], "rocksdb.num-files-at-level" + std::to_string(level),
           &property));
     }
     return atoi(property.c_str());
@@ -672,7 +672,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
       snprintf(buf, kBufSize, "%d", ++num_L0_files);
       ASSERT_EQ(std::string(buf), FilesPerLevel(1));
     }
-    ASSERT_EQ(ToString(num_L0_files), FilesPerLevel(1));
+    ASSERT_EQ(std::to_string(num_L0_files), FilesPerLevel(1));
 
     // 2nd Phase: perform L0 -> L1 compaction.
     int L0_compaction_count = 6;

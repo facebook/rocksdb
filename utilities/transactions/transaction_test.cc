@@ -574,8 +574,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   for (uint32_t i = 0; i < 31; i++) {
     txns[i] = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txns[i]);
-    auto s = txns[i]->GetForUpdate(read_options, ToString((i + 1) / 2), nullptr,
-                                   false /* exclusive */);
+    auto s = txns[i]->GetForUpdate(read_options, std::to_string((i + 1) / 2),
+                                   nullptr, false /* exclusive */);
     ASSERT_OK(s);
   }
 
@@ -589,8 +589,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   std::vector<port::Thread> threads;
   for (uint32_t i = 0; i < 15; i++) {
     std::function<void()> blocking_thread = [&, i] {
-      auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr,
-                                     true /* exclusive */);
+      auto s = txns[i]->GetForUpdate(read_options, std::to_string(i + 1),
+                                     nullptr, true /* exclusive */);
       ASSERT_OK(s);
       ASSERT_OK(txns[i]->Rollback());
       delete txns[i];
@@ -641,7 +641,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
       ASSERT_EQ(dl_node.m_cf_id, 0U);
-      ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
+      ASSERT_EQ(dl_node.m_waiting_key, std::to_string(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 
       if (curr_waiting_key == 0) {
@@ -708,7 +708,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   for (uint32_t i = 0; i < 2; i++) {
     txns_shared[i] = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txns_shared[i]);
-    auto s = txns_shared[i]->GetForUpdate(read_options, ToString(i), nullptr);
+    auto s =
+        txns_shared[i]->GetForUpdate(read_options, std::to_string(i), nullptr);
     ASSERT_OK(s);
   }
 
@@ -721,8 +722,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   std::vector<port::Thread> threads_shared;
   for (uint32_t i = 0; i < 1; i++) {
     std::function<void()> blocking_thread = [&, i] {
-      auto s =
-          txns_shared[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
+      auto s = txns_shared[i]->GetForUpdate(read_options, std::to_string(i + 1),
+                                            nullptr);
       ASSERT_OK(s);
       ASSERT_OK(txns_shared[i]->Rollback());
       delete txns_shared[i];
@@ -781,7 +782,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     for (uint32_t i = 0; i < len; i++) {
       txns[i] = db->BeginTransaction(write_options, txn_options);
       ASSERT_TRUE(txns[i]);
-      auto s = txns[i]->GetForUpdate(read_options, ToString(i), nullptr);
+      auto s = txns[i]->GetForUpdate(read_options, std::to_string(i), nullptr);
       ASSERT_OK(s);
     }
 
@@ -796,7 +797,8 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     std::vector<port::Thread> threads;
     for (uint32_t i = 0; i + 1 < len; i++) {
       std::function<void()> blocking_thread = [&, i] {
-        auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
+        auto s =
+            txns[i]->GetForUpdate(read_options, std::to_string(i + 1), nullptr);
         ASSERT_OK(s);
         ASSERT_OK(txns[i]->Rollback());
         delete txns[i];
@@ -848,7 +850,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
       ASSERT_EQ(dl_node.m_cf_id, 0u);
-      ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
+      ASSERT_EQ(dl_node.m_waiting_key, std::to_string(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 
       curr_txn_id--;
@@ -882,8 +884,8 @@ TEST_P(TransactionStressTest, DeadlockStress) {
   std::vector<std::string> keys;
 
   for (uint32_t i = 0; i < NUM_KEYS; i++) {
-    ASSERT_OK(db->Put(write_options, Slice(ToString(i)), Slice("")));
-    keys.push_back(ToString(i));
+    ASSERT_OK(db->Put(write_options, Slice(std::to_string(i)), Slice("")));
+    keys.push_back(std::to_string(i));
   }
 
   size_t tid = std::hash<std::thread::id>()(std::this_thread::get_id());
@@ -959,8 +961,8 @@ TEST_P(TransactionTest, LogMarkLeakTest) {
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
   for (size_t i = 0; i < 100; i++) {
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
-    ASSERT_OK(txn->SetName("xid" + ToString(i)));
-    ASSERT_OK(txn->Put(Slice("foo" + ToString(i)), Slice("bar")));
+    ASSERT_OK(txn->SetName("xid" + std::to_string(i)));
+    ASSERT_OK(txn->Put(Slice("foo" + std::to_string(i)), Slice("bar")));
     ASSERT_OK(txn->Prepare());
     ASSERT_GT(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
     if (rnd.OneIn(5)) {

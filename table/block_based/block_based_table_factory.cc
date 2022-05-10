@@ -658,7 +658,7 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "Block alignment requested but block size is not a power of 2");
   }
-  if (table_options_.block_size > port::kMaxUint32) {
+  if (table_options_.block_size > std::numeric_limits<uint32_t>::max()) {
     return Status::InvalidArgument(
         "block size exceeds maximum number (4GiB) allowed");
   }
@@ -686,8 +686,7 @@ Status BlockBasedTableFactory::ValidateOptions(
                                    table_options_.checksum, &garbage)) {
     return Status::InvalidArgument(
         "Unrecognized ChecksumType for checksum: " +
-        ROCKSDB_NAMESPACE::ToString(
-            static_cast<uint32_t>(table_options_.checksum)));
+        std::to_string(static_cast<uint32_t>(table_options_.checksum)));
   }
   return TableFactory::ValidateOptions(db_opts, cf_opts);
 }

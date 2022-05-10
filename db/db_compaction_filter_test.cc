@@ -454,7 +454,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   // put some data
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
   }
@@ -755,7 +755,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
 #ifndef ROCKSDB_LITE
 // Compaction filters aplies to all records, regardless snapshots.
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
-  std::string five = ToString(5);
+  std::string five = std::to_string(5);
   Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<DeleteISFilterFactory>();
   options.disable_auto_compactions = true;
@@ -766,7 +766,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   const Snapshot* snapshot = nullptr;
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
 
@@ -998,7 +998,7 @@ TEST_F(DBTestCompactionFilter, DropKeyWithSingleDelete) {
                       std::string* /*new_value*/,
                       std::string* /*skip_until*/) const override {
       if (key.starts_with("b")) {
-        return Decision::kRemoveWithSingleDelete;
+        return Decision::kPurge;
       }
       return Decision::kRemove;
     }

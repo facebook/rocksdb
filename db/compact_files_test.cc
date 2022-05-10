@@ -105,8 +105,8 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   // create couple files
   // Background compaction starts and waits in BackgroundCallCompaction:0
   for (int i = 0; i < kLevel0Trigger * 4; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i), ""));
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(100 - i), ""));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i), ""));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(100 - i), ""));
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
 
@@ -143,7 +143,7 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   // create couple files in L0, L3, L4 and L5
   for (int i = 5; i > 2; --i) {
     collector->ClearFlushedFiles();
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i), ""));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i), ""));
     ASSERT_OK(db_->Flush(FlushOptions()));
     // Ensure background work is fully finished including listener callbacks
     // before accessing listener state.
@@ -153,11 +153,11 @@ TEST_F(CompactFilesTest, MultipleLevel) {
     ASSERT_OK(db_->CompactFiles(CompactionOptions(), l0_files, i));
 
     std::string prop;
-    ASSERT_TRUE(
-        db_->GetProperty("rocksdb.num-files-at-level" + ToString(i), &prop));
+    ASSERT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(i), &prop));
     ASSERT_EQ("1", prop);
   }
-  ASSERT_OK(db_->Put(WriteOptions(), ToString(0), ""));
+  ASSERT_OK(db_->Put(WriteOptions(), std::to_string(0), ""));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
   ColumnFamilyMetaData meta;
@@ -219,8 +219,8 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   // create couple files
   for (int i = 1000; i < 2000; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i),
-                       std::string(kWriteBufferSize / 10, 'a' + (i % 26))));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i),
+                      std::string(kWriteBufferSize / 10, 'a' + (i % 26))));
   }
 
   auto l0_files = collector->GetFlushedFiles();
@@ -251,15 +251,15 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
 
   // create couple files
   for (int i = 0; i < 500; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i),
-                       std::string(1000, 'a' + (i % 26))));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i),
+                      std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForFlushMemTable());
   auto l0_files_1 = collector->GetFlushedFiles();
   collector->ClearFlushedFiles();
   for (int i = 0; i < 500; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i),
-                       std::string(1000, 'a' + (i % 26))));
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i),
+                      std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForFlushMemTable());
   auto l0_files_2 = collector->GetFlushedFiles();
@@ -281,7 +281,7 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
 
   // Create 5 files.
   for (int i = 0; i < 5; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), "key" + ToString(i), "value"));
+    ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i), "value"));
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
 
@@ -431,7 +431,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
 
   // create couple files
   for (int i = 0; i < 500; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), ToString(i),
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i),
                        std::string(1000, 'a' + (i % 26))));
   }
   ASSERT_OK(static_cast_with_check<DBImpl>(db_)->TEST_WaitForFlushMemTable());

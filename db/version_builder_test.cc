@@ -1702,11 +1702,9 @@ TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
   const uint32_t kDeletionsPerFile = 100;
   for (uint32_t i = 0; i < kNumFiles; ++i) {
     Add(static_cast<int>(i / kFilesPerLevel), i + 1,
-        ToString((i + 100) * 1000).c_str(),
-        ToString((i + 100) * 1000 + 999).c_str(),
-        100U,  0, 100, 100,
-        kEntriesPerFile, kDeletionsPerFile,
-        (i < kTotalSamples));
+        std::to_string((i + 100) * 1000).c_str(),
+        std::to_string((i + 100) * 1000 + 999).c_str(), 100U, 0, 100, 100,
+        kEntriesPerFile, kDeletionsPerFile, (i < kTotalSamples));
   }
   // minus 2X for the number of deletion entries because:
   // 1x for deletion entry does not count as a data entry.

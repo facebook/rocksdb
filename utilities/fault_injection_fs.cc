@@ -16,6 +16,7 @@
 
 #include "utilities/fault_injection_fs.h"
 
+#include <algorithm>
 #include <functional>
 #include <utility>
 
@@ -286,6 +287,33 @@ IOStatus TestFSWritableFile::Sync(const IOOptions& options,
   // Ignore sync errors
   target_->Sync(options, dbg).PermitUncheckedError();
   state_.pos_at_last_sync_ = state_.pos_;
+  fs_->WritableFileSynced(state_);
+  return io_s;
+}
+
+IOStatus TestFSWritableFile::RangeSync(uint64_t offset, uint64_t nbytes,
+                                       const IOOptions& options,
+                                       IODebugContext* dbg) {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  // Assumes caller passes consecutive byte ranges.
+  uint64_t sync_limit = offset + nbytes;
+  uint64_t buf_begin =
+      state_.pos_at_last_sync_ < 0 ? 0 : state_.pos_at_last_sync_;
+
+  IOStatus io_s;
+  if (sync_limit < buf_begin) {
+    return io_s;
+  }
+  uint64_t num_to_sync = std::min(static_cast<uint64_t>(state_.buffer_.size()),
+                                  sync_limit - buf_begin);
+  Slice buf_to_sync(state_.buffer_.data(), num_to_sync);
+  io_s = target_->Append(buf_to_sync, options, dbg);
+  state_.buffer_ = state_.buffer_.substr(num_to_sync);
+  // Ignore sync errors
+  target_->RangeSync(offset, nbytes, options, dbg).PermitUncheckedError();
+  state_.pos_at_last_sync_ = offset + num_to_sync;
   fs_->WritableFileSynced(state_);
   return io_s;
 }

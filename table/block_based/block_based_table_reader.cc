@@ -1811,10 +1811,11 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     if (s.ok()) {
       if ((req.result.size() != req.len) ||
           (req_offset + BlockSizeWithTrailer(handle) > req.result.size())) {
-        s = Status::Corruption(
-            "truncated block read from " + rep_->file->file_name() +
-            " offset " + ToString(handle.offset()) + ", expected " +
-            ToString(req.len) + " bytes, got " + ToString(req.result.size()));
+        s = Status::Corruption("truncated block read from " +
+                               rep_->file->file_name() + " offset " +
+                               std::to_string(handle.offset()) + ", expected " +
+                               std::to_string(req.len) + " bytes, got " +
+                               std::to_string(req.result.size()));
       }
     }
 
@@ -3236,7 +3237,7 @@ Status BlockBasedTable::CreateIndexReader(
     }
     default: {
       std::string error_message =
-          "Unrecognized index type: " + ToString(rep_->index_type);
+          "Unrecognized index type: " + std::to_string(rep_->index_type);
       return Status::InvalidArgument(error_message.c_str());
     }
   }
@@ -3659,8 +3660,8 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
     out_stream << "  # data blocks: " << num_datablocks << "\n";
     out_stream << "  min data block size: " << datablock_size_min << "\n";
     out_stream << "  max data block size: " << datablock_size_max << "\n";
-    out_stream << "  avg data block size: " << ToString(datablock_size_avg)
-               << "\n";
+    out_stream << "  avg data block size: "
+               << std::to_string(datablock_size_avg) << "\n";
   }
 
   return Status::OK();

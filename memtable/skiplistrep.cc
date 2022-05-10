@@ -353,7 +353,7 @@ SkipListFactory::SkipListFactory(size_t lookahead) : lookahead_(lookahead) {
 std::string SkipListFactory::GetId() const {
   std::string id = Name();
   if (lookahead_ > 0) {
-    id.append(":").append(ROCKSDB_NAMESPACE::ToString(lookahead_));
+    id.append(":").append(std::to_string(lookahead_));
   }
   return id;
 }

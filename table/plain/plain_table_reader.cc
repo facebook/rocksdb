@@ -416,14 +416,14 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   // Fill two table properties.
   if (!index_in_file) {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        ToString(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
+        std::to_string(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        ToString(index_.GetSubIndexSize());
+        std::to_string(index_.GetSubIndexSize());
   } else {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        ToString(0);
+        std::to_string(0);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        ToString(0);
+        std::to_string(0);
   }
 
   return Status::OK();

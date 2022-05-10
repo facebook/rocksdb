@@ -726,9 +726,10 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     assert(snap_impl->GetSequenceNumber() > max);
     if (snap_impl->GetSequenceNumber() <= max) {
       throw std::runtime_error(
-          "Snapshot seq " + ToString(snap_impl->GetSequenceNumber()) +
-          " after " + ToString(retry) +
-          " retries is still less than futre_max_evicted_seq_" + ToString(max));
+          "Snapshot seq " + std::to_string(snap_impl->GetSequenceNumber()) +
+          " after " + std::to_string(retry) +
+          " retries is still less than futre_max_evicted_seq_" +
+          std::to_string(max));
     }
   }
   EnhanceSnapshot(snap_impl, min_uncommitted);

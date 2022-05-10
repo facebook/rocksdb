@@ -177,7 +177,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   VectorLogPtr live_wal_files;
   bool flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
-    if (opts.wal_size_for_flush == port::kMaxUint64) {
+    if (opts.wal_size_for_flush == std::numeric_limits<uint64_t>::max()) {
       flush_memtable = false;
     } else if (opts.wal_size_for_flush > 0) {
       // If the outstanding log files are small, we skip the flush.

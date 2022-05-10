@@ -2817,7 +2817,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
 
   Random rnd(301);
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, ToString(key), rnd.RandomString(kTestValueSize)));
+    ASSERT_OK(Put(1, std::to_string(key), rnd.RandomString(kTestValueSize)));
   }
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -2849,7 +2849,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
 
   // make sure all key-values are still there.
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_NE(Get(1, ToString(key)), "NOT_FOUND");
+    ASSERT_NE(Get(1, std::to_string(key)), "NOT_FOUND");
   }
 }
 
@@ -4404,7 +4404,8 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
   for (CompactionFilterType comp_filter_type :
        {kUseCompactionFilter, kUseCompactionFilterFactory}) {
     // Assert that periodic compactions are not enabled.
-    ASSERT_EQ(port::kMaxUint64 - 1, options.periodic_compaction_seconds);
+    ASSERT_EQ(std::numeric_limits<uint64_t>::max() - 1,
+              options.periodic_compaction_seconds);
 
     if (comp_filter_type == kUseCompactionFilter) {
       options.compaction_filter = &test_compaction_filter;
@@ -4667,9 +4668,9 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   });
 
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush");
-  ASSERT_OK(Put(ToString(0), rnd.RandomString(1024)));
+  ASSERT_OK(Put(std::to_string(0), rnd.RandomString(1024)));
   ASSERT_OK(dbfull()->Flush(flush_opts));
-  ASSERT_OK(Put(ToString(0), rnd.RandomString(1024)));
+  ASSERT_OK(Put(std::to_string(0), rnd.RandomString(1024)));
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
   manual_compaction_thread.join();
 
@@ -4678,7 +4679,7 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   std::string num_keys_in_memtable;
   ASSERT_TRUE(db_->GetProperty(DB::Properties::kNumEntriesActiveMemTable,
                                &num_keys_in_memtable));
-  ASSERT_EQ(ToString(1), num_keys_in_memtable);
+  ASSERT_EQ(std::to_string(1), num_keys_in_memtable);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -4827,7 +4828,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -4837,7 +4838,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -5833,7 +5834,7 @@ TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
-  ASSERT_EQ(ToString(kSstNum), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kSstNum), FilesPerLevel(0));
 
   auto cro = CompactRangeOptions();
   cro.bottommost_level_compaction = bottommost_level_compaction_;
@@ -5846,7 +5847,7 @@ TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
     ASSERT_EQ("0,1", FilesPerLevel(0));
   } else {
     // Just trivial move from level 0 -> 1
-    ASSERT_EQ("0," + ToString(kSstNum), FilesPerLevel(0));
+    ASSERT_EQ("0," + std::to_string(kSstNum), FilesPerLevel(0));
   }
 }
 
@@ -7177,7 +7178,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFull) {
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ(ToString(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
 
   db_->DisableManualCompaction();
 
@@ -7234,7 +7235,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFullDBClose) {
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ(ToString(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
 
   db_->DisableManualCompaction();
 
@@ -7294,7 +7295,7 @@ TEST_F(DBCompactionTest, DBCloseWithManualCompaction) {
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ(ToString(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
 
   // Close DB with manual compaction and auto triggered compaction in the queue.
   auto s = db_->Close();

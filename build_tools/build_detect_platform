@@ -469,7 +469,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_MEMKIND; then
         # Test whether memkind library is installed
-        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o test.o 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -lmemkind 2>/dev/null  <<EOF
           #include <memkind.h>
           int main() {
             memkind_malloc(MEMKIND_DAX_KMEM, 1024);

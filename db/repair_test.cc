@@ -289,7 +289,7 @@ TEST_F(RepairTest, RepairMultipleColumnFamilies) {
   CreateAndReopenWithCF({"pikachu1", "pikachu2"}, CurrentOptions());
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_OK(Put(i, "key" + ToString(j), "val" + ToString(j)));
+      ASSERT_OK(Put(i, "key" + std::to_string(j), "val" + std::to_string(j)));
       if (j == kEntriesPerCf - 1 && i == kNumCfs - 1) {
         // Leave one unflushed so we can verify WAL entries are properly
         // associated with column families.
@@ -313,7 +313,7 @@ TEST_F(RepairTest, RepairMultipleColumnFamilies) {
                            CurrentOptions());
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+      ASSERT_EQ(Get(i, "key" + std::to_string(j)), "val" + std::to_string(j));
     }
   }
 }
@@ -334,7 +334,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
                            std::vector<Options>{opts, rev_opts});
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_OK(Put(i, "key" + ToString(j), "val" + ToString(j)));
+      ASSERT_OK(Put(i, "key" + std::to_string(j), "val" + std::to_string(j)));
       if (i == kNumCfs - 1 && j == kEntriesPerCf - 1) {
         // Leave one unflushed so we can verify RepairDB's flush logic
         continue;
@@ -352,7 +352,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
                                         std::vector<Options>{opts, rev_opts}));
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+      ASSERT_EQ(Get(i, "key" + std::to_string(j)), "val" + std::to_string(j));
     }
   }
 
@@ -377,7 +377,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
                                         std::vector<Options>{opts, rev_opts}));
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+      ASSERT_EQ(Get(i, "key" + std::to_string(j)), "val" + std::to_string(j));
     }
   }
 }
