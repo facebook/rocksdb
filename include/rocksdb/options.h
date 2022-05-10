@@ -1476,6 +1476,14 @@ struct ReadOptions {
   // Default: true
   bool fill_cache;
 
+  // Should the insertion of too large data blocks into the block cache fail
+  // with Status::Incomplete() when strict capacity limit is set for the cache?
+  // Callers may wish to set this to false so that blocks that are too large
+  // to be stored in the block do not produce Incomplete errors on reads when
+  // the cache's strict_capacity_limit flag is set.
+  // Default: true
+  bool return_incomplete_on_too_large_cache_inserts;
+
   // Specify to create a tailing iterator -- a special iterator that has a
   // view of the complete database (i.e. it can also be used to read newly
   // added data) and is optimized for sequential reads. It will return records

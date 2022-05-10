@@ -1574,6 +1574,22 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             key, block_cache, block_cache_compressed, block_entry, contents,
             raw_block_comp_type, uncompression_dict,
             GetMemoryAllocator(rep_->table_options), block_type, get_context);
+
+        // In case we get an Incomplete error back, it means that the block
+        // wasn't stored in the cache because we hit the cache's capacity limit.
+        if (s.IsIncomplete() &&
+            !ro.return_incomplete_on_too_large_cache_inserts) {
+          assert((block_cache != nullptr &&
+                  block_cache->HasStrictCapacityLimit()) ||
+                 (block_cache_compressed != nullptr &&
+                  block_cache_compressed->HasStrictCapacityLimit()));
+          // In case the option return_incomplete_on_too_large_cache_inserts is
+          // not set, it means we do not count the failed cache insertion as a
+          // failure, but simply return the just retrieved block. We have it in
+          // memory anyway already, so it is ok to use it for a bit longer as
+          // well.
+          s = Status::OK();
+        }
       }
     }
   }

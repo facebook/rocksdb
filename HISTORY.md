@@ -7,6 +7,7 @@
 * Fixed a CompactionFilter bug. Compaction filter used to use `Delete` to remove keys, even if the keys should be removed with `SingleDelete`. Mixing `Delete` and `SingleDelete` may cause undefined behavior.
 
 ### New Features
+* Add flag return_incomplete_on_too_large_cache_inserts to ReadOptions. The flag can be used to make reads succeed if the to be read entry would not fit into the block cache and a strict capacity limit is set for the cache. If the option is true (the default value), reads fail with status Incomplete if the read value cannot be inserted into the block cache due to the capacity limit. If the option is false, then such reads are successful, although the read value will still not be inserted into the block cache due to the capacity limit. Setting the flag to false will make the block cache fully transparent.
 * DB::GetLiveFilesStorageInfo is ready for production use.
 * Add new stats PREFETCHED_BYTES_DISCARDED which records number of prefetched bytes discarded by RocksDB FilePrefetchBuffer on destruction and POLL_WAIT_MICROS records wait time for FS::Poll API completion.
 

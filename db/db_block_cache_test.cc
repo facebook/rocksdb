@@ -181,6 +181,178 @@ class DBBlockCacheTest : public DBTestBase {
 #endif  // ROCKSDB_LITE
 };
 
+TEST_F(DBBlockCacheTest, BlockCacheStrictCapacityIncompleteRead) {
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  InitTable(options);
+
+  LRUCacheOptions co;
+  co.capacity = 1048576;
+  co.num_shard_bits = 8;
+  co.strict_capacity_limit = true;
+  // Needed not to count entry stats collector
+  co.metadata_charge_policy = kFullChargeCacheMetadata;
+  std::shared_ptr<Cache> cache = NewLRUCache(co);
+  table_options.block_cache = cache;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+  RecordCacheCounters(options);
+  
+  auto count_cache_entries = [&]() {
+    size_t entries = 0;
+    cache->ApplyToAllEntries([&](const Slice&, void*, size_t, Cache::DeleterFn) {
+      ++entries;
+    }, {});
+    return entries;
+  };
+  
+  std::string value0(16, 'a');
+  std::string value1(1024, 'b');
+  std::string value2(65536, 'c');
+  std::string value3(1048576, 'c');
+  std::string value4(1048577, 'd');
+  
+  ASSERT_OK(Put("test0", value0));
+  ASSERT_OK(Put("test1", value1));
+  ASSERT_OK(Put("test2", value2));
+  ASSERT_OK(Put("test3", value3));
+  ASSERT_OK(Put("test4", value4));
+
+  // flush everything so we can read back data from .sst files.
+  ASSERT_OK(Flush());
+  
+  std::string result;
+
+  // test case: use Get() API to check if reading overly large values
+  // return status Incomplete.
+  {
+    size_t initial_entries = count_cache_entries();
+
+    ReadOptions read_options;
+    read_options.fill_cache = true;
+    // reading overly large values will return Incomplete.
+    read_options.return_incomplete_on_too_large_cache_inserts = true;
+
+    ASSERT_OK(db_->Get(read_options, "test0", &result));
+    ASSERT_EQ(result, value0);
+
+    ASSERT_OK(db_->Get(read_options, "test1", &result));
+    ASSERT_EQ(result, value1);
+    
+    // cannot read these keys back because of the strict capacity limit
+    ASSERT_TRUE(db_->Get(read_options, "test2", &result).IsIncomplete());
+    ASSERT_TRUE(db_->Get(read_options, "test3", &result).IsIncomplete());
+    ASSERT_TRUE(db_->Get(read_options, "test4", &result).IsIncomplete());
+    
+    // 2 entries must have been inserted into the cache
+    ASSERT_EQ(initial_entries + 2, count_cache_entries());
+    ASSERT_LE(cache->GetUsage(), 65536);
+
+    cache->EraseUnRefEntries();
+
+    // test case: use iterator API to check if reading overly large values
+    // return status Incomplete.
+
+    initial_entries = count_cache_entries();
+
+    Iterator* iter = db_->NewIterator(read_options);
+    iter->Seek("test0");
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("test0", iter->key());
+    iter->Next();
+    
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("test1", iter->key());
+    iter->Next();
+    
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsIncomplete());
+
+    delete iter;
+    
+    ASSERT_LT(0, cache->GetUsage());
+    ASSERT_EQ(initial_entries + 2, count_cache_entries());
+  }
+  
+  cache->EraseUnRefEntries();
+
+  // test case: use Get() API to check if reading overly large values
+  // return status Incomplete.
+  {
+    size_t initial_entries = count_cache_entries();
+
+    ReadOptions read_options;
+    read_options.fill_cache = true;
+    // ensure we can read all the entries back, irrespective of their size.
+    read_options.return_incomplete_on_too_large_cache_inserts = false;
+
+    // cached
+    ASSERT_OK(db_->Get(read_options, "test0", &result));
+    ASSERT_EQ(result, value0);
+    ASSERT_EQ(initial_entries + 1, count_cache_entries());
+
+    // cached
+    ASSERT_OK(db_->Get(read_options, "test1", &result));
+    ASSERT_EQ(result, value1);
+    ASSERT_EQ(initial_entries + 2, count_cache_entries());
+    
+    // not cached
+    ASSERT_OK(db_->Get(read_options, "test2", &result));
+    ASSERT_EQ(result, value2);
+    ASSERT_EQ(initial_entries + 2, count_cache_entries());
+    
+    // not cached
+    ASSERT_OK(db_->Get(read_options, "test3", &result));
+    ASSERT_EQ(result, value3);
+    ASSERT_EQ(initial_entries + 2, count_cache_entries());
+    
+    // not cached
+    ASSERT_OK(db_->Get(read_options, "test4", &result));
+    ASSERT_EQ(result, value4);
+    ASSERT_EQ(initial_entries + 2, count_cache_entries());
+
+    ASSERT_LE(cache->GetUsage(), 65536);
+
+    cache->EraseUnRefEntries();
+
+    // test case: use iterator API to check if reading overly large values
+    // return status Incomplete.
+
+    initial_entries = count_cache_entries();
+
+    Iterator* iter = db_->NewIterator(read_options);
+    iter->Seek("test0");
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("test0", iter->key());
+    iter->Next();
+    
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("test1", iter->key());
+    iter->Next();
+    
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("test2", iter->key());
+    iter->Next();
+    
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("test3", iter->key());
+    iter->Next();
+    
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("test4", iter->key());
+    iter->Next();
+    
+    ASSERT_FALSE(iter->Valid());
+
+    delete iter;
+    
+    ASSERT_LT(0, cache->GetUsage());
+    ASSERT_EQ(initial_entries + 2, count_cache_entries());
+  }
+}
+
 TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
   ReadOptions read_options;
   read_options.fill_cache = false;
@@ -200,7 +372,6 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
   Reopen(options);
   RecordCacheCounters(options);
 
-  std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
   Iterator* iter = nullptr;
 
   ASSERT_EQ(0, cache->GetUsage());
