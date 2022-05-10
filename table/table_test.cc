@@ -1377,9 +1377,9 @@ TEST_F(TablePropertyTest, PrefixScanTest) {
              pos->first.compare(0, prefix.size(), prefix) == 0;
          ++pos) {
       ++num;
-      auto key = prefix + "." + ToString(num);
+      auto key = prefix + "." + std::to_string(num);
       ASSERT_EQ(key, pos->first);
-      ASSERT_EQ(ToString(num), pos->second);
+      ASSERT_EQ(std::to_string(num), pos->second);
     }
     ASSERT_EQ(3, num);
   }
@@ -1705,7 +1705,7 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   constexpr size_t kNumKeys = 10000;
 
   for (size_t k = 0; k < kNumKeys; ++k) {
-    c.Add("key" + ToString(k), "val" + ToString(k));
+    c.Add("key" + std::to_string(k), "val" + std::to_string(k));
   }
 
   std::vector<std::string> keys;

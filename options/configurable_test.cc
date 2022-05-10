@@ -173,7 +173,7 @@ TEST_F(ConfigurableTest, GetOptionsTest) {
   int i = 11;
   for (auto opt : {"", "shared.", "unique.", "pointer."}) {
     std::string value;
-    std::string expected = ToString(i);
+    std::string expected = std::to_string(i);
     std::string opt_name = opt;
     ASSERT_OK(
         simple->ConfigureOption(config_options_, opt_name + "int", expected));

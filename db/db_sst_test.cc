@@ -999,7 +999,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 
   // Create 4 files in L0
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A'), wo));
+    ASSERT_OK(Put("Key" + std::to_string(i), DummyString(1024, 'A'), wo));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -1015,7 +1015,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 
   // Create 4 files in L0
   for (int i = 4; i < 8; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B'), wo));
+    ASSERT_OK(Put("Key" + std::to_string(i), DummyString(1024, 'B'), wo));
     ASSERT_OK(Flush());
   }
   ASSERT_EQ("4,1", FilesPerLevel(0));
@@ -1061,7 +1061,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
 
   // Create 4 files in L0
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A')));
+    ASSERT_OK(Put("Key" + std::to_string(i), DummyString(1024, 'A')));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -1530,7 +1530,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {
     for (int j = 0; j < 10; j++) {
-      std::string val = "val_file_" + ToString(i);
+      std::string val = "val_file_" + std::to_string(i);
       ASSERT_OK(Put(Key(j), val));
     }
     ASSERT_OK(Flush());

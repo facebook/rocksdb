@@ -567,7 +567,7 @@ Status DBImpl::CloseHelper() {
   // flushing by first checking if there is a need for
   // flushing (but need to implement something
   // else than imm()->IsFlushPending() because the output
-  // memtables added to imm() dont trigger flushes).
+  // memtables added to imm() don't trigger flushes).
   if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
     Status flush_ret;
     mutex_.Unlock();
@@ -849,7 +849,8 @@ void DBImpl::PersistStats() {
           if (stats_slice_.find(stat.first) != stats_slice_.end()) {
             uint64_t delta = stat.second - stats_slice_[stat.first];
             s = batch.Put(persist_stats_cf_handle_,
-                          Slice(key, std::min(100, length)), ToString(delta));
+                          Slice(key, std::min(100, length)),
+                          std::to_string(delta));
           }
         }
       }
@@ -3355,7 +3356,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     bool ret_value =
         GetIntPropertyInternal(cfd, *property_info, false, &int_value);
     if (ret_value) {
-      *value = ToString(int_value);
+      *value = std::to_string(int_value);
     }
     return ret_value;
   } else if (property_info->handle_string) {
@@ -3990,8 +3991,8 @@ Status DBImpl::CheckConsistency() {
       } else if (fsize != md.size) {
         corruption_messages += "Sst file size mismatch: " + file_path +
                                ". Size recorded in manifest " +
-                               ToString(md.size) + ", actual size " +
-                               ToString(fsize) + "\n";
+                               std::to_string(md.size) + ", actual size " +
+                               std::to_string(fsize) + "\n";
       }
     }
   }
@@ -5338,7 +5339,7 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
 
 Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
-    uint64_t oldest_time = port::kMaxUint64;
+    uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped()) {
         uint64_t ctime;

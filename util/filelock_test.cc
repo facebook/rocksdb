@@ -129,8 +129,8 @@ TEST_F(LockTest, LockBySameThread) {
   ASSERT_TRUE(s.IsIOError());
 #ifndef OS_WIN
   // Validate that error message contains current thread ID.
-  ASSERT_TRUE(s.ToString().find(ToString(Env::Default()->GetThreadID())) !=
-              std::string::npos);
+  ASSERT_TRUE(s.ToString().find(std::to_string(
+                  Env::Default()->GetThreadID())) != std::string::npos);
 #endif
 
   // check the file is locked

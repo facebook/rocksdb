@@ -1086,12 +1086,12 @@ int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
   std::string property;
   if (cf == 0) {
     // default cfd
-    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
-                                 &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
   } else {
-    EXPECT_TRUE(db_->GetProperty(handles_[cf],
-                                 "rocksdb.num-files-at-level" + ToString(level),
-                                 &property));
+    EXPECT_TRUE(db_->GetProperty(
+        handles_[cf], "rocksdb.num-files-at-level" + std::to_string(level),
+        &property));
   }
   return atoi(property.c_str());
 }
@@ -1101,10 +1101,12 @@ double DBTestBase::CompressionRatioAtLevel(int level, int cf) {
   if (cf == 0) {
     // default cfd
     EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.compression-ratio-at-level" + ToString(level), &property));
+        "rocksdb.compression-ratio-at-level" + std::to_string(level),
+        &property));
   } else {
     EXPECT_TRUE(db_->GetProperty(
-        handles_[cf], "rocksdb.compression-ratio-at-level" + ToString(level),
+        handles_[cf],
+        "rocksdb.compression-ratio-at-level" + std::to_string(level),
         &property));
   }
   return std::stod(property);

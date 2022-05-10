@@ -1542,7 +1542,7 @@ BloomLikeFilterPolicy::GetStandard128RibbonBuilderWithContext(
 }
 
 std::string BloomLikeFilterPolicy::GetBitsPerKeySuffix() const {
-  std::string rv = ":" + ROCKSDB_NAMESPACE::ToString(millibits_per_key_ / 1000);
+  std::string rv = ":" + std::to_string(millibits_per_key_ / 1000);
   int frac = millibits_per_key_ % 1000;
   if (frac > 0) {
     rv.push_back('.');
@@ -1837,7 +1837,7 @@ const char* RibbonFilterPolicy::kNickName() { return "rocksdb.RibbonFilter"; }
 
 std::string RibbonFilterPolicy::GetId() const {
   return BloomLikeFilterPolicy::GetId() + ":" +
-         ROCKSDB_NAMESPACE::ToString(bloom_before_level_);
+         std::to_string(bloom_before_level_);
 }
 
 const FilterPolicy* NewRibbonFilterPolicy(double bloom_equivalent_bits_per_key,

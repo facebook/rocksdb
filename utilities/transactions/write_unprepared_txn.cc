@@ -281,8 +281,8 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
     static std::atomic_ullong autogen_id{0};
     // To avoid changing all tests to call SetName, just autogenerate one.
     if (wupt_db_->txn_db_options_.autogenerate_name) {
-      auto s =
-          SetName(std::string("autoxid") + ToString(autogen_id.fetch_add(1)));
+      auto s = SetName(std::string("autoxid") +
+                       std::to_string(autogen_id.fetch_add(1)));
       assert(s.ok());
     } else
 #endif

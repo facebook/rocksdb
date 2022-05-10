@@ -3346,31 +3346,31 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
     if (case_id == 0) {
       // same version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     } else if (case_id == 1) {
       // higher minor version
       should_ignore = true;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR + 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR + 1) + ".0";
     } else if (case_id == 2) {
       // higher major version.
       should_ignore = true;
-      version_string = ToString(ROCKSDB_MAJOR + 1) + ".0.0";
+      version_string = std::to_string(ROCKSDB_MAJOR + 1) + ".0.0";
     } else if (case_id == 3) {
       // lower minor version
 #if ROCKSDB_MINOR == 0
       continue;
 #else
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR - 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR - 1) + ".0";
       should_ignore = false;
 #endif
     } else {
       // lower major version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR - 1) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR - 1) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     }
 
     std::string options_file_content =
@@ -4082,9 +4082,10 @@ TEST_F(OptionsParserTest, IntegerParsing) {
   ASSERT_EQ(ParseUint32("4294967295"), 4294967295U);
   ASSERT_EQ(ParseSizeT("18446744073709551615"), 18446744073709551615U);
   ASSERT_EQ(ParseInt64("9223372036854775807"), 9223372036854775807);
-  ASSERT_EQ(ParseInt64("-9223372036854775808"), port::kMinInt64);
+  ASSERT_EQ(ParseInt64("-9223372036854775808"),
+            std::numeric_limits<int64_t>::min());
   ASSERT_EQ(ParseInt32("2147483647"), 2147483647);
-  ASSERT_EQ(ParseInt32("-2147483648"), port::kMinInt32);
+  ASSERT_EQ(ParseInt32("-2147483648"), std::numeric_limits<int32_t>::min());
   ASSERT_EQ(ParseInt("-32767"), -32767);
   ASSERT_EQ(ParseDouble("-1.234567"), -1.234567);
 }
