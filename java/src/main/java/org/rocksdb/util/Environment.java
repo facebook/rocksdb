@@ -1,21 +1,14 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb.util;
 
+import java.io.File;
 import java.io.IOException;
 
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
-  private static boolean MUSL_LIBC;
-
-  static {
-    try {
-      final Process p = new ProcessBuilder("/usr/bin/env", "sh", "-c", "ldd /usr/bin/env | grep -q musl").start();
-      MUSL_LIBC = p.waitFor() == 0;
-    } catch (final IOException | InterruptedException e) {
-      MUSL_LIBC = false;
-    }
-  }
+  private static String MUSL_ENVIRONMENT = System.getenv("ROCKSDB_ENVIRONMENT_MUSL");
+  private static Boolean MUSL_LIBC;
 
   public static boolean isAarch64() {
     return ARCH.contains("aarch64");
@@ -50,8 +43,26 @@ public class Environment {
         OS.contains("nux");
   }
 
+  /**
+   * lazy evaluation to prevent OS calls when "is this musl?" is not necessary
+   * no need to have a windows box report suspicious behaviour that the jvm attempts IO on unix paths
+   */
   public static boolean isMuslLibc() {
+    if(MUSL_LIBC == null) MUSL_LIBC = resolveIsMuslLibc();
     return MUSL_LIBC;
+  }
+
+  static boolean resolveIsMuslLibc() {
+    // explicit user input in case any below calls cause issues in their environment
+    if("true".equalsIgnoreCase(MUSL_ENVIRONMENT)) return true;
+    if("false".equalsIgnoreCase(MUSL_ENVIRONMENT)) return false;
+    if(!isUnix()) return false; // not unix therefore not musl
+    File[] allFilesInLib = new File("/lib/").listFiles();
+    if(allFilesInLib == null) return false;
+    for(File f : allFilesInLib) {
+      if(f.getPath().startsWith("/lib/libc.musl")) return true;
+    }
+    return false;
   }
 
   public static boolean isSolaris() {
