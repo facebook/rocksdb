@@ -496,7 +496,7 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
     delete db;
   }
   for (int d = 0; d < kNumDBs; ++d) {
-    ASSERT_OK(DestroyDB(dbname_ + ToString(d), options));
+    ASSERT_OK(DestroyDB(dbname_ + std::to_string(d), options));
   }
 }
 
