@@ -413,6 +413,8 @@ jobs:
   build-linux-unity-and-headers:
     docker: # executor type
       - image: gcc:latest
+    environment:
+      EXTRA_CXXFLAGS: -mno-avx512f # Warnings-as-error in avx512fintrin.h, would be used on newer hardware
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
