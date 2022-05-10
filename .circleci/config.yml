@@ -182,7 +182,7 @@ jobs:
       - increase-max-open-files-on-macos
       - install-gflags-on-macos
       - pre-steps-macos
-      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 all
+      - run: ulimit -S -n `ulimit -H -n` && OPT=-DCIRCLECI make V=1 J=32 -j32 all
       - post-steps
 
   build-macos-cmake:
@@ -201,7 +201,7 @@ jobs:
       - pre-steps-macos
       - run:
           name: "cmake generate project file"
-          command: ulimit -S -n 1048576 && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
+          command: ulimit -S -n `ulimit -H -n` && mkdir build && cd build && cmake -DWITH_GFLAGS=1 ..
       - run:
           name: "Build tests"
           command: cd build && make V=1 -j32
@@ -210,14 +210,14 @@ jobs:
           steps:
             - run:
                 name: "Run even tests"
-                command: ulimit -S -n 1048576 && cd build && ctest -j32 -I 0,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 0,,2
       - when:
           condition:
             not: << parameters.run_even_tests >>
           steps:
             - run:
                 name: "Run odd tests"
-                command: ulimit -S -n 1048576 && cd build && ctest -j32 -I 1,,2
+                command: ulimit -S -n `ulimit -H -n` && cd build && ctest -j32 -I 1,,2
       - post-steps
 
   build-linux:
@@ -506,7 +506,7 @@ jobs:
       - pre-steps
       - install-gflags
       - install-compression-libs
-      - run: make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-windows:
