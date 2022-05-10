@@ -12,7 +12,7 @@ jobs:
 
     - name: Fetch from upstream
       run: |
-        git remote add upstream https://github.com/facebook/rocksdb.git && git fetch upstream
+        git remote add upstream https://github.com/tikv/rocksdb.git && git fetch upstream
 
     - name: Where am I
       run: |
@@ -36,6 +36,8 @@ jobs:
 
     - name: Check format
       run: VERBOSE_CHECK=1 make check-format
+      env:
+        FORMAT_UPSTREAM: upstream/6.29.tikv
 
     - name: Compare buckify output
       run: make check-buck-targets
