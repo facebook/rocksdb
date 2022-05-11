@@ -5214,10 +5214,9 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
     table_options.block_cache = cache;
     table_options.flush_block_policy_factory =
         std::make_shared<FlushBlockEveryKeyPolicyFactory>();
-    table_options.cache_usage_options
-        .options_overrides[static_cast<uint32_t>(
-            CacheEntryRole::kCompressionDictionaryBuildingBuffer)]
-        .charged = charge_compression_dictionary_building_buffer;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kCompressionDictionaryBuildingBuffer,
+         {/*.charged = */ charge_compression_dictionary_building_buffer}});
     Options options;
     options.compression = kSnappyCompression;
     options.compression_opts.max_dict_bytes = kMaxDictBytes;
@@ -5282,6 +5281,8 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
   constexpr std::size_t kMaxDictBytes = 1024;
   constexpr std::size_t kMaxDictBufferBytes = 2 * kSizeDummyEntry;
 
+  // `CacheEntryRoleOptions::charged` is enabled by default for
+  // CacheEntryRole::kCompressionDictionaryBuildingBuffer
   BlockBasedTableOptions table_options;
   LRUCacheOptions lo;
   lo.capacity = kCacheCapacity;
@@ -5291,10 +5292,6 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
   table_options.block_cache = cache;
   table_options.flush_block_policy_factory =
       std::make_shared<FlushBlockEveryKeyPolicyFactory>();
-  table_options.cache_usage_options
-      .options_overrides[static_cast<uint32_t>(
-          CacheEntryRole::kCompressionDictionaryBuildingBuffer)]
-      .charged = CacheEntryRoleOptions::Decision::kEnabled;
 
   Options options;
   options.compression = kSnappyCompression;
@@ -5369,6 +5366,8 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
   // (key2, value2) won't exceed the buffer limit
   constexpr std::size_t kMaxDictBufferBytes = 1024 * 1024 * 1024;
 
+  // `CacheEntryRoleOptions::charged` is enabled by default for
+  // CacheEntryRole::kCompressionDictionaryBuildingBuffer
   BlockBasedTableOptions table_options;
   LRUCacheOptions lo;
   lo.capacity = kCacheCapacity;
@@ -5378,10 +5377,6 @@ TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
   table_options.block_cache = cache;
   table_options.flush_block_policy_factory =
       std::make_shared<FlushBlockEveryKeyPolicyFactory>();
-  table_options.cache_usage_options
-      .options_overrides[static_cast<uint32_t>(
-          CacheEntryRole::kCompressionDictionaryBuildingBuffer)]
-      .charged = CacheEntryRoleOptions::Decision::kEnabled;
 
   Options options;
   options.compression = kSnappyCompression;
@@ -5452,26 +5447,36 @@ class CacheUsageOptionsOverridesTest : public DBTestBase {
 };
 
 TEST_F(CacheUsageOptionsOverridesTest, SanitizeAndValidateOptions) {
-  // To test `default_options` is used when no `options_overrides` is specified
+  // To test `cache_usage_options.options_overrides` is sanitized
+  // where `cache_usage_options.options` is used when there is no entry in
+  // `cache_usage_options.options_overrides`
   Options options;
   options.create_if_missing = true;
   BlockBasedTableOptions table_options = BlockBasedTableOptions();
-  table_options.cache_usage_options.default_options.charged =
-      CacheEntryRoleOptions::Decision::kEnabled;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Destroy(options);
   Status s = TryReopen(options);
-  EXPECT_TRUE(s.IsNotSupported());
-  EXPECT_TRUE(
-      s.ToString().find("Enable/Disable CacheEntryRoleOptions::charged") !=
-      std::string::npos);
+  EXPECT_TRUE(s.ok());
+  const auto* sanitized_table_options =
+      options.table_factory->GetOptions<BlockBasedTableOptions>();
+  const auto sanitized_options_overrides =
+      sanitized_table_options->cache_usage_options.options_overrides;
+  EXPECT_EQ(sanitized_options_overrides.size(), kNumCacheEntryRoles);
+  for (auto options_overrides_iter = sanitized_options_overrides.cbegin();
+       options_overrides_iter != sanitized_options_overrides.cend();
+       ++options_overrides_iter) {
+    CacheEntryRoleOptions role_options = options_overrides_iter->second;
+    CacheEntryRoleOptions default_options =
+        sanitized_table_options->cache_usage_options.options;
+    EXPECT_TRUE(role_options == default_options);
+  }
   Destroy(options);
 
   // To test option validation on unsupported CacheEntryRole
   table_options = BlockBasedTableOptions();
-  table_options.cache_usage_options
-      .options_overrides[static_cast<uint32_t>(CacheEntryRole::kDataBlock)]
-      .charged = CacheEntryRoleOptions::Decision::kDisabled;
+  table_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kDataBlock,
+       {/*.charged = */ CacheEntryRoleOptions::Decision::kDisabled}});
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Destroy(options);
   s = TryReopen(options);
@@ -5487,10 +5492,9 @@ TEST_F(CacheUsageOptionsOverridesTest, SanitizeAndValidateOptions) {
   // To test option validation on existence of block cache
   table_options = BlockBasedTableOptions();
   table_options.no_block_cache = true;
-  table_options.cache_usage_options
-      .options_overrides[static_cast<uint32_t>(
-          CacheEntryRole::kFilterConstruction)]
-      .charged = CacheEntryRoleOptions::Decision::kEnabled;
+  table_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kFilterConstruction,
+       {/*.charged = */ CacheEntryRoleOptions::Decision::kEnabled}});
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Destroy(options);
   s = TryReopen(options);

@@ -462,11 +462,14 @@ struct BlockBasedTableBuilder::Rep {
                               compression_opts.max_dict_buffer_bytes);
     }
 
-    const auto& compress_dict_build_buffer_charged =
-        table_options.cache_usage_options
-            .options_overrides[static_cast<uint32_t>(
-                CacheEntryRole::kCompressionDictionaryBuildingBuffer)]
-            .charged;
+    const auto options_overrides_iter =
+        table_options.cache_usage_options.options_overrides.find(
+            CacheEntryRole::kCompressionDictionaryBuildingBuffer);
+    const auto compress_dict_build_buffer_charged =
+        options_overrides_iter !=
+                table_options.cache_usage_options.options_overrides.end()
+            ? options_overrides_iter->second.charged
+            : table_options.cache_usage_options.options.charged;
     if (table_options.block_cache &&
         (compress_dict_build_buffer_charged ==
              CacheEntryRoleOptions::Decision::kEnabled ||
@@ -479,6 +482,7 @@ struct BlockBasedTableBuilder::Rep {
     } else {
       compression_dict_buffer_cache_res_mgr = nullptr;
     }
+
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }

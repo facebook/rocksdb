@@ -1490,10 +1490,9 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
       }
       Close();
 
-      table_options.cache_usage_options
-          .options_overrides[static_cast<uint32_t>(
-              CacheEntryRole::kBlockBasedTableReader)]
-          .charged = charge_table_reader;
+      table_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kBlockBasedTableReader,
+           {/*.charged = */ charge_table_reader}});
       table_options.block_cache =
           NewLRUCache(1024 /* capacity */, 0 /* num_shard_bits */,
                       true /* strict_capacity_limit */);
@@ -1502,11 +1501,13 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
       // Reopening the DB will try to load all existing files, conditionally
       // subject to memory limit
       Status s = TryReopen(options);
-      if (table_options.cache_usage_options
-              .options_overrides[static_cast<uint32_t>(
-                  CacheEntryRole::kBlockBasedTableReader)]
-              .charged == CacheEntryRoleOptions::Decision::kEnabled) {
+
+      if (charge_table_reader == CacheEntryRoleOptions::Decision::kEnabled) {
         EXPECT_TRUE(s.IsMemoryLimit());
+        EXPECT_TRUE(s.ToString().find(
+                        kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+                            CacheEntryRole::kBlockBasedTableReader)]) !=
+                    std::string::npos);
         EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
                     std::string::npos);
 

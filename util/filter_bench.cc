@@ -325,11 +325,12 @@ struct FilterBench : public MockBlockBasedTableTester {
         FLAGS_optimize_filters_for_memory;
     table_options_.detect_filter_construct_corruption =
         FLAGS_detect_filter_construct_corruption;
+    table_options_.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ FLAGS_charge_filter_construction
+              ? CacheEntryRoleOptions::Decision::kEnabled
+              : CacheEntryRoleOptions::Decision::kDisabled}});
     if (FLAGS_charge_filter_construction) {
-      table_options_.cache_usage_options
-          .options_overrides[static_cast<uint32_t>(
-              CacheEntryRole::kFilterConstruction)]
-          .charged = CacheEntryRoleOptions::Decision::kEnabled;
       table_options_.no_block_cache = false;
       LRUCacheOptions lo;
       lo.capacity = FLAGS_block_cache_capacity_MB * 1024 * 1024;

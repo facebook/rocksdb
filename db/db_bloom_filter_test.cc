@@ -951,10 +951,9 @@ class ChargeFilterConstructionTestWithParam
     // calculation.
     constexpr std::size_t kCacheCapacity = 100 * 1024 * 1024;
 
-    table_options.cache_usage_options
-        .options_overrides[static_cast<uint32_t>(
-            CacheEntryRole::kFilterConstruction)]
-        .charged = charge_filter_construction_;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ charge_filter_construction_}});
     table_options.filter_policy = Create(10, policy_);
     table_options.partition_filters = partition_filters_;
     if (table_options.partition_filters) {

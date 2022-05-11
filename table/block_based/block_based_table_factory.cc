@@ -422,11 +422,16 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info);
 
+  const auto options_overrides_iter =
+      table_options_.cache_usage_options.options_overrides.find(
+          CacheEntryRole::kBlockBasedTableReader);
+  const auto table_reader_charged =
+      options_overrides_iter !=
+              table_options_.cache_usage_options.options_overrides.end()
+          ? options_overrides_iter->second.charged
+          : table_options_.cache_usage_options.options.charged;
   if (table_options_.block_cache &&
-      table_options_.cache_usage_options
-              .options_overrides[static_cast<uint32_t>(
-                  CacheEntryRole::kBlockBasedTableReader)]
-              .charged == CacheEntryRoleOptions::Decision::kEnabled) {
+      table_reader_charged == CacheEntryRoleOptions::Decision::kEnabled) {
     table_reader_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
         std::make_shared<CacheReservationManagerImpl<
             CacheEntryRole::kBlockBasedTableReader>>(
@@ -470,15 +475,17 @@ void BlockBasedTableFactory::InitializeOptions() {
     // We do not support partitioned filters without partitioning indexes
     table_options_.partition_filters = false;
   }
-  auto& cache_usage_overrides_options =
+  auto& options_overrides =
       table_options_.cache_usage_options.options_overrides;
-  const auto& cache_usage_default_options =
-      table_options_.cache_usage_options.default_options;
-  for (std::size_t i = 0; i < cache_usage_overrides_options.size(); ++i) {
-    CacheEntryRoleOptions& override_options = cache_usage_overrides_options[i];
-    if (override_options.charged ==
-        CacheEntryRoleOptions::Decision::kFallback) {
-      override_options.charged = cache_usage_default_options.charged;
+  const auto options = table_options_.cache_usage_options.options;
+  for (std::uint32_t i = 0; i < kNumCacheEntryRoles; ++i) {
+    CacheEntryRole role = static_cast<CacheEntryRole>(i);
+    auto options_overrides_iter = options_overrides.find(role);
+    if (options_overrides_iter == options_overrides.end()) {
+      options_overrides.insert({role, options});
+    } else if (options_overrides_iter->second.charged ==
+               CacheEntryRoleOptions::Decision::kFallback) {
+      options_overrides_iter->second.charged = options.charged;
     }
   }
 }
@@ -678,27 +685,30 @@ Status BlockBasedTableFactory::ValidateOptions(
   }
   const auto& options_overrides =
       table_options_.cache_usage_options.options_overrides;
-  for (std::size_t i = 0; i < options_overrides.size(); ++i) {
-    const CacheEntryRoleOptions& cache_entry_role_option = options_overrides[i];
+  for (auto options_overrides_iter = options_overrides.cbegin();
+       options_overrides_iter != options_overrides.cend();
+       ++options_overrides_iter) {
+    const CacheEntryRole role = options_overrides_iter->first;
+    const CacheEntryRoleOptions options = options_overrides_iter->second;
     static const std::set<CacheEntryRole> kMemoryChargingSupported = {
         CacheEntryRole::kCompressionDictionaryBuildingBuffer,
         CacheEntryRole::kFilterConstruction,
         CacheEntryRole::kBlockBasedTableReader};
-    if (cache_entry_role_option.charged !=
-            CacheEntryRoleOptions::Decision::kFallback &&
-        kMemoryChargingSupported.count(static_cast<CacheEntryRole>(i)) == 0) {
+    if (options.charged != CacheEntryRoleOptions::Decision::kFallback &&
+        kMemoryChargingSupported.count(role) == 0) {
       return Status::NotSupported(
           "Enable/Disable CacheEntryRoleOptions::charged"
           "for CacheEntryRole  " +
-          kCacheEntryRoleToCamelString[i] + " is not supported");
+          kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+          " is not supported");
     }
     if (table_options_.no_block_cache &&
-        cache_entry_role_option.charged ==
-            CacheEntryRoleOptions::Decision::kEnabled) {
+        options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
       return Status::InvalidArgument(
           "Enable CacheEntryRoleOptions::charged"
           "for CacheEntryRole  " +
-          kCacheEntryRoleToCamelString[i] + " but block cache is disabled");
+          kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+          " but block cache is disabled");
     }
   }
   {

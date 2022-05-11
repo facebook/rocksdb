@@ -1483,14 +1483,19 @@ std::string BloomFilterPolicy::GetId() const {
 FilterBitsBuilder* BloomLikeFilterPolicy::GetFastLocalBloomBuilderWithContext(
     const FilterBuildingContext& context) const {
   bool offm = context.table_options.optimize_filters_for_memory;
-  bool reserve_filter_construction_mem =
-      (context.table_options.block_cache &&
-       context.table_options.cache_usage_options
-               .options_overrides[static_cast<uint32_t>(
-                   CacheEntryRole::kFilterConstruction)]
-               .charged == CacheEntryRoleOptions::Decision::kEnabled);
+  const auto options_overrides_iter =
+      context.table_options.cache_usage_options.options_overrides.find(
+          CacheEntryRole::kFilterConstruction);
+  const auto filter_construction_charged =
+      options_overrides_iter !=
+              context.table_options.cache_usage_options.options_overrides.end()
+          ? options_overrides_iter->second.charged
+          : context.table_options.cache_usage_options.options.charged;
+
   std::shared_ptr<CacheReservationManager> cache_res_mgr;
-  if (reserve_filter_construction_mem) {
+  if (context.table_options.block_cache &&
+      filter_construction_charged ==
+          CacheEntryRoleOptions::Decision::kEnabled) {
     cache_res_mgr = std::make_shared<
         CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>>(
         context.table_options.block_cache);
@@ -1528,14 +1533,19 @@ BloomLikeFilterPolicy::GetStandard128RibbonBuilderWithContext(
     const FilterBuildingContext& context) const {
   // FIXME: code duplication with GetFastLocalBloomBuilderWithContext
   bool offm = context.table_options.optimize_filters_for_memory;
-  bool reserve_filter_construction_mem =
-      (context.table_options.block_cache &&
-       context.table_options.cache_usage_options
-               .options_overrides[static_cast<uint32_t>(
-                   CacheEntryRole::kFilterConstruction)]
-               .charged == CacheEntryRoleOptions::Decision::kEnabled);
+  const auto options_overrides_iter =
+      context.table_options.cache_usage_options.options_overrides.find(
+          CacheEntryRole::kFilterConstruction);
+  const auto filter_construction_charged =
+      options_overrides_iter !=
+              context.table_options.cache_usage_options.options_overrides.end()
+          ? options_overrides_iter->second.charged
+          : context.table_options.cache_usage_options.options.charged;
+
   std::shared_ptr<CacheReservationManager> cache_res_mgr;
-  if (reserve_filter_construction_mem) {
+  if (context.table_options.block_cache &&
+      filter_construction_charged ==
+          CacheEntryRoleOptions::Decision::kEnabled) {
     cache_res_mgr = std::make_shared<
         CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>>(
         context.table_options.block_cache);

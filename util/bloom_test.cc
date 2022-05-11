@@ -632,10 +632,9 @@ TEST_F(ChargeFilterConstructionTest, RibbonFilterFallBackOnLargeBanding) {
                           CacheEntryRoleOptions::Decision::kEnabled;
 
     BlockBasedTableOptions table_options;
-    table_options.cache_usage_options
-        .options_overrides[static_cast<uint32_t>(
-            CacheEntryRole::kFilterConstruction)]
-        .charged = charge_filter_construction_mem;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ charge_filter_construction_mem}});
     LRUCacheOptions lo;
     lo.capacity = kCacheCapacity;
     lo.num_shard_bits = 0;  // 2^0 shard

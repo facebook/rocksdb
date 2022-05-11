@@ -345,10 +345,9 @@ class ChargeTableReaderTest
 
   void ConfigureTableFactory() override {
     BlockBasedTableOptions table_options;
-    table_options.cache_usage_options
-        .options_overrides[static_cast<uint32_t>(
-            CacheEntryRole::kBlockBasedTableReader)]
-        .charged = charge_table_reader_;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kBlockBasedTableReader,
+         {/*.charged = */ charge_table_reader_}});
     table_options.block_cache = table_reader_charge_tracking_cache_;
 
     table_options.cache_index_and_filter_blocks = false;
@@ -441,6 +440,10 @@ TEST_P(ChargeTableReaderTest, Basic) {
 
   if (charge_table_reader_ == CacheEntryRoleOptions::Decision::kEnabled) {
     EXPECT_TRUE(s.IsMemoryLimit()) << "s: " << s.ToString();
+    EXPECT_TRUE(s.ToString().find(
+                    kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+                        CacheEntryRole::kBlockBasedTableReader)]) !=
+                std::string::npos);
     EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
                 std::string::npos);
 
