@@ -830,108 +830,76 @@ jobs:
 
 workflows:
   version: 2
-  build-linux:
+  jobs-linux-run-tests:
     jobs:
       - build-linux
-  build-linux-cmake:
-    jobs:
       - build-linux-cmake-with-folly
+      - build-linux-gcc-7-with-folly
       - build-linux-cmake-with-benchmark
-  build-linux-encrypted_env-no_compression:
-    jobs:
       - build-linux-encrypted_env-no_compression
-  build-linux-shared_lib-alt_namespace-status_checked:
-    jobs:
-      - build-linux-shared_lib-alt_namespace-status_checked
-  build-linux-lite:
-    jobs:
       - build-linux-lite
-  build-linux-release:
-    jobs:
-      - build-linux-release
-  build-linux-release-rtti:
-    jobs:
-      - build-linux-release-rtti
-  build-linux-lite-release:
-    jobs:
-      - build-linux-lite-release
-  build-linux-clang10-asan:
+  jobs-linux-run-tests-san:
     jobs:
       - build-linux-clang10-asan
-  build-linux-clang10-mini-tsan:
-    jobs:
+      - build-linux-clang10-ubsan
       - build-linux-clang10-mini-tsan:
           start_test: ""
           end_test: "env_test"
       - build-linux-clang10-mini-tsan:
           start_test: "env_test"
           end_test: ""
-  build-linux-clang10-ubsan:
+      - build-linux-shared_lib-alt_namespace-status_checked
+  jobs-linux-no-test-run:
     jobs:
-      - build-linux-clang10-ubsan
-  build-linux-clang10-clang-analyze:
+      - build-linux-release
+      - build-linux-release-rtti
+      - build-linux-lite-release
+      - build-examples
+      - build-fuzzers
+      - build-linux-clang-no_test_run
+      - build-linux-clang-13-no_test_run
+      - build-linux-gcc-8-no_test_run
+      - build-linux-gcc-10-cxx20-no_test_run
+      - build-linux-gcc-11-no_test_run
+      - build-linux-arm-cmake-no_test_run
+  jobs-linux-other-checks:
     jobs:
       - build-linux-clang10-clang-analyze
-  build-linux-unity-and-headers:
-    jobs:
       - build-linux-unity-and-headers
-  build-linux-mini-crashtest:
-    jobs:
       - build-linux-mini-crashtest
-  build-windows-vs2019:
+  jobs-windows:
     jobs:
       - build-windows:
           name: "build-windows-vs2019"
-  build-windows-vs2019-cxx20:
-    jobs:
       - build-windows:
           name: "build-windows-vs2019-cxx20"
           extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-  build-windows-vs2017:
-    jobs:
       - build-windows:
           name: "build-windows-vs2017"
           vs_year: "2017"
           cmake_generator: "Visual Studio 15 Win64"
-  build-java:
+      - build-cmake-mingw
+  jobs-java:
     jobs:
       - build-linux-java
       - build-linux-java-static
       - build-macos-java
       - build-macos-java-static
       - build-macos-java-static-universal
-  build-examples:
-    jobs:
-      - build-examples
-  build-linux-compilers-no_test_run:
-    jobs:
-      - build-linux-clang-no_test_run
-      - build-linux-clang-13-no_test_run
-      - build-linux-gcc-7-with-folly
-      - build-linux-gcc-8-no_test_run
-      - build-linux-gcc-10-cxx20-no_test_run
-      - build-linux-gcc-11-no_test_run
-      - build-linux-arm-cmake-no_test_run
-  build-macos:
+  jobs-macos:
     jobs:
       - build-macos
       - build-macos-cmake:
           run_even_tests: true
       - build-macos-cmake:
           run_even_tests: false
-  build-cmake-mingw:
-    jobs:
-      - build-cmake-mingw
-  build-linux-arm:
+  jobs-linux-arm:
     jobs:
       - build-linux-arm
-  build-fuzzers:
-    jobs:
-      - build-fuzzers
   nightly:
     triggers:
       - schedule:
-          cron: "0 0 * * *"
+          cron: "0 9 * * *"
           filters:
             branches:
               only:
