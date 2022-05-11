@@ -1337,6 +1337,19 @@ struct DBOptions {
   //
   // Default: kNonVolatileBlockTier
   CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
+
+  // If set to false, when compaction or flush sees a SingleDelete followed by
+  // a Delete for the same user key, compaction job will not fail.
+  // Otherwise, compaction job will fail.
+  // This is a temporary option to help existing use cases migrate, and
+  // will be removed in a future release.
+  // Warning: do not set to false unless you are trying to migrate existing
+  // data in which the contract of single delete
+  // (https://github.com/facebook/rocksdb/wiki/Single-Delete) is not enforced,
+  // thus has Delete mixed with SingleDelete for the same user key. Violation
+  // of the contract leads to undefined behaviors with high possibility of data
+  // inconsistency, e.g. deleted old data become visible again, etc.
+  bool enforce_single_del_contracts = true;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

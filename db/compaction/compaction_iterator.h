@@ -176,7 +176,7 @@ class CompactionIterator {
       Env* env, bool report_detailed_time, bool expect_valid_internal_key,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
-      const Compaction* compaction = nullptr,
+      bool enforce_single_del_contracts, const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
       const std::atomic<int>* manual_compaction_paused = nullptr,
@@ -193,6 +193,7 @@ class CompactionIterator {
       Env* env, bool report_detailed_time, bool expect_valid_internal_key,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
+      bool enforce_single_del_contracts,
       std::unique_ptr<CompactionProxy> compaction,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
@@ -331,6 +332,8 @@ class CompactionIterator {
   std::shared_ptr<Logger> info_log_;
 
   bool allow_data_in_errors_;
+
+  const bool enforce_single_del_contracts_;
 
   // Comes from comparator.
   const size_t timestamp_size_;

@@ -196,6 +196,7 @@ Status BuildTable(
         ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
+        ioptions.enforce_single_del_contracts,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr,
         /*manual_compaction_paused=*/nullptr,

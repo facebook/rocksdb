@@ -1479,9 +1479,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, &range_del_agg,
       blob_file_builder.get(), db_options_.allow_data_in_errors,
-      sub_compact->compaction, compaction_filter, shutting_down_,
-      manual_compaction_paused_, manual_compaction_canceled_,
-      db_options_.info_log, full_history_ts_low));
+      db_options_.enforce_single_del_contracts, sub_compact->compaction,
+      compaction_filter, shutting_down_, manual_compaction_paused_,
+      manual_compaction_canceled_, db_options_.info_log, full_history_ts_low));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
