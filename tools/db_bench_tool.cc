@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/utilities/backup_engine.h"
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
@@ -159,8 +160,10 @@ IF_ROCKSDB_LITE("",
     "randomtransaction,"
     "randomreplacekeys,"
     "timeseries,"
-    "getmergeoperands",
+    "getmergeoperands,",
     "readrandomoperands,"
+    "backup,"
+    "restore"
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -250,7 +253,10 @@ IF_ROCKSDB_LITE("",
     "\treadrandomoperands -- read random keys using `GetMergeOperands()`. An "
     "operation includes a rare but possible retry in case it got "
     "`Status::Incomplete()`. This happens upon encountering more keys than "
-    "have ever been seen by the thread (or eight initially)\n");
+    "have ever been seen by the thread (or eight initially)\n"
+    "\tbackup --  Create a back up of the current DB and verify that a new backup is corrected. "
+    "Rate limit can be specified through --backup_rate_limit\n"
+    "\trestore -- Restore the DB from the latest backup available, rate limit can be specified through --restore_rate_limit\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -1145,6 +1151,16 @@ DEFINE_bool(charge_table_reader, false,
             "Setting for "
             "CacheEntryRoleOptions::charged of"
             "CacheEntryRole::kBlockBasedTableReader");
+
+DEFINE_uint64(backup_rate_limit, 0ull,
+              "If non-zero, db_bench will rate limit reads and writes for DB "
+              "backup. This "
+              "is the global rate in ops/second.");
+
+DEFINE_uint64(restore_rate_limit, 0ull,
+              "If non-zero, db_bench will rate limit reads and writes for DB "
+              "restore. This "
+              "is the global rate in ops/second.");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -3512,6 +3528,12 @@ class Benchmark {
       } else if (name == "readrandomoperands") {
         read_operands_ = true;
         method = &Benchmark::ReadRandom;
+#ifndef ROCKSDB_LITE
+      } else if (name == "backup") {
+        method = &Benchmark::Backup;
+      } else if (name == "restore") {
+        method = &Benchmark::Restore;
+#endif
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -8222,6 +8244,50 @@ class Benchmark {
     } else {
       fprintf(stderr, "Replay failed. Error: %s\n", s.ToString().c_str());
     }
+  }
+
+  void Backup(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    std::string backup_dir = FLAGS_db + "/backups";
+    std::unique_ptr<BackupEngineOptions> engine_options_(
+        new BackupEngineOptions(backup_dir));
+    Status s;
+    BackupEngine* backup_engine;
+    if (FLAGS_backup_rate_limit > 0) {
+      engine_options_.get()->backup_rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_backup_rate_limit, 100000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo));
+    }
+    // Build new backup of the entire DB
+    engine_options_->destroy_old_data = true;
+    s = BackupEngine::Open(FLAGS_env, *engine_options_, &backup_engine);
+    assert(s.ok());
+    s = backup_engine->CreateNewBackup(db);
+    assert(s.ok());
+    std::vector<BackupInfo> backup_info;
+    backup_engine->GetBackupInfo(&backup_info);
+    // Verify that a new backup is created
+    assert(backup_info.size() == 1);
+  }
+
+  void Restore(ThreadState* thread) {
+    std::string backup_dir = FLAGS_db + "/backups";
+    std::unique_ptr<BackupEngineOptions> engine_options_(
+        new BackupEngineOptions(backup_dir));
+    if (FLAGS_restore_rate_limit > 0) {
+      engine_options_.get()->restore_rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_restore_rate_limit, 100000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo));
+    }
+    BackupEngineReadOnly* backup_engine;
+    Status s = BackupEngineReadOnly::Open(Env::Default(), *engine_options_,
+                                          &backup_engine);
+    assert(s.ok());
+    std::string restore_dir =
+        FLAGS_db + "/restore_" + std::to_string(thread->rand.Next());
+    s = backup_engine->RestoreDBFromLatestBackup(restore_dir, restore_dir);
+    assert(s.ok());
+    delete backup_engine;
   }
 
 #endif  // ROCKSDB_LITE

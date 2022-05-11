@@ -2142,14 +2142,9 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     io_s = dest_writer->Append(data);
 
     if (rate_limiter != nullptr) {
-      if (!src.empty()) {
-        rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
-                              RateLimiter::OpType::kWrite);
-      } else {
         LoopRateLimitRequestHelper(data.size(), rate_limiter, Env::IO_LOW,
                                    nullptr /* stats */,
                                    RateLimiter::OpType::kWrite);
-      }
     }
     while (*bytes_toward_next_callback >=
            options_.callback_trigger_interval_size) {
@@ -2426,9 +2421,7 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     return io_s;
   }
 
-  size_t buf_size =
-      rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
-                   : kDefaultCopyFileBufferSize;
+  size_t buf_size = kDefaultCopyFileBufferSize;
   std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 
