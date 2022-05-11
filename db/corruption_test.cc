@@ -1017,17 +1017,23 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 
 class CrashDuringRecoveryWithCorruptionTest
     : public CorruptionTest,
-      public ::testing::WithParamInterface<bool> {
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   explicit CrashDuringRecoveryWithCorruptionTest()
-      : CorruptionTest(), track_and_verify_wals_in_manifest_(GetParam()) {}
+      : CorruptionTest(),
+        avoid_flush_during_recovery_(std::get<0>(GetParam())),
+        track_and_verify_wals_in_manifest_(std::get<1>(GetParam())) {}
 
  protected:
+  const bool avoid_flush_during_recovery_;
   const bool track_and_verify_wals_in_manifest_;
 };
 
 INSTANTIATE_TEST_CASE_P(CorruptionTest, CrashDuringRecoveryWithCorruptionTest,
-                        ::testing::Bool());
+                        ::testing::Values(std::make_tuple(true, false),
+                                          std::make_tuple(false, false),
+                                          std::make_tuple(true, true),
+                                          std::make_tuple(false, true)));
 
 // In case of non-TransactionDB with avoid_flush_during_recovery = true, RocksDB
 // won't flush the data from WAL to L0 for all column families if possible. As a
@@ -1055,6 +1061,10 @@ INSTANTIATE_TEST_CASE_P(CorruptionTest, CrashDuringRecoveryWithCorruptionTest,
 // beginning, kPointInTimeRecovery of WAL is guaranteed to go after this point.
 // If future recovery starts from the old MANIFEST, it means the writing the new
 // MANIFEST failed. It won't have the "SST ahead of WAL" error.
+//
+// The combination of corrupting a WAL and injecting an error during subsequent
+// re-open exposes the bug of prematurely persisting a new MANIFEST with
+// advanced ColumnFamilyData::log_number.
 TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   CloseDb();
   Options options;
@@ -1132,8 +1142,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   // flushed their data from WAL to L0 during recovery, and none of them will
   // ever need to read the WALs again.
 
-  // 4. Fault is injected which emulates second power reset causing
-  // DB to again lose the un-synced WAL.
+  // 4. Fault is injected to fail the recovery.
   {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1177,7 +1186,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   // bound. Therefore, we won't hit the "column family inconsistency" error
   // message.
   {
-    options.avoid_flush_during_recovery = true;
+    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
     ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
     for (auto* h : handles) {
       delete h;
@@ -1206,6 +1215,10 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
 // beginning, kPointInTimeRecovery of WAL is guaranteed to go after this point.
 // If future recovery starts from the old MANIFEST, it means the writing the new
 // MANIFEST failed. It won't have the "SST ahead of WAL" error.
+//
+// The combination of corrupting a WAL and injecting an error during subsequent
+// re-open exposes the bug of prematurely persisting a new MANIFEST with
+// advanced ColumnFamilyData::log_number.
 TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   CloseDb();
   Options options;
@@ -1293,8 +1306,6 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   // WAL files that it must not delete because they can contain data of
   // uncommitted transactions. As a result, min_log_number_to_keep won't change.
 
-  // 4. Corrupt max_wal_num to emulate second power reset which caused the
-  // DB to again lose the un-synced WAL.
   {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1320,14 +1331,14 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 
+  // 4. Corrupt max_wal_num.
   {
     std::vector<uint64_t> file_nums;
     GetSortedWalFiles(file_nums);
     size_t size = file_nums.size();
     assert(size >= 2);
     uint64_t log_num = file_nums[size - 1];
-    CorruptFileWithTruncation(FileType::kWalFile, log_num
-                              /*bytes_to_truncate=*/);
+    CorruptFileWithTruncation(FileType::kWalFile, log_num);
   }
 
   // 5. After second crash reopen the db with second corruption. Default family
@@ -1380,6 +1391,10 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
 // beginning, kPointInTimeRecovery of WAL is guaranteed to go after this point.
 // If future recovery starts from the old MANIFEST, it means the writing the new
 // MANIFEST failed. It won't have the "SST ahead of WAL" error.
+
+// The combination of corrupting a WAL and injecting an error during subsequent
+// re-open exposes the bug of prematurely persisting a new MANIFEST with
+// advanced ColumnFamilyData::log_number.
 TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
   CloseDb();
   Options options;
@@ -1436,8 +1451,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
                               /*bytes_to_truncate=*/8);
   }
 
-  // Fault is injected which emulates second power reset causing
-  // DB to again lose the un-synced WAL.
+  // Fault is injected to fail the recovery.
   {
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1465,7 +1479,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
 
   // Reopen db again
   {
-    options.avoid_flush_during_recovery = true;
+    options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
     ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
     for (auto* h : handles) {
       delete h;
