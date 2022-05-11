@@ -488,7 +488,8 @@ Env* Env::Default() {
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
   // ~PosixEnv must be called on exit
-  STATIC_AVOID_DESTRUCTION(PosixEnv, default_env);
+  //**TODO: Can we make this a STATIC_AVOID_DESTRUCTION?
+  PosixEnv default_env;
   return &default_env;
 }
 
