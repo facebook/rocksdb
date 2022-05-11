@@ -3413,6 +3413,11 @@ size_t rocksdb_options_get_memtable_huge_page_size(rocksdb_options_t* opt) {
   return opt->rep.memtable_huge_page_size;
 }
 
+void rocksdb_options_set_doubly_skip_list_rep(rocksdb_options_t* opt) {
+  rocksdb::MemTableRepFactory* factory = new rocksdb::DoublySkipListFactory();
+  opt->rep.memtable_factory.reset(factory);
+}
+
 void rocksdb_options_set_hash_skip_list_rep(
     rocksdb_options_t *opt, size_t bucket_count,
     int32_t skiplist_height, int32_t skiplist_branching_factor) {
