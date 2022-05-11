@@ -1065,7 +1065,7 @@ INSTANTIATE_TEST_CASE_P(CorruptionTest, CrashDuringRecoveryWithCorruptionTest,
 // The combination of corrupting a WAL and injecting an error during subsequent
 // re-open exposes the bug of prematurely persisting a new MANIFEST with
 // advanced ColumnFamilyData::log_number.
-TEST_P(CrashDuringRecoveryWithCorruptionTest, DISABLED_CrashDuringRecovery) {
+TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   CloseDb();
   Options options;
   options.track_and_verify_wals_in_manifest =
@@ -1219,8 +1219,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, DISABLED_CrashDuringRecovery) {
 // The combination of corrupting a WAL and injecting an error during subsequent
 // re-open exposes the bug of prematurely persisting a new MANIFEST with
 // advanced ColumnFamilyData::log_number.
-TEST_P(CrashDuringRecoveryWithCorruptionTest,
-       DISABLED_TxnDbCrashDuringRecovery) {
+TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   CloseDb();
   Options options;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
@@ -1396,8 +1395,7 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest,
 // The combination of corrupting a WAL and injecting an error during subsequent
 // re-open exposes the bug of prematurely persisting a new MANIFEST with
 // advanced ColumnFamilyData::log_number.
-TEST_P(CrashDuringRecoveryWithCorruptionTest,
-       DISABLED_CrashDuringRecoveryWithFlush) {
+TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
   CloseDb();
   Options options;
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
