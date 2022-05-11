@@ -2,7 +2,6 @@ version: 2.1
 
 orbs:
   win: circleci/windows@2.4.0
-  slack: circleci/slack@3.4.2
 
 aliases:
   - &notify-on-main-failure
@@ -57,7 +56,6 @@ commands:
 
   post-steps:
     steps:
-      - slack/status: *notify-on-main-failure
       - store_test_results: # store test result if there's any
           path: /tmp/test-results
       - store_artifacts: # store LOG for debugging if there's any
