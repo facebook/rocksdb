@@ -455,7 +455,6 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg,
   fprintf(stderr, "Verification failed: %s. Status is %s\n", msg.c_str(),
           s.ToString().c_str());
   shared->SetVerificationFailure();
-  assert(false);
 }
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
@@ -466,7 +465,6 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
           "Verification failed for column family %d key %s (%" PRIi64 "): %s\n",
           cf, key_slice.ToString(true).c_str(), key, msg.c_str());
   shared->SetVerificationFailure();
-  assert(false);
 }
 
 void StressTest::PrintStatistics() {
@@ -1621,7 +1619,6 @@ Status StressTest::TestBackupRestore(
         oss << "0x" << key.ToString(true)
             << " exists in restore but not in original db";
         s = Status::Corruption(oss.str());
-        assert(false);
       }
     } else if (get_status.IsNotFound()) {
       if (exists && from_latest && ShouldAcquireMutexOnKey()) {
@@ -1629,7 +1626,6 @@ Status StressTest::TestBackupRestore(
         oss << "0x" << key.ToString(true)
             << " exists in original db but not in restore";
         s = Status::Corruption(oss.str());
-        assert(false);
       }
     } else {
       s = get_status;
@@ -1807,7 +1803,6 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
           oss << "0x" << key.ToString(true) << " exists in checkpoint "
               << checkpoint_dir << " but not in original db";
           s = Status::Corruption(oss.str());
-          assert(false);
         }
       } else if (get_status.IsNotFound()) {
         if (exists && ShouldAcquireMutexOnKey()) {
@@ -1816,7 +1811,6 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
               << " exists in original db but not in checkpoint "
               << checkpoint_dir;
           s = Status::Corruption(oss.str());
-          assert(false);
         }
       } else {
         s = get_status;

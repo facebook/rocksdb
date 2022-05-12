@@ -34,7 +34,7 @@ default_params = {
     "acquire_snapshot_one_in": 10000,
     "backup_max_size": 100 * 1024 * 1024,
     # Consider larger number when backups considered more stable
-    "backup_one_in": 100,
+    "backup_one_in": 100000,
     "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
@@ -42,7 +42,7 @@ default_params = {
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 8388608,
     "reserve_table_reader_memory": lambda: random.choice([0, 1]),
-    "checkpoint_one_in": 100,
+    "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
     "bottommost_compression_type": lambda:
