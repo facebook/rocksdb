@@ -54,20 +54,12 @@ IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
   UpdateFileChecksum(data);
 
   {
-<<<<<<< HEAD
     IOOptions io_options;
-=======
-    std::unique_ptr<IOOptions> io_options;
->>>>>>> c19ac641ea67dd068be5e50e86de84f26f396e65
     UpdateIOOptionsIfNeeded(io_options, op_rate_limiter_priority);
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
     writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left,
-<<<<<<< HEAD
                                  io_options, nullptr);
-=======
-                                 *io_options, nullptr);
->>>>>>> c19ac641ea67dd068be5e50e86de84f26f396e65
   }
 
   // See whether we need to enlarge the buffer to avoid the flush
@@ -343,15 +335,9 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
       start_ts = FileOperationInfo::StartNow();
     }
 #endif
-<<<<<<< HEAD
     IOOptions io_options;
     UpdateIOOptionsIfNeeded(io_options, op_rate_limiter_priority);
     s = writable_file_->Flush(io_options, nullptr);
-=======
-    std::unique_ptr<IOOptions> io_options;
-    UpdateIOOptionsIfNeeded(io_options, op_rate_limiter_priority);
-    s = writable_file_->Flush(*io_options, nullptr);
->>>>>>> c19ac641ea67dd068be5e50e86de84f26f396e65
 #ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
       auto finish_ts = std::chrono::steady_clock::now();
