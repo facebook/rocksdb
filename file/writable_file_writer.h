@@ -281,6 +281,10 @@ class WritableFileWriter {
       Env::IOPriority writable_file_io_priority,
       Env::IOPriority op_rate_limiter_priority);
 
+  // If rate_limiter_ is nullptr, the rate_limiter_priority may be updated.
+  void UpdateIOOptionsIfNeeded(const std::unique_ptr<IOOptions>& io_options,
+                               const Env::IOPriority op_rate_limiter_priority);
+
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
