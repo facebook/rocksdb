@@ -1074,7 +1074,12 @@ Env::IOPriority FlushJob::GetRateLimiterPriority(
       versions_->GetColumnFamilySet()->write_controller();
 
   if (op_type == RateLimiter::OpType::kWrite) {
+<<<<<<< HEAD
     if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
+=======
+    if (UNLIKELY(write_controller->IsStopped()) ||
+        UNLIKELY(write_controller->NeedsDelay())) {
+>>>>>>> c19ac641ea67dd068be5e50e86de84f26f396e65
       return Env::IO_USER;
     }
     return Env::IO_HIGH;
