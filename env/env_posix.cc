@@ -489,7 +489,7 @@ Env* Env::Default() {
   INIT_SYNC_POINT_SINGLETONS();
   // ~PosixEnv must be called on exit
   //**TODO: Can we make this a STATIC_AVOID_DESTRUCTION?
-  PosixEnv default_env;
+  static PosixEnv default_env;
   return &default_env;
 }
 
