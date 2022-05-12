@@ -234,6 +234,8 @@ class CompactionJob {
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);
+  // The rate limiter priority (io_priority) is determined dynamically here.
+  Env::IOPriority GetRateLimiterPriority(const RateLimiter::OpType op_type);
 };
 
 // CompactionServiceInput is used the pass compaction information between two

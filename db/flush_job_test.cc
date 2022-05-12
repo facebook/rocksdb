@@ -658,6 +658,15 @@ TEST_F(FlushJobTimestampTest, NoKeyExpired) {
   ASSERT_TRUE(to_delete.empty());
 }
 
+TEST_F(FlushJobTimestampTest, GetRateLimiterPriority) {
+  // When the state from WriteController is normal.
+  ASSERT_EQ(GetRateLimiterPriority(RateLimiter::OpType::kWrite), Env::IO_HIGH);
+
+  // When the state from WriteController is Delayed.
+
+  // When the state from WriteController is Stopped.
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

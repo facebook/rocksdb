@@ -2285,7 +2285,8 @@ Status CompactionJob::OpenCompactionOutputFile(
         /*enable_hash=*/paranoid_file_checks_);
   }
 
-  writable_file->SetIOPriority(Env::IOPriority::IO_LOW);
+  writable_file->SetIOPriority(
+      GetRateLimiterPriority(RateLimiter::OpType::kWrite));
   writable_file->SetWriteLifeTimeHint(write_hint_);
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
@@ -2474,6 +2475,30 @@ void CompactionJob::LogCompaction() {
 std::string CompactionJob::GetTableFileName(uint64_t file_number) {
   return TableFileName(compact_->compaction->immutable_options()->cf_paths,
                        file_number, compact_->compaction->output_path_id());
+}
+
+Env::IOPriority CompactionJob::GetRateLimiterPriority(
+    const RateLimiter::OpType op_type) {
+  WriteController* write_controller =
+      versions_->GetColumnFamilySet()->write_controller();
+  // TODO: if all priorities are the same for read and write, update this.
+  if (op_type == RateLimiter::OpType::kWrite) {
+    if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
+      return Env::IO_USER;
+    } else if (write_controller->NeedSpeedupCompaction()) {
+      return Env::IO_HIGH;
+    }
+
+    return Env::IO_LOW;
+  } else {
+    if (write_controller->NeedsDelay()|| (write_controller->IsStopped()) {
+      return Env::IO_USER;
+    } else if (write_controller->NeedSpeedupCompaction()) {
+      return Env::IO_HIGH;
+    }
+
+    return Env::IO_LOW;
+  }
 }
 
 #ifndef ROCKSDB_LITE
