@@ -313,9 +313,10 @@ txn_params = {
 }
 
 best_efforts_recovery_params = {
-    #"best_efforts_recovery": 1,
+    "best_efforts_recovery": 1,
     "atomic_flush": 0,
     "disable_wal": 1,
+    "column_families": 1,
     "sync_fault_injection": 0,
 }
 
@@ -502,12 +503,12 @@ def finalize_and_sanitize(src_params):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
     if dest_params.get("two_write_queues") == 1:
         dest_params["enable_pipelined_write"] = 0
-    #if dest_params.get("best_efforts_recovery") == 1:
-    dest_params["disable_wal"] = 1
-    dest_params["atomic_flush"] = 0
-    dest_params["enable_compaction_filter"] = 0
-    dest_params["sync"] = 0
-    dest_params["write_fault_one_in"] = 0
+    if dest_params.get("best_efforts_recovery") == 1:
+      dest_params["disable_wal"] = 1
+      dest_params["atomic_flush"] = 0
+      dest_params["enable_compaction_filter"] = 0
+      dest_params["sync"] = 0
+      dest_params["write_fault_one_in"] = 0
 
     return dest_params
 
