@@ -63,6 +63,8 @@ using ROCKSDB_NAMESPACE::ColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::CompactionFilter;
 using ROCKSDB_NAMESPACE::CompactionFilterFactory;
 using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
+using ROCKSDB_NAMESPACE::CompactionOptions;
+using ROCKSDB_NAMESPACE::CompactionJobInfo;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
 using ROCKSDB_NAMESPACE::CompressionType;
@@ -134,6 +136,8 @@ struct rocksdb_writebatch_wi_t   { WriteBatchWithIndex* rep; };
 struct rocksdb_snapshot_t        { const Snapshot*   rep; };
 struct rocksdb_flushoptions_t    { FlushOptions      rep; };
 struct rocksdb_fifo_compaction_options_t { CompactionOptionsFIFO rep; };
+struct rocksdb_compactfiles_options_t { CompactionOptions rep; };
+struct rocksdb_compaction_job_info_t { CompactionJobInfo* rep; };
 struct rocksdb_readoptions_t {
    ReadOptions rep;
    // stack variables to set pointers to in ReadOptions
@@ -1462,6 +1466,30 @@ void rocksdb_compact_range_cf_opt(rocksdb_t* db,
       (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
 }
 
+char** rocksdb_compact_files(rocksdb_t* db, rocksdb_compactfiles_options_t* opt,
+                           const char* const* file_list, const size_t list_len,
+                           int output_level, int output_path_id, size_t* output_files_len,
+                           rocksdb_compaction_job_info_t* info) {
+  std::vector<std::string> files(list_len), output_files;
+  for (size_t i = 0; i < list_len; ++i) {
+    files[i] = std::string(file_list[i]);
+  }
+  db->rep->CompactFiles(opt->rep, files, output_level, output_path_id, &output_files, info->rep);
+  *output_files_len = output_files.size();
+  char** output_files_list =
+      static_cast<char**>(malloc(sizeof(char*) * *output_files_len));
+  for (unsigned int i = 0; i < *output_files_len; ++i) {
+    output_files_list[i] = strdup(output_files[i].c_str());
+  }
+  return output_files_list;
+}
+
+void rocksdb_compacted_files_list_destroy(char** compacted_files_list, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    free(compacted_files_list[i]);
+  }
+  free(compacted_files_list);
+}
 void rocksdb_flush(
     rocksdb_t* db,
     const rocksdb_flushoptions_t* options,
@@ -4137,6 +4165,37 @@ void rocksdb_compactoptions_set_target_level(rocksdb_compactoptions_t* opt,
 
 int rocksdb_compactoptions_get_target_level(rocksdb_compactoptions_t* opt) {
   return opt->rep.target_level;
+}
+
+rocksdb_compactfiles_options_t* rocksdb_compactfiles_options_create() {
+  return new rocksdb_compactfiles_options_t;
+}
+
+void compactfiles_option_set_compression(rocksdb_compactfiles_options_t* opt, int t) {
+  opt->rep.compression = static_cast<CompressionType>(t);
+}
+
+void compactfiles_option_set_output_file_size_limit(
+    rocksdb_compactfiles_options_t* opt, uint64_t output_file_size_limit) {
+  opt->rep.output_file_size_limit = output_file_size_limit;
+}
+
+void compactfiles_option_set_max_subcompactions(
+    rocksdb_compactfiles_options_t* opt, uint32_t max_subcompactions) {
+  opt->rep.max_subcompactions = max_subcompactions;
+}
+
+void compactfiles_option_destroy(rocksdb_compactfiles_options_t* opt) {
+  delete opt;
+}
+
+rocksdb_compaction_job_info_t* rocksdb_compaction_job_info_create() {
+  return new rocksdb_compaction_job_info_t;
+}
+
+void rocksdb_compaction_job_info_destroy(rocksdb_compaction_job_info_t* info){
+  delete info->rep;
+  delete info;
 }
 
 rocksdb_flushoptions_t* rocksdb_flushoptions_create() {

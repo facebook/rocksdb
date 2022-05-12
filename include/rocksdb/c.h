@@ -93,6 +93,8 @@ typedef struct rocksdb_logger_t          rocksdb_logger_t;
 typedef struct rocksdb_mergeoperator_t   rocksdb_mergeoperator_t;
 typedef struct rocksdb_options_t         rocksdb_options_t;
 typedef struct rocksdb_compactoptions_t rocksdb_compactoptions_t;
+typedef struct rocksdb_compactfiles_options_t rocksdb_compactfiles_options_t;
+typedef struct rocksdb_compaction_job_info_t rocksdb_compaction_job_info_t;
 typedef struct rocksdb_block_based_table_options_t
     rocksdb_block_based_table_options_t;
 typedef struct rocksdb_cuckoo_table_options_t
@@ -525,6 +527,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf_opt(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     rocksdb_compactoptions_t* opt, const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len);
+
+extern ROCKSDB_LIBRARY_API char** rocksdb_compact_files(
+    rocksdb_t* db, rocksdb_compactfiles_options_t* opt,
+    const char* const* file_list, const size_t list_len, int output_level,
+    int output_path_id, size_t* output_files_len,
+    rocksdb_compaction_job_info_t* info);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_compacted_files_list_destroy(
+    char** compacted_files_list, size_t len);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_delete_file(rocksdb_t* db,
                                                     const char* name);
@@ -1734,6 +1745,26 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_target_level(
     rocksdb_compactoptions_t*, int);
 extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_target_level(
     rocksdb_compactoptions_t*);
+
+/* Compact files options */
+
+extern ROCKSDB_LIBRARY_API rocksdb_compactfiles_options_t*
+rocksdb_compactfiles_options_create();
+extern ROCKSDB_LIBRARY_API void compactfiles_option_set_compression(
+    rocksdb_compactfiles_options_t* opt, int t);
+extern ROCKSDB_LIBRARY_API void compactfiles_option_set_output_file_size_limit(
+    rocksdb_compactfiles_options_t* opt, uint64_t output_file_size_limit);
+extern ROCKSDB_LIBRARY_API void compactfiles_option_set_max_subcompactions(
+    rocksdb_compactfiles_options_t* opt, uint32_t max_subcompactions);
+extern ROCKSDB_LIBRARY_API void compactfiles_option_destroy(
+    rocksdb_compactfiles_options_t* opt);
+
+/* Compaction job info */
+
+extern ROCKSDB_LIBRARY_API rocksdb_compaction_job_info_t*
+rocksdb_compaction_job_info_create();
+extern ROCKSDB_LIBRARY_API void rocksdb_compaction_job_info_destroy(
+    rocksdb_compaction_job_info_t* info);
 
 /* Flush options */
 
