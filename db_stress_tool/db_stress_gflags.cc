@@ -752,6 +752,13 @@ DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
               "Buffering limit for SST file data to sample for dictionary "
               "compression.");
 
+DEFINE_bool(
+    compression_use_zstd_dict_trainer, true,
+    "Use zstd's trainer to generate dictionary. If the options is false, "
+    "zstd's finalizeDictionary() API is used to generate dictionary. "
+    "ZSTD 1.4.5+ is required. If ZSTD 1.4.5+ is not linked with the binary, "
+    "this flag will have the default value true.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");

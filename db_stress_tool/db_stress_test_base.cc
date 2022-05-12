@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include "util/compression.h"
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
@@ -2915,6 +2916,16 @@ void InitializeOptionsFromFlags(
       FLAGS_compression_parallel_threads;
   options.compression_opts.max_dict_buffer_bytes =
       FLAGS_compression_max_dict_buffer_bytes;
+  if (ZSTD_FinalizeDictionarySupported()) {
+    options.compression_opts.use_zstd_dict_trainer =
+        FLAGS_compression_use_zstd_dict_trainer;
+  } else if (!FLAGS_compression_use_zstd_dict_trainer) {
+    fprintf(
+        stderr,
+        "WARNING: use_zstd_dict_trainer is false but zstd finalizeDictionary "
+        "cannot be used because ZSTD 1.4.5+ is not linked with the binary."
+        " zstd dictionary trainer will be used.\n");
+  }
   options.max_manifest_file_size = FLAGS_max_manifest_file_size;
   options.inplace_update_support = FLAGS_in_place_update;
   options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);

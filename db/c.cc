@@ -2855,6 +2855,20 @@ void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
   opt->rep.bottommost_compression_opts.enabled = enabled;
 }
 
+void rocksdb_options_set_bottommost_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer,
+    unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.use_zstd_dict_trainer =
+      use_zstd_dict_trainer;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
+unsigned char
+rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt) {
+  return opt->rep.bottommost_compression_opts.use_zstd_dict_trainer;
+}
+
 void rocksdb_options_set_bottommost_compression_options_max_dict_buffer_bytes(
     rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes,
     unsigned char enabled) {
@@ -2880,6 +2894,16 @@ void rocksdb_options_set_compression_options_zstd_max_train_bytes(
 int rocksdb_options_get_compression_options_zstd_max_train_bytes(
     rocksdb_options_t* opt) {
   return opt->rep.compression_opts.zstd_max_train_bytes;
+}
+
+void rocksdb_options_set_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer) {
+  opt->rep.compression_opts.use_zstd_dict_trainer = use_zstd_dict_trainer;
+}
+
+unsigned char rocksdb_options_get_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.use_zstd_dict_trainer;
 }
 
 void rocksdb_options_set_compression_options_parallel_threads(
