@@ -1107,7 +1107,8 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
     // number. TEST_SwitchMemtable makes sure WALs are not synced and test can
     // corrupt un-sync WAL.
     for (int i = 0; i < 2; ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i), "value"));
+      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i),
+                         "value" + std::to_string(i)));
       ASSERT_OK(dbimpl->TEST_SwitchMemtable());
     }
 
@@ -1188,6 +1189,23 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecovery) {
   {
     options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
     ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+
+    // Verify that data is not lost.
+    {
+      std::string v;
+      ASSERT_OK(db_->Get(ReadOptions(), handles[1], "old_key", &v));
+      ASSERT_EQ("dontcare", v);
+
+      v.clear();
+      ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(0), &v));
+      ASSERT_EQ("value" + std::to_string(0), v);
+
+      // Since  it's corrupting second last wal, below key is not found.
+      v.clear();
+      ASSERT_EQ(db_->Get(ReadOptions(), "key" + std::to_string(1), &v),
+                Status::NotFound());
+    }
+
     for (auto* h : handles) {
       delete h;
     }
@@ -1270,13 +1288,14 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
 
     // Put and flush cf0
     for (int i = 0; i < 2; ++i) {
-      ASSERT_OK(txn_db->Put(WriteOptions(), "dontcare", "value"));
+      ASSERT_OK(txn_db->Put(WriteOptions(), "key" + std::to_string(i),
+                            "value" + std::to_string(i)));
       ASSERT_OK(dbimpl->TEST_SwitchMemtable());
     }
 
     // Put cf1
     txn = txn_db->BeginTransaction(WriteOptions(), TransactionOptions());
-    ASSERT_OK(txn->Put(handles[1], "foo1", "value"));
+    ASSERT_OK(txn->Put(handles[1], "foo1", "value1"));
     ASSERT_OK(txn->Commit());
 
     delete txn;
@@ -1336,7 +1355,6 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
     std::vector<uint64_t> file_nums;
     GetSortedWalFiles(file_nums);
     size_t size = file_nums.size();
-    assert(size >= 2);
     uint64_t log_num = file_nums[size - 1];
     CorruptFileWithTruncation(FileType::kWalFile, log_num);
   }
@@ -1353,6 +1371,27 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, TxnDbCrashDuringRecovery) {
   {
     ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, cf_descs,
                                   &handles, &txn_db));
+
+    // Verify that data is not lost.
+    {
+      std::string v;
+      // Key not visible since it's not committed.
+      ASSERT_EQ(txn_db->Get(ReadOptions(), handles[1], "foo", &v),
+                Status::NotFound());
+
+      v.clear();
+      ASSERT_OK(txn_db->Get(ReadOptions(), "key" + std::to_string(0), &v));
+      ASSERT_EQ("value" + std::to_string(0), v);
+
+      // Last WAL is corrupted which contains two keys below.
+      v.clear();
+      ASSERT_EQ(txn_db->Get(ReadOptions(), "key" + std::to_string(1), &v),
+                Status::NotFound());
+      v.clear();
+      ASSERT_EQ(txn_db->Get(ReadOptions(), handles[1], "foo1", &v),
+                Status::NotFound());
+    }
+
     for (auto* h : handles) {
       delete h;
     }
@@ -1428,7 +1467,8 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
     // Write to default_cf and flush this cf several times to advance wal
     // number.
     for (int i = 0; i < 2; ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i), "value"));
+      ASSERT_OK(db_->Put(WriteOptions(), "key" + std::to_string(i),
+                         "value" + std::to_string(i)));
       ASSERT_OK(db_->Flush(FlushOptions()));
     }
 
@@ -1481,6 +1521,25 @@ TEST_P(CrashDuringRecoveryWithCorruptionTest, CrashDuringRecoveryWithFlush) {
   {
     options.avoid_flush_during_recovery = avoid_flush_during_recovery_;
     ASSERT_OK(DB::Open(options, dbname_, cf_descs, &handles, &db_));
+
+    // Verify that data is not lost.
+    {
+      std::string v;
+      ASSERT_OK(db_->Get(ReadOptions(), handles[1], "old_key", &v));
+      ASSERT_EQ("dontcare", v);
+
+      for (int i = 0; i < 2; ++i) {
+        v.clear();
+        ASSERT_OK(db_->Get(ReadOptions(), "key" + std::to_string(i), &v));
+        ASSERT_EQ("value" + std::to_string(i), v);
+      }
+
+      // Since it's corrupting last wal after Flush, below key is not found.
+      v.clear();
+      ASSERT_EQ(db_->Get(ReadOptions(), handles[1], "dontcare", &v),
+                Status::NotFound());
+    }
+
     for (auto* h : handles) {
       delete h;
     }
