@@ -214,6 +214,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == DeleteCommand::Name()) {
     return new DeleteCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
+  } else if (parsed_params.cmd == SingleDeleteCommand::Name()) {
+    return new SingleDeleteCommand(parsed_params.cmd_params,
+                                   parsed_params.option_map,
+                                   parsed_params.flags);
   } else if (parsed_params.cmd == DeleteRangeCommand::Name()) {
     return new DeleteRangeCommand(parsed_params.cmd_params,
                                   parsed_params.option_map,
@@ -3056,6 +3060,42 @@ void DeleteCommand::DoCommand() {
     return;
   }
   Status st = db_->Delete(WriteOptions(), GetCfHandle(), key_);
+  if (st.ok()) {
+    fprintf(stdout, "OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
+}
+
+SingleDeleteCommand::SingleDeleteCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "KEY must be specified for the single delete command");
+  } else {
+    key_ = params.at(0);
+    if (is_key_hex_) {
+      key_ = HexToString(key_);
+    }
+  }
+}
+
+void SingleDeleteCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(SingleDeleteCommand::Name() + " <key>");
+  ret.append("\n");
+}
+
+void SingleDeleteCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  Status st = db_->SingleDelete(WriteOptions(), GetCfHandle(), key_);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {
