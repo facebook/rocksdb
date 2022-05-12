@@ -317,7 +317,6 @@ best_efforts_recovery_params = {
     "atomic_flush": 0,
     "disable_wal": 1,
     "column_families": 1,
-    "sync_fault_injection": 0,
 }
 
 blob_params = {
@@ -567,42 +566,6 @@ def gen_cmd(params, unknown_params):
         and v is not None] + unknown_params
     return cmd
 
-
-# Inject inconsistency to db directory.
-def inject_inconsistencies_to_db_dir(dir_path):
-    files = os.listdir(dir_path)
-    file_num_rgx = re.compile(r'(?P<number>[0-9]{6})')
-    largest_fnum = 0
-    for f in files:
-        m = file_num_rgx.search(f)
-        if m and not f.startswith('LOG'):
-            largest_fnum = max(largest_fnum, int(m.group('number')))
-
-    candidates = [
-        f for f in files if re.search(r'[0-9]+\.sst', f)
-    ]
-    deleted = 0
-    corrupted = 0
-    for f in candidates:
-        rnd = random.randint(0, 99)
-        f_path = os.path.join(dir_path, f)
-        if rnd < 10:
-            os.unlink(f_path)
-            deleted = deleted + 1
-        elif 10 <= rnd and rnd < 30:
-            with open(f_path, "a") as fd:
-                fd.write('12345678')
-            corrupted = corrupted + 1
-    print('Removed %d table files' % deleted)
-    print('Corrupted %d table files' % corrupted)
-
-    # Add corrupted MANIFEST and SST
-    for num in range(largest_fnum + 1, largest_fnum + 10):
-        rnd = random.randint(0, 1)
-        fname = ("MANIFEST-%06d" % num) if rnd == 0 else ("%06d.sst" % num)
-        print('Write %s' % fname)
-        with open(os.path.join(dir_path, fname), "w") as fd:
-            fd.write("garbage")
 
 def execute_cmd(cmd, timeout):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE,

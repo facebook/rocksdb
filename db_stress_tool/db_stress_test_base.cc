@@ -1424,7 +1424,8 @@ void StressTest::TestCompactFiles(ThreadState* /* thread */,
 Status StressTest::TestBackupRestore(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& rand_keys) {
-  const std::string backup_dir = FLAGS_db + "/.backup" + std::to_string(thread->tid);
+  const std::string backup_dir =
+      FLAGS_db + "/.backup" + std::to_string(thread->tid);
   const std::string restore_dir =
       FLAGS_db + "/.restore" + std::to_string(thread->tid);
   BackupEngineOptions backup_opts(backup_dir);
