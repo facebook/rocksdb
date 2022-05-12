@@ -53,6 +53,7 @@ static void StartPhase(const char* name) {
   phase = name;
 }
 #ifdef _MSC_VER
+#define __attribute__(A)
 #pragma warning(push)
 #pragma warning (disable: 4996) // getenv security warning
 #endif
@@ -394,6 +395,91 @@ static void CheckTxnDBGetCF(rocksdb_transactiondb_t* txn_db,
   Free(&val);
 }
 
+void eventlistener_destructor_cb(void* clientd) {
+  CheckCondition(clientd != NULL);
+  Free((char**)&clientd);
+}
+
+void eventlistener_on_flush_completed_cb(
+    void* clientd, rocksdb_t* db, const rocksdb_flushjobinfo_t* flushjobinfo) {
+  CheckCondition(clientd != NULL);
+  CheckCondition(db != NULL);
+
+  const char* file_path = NULL;
+  size_t sz = 0;
+  unsigned char triggered_writes_slowdown __attribute__((__unused__)) = 0;
+  unsigned char triggered_writes_stop __attribute__((__unused__)) = 0;
+
+  file_path = rocksdb_flushjobinfo_file_path(flushjobinfo, &sz);
+  triggered_writes_slowdown =
+      rocksdb_flushjobinfo_triggered_writes_slowdown(flushjobinfo);
+  triggered_writes_stop =
+      rocksdb_flushjobinfo_triggered_writes_stop(flushjobinfo);
+  CheckCondition(file_path != NULL);
+}
+
+void eventlistener_on_compaction_completed_cb(
+    void* clientd, rocksdb_t* db,
+    const rocksdb_compactionjobinfo_t* compactionjobinfo) {
+  CheckCondition(clientd != NULL);
+  CheckCondition(db != NULL);
+
+  char* err = NULL;
+  uint64_t elapsed_millis __attribute__((__unused__)) = 0;
+  int output_level __attribute__((__unused__)) = 0;
+  uint64_t input_records __attribute__((__unused__)) = 0;
+  uint64_t output_records __attribute__((__unused__)) = 0;
+  uint64_t total_input_bytes __attribute__((__unused__)) = 0;
+  uint64_t total_output_bytes __attribute__((__unused__)) = 0;
+
+  rocksdb_compactionjobinfo_status(compactionjobinfo, &err);
+  elapsed_millis =
+      rocksdb_compactionjobinfo_elapsed_micros(compactionjobinfo) / 1000;
+  output_level = rocksdb_compactionjobinfo_output_level(compactionjobinfo);
+  input_records = rocksdb_compactionjobinfo_input_records(compactionjobinfo);
+  output_records = rocksdb_compactionjobinfo_output_records(compactionjobinfo);
+  total_input_bytes =
+      rocksdb_compactionjobinfo_total_input_bytes(compactionjobinfo);
+  total_output_bytes =
+      rocksdb_compactionjobinfo_total_output_bytes(compactionjobinfo);
+
+  if (err) {
+    rocksdb_free(err);
+    err = NULL;
+  }
+}
+
+void eventlistener_on_external_file_ingested_cb(
+    void* clientd, rocksdb_t* db,
+    const rocksdb_externalfileingestioninfo_t* externalfileingestioninfo) {
+  CheckCondition(clientd != NULL);
+  CheckCondition(db != NULL);
+
+  const char* file_path = NULL;
+  size_t sz = 0;
+
+  file_path = rocksdb_externalfileingestioninfo_internal_file_path(
+      externalfileingestioninfo, &sz);
+  CheckCondition(file_path != NULL);
+}
+
+void eventlistener_on_stall_conditions_changed_cb(
+    void* clientd, const rocksdb_writestallinfo_t* writestallinfo) {
+  CheckCondition(clientd != NULL);
+
+  const enum _tibdgKvStore_WriteStallCondition* curr = NULL;
+  const enum _tibdgKvStore_WriteStallCondition* prev = NULL;
+
+  curr =
+      (const enum _tibdgKvStore_WriteStallCondition*)rocksdb_writestallinfo_cur(
+          writestallinfo);
+  prev = (const enum _tibdgKvStore_WriteStallCondition*)
+      rocksdb_writestallinfo_prev(writestallinfo);
+
+  CheckCondition(curr != NULL);
+  CheckCondition(prev != NULL);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -414,6 +500,7 @@ int main(int argc, char** argv) {
   rocksdb_transaction_options_t* txn_options;
   rocksdb_optimistictransactiondb_t* otxn_db;
   rocksdb_optimistictransaction_options_t* otxn_options;
+  rocksdb_eventlistener_t* eventlistener;
   char* err = NULL;
   int run = -1;
 
@@ -488,6 +575,25 @@ int main(int argc, char** argv) {
 
   rocksdb_options_add_compact_on_deletion_collector_factory(options, 10000,
                                                             10001);
+
+  char* eventlistener_clientd = malloc(strlen("clientd_string"));
+  memcpy(eventlistener_clientd, "clientd_string", strlen("clientd_string"));
+  eventlistener = rocksdb_eventlistener_create(eventlistener_clientd,
+                                               eventlistener_destructor_cb,
+                                               NULL, NULL, NULL, NULL);
+  rocksdb_eventlistener_destroy(
+      eventlistener);  //  eventlistener_clientd should be freed
+
+  eventlistener_clientd = malloc(strlen("clientd_string2"));
+  memcpy(eventlistener_clientd, "clientd_string2", strlen("clientd_string2"));
+  eventlistener = rocksdb_eventlistener_create(
+      eventlistener_clientd, eventlistener_destructor_cb,
+      eventlistener_on_flush_completed_cb,
+      eventlistener_on_compaction_completed_cb,
+      eventlistener_on_external_file_ingested_cb,
+      eventlistener_on_stall_conditions_changed_cb);
+
+  rocksdb_options_add_eventlistener(options, eventlistener);
 
   StartPhase("destroy");
   rocksdb_destroy_db(options, dbname, &err);

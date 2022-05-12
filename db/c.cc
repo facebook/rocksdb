@@ -62,6 +62,7 @@ using ROCKSDB_NAMESPACE::ColumnFamilyHandle;
 using ROCKSDB_NAMESPACE::ColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::CompactionFilter;
 using ROCKSDB_NAMESPACE::CompactionFilterFactory;
+using ROCKSDB_NAMESPACE::CompactionJobInfo;
 using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
@@ -72,8 +73,11 @@ using ROCKSDB_NAMESPACE::DBOptions;
 using ROCKSDB_NAMESPACE::DbPath;
 using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::EnvOptions;
+using ROCKSDB_NAMESPACE::EventListener;
+using ROCKSDB_NAMESPACE::ExternalFileIngestionInfo;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
+using ROCKSDB_NAMESPACE::FlushJobInfo;
 using ROCKSDB_NAMESPACE::FlushOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
@@ -118,6 +122,8 @@ using ROCKSDB_NAMESPACE::WritableFile;
 using ROCKSDB_NAMESPACE::WriteBatch;
 using ROCKSDB_NAMESPACE::WriteBatchWithIndex;
 using ROCKSDB_NAMESPACE::WriteOptions;
+using ROCKSDB_NAMESPACE::WriteStallCondition;
+using ROCKSDB_NAMESPACE::WriteStallInfo;
 
 using std::vector;
 using std::unordered_set;
@@ -204,6 +210,22 @@ struct rocksdb_optimistictransaction_options_t {
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
+};
+
+struct rocksdb_flushjobinfo_t {
+  FlushJobInfo rep;
+};
+struct rocksdb_writestallcondition_t {
+  WriteStallCondition rep;
+};
+struct rocksdb_writestallinfo_t {
+  WriteStallInfo rep;
+};
+struct rocksdb_compactionjobinfo_t {
+  CompactionJobInfo rep;
+};
+struct rocksdb_externalfileingestioninfo_t {
+  ExternalFileIngestionInfo rep;
 };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
@@ -2324,6 +2346,208 @@ void rocksdb_options_set_block_based_table_factory(
     opt->rep.table_factory.reset(
         ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(table_options->rep));
   }
+}
+
+/* FlushJobInfo */
+
+const char* rocksdb_flushjobinfo_cf_name(const rocksdb_flushjobinfo_t* info,
+                                         size_t* size) {
+  *size = info->rep.cf_name.size();
+  return info->rep.cf_name.data();
+}
+
+const char* rocksdb_flushjobinfo_file_path(const rocksdb_flushjobinfo_t* info,
+                                           size_t* size) {
+  *size = info->rep.file_path.size();
+  return info->rep.file_path.data();
+}
+
+unsigned char rocksdb_flushjobinfo_triggered_writes_slowdown(
+    const rocksdb_flushjobinfo_t* info) {
+  return info->rep.triggered_writes_slowdown;
+}
+
+unsigned char rocksdb_flushjobinfo_triggered_writes_stop(
+    const rocksdb_flushjobinfo_t* info) {
+  return info->rep.triggered_writes_stop;
+}
+
+/* CompactionJobInfo */
+
+void rocksdb_compactionjobinfo_status(const rocksdb_compactionjobinfo_t* info,
+                                      char** errptr) {
+  SaveError(errptr, info->rep.status);
+}
+
+const char* rocksdb_compactionjobinfo_cf_name(
+    const rocksdb_compactionjobinfo_t* info, size_t* size) {
+  *size = info->rep.cf_name.size();
+  return info->rep.cf_name.data();
+}
+
+size_t rocksdb_compactionjobinfo_input_files_count(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.input_files.size();
+}
+
+const char* rocksdb_compactionjobinfo_input_file_at(
+    const rocksdb_compactionjobinfo_t* info, size_t pos, size_t* size) {
+  const std::string& path = info->rep.input_files[pos];
+  *size = path.size();
+  return path.data();
+}
+
+size_t rocksdb_compactionjobinfo_output_files_count(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.output_files.size();
+}
+
+const char* rocksdb_compactionjobinfo_output_file_at(
+    const rocksdb_compactionjobinfo_t* info, size_t pos, size_t* size) {
+  const std::string& path = info->rep.output_files[pos];
+  *size = path.size();
+  return path.data();
+}
+
+uint64_t rocksdb_compactionjobinfo_elapsed_micros(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.elapsed_micros;
+}
+
+uint64_t rocksdb_compactionjobinfo_num_corrupt_keys(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.num_corrupt_keys;
+}
+
+int rocksdb_compactionjobinfo_output_level(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.output_level;
+}
+
+uint64_t rocksdb_compactionjobinfo_input_records(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.num_input_records;
+}
+
+uint64_t rocksdb_compactionjobinfo_output_records(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.num_output_records;
+}
+
+uint64_t rocksdb_compactionjobinfo_total_input_bytes(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.total_input_bytes;
+}
+
+uint64_t rocksdb_compactionjobinfo_total_output_bytes(
+    const rocksdb_compactionjobinfo_t* info) {
+  return info->rep.stats.total_output_bytes;
+}
+
+/* ExternalFileIngestionInfo */
+
+const char* rocksdb_externalfileingestioninfo_cf_name(
+    const rocksdb_externalfileingestioninfo_t* info, size_t* size) {
+  *size = info->rep.cf_name.size();
+  return info->rep.cf_name.data();
+}
+
+const char* rocksdb_externalfileingestioninfo_internal_file_path(
+    const rocksdb_externalfileingestioninfo_t* info, size_t* size) {
+  *size = info->rep.internal_file_path.size();
+  return info->rep.internal_file_path.data();
+}
+
+/* External write stall info */
+extern ROCKSDB_LIBRARY_API const char* rocksdb_writestallinfo_cf_name(
+    const rocksdb_writestallinfo_t* info, size_t* size) {
+  *size = info->rep.cf_name.size();
+  return info->rep.cf_name.data();
+}
+
+const rocksdb_writestallcondition_t* rocksdb_writestallinfo_cur(
+    const rocksdb_writestallinfo_t* info) {
+  return reinterpret_cast<const rocksdb_writestallcondition_t*>(
+      &info->rep.condition.cur);
+}
+
+const rocksdb_writestallcondition_t* rocksdb_writestallinfo_prev(
+    const rocksdb_writestallinfo_t* info) {
+  return reinterpret_cast<const rocksdb_writestallcondition_t*>(
+      &info->rep.condition.prev);
+}
+
+/* event listener */
+
+struct rocksdb_eventlistener_t : public EventListener {
+  void* state_;
+  void (*destructor_)(void*);
+  void (*on_flush_completed)(void*, rocksdb_t*, const rocksdb_flushjobinfo_t*);
+  void (*on_compaction_completed)(void*, rocksdb_t*,
+                                  const rocksdb_compactionjobinfo_t*);
+  void (*on_external_file_ingested)(void*, rocksdb_t*,
+                                    const rocksdb_externalfileingestioninfo_t*);
+  void (*on_stall_conditions_changed)(void*, const rocksdb_writestallinfo_t*);
+
+  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) {
+    if (on_flush_completed) {
+      rocksdb_t c_db = {db};
+      on_flush_completed(
+          state_, &c_db,
+          reinterpret_cast<const rocksdb_flushjobinfo_t*>(&info));
+    }
+  }
+
+  virtual void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) {
+    if (on_compaction_completed) {
+      rocksdb_t c_db = {db};
+      on_compaction_completed(
+          state_, &c_db,
+          reinterpret_cast<const rocksdb_compactionjobinfo_t*>(&info));
+    }
+  }
+
+  virtual void OnExternalFileIngested(DB* db,
+                                      const ExternalFileIngestionInfo& info) {
+    if (on_external_file_ingested) {
+      rocksdb_t c_db = {db};
+      on_external_file_ingested(
+          state_, &c_db,
+          reinterpret_cast<const rocksdb_externalfileingestioninfo_t*>(&info));
+    }
+  }
+
+  virtual void OnStallConditionsChanged(const WriteStallInfo& info) {
+    if (on_stall_conditions_changed) {
+      on_stall_conditions_changed(
+          state_, reinterpret_cast<const rocksdb_writestallinfo_t*>(&info));
+    }
+  }
+
+  virtual ~rocksdb_eventlistener_t() { destructor_(state_); }
+};
+
+rocksdb_eventlistener_t* rocksdb_eventlistener_create(
+    void* state_, void (*destructor_)(void*),
+    on_flush_completed_cb on_flush_completed,
+    on_compaction_completed_cb on_compaction_completed,
+    on_external_file_ingested_cb on_external_file_ingested,
+    on_stall_conditions_changed_cb on_stall_conditions_changed) {
+  rocksdb_eventlistener_t* et = new rocksdb_eventlistener_t;
+  et->state_ = state_;
+  et->destructor_ = destructor_;
+  et->on_flush_completed = on_flush_completed;
+  et->on_compaction_completed = on_compaction_completed;
+  et->on_external_file_ingested = on_external_file_ingested;
+  et->on_stall_conditions_changed = on_stall_conditions_changed;
+  return et;
+}
+
+void rocksdb_eventlistener_destroy(rocksdb_eventlistener_t* t) { delete t; }
+
+void rocksdb_options_add_eventlistener(rocksdb_options_t* opt,
+                                       rocksdb_eventlistener_t* t) {
+  opt->rep.listeners.emplace_back(std::shared_ptr<EventListener>(t));
 }
 
 rocksdb_cuckoo_table_options_t*

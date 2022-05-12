@@ -128,6 +128,13 @@ typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
 typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
 typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
 typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
+typedef struct rocksdb_flushjobinfo_t rocksdb_flushjobinfo_t;
+typedef struct rocksdb_compactionjobinfo_t rocksdb_compactionjobinfo_t;
+typedef struct rocksdb_externalfileingestioninfo_t
+    rocksdb_externalfileingestioninfo_t;
+typedef struct rocksdb_writestallinfo_t rocksdb_writestallinfo_t;
+typedef struct rocksdb_writestallcondition_t rocksdb_writestallcondition_t;
+typedef struct rocksdb_eventlistener_t rocksdb_eventlistener_t;
 
 /* DB operations */
 
@@ -889,6 +896,87 @@ rocksdb_block_based_options_set_pin_top_level_index_and_filter(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t* opt, rocksdb_block_based_table_options_t* table_options);
+
+/* Flush job info */
+
+extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_cf_name(
+    const rocksdb_flushjobinfo_t*, size_t*);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_flushjobinfo_file_path(
+    const rocksdb_flushjobinfo_t*, size_t*);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_flushjobinfo_triggered_writes_slowdown(const rocksdb_flushjobinfo_t*);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_flushjobinfo_triggered_writes_stop(const rocksdb_flushjobinfo_t*);
+
+/* Compaction job info */
+
+extern ROCKSDB_LIBRARY_API void rocksdb_compactionjobinfo_status(
+    const rocksdb_compactionjobinfo_t*, char**);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionjobinfo_cf_name(
+    const rocksdb_compactionjobinfo_t*, size_t*);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_compactionjobinfo_input_files_count(const rocksdb_compactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionjobinfo_input_file_at(
+    const rocksdb_compactionjobinfo_t*, size_t pos, size_t*);
+extern ROCKSDB_LIBRARY_API size_t rocksdb_compactionjobinfo_output_files_count(
+    const rocksdb_compactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_compactionjobinfo_output_file_at(
+    const rocksdb_compactionjobinfo_t*, size_t pos, size_t*);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_compactionjobinfo_elapsed_micros(const rocksdb_compactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_compactionjobinfo_num_corrupt_keys(const rocksdb_compactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API int rocksdb_compactionjobinfo_output_level(
+    const rocksdb_compactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_compactionjobinfo_input_records(const rocksdb_compactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_compactionjobinfo_output_records(const rocksdb_compactionjobinfo_t*);
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_compactionjobinfo_total_input_bytes(
+    const rocksdb_compactionjobinfo_t* info);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_compactionjobinfo_total_output_bytes(
+    const rocksdb_compactionjobinfo_t* info);
+
+/* External file ingestion info */
+
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_externalfileingestioninfo_cf_name(
+    const rocksdb_externalfileingestioninfo_t*, size_t*);
+extern ROCKSDB_LIBRARY_API const char*
+rocksdb_externalfileingestioninfo_internal_file_path(
+    const rocksdb_externalfileingestioninfo_t*, size_t*);
+
+/* External write stall info */
+extern ROCKSDB_LIBRARY_API const char* rocksdb_writestallinfo_cf_name(
+    const rocksdb_writestallinfo_t*, size_t*);
+extern ROCKSDB_LIBRARY_API const rocksdb_writestallcondition_t*
+rocksdb_writestallinfo_cur(const rocksdb_writestallinfo_t*);
+extern ROCKSDB_LIBRARY_API const rocksdb_writestallcondition_t*
+rocksdb_writestallinfo_prev(const rocksdb_writestallinfo_t*);
+
+/* Event listener */
+
+typedef void (*on_flush_completed_cb)(void*, rocksdb_t*,
+                                      const rocksdb_flushjobinfo_t*);
+typedef void (*on_compaction_completed_cb)(void*, rocksdb_t*,
+                                           const rocksdb_compactionjobinfo_t*);
+typedef void (*on_external_file_ingested_cb)(
+    void*, rocksdb_t*, const rocksdb_externalfileingestioninfo_t*);
+typedef void (*on_stall_conditions_changed_cb)(void*,
+                                               const rocksdb_writestallinfo_t*);
+
+extern ROCKSDB_LIBRARY_API rocksdb_eventlistener_t*
+rocksdb_eventlistener_create(
+    void* state_, void (*destructor_)(void*),
+    on_flush_completed_cb on_flush_completed,
+    on_compaction_completed_cb on_compaction_completed,
+    on_external_file_ingested_cb on_external_file_ingested,
+    on_stall_conditions_changed_cb on_stall_conditions_changed);
+extern ROCKSDB_LIBRARY_API void rocksdb_eventlistener_destroy(
+    rocksdb_eventlistener_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_add_eventlistener(
+    rocksdb_options_t*, rocksdb_eventlistener_t*);
 
 /* Cuckoo table options */
 
