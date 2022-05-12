@@ -19,6 +19,8 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   awaiter->io_handle_.resize(awaiter->num_reqs_);
   awaiter->del_fn_.resize(awaiter->num_reqs_);
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
+    awaiter->io_handle_.push_back(nullptr);
+    awaiter->del_fn_.push_back(nullptr);
     awaiter->file_
         ->ReadAsync(
             awaiter->read_reqs_[i], awaiter->opts_,
@@ -44,10 +46,12 @@ void AsyncFileReader::Poll() {
   waiter = head_;
   do {
     for (size_t i = 0; i < waiter->num_reqs_; ++i) {
-      io_handles.push_back(waiter->io_handle_[i]);
+      if (waiter->io_handle_[i]) {
+        io_handles.push_back(waiter->io_handle_[i]);
+      }
     }
   } while (waiter != tail_ && (waiter = waiter->next_));
-  {
+  if (io_handles.size() > 0) {
     StopWatch sw(SystemClock::Default().get(), stats_, POLL_WAIT_MICROS);
     fs_->Poll(io_handles, io_handles.size()).PermitUncheckedError();
   }
@@ -56,7 +60,9 @@ void AsyncFileReader::Poll() {
     head_ = waiter->next_;
 
     for (size_t i = 0; i < waiter->num_reqs_; ++i) {
-      waiter->del_fn_[i](waiter->io_handle_[i]);
+      if (waiter->io_handle_[i] && waiter->del_fn_[i]) {
+        waiter->del_fn_[i](waiter->io_handle_[i]);
+      }
     }
     waiter->awaiting_coro_.resume();
   } while (waiter != tail_);

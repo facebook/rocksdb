@@ -593,6 +593,10 @@ class FilePickerMultiGet {
 
   const MultiGetRange& CurrentFileRange() { return current_file_range_; }
 
+  bool RemainingOverlapInLevel() {
+    return !current_level_range_.Suffix(current_file_range_).empty();
+  }
+
  private:
   unsigned int num_levels_;
   unsigned int curr_level_;
@@ -2266,7 +2270,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     // L0 files won't be parallelized anyway. The regular synchronous version
     // is faster.
     if (!read_options.async_io || !using_coroutines() ||
-        fp.GetHitFileLevel() == 0) {
+        fp.GetHitFileLevel() == 0 || !fp.RemainingOverlapInLevel()) {
       if (f) {
         // Call MultiGetFromSST for looking up a single file
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),

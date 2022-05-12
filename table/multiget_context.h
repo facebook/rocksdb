@@ -290,6 +290,18 @@ class MultiGetContext {
 
     MultiGetContext* context() const { return ctx_; }
 
+    Range Suffix(const Range& other) const {
+      size_t other_last = other.FindLastRemaining();
+      size_t my_last = FindLastRemaining();
+
+      if (my_last > other_last) {
+        return Range(*this, Iterator(this, other_last),
+                     Iterator(this, my_last));
+      } else {
+        return Range(*this, begin(), begin());
+      }
+    }
+
    private:
     friend MultiGetContext;
     MultiGetContext* ctx_;
@@ -305,6 +317,15 @@ class MultiGetContext {
     Mask RemainingMask() const {
       return (((Mask{1} << end_) - 1) & ~((Mask{1} << start_) - 1) &
               ~(ctx_->value_mask_ | skip_mask_));
+    }
+
+    size_t FindLastRemaining() const {
+      Mask mask = RemainingMask();
+      size_t index = (mask >>= start_) ? start_ : 0;
+      while (mask >>= 1) {
+        index++;
+      }
+      return index;
     }
   };
 
