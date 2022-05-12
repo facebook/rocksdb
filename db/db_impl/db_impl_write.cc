@@ -62,6 +62,156 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 }
 #endif  // ROCKSDB_LITE
 
+void DBImpl::PebbleWriteCommit(CommitRequest* request) {
+  request->applied.store(true, std::memory_order_release);
+  write_thread_.ExitWaitSequenceCommit(request, &versions_->last_sequence_);
+  size_t pending_cnt = pending_memtable_writes_.fetch_sub(1) - 1;
+  if (pending_cnt == 0) {
+    // switch_cv_ waits until pending_memtable_writes_ = 0. Locking its mutex
+    // before notify ensures that cv is in waiting state when it is notified
+    // thus not missing the update to pending_memtable_writes_ even though it
+    // is not modified under the mutex.
+    std::lock_guard<std::mutex> lck(switch_mutex_);
+    switch_cv_.notify_all();
+  }
+}
+
+Status DBImpl::PebbleWriteImpl(const WriteOptions& write_options,
+                               WriteBatch* my_batch, WriteCallback* callback,
+                               uint64_t* log_used, uint64_t log_ref,
+                               uint64_t* seq_used) {
+  PERF_TIMER_GUARD(write_pre_and_post_process_time);
+  StopWatch write_sw(immutable_db_options_.clock,
+                     immutable_db_options_.statistics.get(), DB_WRITE);
+  CommitRequest request;
+  WriteThread::Writer writer(write_options, my_batch, callback, log_ref,
+                             false /*disable_memtable*/);
+  writer.request = &request;
+  write_thread_.JoinBatchGroup(&writer);
+
+  WriteContext write_context;
+  if (writer.state == WriteThread::STATE_GROUP_LEADER) {
+    WriteThread::WriteGroup wal_write_group;
+    mutex_.Lock();
+    if (writer.callback && !writer.callback->AllowWriteBatching()) {
+      WaitForPendingWrites();
+    }
+    bool need_log_sync = !write_options.disableWAL && write_options.sync;
+    bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
+    writer.status =
+        PreprocessWrite(write_options, &need_log_sync, &write_context);
+    PERF_TIMER_START(write_pre_and_post_process_time);
+    log::Writer* log_writer = logs_.back().writer;
+    mutex_.Unlock();
+
+    // This can set non-OK status if callback fail.
+    last_batch_group_size_ =
+        write_thread_.EnterAsBatchGroupLeader(&writer, &wal_write_group);
+    const SequenceNumber current_sequence =
+        write_thread_.UpdateLastSequence(versions_->LastSequence()) + 1;
+    size_t total_count = 0;
+    size_t total_byte_size = 0;
+    auto stats = default_cf_internal_stats_;
+    size_t memtable_write_cnt = 0;
+    if (writer.status.ok()) {
+      SequenceNumber next_sequence = current_sequence;
+      for (auto w : wal_write_group) {
+        if (w->CheckCallback(this)) {
+          if (w->ShouldWriteToMemtable()) {
+            w->sequence = next_sequence;
+            size_t count = WriteBatchInternal::Count(w->batch);
+            if (count > 0) {
+              w->request->commit_lsn = next_sequence + count - 1;
+              write_thread_.EnterCommitQueue(w->request);
+            }
+            next_sequence += count;
+            total_count += count;
+            memtable_write_cnt++;
+          }
+          total_byte_size = WriteBatchInternal::AppendedByteSize(
+              total_byte_size, WriteBatchInternal::ByteSize(w->batch));
+        }
+      }
+      if (writer.disable_wal) {
+        has_unpersisted_data_.store(true, std::memory_order_relaxed);
+      }
+      write_thread_.UpdateLastSequence(current_sequence + total_count - 1);
+      stats->AddDBStats(InternalStats::kIntStatsNumKeysWritten, total_count);
+      RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
+      stats->AddDBStats(InternalStats::kIntStatsBytesWritten, total_byte_size);
+      RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
+      RecordInHistogram(stats_, BYTES_PER_WRITE, total_byte_size);
+
+      PERF_TIMER_STOP(write_pre_and_post_process_time);
+      if (!write_options.disableWAL) {
+        PERF_TIMER_GUARD(write_wal_time);
+        stats->AddDBStats(InternalStats::kIntStatsWriteDoneBySelf, 1);
+        RecordTick(stats_, WRITE_DONE_BY_SELF, 1);
+        if (wal_write_group.size > 1) {
+          stats->AddDBStats(InternalStats::kIntStatsWriteDoneByOther,
+                            wal_write_group.size - 1);
+
+          RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
+        }
+        writer.status =
+            WriteToWAL(wal_write_group, log_writer, log_used, need_log_sync,
+                       need_log_dir_sync, current_sequence);
+      }
+    }
+    if (!writer.CallbackFailed()) {
+      WriteStatusCheck(writer.status);
+    }
+
+    if (need_log_sync) {
+      mutex_.Lock();
+      if (writer.status.ok()) {
+        writer.status = MarkLogsSynced(logfile_number_, need_log_dir_sync);
+      } else {
+        MarkLogsNotSynced(logfile_number_);
+      }
+      mutex_.Unlock();
+    }
+    if (writer.status.ok()) {
+      pending_memtable_writes_ += memtable_write_cnt;
+    }
+    write_thread_.ExitAsBatchGroupLeader(wal_write_group, writer.status);
+  }
+
+  if (seq_used != nullptr) {
+    *seq_used = writer.sequence;
+  }
+  TEST_SYNC_POINT("DBImpl::WriteImpl:CommitAfterWriteWAL");
+
+  if (writer.request->commit_lsn != 0 && writer.status.ok()) {
+    TEST_SYNC_POINT("DBImpl::WriteImpl:BeforePipelineWriteMemtable");
+    PERF_TIMER_GUARD(write_memtable_time);
+    size_t total_count = WriteBatchInternal::Count(my_batch);
+    InternalStats* stats = default_cf_internal_stats_;
+    stats->AddDBStats(InternalStats::kIntStatsNumKeysWritten, total_count);
+    RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
+
+    ColumnFamilyMemTablesImpl column_family_memtables(
+        versions_->GetColumnFamilySet());
+    writer.status = WriteBatchInternal::InsertInto(
+        &writer, writer.sequence, &column_family_memtables, &flush_scheduler_,
+        &trim_history_scheduler_, write_options.ignore_missing_column_families,
+        0 /*log_number*/, this, true /*concurrent_memtable_writes*/);
+
+    WriteStatusCheck(writer.status);
+
+    if (!writer.FinalStatus().ok()) {
+      writer.status = writer.FinalStatus();
+    }
+    PebbleWriteCommit(writer.request);
+  } else if (writer.request->commit_lsn != 0) {
+    PebbleWriteCommit(writer.request);
+  } else {
+    writer.request->applied.store(true, std::memory_order_release);
+  }
+  return writer.status;
+}
+
 // The main write queue. This is the only write queue that updates LastSequence.
 // When using one write queue, the same sequence also indicates the last
 // published sequence.
@@ -91,6 +241,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::InvalidArgument("Sync writes has to enable WAL.");
   }
   if (two_write_queues_ && immutable_db_options_.enable_pipelined_write) {
+    return Status::NotSupported(
+        "pipelined_writes is not compatible with concurrent prepares");
+  }
+  if (two_write_queues_ && immutable_db_options_.enable_pipelined_commit) {
     return Status::NotSupported(
         "pipelined_writes is not compatible with concurrent prepares");
   }
@@ -151,6 +305,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                       log_ref, seq, sub_batch_cnt);
     }
     return status;
+  }
+
+  if (immutable_db_options_.enable_pipelined_commit && !disable_memtable) {
+    return PebbleWriteImpl(write_options, my_batch, callback, log_used, log_ref,
+                           seq_used);
   }
 
   if (immutable_db_options_.enable_pipelined_write) {

@@ -10,6 +10,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <mutex>
 #include <type_traits>
 #include <vector>
@@ -25,6 +26,29 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+struct CommitRequest {
+  uint64_t commit_lsn;
+  // We use applied to check whether this writer has applied to memtable.
+  std::atomic<bool> applied;
+  // protected by RequestQueue::commit_mu_
+  bool committed;
+  CommitRequest() : commit_lsn(0), applied(false), committed(false) {}
+};
+
+class RequestQueue {
+ public:
+  RequestQueue();
+  ~RequestQueue();
+  void Enter(CommitRequest* req);
+  void CommitSequenceAwait(CommitRequest* req,
+                           std::atomic<uint64_t>* commit_sequence);
+
+ private:
+  std::mutex commit_mu_;
+  std::condition_variable commit_cv_;
+  std::deque<CommitRequest*> requests_;
+};
 
 class WriteThread {
  public:
@@ -127,6 +151,7 @@ class WriteThread {
     bool made_waitable;          // records lazy construction of mutex and cv
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
     WriteGroup* write_group;
+    CommitRequest* request;
     SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;
     Status callback_status;  // status returned by callback->Callback()
@@ -151,6 +176,7 @@ class WriteThread {
           made_waitable(false),
           state(STATE_INIT),
           write_group(nullptr),
+          request(nullptr),
           sequence(kMaxSequenceNumber),
           link_older(nullptr),
           link_newer(nullptr) {}
@@ -173,6 +199,7 @@ class WriteThread {
           made_waitable(false),
           state(STATE_INIT),
           write_group(nullptr),
+          request(nullptr),
           sequence(kMaxSequenceNumber),
           link_older(nullptr),
           link_newer(nullptr) {}
@@ -354,6 +381,13 @@ class WriteThread {
   // Remove the dummy writer and wake up waiting writers
   void EndWriteStall();
 
+  void EnterCommitQueue(CommitRequest* req) { return commit_queue_.Enter(req); }
+
+  void ExitWaitSequenceCommit(CommitRequest* req,
+                              std::atomic<uint64_t>* commit_sequence) {
+    commit_queue_.CommitSequenceAwait(req, commit_sequence);
+  }
+
  private:
   // See AwaitState.
   const uint64_t max_yield_usec_;
@@ -386,6 +420,7 @@ class WriteThread {
   // at the tail of the writer queue by the leader, so newer writers can just
   // check for this and bail
   Writer write_stall_dummy_;
+  RequestQueue commit_queue_;
 
   // Mutex and condvar for writers to block on a write stall. During a write
   // stall, writers with no_slowdown set to false will wait on this rather

@@ -930,6 +930,9 @@ DEFINE_uint64(fifo_age_for_warm, 0, "age_for_warm for FIFO compaction.");
 // Stacked BlobDB Options
 DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Open a BlobDB instance.");
 
+DEFINE_bool(use_multi_thread_write, false,
+            "Open a RocksDB with multi thread write pool");
+
 DEFINE_bool(
     blob_db_enable_gc,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().enable_garbage_collection,
@@ -2660,6 +2663,7 @@ class Benchmark {
   bool report_file_operations_;
   bool use_blob_db_;  // Stacked BlobDB
   std::vector<std::string> keys_;
+  bool use_multi_write_;
 
   class ErrorHandlerListener : public EventListener {
    public:
@@ -3033,11 +3037,11 @@ class Benchmark {
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
         report_file_operations_(FLAGS_report_file_operations),
 #ifndef ROCKSDB_LITE
-        use_blob_db_(FLAGS_use_blob_db)  // Stacked BlobDB
+        use_blob_db_(FLAGS_use_blob_db),  // Stacked BlobDB
 #else
-        use_blob_db_(false)  // Stacked BlobDB
+        use_blob_db_(false),  // Stacked BlobDB
 #endif  // !ROCKSDB_LITE
-  {
+        use_multi_write_(FLAGS_use_multi_thread_write) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -4539,6 +4543,9 @@ class Benchmark {
       DBWithColumnFamilies* db) {
     uint64_t open_start = FLAGS_report_open_timing ? FLAGS_env->NowNanos() : 0;
     Status s;
+    if (use_multi_write_) {
+      options.enable_pipelined_commit = true;
+    }
     // Open with column families if necessary.
     if (FLAGS_num_column_families > 1) {
       size_t num_hot = FLAGS_num_column_families;
@@ -5110,6 +5117,7 @@ class Benchmark {
                 batch.Delete(db_with_cfh->GetCfh(rand_num),
                              expanded_keys[offset]);
               }
+              assert(!use_multi_write_);
             }
           } else {
             GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);
@@ -5128,6 +5136,7 @@ class Benchmark {
               batch.DeleteRange(db_with_cfh->GetCfh(rand_num), begin_key,
                                 end_key);
             }
+            assert(!use_multi_write_);
           }
         }
       }

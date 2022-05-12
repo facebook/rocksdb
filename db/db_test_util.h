@@ -865,6 +865,7 @@ class DBTestBase : public testing::Test {
     kConcurrentSkipList = 28,
     kPipelinedWrite = 29,
     kConcurrentWALWrites = 30,
+    kCommitPipeline = 31,
     kDirectIO,
     kLevelSubcompactions,
     kBlockBasedTableWithIndexRestartInterval,

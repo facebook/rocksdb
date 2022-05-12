@@ -4,8 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/write_thread.h"
+
 #include <chrono>
 #include <thread>
+
 #include "db/column_family.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
@@ -493,6 +495,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
     write_group->last_writer = w;
     write_group->size++;
   }
+
   TEST_SYNC_POINT_CALLBACK("WriteThread::EnterAsBatchGroupLeader:End", w);
   return size;
 }
@@ -797,6 +800,35 @@ void WriteThread::WaitForMemTableWriters() {
     AwaitState(&w, STATE_MEMTABLE_WRITER_LEADER, &wfmw_ctx);
   }
   newest_memtable_writer_.store(nullptr);
+}
+
+RequestQueue::RequestQueue() {}
+
+RequestQueue::~RequestQueue() {}
+
+void RequestQueue::Enter(CommitRequest* req) {
+  std::unique_lock<std::mutex> guard(commit_mu_);
+  requests_.push_back(req);
+}
+
+void RequestQueue::CommitSequenceAwait(CommitRequest* req,
+                                       std::atomic<uint64_t>* commit_sequence) {
+  std::unique_lock<std::mutex> guard(commit_mu_);
+  while (!requests_.empty() && requests_.front() != req && !req->committed) {
+    commit_cv_.wait(guard);
+  }
+  if (req->committed) {
+    return;
+  } else if (requests_.front() == req) {
+    while (!requests_.empty() &&
+           requests_.front()->applied.load(std::memory_order_acquire)) {
+      CommitRequest* current = requests_.front();
+      commit_sequence->store(current->commit_lsn, std::memory_order_release);
+      current->committed = true;
+      requests_.pop_front();
+    }
+    commit_cv_.notify_all();
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

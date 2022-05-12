@@ -556,6 +556,12 @@ Options DBTestBase::GetOptions(
       options.enable_pipelined_write = true;
       break;
     }
+    case kCommitPipeline: {
+      options.enable_pipelined_commit = true;
+      options.enable_pipelined_write = false;
+      options.two_write_queues = false;
+      break;
+    }
     case kConcurrentWALWrites: {
       // This options optimize 2PC commit path
       options.two_write_queues = true;

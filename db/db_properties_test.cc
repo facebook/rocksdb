@@ -58,6 +58,9 @@ TEST_F(DBPropertiesTest, Empty) {
     options.write_buffer_size = 100000;  // Small write buffer
     options.allow_concurrent_memtable_write = false;
     options = CurrentOptions(options);
+    if (options.enable_pipelined_commit) {
+      continue;
+    }
     CreateAndReopenWithCF({"pikachu"}, options);
 
     std::string num;

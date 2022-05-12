@@ -1089,6 +1089,15 @@ struct DBOptions {
   //
   // Default: false
   bool unordered_write = false;
+  // By default, a single write thread queue is maintained. The thread gets
+  // to the head of the queue becomes write batch group leader and responsible
+  // for writing to WAL.
+  //
+  // If enable_pipelined_commit is true, RocksDB will apply WriteBatch to
+  // memtable out of order but commit them in order.
+  //
+  // Default: false
+  bool enable_pipelined_commit = false;
 
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
