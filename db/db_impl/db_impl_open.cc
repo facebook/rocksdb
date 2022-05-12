@@ -845,7 +845,7 @@ Status DBImpl::LogAndApplyForRecovery(const RecoveryContext& recovery_ctx) {
 }
 
 // REQUIRES: wal_numbers are sorted in ascending order
-Status DBImpl::RecoverLogFiles(std::vector<uint64_t>& wal_numbers,
+Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
                                bool* corrupted_wal_found,
                                RecoveryContext* recovery_ctx) {
@@ -1861,7 +1861,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       } else {
         if (db_options.create_missing_column_families) {
           // missing column family, create it
-          ColumnFamilyHandle* handle;
+          ColumnFamilyHandle* handle = nullptr;
           impl->mutex_.Unlock();
           s = impl->CreateColumnFamily(cf.options, cf.name, &handle);
           impl->mutex_.Lock();

@@ -1246,15 +1246,11 @@ class DBImpl : public DB {
         for (auto* edit : edit_list) {
           delete edit;
         }
-        edit_list.clear();
       }
-      cfds_.clear();
-      mutable_cf_opts_.clear();
-      edit_lists_.clear();
-      files_to_delete_.clear();
     }
 
     void UpdateVersionEdits(ColumnFamilyData* cfd, const VersionEdit& edit) {
+      assert(cfd != nullptr);
       if (map_.find(cfd->GetID()) == map_.end()) {
         uint32_t size = static_cast<uint32_t>(map_.size());
         map_.emplace(cfd->GetID(), size);
@@ -1271,7 +1267,7 @@ class DBImpl : public DB {
     autovector<const MutableCFOptions*> mutable_cf_opts_;
     autovector<autovector<VersionEdit*>> edit_lists_;
     // files_to_delete_ contains sst files
-    std::set<std::string> files_to_delete_;
+    std::unordered_set<std::string> files_to_delete_;
   };
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
@@ -1401,7 +1397,8 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
-  // Set DB identity file, and write DB ID to manifest if necessary.
+  // SetDbSessionId() should be called in the constuctor DBImpl()
+  // to ensure that db_session_id_ gets updated every time the DB is opened
   void SetDbSessionId();
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
@@ -1422,8 +1419,7 @@ class DBImpl : public DB {
   Status DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx);
   Status DeleteUnreferencedSstFiles();
 
-  // SetDbSessionId() should be called in the constuctor DBImpl()
-  // to ensure that db_session_id_ gets updated every time the DB is opened
+  // Set DB identity file, and write DB ID to manifest if necessary.
   Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
 
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
@@ -1689,7 +1685,7 @@ class DBImpl : public DB {
 
   // REQUIRES: log_numbers are sorted in ascending order
   // corrupted_log_found is set to true if we recover from a corrupted log file.
-  Status RecoverLogFiles(std::vector<uint64_t>& log_numbers,
+  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
                          bool* corrupted_log_found,
                          RecoveryContext* recovery_ctx);
