@@ -31,7 +31,7 @@ enum OptionSection : char {
 };
 
 static const std::string opt_section_titles[] = {
-    "Version", "DBOptions", "CFOptions", "TableOptions/", "Unknown"};
+    "Version", "DBOptions", "CFOptions", "TableOptions", "Unknown"};
 
 Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
