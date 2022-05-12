@@ -2007,6 +2007,9 @@ rocksdb_transactiondb_create_column_family(
     const rocksdb_options_t* column_family_options,
     const char* column_family_name, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_drop_column_family(
+    rocksdb_transactiondb_t* txn_db, rocksdb_column_family_handle_t* handle, char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_transactiondb_t* rocksdb_transactiondb_open(
     const rocksdb_options_t* options,
     const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
@@ -2158,6 +2161,37 @@ rocksdb_transactiondb_create_iterator_cf(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_close(
     rocksdb_transactiondb_t* txn_db);
+
+/* Returns NULL if property name is unknown.
+   Else returns a pointer to a malloc()-ed null-terminated value. */
+extern ROCKSDB_LIBRARY_API char* rocksdb_transactiondb_property_value(
+    rocksdb_transactiondb_t* txn_db,
+    const char* propname);
+
+/* returns 0 on success, -1 otherwise */
+int rocksdb_transactiondb_property_int(
+    rocksdb_transactiondb_t* txn_db,
+    const char* propname, uint64_t *out_val);
+
+/* returns 0 on success, -1 otherwise */
+int rocksdb_transactiondb_property_int_cf(
+    rocksdb_transactiondb_t* txn_db, rocksdb_column_family_handle_t* column_family,
+    const char* propname, uint64_t *out_val);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_transactiondb_property_value_cf(
+    rocksdb_transactiondb_t* txn_db, rocksdb_column_family_handle_t* column_family,
+    const char* propname);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_approximate_sizes(
+    rocksdb_transactiondb_t* txn_db, int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint64_t* sizes);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_approximate_sizes_cf(
+    rocksdb_transactiondb_t* txn_db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint64_t* sizes);
 
 extern ROCKSDB_LIBRARY_API rocksdb_checkpoint_t*
 rocksdb_transactiondb_checkpoint_object_create(rocksdb_transactiondb_t* txn_db,

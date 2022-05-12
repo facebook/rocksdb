@@ -4828,6 +4828,13 @@ rocksdb_column_family_handle_t* rocksdb_transactiondb_create_column_family(
   return handle;
 }
 
+void rocksdb_transactiondb_drop_column_family(
+    rocksdb_transactiondb_t* txn_db,
+    rocksdb_column_family_handle_t* handle,
+    char** errptr) {
+  SaveError(errptr, txn_db->rep->DropColumnFamily(handle->rep));
+}
+
 rocksdb_transactiondb_t* rocksdb_transactiondb_open(
     const rocksdb_options_t* options,
     const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
@@ -5218,6 +5225,85 @@ rocksdb_iterator_t* rocksdb_transactiondb_create_iterator_cf(
 void rocksdb_transactiondb_close(rocksdb_transactiondb_t* txn_db) {
   delete txn_db->rep;
   delete txn_db;
+}
+
+char* rocksdb_transactiondb_property_value(
+    rocksdb_transactiondb_t* txn_db,
+    const char* propname) {
+  std::string tmp;
+  if (txn_db->rep->GetProperty(Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
+int rocksdb_transactiondb_property_int(
+    rocksdb_transactiondb_t* txn_db,
+    const char* propname,
+    uint64_t *out_val) {
+  if (txn_db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
+int rocksdb_transactiondb_property_int_cf(
+    rocksdb_transactiondb_t* txn_db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname,
+    uint64_t *out_val) {
+  if (txn_db->rep->GetIntProperty(column_family->rep, Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
+char* rocksdb_transactiondb_property_value_cf(
+    rocksdb_transactiondb_t* txn_db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname) {
+  std::string tmp;
+  if (txn_db->rep->GetProperty(column_family->rep, Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
+void rocksdb_transactiondb_approximate_sizes(
+    rocksdb_transactiondb_t* txn_db,
+    int num_ranges,
+    const char* const* range_start_key, const size_t* range_start_key_len,
+    const char* const* range_limit_key, const size_t* range_limit_key_len,
+    uint64_t* sizes) {
+  Range* ranges = new Range[num_ranges];
+  for (int i = 0; i < num_ranges; i++) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  txn_db->rep->GetApproximateSizes(ranges, num_ranges, sizes);
+  delete[] ranges;
+}
+
+void rocksdb_transactiondb_approximate_sizes_cf(
+    rocksdb_transactiondb_t* txn_db,
+    rocksdb_column_family_handle_t* column_family,
+    int num_ranges,
+    const char* const* range_start_key, const size_t* range_start_key_len,
+    const char* const* range_limit_key, const size_t* range_limit_key_len,
+    uint64_t* sizes) {
+  Range* ranges = new Range[num_ranges];
+  for (int i = 0; i < num_ranges; i++) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  txn_db->rep->GetApproximateSizes(column_family->rep, ranges, num_ranges, sizes);
+  delete[] ranges;
 }
 
 rocksdb_checkpoint_t* rocksdb_transactiondb_checkpoint_object_create(
