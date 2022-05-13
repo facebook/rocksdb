@@ -10,6 +10,7 @@
 #include "file/writable_file_writer.h"
 
 #include <algorithm>
+#include <iostream>
 #include <mutex>
 
 #include "db/version_edit.h"
@@ -430,19 +431,24 @@ IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
 }
 
 IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
+
   IOStatus s;
   IOSTATS_TIMER_GUARD(fsync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
   auto prev_perf_level = GetPerfLevel();
+
   IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, clock_);
+
 #ifndef ROCKSDB_LITE
   FileOperationInfo::StartTimePoint start_ts;
   if (ShouldNotifyListeners()) {
     start_ts = FileOperationInfo::StartNow();
   }
 #endif
+  std::cout << "SyncInternal()" << std::endl;
   IOOptions io_options;
   io_options.rate_limiter_priority = writable_file_->GetIOPriority();
+  std::cout << "SyncInternal() - 2" << std::endl;
   if (use_fsync) {
     s = writable_file_->Fsync(io_options, nullptr);
   } else {
@@ -500,21 +506,19 @@ IOStatus WritableFileWriter::WriteBuffered(
   size_t left = size;
   DataVerificationInfo v_info;
   char checksum_buf[sizeof(uint32_t)];
-  IOOptions io_options;
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority);
+  IOOptions io_options;
+  io_options.rate_limiter_priority = rate_limiter_priority_used;
 
   while (left > 0) {
     size_t allowed = left;
-    if (rate_limiter_priority_used != Env::IO_TOTAL) {
-      if (rate_limiter_ != nullptr) {
-        allowed = rate_limiter_->RequestToken(
-            left, 0 /* alignment */, rate_limiter_priority_used, stats_,
-            RateLimiter::OpType::kWrite);
-      } else {
-        io_options.rate_limiter_priority = rate_limiter_priority_used;
-      }
+    if (rate_limiter_ != nullptr &&
+        rate_limiter_priority_used != Env::IO_TOTAL) {
+      allowed = rate_limiter_->RequestToken(left, 0 /* alignment */,
+                                            rate_limiter_priority_used, stats_,
+                                            RateLimiter::OpType::kWrite);
     }
 
     {
@@ -591,27 +595,23 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
   size_t left = size;
   DataVerificationInfo v_info;
   char checksum_buf[sizeof(uint32_t)];
+  Env::IOPriority rate_limiter_priority_used =
+      WritableFileWriter::DecideRateLimiterPriority(
+          writable_file_->GetIOPriority(), op_rate_limiter_priority);
   IOOptions io_options;
-
+  io_options.rate_limiter_priority = rate_limiter_priority_used;
   // Check how much is allowed. Here, we loop until the rate limiter allows to
   // write the entire buffer.
   // TODO: need to be improved since it sort of defeats the purpose of the rate
   // limiter
   size_t data_size = left;
-  Env::IOPriority rate_limiter_priority_used =
-      WritableFileWriter::DecideRateLimiterPriority(
-          writable_file_->GetIOPriority(), op_rate_limiter_priority);
-  if (rate_limiter_priority_used != Env::IO_TOTAL) {
-    if (rate_limiter_ != nullptr) {
-      while (data_size > 0) {
-        size_t tmp_size;
-        tmp_size = rate_limiter_->RequestToken(
-            data_size, buf_.Alignment(), rate_limiter_priority_used, stats_,
-            RateLimiter::OpType::kWrite);
-        data_size -= tmp_size;
-      }
-    } else {
-      io_options.rate_limiter_priority = rate_limiter_priority_used;
+  if (rate_limiter_ != nullptr && rate_limiter_priority_used != Env::IO_TOTAL) {
+    while (data_size > 0) {
+      size_t tmp_size;
+      tmp_size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
+                                             rate_limiter_priority_used, stats_,
+                                             RateLimiter::OpType::kWrite);
+      data_size -= tmp_size;
     }
   }
 
@@ -725,22 +725,20 @@ IOStatus WritableFileWriter::WriteDirect(
   size_t left = buf_.CurrentSize();
   DataVerificationInfo v_info;
   char checksum_buf[sizeof(uint32_t)];
-  IOOptions io_options;
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority);
+  IOOptions io_options;
+  io_options.rate_limiter_priority = rate_limiter_priority_used;
 
   while (left > 0) {
     // Check how much is allowed
     size_t size = left;
-    if (rate_limiter_priority_used != Env::IO_TOTAL) {
-      if (rate_limiter_ != nullptr) {
-        size = rate_limiter_->RequestToken(left, buf_.Alignment(),
-                                           writable_file_->GetIOPriority(),
-                                           stats_, RateLimiter::OpType::kWrite);
-      } else {
-        io_options.rate_limiter_priority = rate_limiter_priority_used;
-      }
+    if (rate_limiter_ != nullptr &&
+        rate_limiter_priority_used != Env::IO_TOTAL) {
+      size = rate_limiter_->RequestToken(left, buf_.Alignment(),
+                                         writable_file_->GetIOPriority(),
+                                         stats_, RateLimiter::OpType::kWrite);
     }
 
     {
@@ -827,27 +825,23 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
   size_t left = buf_.CurrentSize();
   DataVerificationInfo v_info;
   char checksum_buf[sizeof(uint32_t)];
-  IOOptions io_options;
 
+  Env::IOPriority rate_limiter_priority_used =
+      WritableFileWriter::DecideRateLimiterPriority(
+          writable_file_->GetIOPriority(), op_rate_limiter_priority);
+  IOOptions io_options;
+  io_options.rate_limiter_priority = rate_limiter_priority_used;
   // Check how much is allowed. Here, we loop until the rate limiter allows to
   // write the entire buffer.
   // TODO: need to be improved since it sort of defeats the purpose of the rate
   // limiter
   size_t data_size = left;
-  Env::IOPriority rate_limiter_priority_used =
-      WritableFileWriter::DecideRateLimiterPriority(
-          writable_file_->GetIOPriority(), op_rate_limiter_priority);
-
-  if (rate_limiter_priority_used != Env::IO_TOTAL) {
-    if (rate_limiter_ != nullptr) {
-      size_t size;
-      size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
-                                         writable_file_->GetIOPriority(),
-                                         stats_, RateLimiter::OpType::kWrite);
-      data_size -= size;
-    } else {
-      io_options.rate_limiter_priority = rate_limiter_priority_used;
-    }
+  if (rate_limiter_ != nullptr && rate_limiter_priority_used != Env::IO_TOTAL) {
+    size_t size;
+    size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
+                                       writable_file_->GetIOPriority(), stats_,
+                                       RateLimiter::OpType::kWrite);
+    data_size -= size;
   }
 
   {
@@ -922,8 +916,6 @@ void WritableFileWriter::UpdateIOOptionsIfNeeded(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority);
-  if (rate_limiter_ == nullptr) {
-    io_options.rate_limiter_priority = rate_limiter_priority_used;
-  }
+  io_options.rate_limiter_priority = rate_limiter_priority_used;
 }
 }  // namespace ROCKSDB_NAMESPACE
