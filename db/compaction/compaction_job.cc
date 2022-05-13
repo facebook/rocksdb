@@ -2952,6 +2952,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_result_type_info = {
          const void* addr1, const void* addr2, std::string* mismatch) {
         const auto status1 = static_cast<const Status*>(addr1);
         const auto status2 = static_cast<const Status*>(addr2);
+
         StatusSerializationAdapter adatper1(*status1);
         StatusSerializationAdapter adapter2(*status2);
         return OptionTypeInfo::TypesAreEqual(opts, status_adapter_type_info,

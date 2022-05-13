@@ -439,22 +439,36 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<int64_t>(ParseUint64(value))));
             return Status::OK();
           }}},
-        {"env",
-         {offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
-          OptionVerificationType::kNormal,
-          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
-          // Parse the input value as an Env
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto old_env = static_cast<Env**>(addr);       // Get the old value
-            Env* new_env = *old_env;                       // Set new to old
-            Status s = Env::CreateFromString(opts, value,
-                                             &new_env);    // Update new value
-            if (s.ok()) {                                  // It worked
-              *old_env = new_env;                          // Update the old one
-            }
-            return s;
-          }}},
+        {"env",  //**TODO: Should this be kCustomizable?
+         OptionTypeInfo(
+             offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever))
+             .SetParseFunc([](const ConfigOptions& opts,
+                              const std::string& /*name*/,
+                              const std::string& value, void* addr) {
+               // Parse the input value as an Env
+               auto old_env = static_cast<Env**>(addr);  // Get the old value
+               Env* new_env = *old_env;                  // Set new to old
+               Status s = Env::CreateFromString(opts, value,
+                                                &new_env);  // Update new value
+               if (s.ok()) {                                // It worked
+                 *old_env = new_env;  // Update the old one
+               }
+               return s;
+             })
+             .SetPrepareFunc([](const ConfigOptions& opts,
+                                const std::string& /*name*/, void* addr) {
+               auto env = static_cast<Env**>(addr);
+               return (*env)->PrepareOptions(opts);
+             })
+             .SetValidateFunc([](const DBOptions& db_opts,
+                                 const ColumnFamilyOptions& cf_opts,
+                                 const std::string& /*name*/,
+                                 const void* addr) {
+               const auto env = static_cast<const Env* const*>(addr);
+               return (*env)->ValidateOptions(db_opts, cf_opts);
+             })},
         {"allow_data_in_errors",
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,

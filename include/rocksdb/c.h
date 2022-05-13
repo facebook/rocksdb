@@ -63,6 +63,7 @@ extern "C" {
 #endif
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -437,6 +438,38 @@ extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf(
     size_t num_keys, const char* const* keys_list,
     const size_t* keys_list_sizes, char** values_list,
     size_t* values_list_sizes, char** errs);
+
+// The MultiGet API that improves performance by batching operations
+// in the read path for greater efficiency. Currently, only the block based
+// table format with full filters are supported. Other table formats such
+// as plain table, block based table with block based filters and
+// partitioned indexes will still work, but will not get any performance
+// benefits.
+//
+// Note that all the keys passed to this API are restricted to a single
+// column family.
+//
+// Parameters -
+// db - the RocksDB instance.
+// options - ReadOptions
+// column_family - ColumnFamilyHandle* that the keys belong to. All the keys
+//                 passed to the API are restricted to a single column family
+// num_keys - Number of keys to lookup
+// keys_list - Pointer to C style array of keys with num_keys elements
+// keys_list_sizes - Pointer to C style array of the size of corresponding key
+//   in key_list with num_keys elements.
+// values - Pointer to C style array of PinnableSlices with num_keys elements
+// statuses - Pointer to C style array of Status with num_keys elements
+// sorted_input - If true, it means the input keys are already sorted by key
+//                order, so the MultiGet() API doesn't have to sort them
+//                again. If false, the keys will be copied and sorted
+//                internally by the API - the input array will not be
+//                modified
+extern ROCKSDB_LIBRARY_API void rocksdb_batched_multi_get_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    rocksdb_pinnableslice_t** values, char** errs, const bool sorted_input);
 
 // The value is only allocated (using malloc) and returned if it is found and
 // value_found isn't NULL. In that case the user is responsible for freeing it.
