@@ -277,6 +277,8 @@ class WritableFileWriter {
   const char* GetFileChecksumFuncName() const;
 
  private:
+  friend class WritableFileWriterTest_RateLimiterPriority_Test;
+
   static Env::IOPriority DecideRateLimiterPriority(
       Env::IOPriority writable_file_io_priority,
       Env::IOPriority op_rate_limiter_priority);

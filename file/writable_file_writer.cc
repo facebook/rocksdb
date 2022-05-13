@@ -922,7 +922,7 @@ void WritableFileWriter::UpdateIOOptionsIfNeeded(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority);
-  if (rate_limiter_ != nullptr && rate_limiter_priority_used != Env::IO_TOTAL) {
+  if (rate_limiter_ == nullptr) {
     io_options.rate_limiter_priority = rate_limiter_priority_used;
   }
 }

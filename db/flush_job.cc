@@ -809,8 +809,6 @@ Status FlushJob::WriteLevel0Table() {
 
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
-    // https://fburl.com/code/zxh9nif4 : All of WriteController functions
-    // are to be called while holding DB mutex.
     Env::IOPriority io_priority =
         GetRateLimiterPriority(RateLimiter::OpType::kWrite);
     db_mutex_->Unlock();
