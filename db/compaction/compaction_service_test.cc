@@ -859,9 +859,9 @@ TEST_F(CompactionServiceTest, TablePropertiesCollector) {
 
     const char* Name() const override { return "TablePropertiesCollectorTest"; }
 
-    Status AddUserKey(const Slice& user_key, const Slice& /*value*/,
-                      EntryType type, SequenceNumber /*seq*/,
-                      uint64_t file_size) override {
+    Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                      EntryType /*type*/, SequenceNumber /*seq*/,
+                      uint64_t /*file_size*/) override {
       count_++;
       return Status::OK();
     }
@@ -874,7 +874,7 @@ TEST_F(CompactionServiceTest, TablePropertiesCollector) {
       : public TablePropertiesCollectorFactory {
    public:
     TablePropertiesCollector* CreateTablePropertiesCollector(
-        TablePropertiesCollectorFactory::Context context) override {
+        TablePropertiesCollectorFactory::Context /*context*/) override {
       return new TablePropertiesCollectorTest();
     }
 
