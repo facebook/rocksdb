@@ -831,12 +831,12 @@ namespace {
 // forwarder in an iostream.
 class WritableFileStreamBuf : public std::streambuf {
  public:
-  WritableFileStreamBuf(std::unique_ptr<WritableFileWriter>&& fileWriter)
-      : fileWriter_(std::move(fileWriter)) {}
+  WritableFileStreamBuf(IOStatus* fileCloseStatus,
+			std::unique_ptr<WritableFileWriter>&& fileWriter)
+    : fileCloseStatus_(fileCloseStatus), fileWriter_(std::move(fileWriter)) {}
 
   ~WritableFileStreamBuf() {
-    fileWriter_->Flush();
-    fileWriter_->Close();
+    *fileCloseStatus_ = fileWriter_->Close();
   }
 
  protected:
@@ -870,6 +870,7 @@ class WritableFileStreamBuf : public std::streambuf {
   }
 
  private:
+  IOStatus *fileCloseStatus_;
   std::unique_ptr<WritableFileWriter> fileWriter_;
 };
 
@@ -892,10 +893,6 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
                                            const std::string& object_path,
                                            const std::string& destination,
                                            uint64_t* remote_size) {
-  FileOptions foptions;
-  foptions.use_direct_writes =
-      env_->GetCloudEnvOptions().use_direct_io_for_cloud_download;
-
   if (s3client_->HasTransferManager()) {
     // AWS Transfer manager does not work if we provide our stream
     // implementation because of https://github.com/aws/aws-sdk-cpp/issues/1732.
@@ -928,40 +925,58 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
       return Status::IOError(std::move(errmsg));
     }
   } else {
-    auto ioStreamFactory = [=]() -> Aws::IOStream* {
-      std::unique_ptr<FSWritableFile> file;
-      auto st = NewWritableFile(env_->GetBaseEnv()->GetFileSystem().get(),
-                                destination, &file, foptions);
-      if (!st.ok()) {
-        // fallback to FStream
-        return Aws::New<Aws::FStream>(
-            Aws::Utils::ARRAY_ALLOCATION_TAG, destination,
-            std::ios_base::out | std::ios_base::trunc);
+    IOStatus fileCloseStatus;
+    {
+      // Close() will be called in the destructor of the object returned by
+      // this factory. Adding an inner scope so that the destructor is called
+      // before checking fileCloseStatus.
+      auto ioStreamFactory = [=, &fileCloseStatus]() -> Aws::IOStream* {
+        FileOptions foptions;
+        foptions.use_direct_writes =
+            env_->GetCloudEnvOptions().use_direct_io_for_cloud_download;
+        std::unique_ptr<FSWritableFile> file;
+        auto st = NewWritableFile(env_->GetBaseEnv()->GetFileSystem().get(),
+            destination, &file, foptions);
+        if (!st.ok()) {
+          // fallback to FStream
+          return Aws::New<Aws::FStream>(
+              Aws::Utils::ARRAY_ALLOCATION_TAG, destination,
+              std::ios_base::out | std::ios_base::trunc);
+        }
+        return Aws::New<IOStreamWithOwnedBuf<WritableFileStreamBuf>>(
+            Aws::Utils::ARRAY_ALLOCATION_TAG,
+            std::unique_ptr<WritableFileStreamBuf>(new WritableFileStreamBuf(
+                &fileCloseStatus,
+                std::unique_ptr<WritableFileWriter>(new WritableFileWriter(
+                        std::move(file), destination, foptions)))));
+      };
+
+      Aws::S3::Model::GetObjectRequest request;
+      request.SetBucket(ToAwsString(bucket_name));
+      request.SetKey(ToAwsString(object_path));
+      request.SetResponseStreamFactory(std::move(ioStreamFactory));
+
+      auto outcome = s3client_->GetCloudObject(request);
+      if (outcome.IsSuccess()) {
+        *remote_size = outcome.GetResult().GetContentLength();
+      } else {
+        const auto& error = outcome.GetError();
+        std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+        Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
+            "[s3] GetObject %s/%s error %s.", bucket_name.c_str(),
+            object_path.c_str(), errmsg.c_str());
+        if (IsNotFound(error.GetErrorType())) {
+          return Status::NotFound(std::move(errmsg));
+        }
+        return Status::IOError(std::move(errmsg));
       }
-      return Aws::New<IOStreamWithOwnedBuf<WritableFileStreamBuf>>(
-          Aws::Utils::ARRAY_ALLOCATION_TAG,
-          std::unique_ptr<WritableFileStreamBuf>(new WritableFileStreamBuf(
-              std::unique_ptr<WritableFileWriter>(new WritableFileWriter(
-                  std::move(file), destination, foptions)))));
-    };
+    }
 
-    Aws::S3::Model::GetObjectRequest request;
-    request.SetBucket(ToAwsString(bucket_name));
-    request.SetKey(ToAwsString(object_path));
-    request.SetResponseStreamFactory(std::move(ioStreamFactory));
-
-    auto outcome = s3client_->GetCloudObject(request);
-    if (outcome.IsSuccess()) {
-      *remote_size = outcome.GetResult().GetContentLength();
-    } else {
-      const auto& error = outcome.GetError();
-      std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+    if (!fileCloseStatus.ok()) {
+      std::string errmsg = fileCloseStatus.ToString();
       Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
-          "[s3] GetObject %s/%s error %s.", bucket_name.c_str(),
+          "[s3] GetObject %s/%s error closing file %s.", bucket_name.c_str(),
           object_path.c_str(), errmsg.c_str());
-      if (IsNotFound(error.GetErrorType())) {
-        return Status::NotFound(std::move(errmsg));
-      }
       return Status::IOError(std::move(errmsg));
     }
   }
