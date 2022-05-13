@@ -46,20 +46,10 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
     if (opt_iter.type_map != nullptr) {
       for (auto map_iter : *(opt_iter.type_map)) {
         auto& opt_info = map_iter.second;
-        if (!opt_info.IsDeprecated() && !opt_info.IsAlias() &&
-            opt_info.IsConfigurable()) {
-          if (!opt_info.IsEnabled(OptionTypeFlags::kDontPrepare)) {
-            Configurable* config =
-                opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
-            if (config != nullptr) {
-              status = config->PrepareOptions(opts);
-            } else if (!opt_info.CanBeNull()) {
-              status = Status::NotFound("Missing configurable object",
-                                        map_iter.first);
-            }
-            if (!status.ok()) {
-              return status;
-            }
+        if (opt_info.ShouldPrepare()) {
+          status = opt_info.Prepare(opts, map_iter.first, opt_iter.opt_ptr);
+          if (!status.ok()) {
+            return status;
           }
         }
       }
@@ -79,19 +69,11 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
     if (opt_iter.type_map != nullptr) {
       for (auto map_iter : *(opt_iter.type_map)) {
         auto& opt_info = map_iter.second;
-        if (!opt_info.IsDeprecated() && !opt_info.IsAlias()) {
-          if (opt_info.IsConfigurable()) {
-            const Configurable* config =
-                opt_info.AsRawPointer<Configurable>(opt_iter.opt_ptr);
-            if (config != nullptr) {
-              status = config->ValidateOptions(db_opts, cf_opts);
-            } else if (!opt_info.CanBeNull()) {
-              status = Status::NotFound("Missing configurable object",
-                                        map_iter.first);
-            }
-            if (!status.ok()) {
-              return status;
-            }
+        if (opt_info.ShouldValidate()) {
+          status = opt_info.Validate(db_opts, cf_opts, map_iter.first,
+                                     opt_iter.opt_ptr);
+          if (!status.ok()) {
+            return status;
           }
         }
       }
