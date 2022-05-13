@@ -1257,7 +1257,7 @@ TEST_P(FullBloomTest, CorruptFilters) {
   ASSERT_TRUE(Matches("hello"));
   ASSERT_TRUE(Matches("world"));
   // Need many queries to find a "true negative"
-  for (int i = 0; Matches(ToString(i)); ++i) {
+  for (int i = 0; Matches(std::to_string(i)); ++i) {
     ASSERT_LT(i, 1000);
   }
 

@@ -281,7 +281,7 @@ class BlockCacheTracer {
                           const Slice& block_key, const Slice& cf_name,
                           const Slice& referenced_key);
 
-  // GetId cycles from 1 to port::kMaxUint64.
+  // GetId cycles from 1 to std::numeric_limits<uint64_t>::max().
   uint64_t NextGetId();
 
  private:

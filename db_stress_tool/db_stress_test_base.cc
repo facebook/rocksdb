@@ -185,69 +185,69 @@ bool StressTest::BuildOptionsTable() {
 
   std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
       {"write_buffer_size",
-       {ToString(options_.write_buffer_size),
-        ToString(options_.write_buffer_size * 2),
-        ToString(options_.write_buffer_size * 4)}},
+       {std::to_string(options_.write_buffer_size),
+        std::to_string(options_.write_buffer_size * 2),
+        std::to_string(options_.write_buffer_size * 4)}},
       {"max_write_buffer_number",
-       {ToString(options_.max_write_buffer_number),
-        ToString(options_.max_write_buffer_number * 2),
-        ToString(options_.max_write_buffer_number * 4)}},
+       {std::to_string(options_.max_write_buffer_number),
+        std::to_string(options_.max_write_buffer_number * 2),
+        std::to_string(options_.max_write_buffer_number * 4)}},
       {"arena_block_size",
        {
-           ToString(options_.arena_block_size),
-           ToString(options_.write_buffer_size / 4),
-           ToString(options_.write_buffer_size / 8),
+           std::to_string(options_.arena_block_size),
+           std::to_string(options_.write_buffer_size / 4),
+           std::to_string(options_.write_buffer_size / 8),
        }},
-      {"memtable_huge_page_size", {"0", ToString(2 * 1024 * 1024)}},
+      {"memtable_huge_page_size", {"0", std::to_string(2 * 1024 * 1024)}},
       {"max_successive_merges", {"0", "2", "4"}},
       {"inplace_update_num_locks", {"100", "200", "300"}},
       // TODO(ljin): enable test for this option
       // {"disable_auto_compactions", {"100", "200", "300"}},
       {"level0_file_num_compaction_trigger",
        {
-           ToString(options_.level0_file_num_compaction_trigger),
-           ToString(options_.level0_file_num_compaction_trigger + 2),
-           ToString(options_.level0_file_num_compaction_trigger + 4),
+           std::to_string(options_.level0_file_num_compaction_trigger),
+           std::to_string(options_.level0_file_num_compaction_trigger + 2),
+           std::to_string(options_.level0_file_num_compaction_trigger + 4),
        }},
       {"level0_slowdown_writes_trigger",
        {
-           ToString(options_.level0_slowdown_writes_trigger),
-           ToString(options_.level0_slowdown_writes_trigger + 2),
-           ToString(options_.level0_slowdown_writes_trigger + 4),
+           std::to_string(options_.level0_slowdown_writes_trigger),
+           std::to_string(options_.level0_slowdown_writes_trigger + 2),
+           std::to_string(options_.level0_slowdown_writes_trigger + 4),
        }},
       {"level0_stop_writes_trigger",
        {
-           ToString(options_.level0_stop_writes_trigger),
-           ToString(options_.level0_stop_writes_trigger + 2),
-           ToString(options_.level0_stop_writes_trigger + 4),
+           std::to_string(options_.level0_stop_writes_trigger),
+           std::to_string(options_.level0_stop_writes_trigger + 2),
+           std::to_string(options_.level0_stop_writes_trigger + 4),
        }},
       {"max_compaction_bytes",
        {
-           ToString(options_.target_file_size_base * 5),
-           ToString(options_.target_file_size_base * 15),
-           ToString(options_.target_file_size_base * 100),
+           std::to_string(options_.target_file_size_base * 5),
+           std::to_string(options_.target_file_size_base * 15),
+           std::to_string(options_.target_file_size_base * 100),
        }},
       {"target_file_size_base",
        {
-           ToString(options_.target_file_size_base),
-           ToString(options_.target_file_size_base * 2),
-           ToString(options_.target_file_size_base * 4),
+           std::to_string(options_.target_file_size_base),
+           std::to_string(options_.target_file_size_base * 2),
+           std::to_string(options_.target_file_size_base * 4),
        }},
       {"target_file_size_multiplier",
        {
-           ToString(options_.target_file_size_multiplier),
+           std::to_string(options_.target_file_size_multiplier),
            "1",
            "2",
        }},
       {"max_bytes_for_level_base",
        {
-           ToString(options_.max_bytes_for_level_base / 2),
-           ToString(options_.max_bytes_for_level_base),
-           ToString(options_.max_bytes_for_level_base * 2),
+           std::to_string(options_.max_bytes_for_level_base / 2),
+           std::to_string(options_.max_bytes_for_level_base),
+           std::to_string(options_.max_bytes_for_level_base * 2),
        }},
       {"max_bytes_for_level_multiplier",
        {
-           ToString(options_.max_bytes_for_level_multiplier),
+           std::to_string(options_.max_bytes_for_level_multiplier),
            "1",
            "2",
        }},
@@ -418,7 +418,7 @@ Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
   if (snap_state.status != s) {
     return Status::Corruption(
         "The snapshot gave inconsistent results for key " +
-        ToString(Hash(snap_state.key.c_str(), snap_state.key.size(), 0)) +
+        std::to_string(Hash(snap_state.key.c_str(), snap_state.key.size(), 0)) +
         " in cf " + cf->GetName() + ": (" + snap_state.status.ToString() +
         ") vs. (" + s.ToString() + ")");
   }
@@ -674,6 +674,7 @@ void StressTest::OperateDb(ThreadState* thread) {
     fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
                                             FLAGS_read_fault_one_in);
   }
+#endif  // NDEBUG
   if (FLAGS_write_fault_one_in) {
     IOStatus error_msg;
     if (FLAGS_injest_error_severity <= 1 || FLAGS_injest_error_severity > 2) {
@@ -691,7 +692,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg,
         /*inject_for_all_file_types=*/false, types);
   }
-#endif // NDEBUG
   thread->stats.Start();
   for (int open_cnt = 0; open_cnt <= FLAGS_reopen; ++open_cnt) {
     if (thread->shared->HasVerificationFailedYet() ||
@@ -1424,8 +1424,9 @@ void StressTest::TestCompactFiles(ThreadState* /* thread */,
 Status StressTest::TestBackupRestore(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& rand_keys) {
-  std::string backup_dir = FLAGS_db + "/.backup" + ToString(thread->tid);
-  std::string restore_dir = FLAGS_db + "/.restore" + ToString(thread->tid);
+  std::string backup_dir = FLAGS_db + "/.backup" + std::to_string(thread->tid);
+  std::string restore_dir =
+      FLAGS_db + "/.restore" + std::to_string(thread->tid);
   BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
@@ -1717,7 +1718,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
                                   const std::vector<int>& rand_column_families,
                                   const std::vector<int64_t>& rand_keys) {
   std::string checkpoint_dir =
-      FLAGS_db + "/.checkpoint" + ToString(thread->tid);
+      FLAGS_db + "/.checkpoint" + std::to_string(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
   tmp_opts.env = db_stress_env;
@@ -2029,11 +2030,11 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   if (FLAGS_long_running_snapshots) {
     // Hold 10% of snapshots for 10x more
     if (thread->rand.OneIn(10)) {
-      assert(hold_for < port::kMaxInt64 / 10);
+      assert(hold_for < std::numeric_limits<uint64_t>::max() / 10);
       hold_for *= 10;
       // Hold 1% of snapshots for 100x more
       if (thread->rand.OneIn(10)) {
-        assert(hold_for < port::kMaxInt64 / 10);
+        assert(hold_for < std::numeric_limits<uint64_t>::max() / 10);
         hold_for *= 10;
       }
     }
@@ -2065,8 +2066,9 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                                   const Slice& start_key,
                                   ColumnFamilyHandle* column_family) {
   int64_t end_key_num;
-  if (port::kMaxInt64 - rand_key < FLAGS_compact_range_width) {
-    end_key_num = port::kMaxInt64;
+  if (std::numeric_limits<int64_t>::max() - rand_key <
+      FLAGS_compact_range_width) {
+    end_key_num = std::numeric_limits<int64_t>::max();
   } else {
     end_key_num = FLAGS_compact_range_width + rand_key;
   }
@@ -2203,7 +2205,7 @@ void StressTest::PrintEnv() const {
           (unsigned long)FLAGS_ops_per_thread);
   std::string ttl_state("unused");
   if (FLAGS_ttl > 0) {
-    ttl_state = ToString(FLAGS_ttl);
+    ttl_state = std::to_string(FLAGS_ttl);
   }
   fprintf(stdout, "Time to live(sec)         : %s\n", ttl_state.c_str());
   fprintf(stdout, "Read percentage           : %d%%\n", FLAGS_readpercent);
@@ -2367,6 +2369,8 @@ void StressTest::Open(SharedState* shared) {
     options_.statistics = dbstats;
     options_.env = db_stress_env;
     options_.use_fsync = FLAGS_use_fsync;
+    options_.bytes_per_sync = FLAGS_bytes_per_sync;
+    options_.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
     options_.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options_.allow_mmap_reads = FLAGS_mmap_read;
     options_.allow_mmap_writes = FLAGS_mmap_write;
@@ -2605,7 +2609,7 @@ void StressTest::Open(SharedState* shared) {
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
     }
     while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
-      std::string name = ToString(new_column_family_name_.load());
+      std::string name = std::to_string(new_column_family_name_.load());
       new_column_family_name_++;
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
       column_family_names_.push_back(name);
@@ -2618,7 +2622,6 @@ void StressTest::Open(SharedState* shared) {
     RegisterAdditionalListeners();
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
-#ifndef NDEBUG
       // Determine whether we need to ingest file metadata write failures
       // during DB reopen. If it does, enable it.
       // Only ingest metadata error if it is reopening, as initial open
@@ -2660,7 +2663,6 @@ void StressTest::Open(SharedState* shared) {
         }
       }
       while (true) {
-#endif  // NDEBUG
 #ifndef ROCKSDB_LITE
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
@@ -2690,7 +2692,6 @@ void StressTest::Open(SharedState* shared) {
           }
         }
 
-#ifndef NDEBUG
         if (ingest_meta_error || ingest_write_error || ingest_read_error) {
           fault_fs_guard->SetFilesystemDirectWritable(true);
           fault_fs_guard->DisableMetadataWriteErrorInjection();
@@ -2702,7 +2703,7 @@ void StressTest::Open(SharedState* shared) {
             // wait for all compactions to finish to make sure DB is in
             // clean state before executing queries.
             s = static_cast_with_check<DBImpl>(db_->GetRootDB())
-                    ->TEST_WaitForCompact(true);
+                    ->WaitForCompact(true /* wait_unscheduled */);
             if (!s.ok()) {
               for (auto cf : column_families_) {
                 delete cf;
@@ -2735,7 +2736,6 @@ void StressTest::Open(SharedState* shared) {
         }
         break;
       }
-#endif  // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       TransactionDBOptions txn_db_options;

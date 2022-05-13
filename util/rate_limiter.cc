@@ -347,10 +347,11 @@ void GenericRateLimiter::RefillBytesAndGrantRequests() {
 
 int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
     int64_t rate_bytes_per_sec) {
-  if (port::kMaxInt64 / rate_bytes_per_sec < options_.refill_period_us) {
+  if (std::numeric_limits<int64_t>::max() / rate_bytes_per_sec <
+      options_.refill_period_us) {
     // Avoid unexpected result in the overflow case. The result now is still
     // inaccurate but is a number that is large enough.
-    return port::kMaxInt64 / 1000000;
+    return std::numeric_limits<int64_t>::max() / 1000000;
   } else {
     return rate_bytes_per_sec * options_.refill_period_us / 1000000;
   }
@@ -374,7 +375,7 @@ Status GenericRateLimiter::Tune() {
       std::chrono::microseconds(options_.refill_period_us);
   // We tune every kRefillsPerTune intervals, so the overflow and division-by-
   // zero conditions should never happen.
-  assert(num_drains_ <= port::kMaxInt64 / 100);
+  assert(num_drains_ <= std::numeric_limits<int64_t>::max() / 100);
   assert(elapsed_intervals > 0);
   int64_t drained_pct = num_drains_ * 100 / elapsed_intervals;
 
@@ -385,14 +386,15 @@ Status GenericRateLimiter::Tune() {
   } else if (drained_pct < kLowWatermarkPct) {
     // sanitize to prevent overflow
     int64_t sanitized_prev_bytes_per_sec =
-        std::min(prev_bytes_per_sec, port::kMaxInt64 / 100);
+        std::min(prev_bytes_per_sec, std::numeric_limits<int64_t>::max() / 100);
     new_bytes_per_sec =
         std::max(options_.max_bytes_per_sec / kAllowedRangeFactor,
                  sanitized_prev_bytes_per_sec * 100 / (100 + kAdjustFactorPct));
   } else if (drained_pct > kHighWatermarkPct) {
     // sanitize to prevent overflow
-    int64_t sanitized_prev_bytes_per_sec = std::min(
-        prev_bytes_per_sec, port::kMaxInt64 / (100 + kAdjustFactorPct));
+    int64_t sanitized_prev_bytes_per_sec =
+        std::min(prev_bytes_per_sec, std::numeric_limits<int64_t>::max() /
+                                         (100 + kAdjustFactorPct));
     new_bytes_per_sec =
         std::min(options_.max_bytes_per_sec,
                  sanitized_prev_bytes_per_sec * (100 + kAdjustFactorPct) / 100);
@@ -433,7 +435,8 @@ static int RegisterBuiltinRateLimiters(ObjectLibrary& library,
       GenericRateLimiter::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
          std::string* /*errmsg*/) {
-        guard->reset(new GenericRateLimiter(port::kMaxInt64));
+        guard->reset(
+            new GenericRateLimiter(std::numeric_limits<int64_t>::max()));
         return guard->get();
       });
   size_t num_types;

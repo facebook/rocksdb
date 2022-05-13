@@ -501,7 +501,8 @@ std::vector<std::string> ColumnFamilyData::GetDbPaths() const {
   return paths;
 }
 
-const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId = port::kMaxUint32;
+const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId =
+    std::numeric_limits<uint32_t>::max();
 
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
@@ -826,8 +827,8 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
   // condition.
   // Or twice as compaction trigger, if it is smaller.
   int64_t res = std::min(twice_level0_trigger, one_fourth_trigger_slowdown);
-  if (res >= port::kMaxInt32) {
-    return port::kMaxInt32;
+  if (res >= std::numeric_limits<int32_t>::max()) {
+    return std::numeric_limits<int32_t>::max();
   } else {
     // res fits in int
     return static_cast<int>(res);

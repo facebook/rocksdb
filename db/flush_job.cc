@@ -931,9 +931,9 @@ Status FlushJob::WriteLevel0Table() {
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();
       if (num_input_entries != total_num_entries && s.ok()) {
-        std::string msg = "Expected " + ToString(total_num_entries) +
+        std::string msg = "Expected " + std::to_string(total_num_entries) +
                           " entries in memtables, but read " +
-                          ToString(num_input_entries);
+                          std::to_string(num_input_entries);
         ROCKS_LOG_WARN(db_options_.info_log, "[%s] [JOB %d] Level-0 flush %s",
                        cfd_->GetName().c_str(), job_context_->job_id,
                        msg.c_str());

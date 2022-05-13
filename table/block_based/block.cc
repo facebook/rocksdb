@@ -721,7 +721,7 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
     } else {
       // We are in the last restart interval. The while-loop will terminate by
       // `Valid()` returning false upon advancing past the block's last key.
-      max_offset = port::kMaxUint32;
+      max_offset = std::numeric_limits<uint32_t>::max();
     }
     while (true) {
       NextImpl();

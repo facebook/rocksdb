@@ -187,8 +187,8 @@ Status FileExpectedStateManager::Open() {
     // Check if crash happened after creating state file but before creating
     // trace file.
     if (saved_seqno_ != kMaxSequenceNumber) {
-      std::string saved_seqno_trace_path =
-          GetPathForFilename(ToString(saved_seqno_) + kTraceFilenameSuffix);
+      std::string saved_seqno_trace_path = GetPathForFilename(
+          std::to_string(saved_seqno_) + kTraceFilenameSuffix);
       Status exists_status = Env::Default()->FileExists(saved_seqno_trace_path);
       if (exists_status.ok()) {
         found_trace = true;
@@ -205,7 +205,7 @@ Status FileExpectedStateManager::Open() {
     std::unique_ptr<WritableFile> wfile;
     const EnvOptions soptions;
     std::string saved_seqno_trace_path =
-        GetPathForFilename(ToString(saved_seqno_) + kTraceFilenameSuffix);
+        GetPathForFilename(std::to_string(saved_seqno_) + kTraceFilenameSuffix);
     s = Env::Default()->NewWritableFile(saved_seqno_trace_path, &wfile,
                                         soptions);
   }
@@ -257,14 +257,14 @@ Status FileExpectedStateManager::Open() {
 Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   SequenceNumber seqno = db->GetLatestSequenceNumber();
 
-  std::string state_filename = ToString(seqno) + kStateFilenameSuffix;
+  std::string state_filename = std::to_string(seqno) + kStateFilenameSuffix;
   std::string state_file_temp_path = GetTempPathForFilename(state_filename);
   std::string state_file_path = GetPathForFilename(state_filename);
 
   std::string latest_file_path =
       GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
 
-  std::string trace_filename = ToString(seqno) + kTraceFilenameSuffix;
+  std::string trace_filename = std::to_string(seqno) + kTraceFilenameSuffix;
   std::string trace_file_path = GetPathForFilename(trace_filename);
 
   // Populate a tempfile and then rename it to atomically create "<seqno>.state"
@@ -311,13 +311,13 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   // again, even if we crash.
   if (s.ok() && old_saved_seqno != kMaxSequenceNumber &&
       old_saved_seqno != saved_seqno_) {
-    s = Env::Default()->DeleteFile(
-        GetPathForFilename(ToString(old_saved_seqno) + kStateFilenameSuffix));
+    s = Env::Default()->DeleteFile(GetPathForFilename(
+        std::to_string(old_saved_seqno) + kStateFilenameSuffix));
   }
   if (s.ok() && old_saved_seqno != kMaxSequenceNumber &&
       old_saved_seqno != saved_seqno_) {
-    s = Env::Default()->DeleteFile(
-        GetPathForFilename(ToString(old_saved_seqno) + kTraceFilenameSuffix));
+    s = Env::Default()->DeleteFile(GetPathForFilename(
+        std::to_string(old_saved_seqno) + kTraceFilenameSuffix));
   }
   return s;
 }
@@ -461,7 +461,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
     return Status::Corruption("DB is older than any restorable expected state");
   }
 
-  std::string state_filename = ToString(saved_seqno_) + kStateFilenameSuffix;
+  std::string state_filename =
+      std::to_string(saved_seqno_) + kStateFilenameSuffix;
   std::string state_file_path = GetPathForFilename(state_filename);
 
   std::string latest_file_temp_path =
@@ -469,7 +470,8 @@ Status FileExpectedStateManager::Restore(DB* db) {
   std::string latest_file_path =
       GetPathForFilename(kLatestBasename + kStateFilenameSuffix);
 
-  std::string trace_filename = ToString(saved_seqno_) + kTraceFilenameSuffix;
+  std::string trace_filename =
+      std::to_string(saved_seqno_) + kTraceFilenameSuffix;
   std::string trace_file_path = GetPathForFilename(trace_filename);
 
   std::unique_ptr<TraceReader> trace_reader;

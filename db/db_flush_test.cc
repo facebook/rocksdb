@@ -2356,7 +2356,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
     ASSERT_OK(Flush(cf_ids));
     uint64_t log_num_after_flush = dbfull()->TEST_GetCurrentLogNumber();
 
-    uint64_t min_log_number_to_keep = port::kMaxUint64;
+    uint64_t min_log_number_to_keep = std::numeric_limits<uint64_t>::max();
     autovector<ColumnFamilyData*> flushed_cfds;
     autovector<autovector<VersionEdit*>> flush_edits;
     for (size_t i = 0; i != num_cfs; ++i) {

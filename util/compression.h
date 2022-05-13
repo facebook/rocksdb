@@ -633,25 +633,25 @@ inline std::string CompressionOptionsToString(
   std::string result;
   result.reserve(512);
   result.append("window_bits=")
-      .append(ToString(compression_options.window_bits))
+      .append(std::to_string(compression_options.window_bits))
       .append("; ");
   result.append("level=")
-      .append(ToString(compression_options.level))
+      .append(std::to_string(compression_options.level))
       .append("; ");
   result.append("strategy=")
-      .append(ToString(compression_options.strategy))
+      .append(std::to_string(compression_options.strategy))
       .append("; ");
   result.append("max_dict_bytes=")
-      .append(ToString(compression_options.max_dict_bytes))
+      .append(std::to_string(compression_options.max_dict_bytes))
       .append("; ");
   result.append("zstd_max_train_bytes=")
-      .append(ToString(compression_options.zstd_max_train_bytes))
+      .append(std::to_string(compression_options.zstd_max_train_bytes))
       .append("; ");
   result.append("enabled=")
-      .append(ToString(compression_options.enabled))
+      .append(std::to_string(compression_options.enabled))
       .append("; ");
   result.append("max_dict_buffer_bytes=")
-      .append(ToString(compression_options.max_dict_buffer_bytes))
+      .append(std::to_string(compression_options.max_dict_buffer_bytes))
       .append("; ");
   return result;
 }

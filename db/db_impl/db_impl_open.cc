@@ -760,11 +760,11 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
     WriteBatch batch;
     if (s.ok()) {
       s = batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
-                    ToString(kStatsCFCurrentFormatVersion));
+                    std::to_string(kStatsCFCurrentFormatVersion));
     }
     if (s.ok()) {
       s = batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
-                    ToString(kStatsCFCompatibleFormatVersion));
+                    std::to_string(kStatsCFCompatibleFormatVersion));
     }
     if (s.ok()) {
       WriteOptions wo;
