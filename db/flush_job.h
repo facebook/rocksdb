@@ -123,10 +123,10 @@ class FlushJob {
   // process has not matured yet.
   Status MemPurge();
   bool MemPurgeDecider();
-#ifndef ROCKSDB_LITE
-  std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
   // The rate limiter priority (io_priority) is determined dynamically here.
   Env::IOPriority GetRateLimiterPriority(const RateLimiter::OpType op_type);
+#ifndef ROCKSDB_LITE
+  std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE
 
   const std::string& dbname_;
