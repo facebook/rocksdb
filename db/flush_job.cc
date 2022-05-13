@@ -1082,7 +1082,6 @@ Env::IOPriority FlushJob::GetRateLimiterPriority(
     return Env::IO_USER;
   }
 }
-}
 
 #endif  // !ROCKSDB_LITE
 

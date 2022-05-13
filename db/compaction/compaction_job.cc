@@ -2491,7 +2491,7 @@ Env::IOPriority CompactionJob::GetRateLimiterPriority(
 
     return Env::IO_LOW;
   } else {
-    if (write_controller->NeedsDelay()|| (write_controller->IsStopped()) {
+    if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
       return Env::IO_USER;
     } else if (write_controller->NeedSpeedupCompaction()) {
       return Env::IO_HIGH;
