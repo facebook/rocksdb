@@ -1973,6 +1973,11 @@ struct CompactionServiceOptionsOverride {
   // returned to CompactionService primary host, to collect that, the user needs
   // to set it here.
   std::shared_ptr<Statistics> statistics = nullptr;
+
+  // Only compaction generated SST files use this user defined table properties
+  // collector.
+  std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+      table_properties_collector_factories;
 };
 
 struct OpenAndCompactOptions {
