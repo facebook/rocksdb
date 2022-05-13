@@ -2320,7 +2320,6 @@ jtest_run:
 
 jtest: rocksdbjava
 	cd java;$(MAKE) sample; SHA256_CMD='$(SHA256_CMD)' $(MAKE) test;
-	$(PYTHON) tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;

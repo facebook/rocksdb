@@ -577,7 +577,7 @@ jobs:
           command: |
             build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
 
-  build-linux-java:
+  build-linux-ubuntu-java:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: large
@@ -596,6 +596,86 @@ jobs:
       - run:
           name: "Test RocksDBJava"
           command: make V=1 J=8 -j8 jtest
+      - post-steps
+
+  build-linux-centos-x86-java:
+    docker:
+      - image: evolvedbinary/rocksjava:centos6_x86-be
+    resource_class: large
+    steps:
+      - checkout
+      - run:
+          name: Report OS Version
+          command: |
+            cat /etc/centos-release
+            uname -av
+            rpm -qa glibc
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: J=8 SKIP_COPY=1 java/crossbuild/docker-build-linux-centos.sh
+      - run:
+          name: "Test RocksDBJava"
+          command: scl enable devtoolset-8 'make -j8 jtest'
+      - post-steps
+
+  build-linux-centos-x64-java:
+    docker:
+      - image: evolvedbinary/rocksjava:centos6_x64-be
+    resource_class: xlarge  # large does not have enough memory!
+    steps:
+      - checkout
+      - run:
+          name: Report OS Version
+          command: |
+            cat /etc/centos-release
+            uname -av
+            rpm -qa glibc
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: J=8 SKIP_COPY=1 java/crossbuild/docker-build-linux-centos.sh
+      - run:
+          name: "Test RocksDBJava"
+          command: scl enable devtoolset-7 'make -j8 jtest'
+      - post-steps
+
+  build-linux-alpine-x86-java:
+    docker:
+      - image: evolvedbinary/rocksjava:alpine3_x86-be
+    resource_class: large
+    steps:
+      - checkout
+      - run:
+          name: Report OS Version
+          command: |
+            echo "Alpine Linux $(cat /etc/alpine-release)"
+            uname -av
+            apk info musl
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: J=8 SKIP_COPY=1 java/crossbuild/docker-build-linux-alpine.sh
+      - run:
+          name: "Test RocksDBJava"
+          command: make -j8 jtest
+      - post-steps
+
+  build-linux-alpine-x64-java:
+    docker:
+      - image: evolvedbinary/rocksjava:alpine3_x64-be
+    resource_class: xlarge  # large does not have enough memory!
+    steps:
+      - checkout
+      - run:
+          name: Report OS Version
+          command: |
+            echo "Alpine Linux $(cat /etc/alpine-release)"
+            uname -av
+            apk info musl
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: J=8 SKIP_COPY=1 java/crossbuild/docker-build-linux-alpine.sh
+      - run:
+          name: "Test RocksDBJava"
+          command: make -j8 jtest
       - post-steps
 
   build-linux-java-static:
@@ -879,7 +959,11 @@ workflows:
       - build-cmake-mingw
   jobs-java:
     jobs:
-      - build-linux-java
+      - build-linux-ubuntu-java
+      - build-linux-centos-x86-java
+      - build-linux-centos-x64-java
+      - build-linux-alpine-x86-java
+      - build-linux-alpine-x64-java
       - build-linux-java-static
       - build-macos-java
       - build-macos-java-static

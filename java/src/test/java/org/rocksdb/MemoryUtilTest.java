@@ -45,10 +45,9 @@ public class MemoryUtilTest {
                  new FlushOptions().setWaitForFlush(true);
          final RocksDB db =
                  RocksDB.open(options, dbFolder1.getRoot().getAbsolutePath())) {
-
-      List<RocksDB> dbs = new ArrayList<>(1);
+      final List<RocksDB> dbs = new ArrayList<>(1);
       dbs.add(db);
-      Set<Cache> caches = new HashSet<>(1);
+      final Set<Cache> caches = new HashSet<>(1);
       caches.add(cache);
       Map<MemoryUsageType, Long> usage = MemoryUtil.getApproximateMemoryUsageByType(dbs, caches);
 
@@ -85,7 +84,7 @@ public class MemoryUtilTest {
    */
   @Test
   public void getApproximateMemoryUsageByTypeNulls() throws RocksDBException {
-    Map<MemoryUsageType, Long> usage = MemoryUtil.getApproximateMemoryUsageByType(null, null);
+    final Map<MemoryUsageType, Long> usage = MemoryUtil.getApproximateMemoryUsageByType(null, null);
 
     assertThat(usage.get(MemoryUsageType.kMemTableTotal)).isEqualTo(null);
     assertThat(usage.get(MemoryUsageType.kMemTableUnFlushed)).isEqualTo(null);
@@ -116,20 +115,21 @@ public class MemoryUtilTest {
                  new FlushOptions().setWaitForFlush(true);
 
     ) {
-      List<RocksDB> dbs = new ArrayList<>(1);
+      final List<RocksDB> dbs = new ArrayList<>(2);
       dbs.add(db1);
       dbs.add(db2);
-      Set<Cache> caches = new HashSet<>(1);
+      final Set<Cache> caches = new HashSet<>(2);
       caches.add(cache1);
       caches.add(cache2);
 
-      for (RocksDB db: dbs) {
+      for (final RocksDB db : dbs) {
         db.put(key, value);
         db.flush(flushOptions);
         db.get(key);
       }
 
-      Map<MemoryUsageType, Long> usage = MemoryUtil.getApproximateMemoryUsageByType(dbs, caches);
+      final Map<MemoryUsageType, Long> usage =
+          MemoryUtil.getApproximateMemoryUsageByType(dbs, caches);
       assertThat(usage.get(MemoryUsageType.kMemTableTotal)).isEqualTo(
               db1.getAggregatedLongProperty(MEMTABLE_SIZE) + db2.getAggregatedLongProperty(MEMTABLE_SIZE));
       assertThat(usage.get(MemoryUsageType.kMemTableUnFlushed)).isEqualTo(
