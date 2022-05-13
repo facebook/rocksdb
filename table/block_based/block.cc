@@ -582,6 +582,7 @@ template <class TValue>
 template <typename DecodeEntryFunc>
 bool BlockIter<TValue>::ParseNextKey(bool* is_shared) {
   current_ = NextEntryOffset();
+  assert(data_ != nullptr);
   const char* p = data_ + current_;
   const char* limit = data_ + restarts_;  // Restarts come right after data
 
