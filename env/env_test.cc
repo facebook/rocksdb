@@ -44,6 +44,7 @@
 #include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
+#include "options/options_helper.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -3109,6 +3110,18 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+
+  guard.reset(new CompositeEnvWrapper(nullptr, timed_fs, clock));
+  ColumnFamilyOptions cf_opts;
+  DBOptions db_opts;
+  db_opts.env = guard.get();
+  auto comp = db_opts.env->CheckedCast<CompositeEnvWrapper>();
+  ASSERT_NE(comp, nullptr);
+  ASSERT_EQ(comp->Inner(), nullptr);
+  ASSERT_NOK(ValidateOptions(db_opts, cf_opts));
+  ASSERT_OK(db_opts.env->PrepareOptions(options));
+  ASSERT_NE(comp->Inner(), nullptr);
+  ASSERT_OK(ValidateOptions(db_opts, cf_opts));
 }
 #endif  // ROCKSDB_LITE
 
