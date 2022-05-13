@@ -581,20 +581,26 @@ TEST_F(FlushJobTest, GetRateLimiterPriority) {
 
   WriteController* write_controller =
       flush_job.versions_->GetColumnFamilySet()->write_controller();
-  // When the state from WriteController is Delayed.
-  std::unique_ptr<WriteControllerToken> delay_token =
-      write_controller->GetDelayToken(1000000);
-  ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kWrite),
-            Env::IO_USER);
-  ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kRead),
-            Env::IO_USER);
-  // When the state from WriteController is Stopped.
-  std::unique_ptr<WriteControllerToken> stop_token =
-      write_controller->GetStopToken();
-  ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kWrite),
-            Env::IO_USER);
-  ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kRead),
-            Env::IO_USER);
+
+  {
+    // When the state from WriteController is Delayed.
+    std::unique_ptr<WriteControllerToken> delay_token =
+        write_controller->GetDelayToken(1000000);
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kWrite),
+              Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kRead),
+              Env::IO_USER);
+  }
+
+  {
+    // When the state from WriteController is Stopped.
+    std::unique_ptr<WriteControllerToken> stop_token =
+        write_controller->GetStopToken();
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kWrite),
+              Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kRead),
+              Env::IO_USER);
+  }
 }
 
 class FlushJobTimestampTest : public FlushJobTestBase {
@@ -726,8 +732,6 @@ TEST_F(FlushJobTimestampTest, NoKeyExpired) {
   job_context.Clean();
   ASSERT_TRUE(to_delete.empty());
 }
-
-
 
 }  // namespace ROCKSDB_NAMESPACE
 
