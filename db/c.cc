@@ -829,8 +829,7 @@ rocksdb_t* rocksdb_open_and_trim_history(
       ColumnFamilyOptions(column_family_options[i]->rep)));
   }
 
-  std::string trim_ts_;
-  trim_ts_.assign(trim_ts, trim_tslen);
+  std::string trim_ts_(trim_ts, trim_tslen);
 
   DB* db;
   std::vector<ColumnFamilyHandle*> handles;
@@ -1126,8 +1125,7 @@ void rocksdb_increase_full_history_ts_low(
   rocksdb_column_family_handle_t* column_family,
   const char* ts_low, size_t ts_lowlen,
   char** errptr) {
-  std::string ts;
-  ts.assign(ts_low, ts_lowlen);
+  std::string ts(ts_low, ts_lowlen);
   SaveError(errptr, db->rep->IncreaseFullHistoryTsLow(column_family->rep, ts));
 }
 
