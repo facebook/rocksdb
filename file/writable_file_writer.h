@@ -277,15 +277,10 @@ class WritableFileWriter {
   const char* GetFileChecksumFuncName() const;
 
  private:
-  friend class WritableFileWriterTest_RateLimiterPriority_Test;
-
+  // Decide the Rate Limiter priority and update io_options.
   static Env::IOPriority DecideRateLimiterPriority(
       Env::IOPriority writable_file_io_priority,
-      Env::IOPriority op_rate_limiter_priority);
-
-  // If rate_limiter_ is nullptr, the rate_limiter_priority may be updated.
-  void UpdateIOOptionsIfNeeded(IOOptions& io_options,
-                               const Env::IOPriority op_rate_limiter_priority);
+      Env::IOPriority op_rate_limiter_priority, IOOptions& io_options);
 
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode

@@ -4,22 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include <algorithm>
-#include <vector>
 
-#include "db/db_test_util.h"
-#include "env/mock_env.h"
-#include "file/line_file_reader.h"
-#include "file/random_access_file_reader.h"
-#include "file/read_write_util.h"
-#include "file/readahead_raf.h"
-#include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "util/crc32c.h"
-#include "util/random.h"
-#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,6 +16,24 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
  public:
   WritableFileWriterIOPriorityTest() = default;
   ~WritableFileWriterIOPriorityTest() = default;
+
+  void SetUp() override {
+    FileOptions file_options;
+
+    // When op_rate_limiter_priority parameter in WritableFileWriter functions
+    // is the default (Env::IO_TOTAL).
+    std::unique_ptr<FakeWF> wf_1{new FakeWF(Env::IO_HIGH, Env::IO_TOTAL)};
+    writer_without_op_priority_.reset(new WritableFileWriter(
+        std::move(wf_1), "" /* don't care */, file_options));
+
+    // When op_rate_limiter_priority parameter in WritableFileWriter functions
+    // is NOT the default (Env::IO_TOTAL).
+    // std::unique_ptr<FakeWF> wf_2{
+    //     new FakeWF(Env::IO_USER, Env::IO_MID)};
+    // writer_with_op_priority_.reset(new WritableFileWriter(
+    //     std::move(wf_2), "" /* don't care */, file_options));
+  }
+
 protected:
 // This test is to check whether the rate limiter priority can be passed
   // correctly from WritableFileWriter functions to FSWritableFile functions.
@@ -144,71 +151,41 @@ protected:
     Env::IOPriority op_rate_limiter_priority_;
   };
 
+  std::shared_ptr<WritableFileWriter> writer_without_op_priority_;
+  std::shared_ptr<WritableFileWriter> writer_with_op_priority_;
 };
 
-TEST_F(WritableFileWriterIOPriorityTest, RateLimiterPriority) {
-  // When op_rate_limiter_priority parameter in WritableFileWriter functions
-  // is the default (Env::IO_TOTAL).
-  FileOptions file_options;
-  Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL;
-  std::unique_ptr<FakeWF> wf{
-      new FakeWF(Env::IO_HIGH, op_rate_limiter_priority)};
-  std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), "" /* don't care */, file_options));
-  writer->Append(Slice("abc"));
-  writer->Pad(10);
-  writer->Flush();
-  writer->Close();
+// 1. When op_rate_limiter_priority parameter in WritableFileWriter functions
+// is the default (Env::IO_TOTAL).
 
-  // writer->SyncInternal(false);
-  // std::cout << "SyncInternal(false)" << std::endl;
-  // writer->SyncInternal(true);
-  // writer->WriteBuffered("abc", 1, Env::IO_TOTAL);
-  // writer->WriteBufferedWithChecksum("abc", 1, Env::IO_TOTAL);
-  // writer->WriteDirect(Env::IO_TOTAL);
-  // writer->WriteDirectWithChecksum(Env::IO_TOTAL);
-  // writer->RangeSync(1, 10);
-
-  // When op_rate_limiter_priority parameter in WritableFileWriter functions
-  // is NOT the default (Env::IO_TOTAL).
-  // op_rate_limiter_priority = Env::IO_MID;
-  // wf.reset(new FakeWF(Env::IO_USER, op_rate_limiter_priority));
-  // writer.reset(
-  //     new WritableFileWriter(std::move(wf), "" /* don't care */, file_options));
-  // writer->Append(Slice("abc"), 0, op_rate_limiter_priority);
-  // writer->Pad(10, op_rate_limiter_priority);
-  // writer->Flush(op_rate_limiter_priority);
-  // writer->Close();
-  // writer->SyncInternal(false);
-  // writer->SyncInternal(true);
-  // writer->WriteBuffered("abc", 1, op_rate_limiter_priority);
-  // writer->WriteBufferedWithChecksum("abc", 1, op_rate_limiter_priority);
-  // writer->WriteDirect(op_rate_limiter_priority);
-  // writer->WriteDirectWithChecksum(op_rate_limiter_priority);
-  // writer->RangeSync(1, 10);
+TEST_F(WritableFileWriterIOPriorityTest, Append_Default) {
+  writer_without_op_priority_->Append(Slice("abc"));
 }
 
-TEST_F(WritableFileWriterIOPriorityTest, RateLimiterPriority2) {
-  // When op_rate_limiter_priority parameter in WritableFileWriter functions
-  // is NOT the default (Env::IO_TOTAL).
-  FileOptions file_options;
-  Env::IOPriority op_rate_limiter_priority = Env::IO_MID;
-  std::unique_ptr<FakeWF> wf{
-      new FakeWF(Env::IO_USER, op_rate_limiter_priority)};
-  std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), "" /* don't care */, file_options));
-  // writer->Append(Slice("abc"), 0, op_rate_limiter_priority);
-  // writer->Pad(10, op_rate_limiter_priority);
-  // writer->Flush(op_rate_limiter_priority);
-  // writer->Close();
-  // writer->SyncInternal(false);
-  // writer->SyncInternal(true);
-  // writer->WriteBuffered("abc", 1, op_rate_limiter_priority);
-  // writer->WriteBufferedWithChecksum("abc", 1, op_rate_limiter_priority);
-  // writer->WriteDirect(op_rate_limiter_priority);
-  // writer->WriteDirectWithChecksum(op_rate_limiter_priority);
-  // writer->RangeSync(1, 10);
+TEST_F(WritableFileWriterIOPriorityTest, Pad_Default) {
+  writer_without_op_priority_->Pad(10);
 }
+
+TEST_F(WritableFileWriterIOPriorityTest, Flush_Default) {
+  writer_without_op_priority_->Flush();
+}
+
+TEST_F(WritableFileWriterIOPriorityTest, Close_Default) {
+  writer_without_op_priority_->Close();
+}
+
+TEST_F(WritableFileWriterIOPriorityTest, Sync_Default) {
+  writer_without_op_priority_->Sync(false);
+  writer_without_op_priority_->Sync(true);
+}
+
+TEST_F(WritableFileWriterIOPriorityTest, SyncWithoutFlush_Default) {
+  writer_without_op_priority_->SyncWithoutFlush(false);
+  writer_without_op_priority_->SyncWithoutFlush(true);
+}
+
+// 2. When op_rate_limiter_priority parameter in WritableFileWriter
+// functions is NOT the default.
 
 }  // namespace ROCKSDB_NAMESPACE
 
