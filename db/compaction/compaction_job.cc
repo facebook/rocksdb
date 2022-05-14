@@ -2479,26 +2479,31 @@ std::string CompactionJob::GetTableFileName(uint64_t file_number) {
 
 Env::IOPriority CompactionJob::GetRateLimiterPriority(
     const RateLimiter::OpType op_type) {
-  WriteController* write_controller =
-      versions_->GetColumnFamilySet()->write_controller();
-  // TODO: if all priorities are the same for read and write, update this.
-  if (op_type == RateLimiter::OpType::kWrite) {
-    if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
-      return Env::IO_USER;
-    } else if (write_controller->NeedSpeedupCompaction()) {
-      return Env::IO_HIGH;
-    }
+  if (versions_ && versions_->GetColumnFamilySet() &&
+      versions_->GetColumnFamilySet()->write_controller()) {
+    WriteController* write_controller =
+        versions_->GetColumnFamilySet()->write_controller();
+    // TODO: if all priorities are the same for read and write, update this.
+    if (op_type == RateLimiter::OpType::kWrite) {
+      if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
+        return Env::IO_USER;
+      } else if (write_controller->NeedSpeedupCompaction()) {
+        return Env::IO_HIGH;
+      }
 
-    return Env::IO_LOW;
-  } else {
-    if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
-      return Env::IO_USER;
-    } else if (write_controller->NeedSpeedupCompaction()) {
-      return Env::IO_HIGH;
-    }
+      return Env::IO_LOW;
+    } else {
+      if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
+        return Env::IO_USER;
+      } else if (write_controller->NeedSpeedupCompaction()) {
+        return Env::IO_HIGH;
+      }
 
-    return Env::IO_LOW;
+      return Env::IO_LOW;
+    }
   }
+
+  return Env::IO_LOW;
 }
 
 #ifndef ROCKSDB_LITE

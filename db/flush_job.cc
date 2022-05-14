@@ -1035,17 +1035,22 @@ Status FlushJob::WriteLevel0Table() {
 
 Env::IOPriority FlushJob::GetRateLimiterPriority(
     const RateLimiter::OpType op_type) {
-  WriteController* write_controller =
-      versions_->GetColumnFamilySet()->write_controller();
+  if (versions_ && versions_->GetColumnFamilySet() &&
+      versions_->GetColumnFamilySet()->write_controller()) {
+    WriteController* write_controller =
+        versions_->GetColumnFamilySet()->write_controller();
 
-  if (op_type == RateLimiter::OpType::kWrite) {
-    if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
+    if (op_type == RateLimiter::OpType::kWrite) {
+      if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
+        return Env::IO_USER;
+      }
+      return Env::IO_HIGH;
+    } else {
       return Env::IO_USER;
     }
-    return Env::IO_HIGH;
-  } else {
-    return Env::IO_USER;
   }
+
+  return op_type == RateLimiter::OpType::kWrite ? Env::IO_HIGH : Env::IO_USER;
 }
 
 #ifndef ROCKSDB_LITE
