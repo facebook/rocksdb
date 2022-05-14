@@ -13,50 +13,27 @@
 namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriterIOPriorityTest : public testing::Test {
- public:
-  WritableFileWriterIOPriorityTest() = default;
-  ~WritableFileWriterIOPriorityTest() = default;
+ protected:
+  // This test is to check whether the rate limiter priority can be passed
+  // correctly from WritableFileWriter functions to FSWritableFile functions.
 
   void SetUp() override {
-    FileOptions file_options;
-
     // When op_rate_limiter_priority parameter in WritableFileWriter functions
     // is the default (Env::IO_TOTAL).
-    std::unique_ptr<FakeWF> wf_1{new FakeWF(Env::IO_HIGH, Env::IO_TOTAL)};
-    writer_without_op_priority_.reset(new WritableFileWriter(
-        std::move(wf_1), "" /* don't care */, file_options));
-
-    // When op_rate_limiter_priority parameter in WritableFileWriter functions
-    // is NOT the default (Env::IO_TOTAL).
-    // std::unique_ptr<FakeWF> wf_2{
-    //     new FakeWF(Env::IO_USER, Env::IO_MID)};
-    // writer_with_op_priority_.reset(new WritableFileWriter(
-    //     std::move(wf_2), "" /* don't care */, file_options));
+    std::unique_ptr<FakeWF> wf{new FakeWF(Env::IO_HIGH)};
+    FileOptions file_options;
+    writer_.reset(new WritableFileWriter(std::move(wf), "" /* don't care */,
+                                         file_options));
   }
 
-protected:
-// This test is to check whether the rate limiter priority can be passed
-  // correctly from WritableFileWriter functions to FSWritableFile functions.
-  // Assume rate_limiter is not set.
-  // There are two major scenarios:
-  // 1. When op_rate_limiter_priority parameter in WritableFileWriter functions
-  // is the default (Env::IO_TOTAL).
-  // 2. When op_rate_limiter_priority parameter in WritableFileWriter
-  // functions is NOT the default.
   class FakeWF : public FSWritableFile {
    public:
-    // The op_rate_limiter_priority_ is to mock the op_rate_limiter_priority
-    // parameter in some WritableFileWriter functions, e.g. Append.
-    explicit FakeWF(Env::IOPriority io_priority,
-                    Env::IOPriority op_rate_limiter_priority = Env::IO_TOTAL)
-        : op_rate_limiter_priority_(op_rate_limiter_priority) {
-      SetIOPriority(io_priority);
-    }
+    explicit FakeWF(Env::IOPriority io_priority) { SetIOPriority(io_priority); }
     ~FakeWF() override {}
 
     IOStatus Append(const Slice& /*data*/, const IOOptions& options,
                     IODebugContext* /*dbg*/) override {
-      CheckRateLimiterPriority(options);
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Append(const Slice& data, const IOOptions& options,
@@ -67,7 +44,7 @@ protected:
     IOStatus PositionedAppend(const Slice& /*data*/, uint64_t /*offset*/,
                               const IOOptions& options,
                               IODebugContext* /*dbg*/) override {
-      CheckRateLimiterPriority(options);
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus PositionedAppend(
@@ -75,7 +52,7 @@ protected:
         const IOOptions& options,
         const DataVerificationInfo& /* verification_info */,
         IODebugContext* /*dbg*/) override {
-      CheckRateLimiterPriority(options);
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Truncate(uint64_t /*size*/, const IOOptions& options,
@@ -88,23 +65,20 @@ protected:
       return IOStatus::OK();
     }
     IOStatus Flush(const IOOptions& options, IODebugContext* /*dbg*/) override {
-      CheckRateLimiterPriority(options);
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Sync(const IOOptions& options, IODebugContext* /*dbg*/) override {
-      std::cout << "writer->Sync()" << std::endl;
       EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Fsync(const IOOptions& options, IODebugContext* /*dbg*/) override {
-      std::cout << "writer->Fsync()" << std::endl;
       EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return IOStatus::OK();
     }
-    // void SetIOPriority(Env::IOPriority /*pri*/) override {}
     uint64_t GetFileSize(const IOOptions& options,
                          IODebugContext* /*dbg*/) override {
-      CheckRateLimiterPriority(options);
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return 0;
     }
     void GetPreallocationStatus(size_t* /*block_size*/,
@@ -119,7 +93,7 @@ protected:
     IOStatus Allocate(uint64_t /*offset*/, uint64_t /*len*/,
                       const IOOptions& options,
                       IODebugContext* /*dbg*/) override {
-      CheckRateLimiterPriority(options);
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/,
@@ -132,60 +106,32 @@ protected:
     void PrepareWrite(size_t /*offset*/, size_t /*len*/,
                       const IOOptions& options,
                       IODebugContext* /*dbg*/) override {
-      CheckRateLimiterPriority(options);
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
     }
-
-   protected:
-    void CheckRateLimiterPriority(const IOOptions& options) {
-      // The expected rate limiter priority is decided
-      // by WritableFileWriter::DecideRateLimiterPriority.
-      if (io_priority_ == Env::IO_TOTAL) {
-        EXPECT_EQ(options.rate_limiter_priority, op_rate_limiter_priority_);
-      } else if (op_rate_limiter_priority_ == Env::IO_TOTAL) {
-        EXPECT_EQ(options.rate_limiter_priority, io_priority_);
-      } else {
-        EXPECT_EQ(options.rate_limiter_priority, op_rate_limiter_priority_);
-      }
-    }
-
-    Env::IOPriority op_rate_limiter_priority_;
   };
 
-  std::shared_ptr<WritableFileWriter> writer_without_op_priority_;
-  std::shared_ptr<WritableFileWriter> writer_with_op_priority_;
+  std::unique_ptr<WritableFileWriter> writer_;
 };
 
-// 1. When op_rate_limiter_priority parameter in WritableFileWriter functions
-// is the default (Env::IO_TOTAL).
-
-TEST_F(WritableFileWriterIOPriorityTest, Append_Default) {
-  writer_without_op_priority_->Append(Slice("abc"));
+TEST_F(WritableFileWriterIOPriorityTest, Append) {
+  writer_->Append(Slice("abc"));
 }
 
-TEST_F(WritableFileWriterIOPriorityTest, Pad_Default) {
-  writer_without_op_priority_->Pad(10);
+TEST_F(WritableFileWriterIOPriorityTest, Pad) { writer_->Pad(10); }
+
+TEST_F(WritableFileWriterIOPriorityTest, Flush) { writer_->Flush(); }
+
+TEST_F(WritableFileWriterIOPriorityTest, Close) { writer_->Close(); }
+
+TEST_F(WritableFileWriterIOPriorityTest, Sync) {
+  writer_->Sync(false);
+  writer_->Sync(true);
 }
 
-TEST_F(WritableFileWriterIOPriorityTest, Flush_Default) {
-  writer_without_op_priority_->Flush();
+TEST_F(WritableFileWriterIOPriorityTest, SyncWithoutFlush) {
+  writer_->SyncWithoutFlush(false);
+  writer_->SyncWithoutFlush(true);
 }
-
-TEST_F(WritableFileWriterIOPriorityTest, Close_Default) {
-  writer_without_op_priority_->Close();
-}
-
-TEST_F(WritableFileWriterIOPriorityTest, Sync_Default) {
-  writer_without_op_priority_->Sync(false);
-  writer_without_op_priority_->Sync(true);
-}
-
-TEST_F(WritableFileWriterIOPriorityTest, SyncWithoutFlush_Default) {
-  writer_without_op_priority_->SyncWithoutFlush(false);
-  writer_without_op_priority_->SyncWithoutFlush(true);
-}
-
-// 2. When op_rate_limiter_priority parameter in WritableFileWriter
-// functions is NOT the default.
 
 }  // namespace ROCKSDB_NAMESPACE
 
