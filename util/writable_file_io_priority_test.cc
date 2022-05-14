@@ -133,6 +133,32 @@ TEST_F(WritableFileWriterIOPriorityTest, SyncWithoutFlush) {
   writer_->SyncWithoutFlush(true);
 }
 
+TEST_F(WritableFileWriterIOPriorityTest, SyncW) {
+  uint32_t kMb = static_cast<uint32_t>(1) << 20;
+  EnvOptions env_options;
+  env_options.bytes_per_sync = kMb;
+  std::unique_ptr<FakeWF> wf(new FakeWF(Env::IO_HIGH));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
+  Random r(301);
+  Status s;
+  std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
+  for (int i = 0; i < 1000; i++) {
+    int skew_limit = (i < 700) ? 10 : 15;
+    uint32_t num = r.Skewed(skew_limit) * 100 + r.Uniform(100);
+    s = writer->Append(Slice(large_buf.get(), num));
+    ASSERT_OK(s);
+
+    // Flush in a chance of 1/10.
+    if (r.Uniform(10) == 0) {
+      s = writer->Flush();
+      ASSERT_OK(s);
+    }
+  }
+  s = writer->Close();
+  ASSERT_OK(s);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
