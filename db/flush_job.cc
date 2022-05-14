@@ -1033,6 +1033,21 @@ Status FlushJob::WriteLevel0Table() {
   return s;
 }
 
+Env::IOPriority FlushJob::GetRateLimiterPriority(
+    const RateLimiter::OpType op_type) {
+  WriteController* write_controller =
+      versions_->GetColumnFamilySet()->write_controller();
+
+  if (op_type == RateLimiter::OpType::kWrite) {
+    if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
+      return Env::IO_USER;
+    }
+    return Env::IO_HIGH;
+  } else {
+    return Env::IO_USER;
+  }
+}
+
 #ifndef ROCKSDB_LITE
 std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   db_mutex_->AssertHeld();
@@ -1065,22 +1080,6 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   }
   return info;
 }
-
-Env::IOPriority FlushJob::GetRateLimiterPriority(
-    const RateLimiter::OpType op_type) {
-  WriteController* write_controller =
-      versions_->GetColumnFamilySet()->write_controller();
-
-  if (op_type == RateLimiter::OpType::kWrite) {
-    if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
-      return Env::IO_USER;
-    }
-    return Env::IO_HIGH;
-  } else {
-    return Env::IO_USER;
-  }
-}
-
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
