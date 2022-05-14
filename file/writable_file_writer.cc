@@ -432,7 +432,6 @@ IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
 }
 
 IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
-
   IOStatus s;
   IOSTATS_TIMER_GUARD(fsync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
