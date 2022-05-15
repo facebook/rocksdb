@@ -1055,10 +1055,10 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
       s = AtomicFlushMemTables(cfds, fo, FlushReason::kManualCompaction,
-                               false /* writes_stopped */);
+                               false /* entered_write_thread */);
     } else {
       s = FlushMemTable(cfd, fo, FlushReason::kManualCompaction,
-                        false /* writes_stopped*/);
+                        false /* entered_write_thread */);
     }
     if (!s.ok()) {
       LogFlush(immutable_db_options_.info_log);
@@ -2016,7 +2016,8 @@ void DBImpl::GenerateFlushRequest(const autovector<ColumnFamilyData*>& cfds,
 
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
-                             FlushReason flush_reason, bool writes_stopped) {
+                             FlushReason flush_reason,
+                             bool entered_write_thread) {
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
   Status s;
@@ -2029,6 +2030,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
   }
 
+  const bool needs_to_join_write_thread = !entered_write_thread;
   autovector<FlushRequest> flush_reqs;
   autovector<uint64_t> memtable_ids_to_wait;
   {
@@ -2037,7 +2039,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     WriteThread::Writer w;
     WriteThread::Writer nonmem_w;
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (two_write_queues_) {
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
@@ -2120,7 +2122,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       MaybeScheduleFlushOrCompaction();
     }
 
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.ExitUnbatched(&w);
       if (two_write_queues_) {
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
@@ -2156,7 +2158,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 Status DBImpl::AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const FlushOptions& flush_options, FlushReason flush_reason,
-    bool writes_stopped) {
+    bool entered_write_thread) {
   Status s;
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;
@@ -2173,6 +2175,7 @@ Status DBImpl::AtomicFlushMemTables(
       return s;
     }
   }
+  const bool needs_to_join_write_thread = !entered_write_thread;
   FlushRequest flush_req;
   autovector<ColumnFamilyData*> cfds;
   {
@@ -2181,7 +2184,7 @@ Status DBImpl::AtomicFlushMemTables(
 
     WriteThread::Writer w;
     WriteThread::Writer nonmem_w;
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (two_write_queues_) {
         nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
@@ -2229,7 +2232,7 @@ Status DBImpl::AtomicFlushMemTables(
       MaybeScheduleFlushOrCompaction();
     }
 
-    if (!writes_stopped) {
+    if (needs_to_join_write_thread) {
       write_thread_.ExitUnbatched(&w);
       if (two_write_queues_) {
         nonmem_write_thread_.ExitUnbatched(&nonmem_w);
