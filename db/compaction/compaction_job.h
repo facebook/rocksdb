@@ -227,6 +227,7 @@ class CompactionJob {
   // Stores the approx size of keys covered in the range of each subcompaction
   std::vector<uint64_t> sizes_;
   Env::Priority thread_pri_;
+  Env::IOPriority io_pri_;
   std::string full_history_ts_low_;
   std::string trim_ts_;
   BlobFileCompletionCallback* blob_callback_;

@@ -470,6 +470,7 @@ CompactionJob::CompactionJob(
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
       thread_pri_(thread_pri),
+      io_pri_(compaction->io_priority()),
       full_history_ts_low_(std::move(full_history_ts_low)),
       trim_ts_(std::move(trim_ts)),
       blob_callback_(blob_callback) {
@@ -2486,7 +2487,7 @@ Env::IOPriority CompactionJob::GetRateLimiterPriority() {
     }
   }
 
-  return Env::IO_LOW;
+  return io_pri_;
 }
 
 #ifndef ROCKSDB_LITE

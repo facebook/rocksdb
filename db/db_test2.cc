@@ -3992,6 +3992,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
       // The charges can exist for `IO_LOW` and `IO_USER` priorities.
       size_t rate_limited_bytes_by_pri =
           options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW) +
+          options.rate_limiter->GetTotalBytesThrough(Env::IO_MID) +
           options.rate_limiter->GetTotalBytesThrough(Env::IO_USER);
       ASSERT_EQ(rate_limited_bytes,
                 static_cast<size_t>(rate_limited_bytes_by_pri));
@@ -4014,6 +4015,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
       // bytes read for user iterator shouldn't count against the rate limit.
       rate_limited_bytes_by_pri =
           options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW) +
+          options.rate_limiter->GetTotalBytesThrough(Env::IO_MID) +
           options.rate_limiter->GetTotalBytesThrough(Env::IO_USER);
       ASSERT_EQ(rate_limited_bytes,
                 static_cast<size_t>(rate_limited_bytes_by_pri));

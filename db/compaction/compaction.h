@@ -226,6 +226,11 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
+  // Return the io priority of this compaction
+  Env::IOPriority io_priority() const {
+    return start_level_ == 0 ? Env::IO_MID : Env::IO_LOW;
+  }
+
   // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
   const ImmutableOptions* immutable_options() const {

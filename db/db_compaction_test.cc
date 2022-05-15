@@ -7482,6 +7482,57 @@ TEST_F(DBCompactionTest, BottomPriCompactionCountsTowardConcurrencyLimit) {
   compact_range_thread.join();
 }
 
+TEST_F(DBCompactionTest, IOPriorityTest) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 2 << 10;
+  options.level0_file_num_compaction_trigger = 1;
+  options.max_bytes_for_level_base = 4 * 1024;
+  RateLimiter* rate_limiter = NewGenericRateLimiter(10 << 20);
+  options.rate_limiter.reset(rate_limiter);
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  // make files' ranges overlap to avoid trivial move
+  ASSERT_OK(Put("key1", rnd.RandomString(990)));
+  ASSERT_OK(Put("key9", rnd.RandomString(990)));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+  ASSERT_EQ("1", FilesPerLevel(0));
+
+  ASSERT_OK(Put("key2", rnd.RandomString(990)));
+  ASSERT_OK(Put("key9", rnd.RandomString(990)));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+
+  ASSERT_OK(Put("key1", rnd.RandomString(990)));
+  ASSERT_OK(Put("key8", rnd.RandomString(990)));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  // trigger L0 -> L1 compaction which use IO_MID
+  ASSERT_GT(rate_limiter->GetTotalBytesThrough(Env::IO_MID), 0);
+  ASSERT_EQ(rate_limiter->GetTotalBytesThrough(Env::IO_LOW), 0);
+
+  ASSERT_OK(Put("key3", rnd.RandomString(990)));
+  ASSERT_OK(Put("key8", rnd.RandomString(990)));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+  ASSERT_EQ("1,0,1", FilesPerLevel(0));
+
+  // trigger L1 -> L2 compaction which use IO_LOW
+  ASSERT_OK(Put("key4", rnd.RandomString(990)));
+  ASSERT_OK(Put("key6", rnd.RandomString(990)));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  ASSERT_GT(rate_limiter->GetTotalBytesThrough(Env::IO_MID), 0);
+  ASSERT_GT(rate_limiter->GetTotalBytesThrough(Env::IO_LOW), 0);
+}
+
 #endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
