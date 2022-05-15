@@ -51,6 +51,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/options.h"
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
@@ -1478,6 +1479,7 @@ class VersionSet {
   Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                            VersionEdit* edit, SequenceNumber* max_last_sequence,
                            InstrumentedMutex* mu);
+  void UpdateReadOptionsForCompaction(ReadOptions& read_options);
 };
 
 // ReactiveVersionSet represents a collection of versions of the column

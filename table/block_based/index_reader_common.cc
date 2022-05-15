@@ -33,7 +33,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    bool no_io, GetContext* get_context,
+    const ReadOptions& read_options, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<Block>* index_block) const {
   assert(index_block != nullptr);
@@ -41,11 +41,6 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
   if (!index_block_.IsEmpty()) {
     index_block->SetUnownedValue(index_block_.GetValue());
     return Status::OK();
-  }
-
-  ReadOptions read_options;
-  if (no_io) {
-    read_options.read_tier = kBlockCacheTier;
   }
 
   return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,

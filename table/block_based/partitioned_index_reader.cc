@@ -46,10 +46,9 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     const ReadOptions& read_options, bool /* disable_prefix_seek */,
     IndexBlockIter* iter, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
-  const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s =
-      GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
+  const Status s = GetOrReadIndexBlock(read_options, get_context,
+                                       lookup_context, &index_block);
   if (!s.ok()) {
     if (iter != nullptr) {
       iter->Invalidate(s);
@@ -82,6 +81,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.io_timeout = read_options.io_timeout;
     ro.adaptive_readahead = read_options.adaptive_readahead;
     ro.async_io = read_options.async_io;
+    ro.rate_limiter_priority = read_options.rate_limiter_priority;
 
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.

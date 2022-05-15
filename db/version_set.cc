@@ -38,6 +38,7 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
+#include "db/write_controller.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "file/read_write_util.h"
@@ -49,6 +50,7 @@
 #include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -1986,12 +1988,14 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     tracing_get_id = vset_->block_cache_tracer_->NextGetId();
   }
 
+  ReadOptions read_opts = read_options;
+  read_opts.rate_limiter_priority = Env::IO_USER;
   // Note: the old StackableDB-based BlobDB passes in
   // GetImplOptions::is_blob_index; for the integrated BlobDB implementation, we
   // need to provide it here.
   bool is_blob_index = false;
   bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
-  BlobFetcher blob_fetcher(this, read_options);
+  BlobFetcher blob_fetcher(this, read_opts);
 
   assert(pinned_iters_mgr);
   GetContext get_context(
@@ -2028,7 +2032,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         get_perf_context()->per_level_perf_context_enabled;
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     *status = table_cache_->Get(
-        read_options, *internal_comparator(), *f->file_metadata, ikey,
+        read_opts, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
@@ -2079,7 +2083,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
             constexpr uint64_t* bytes_read = nullptr;
 
-            *status = GetBlob(read_options, user_key, *value, prefetch_buffer,
+            *status = GetBlob(read_opts, user_key, *value, prefetch_buffer,
                               value, bytes_read);
             if (!status->ok()) {
               if (status->IsIncomplete()) {
@@ -2152,11 +2156,14 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       vset_->block_cache_tracer_->is_tracing_enabled()) {
     tracing_mget_id = vset_->block_cache_tracer_->NextGetId();
   }
+
+  ReadOptions read_opts = read_options;
+  read_opts.rate_limiter_priority = Env::IO_USER;
   // Even though we know the batch size won't be > MAX_BATCH_SIZE,
   // use autovector in order to avoid unnecessary construction of GetContext
   // objects, which is expensive
   autovector<GetContext, 16> get_ctx;
-  BlobFetcher blob_fetcher(this, read_options);
+  BlobFetcher blob_fetcher(this, read_opts);
   for (auto iter = range->begin(); iter != range->end(); ++iter) {
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(
@@ -2220,7 +2227,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
     StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     s = table_cache_->MultiGet(
-        read_options, *internal_comparator(), *f->file_metadata, &file_range,
+        read_opts, *internal_comparator(), *f->file_metadata, &file_range,
         mutable_cf_options_.prefix_extractor,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
@@ -2319,8 +2326,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
             }
           } else {
             file_range.AddValueSize(iter->value->size());
-            if (file_range.GetValueSize() >
-                read_options.value_size_soft_limit) {
+            if (file_range.GetValueSize() > read_opts.value_size_soft_limit) {
               s = Status::Aborted();
               break;
             }
@@ -2361,7 +2367,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
 
   if (s.ok() && !blob_rqs.empty()) {
-    MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
+    MultiGetBlob(read_opts, keys_with_blobs_range, blob_rqs);
   }
 
   // Process any left over keys
@@ -2392,7 +2398,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->value->PinSelf();
         range->AddValueSize(iter->value->size());
         range->MarkKeyDone(iter);
-        if (range->GetValueSize() > read_options.value_size_soft_limit) {
+        if (range->GetValueSize() > read_opts.value_size_soft_limit) {
           s = Status::Aborted();
           break;
         }
@@ -2474,6 +2480,17 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   file_meta->raw_key_size = tp->raw_key_size;
 
   return true;
+}
+
+void VersionSet::UpdateReadOptionsForCompaction(ReadOptions& read_options) {
+  if (GetColumnFamilySet() && GetColumnFamilySet()->write_controller()) {
+    WriteController* write_controller =
+        GetColumnFamilySet()->write_controller();
+    if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
+      read_options.rate_limiter_priority = Env::IO_USER;
+    }
+    read_options.rate_limiter_priority = Env::IO_HIGH;
+  }
 }
 
 void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
@@ -5834,6 +5851,8 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
   InternalIterator** list = new InternalIterator* [space];
+  ReadOptions read_opts = read_options;
+  UpdateReadOptionsForCompaction(read_opts);
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -5856,9 +5875,8 @@ InternalIterator* VersionSet::MakeInputIterator(
           }
 
           list[num++] = cfd->table_cache()->NewIterator(
-              read_options, file_options_compactions,
-              cfd->internal_comparator(), fmd, range_del_agg,
-              c->mutable_cf_options()->prefix_extractor,
+              read_opts, file_options_compactions, cfd->internal_comparator(),
+              fmd, range_del_agg, c->mutable_cf_options()->prefix_extractor,
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
@@ -5872,7 +5890,7 @@ InternalIterator* VersionSet::MakeInputIterator(
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = new LevelIterator(
-            cfd->table_cache(), read_options, file_options_compactions,
+            cfd->table_cache(), read_opts, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
             c->mutable_cf_options()->prefix_extractor,
             /*should_sample=*/false,
