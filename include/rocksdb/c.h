@@ -244,6 +244,34 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete_cf_with_ts(
         const char* ts, size_t tslen,
         char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_singledelete(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    const char* key, size_t keylen,
+    char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_singledelete_cf(
+    rocksdb_t * db,
+    const rocksdb_writeoptions_t * options,
+    rocksdb_column_family_handle_t * column_family,
+    const char* key, size_t keylen,
+    char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_singledelete_with_ts(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    const char* key, size_t keylen,
+    const char* ts, size_t tslen,
+    char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_singledelete_cf_with_ts(
+    rocksdb_t * db,
+    const rocksdb_writeoptions_t * options,
+    rocksdb_column_family_handle_t * column_family,
+    const char* key, size_t keylen,
+    const char* ts, size_t tslen,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_increase_full_history_ts_low(
     rocksdb_t* db,
     rocksdb_column_family_handle_t* column_family,
