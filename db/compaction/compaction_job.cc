@@ -2486,8 +2486,6 @@ Env::IOPriority CompactionJob::GetRateLimiterPriorityForWrite() {
     } else if (write_controller->NeedSpeedupCompaction()) {
       return Env::IO_HIGH;
     }
-
-    return Env::IO_LOW;
   }
 
   return Env::IO_LOW;
