@@ -116,23 +116,23 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
 };
 
 TEST_F(WritableFileWriterIOPriorityTest, Append) {
-  writer_->Append(Slice("abc"));
+  ASSERT_OK(writer_->Append(Slice("abc")));
 }
 
-TEST_F(WritableFileWriterIOPriorityTest, Pad) { writer_->Pad(500); }
+TEST_F(WritableFileWriterIOPriorityTest, Pad) { ASSERT_OK(writer_->Pad(500)); }
 
-TEST_F(WritableFileWriterIOPriorityTest, Flush) { writer_->Flush(); }
+TEST_F(WritableFileWriterIOPriorityTest, Flush) { ASSERT_OK(writer_->Flush()); }
 
-TEST_F(WritableFileWriterIOPriorityTest, Close) { writer_->Close(); }
+TEST_F(WritableFileWriterIOPriorityTest, Close) { ASSERT_OK(writer_->Close()); }
 
 TEST_F(WritableFileWriterIOPriorityTest, Sync) {
-  writer_->Sync(false);
-  // writer_->Sync(true);
+  ASSERT_OK(writer_->Sync(false));
+  ASSERT_OK(writer_->Sync(true));
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, SyncWithoutFlush) {
-  // writer_->SyncWithoutFlush(false);
-  writer_->SyncWithoutFlush(true);
+  ASSERT_OK(writer_->SyncWithoutFlush(false));
+  ASSERT_OK(writer_->SyncWithoutFlush(true));
 }
 
 TEST_F(WritableFileWriterIOPriorityTest, SyncW) {
