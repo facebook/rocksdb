@@ -124,7 +124,7 @@ class FlushJob {
   Status MemPurge();
   bool MemPurgeDecider();
   // The rate limiter priority (io_priority) is determined dynamically here.
-  Env::IOPriority GetRateLimiterPriority(const RateLimiter::OpType op_type);
+  Env::IOPriority GetRateLimiterPriorityForWrite();
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE

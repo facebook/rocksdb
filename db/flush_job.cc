@@ -809,8 +809,7 @@ Status FlushJob::WriteLevel0Table() {
 
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
-    Env::IOPriority io_priority =
-        GetRateLimiterPriority(RateLimiter::OpType::kWrite);
+    Env::IOPriority io_priority = GetRateLimiterPriorityForWrite();
     db_mutex_->Unlock();
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
@@ -1033,24 +1032,17 @@ Status FlushJob::WriteLevel0Table() {
   return s;
 }
 
-Env::IOPriority FlushJob::GetRateLimiterPriority(
-    const RateLimiter::OpType op_type) {
+Env::IOPriority FlushJob::GetRateLimiterPriorityForWrite() {
   if (versions_ && versions_->GetColumnFamilySet() &&
       versions_->GetColumnFamilySet()->write_controller()) {
     WriteController* write_controller =
         versions_->GetColumnFamilySet()->write_controller();
-
-    if (op_type == RateLimiter::OpType::kWrite) {
-      if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
-        return Env::IO_USER;
-      }
-      return Env::IO_HIGH;
-    } else {
+    if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
       return Env::IO_USER;
     }
   }
 
-  return op_type == RateLimiter::OpType::kWrite ? Env::IO_HIGH : Env::IO_USER;
+  return Env::IO_HIGH;
 }
 
 #ifndef ROCKSDB_LITE
