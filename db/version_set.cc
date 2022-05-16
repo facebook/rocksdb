@@ -2491,6 +2491,8 @@ void VersionSet::UpdateReadOptionsForCompaction(ReadOptions& read_options) {
     } else if (write_controller->NeedSpeedupCompaction()) {
       read_options.rate_limiter_priority = Env::IO_HIGH;
     }
+  }
+  read_options.rate_limiter_priority = Env::IO_LOW;
 }
 
 void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
