@@ -596,10 +596,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* shared =
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
-                MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (factory && s.ok()) {
-              shared->reset(factory.release());
-            }
+                MemTableRepFactory::CreateFromString(opts, value, shared);
             return s;
           }}},
         {"memtable",
@@ -612,10 +609,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* shared =
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
-                MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (factory && s.ok()) {
-              shared->reset(factory.release());
-            }
+                MemTableRepFactory::CreateFromString(opts, value, shared);
             return s;
           }}},
         {"table_factory",
