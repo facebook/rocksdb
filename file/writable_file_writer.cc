@@ -836,11 +836,13 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
   // limiter
   size_t data_size = left;
   if (rate_limiter_ != nullptr && rate_limiter_priority_used != Env::IO_TOTAL) {
-    size_t size;
-    size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
-                                       writable_file_->GetIOPriority(), stats_,
-                                       RateLimiter::OpType::kWrite);
-    data_size -= size;
+    while (data_size > 0) {
+      size_t size;
+      size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
+                                         writable_file_->GetIOPriority(),
+                                         stats_, RateLimiter::OpType::kWrite);
+      data_size -= size;
+    }
   }
 
   {

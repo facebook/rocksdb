@@ -108,6 +108,8 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
                       IODebugContext* /*dbg*/) override {
       EXPECT_EQ(options.rate_limiter_priority, io_priority_);
     }
+
+    bool IsSyncThreadSafe() const override { return true; }
   };
 
   std::unique_ptr<WritableFileWriter> writer_;
@@ -117,7 +119,7 @@ TEST_F(WritableFileWriterIOPriorityTest, Append) {
   writer_->Append(Slice("abc"));
 }
 
-// TEST_F(WritableFileWriterIOPriorityTest, Pad) { writer_->Pad(10); }
+TEST_F(WritableFileWriterIOPriorityTest, Pad) { writer_->Pad(500); }
 
 TEST_F(WritableFileWriterIOPriorityTest, Flush) { writer_->Flush(); }
 
