@@ -7,8 +7,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <limits>
 
-#include "port/port.h"
 #include "util/autovector.h"
 #include "util/coding.h"
 
@@ -24,7 +24,8 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
              }) == column_descs.cend());
   assert(output);
 
-  if (column_descs.size() > static_cast<size_t>(port::kMaxUint32)) {
+  if (column_descs.size() >
+      static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
     return Status::InvalidArgument("Too many wide columns");
   }
 
@@ -36,12 +37,14 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
 
   for (const auto& desc : column_descs) {
     const Slice& name = desc.name();
-    if (name.size() > static_cast<size_t>(port::kMaxUint32)) {
+    if (name.size() >
+        static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
       return Status::InvalidArgument("Wide column name too long");
     }
 
     const Slice& value = desc.value();
-    if (value.size() > static_cast<size_t>(port::kMaxUint32)) {
+    if (value.size() >
+        static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
       return Status::InvalidArgument("Wide column value too long");
     }
 
