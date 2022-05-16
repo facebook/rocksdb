@@ -21,7 +21,7 @@ class SingleThreadExecutor;
 // coroutines to co_await it. When the AsyncFileReader Awaitable is
 // resumed, it initiates the fie reads requested by the awaiting caller
 // by calling RandomAccessFileReader's ReadAsync. It then suspends the
-// awaiting coroutine. The suspended awaiter is later resumed by Poll().
+// awaiting coroutine. The suspended awaiter is later resumed by Wait().
 class AsyncFileReader {
   class ReadAwaiter;
   template <typename Awaiter>
@@ -84,6 +84,11 @@ class AsyncFileReader {
     autovector<void*, 32> io_handle_;
     autovector<IOHandleDeleter, 32> del_fn_;
     std::experimental::coroutine_handle<> awaiting_coro_;
+    // Use this to link to the next ReadAwaiter in the suspended coroutine
+    // list. The head and tail of the list are tracked by AsyncFileReader.
+    // We use this approach rather than an STL container in order to avoid
+    // extra memory allocations. The coroutine call already allocates a
+    // ReadAwaiter object.
     ReadAwaiter* next_;
   };
 
@@ -123,7 +128,7 @@ class AsyncFileReader {
 
   // Called by the SingleThreadExecutor to poll for async IO completion.
   // This also resumes the awaiting coroutines.
-  void Poll();
+  void Wait();
 
   // Head of the queue of awaiters waiting for async IO completion
   ReadAwaiter* head_ = nullptr;

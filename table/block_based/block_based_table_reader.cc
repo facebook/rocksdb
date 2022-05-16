@@ -87,13 +87,15 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 }  // namespace ROCKSDB_NAMESPACE
 
 // Generate the regular and coroutine versions of some methods by
-// including block_based_table_reader_coro.h twice
+// including block_based_table_reader_sync_and_async.h twice
+// Macros in the header will expand differently based on whether
+// WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
-#include "table/block_based/block_based_table_reader_coro.h"
+#include "table/block_based/block_based_table_reader_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
-#include "table/block_based/block_based_table_reader_coro.h"
+#include "table/block_based/block_based_table_reader_sync_and_async.h"
 // clang-format on
 
 namespace ROCKSDB_NAMESPACE {

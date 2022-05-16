@@ -42,13 +42,15 @@ static void DeleteEntry(const Slice& /*key*/, void* value) {
 }  // namespace ROCKSDB_NAMESPACE
 
 // Generate the regular and coroutine versions of some methods by
-// including table_cache_coro.h twice
+// including table_cache_sync_and_async.h twice
+// Macros in the header will expand differently based on whether
+// WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
-#include "db/table_cache_coro.h"
+#include "db/table_cache_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
-#include "db/table_cache_coro.h"
+#include "db/table_cache_sync_and_async.h"
 // clang-format on
 
 namespace ROCKSDB_NAMESPACE {

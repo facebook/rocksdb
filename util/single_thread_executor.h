@@ -37,9 +37,9 @@ class SingleThreadExecutor : public folly::Executor {
         q.pop();
 
         if (q.empty()) {
-          // Prevent recursion, as the Poll may queue resumed coroutines
+          // Prevent recursion, as the Wait may queue resumed coroutines
           busy_ = true;
-          reader_.Poll();
+          reader_.Wait();
           busy_ = false;
         }
       }

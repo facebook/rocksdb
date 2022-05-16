@@ -73,13 +73,15 @@
 #include "util/user_comparator_wrapper.h"
 
 // Generate the regular and coroutine versions of some methods by
-// including version_set_coro.h twice
+// including version_set_sync_and_async.h twice
+// Macros in the header will expand differently based on whether
+// WITH_COROUTINES or WITHOUT_COROUTINES is defined
 // clang-format off
 #define WITHOUT_COROUTINES
-#include "db/version_set_coro.h"
+#include "db/version_set_sync_and_async.h"
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
-#include "db/version_set_coro.h"
+#include "db/version_set_sync_and_async.h"
 // clang-format on
 
 namespace ROCKSDB_NAMESPACE {

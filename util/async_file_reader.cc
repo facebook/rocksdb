@@ -36,7 +36,7 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   return true;
 }
 
-void AsyncFileReader::Poll() {
+void AsyncFileReader::Wait() {
   if (!head_) {
     return;
   }
