@@ -237,7 +237,7 @@ class CompactionJob {
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);
   // The rate limiter priority (io_priority) is determined dynamically here.
-  Env::IOPriority GetRateLimiterPriority(const RateLimiter::OpType op_type);
+  Env::IOPriority GetRateLimiterPriorityForWrite();
 };
 
 // CompactionServiceInput is used the pass compaction information between two
