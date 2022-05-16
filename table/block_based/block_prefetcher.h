@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+#include "rocksdb/options.h"
 #include "table/block_based/block_based_table_reader.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,8 +20,9 @@ class BlockPrefetcher {
         initial_auto_readahead_size_(initial_auto_readahead_size) {}
 
   void PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
-                        const BlockHandle& handle, size_t readahead_size,
-                        bool is_for_compaction, bool async_io);
+                        const BlockHandle& handle,
+                        const ReadOptions& read_options,
+                        bool is_for_compaction);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
   void UpdateReadPattern(const uint64_t& offset, const size_t& len) {

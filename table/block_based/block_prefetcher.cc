@@ -8,13 +8,15 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/block_prefetcher.h"
 
+#include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_reader.h"
 
 namespace ROCKSDB_NAMESPACE {
 void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                                        const BlockHandle& handle,
-                                       size_t readahead_size,
-                                       bool is_for_compaction, bool async_io) {
+                                       const ReadOptions& read_options,
+                                       bool is_for_compaction) {
+  bool async_io = read_options.async_io;
   if (is_for_compaction) {
     rep->CreateFilePrefetchBufferIfNotExists(
         compaction_readahead_size_, compaction_readahead_size_,
@@ -23,6 +25,7 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   }
 
   // Explicit user requested readahead.
+  size_t readahead_size = read_options.readahead_size;
   if (readahead_size > 0) {
     rep->CreateFilePrefetchBufferIfNotExists(
         readahead_size, readahead_size, &prefetch_buffer_, false, async_io);
@@ -82,9 +85,11 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   // If prefetch is not supported, fall back to use internal prefetch buffer.
   // Discarding other return status of Prefetch calls intentionally, as
   // we can fallback to reading from disk if Prefetch fails.
+  IOOptions opts;
+  opts.rate_limiter_priority = read_options.rate_limiter_priority;
   Status s = rep->file->Prefetch(
       handle.offset(),
-      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_);
+      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_, opts);
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
                                              max_auto_readahead_size,

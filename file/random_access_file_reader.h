@@ -172,8 +172,8 @@ class RandomAccessFileReader {
                      size_t num_reqs, AlignedBuf* aligned_buf,
                      Env::IOPriority rate_limiter_priority) const;
 
-  IOStatus Prefetch(uint64_t offset, size_t n) const {
-    return file_->Prefetch(offset, n, IOOptions(), nullptr);
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& opts) const {
+    return file_->Prefetch(offset, n, opts, nullptr);
   }
 
   FSRandomAccessFile* file() { return file_.get(); }
