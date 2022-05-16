@@ -1760,6 +1760,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
                  &time_delayed);
     uint64_t delay =
         write_controller_.GetDelay(immutable_db_options_.clock, num_bytes);
+    TEST_SYNC_POINT("DBImpl::DelayWrite:Start");
     if (delay > 0) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
