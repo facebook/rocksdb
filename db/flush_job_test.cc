@@ -528,7 +528,7 @@ TEST_F(FlushJobTest, Snapshots) {
   job_context.Clean();
 }
 
-TEST_F(FlushJobTest, GetRateLimiterPriority) {
+TEST_F(FlushJobTest, GetRateLimiterPriorityWrite) {
   // Prepare a FlushJob that flush MemTables of Single Column Family.
   const size_t num_mems = 2;
   const size_t num_mems_to_flush = 1;
@@ -574,10 +574,7 @@ TEST_F(FlushJobTest, GetRateLimiterPriority) {
       Env::Priority::USER, nullptr /*IOTracer*/);
 
   // When the state from WriteController is normal.
-  ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kWrite),
-            Env::IO_HIGH);
-  ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kRead),
-            Env::IO_USER);
+  ASSERT_EQ(flush_job.GetRateLimiterPriorityWrite(), Env::IO_HIGH);
 
   WriteController* write_controller =
       flush_job.versions_->GetColumnFamilySet()->write_controller();
@@ -586,20 +583,14 @@ TEST_F(FlushJobTest, GetRateLimiterPriority) {
     // When the state from WriteController is Delayed.
     std::unique_ptr<WriteControllerToken> delay_token =
         write_controller->GetDelayToken(1000000);
-    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kWrite),
-              Env::IO_USER);
-    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kRead),
-              Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriorityWrite(), Env::IO_USER);
   }
 
   {
     // When the state from WriteController is Stopped.
     std::unique_ptr<WriteControllerToken> stop_token =
         write_controller->GetStopToken();
-    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kWrite),
-              Env::IO_USER);
-    ASSERT_EQ(flush_job.GetRateLimiterPriority(RateLimiter::OpType::kRead),
-              Env::IO_USER);
+    ASSERT_EQ(flush_job.GetRateLimiterPriorityWrite(), Env::IO_USER);
   }
 }
 
