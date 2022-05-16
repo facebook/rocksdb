@@ -2488,9 +2488,9 @@ void VersionSet::UpdateReadOptionsForCompaction(ReadOptions& read_options) {
         GetColumnFamilySet()->write_controller();
     if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
       read_options.rate_limiter_priority = Env::IO_USER;
+    } else if (write_controller->NeedSpeedupCompaction()) {
+      read_options.rate_limiter_priority = Env::IO_HIGH;
     }
-    read_options.rate_limiter_priority = Env::IO_HIGH;
-  }
 }
 
 void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {

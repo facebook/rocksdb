@@ -47,7 +47,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     IndexBlockIter* iter, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
   CachableEntry<Block> index_block;
-  const Status s = GetOrReadIndexBlock(read_options, get_context,
+  const bool no_io = (read_options.read_tier == kBlockCacheTier);
+  const Status s = GetOrReadIndexBlock(no_io, read_options, get_context,
                                        lookup_context, &index_block);
   if (!s.ok()) {
     if (iter != nullptr) {
@@ -119,8 +120,9 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
 
   CachableEntry<Block> index_block;
   {
-    Status s = GetOrReadIndexBlock(ro, nullptr /* get_context */,
-                                   &lookup_context, &index_block);
+    Status s =
+        GetOrReadIndexBlock(false /* no_io */, ro, nullptr /* get_context */,
+                            &lookup_context, &index_block);
     if (!s.ok()) {
       return s;
     }

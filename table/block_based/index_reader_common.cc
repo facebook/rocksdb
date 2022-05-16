@@ -33,7 +33,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    const ReadOptions& read_options, GetContext* get_context,
+    bool no_io, const ReadOptions& read_options, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<Block>* index_block) const {
   assert(index_block != nullptr);
@@ -43,7 +43,12 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
     return Status::OK();
   }
 
-  return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,
+  ReadOptions read_opts = read_options;
+  if (no_io) {
+    read_opts.read_tier = kBlockCacheTier;
+  }
+
+  return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_opts,
                         cache_index_blocks(), get_context, lookup_context,
                         index_block);
 }

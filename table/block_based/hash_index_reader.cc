@@ -114,8 +114,9 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
     IndexBlockIter* iter, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
   const BlockBasedTable::Rep* rep = table()->get_rep();
+  const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s = GetOrReadIndexBlock(read_options, get_context,
+  const Status s = GetOrReadIndexBlock(no_io, read_options, get_context,
                                        lookup_context, &index_block);
   if (!s.ok()) {
     if (iter != nullptr) {
