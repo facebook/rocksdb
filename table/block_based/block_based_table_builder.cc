@@ -462,14 +462,10 @@ struct BlockBasedTableBuilder::Rep {
                               compression_opts.max_dict_buffer_bytes);
     }
 
-    const auto options_overrides_iter =
-        table_options.cache_usage_options.options_overrides.find(
-            CacheEntryRole::kCompressionDictionaryBuildingBuffer);
     const auto compress_dict_build_buffer_charged =
-        options_overrides_iter !=
-                table_options.cache_usage_options.options_overrides.end()
-            ? options_overrides_iter->second.charged
-            : table_options.cache_usage_options.options.charged;
+        table_options.cache_usage_options.options_overrides
+            .at(CacheEntryRole::kCompressionDictionaryBuildingBuffer)
+            .charged;
     if (table_options.block_cache &&
         (compress_dict_build_buffer_charged ==
              CacheEntryRoleOptions::Decision::kEnabled ||

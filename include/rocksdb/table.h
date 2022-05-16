@@ -317,8 +317,8 @@ struct BlockBasedTableOptions {
   // `options_overrides[role].f != kFallback`, we use
   // `options_overrides[role].f`
   // 2. Otherwise, if `options[role].f != kFallback`, we use `options[role].f`
-  // 3. Otherwise, we follow the compatible existing behavior for `f` (see below
-  // for more)
+  // 3. Otherwise, we follow the compatible existing behavior for `f` (see
+  // each feature's comment for more)
   //
   // `cache_usage_options` currently supports specifying options for the
   // following features:
@@ -329,41 +329,54 @@ struct BlockBasedTableOptions {
   // available), by updating a dynamical charge to the block cache loosely based
   // on the actual memory usage of that area.
   //
-  // Existing behavior:
-  // (1) CacheEntryRole::kCompressionDictionaryBuildingBuffer : kEnabled
+  // (a) CacheEntryRole::kCompressionDictionaryBuildingBuffer
+  // (i) If kEnabled:
   // Charge memory usage of the buffered data used as training samples for
   // dictionary compression.
   // If such memory usage exceeds the avaible space left in the block cache
   // at some point (i.e, causing a cache full under
   // `LRUCacheOptions::strict_capacity_limit` = true), the data will then be
   // unbuffered.
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kEnabled.
   //
-  // (2) CacheEntryRole::kFilterConstruction : kDisabled
-  // Same as kDisabled - does not charge memory usage of Bloom Filter
-  // (format_version >= 5) and Ribbon Filter construction. If enabled and if
-  // additional temporary memory of Ribbon Filter exceeds the avaible space left
-  // in the block cache at some point (i.e, causing a cache full under
-  // `LRUCacheOptions::strict_capacity_limit` = true), construction will fall
-  // back to Bloom Filter.
+  // (b) CacheEntryRole::kFilterConstruction
+  // (i) If kEnabled:
+  // Charge memory usage of Bloom Filter
+  // (format_version >= 5) and Ribbon Filter construction.
+  // If additional temporary memory of Ribbon Filter exceeds the avaible
+  // space left in the block cache at some point (i.e, causing a cache full
+  // under `LRUCacheOptions::strict_capacity_limit` = true),
+  // construction will fall back to Bloom Filter.
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kDisabled.
   //
-  // (3) CacheEntryRole::kBlockBasedTableReader : kDisabled
-  // Same as kDisabled -  does not charge memory usage of table properties +
-  // index block/filter block/uncompression dictionary when stored in table
-  // reader (i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
-  // false)
-  // + some internal data structures during table reader creation.
-  // If enabled and if such a table reader exceeds
+  // (c) CacheEntryRole::kBlockBasedTableReader
+  // (i) If kEnabled:
+  // Charge memory usage of table properties +
+  // index block/filter block/uncompression dictionary (when stored in table
+  // reader i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
+  // false) + some internal data structures during table reader creation.
+  // If such a table reader exceeds
   // the avaible space left in the block cache at some point (i.e, causing
   // a cache full under `LRUCacheOptions::strict_capacity_limit` = true),
   // creation will fail with Status::MemoryLimit().
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kDisabled.
   //
-  // (4) Other CacheEntryRole : Not supported
+  // (d) Other CacheEntryRole
+  // Not supported.
   // `Status::kNotSupported` will be returned if
   // `CacheEntryRoleOptions::charged` is set to {`kEnabled`, `kDisabled`}.
   //
   //
   // 2. More to come ...
-  //
   //
   CacheUsageOptions cache_usage_options;
 

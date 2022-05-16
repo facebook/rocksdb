@@ -422,14 +422,10 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   InitializeOptions();
   RegisterOptions(&table_options_, &block_based_table_type_info);
 
-  const auto options_overrides_iter =
-      table_options_.cache_usage_options.options_overrides.find(
-          CacheEntryRole::kBlockBasedTableReader);
   const auto table_reader_charged =
-      options_overrides_iter !=
-              table_options_.cache_usage_options.options_overrides.end()
-          ? options_overrides_iter->second.charged
-          : table_options_.cache_usage_options.options.charged;
+      table_options_.cache_usage_options.options_overrides
+          .at(CacheEntryRole::kBlockBasedTableReader)
+          .charged;
   if (table_options_.block_cache &&
       table_reader_charged == CacheEntryRoleOptions::Decision::kEnabled) {
     table_reader_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
