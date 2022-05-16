@@ -94,7 +94,7 @@ class FlushJob {
 #endif  // !ROCKSDB_LITE
 
  private:
-  friend class FlushJobTest_GetRateLimiterPriority_Test;
+  friend class FlushJobTest_GetRateLimiterPriorityForWrite_Test;
 
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);

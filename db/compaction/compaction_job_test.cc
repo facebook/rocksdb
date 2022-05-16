@@ -1322,7 +1322,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   }
 }
 
-TEST_F(CompactionJobTest, GetRateLimiterPriority) {
+TEST_F(CompactionJobTest, GetRateLimiterPriorityForWrite) {
   NewDB();
 
   auto expected_results = CreateTwoFiles(false);
