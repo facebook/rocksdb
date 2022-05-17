@@ -1479,7 +1479,6 @@ class VersionSet {
   Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                            VersionEdit* edit, SequenceNumber* max_last_sequence,
                            InstrumentedMutex* mu);
-  void UpdateReadOptionsForCompaction(ReadOptions& read_options);
 };
 
 // ReactiveVersionSet represents a collection of versions of the column

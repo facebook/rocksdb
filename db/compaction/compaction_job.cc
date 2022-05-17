@@ -1350,7 +1350,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
-  read_options.rate_limiter_priority = Env::IO_LOW;
+  read_options.rate_limiter_priority = GetRateLimiterPriority();
   // Compaction iterators shouldn't be confined to a single prefix.
   // Compactions use Seek() for
   // (a) concurrent compactions,
@@ -2474,6 +2474,21 @@ void CompactionJob::LogCompaction() {
 std::string CompactionJob::GetTableFileName(uint64_t file_number) {
   return TableFileName(compact_->compaction->immutable_options()->cf_paths,
                        file_number, compact_->compaction->output_path_id());
+}
+
+Env::IOPriority CompactionJob::GetRateLimiterPriority() {
+  if (versions_ && versions_->GetColumnFamilySet() &&
+      versions_->GetColumnFamilySet()->write_controller()) {
+    WriteController* write_controller =
+        versions_->GetColumnFamilySet()->write_controller();
+    if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
+      return Env::IO_USER;
+    } else if (write_controller->NeedSpeedupCompaction()) {
+      return Env::IO_HIGH;
+    }
+  }
+
+  return Env::IO_LOW;
 }
 
 #ifndef ROCKSDB_LITE

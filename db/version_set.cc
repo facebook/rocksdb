@@ -2482,19 +2482,6 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   return true;
 }
 
-void VersionSet::UpdateReadOptionsForCompaction(ReadOptions& read_options) {
-  if (GetColumnFamilySet() && GetColumnFamilySet()->write_controller()) {
-    WriteController* write_controller =
-        GetColumnFamilySet()->write_controller();
-    if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
-      read_options.rate_limiter_priority = Env::IO_USER;
-    } else if (write_controller->NeedSpeedupCompaction()) {
-      read_options.rate_limiter_priority = Env::IO_HIGH;
-    }
-  }
-  read_options.rate_limiter_priority = Env::IO_LOW;
-}
-
 void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
   TEST_SYNC_POINT_CALLBACK("VersionStorageInfo::UpdateAccumulatedStats",
                            nullptr);
@@ -5853,8 +5840,6 @@ InternalIterator* VersionSet::MakeInputIterator(
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
   InternalIterator** list = new InternalIterator* [space];
-  ReadOptions read_opts = read_options;
-  UpdateReadOptionsForCompaction(read_opts);
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -5877,8 +5862,9 @@ InternalIterator* VersionSet::MakeInputIterator(
           }
 
           list[num++] = cfd->table_cache()->NewIterator(
-              read_opts, file_options_compactions, cfd->internal_comparator(),
-              fmd, range_del_agg, c->mutable_cf_options()->prefix_extractor,
+              read_options, file_options_compactions,
+              cfd->internal_comparator(), fmd, range_del_agg,
+              c->mutable_cf_options()->prefix_extractor,
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
@@ -5892,7 +5878,7 @@ InternalIterator* VersionSet::MakeInputIterator(
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = new LevelIterator(
-            cfd->table_cache(), read_opts, file_options_compactions,
+            cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
             c->mutable_cf_options()->prefix_extractor,
             /*should_sample=*/false,
