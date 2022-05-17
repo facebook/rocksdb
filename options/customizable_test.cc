@@ -13,15 +13,21 @@
 #include <cinttypes>
 #include <cstring>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "db/db_test_util.h"
+#include "memory/jemalloc_nodump_allocator.h"
+#include "memory/memkind_kmem_allocator.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/file_checksum.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/memory_allocator.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_partitioner.h"
@@ -29,14 +35,21 @@
 #include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/flush_block_policy.h"
 #include "table/mock_table.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
+#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
+#include "utilities/memory_allocators.h"
+#include "utilities/merge_operators/bytesxor.h"
+#include "utilities/merge_operators/sortlist.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -172,8 +185,8 @@ static bool LoadSharedB(const std::string& id,
 static int A_count = 0;
 static int RegisterCustomTestObjects(ObjectLibrary& library,
                                      const std::string& /*arg*/) {
-  library.Register<TestCustomizable>(
-      "A.*",
+  library.AddFactory<TestCustomizable>(
+      ObjectLibrary::PatternEntry("A", true).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new ACustomizable(name));
@@ -181,7 +194,7 @@ static int RegisterCustomTestObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<TestCustomizable>(
+  library.AddFactory<TestCustomizable>(
       "S", [](const std::string& name,
               std::unique_ptr<TestCustomizable>* /* guard */,
               std::string* /* msg */) { return new BCustomizable(name); });
@@ -317,8 +330,8 @@ class CustomizableTest : public testing::Test {
 //    - a XXX.id option
 //    - a property with a name
 TEST_F(CustomizableTest, CreateByNameTest) {
-  ObjectLibrary::Default()->Register<TestCustomizable>(
-      "TEST.*",
+  ObjectLibrary::Default()->AddFactory<TestCustomizable>(
+      ObjectLibrary::PatternEntry("TEST", false).AddSeparator("_"),
       [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
         guard->reset(new TestCustomizable(name));
@@ -480,6 +493,55 @@ TEST_F(CustomizableTest, BadOptionTest) {
   ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=A;A.string=s}"));
 }
 
+TEST_F(CustomizableTest, FailingFactoryTest) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::unique_ptr<Configurable> c1(new SimpleConfigurable());
+  ConfigOptions ignore = config_options_;
+
+  Status s;
+  ignore.registry->AddLibrary("failing")->AddFactory<TestCustomizable>(
+      "failing",
+      [](const std::string& /*uri*/,
+         std::unique_ptr<TestCustomizable>* /*guard */, std::string* errmsg) {
+        *errmsg = "Bad Factory";
+        return nullptr;
+      });
+
+  // If we are ignoring unknown and unsupported options, will see
+  // different errors for failing versus missing
+  ignore.ignore_unknown_options = false;
+  ignore.ignore_unsupported_options = false;
+  s = c1->ConfigureFromString(ignore, "shared.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "unique.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "shared.id=missing");
+  ASSERT_TRUE(s.IsNotSupported());
+  s = c1->ConfigureFromString(ignore, "unique.id=missing");
+  ASSERT_TRUE(s.IsNotSupported());
+
+  // If we are ignoring unsupported options, will see
+  // errors for failing but not missing
+  ignore.ignore_unknown_options = false;
+  ignore.ignore_unsupported_options = true;
+  s = c1->ConfigureFromString(ignore, "shared.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = c1->ConfigureFromString(ignore, "unique.id=failing");
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=missing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=missing"));
+
+  // If we are ignoring unknown options, will see no errors
+  // for failing or missing
+  ignore.ignore_unknown_options = true;
+  ignore.ignore_unsupported_options = false;
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=failing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=failing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "shared.id=missing"));
+  ASSERT_OK(c1->ConfigureFromString(ignore, "unique.id=missing"));
+}
+
 // Tests that different IDs lead to different objects
 TEST_F(CustomizableTest, UniqueIdTest) {
   std::unique_ptr<Configurable> base(new SimpleConfigurable());
@@ -548,7 +610,7 @@ TEST_F(CustomizableTest, PrepareOptionsTest) {
     }
   };
 
-  ObjectLibrary::Default()->Register<TestCustomizable>(
+  ObjectLibrary::Default()->AddFactory<TestCustomizable>(
       "P",
       [](const std::string& /*name*/, std::unique_ptr<TestCustomizable>* guard,
          std::string* /* msg */) {
@@ -612,11 +674,20 @@ static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #endif  // ROCKSDB_LITE
 };
 
+struct InnerOptions {
+  static const char* kName() { return "InnerOptions"; }
+  std::shared_ptr<Customizable> inner;
+};
+
 class InnerCustomizable : public Customizable {
  public:
-  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w)
-      : inner_(w) {}
+  explicit InnerCustomizable(const std::shared_ptr<Customizable>& w) {
+    iopts_.inner = w;
+    RegisterOptions(&iopts_, &inner_option_info);
+  }
   static const char* kClassName() { return "Inner"; }
+  const char* Name() const override { return kClassName(); }
+
   bool IsInstanceOf(const std::string& name) const override {
     if (name == kClassName()) {
       return true;
@@ -626,26 +697,51 @@ class InnerCustomizable : public Customizable {
   }
 
  protected:
-  const Customizable* Inner() const override { return inner_.get(); }
+  const Customizable* Inner() const override { return iopts_.inner.get(); }
 
  private:
-  std::shared_ptr<Customizable> inner_;
+  InnerOptions iopts_;
+};
+
+struct WrappedOptions1 {
+  static const char* kName() { return "WrappedOptions1"; }
+  int i = 42;
 };
 
 class WrappedCustomizable1 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable1(const std::shared_ptr<Customizable>& w)
-      : InnerCustomizable(w) {}
+      : InnerCustomizable(w) {
+    RegisterOptions(&wopts_, nullptr);
+  }
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped1"; }
+
+ private:
+  WrappedOptions1 wopts_;
 };
 
+struct WrappedOptions2 {
+  static const char* kName() { return "WrappedOptions2"; }
+  std::string s = "42";
+};
 class WrappedCustomizable2 : public InnerCustomizable {
  public:
   explicit WrappedCustomizable2(const std::shared_ptr<Customizable>& w)
       : InnerCustomizable(w) {}
+  const void* GetOptionsPtr(const std::string& name) const override {
+    if (name == WrappedOptions2::kName()) {
+      return &wopts_;
+    } else {
+      return InnerCustomizable::GetOptionsPtr(name);
+    }
+  }
+
   const char* Name() const override { return kClassName(); }
   static const char* kClassName() { return "Wrapped2"; }
+
+ private:
+  WrappedOptions2 wopts_;
 };
 }  // namespace
 
@@ -675,6 +771,29 @@ TEST_F(CustomizableTest, WrappedInnerTest) {
   ASSERT_EQ(wc2->CheckedCast<WrappedCustomizable1>(), wc1.get());
   ASSERT_EQ(wc2->CheckedCast<InnerCustomizable>(), wc2.get());
   ASSERT_EQ(wc2->CheckedCast<TestCustomizable>(), ac.get());
+}
+
+TEST_F(CustomizableTest, CustomizableInnerTest) {
+  std::shared_ptr<Customizable> c =
+      std::make_shared<InnerCustomizable>(std::make_shared<ACustomizable>("a"));
+  std::shared_ptr<Customizable> wc1 = std::make_shared<WrappedCustomizable1>(c);
+  std::shared_ptr<Customizable> wc2 = std::make_shared<WrappedCustomizable2>(c);
+  auto inner = c->GetOptions<InnerOptions>();
+  ASSERT_NE(inner, nullptr);
+
+  auto aopts = c->GetOptions<AOptions>();
+  ASSERT_NE(aopts, nullptr);
+  ASSERT_EQ(aopts, wc1->GetOptions<AOptions>());
+  ASSERT_EQ(aopts, wc2->GetOptions<AOptions>());
+  auto w1opts = wc1->GetOptions<WrappedOptions1>();
+  ASSERT_NE(w1opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions1>(), nullptr);
+  ASSERT_EQ(wc2->GetOptions<WrappedOptions1>(), nullptr);
+
+  auto w2opts = wc2->GetOptions<WrappedOptions2>();
+  ASSERT_NE(w2opts, nullptr);
+  ASSERT_EQ(c->GetOptions<WrappedOptions2>(), nullptr);
+  ASSERT_EQ(wc1->GetOptions<WrappedOptions2>(), nullptr);
 }
 
 TEST_F(CustomizableTest, CopyObjectTest) {
@@ -714,20 +833,9 @@ TEST_F(CustomizableTest, CopyObjectTest) {
 }
 
 TEST_F(CustomizableTest, TestStringDepth) {
-  class ShallowCustomizable : public Customizable {
-   public:
-    ShallowCustomizable() {
-      inner_ = std::make_shared<ACustomizable>("a");
-      RegisterOptions("inner", &inner_, &inner_option_info);
-    }
-    static const char* kClassName() { return "shallow"; }
-    const char* Name() const override { return kClassName(); }
-
-   private:
-    std::shared_ptr<TestCustomizable> inner_;
-  };
   ConfigOptions shallow = config_options_;
-  std::unique_ptr<Configurable> c(new ShallowCustomizable());
+  std::unique_ptr<Configurable> c(
+      new InnerCustomizable(std::make_shared<ACustomizable>("a")));
   std::string opt_str;
   shallow.depth = ConfigOptions::Depth::kDepthShallow;
   ASSERT_OK(c->GetOptionString(shallow, &opt_str));
@@ -881,12 +989,12 @@ TEST_F(CustomizableTest, NoNameTest) {
   auto copts = copy.GetOptions<SimpleOptions>();
   sopts->cu.reset(new ACustomizable(""));
   orig.cv.push_back(std::make_shared<ACustomizable>(""));
-  orig.cv.push_back(std::make_shared<ACustomizable>("A1"));
+  orig.cv.push_back(std::make_shared<ACustomizable>("A_1"));
   std::string opt_str, mismatch;
   ASSERT_OK(orig.GetOptionString(config_options_, &opt_str));
   ASSERT_OK(copy.ConfigureFromString(config_options_, opt_str));
   ASSERT_EQ(copy.cv.size(), 1U);
-  ASSERT_EQ(copy.cv[0]->GetId(), "A1");
+  ASSERT_EQ(copy.cv[0]->GetId(), "A_1");
   ASSERT_EQ(copts->cu, nullptr);
 }
 
@@ -966,19 +1074,27 @@ TEST_F(CustomizableTest, FactoryFunctionTest) {
 
 TEST_F(CustomizableTest, URLFactoryTest) {
   std::unique_ptr<TestCustomizable> unique;
+  config_options_.registry->AddLibrary("URL")->AddFactory<TestCustomizable>(
+      ObjectLibrary::PatternEntry("Z", false).AddSeparator(""),
+      [](const std::string& name, std::unique_ptr<TestCustomizable>* guard,
+         std::string* /* msg */) {
+        guard->reset(new TestCustomizable(name));
+        return guard->get();
+      });
+
   ConfigOptions ignore = config_options_;
   ignore.ignore_unsupported_options = false;
   ignore.ignore_unsupported_options = false;
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1;x=y", &unique));
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z=1;x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A=1;x=y");
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A;x=y", &unique));
+  ASSERT_EQ(unique->GetId(), "Z=1;x=y");
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z;x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A;x=y");
+  ASSERT_EQ(unique->GetId(), "Z;x=y");
   unique.reset();
-  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "A=1?x=y", &unique));
+  ASSERT_OK(TestCustomizable::CreateFromString(ignore, "Z=1?x=y", &unique));
   ASSERT_NE(unique, nullptr);
-  ASSERT_EQ(unique->GetId(), "A=1?x=y");
+  ASSERT_EQ(unique->GetId(), "Z=1?x=y");
 }
 
 TEST_F(CustomizableTest, MutableOptionsTest) {
@@ -1076,6 +1192,7 @@ TEST_F(CustomizableTest, CustomManagedObjects) {
   std::shared_ptr<TestCustomizable> object1, object2;
   ASSERT_OK(LoadManagedObject<TestCustomizable>(
       config_options_, "id=A_1;int=1;bool=true", &object1));
+  ASSERT_NE(object1, nullptr);
   ASSERT_OK(
       LoadManagedObject<TestCustomizable>(config_options_, "A_1", &object2));
   ASSERT_EQ(object1, object2);
@@ -1114,10 +1231,12 @@ TEST_F(CustomizableTest, CreateManagedObjects) {
   };
 
   config_options_.registry->AddLibrary("Managed")
-      ->Register<ManagedCustomizable>(
-          "Managed(@.*)?", [](const std::string& /*name*/,
-                              std::unique_ptr<ManagedCustomizable>* guard,
-                              std::string* /* msg */) {
+      ->AddFactory<ManagedCustomizable>(
+          ObjectLibrary::PatternEntry::AsIndividualId(
+              ManagedCustomizable::kClassName()),
+          [](const std::string& /*name*/,
+             std::unique_ptr<ManagedCustomizable>* guard,
+             std::string* /* msg */) {
             guard->reset(new ManagedCustomizable());
             return guard->get();
           });
@@ -1213,7 +1332,8 @@ class TestSecondaryCache : public SecondaryCache {
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
-      bool /*wait*/) override {
+      bool /*wait*/, bool& is_in_sec_cache) override {
+    is_in_sec_cache = true;
     return nullptr;
   }
   void Erase(const Slice& /*key*/) override {}
@@ -1257,11 +1377,18 @@ class MockSliceTransform : public SliceTransform {
   bool InRange(const Slice& /*key*/) const override { return false; }
 };
 
+class MockMemoryAllocator : public BaseMemoryAllocator {
+ public:
+  static const char* kClassName() { return "MockMemoryAllocator"; }
+  const char* Name() const override { return kClassName(); }
+};
+
 #ifndef ROCKSDB_LITE
 class MockEncryptionProvider : public EncryptionProvider {
  public:
   explicit MockEncryptionProvider(const std::string& id) : id_(id) {}
-  const char* Name() const override { return "Mock"; }
+  static const char* kClassName() { return "Mock"; }
+  const char* Name() const override { return kClassName(); }
   size_t GetPrefixLength() const override { return 0; }
   Status CreateNewPrefix(const std::string& /*fname*/, char* /*prefix*/,
                          size_t /*prefixLength*/) const override {
@@ -1345,25 +1472,55 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
   }
 };
 
+class MockRateLimiter : public RateLimiter {
+ public:
+  static const char* kClassName() { return "MockRateLimiter"; }
+  const char* Name() const override { return kClassName(); }
+  void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
+  int64_t GetBytesPerSecond() const override { return 0; }
+  int64_t GetSingleBurstBytes() const override { return 0; }
+  int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+  int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
+    return 0;
+  }
+};
+
+class MockFilterPolicy : public FilterPolicy {
+ public:
+  static const char* kClassName() { return "MockFilterPolicy"; }
+  const char* Name() const override { return kClassName(); }
+  const char* CompatibilityName() const override { return Name(); }
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
+    return nullptr;
+  }
+  FilterBitsReader* GetFilterBitsReader(
+      const Slice& /*contents*/) const override {
+    return nullptr;
+  }
+};
+
 #ifndef ROCKSDB_LITE
 static int RegisterLocalObjects(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
   size_t num_types;
-  library.Register<TableFactory>(
+  library.AddFactory<TableFactory>(
       mock::MockTableFactory::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
          std::string* /* errmsg */) {
         guard->reset(new mock::MockTableFactory());
         return guard->get();
       });
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       OnFileDeletionListener::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
         guard->reset(new OnFileDeletionListener());
         return guard->get();
       });
-  library.Register<EventListener>(
+  library.AddFactory<EventListener>(
       FlushCounterListener::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<EventListener>* guard,
          std::string* /* errmsg */) {
@@ -1371,7 +1528,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
   // Load any locally defined objects here
-  library.Register<const SliceTransform>(
+  library.AddFactory<const SliceTransform>(
       MockSliceTransform::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<const SliceTransform>* guard,
@@ -1379,7 +1536,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockSliceTransform());
         return guard->get();
       });
-  library.Register<Statistics>(
+  library.AddFactory<Statistics>(
       TestStatistics::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Statistics>* guard,
          std::string* /* errmsg */) {
@@ -1387,20 +1544,29 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<EncryptionProvider>(
-      "Mock(://test)?",
+  library.AddFactory<EncryptionProvider>(
+      ObjectLibrary::PatternEntry(MockEncryptionProvider::kClassName(), true)
+          .AddSuffix("://test"),
       [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockEncryptionProvider(uri));
         return guard->get();
       });
-  library.Register<BlockCipher>("Mock", [](const std::string& /*uri*/,
-                                           std::unique_ptr<BlockCipher>* guard,
-                                           std::string* /* errmsg */) {
-    guard->reset(new MockCipher());
-    return guard->get();
-  });
-  library.Register<FlushBlockPolicyFactory>(
+  library.AddFactory<BlockCipher>(
+      "Mock",
+      [](const std::string& /*uri*/, std::unique_ptr<BlockCipher>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockCipher());
+        return guard->get();
+      });
+  library.AddFactory<MemoryAllocator>(
+      MockMemoryAllocator::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<MemoryAllocator>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockMemoryAllocator());
+        return guard->get();
+      });
+  library.AddFactory<FlushBlockPolicyFactory>(
       TestFlushBlockPolicyFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FlushBlockPolicyFactory>* guard,
@@ -1409,7 +1575,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<SecondaryCache>(
+  library.AddFactory<SecondaryCache>(
       TestSecondaryCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
          std::string* /* errmsg */) {
@@ -1417,7 +1583,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<FileSystem>(
+  library.AddFactory<FileSystem>(
       DummyFileSystem::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
          std::string* /* errmsg */) {
@@ -1425,7 +1591,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<SstPartitionerFactory>(
+  library.AddFactory<SstPartitionerFactory>(
       MockSstPartitionerFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<SstPartitionerFactory>* guard,
@@ -1434,7 +1600,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<FileChecksumGenFactory>(
+  library.AddFactory<FileChecksumGenFactory>(
       MockFileChecksumGenFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<FileChecksumGenFactory>* guard,
@@ -1443,7 +1609,7 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
-  library.Register<TablePropertiesCollectorFactory>(
+  library.AddFactory<TablePropertiesCollectorFactory>(
       MockTablePropertiesCollectorFactory::kClassName(),
       [](const std::string& /*uri*/,
          std::unique_ptr<TablePropertiesCollectorFactory>* guard,
@@ -1451,6 +1617,23 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         guard->reset(new MockTablePropertiesCollectorFactory());
         return guard->get();
       });
+
+  library.AddFactory<RateLimiter>(
+      MockRateLimiter::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockRateLimiter());
+        return guard->get();
+      });
+
+  library.AddFactory<const FilterPolicy>(
+      MockFilterPolicy::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<const FilterPolicy>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new MockFilterPolicy());
+        return guard->get();
+      });
+
   return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // !ROCKSDB_LITE
@@ -1475,6 +1658,190 @@ class LoadCustomizableTest : public testing::Test {
 #endif  // !ROCKSDB_LITE
   }
 
+  template <typename T, typename U>
+  Status TestCreateStatic(const std::string& name, U** result,
+                          bool delete_result = false) {
+    Status s = T::CreateFromString(config_options_, name, result);
+    if (s.ok()) {
+      EXPECT_NE(*result, nullptr);
+      EXPECT_TRUE(*result != nullptr && (*result)->IsInstanceOf(name));
+    }
+    if (delete_result) {
+      delete *result;
+      *result = nullptr;
+    }
+    return s;
+  }
+
+  template <typename T, typename U>
+  std::shared_ptr<U> ExpectCreateShared(const std::string& name,
+                                        std::shared_ptr<U>* object) {
+    EXPECT_OK(T::CreateFromString(config_options_, name, object));
+    EXPECT_NE(object->get(), nullptr);
+    EXPECT_TRUE(object->get()->IsInstanceOf(name));
+    return *object;
+  }
+
+  template <typename T>
+  std::shared_ptr<T> ExpectCreateShared(const std::string& name) {
+    std::shared_ptr<T> result;
+    return ExpectCreateShared<T>(name, &result);
+  }
+
+  template <typename T, typename U>
+  Status TestExpectedBuiltins(
+      const std::string& mock, const std::unordered_set<std::string>& expected,
+      std::shared_ptr<U>* object, std::vector<std::string>* failed,
+      const std::function<std::vector<std::string>(const std::string&)>& alt =
+          nullptr) {
+    std::unordered_set<std::string> factories = expected;
+    Status s = T::CreateFromString(config_options_, mock, object);
+    EXPECT_NOK(s);
+#ifndef ROCKSDB_LITE
+    std::vector<std::string> builtins;
+    ObjectLibrary::Default()->GetFactoryNames(T::Type(), &builtins);
+    factories.insert(builtins.begin(), builtins.end());
+#endif  // ROCKSDB_LITE
+    Status result;
+    int created = 0;
+    for (const auto& name : factories) {
+      created++;
+      s = T::CreateFromString(config_options_, name, object);
+      if (!s.ok() && alt != nullptr) {
+        for (const auto& alt_name : alt(name)) {
+          s = T::CreateFromString(config_options_, alt_name, object);
+          if (s.ok()) {
+            break;
+          }
+        }
+      }
+      if (!s.ok()) {
+        result = s;
+        failed->push_back(name);
+      } else {
+        EXPECT_NE(object->get(), nullptr);
+        EXPECT_TRUE(object->get()->IsInstanceOf(name));
+      }
+    }
+#ifndef ROCKSDB_LITE
+    std::vector<std::string> plugins;
+    ObjectRegistry::Default()->GetFactoryNames(T::Type(), &plugins);
+    if (plugins.size() > builtins.size()) {
+      for (const auto& name : plugins) {
+        if (factories.find(name) == factories.end()) {
+          created++;
+          s = T::CreateFromString(config_options_, name, object);
+          if (!s.ok() && alt != nullptr) {
+            for (const auto& alt_name : alt(name)) {
+              s = T::CreateFromString(config_options_, alt_name, object);
+              if (s.ok()) {
+                break;
+              }
+            }
+          }
+          if (!s.ok()) {
+            failed->push_back(name);
+            if (result.ok()) {
+              result = s;
+            }
+            printf("%s: Failed creating plugin[%s]: %s\n", T::Type(),
+                   name.c_str(), s.ToString().c_str());
+          } else if (object->get() == nullptr ||
+                     !object->get()->IsInstanceOf(name)) {
+            failed->push_back(name);
+            printf("%s: Invalid plugin[%s]\n", T::Type(), name.c_str());
+          }
+        }
+      }
+    }
+    printf("%s: Created %d (expected+builtins+plugins %d+%d+%d) %d Failed\n",
+           T::Type(), created, (int)expected.size(),
+           (int)(factories.size() - expected.size()),
+           (int)(plugins.size() - builtins.size()), (int)failed->size());
+#else
+    printf("%s: Created %d (expected %d) %d Failed\n", T::Type(), created,
+           (int)expected.size(), (int)failed->size());
+#endif  // ROCKSDB_LITE
+    return result;
+  }
+
+  template <typename T>
+  Status TestSharedBuiltins(const std::string& mock,
+                            const std::string& expected,
+                            std::vector<std::string>* failed = nullptr) {
+    std::unordered_set<std::string> values;
+    if (!expected.empty()) {
+      values.insert(expected);
+    }
+    std::shared_ptr<T> object;
+    if (failed != nullptr) {
+      return TestExpectedBuiltins<T>(mock, values, &object, failed);
+    } else {
+      std::vector<std::string> failures;
+      Status s = TestExpectedBuiltins<T>(mock, values, &object, &failures);
+      EXPECT_EQ(0U, failures.size());
+      return s;
+    }
+  }
+
+  template <typename T, typename U>
+  Status TestStaticBuiltins(const std::string& mock, U** object,
+                            const std::unordered_set<std::string>& expected,
+                            std::vector<std::string>* failed,
+                            bool delete_objects = false) {
+    std::unordered_set<std::string> factories = expected;
+    Status s = TestCreateStatic<T>(mock, object, delete_objects);
+    EXPECT_NOK(s);
+#ifndef ROCKSDB_LITE
+    std::vector<std::string> builtins;
+    ObjectLibrary::Default()->GetFactoryNames(T::Type(), &builtins);
+    factories.insert(builtins.begin(), builtins.end());
+#endif  // ROCKSDB_LITE
+    int created = 0;
+    Status result;
+    for (const auto& name : factories) {
+      created++;
+      s = TestCreateStatic<T>(name, object, delete_objects);
+      if (!s.ok()) {
+        result = s;
+        failed->push_back(name);
+      }
+    }
+#ifndef ROCKSDB_LITE
+    std::vector<std::string> plugins;
+    ObjectRegistry::Default()->GetFactoryNames(T::Type(), &plugins);
+    if (plugins.size() > builtins.size()) {
+      for (const auto& name : plugins) {
+        if (factories.find(name) == factories.end()) {
+          created++;
+          s = T::CreateFromString(config_options_, name, object);
+          if (!s.ok() || *object == nullptr ||
+              !((*object)->IsInstanceOf(name))) {
+            failed->push_back(name);
+            if (result.ok() && !s.ok()) {
+              result = s;
+            }
+            printf("%s: Failed creating plugin[%s]: %s\n", T::Type(),
+                   name.c_str(), s.ToString().c_str());
+          }
+          if (delete_objects) {
+            delete *object;
+            *object = nullptr;
+          }
+        }
+      }
+    }
+    printf("%s: Created %d (expected+builtins+plugins %d+%d+%d) %d Failed\n",
+           T::Type(), created, (int)expected.size(),
+           (int)(factories.size() - expected.size()),
+           (int)(plugins.size() - builtins.size()), (int)failed->size());
+#else
+    printf("%s: Created %d (expected %d) %d Failed\n", T::Type(), created,
+           (int)expected.size(), (int)failed->size());
+#endif  // ROCKSDB_LITE
+    return result;
+  }
+
  protected:
   DBOptions db_opts_;
   ColumnFamilyOptions cf_opts_;
@@ -1482,13 +1849,9 @@ class LoadCustomizableTest : public testing::Test {
 };
 
 TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
-  std::shared_ptr<TableFactory> factory;
-  ASSERT_NOK(TableFactory::CreateFromString(
-      config_options_, mock::MockTableFactory::kClassName(), &factory));
-  ASSERT_OK(TableFactory::CreateFromString(
-      config_options_, TableFactory::kBlockBasedTableName(), &factory));
-  ASSERT_NE(factory, nullptr);
-  ASSERT_STREQ(factory->Name(), TableFactory::kBlockBasedTableName());
+  ASSERT_OK(
+      TestSharedBuiltins<TableFactory>(mock::MockTableFactory::kClassName(),
+                                       TableFactory::kBlockBasedTableName()));
 #ifndef ROCKSDB_LITE
   std::string opts_str = "table_factory=";
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -1499,10 +1862,7 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
                TableFactory::kBlockBasedTableName());
 #endif  // ROCKSDB_LITE
   if (RegisterTests("Test")) {
-    ASSERT_OK(TableFactory::CreateFromString(
-        config_options_, mock::MockTableFactory::kClassName(), &factory));
-    ASSERT_NE(factory, nullptr);
-    ASSERT_STREQ(factory->Name(), mock::MockTableFactory::kClassName());
+    ExpectCreateShared<TableFactory>(mock::MockTableFactory::kClassName());
 #ifndef ROCKSDB_LITE
     ASSERT_OK(GetColumnFamilyOptionsFromString(
         config_options_, cf_opts_,
@@ -1515,151 +1875,97 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
 }
 
 TEST_F(LoadCustomizableTest, LoadFileSystemTest) {
-  ColumnFamilyOptions cf_opts;
-  std::shared_ptr<FileSystem> result;
-  ASSERT_NOK(FileSystem::CreateFromString(
-      config_options_, DummyFileSystem::kClassName(), &result));
-  ASSERT_OK(FileSystem::CreateFromString(config_options_,
-                                         FileSystem::kDefaultName(), &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_TRUE(result->IsInstanceOf(FileSystem::kDefaultName()));
+  ASSERT_OK(TestSharedBuiltins<FileSystem>(DummyFileSystem::kClassName(),
+                                           FileSystem::kDefaultName()));
   if (RegisterTests("Test")) {
-    ASSERT_OK(FileSystem::CreateFromString(
-        config_options_, DummyFileSystem::kClassName(), &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), DummyFileSystem::kClassName());
-    ASSERT_FALSE(result->IsInstanceOf(FileSystem::kDefaultName()));
+    auto fs = ExpectCreateShared<FileSystem>(DummyFileSystem::kClassName());
+    ASSERT_FALSE(fs->IsInstanceOf(FileSystem::kDefaultName()));
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadSecondaryCacheTest) {
-  std::shared_ptr<SecondaryCache> result;
-  ASSERT_NOK(SecondaryCache::CreateFromString(
-      config_options_, TestSecondaryCache::kClassName(), &result));
+  ASSERT_OK(
+      TestSharedBuiltins<SecondaryCache>(TestSecondaryCache::kClassName(), ""));
   if (RegisterTests("Test")) {
-    ASSERT_OK(SecondaryCache::CreateFromString(
-        config_options_, TestSecondaryCache::kClassName(), &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), TestSecondaryCache::kClassName());
+    ExpectCreateShared<SecondaryCache>(TestSecondaryCache::kClassName());
   }
 }
 
 #ifndef ROCKSDB_LITE
 TEST_F(LoadCustomizableTest, LoadSstPartitionerFactoryTest) {
-  std::shared_ptr<SstPartitionerFactory> factory;
-  ASSERT_NOK(SstPartitionerFactory::CreateFromString(config_options_, "Mock",
-                                                     &factory));
-  ASSERT_OK(SstPartitionerFactory::CreateFromString(
-      config_options_, SstPartitionerFixedPrefixFactory::kClassName(),
-      &factory));
-  ASSERT_NE(factory, nullptr);
-  ASSERT_STREQ(factory->Name(), SstPartitionerFixedPrefixFactory::kClassName());
-
+  ASSERT_OK(TestSharedBuiltins<SstPartitionerFactory>(
+      "Mock", SstPartitionerFixedPrefixFactory::kClassName()));
   if (RegisterTests("Test")) {
-    ASSERT_OK(SstPartitionerFactory::CreateFromString(config_options_, "Mock",
-                                                      &factory));
-    ASSERT_NE(factory, nullptr);
-    ASSERT_STREQ(factory->Name(), "Mock");
+    ExpectCreateShared<SstPartitionerFactory>("Mock");
   }
 }
 #endif  // ROCKSDB_LITE
 
 TEST_F(LoadCustomizableTest, LoadChecksumGenFactoryTest) {
-  std::shared_ptr<FileChecksumGenFactory> factory;
-  ASSERT_NOK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
-                                                      &factory));
-  ASSERT_OK(FileChecksumGenFactory::CreateFromString(
-      config_options_, FileChecksumGenCrc32cFactory::kClassName(), &factory));
-  ASSERT_NE(factory, nullptr);
-  ASSERT_STREQ(factory->Name(), FileChecksumGenCrc32cFactory::kClassName());
-
+  ASSERT_OK(TestSharedBuiltins<FileChecksumGenFactory>("Mock", ""));
   if (RegisterTests("Test")) {
-    ASSERT_OK(FileChecksumGenFactory::CreateFromString(config_options_, "Mock",
-                                                       &factory));
-    ASSERT_NE(factory, nullptr);
-    ASSERT_STREQ(factory->Name(), "Mock");
+    ExpectCreateShared<FileChecksumGenFactory>("Mock");
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadTablePropertiesCollectorFactoryTest) {
-  std::shared_ptr<TablePropertiesCollectorFactory> factory;
-  ASSERT_NOK(TablePropertiesCollectorFactory::CreateFromString(
-      config_options_, MockTablePropertiesCollectorFactory::kClassName(),
-      &factory));
+  ASSERT_OK(TestSharedBuiltins<TablePropertiesCollectorFactory>(
+      MockTablePropertiesCollectorFactory::kClassName(), ""));
   if (RegisterTests("Test")) {
-    ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
-        config_options_, MockTablePropertiesCollectorFactory::kClassName(),
-        &factory));
-    ASSERT_NE(factory, nullptr);
-    ASSERT_STREQ(factory->Name(),
-                 MockTablePropertiesCollectorFactory::kClassName());
+    ExpectCreateShared<TablePropertiesCollectorFactory>(
+        MockTablePropertiesCollectorFactory::kClassName());
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadComparatorTest) {
   const Comparator* bytewise = BytewiseComparator();
   const Comparator* reverse = ReverseBytewiseComparator();
-
   const Comparator* result = nullptr;
-  ASSERT_NOK(Comparator::CreateFromString(
-      config_options_, test::SimpleSuffixReverseComparator::kClassName(),
-      &result));
-  ASSERT_OK(
-      Comparator::CreateFromString(config_options_, bytewise->Name(), &result));
-  ASSERT_EQ(result, bytewise);
-  ASSERT_OK(
-      Comparator::CreateFromString(config_options_, reverse->Name(), &result));
-  ASSERT_EQ(result, reverse);
-
+  std::unordered_set<std::string> expected = {bytewise->Name(),
+                                              reverse->Name()};
+  std::vector<std::string> failures;
+  ASSERT_OK(TestStaticBuiltins<Comparator>(
+      test::SimpleSuffixReverseComparator::kClassName(), &result, expected,
+      &failures));
   if (RegisterTests("Test")) {
-    ASSERT_OK(Comparator::CreateFromString(
-        config_options_, test::SimpleSuffixReverseComparator::kClassName(),
-        &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(),
-                 test::SimpleSuffixReverseComparator::kClassName());
+    ASSERT_OK(TestCreateStatic<Comparator>(
+        test::SimpleSuffixReverseComparator::kClassName(), &result));
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadSliceTransformFactoryTest) {
   std::shared_ptr<const SliceTransform> result;
-  ASSERT_NOK(
-      SliceTransform::CreateFromString(config_options_, "Mock", &result));
-  ASSERT_OK(
-      SliceTransform::CreateFromString(config_options_, "fixed:16", &result));
-  ASSERT_NE(result.get(), nullptr);
-  ASSERT_TRUE(result->IsInstanceOf("fixed"));
+  std::vector<std::string> failures;
+  std::unordered_set<std::string> expected = {"rocksdb.Noop", "fixed",
+                                              "rocksdb.FixedPrefix", "capped",
+                                              "rocksdb.CappedPrefix"};
+  ASSERT_OK(TestExpectedBuiltins<SliceTransform>(
+      "Mock", expected, &result, &failures, [](const std::string& name) {
+        std::vector<std::string> names = {name + ":22", name + ".22"};
+        return names;
+      }));
   ASSERT_OK(SliceTransform::CreateFromString(
       config_options_, "rocksdb.FixedPrefix.22", &result));
   ASSERT_NE(result.get(), nullptr);
   ASSERT_TRUE(result->IsInstanceOf("fixed"));
-
-  ASSERT_OK(
-      SliceTransform::CreateFromString(config_options_, "capped:16", &result));
-  ASSERT_NE(result.get(), nullptr);
-  ASSERT_TRUE(result->IsInstanceOf("capped"));
-
   ASSERT_OK(SliceTransform::CreateFromString(
-      config_options_, "rocksdb.CappedPrefix.11", &result));
+      config_options_, "rocksdb.CappedPrefix.22", &result));
   ASSERT_NE(result.get(), nullptr);
   ASSERT_TRUE(result->IsInstanceOf("capped"));
-
   if (RegisterTests("Test")) {
-    ASSERT_OK(
-        SliceTransform::CreateFromString(config_options_, "Mock", &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "Mock");
+    ExpectCreateShared<SliceTransform>("Mock", &result);
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
-  std::shared_ptr<Statistics> stats;
-  ASSERT_NOK(Statistics::CreateFromString(
-      config_options_, TestStatistics::kClassName(), &stats));
+  ASSERT_OK(TestSharedBuiltins<Statistics>(TestStatistics::kClassName(),
+                                           "BasicStatistics"));
+  // Empty will create a default BasicStatistics
   ASSERT_OK(
-      Statistics::CreateFromString(config_options_, "BasicStatistics", &stats));
-  ASSERT_NE(stats, nullptr);
-  ASSERT_EQ(stats->Name(), std::string("BasicStatistics"));
+      Statistics::CreateFromString(config_options_, "", &db_opts_.statistics));
+  ASSERT_NE(db_opts_.statistics, nullptr);
+  ASSERT_STREQ(db_opts_.statistics->Name(), "BasicStatistics");
+
 #ifndef ROCKSDB_LITE
   ASSERT_NOK(GetDBOptionsFromString(config_options_, db_opts_,
                                     "statistics=Test", &db_opts_));
@@ -1669,10 +1975,7 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
   ASSERT_STREQ(db_opts_.statistics->Name(), "BasicStatistics");
 
   if (RegisterTests("test")) {
-    ASSERT_OK(Statistics::CreateFromString(
-        config_options_, TestStatistics::kClassName(), &stats));
-    ASSERT_NE(stats, nullptr);
-    ASSERT_STREQ(stats->Name(), TestStatistics::kClassName());
+    auto stats = ExpectCreateShared<Statistics>(TestStatistics::kClassName());
 
     ASSERT_OK(GetDBOptionsFromString(config_options_, db_opts_,
                                      "statistics=Test", &db_opts_));
@@ -1703,102 +2006,90 @@ TEST_F(LoadCustomizableTest, LoadStatisticsTest) {
 }
 
 TEST_F(LoadCustomizableTest, LoadMemTableRepFactoryTest) {
-  std::unique_ptr<MemTableRepFactory> result;
-  ASSERT_NOK(MemTableRepFactory::CreateFromString(
-      config_options_, "SpecialSkipListFactory", &result));
-  ASSERT_OK(MemTableRepFactory::CreateFromString(
-      config_options_, SkipListFactory::kClassName(), &result));
-  ASSERT_NE(result.get(), nullptr);
-  ASSERT_TRUE(result->IsInstanceOf(SkipListFactory::kClassName()));
+  std::unordered_set<std::string> expected = {
+      SkipListFactory::kClassName(),
+      SkipListFactory::kNickName(),
+  };
 
+  std::vector<std::string> failures;
+  std::shared_ptr<MemTableRepFactory> factory;
+  Status s = TestExpectedBuiltins<MemTableRepFactory>(
+      "SpecialSkipListFactory", expected, &factory, &failures);
+  // There is a "cuckoo" factory registered that we expect to fail.  Ignore the
+  // error if this is the one
+  if (s.ok() || failures.size() > 1 || failures[0] != "cuckoo") {
+    ASSERT_OK(s);
+  }
   if (RegisterTests("Test")) {
-    ASSERT_OK(MemTableRepFactory::CreateFromString(
-        config_options_, "SpecialSkipListFactory", &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "SpecialSkipListFactory");
+    ExpectCreateShared<MemTableRepFactory>("SpecialSkipListFactory");
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadMergeOperatorTest) {
   std::shared_ptr<MergeOperator> result;
+  std::vector<std::string> failed;
+  std::unordered_set<std::string> expected = {
+      "put", "put_v1",      "PutOperator", "uint64add", "UInt64AddOperator",
+      "max", "MaxOperator",
+  };
+#ifndef ROCKSDB_LITE
+  expected.insert({
+      StringAppendOperator::kClassName(),
+      StringAppendOperator::kNickName(),
+      StringAppendTESTOperator::kClassName(),
+      StringAppendTESTOperator::kNickName(),
+      SortList::kClassName(),
+      SortList::kNickName(),
+      BytesXOROperator::kClassName(),
+      BytesXOROperator::kNickName(),
+  });
+#endif  // ROCKSDB_LITE
 
-  ASSERT_NOK(
-      MergeOperator::CreateFromString(config_options_, "Changling", &result));
-  ASSERT_OK(MergeOperator::CreateFromString(config_options_, "put", &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), "PutOperator");
+  ASSERT_OK(TestExpectedBuiltins<MergeOperator>("Changling", expected, &result,
+                                                &failed));
   if (RegisterTests("Test")) {
-    ASSERT_OK(
-        MergeOperator::CreateFromString(config_options_, "Changling", &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "ChanglingMergeOperator");
+    ExpectCreateShared<MergeOperator>("Changling");
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadCompactionFilterFactoryTest) {
-  std::shared_ptr<CompactionFilterFactory> result;
-
-  ASSERT_NOK(CompactionFilterFactory::CreateFromString(config_options_,
-                                                       "Changling", &result));
+  ASSERT_OK(TestSharedBuiltins<CompactionFilterFactory>("Changling", ""));
   if (RegisterTests("Test")) {
-    ASSERT_OK(CompactionFilterFactory::CreateFromString(config_options_,
-                                                        "Changling", &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "ChanglingCompactionFilterFactory");
+    ExpectCreateShared<CompactionFilterFactory>("Changling");
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadCompactionFilterTest) {
   const CompactionFilter* result = nullptr;
-
-  ASSERT_NOK(CompactionFilter::CreateFromString(config_options_, "Changling",
-                                                &result));
-#ifndef ROCKSDB_LITE
-  ASSERT_OK(CompactionFilter::CreateFromString(
-      config_options_, RemoveEmptyValueCompactionFilter::kClassName(),
-      &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), RemoveEmptyValueCompactionFilter::kClassName());
-  delete result;
-  result = nullptr;
+  std::vector<std::string> failures;
+  ASSERT_OK(TestStaticBuiltins<CompactionFilter>("Changling", &result, {},
+                                                 &failures, true));
   if (RegisterTests("Test")) {
-    ASSERT_OK(CompactionFilter::CreateFromString(config_options_, "Changling",
-                                                 &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "ChanglingCompactionFilter");
-    delete result;
+    ASSERT_OK(TestCreateStatic<CompactionFilter>("Changling", &result, true));
   }
-#endif  // ROCKSDB_LITE
 }
 
 #ifndef ROCKSDB_LITE
 TEST_F(LoadCustomizableTest, LoadEventListenerTest) {
-  std::shared_ptr<EventListener> result;
-
-  ASSERT_NOK(EventListener::CreateFromString(
-      config_options_, OnFileDeletionListener::kClassName(), &result));
-  ASSERT_NOK(EventListener::CreateFromString(
-      config_options_, FlushCounterListener::kClassName(), &result));
+  ASSERT_OK(TestSharedBuiltins<EventListener>(
+      OnFileDeletionListener::kClassName(), ""));
   if (RegisterTests("Test")) {
-    ASSERT_OK(EventListener::CreateFromString(
-        config_options_, OnFileDeletionListener::kClassName(), &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), OnFileDeletionListener::kClassName());
-    ASSERT_OK(EventListener::CreateFromString(
-        config_options_, FlushCounterListener::kClassName(), &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), FlushCounterListener::kClassName());
+    ExpectCreateShared<EventListener>(OnFileDeletionListener::kClassName());
+    ExpectCreateShared<EventListener>(FlushCounterListener::kClassName());
   }
 }
 
 TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
+  std::vector<std::string> failures;
   std::shared_ptr<EncryptionProvider> result;
-  ASSERT_NOK(
-      EncryptionProvider::CreateFromString(config_options_, "Mock", &result));
   ASSERT_OK(
-      EncryptionProvider::CreateFromString(config_options_, "CTR", &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), "CTR");
+      TestExpectedBuiltins<EncryptionProvider>("Mock", {}, &result, &failures));
+  if (!failures.empty()) {
+    ASSERT_EQ(failures[0], "1://test");
+    ASSERT_EQ(failures.size(), 1U);
+  }
+
+  result = ExpectCreateShared<EncryptionProvider>("CTR");
   ASSERT_NOK(result->ValidateOptions(db_opts_, cf_opts_));
   ASSERT_OK(EncryptionProvider::CreateFromString(config_options_, "CTR://test",
                                                  &result));
@@ -1807,10 +2098,7 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
   ASSERT_OK(result->ValidateOptions(db_opts_, cf_opts_));
 
   if (RegisterTests("Test")) {
-    ASSERT_OK(
-        EncryptionProvider::CreateFromString(config_options_, "Mock", &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "Mock");
+    ExpectCreateShared<EncryptionProvider>("Mock");
     ASSERT_OK(EncryptionProvider::CreateFromString(config_options_,
                                                    "Mock://test", &result));
     ASSERT_NE(result, nullptr);
@@ -1820,55 +2108,170 @@ TEST_F(LoadCustomizableTest, LoadEncryptionProviderTest) {
 }
 
 TEST_F(LoadCustomizableTest, LoadEncryptionCipherTest) {
-  std::shared_ptr<BlockCipher> result;
-  ASSERT_NOK(BlockCipher::CreateFromString(config_options_, "Mock", &result));
-  ASSERT_OK(BlockCipher::CreateFromString(config_options_, "ROT13", &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), "ROT13");
+  ASSERT_OK(TestSharedBuiltins<BlockCipher>("Mock", "ROT13"));
   if (RegisterTests("Test")) {
-    ASSERT_OK(BlockCipher::CreateFromString(config_options_, "Mock", &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), "Mock");
+    ExpectCreateShared<BlockCipher>("Mock");
   }
 }
 #endif  // !ROCKSDB_LITE
 
 TEST_F(LoadCustomizableTest, LoadSystemClockTest) {
-  std::shared_ptr<SystemClock> result;
-  ASSERT_NOK(SystemClock::CreateFromString(
-      config_options_, MockSystemClock::kClassName(), &result));
-  ASSERT_OK(SystemClock::CreateFromString(
-      config_options_, SystemClock::kDefaultName(), &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_TRUE(result->IsInstanceOf(SystemClock::kDefaultName()));
+  ASSERT_OK(TestSharedBuiltins<SystemClock>(MockSystemClock::kClassName(),
+                                            SystemClock::kDefaultName()));
   if (RegisterTests("Test")) {
-    ASSERT_OK(SystemClock::CreateFromString(
-        config_options_, MockSystemClock::kClassName(), &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), MockSystemClock::kClassName());
+    auto result =
+        ExpectCreateShared<SystemClock>(MockSystemClock::kClassName());
+    ASSERT_FALSE(result->IsInstanceOf(SystemClock::kDefaultName()));
   }
 }
 
-TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
-  std::shared_ptr<TableFactory> table;
-  std::shared_ptr<FlushBlockPolicyFactory> result;
-  ASSERT_NOK(FlushBlockPolicyFactory::CreateFromString(
-      config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
+TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
+  std::vector<std::string> failures;
+  Status s = TestSharedBuiltins<MemoryAllocator>(
+      MockMemoryAllocator::kClassName(), DefaultMemoryAllocator::kClassName(),
+      &failures);
+  if (failures.empty()) {
+    ASSERT_OK(s);
+  } else {
+    ASSERT_NOK(s);
+    for (const auto& failure : failures) {
+      if (failure == JemallocNodumpAllocator::kClassName()) {
+        ASSERT_FALSE(JemallocNodumpAllocator::IsSupported());
+      } else if (failure == MemkindKmemAllocator::kClassName()) {
+        ASSERT_FALSE(MemkindKmemAllocator::IsSupported());
+      } else {
+        printf("BYPASSED: %s -- %s\n", failure.c_str(), s.ToString().c_str());
+      }
+    }
+  }
+  if (RegisterTests("Test")) {
+    ExpectCreateShared<MemoryAllocator>(MockMemoryAllocator::kClassName());
+  }
+}
 
+TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(TestSharedBuiltins<RateLimiter>(MockRateLimiter::kClassName(),
+                                            GenericRateLimiter::kClassName()));
+#else
+  ASSERT_OK(TestSharedBuiltins<RateLimiter>(MockRateLimiter::kClassName(), ""));
+#endif  // ROCKSDB_LITE
+
+  std::shared_ptr<RateLimiter> result;
+  ASSERT_OK(RateLimiter::CreateFromString(
+      config_options_, std::string(GenericRateLimiter::kClassName()) + ":1234",
+      &result));
+  ASSERT_NE(result, nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(GenericRateLimiter::kClassName()));
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(GetDBOptionsFromString(
+      config_options_, db_opts_,
+      std::string("rate_limiter=") + GenericRateLimiter::kClassName(),
+      &db_opts_));
+  ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  if (RegisterTests("Test")) {
+    ExpectCreateShared<RateLimiter>(MockRateLimiter::kClassName());
+    ASSERT_OK(GetDBOptionsFromString(
+        config_options_, db_opts_,
+        std::string("rate_limiter=") + MockRateLimiter::kClassName(),
+        &db_opts_));
+    ASSERT_NE(db_opts_.rate_limiter, nullptr);
+  }
+#endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {
+  const std::string kAutoBloom = BloomFilterPolicy::kClassName();
+  const std::string kAutoRibbon = RibbonFilterPolicy::kClassName();
+
+  std::shared_ptr<const FilterPolicy> result;
+  std::vector<std::string> failures;
+  std::unordered_set<std::string> expected = {
+      ReadOnlyBuiltinFilterPolicy::kClassName(),
+  };
+
+#ifndef ROCKSDB_LITE
+  expected.insert({
+      kAutoBloom,
+      BloomFilterPolicy::kNickName(),
+      kAutoRibbon,
+      RibbonFilterPolicy::kNickName(),
+  });
+#endif  // ROCKSDB_LITE
+  ASSERT_OK(TestExpectedBuiltins<const FilterPolicy>(
+      "Mock", expected, &result, &failures, [](const std::string& name) {
+        std::vector<std::string> names = {name + ":1.234"};
+        return names;
+      }));
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(FilterPolicy::CreateFromString(
+      config_options_, kAutoBloom + ":1.234:false", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoBloom));
+  ASSERT_OK(FilterPolicy::CreateFromString(
+      config_options_, kAutoBloom + ":1.234:false", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoBloom));
+  ASSERT_OK(FilterPolicy::CreateFromString(config_options_,
+                                           kAutoRibbon + ":1.234:-1", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoRibbon));
+  ASSERT_OK(FilterPolicy::CreateFromString(config_options_,
+                                           kAutoRibbon + ":1.234:56", &result));
+  ASSERT_NE(result.get(), nullptr);
+  ASSERT_TRUE(result->IsInstanceOf(kAutoRibbon));
+#endif  // ROCKSDB_LITE
+
+  if (RegisterTests("Test")) {
+    ExpectCreateShared<FilterPolicy>(MockFilterPolicy::kClassName(), &result);
+  }
+
+  std::shared_ptr<TableFactory> table;
+
+#ifndef ROCKSDB_LITE
+  std::string table_opts = "id=BlockBasedTable; filter_policy=";
+  ASSERT_OK(TableFactory::CreateFromString(config_options_,
+                                           table_opts + "nullptr", &table));
+  ASSERT_NE(table.get(), nullptr);
+  auto bbto = table->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_EQ(bbto->filter_policy.get(), nullptr);
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, table_opts + ReadOnlyBuiltinFilterPolicy::kClassName(),
+      &table));
+  bbto = table->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_NE(bbto->filter_policy.get(), nullptr);
+  ASSERT_STREQ(bbto->filter_policy->Name(),
+               ReadOnlyBuiltinFilterPolicy::kClassName());
+  ASSERT_OK(TableFactory::CreateFromString(
+      config_options_, table_opts + MockFilterPolicy::kClassName(), &table));
+  bbto = table->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_NE(bbto->filter_policy.get(), nullptr);
+  ASSERT_TRUE(
+      bbto->filter_policy->IsInstanceOf(MockFilterPolicy::kClassName()));
+#endif  // ROCKSDB_LITE
+}
+
+TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
+  std::shared_ptr<FlushBlockPolicyFactory> result;
+  std::shared_ptr<TableFactory> table;
+  std::vector<std::string> failed;
+  std::unordered_set<std::string> expected = {
+      FlushBlockBySizePolicyFactory::kClassName(),
+      FlushBlockEveryKeyPolicyFactory::kClassName(),
+  };
+
+  ASSERT_OK(TestExpectedBuiltins<FlushBlockPolicyFactory>(
+      TestFlushBlockPolicyFactory::kClassName(), expected, &result, &failed));
+
+  // An empty policy name creates a BySize policy
   ASSERT_OK(
       FlushBlockPolicyFactory::CreateFromString(config_options_, "", &result));
   ASSERT_NE(result, nullptr);
   ASSERT_STREQ(result->Name(), FlushBlockBySizePolicyFactory::kClassName());
 
-  ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
-      config_options_, FlushBlockEveryKeyPolicyFactory::kClassName(), &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), FlushBlockEveryKeyPolicyFactory::kClassName());
-
-  ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
-      config_options_, FlushBlockBySizePolicyFactory::kClassName(), &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_STREQ(result->Name(), FlushBlockBySizePolicyFactory::kClassName());
 #ifndef ROCKSDB_LITE
   std::string table_opts = "id=BlockBasedTable; flush_block_policy_factory=";
   ASSERT_OK(TableFactory::CreateFromString(
@@ -1880,10 +2283,8 @@ TEST_F(LoadCustomizableTest, LoadFlushBlockPolicyFactoryTest) {
   ASSERT_STREQ(bbto->flush_block_policy_factory->Name(),
                FlushBlockEveryKeyPolicyFactory::kClassName());
   if (RegisterTests("Test")) {
-    ASSERT_OK(FlushBlockPolicyFactory::CreateFromString(
-        config_options_, TestFlushBlockPolicyFactory::kClassName(), &result));
-    ASSERT_NE(result, nullptr);
-    ASSERT_STREQ(result->Name(), TestFlushBlockPolicyFactory::kClassName());
+    ExpectCreateShared<FlushBlockPolicyFactory>(
+        TestFlushBlockPolicyFactory::kClassName());
     ASSERT_OK(TableFactory::CreateFromString(
         config_options_, table_opts + TestFlushBlockPolicyFactory::kClassName(),
         &table));

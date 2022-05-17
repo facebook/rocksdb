@@ -41,7 +41,7 @@ class ObsoleteFilesTest : public DBTestBase {
     WriteOptions options;
     options.sync = false;
     for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = ToString(i);
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));
@@ -189,7 +189,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
 TEST_F(ObsoleteFilesTest, BlobFiles) {
   ReopenDB();
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 

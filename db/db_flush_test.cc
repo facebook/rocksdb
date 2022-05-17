@@ -676,6 +676,7 @@ class TestFlushListener : public EventListener {
   ~TestFlushListener() override {
     prev_fc_info_.status.PermitUncheckedError();  // Ignore the status
   }
+
   void OnTableFileCreated(const TableFileCreationInfo& info) override {
     // remember the info for later checking the FlushJobInfo.
     prev_fc_info_ = info;
@@ -1373,6 +1374,140 @@ TEST_F(DBFlushTest, DISABLED_MemPurgeWALSupport) {
   } while (ChangeWalOptions());
 }
 
+TEST_F(DBFlushTest, MemPurgeCorrectLogNumberAndSSTFileCreation) {
+  // Before our bug fix, we noticed that when 2 memtables were
+  // being flushed (with one memtable being the output of a
+  // previous MemPurge and one memtable being a newly-sealed memtable),
+  // the SST file created was not properly added to the DB version
+  // (via the VersionEdit obj), leading to data loss (the SST file
+  // was later being purged as an obsolete file).
+  // Therefore, we reproduce this scenario to test our fix.
+  Options options = CurrentOptions();
+
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 1MB (64MB = 1048576 bytes).
+  options.write_buffer_size = 1 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_mempurge_threshold = 1.0;
+
+  // Force to have more than one memtable to trigger a flush.
+  // For some reason this option does not seem to be enforced,
+  // so the following test is designed to make sure that we
+  // are testing the correct test case.
+  options.min_write_buffer_number_to_merge = 3;
+  options.max_write_buffer_number = 5;
+  options.max_write_buffer_size_to_maintain = 2 * (options.write_buffer_size);
+  options.disable_auto_compactions = true;
+  ASSERT_OK(TryReopen(options));
+
+  std::atomic<uint32_t> mempurge_count{0};
+  std::atomic<uint32_t> sst_count{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Dummy variable used for the following callback function.
+  uint64_t ZERO = 0;
+  // We will first execute mempurge operations exclusively.
+  // Therefore, when the first flush is triggered, we want to make
+  // sure there is at least 2 memtables being flushed: one output
+  // from a previous mempurge, and one newly sealed memtable.
+  // This is when we observed in the past that some SST files created
+  // were not properly added to the DB version (via the VersionEdit obj).
+  std::atomic<uint64_t> num_memtable_at_first_flush(0);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:num_memtables", [&](void* arg) {
+        uint64_t* mems_size = reinterpret_cast<uint64_t*>(arg);
+        // atomic_compare_exchange_strong sometimes updates the value
+        // of ZERO (the "expected" object), so we make sure ZERO is indeed...
+        // zero.
+        ZERO = 0;
+        std::atomic_compare_exchange_strong(&num_memtable_at_first_flush, &ZERO,
+                                            *mems_size);
+      });
+
+  const std::vector<std::string> KEYS = {
+      "ThisIsKey1", "ThisIsKey2", "ThisIsKey3", "ThisIsKey4", "ThisIsKey5",
+      "ThisIsKey6", "ThisIsKey7", "ThisIsKey8", "ThisIsKey9"};
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  Random rnd(117);
+  const uint64_t NUM_REPEAT_OVERWRITES = 100;
+  const uint64_t NUM_RAND_INSERTS = 500;
+  const uint64_t RAND_VALUES_LENGTH = 10240;
+
+  std::string key, value;
+  std::vector<std::string> values(9, "");
+
+  // Keys used to check that no SST file disappeared.
+  for (uint64_t k = 0; k < 5; k++) {
+    values[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(KEYS[k], values[k]));
+  }
+
+  // Insertion of of K-V pairs, multiple times.
+  // Trigger at least one mempurge and no SST file creation.
+  for (size_t i = 0; i < NUM_REPEAT_OVERWRITES; i++) {
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    for (uint64_t k = 5; k < values.size(); k++) {
+      values[k] = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(KEYS[k], values[k]));
+    }
+    // Check database consistency.
+    for (uint64_t k = 0; k < values.size(); k++) {
+      ASSERT_EQ(Get(KEYS[k]), values[k]);
+    }
+  }
+
+  // Check that there was at least one mempurge
+  uint32_t expected_min_mempurge_count = 1;
+  // Check that there was no SST files created during flush.
+  uint32_t expected_sst_count = 0;
+  EXPECT_GE(mempurge_count.load(), expected_min_mempurge_count);
+  EXPECT_EQ(sst_count.load(), expected_sst_count);
+
+  // Trigger an SST file creation and no mempurge.
+  for (size_t i = 0; i < NUM_RAND_INSERTS; i++) {
+    key = rnd.RandomString(RAND_VALUES_LENGTH);
+    // Create value strings of arbitrary length RAND_VALUES_LENGTH bytes.
+    value = rnd.RandomString(RAND_VALUES_LENGTH);
+    ASSERT_OK(Put(key, value));
+    // Check database consistency.
+    for (uint64_t k = 0; k < values.size(); k++) {
+      ASSERT_EQ(Get(KEYS[k]), values[k]);
+    }
+    ASSERT_EQ(Get(key), value);
+  }
+
+  // Check that there was at least one SST files created during flush.
+  expected_sst_count = 1;
+  EXPECT_GE(sst_count.load(), expected_sst_count);
+
+  // Oddly enough, num_memtable_at_first_flush is not enforced to be
+  // equal to min_write_buffer_number_to_merge. So by asserting that
+  // the first SST file creation comes from one output memtable
+  // from a previous mempurge, and one newly sealed memtable. This
+  // is the scenario where we observed that some SST files created
+  // were not properly added to the DB version before our bug fix.
+  ASSERT_GE(num_memtable_at_first_flush.load(), 2);
+
+  // Check that no data was lost after SST file creation.
+  for (uint64_t k = 0; k < values.size(); k++) {
+    ASSERT_EQ(Get(KEYS[k]), values[k]);
+  }
+  // Extra check of database consistency.
+  ASSERT_EQ(Get(key), value);
+
+  Close();
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;
@@ -1574,6 +1709,9 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   flush_opts.wait = false;
   ASSERT_OK(db_->Flush(flush_opts));
   t1.join();
+  // Ensure background work is fully finished including listener callbacks
+  // before accessing listener state.
+  ASSERT_OK(dbfull()->TEST_WaitForBackgroundWork());
   ASSERT_TRUE(listener->completed1);
   ASSERT_TRUE(listener->completed2);
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1608,7 +1746,7 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_EQ(Get("key1"), short_value);
   ASSERT_EQ(Get("key2"), long_value);
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -1629,7 +1767,7 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   const auto& blob_files = storage_info->GetBlobFiles();
   ASSERT_EQ(blob_files.size(), 1);
 
-  const auto& blob_file = blob_files.begin()->second;
+  const auto& blob_file = blob_files.front();
   assert(blob_file);
 
   ASSERT_EQ(table_file->smallest.user_key(), "key1");
@@ -1938,7 +2076,7 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
 
   ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
@@ -1999,6 +2137,61 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 }
 
 #ifndef ROCKSDB_LITE
+TEST_F(DBFlushTest, TombstoneVisibleInSnapshot) {
+  class SimpleTestFlushListener : public EventListener {
+   public:
+    explicit SimpleTestFlushListener(DBFlushTest* _test) : test_(_test) {}
+    ~SimpleTestFlushListener() override {}
+
+    void OnFlushBegin(DB* db, const FlushJobInfo& info) override {
+      ASSERT_EQ(static_cast<uint32_t>(0), info.cf_id);
+
+      ASSERT_OK(db->Delete(WriteOptions(), "foo"));
+      snapshot_ = db->GetSnapshot();
+      ASSERT_OK(db->Put(WriteOptions(), "foo", "value"));
+
+      auto* dbimpl = static_cast_with_check<DBImpl>(db);
+      assert(dbimpl);
+
+      ColumnFamilyHandle* cfh = db->DefaultColumnFamily();
+      auto* cfhi = static_cast_with_check<ColumnFamilyHandleImpl>(cfh);
+      assert(cfhi);
+      ASSERT_OK(dbimpl->TEST_SwitchMemtable(cfhi->cfd()));
+    }
+
+    DBFlushTest* test_ = nullptr;
+    const Snapshot* snapshot_ = nullptr;
+  };
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  auto* listener = new SimpleTestFlushListener(this);
+  options.listeners.emplace_back(listener);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "foo", "value0"));
+
+  ManagedSnapshot snapshot_guard(db_);
+
+  ColumnFamilyHandle* default_cf = db_->DefaultColumnFamily();
+  ASSERT_OK(db_->Flush(FlushOptions(), default_cf));
+
+  const Snapshot* snapshot = listener->snapshot_;
+  assert(snapshot);
+
+  ReadOptions read_opts;
+  read_opts.snapshot = snapshot;
+
+  // Using snapshot should not see "foo".
+  {
+    std::string value;
+    Status s = db_->Get(read_opts, "foo", &value);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -2078,7 +2271,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
 
   // The recovered min log number with prepared data should be non-zero.
   // In 2pc mode, MinLogNumberToKeep returns the
-  // VersionSet::min_log_number_to_keep_2pc recovered from MANIFEST, if it's 0,
+  // VersionSet::min_log_number_to_keep recovered from MANIFEST, if it's 0,
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
@@ -2149,7 +2342,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
     flush_edits.push_back({});
     auto unflushed_cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[1]);
 
-    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->GetVersionSet(),
                                                  flushed_cfds, flush_edits),
               unflushed_cfh->cfd()->GetLogNumber());
   }
@@ -2163,7 +2356,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
     ASSERT_OK(Flush(cf_ids));
     uint64_t log_num_after_flush = dbfull()->TEST_GetCurrentLogNumber();
 
-    uint64_t min_log_number_to_keep = port::kMaxUint64;
+    uint64_t min_log_number_to_keep = std::numeric_limits<uint64_t>::max();
     autovector<ColumnFamilyData*> flushed_cfds;
     autovector<autovector<VersionEdit*>> flush_edits;
     for (size_t i = 0; i != num_cfs; ++i) {
@@ -2174,7 +2367,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
           std::min(min_log_number_to_keep, cfh->cfd()->GetLogNumber());
     }
     ASSERT_EQ(min_log_number_to_keep, log_num_after_flush);
-    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->GetVersionSet(),
                                                  flushed_cfds, flush_edits),
               min_log_number_to_keep);
   }

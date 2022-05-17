@@ -32,9 +32,10 @@ inline void BlockFetcher::ProcessTrailerIfPresent() {
   if (footer_.GetBlockTrailerSize() > 0) {
     assert(footer_.GetBlockTrailerSize() == BlockBasedTable::kBlockTrailerSize);
     if (read_options_.verify_checksums) {
-      io_status_ = status_to_io_status(
-          VerifyBlockChecksum(footer_.checksum(), slice_.data(), block_size_,
-                              file_->file_name(), handle_.offset()));
+      io_status_ = status_to_io_status(VerifyBlockChecksum(
+          footer_.checksum_type(), slice_.data(), block_size_,
+          file_->file_name(), handle_.offset()));
+      RecordTick(ioptions_.stats, BLOCK_CHECKSUM_COMPUTE_COUNT);
     }
     compression_type_ =
         BlockBasedTable::GetBlockCompressionType(slice_.data(), block_size_);
@@ -69,17 +70,27 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
-    if (io_s.ok() &&
-        prefetch_buffer_->TryReadFromCache(opts, file_, handle_.offset(),
-                                           block_size_with_trailer_, &slice_,
-                                           &io_s, for_compaction_)) {
-      ProcessTrailerIfPresent();
-      if (!io_status_.ok()) {
-        return true;
+    if (io_s.ok()) {
+      bool read_from_prefetch_buffer = false;
+      if (read_options_.async_io) {
+        read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
+            opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
+            &io_s, read_options_.rate_limiter_priority, for_compaction_);
+      } else {
+        read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
+            opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
+            &io_s, read_options_.rate_limiter_priority, for_compaction_);
       }
-      got_from_prefetch_buffer_ = true;
-      used_buf_ = const_cast<char*>(slice_.data());
-    } else if (!io_s.ok()) {
+      if (read_from_prefetch_buffer) {
+        ProcessTrailerIfPresent();
+        if (!io_status_.ok()) {
+          return true;
+        }
+        got_from_prefetch_buffer_ = true;
+        used_buf_ = const_cast<char*>(slice_.data());
+      }
+    }
+    if (!io_s.ok()) {
       io_status_ = io_s;
       return true;
     }
@@ -245,17 +256,17 @@ IOStatus BlockFetcher::ReadBlockContents() {
     if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
-        io_status_ =
-            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
-                        &slice_, nullptr, &direct_io_buf_, for_compaction_);
+        io_status_ = file_->Read(
+            opts, handle_.offset(), block_size_with_trailer_, &slice_, nullptr,
+            &direct_io_buf_, read_options_.rate_limiter_priority);
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
-        io_status_ =
-            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
-                        &slice_, used_buf_, nullptr, for_compaction_);
+        io_status_ = file_->Read(opts, handle_.offset(),
+                                 block_size_with_trailer_, &slice_, used_buf_,
+                                 nullptr, read_options_.rate_limiter_priority);
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {
@@ -294,11 +305,11 @@ IOStatus BlockFetcher::ReadBlockContents() {
     }
 
     if (slice_.size() != block_size_with_trailer_) {
-      return IOStatus::Corruption("truncated block read from " +
-                                  file_->file_name() + " offset " +
-                                  ToString(handle_.offset()) + ", expected " +
-                                  ToString(block_size_with_trailer_) +
-                                  " bytes, got " + ToString(slice_.size()));
+      return IOStatus::Corruption(
+          "truncated block read from " + file_->file_name() + " offset " +
+          std::to_string(handle_.offset()) + ", expected " +
+          std::to_string(block_size_with_trailer_) + " bytes, got " +
+          std::to_string(slice_.size()));
     }
 
     ProcessTrailerIfPresent();
@@ -315,7 +326,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     UncompressionContext context(compression_type_);
     UncompressionInfo info(context, uncompression_dict_, compression_type_);
     io_status_ = status_to_io_status(UncompressBlockContents(
-        info, slice_.data(), block_size_, contents_, footer_.version(),
+        info, slice_.data(), block_size_, contents_, footer_.format_version(),
         ioptions_, memory_allocator_));
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;

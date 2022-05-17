@@ -87,7 +87,6 @@ class CompactionJobTestBase : public testing::Test {
                                  /*block_cache_tracer=*/nullptr,
                                  /*io_tracer=*/nullptr, /*db_session_id*/ "")),
         shutting_down_(false),
-        preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
         encode_u64_ts_(std::move(encode_u64_ts)) {
@@ -203,10 +202,11 @@ class CompactionJobTestBase : public testing::Test {
 
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
-                 smallest_seqno, largest_seqno, false, oldest_blob_file_number,
-                 kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-                 kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                 kDisableUserTimestamp, kDisableUserTimestamp);
+                 smallest_seqno, largest_seqno, false, Temperature::kUnknown,
+                 oldest_blob_file_number, kUnknownOldestAncesterTime,
+                 kUnknownFileCreationTime, kUnknownFileChecksum,
+                 kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+                 kDisableUserTimestamp);
 
     mutex_.Lock();
     EXPECT_OK(
@@ -236,8 +236,8 @@ class CompactionJobTestBase : public testing::Test {
     for (int i = 0; i < 2; ++i) {
       auto contents = mock::MakeMockFile();
       for (int k = 0; k < kKeysPerFile; ++k) {
-        auto key = ToString(i * kMatchingKeys + k);
-        auto value = ToString(i * kKeysPerFile + k);
+        auto key = std::to_string(i * kMatchingKeys + k);
+        auto value = std::to_string(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
 
         // This is how the key will look like once it's written in bottommost
@@ -353,11 +353,11 @@ class CompactionJobTestBase : public testing::Test {
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
     CompactionJob compaction_job(
         0, &compaction, db_options_, mutable_db_options_, env_options_,
-        versions_.get(), &shutting_down_, preserve_deletes_seqnum_, &log_buffer,
-        nullptr, nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
-        earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
-        &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER, nullptr /* IOTracer */,
+        versions_.get(), &shutting_down_, &log_buffer, nullptr, nullptr,
+        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        earliest_write_conflict_snapshot, snapshot_checker, nullptr,
+        table_cache_, &event_logger, false, false, dbname_,
+        &compaction_job_stats_, Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, /*db_id=*/"",
         /*db_session_id=*/"", full_history_ts_low_);
@@ -408,7 +408,6 @@ class CompactionJobTestBase : public testing::Test {
   std::unique_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
-  SequenceNumber preserve_deletes_seqnum_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
   CompactionJobStats compaction_job_stats_;
   ColumnFamilyData* cfd_;
@@ -891,10 +890,10 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
   //      -> Snapshot Put
   // K: SDel SDel Put SDel Put Put Snapshot SDel Put SDel SDel Put SDel
   //      -> Snapshot Put Snapshot SDel
-  // L: SDel Put Del Put SDel Snapshot Del Put Del SDel Put SDel
-  //      -> Snapshot SDel
-  // M: (Put) SDel Put Del Put SDel Snapshot Put Del SDel Put SDel Del
-  //      -> SDel Snapshot Del
+  // L: SDel Put SDel Put SDel Snapshot SDel Put SDel SDel Put SDel
+  //      -> Snapshot SDel Put SDel
+  // M: (Put) SDel Put SDel Put SDel Snapshot Put SDel SDel Put SDel SDel
+  //      -> SDel Snapshot Put SDel
   NewDB();
 
   auto file1 = mock::MakeMockFile({
@@ -925,14 +924,14 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
       {KeyStr("L", 16U, kTypeSingleDeletion), ""},
       {KeyStr("L", 15U, kTypeValue), "val"},
       {KeyStr("L", 14U, kTypeSingleDeletion), ""},
-      {KeyStr("L", 13U, kTypeDeletion), ""},
+      {KeyStr("L", 13U, kTypeSingleDeletion), ""},
       {KeyStr("L", 12U, kTypeValue), "val"},
-      {KeyStr("L", 11U, kTypeDeletion), ""},
-      {KeyStr("M", 16U, kTypeDeletion), ""},
+      {KeyStr("L", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("M", 16U, kTypeSingleDeletion), ""},
       {KeyStr("M", 15U, kTypeSingleDeletion), ""},
       {KeyStr("M", 14U, kTypeValue), "val"},
       {KeyStr("M", 13U, kTypeSingleDeletion), ""},
-      {KeyStr("M", 12U, kTypeDeletion), ""},
+      {KeyStr("M", 12U, kTypeSingleDeletion), ""},
       {KeyStr("M", 11U, kTypeValue), "val"},
   });
   AddMockFile(file1);
@@ -973,12 +972,12 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
       {KeyStr("K", 1U, kTypeSingleDeletion), ""},
       {KeyStr("L", 5U, kTypeSingleDeletion), ""},
       {KeyStr("L", 4U, kTypeValue), "val"},
-      {KeyStr("L", 3U, kTypeDeletion), ""},
+      {KeyStr("L", 3U, kTypeSingleDeletion), ""},
       {KeyStr("L", 2U, kTypeValue), "val"},
       {KeyStr("L", 1U, kTypeSingleDeletion), ""},
       {KeyStr("M", 10U, kTypeSingleDeletion), ""},
       {KeyStr("M", 7U, kTypeValue), "val"},
-      {KeyStr("M", 5U, kTypeDeletion), ""},
+      {KeyStr("M", 5U, kTypeSingleDeletion), ""},
       {KeyStr("M", 4U, kTypeValue), "val"},
       {KeyStr("M", 3U, kTypeSingleDeletion), ""},
   });
@@ -1020,7 +1019,9 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
                           {KeyStr("K", 8U, kTypeValue), "val3"},
                           {KeyStr("L", 16U, kTypeSingleDeletion), ""},
                           {KeyStr("L", 15U, kTypeValue), ""},
-                          {KeyStr("M", 16U, kTypeDeletion), ""},
+                          {KeyStr("L", 11U, kTypeSingleDeletion), ""},
+                          {KeyStr("M", 15U, kTypeSingleDeletion), ""},
+                          {KeyStr("M", 14U, kTypeValue), ""},
                           {KeyStr("M", 3U, kTypeSingleDeletion), ""}});
 
   SetLastSequence(22U);
@@ -1104,6 +1105,21 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
   RunCompaction({files}, expected_results, std::vector<SequenceNumber>(),
                 kMaxSequenceNumber, /* output_level */ 1, /* verify */ true,
                 /* expected_oldest_blob_file_number */ 19);
+}
+
+TEST_F(CompactionJobTest, NoEnforceSingleDeleteContract) {
+  db_options_.enforce_single_del_contracts = false;
+  NewDB();
+
+  auto file =
+      mock::MakeMockFile({{KeyStr("a", 4U, kTypeSingleDeletion), ""},
+                          {KeyStr("a", 3U, kTypeDeletion), "dontcare"}});
+  AddMockFile(file);
+  SetLastSequence(4U);
+
+  auto expected_results = mock::MakeMockFile();
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results);
 }
 
 TEST_F(CompactionJobTest, InputSerialization) {
@@ -1291,7 +1307,8 @@ class CompactionJobTimestampTest : public CompactionJobTestBase {
  public:
   CompactionJobTimestampTest()
       : CompactionJobTestBase(test::PerThreadDBPath("compaction_job_ts_test"),
-                              test::ComparatorWithU64Ts(), test::EncodeInt) {}
+                              test::BytewiseComparatorWithU64TsWrapper(),
+                              test::EncodeInt) {}
 };
 
 TEST_F(CompactionJobTimestampTest, GCDisabled) {

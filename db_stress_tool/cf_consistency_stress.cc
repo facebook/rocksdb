@@ -18,6 +18,8 @@ class CfConsistencyStressTest : public StressTest {
 
   ~CfConsistencyStressTest() override {}
 
+  bool IsStateTracked() const override { return false; }
+
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& /* read_opts */,
                  const std::vector<int>& rand_column_families,
@@ -284,6 +286,8 @@ class CfConsistencyStressTest : public StressTest {
   }
 
   void VerifyDb(ThreadState* thread) const override {
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions options(FLAGS_verify_checksum, true);
     // We must set total_order_seek to true because we are doing a SeekToFirst
     // on a column family whose memtables may support (by default) prefix-based
@@ -470,6 +474,8 @@ class CfConsistencyStressTest : public StressTest {
       *checksum = ret;
       return iter->status();
     };
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.total_order_seek = true;
     ropts.snapshot = snapshot_guard.get();

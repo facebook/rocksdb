@@ -141,8 +141,10 @@ struct ConfigOptions {
 //   Doubles / Floating Points are converted directly from string.  Note that
 //   currently we do not support units.
 //   [Example]:
-//   - {"hard_rate_limit", "2.1"} in GetColumnFamilyOptionsFromMap, or
-//   - "hard_rate_limit=2.1" in GetColumnFamilyOptionsFromString.
+//   - {"memtable_prefix_bloom_size_ratio", "0.1"} in
+//   GetColumnFamilyOptionsFromMap, or
+//   - "memtable_prefix_bloom_size_ratio=0.1" in
+//   GetColumnFamilyOptionsFromString.
 // * Array / Vectors:
 //   An array is specified by a list of values, where ':' is used as
 //   the delimiter to separate each value.
@@ -516,7 +518,8 @@ Status VerifySstFileChecksum(const Options& options,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& read_options,
-                             const std::string& file_path);
+                             const std::string& file_path,
+                             const SequenceNumber& largest_seqno = 0);
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

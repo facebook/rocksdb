@@ -130,8 +130,8 @@ class PosixDynamicLibrary : public DynamicLibrary {
 class PosixClock : public SystemClock {
  public:
   static const char* kClassName() { return "PosixClock"; }
-  const char* Name() const override { return kClassName(); }
-  const char* NickName() const override { return kDefaultName(); }
+  const char* Name() const override { return kDefaultName(); }
+  const char* NickName() const override { return kClassName(); }
 
   uint64_t NowMicros() override {
     struct timeval tv;
@@ -166,7 +166,7 @@ class PosixClock : public SystemClock {
     defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000;
+    return (static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec) / 1000;
 #endif
     return 0;
   }
@@ -209,7 +209,10 @@ class PosixClock : public SystemClock {
 
 class PosixEnv : public CompositeEnv {
  public:
-  PosixEnv(const PosixEnv* default_env, const std::shared_ptr<FileSystem>& fs);
+  static const char* kClassName() { return "PosixEnv"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kDefaultName(); }
+
   ~PosixEnv() override {
     if (this == Env::Default()) {
       for (const auto tid : threads_to_join_) {
@@ -419,16 +422,6 @@ PosixEnv::PosixEnv()
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
-PosixEnv::PosixEnv(const PosixEnv* default_env,
-                   const std::shared_ptr<FileSystem>& fs)
-    : CompositeEnv(fs, default_env->GetSystemClock()),
-      thread_pools_(default_env->thread_pools_),
-      mu_(default_env->mu_),
-      threads_to_join_(default_env->threads_to_join_),
-      allow_non_owner_access_(default_env->allow_non_owner_access_) {
-  thread_status_updater_ = default_env->thread_status_updater_;
-}
-
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,
                         void* tag, void (*unschedFunction)(void* arg)) {
   assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
@@ -495,22 +488,18 @@ Env* Env::Default() {
   CompressionContextCache::InitSingleton();
   INIT_SYNC_POINT_SINGLETONS();
   // ~PosixEnv must be called on exit
+  //**TODO: Can we make this a STATIC_AVOID_DESTRUCTION?
   static PosixEnv default_env;
   return &default_env;
-}
-
-std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
-  PosixEnv* default_env = static_cast<PosixEnv*>(Env::Default());
-  return std::unique_ptr<Env>(new PosixEnv(default_env, fs));
 }
 
 //
 // Default Posix SystemClock
 //
 const std::shared_ptr<SystemClock>& SystemClock::Default() {
-  static std::shared_ptr<SystemClock> default_clock =
-      std::make_shared<PosixClock>();
-  return default_clock;
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<SystemClock>, instance)
+  (std::make_shared<PosixClock>());
+  return instance;
 }
 }  // namespace ROCKSDB_NAMESPACE
 

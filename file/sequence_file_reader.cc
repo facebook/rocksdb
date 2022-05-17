@@ -38,6 +38,13 @@ IOStatus SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   IOStatus io_s;
   if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
+    //
+    //    |-offset_advance-|---bytes returned--|
+    //    |----------------------buf size-------------------------|
+    //    |                |                   |                  |
+    // aligned           offset          offset + n  Roundup(offset + n,
+    // offset                                             alignment)
+    //
     size_t offset = offset_.fetch_add(n);
     size_t alignment = file_->GetRequiredBufferAlignment();
     size_t aligned_offset = TruncateToPageBoundary(alignment, offset);

@@ -158,7 +158,7 @@ class WriteBufferManager final {
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
-  std::unique_ptr<CacheReservationManager> cache_res_mgr_;
+  std::shared_ptr<CacheReservationManager> cache_res_mgr_;
   // Protects cache_res_mgr_
   std::mutex cache_res_mgr_mu_;
 

@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,11 @@ class WriteBatchWithIndex;
 using TransactionName = std::string;
 
 using TransactionID = uint64_t;
+
+using TxnTimestamp = uint64_t;
+
+constexpr TxnTimestamp kMaxTxnTimestamp =
+    std::numeric_limits<TxnTimestamp>::max();
 
 /*
   class Endpoint allows to define prefix ranges.
@@ -551,6 +557,18 @@ class Transaction {
 
   virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) = 0;
 
+  // Note: data in the commit-time-write-batch bypasses concurrency control,
+  // thus should be used with great caution.
+  // For write-prepared/write-unprepared transactions,
+  // GetCommitTimeWriteBatch() can be used only if the transaction is started
+  // with
+  // `TransactionOptions::use_only_the_last_commit_time_batch_for_recovery` set
+  // to true. Otherwise, it is possible that two uncommitted versions of the
+  // same key exist in the database due to the current implementation (see the
+  // explanation in WritePreparedTxn::CommitInternal).
+  // During bottommost compaction, RocksDB may
+  // set the sequence numbers of both to zero once becoming committed, causing
+  // output SST file to have two identical internal keys.
   virtual WriteBatch* GetCommitTimeWriteBatch() = 0;
 
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
@@ -593,6 +611,14 @@ class Transaction {
   // assigns the id. Although currently it is the case, the id is not guaranteed
   // to remain the same across restarts.
   uint64_t GetId() { return id_; }
+
+  virtual Status SetReadTimestampForValidation(TxnTimestamp /*ts*/) {
+    return Status::NotSupported("timestamp not supported");
+  }
+
+  virtual Status SetCommitTimestamp(TxnTimestamp /*ts*/) {
+    return Status::NotSupported("timestamp not supported");
+  }
 
  protected:
   explicit Transaction(const TransactionDB* /*db*/) {}

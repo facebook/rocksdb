@@ -22,25 +22,6 @@ public class SstFileWriter extends RocksObject {
    *
    * @param envOptions {@link org.rocksdb.EnvOptions} instance.
    * @param options {@link org.rocksdb.Options} instance.
-   * @param comparator the comparator to specify the ordering of keys.
-   *
-   * @deprecated Use {@link #SstFileWriter(EnvOptions, Options)}.
-   * Passing an explicit comparator is deprecated in lieu of passing the
-   * comparator as part of options. Use the other constructor instead.
-   */
-  @Deprecated
-  public SstFileWriter(final EnvOptions envOptions, final Options options,
-      final AbstractComparator comparator) {
-    super(newSstFileWriter(
-        envOptions.nativeHandle_, options.nativeHandle_, comparator.nativeHandle_,
-        comparator.getComparatorType().getValue()));
-  }
-
-  /**
-   * SstFileWriter Constructor.
-   *
-   * @param envOptions {@link org.rocksdb.EnvOptions} instance.
-   * @param options {@link org.rocksdb.Options} instance.
    */
   public SstFileWriter(final EnvOptions envOptions, final Options options) {
     super(newSstFileWriter(
@@ -57,40 +38,6 @@ public class SstFileWriter extends RocksObject {
    */
   public void open(final String filePath) throws RocksDBException {
     open(nativeHandle_, filePath);
-  }
-
-  /**
-   * Add a Put key with value to currently opened file.
-   *
-   * @param key the specified key to be inserted.
-   * @param value the value associated with the specified key.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #put(Slice, Slice)}
-   */
-  @Deprecated
-  public void add(final Slice key, final Slice value)
-      throws RocksDBException {
-    put(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
-  }
-
-  /**
-   * Add a Put key with value to currently opened file.
-   *
-   * @param key the specified key to be inserted.
-   * @param value the value associated with the specified key.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   *
-   * @deprecated Use {@link #put(DirectSlice, DirectSlice)}
-   */
-  @Deprecated
-  public void add(final DirectSlice key, final DirectSlice value)
-      throws RocksDBException {
-    put(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
   }
 
   /**
@@ -244,6 +191,7 @@ public class SstFileWriter extends RocksObject {
   /**
    * Return the current file size.
    *
+   * @return the current file size.
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */

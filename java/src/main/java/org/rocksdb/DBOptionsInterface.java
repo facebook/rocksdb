@@ -948,43 +948,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
   AccessHint accessHintOnCompactionStart();
 
   /**
-   * If true, always create a new file descriptor and new table reader
-   * for compaction inputs. Turn this parameter on may introduce extra
-   * memory usage in the table reader, if it allocates extra memory
-   * for indexes. This will allow file descriptor prefetch options
-   * to be set for compaction input files and not to impact file
-   * descriptors for the same file used by user queries.
-   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
-   * for this mode if using block-based table.
-   *
-   * Default: false
-   *
-   * @param newTableReaderForCompactionInputs true if a new file descriptor and
-   *     table reader should be created for compaction inputs
-   *
-   * @return the reference to the current options.
-   */
-  T setNewTableReaderForCompactionInputs(
-      boolean newTableReaderForCompactionInputs);
-
-  /**
-   * If true, always create a new file descriptor and new table reader
-   * for compaction inputs. Turn this parameter on may introduce extra
-   * memory usage in the table reader, if it allocates extra memory
-   * for indexes. This will allow file descriptor prefetch options
-   * to be set for compaction input files and not to impact file
-   * descriptors for the same file used by user queries.
-   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
-   * for this mode if using block-based table.
-   *
-   * Default: false
-   *
-   * @return true if a new file descriptor and table reader are created for
-   *     compaction inputs
-   */
-  boolean newTableReaderForCompactionInputs();
-
-  /**
    * This is a maximum buffer size that is used by WinMmapReadableFile in
    * unbuffered disk I/O mode. We need to maintain an aligned buffer for
    * reads. We allow the buffer to grow until the specified value and then
@@ -1522,32 +1485,6 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * @return true if ingest behind is allowed, false otherwise.
    */
   boolean allowIngestBehind();
-
-  /**
-   * Needed to support differential snapshots.
-   * If set to true then DB will only process deletes with sequence number
-   * less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
-   * Clients are responsible to periodically call this method to advance
-   * the cutoff time. If this method is never called and preserve_deletes
-   * is set to true NO deletes will ever be processed.
-   * At the moment this only keeps normal deletes, SingleDeletes will
-   * not be preserved.
-   *
-   * DEFAULT: false
-   *
-   * @param preserveDeletes true to preserve deletes.
-   *
-   * @return the reference to the current options.
-   */
-  T setPreserveDeletes(final boolean preserveDeletes);
-
-  /**
-   * Returns true if deletes are preserved.
-   * See {@link #setPreserveDeletes(boolean)}.
-   *
-   * @return true if deletes are preserved, false otherwise.
-   */
-  boolean preserveDeletes();
 
   /**
    * If enabled it uses two queues for writes, one for the ones with

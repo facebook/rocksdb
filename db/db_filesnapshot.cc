@@ -45,17 +45,15 @@ Status DBImpl::FlushForGetLiveFiles() {
     }
     mutex_.Lock();
   } else {
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
+    for (auto cfd : versions_->GetRefedColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;
       }
-      cfd->Ref();
       mutex_.Unlock();
       status = FlushMemTable(cfd, FlushOptions(), FlushReason::kGetLiveFiles);
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
       mutex_.Lock();
-      cfd->UnrefAndTryDelete();
       if (!status.ok() && !status.IsColumnFamilyDropped()) {
         break;
       } else if (status.IsColumnFamilyDropped()) {
@@ -63,7 +61,6 @@ Status DBImpl::FlushForGetLiveFiles() {
       }
     }
   }
-  versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   return status;
 }
 
@@ -99,7 +96,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
               3);  // for CURRENT + MANIFEST + OPTIONS
 
   // create names of the live files. The names are not absolute
-  // paths, instead they are relative to dbname_;
+  // paths, instead they are relative to dbname_.
   for (const auto& table_file_number : live_table_files) {
     ret.emplace_back(MakeTableFileName("", table_file_number));
   }
@@ -169,7 +166,7 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 Status DBImpl::GetLiveFilesStorageInfo(
     const LiveFilesStorageInfoOptions& opts,
     std::vector<LiveFileStorageInfo>* files) {
-  // To avoid returning partial results, only move to ouput on success
+  // To avoid returning partial results, only move results to files on success.
   assert(files);
   files->clear();
   std::vector<LiveFileStorageInfo> results;
@@ -180,10 +177,10 @@ Status DBImpl::GetLiveFilesStorageInfo(
   VectorLogPtr live_wal_files;
   bool flush_memtable = true;
   if (!immutable_db_options_.allow_2pc) {
-    if (opts.wal_size_for_flush == port::kMaxUint64) {
+    if (opts.wal_size_for_flush == std::numeric_limits<uint64_t>::max()) {
       flush_memtable = false;
     } else if (opts.wal_size_for_flush > 0) {
-      // If out standing log files are small, we skip the flush.
+      // If the outstanding log files are small, we skip the flush.
       s = GetSortedWalFiles(live_wal_files);
 
       if (!s.ok()) {
@@ -260,15 +257,14 @@ Status DBImpl::GetLiveFilesStorageInfo(
       }
     }
     const auto& blob_files = vsi.GetBlobFiles();
-    for (const auto& pair : blob_files) {
-      const auto& meta = pair.second;
+    for (const auto& meta : blob_files) {
       assert(meta);
 
       results.emplace_back();
       LiveFileStorageInfo& info = results.back();
 
       info.relative_filename = BlobFileName(meta->GetBlobFileNumber());
-      info.directory = GetName();  // TODO?: support db_paths/cf_paths
+      info.directory = GetDir(/* path_id */ 0);
       info.file_number = meta->GetBlobFileNumber();
       info.file_type = kBlobFile;
       info.size = meta->GetBlobFileSize();
@@ -317,8 +313,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
     info.relative_filename = kCurrentFileName;
     info.directory = GetName();
     info.file_type = kCurrentFile;
-    // CURRENT could be replaced so we have to record the contents we want
-    // for it
+    // CURRENT could be replaced so we have to record the contents as needed.
     info.replacement_contents = manifest_fname + "\n";
     info.size = manifest_fname.size() + 1;
     if (opts.include_checksum_info) {
@@ -360,7 +355,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
 
-  // if we have more than one column family, we need to also get WAL files
+  // If we have more than one column family, we also need to get WAL files.
   if (s.ok()) {
     s = GetSortedWalFiles(live_wal_files);
   }
@@ -398,7 +393,7 @@ Status DBImpl::GetLiveFilesStorageInfo(
   }
 
   if (s.ok()) {
-    // Only move output on success
+    // Only move results to output on success.
     *files = std::move(results);
   }
   return s;

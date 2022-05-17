@@ -15,6 +15,11 @@ Some tests rely on [structure aware fuzzing](https://github.com/google/fuzzing/b
 We use [protobuf](https://developers.google.com/protocol-buffers) to define structured input to the fuzzer,
 and use [libprotobuf-mutator](https://github.com/google/libprotobuf-mutator) as the custom libFuzzer mutator.
 So make sure you have protobuf and libprotobuf-mutator installed, and make sure `pkg-config` can find them.
+On some systems, there are both protobuf2 and protobuf3 in the package management system,
+make sure protobuf3 is installed.
+
+If you do not want to install protobuf library yourself, you can rely on libprotobuf-mutator to download protobuf
+for you. For details about installation, please refer to [libprotobuf-mutator README](https://github.com/google/libprotobuf-mutator#readme)
 
 ## Example
 

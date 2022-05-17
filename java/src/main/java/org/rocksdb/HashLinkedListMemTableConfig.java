@@ -125,7 +125,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * Returns information about logging the distribution of
    *  number of entries on flush.
    *
-   * @return if distrubtion of number of entries shall be logged.
+   * @return if distribution of number of entries shall be logged.
    */
   public boolean ifLogBucketDistWhenFlush() {
     return ifLogBucketDistWhenFlush_;

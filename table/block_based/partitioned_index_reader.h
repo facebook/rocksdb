@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include "table/block_based/index_reader_common.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Index that allows binary search lookup in a two-level index structure.
@@ -49,6 +50,6 @@ class PartitionIndexReader : public BlockBasedTable::IndexReaderCommon {
   // For partition blocks pinned in cache. This is expected to be "all or
   // none" so that !partition_map_.empty() can use an iterator expecting
   // all partitions to be saved here.
-  std::unordered_map<uint64_t, CachableEntry<Block>> partition_map_;
+  UnorderedMap<uint64_t, CachableEntry<Block>> partition_map_;
 };
 }  // namespace ROCKSDB_NAMESPACE

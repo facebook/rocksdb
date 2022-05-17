@@ -13,7 +13,7 @@ public class TraceOptions {
   private final long maxTraceFileSize;
 
   public TraceOptions() {
-    this.maxTraceFileSize = 64L * 1024 * 1024 * 1024; // 64 GB
+    this.maxTraceFileSize = 64L * 1024L * 1024L * 1024L; // 64 GB
   }
 
   public TraceOptions(final long maxTraceFileSize) {

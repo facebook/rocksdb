@@ -19,7 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 void ForceReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle, true /* force_erase */);
+  cache->Release(handle, true /* erase_if_last_ref */);
 }
 
 // WART: this is specific to block-based table
@@ -43,10 +43,10 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
       computed = crc32c::Unmask(computed);
     }
     return Status::Corruption(
-        "block checksum mismatch: stored = " + ToString(stored) +
-        ", computed = " + ToString(computed) + ", type = " + ToString(type) +
-        "  in " + file_name + " offset " + ToString(offset) + " size " +
-        ToString(block_size));
+        "block checksum mismatch: stored = " + std::to_string(stored) +
+        ", computed = " + std::to_string(computed) +
+        ", type = " + std::to_string(type) + "  in " + file_name + " offset " +
+        std::to_string(offset) + " size " + std::to_string(block_size));
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

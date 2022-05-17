@@ -220,8 +220,8 @@ class PlainTableDBTest : public testing::Test,
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    EXPECT_TRUE(db_->GetProperty("rocksdb.num-files-at-level" + ToString(level),
-                                 &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
     return atoi(property.c_str());
   }
 
@@ -368,7 +368,7 @@ class TestPlainTableFactory : public PlainTableFactory {
         table_reader_options.internal_comparator, encoding_type, file_size,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_,
         std::move(props), std::move(file), table_reader_options.ioptions,
-        table_reader_options.prefix_extractor, expect_bloom_not_match_,
+        table_reader_options.prefix_extractor.get(), expect_bloom_not_match_,
         store_index_in_file_, column_family_id_, column_family_name_));
 
     *table = std::move(new_reader);
@@ -889,7 +889,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   };
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], ToString(i)));
+    ASSERT_OK(Put(key_list[i], std::to_string(i)));
   }
 
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
@@ -900,7 +900,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeys) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(ToString(i), iter->value().ToString());
+    ASSERT_EQ(std::to_string(i), iter->value().ToString());
     iter->Next();
   }
 
@@ -937,7 +937,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
       MakeLongKeyWithPrefix(26, '6')};
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], ToString(i)));
+    ASSERT_OK(Put(key_list[i], std::to_string(i)));
   }
 
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
@@ -948,7 +948,7 @@ TEST_P(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(ToString(i), iter->value().ToString());
+    ASSERT_EQ(std::to_string(i), iter->value().ToString());
     iter->Next();
   }
 

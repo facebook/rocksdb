@@ -213,8 +213,8 @@ Compaction::Compaction(
     uint32_t _output_path_id, CompressionType _compression,
     CompressionOptions _compression_opts, Temperature _output_temperature,
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
-    bool _manual_compaction, double _score, bool _deletion_compaction,
-    CompactionReason _compaction_reason)
+    bool _manual_compaction, const std::string& _trim_ts, double _score,
+    bool _deletion_compaction, CompactionReason _compaction_reason)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
@@ -237,6 +237,7 @@ Compaction::Compaction(
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
+      trim_ts_(_trim_ts),
       is_trivial_move_(false),
       compaction_reason_(_compaction_reason),
       notify_on_compaction_completion_(false) {
@@ -277,9 +278,9 @@ Compaction::~Compaction() {
 
 bool Compaction::InputCompressionMatchesOutput() const {
   int base_level = input_vstorage_->base_level();
-  bool matches = (GetCompressionType(immutable_options_, input_vstorage_,
-                                     mutable_cf_options_, start_level_,
-                                     base_level) == output_compression_);
+  bool matches =
+      (GetCompressionType(input_vstorage_, mutable_cf_options_, start_level_,
+                          base_level) == output_compression_);
   if (matches) {
     TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
     return true;
@@ -318,7 +319,8 @@ bool Compaction::IsTrivialMove() const {
   // Used in universal compaction, where trivial move can be done if the
   // input files are non overlapping
   if ((mutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
-      (output_level_ != 0)) {
+      (output_level_ != 0) &&
+      (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal)) {
     return is_trivial_move_;
   }
 
@@ -516,7 +518,7 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
     }
   }
 
-  if (max_output_file_size_ != port::kMaxUint64 &&
+  if (max_output_file_size_ != std::numeric_limits<uint64_t>::max() &&
       (immutable_options_.compaction_style == kCompactionStyleLevel ||
        output_level() > 0)) {
     preallocation_size = std::min(max_output_file_size_, preallocation_size);
@@ -614,7 +616,7 @@ bool Compaction::DoesInputReferenceBlobFiles() const {
 
 uint64_t Compaction::MinInputFileOldestAncesterTime(
     const InternalKey* start, const InternalKey* end) const {
-  uint64_t min_oldest_ancester_time = port::kMaxUint64;
+  uint64_t min_oldest_ancester_time = std::numeric_limits<uint64_t>::max();
   const InternalKeyComparator& icmp =
       column_family_data()->internal_comparator();
   for (const auto& level_files : inputs_) {

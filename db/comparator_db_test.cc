@@ -317,7 +317,7 @@ class ComparatorDBTest
 INSTANTIATE_TEST_CASE_P(FormatDef, ComparatorDBTest,
                         testing::Values(test::kDefaultFormatVersion));
 INSTANTIATE_TEST_CASE_P(FormatLatest, ComparatorDBTest,
-                        testing::Values(test::kLatestFormatVersion));
+                        testing::Values(kLatestFormatVersion));
 
 TEST_P(ComparatorDBTest, Bytewise) {
   for (int rand_seed = 301; rand_seed < 306; rand_seed++) {
@@ -397,7 +397,7 @@ TEST_P(ComparatorDBTest, DoubleComparator) {
       for (uint32_t j = 0; j < divide_order; j++) {
         to_divide *= 10.0;
       }
-      source_strings.push_back(ToString(r / to_divide));
+      source_strings.push_back(std::to_string(r / to_divide));
     }
 
     DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);

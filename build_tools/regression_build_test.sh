@@ -258,7 +258,6 @@ common_in_mem_args="--db=/dev/shm/rocksdb \
     --value_size=100 \
     --compression_type=none \
     --compression_ratio=1 \
-    --hard_rate_limit=2 \
     --write_buffer_size=134217728 \
     --max_write_buffer_number=4 \
     --level0_file_num_compaction_trigger=8 \

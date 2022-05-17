@@ -366,12 +366,18 @@ struct AdvancedColumnFamilyOptions {
                                    Slice delta_value,
                                    std::string* merged_value) = nullptr;
 
-  // if prefix_extractor is set and memtable_prefix_bloom_size_ratio is not 0,
-  // create prefix bloom for memtable with the size of
+  // Should really be called `memtable_bloom_size_ratio`. Enables a dynamic
+  // Bloom filter in memtable to optimize many queries that must go beyond
+  // the memtable. The size in bytes of the filter is
   // write_buffer_size * memtable_prefix_bloom_size_ratio.
-  // If it is larger than 0.25, it is sanitized to 0.25.
+  // * If prefix_extractor is set, the filter includes prefixes.
+  // * If memtable_whole_key_filtering, the filter includes whole keys.
+  // * If both, the filter includes both.
+  // * If neither, the feature is disabled.
   //
-  // Default: 0 (disable)
+  // If this value is larger than 0.25, it is sanitized to 0.25.
+  //
+  // Default: 0 (disabled)
   //
   // Dynamically changeable through SetOptions() API
   double memtable_prefix_bloom_size_ratio = 0.0;
@@ -380,7 +386,7 @@ struct AdvancedColumnFamilyOptions {
   // if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
   // can potentially reduce CPU usage for point-look-ups.
   //
-  // Default: false (disable)
+  // Default: false (disabled)
   //
   // Dynamically changeable through SetOptions() API
   bool memtable_whole_key_filtering = false;
@@ -415,7 +421,7 @@ struct AdvancedColumnFamilyOptions {
   // example would be updating the same key over and over again, in which case
   // the prefix can be the key itself.
   //
-  // Default: nullptr (disable)
+  // Default: nullptr (disabled)
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor = nullptr;
 
@@ -465,6 +471,14 @@ struct AdvancedColumnFamilyOptions {
   // according to compression_per_level[1], L3 using compression_per_level[2]
   // and L4 using compression_per_level[3]. Compaction for each level can
   // change when data grows.
+  //
+  // NOTE: if the vector size is smaller than the level number, the undefined
+  // lower level uses the last option in the vector, for example, for 3 level
+  // LSM tree the following settings are the same:
+  // {kNoCompression, kSnappyCompression}
+  // {kNoCompression, kSnappyCompression, kSnappyCompression}
+  //
+  // Dynamically changeable through SetOptions() API
   std::vector<CompressionType> compression_per_level;
 
   // Number of levels for this database
@@ -736,7 +750,9 @@ struct AdvancedColumnFamilyOptions {
   // LSM changes (Flush, Compaction, AddFile). When this option is true, these
   // checks are also enabled in release mode. These checks were historically
   // disabled in release mode, but are now enabled by default for proactive
-  // corruption detection, at almost no cost in extra CPU.
+  // corruption detection. The CPU overhead is negligible for normal mixed
+  // operations but can slow down saturated writing. See
+  // Options::DisableExtraChecks().
   // Default: true
   bool force_consistency_checks = true;
 
@@ -812,6 +828,8 @@ struct AdvancedColumnFamilyOptions {
   // If this option is set, when creating bottommost files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
+  //
+  // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
 
   // When set, large values (blobs) are written to separate blob files, and
@@ -907,29 +925,6 @@ struct AdvancedColumnFamilyOptions {
   explicit AdvancedColumnFamilyOptions(const Options& options);
 
   // ---------------- OPTIONS NOT SUPPORTED ANYMORE ----------------
-
-  // NOT SUPPORTED ANYMORE
-  // This does not do anything anymore.
-  int max_mem_compaction_level;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  // Puts are delayed to options.delayed_write_rate when any level has a
-  // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
-  //
-  // Default: 0 (disabled)
-  //
-  // Dynamically changeable through SetOptions() API
-  double soft_rate_limit = 0.0;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  double hard_rate_limit = 0.0;
-
-  // NOT SUPPORTED ANYMORE -- this options is no longer used
-  unsigned int rate_limit_delay_max_milliseconds = 100;
-
-  // NOT SUPPORTED ANYMORE
-  // Does not have any effect.
-  bool purge_redundant_kvs_while_flush = true;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
