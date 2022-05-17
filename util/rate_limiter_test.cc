@@ -36,7 +36,7 @@ class RateLimiterTest : public testing::Test {
 };
 
 TEST_F(RateLimiterTest, OverflowRate) {
-  GenericRateLimiter limiter(port::kMaxInt64, 1000, 10,
+  GenericRateLimiter limiter(std::numeric_limits<int64_t>::max(), 1000, 10,
                              RateLimiter::Mode::kWritesOnly,
                              SystemClock::Default(), false /* auto_tuned */);
   ASSERT_GT(limiter.GetSingleBurstBytes(), 1000000000ll);

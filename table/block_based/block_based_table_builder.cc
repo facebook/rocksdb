@@ -328,7 +328,7 @@ struct BlockBasedTableBuilder::Rep {
   // `kBuffered` state is allowed only as long as the buffering of uncompressed
   // data blocks (see `data_block_buffers`) does not exceed `buffer_limit`.
   uint64_t buffer_limit;
-  std::unique_ptr<CacheReservationManager>
+  std::shared_ptr<CacheReservationManager>
       compression_dict_buffer_cache_res_mgr;
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
@@ -461,12 +461,24 @@ struct BlockBasedTableBuilder::Rep {
       buffer_limit = std::min(tbo.target_file_size,
                               compression_opts.max_dict_buffer_bytes);
     }
-    if (table_options.no_block_cache || table_options.block_cache == nullptr) {
-      compression_dict_buffer_cache_res_mgr.reset(nullptr);
+
+    const auto compress_dict_build_buffer_charged =
+        table_options.cache_usage_options.options_overrides
+            .at(CacheEntryRole::kCompressionDictionaryBuildingBuffer)
+            .charged;
+    if (table_options.block_cache &&
+        (compress_dict_build_buffer_charged ==
+             CacheEntryRoleOptions::Decision::kEnabled ||
+         compress_dict_build_buffer_charged ==
+             CacheEntryRoleOptions::Decision::kFallback)) {
+      compression_dict_buffer_cache_res_mgr =
+          std::make_shared<CacheReservationManagerImpl<
+              CacheEntryRole::kCompressionDictionaryBuildingBuffer>>(
+              table_options.block_cache);
     } else {
-      compression_dict_buffer_cache_res_mgr.reset(
-          new CacheReservationManager(table_options.block_cache));
+      compression_dict_buffer_cache_res_mgr = nullptr;
     }
+
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -940,14 +952,13 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
             (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
         bool exceeds_global_block_cache_limit = false;
 
-        // Increase cache reservation for the last buffered data block
+        // Increase cache charging for the last buffered data block
         // only if the block is not going to be unbuffered immediately
         // and there exists a cache reservation manager
         if (!exceeds_buffer_limit &&
             r->compression_dict_buffer_cache_res_mgr != nullptr) {
           Status s =
-              r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
-                  CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+              r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
                   r->data_begin_offset);
           exceeds_global_block_cache_limit = s.IsIncomplete();
         }
@@ -1605,7 +1616,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
                 ? BlockBasedTable::kPartitionedFilterBlockPrefix
                 : BlockBasedTable::kFullFilterBlockPrefix;
     }
-    key.append(rep_->table_options.filter_policy->Name());
+    key.append(rep_->table_options.filter_policy->CompatibilityName());
     meta_index_builder->Add(key, filter_block_handle);
   }
 }
@@ -1975,8 +1986,7 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   r->data_begin_offset = 0;
   // Release all reserved cache for data block buffers
   if (r->compression_dict_buffer_cache_res_mgr != nullptr) {
-    Status s = r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation<
-        CacheEntryRole::kCompressionDictionaryBuildingBuffer>(
+    Status s = r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
         r->data_begin_offset);
     s.PermitUncheckedError();
   }

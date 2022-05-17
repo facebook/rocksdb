@@ -628,7 +628,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       TestKey test_key(prefix, FLAGS_items_per_prefix / 2);
       std::string s;
       Slice key = TestKeyToSlice(s, test_key);
-      std::string value = "v" + ToString(0);
+      std::string value = "v" + std::to_string(0);
 
       get_perf_context()->Reset();
       StopWatchNano timer(SystemClock::Default().get(), true);

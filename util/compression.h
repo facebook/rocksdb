@@ -49,8 +49,10 @@
 #include <zstd.h>
 #if ZSTD_VERSION_NUMBER >= 10103  // v1.1.3+
 #include <zdict.h>
-#define ZSTD_STREAMING
 #endif  // ZSTD_VERSION_NUMBER >= 10103
+#if ZSTD_VERSION_NUMBER >= 10400  // v1.4.0+
+#define ZSTD_STREAMING
+#endif  // ZSTD_VERSION_NUMBER >= 10400
 namespace ROCKSDB_NAMESPACE {
 // Need this for the context allocation override
 // On windows we need to do this explicitly
@@ -516,8 +518,8 @@ inline bool ZSTDNotFinal_Supported() {
 }
 
 inline bool ZSTD_Streaming_Supported() {
-#ifdef ZSTD
-  return ZSTD_versionNumber() >= 10300;
+#if defined(ZSTD) && defined(ZSTD_STREAMING)
+  return true;
 #else
   return false;
 #endif
@@ -631,25 +633,25 @@ inline std::string CompressionOptionsToString(
   std::string result;
   result.reserve(512);
   result.append("window_bits=")
-      .append(ToString(compression_options.window_bits))
+      .append(std::to_string(compression_options.window_bits))
       .append("; ");
   result.append("level=")
-      .append(ToString(compression_options.level))
+      .append(std::to_string(compression_options.level))
       .append("; ");
   result.append("strategy=")
-      .append(ToString(compression_options.strategy))
+      .append(std::to_string(compression_options.strategy))
       .append("; ");
   result.append("max_dict_bytes=")
-      .append(ToString(compression_options.max_dict_bytes))
+      .append(std::to_string(compression_options.max_dict_bytes))
       .append("; ");
   result.append("zstd_max_train_bytes=")
-      .append(ToString(compression_options.zstd_max_train_bytes))
+      .append(std::to_string(compression_options.zstd_max_train_bytes))
       .append("; ");
   result.append("enabled=")
-      .append(ToString(compression_options.enabled))
+      .append(std::to_string(compression_options.enabled))
       .append("; ");
   result.append("max_dict_buffer_bytes=")
-      .append(ToString(compression_options.max_dict_buffer_bytes))
+      .append(std::to_string(compression_options.max_dict_buffer_bytes))
       .append("; ");
   return result;
 }
@@ -779,7 +781,8 @@ inline bool Zlib_Compress(const CompressionInfo& info,
   }
 
   // Get an upper bound on the compressed size.
-  size_t upper_bound = deflateBound(&_stream, length);
+  size_t upper_bound =
+      deflateBound(&_stream, static_cast<unsigned long>(length));
   output->resize(output_header_len + upper_bound);
 
   // Compress the input, and put compressed data in output.

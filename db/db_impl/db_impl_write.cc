@@ -129,7 +129,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          PreReleaseCallback* pre_release_callback) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   if (my_batch == nullptr) {
-    return Status::Corruption("Batch is nullptr!");
+    return Status::InvalidArgument("Batch is nullptr!");
   } else if (!disable_memtable &&
              WriteBatchInternal::TimestampsUpdateNeeded(*my_batch)) {
     // If writing to memtable, then we require the caller to set/update the
@@ -1205,18 +1205,8 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
     *log_used = logfile_number_;
   }
   total_log_size_ += log_entry.size();
-#if defined(__has_feature)
-#if __has_feature(thread_sanitizer)
   if (with_db_mutex || with_log_mutex) {
-#endif  // __has_feature(thread_sanitizer)
-#endif  // defined(__has_feature)
     assert(alive_log_files_tail_ == alive_log_files_.rbegin());
-#if defined(__has_feature)
-#if __has_feature(thread_sanitizer)
-  }
-#endif  // __has_feature(thread_sanitizer)
-#endif  // defined(__has_feature)
-  if (with_db_mutex || with_log_mutex) {
     assert(alive_log_files_tail_ != alive_log_files_.rend());
   }
   LogFileNumberSize& last_alive_log = *alive_log_files_tail_;
@@ -1892,9 +1882,11 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
     return;
   }
 
+  mutex_.Unlock();
   for (auto listener : immutable_db_options_.listeners) {
     listener->OnMemTableSealed(mem_table_info);
   }
+  mutex_.Lock();
 }
 #endif  // ROCKSDB_LITE
 
@@ -2095,11 +2087,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                                      mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
-  mutex_.Unlock();
   // Notify client that memtable is sealed, now that we have successfully
   // installed a new memtable
   NotifyOnMemTableSealed(cfd, memtable_info);
-  mutex_.Lock();
 #endif  // ROCKSDB_LITE
   // It is possible that we got here without checking the value of i_os, but
   // that is okay.  If we did, it most likely means that s was already an error.

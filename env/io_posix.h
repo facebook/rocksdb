@@ -66,12 +66,13 @@ struct Posix_IOHandle {
 
 inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
                          size_t len, size_t iov_len, bool async_read,
-                         size_t& finished_len, FSReadRequest* req) {
+                         size_t& finished_len, FSReadRequest* req,
+                         size_t& bytes_read) {
   if (cqe->res < 0) {
     req->result = Slice(req->scratch, 0);
     req->status = IOError("Req failed", file_name, cqe->res);
   } else {
-    size_t bytes_read = static_cast<size_t>(cqe->res);
+    bytes_read = static_cast<size_t>(cqe->res);
     TEST_SYNC_POINT_CALLBACK("UpdateResults::io_uring_result", &bytes_read);
     if (bytes_read == iov_len) {
       req->result = Slice(req->scratch, req->len);

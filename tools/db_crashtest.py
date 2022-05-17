@@ -24,6 +24,10 @@ import argparse
 #       cf_consistency_params < args
 #   for txn:
 #       default_params < {blackbox,whitebox}_default_params < txn_params < args
+#   for ts:
+#       default_params < {blackbox,whitebox}_default_params < ts_params < args
+#   for multiops_txn:
+#       default_params < {blackbox,whitebox}_default_params < multiops_txn_params < args
 
 
 default_params = {
@@ -37,6 +41,9 @@ default_params = {
                                          random.lognormvariate(2.3, 1.3)]),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 8388608,
+    "charge_compression_dictionary_building_buffer": lambda: random.choice([0, 1]),
+    "charge_filter_construction": lambda: random.choice([0, 1]),
+    "charge_table_reader": lambda: random.choice([0, 1]),
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
@@ -127,7 +134,9 @@ default_params = {
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync" : lambda : random.choice(
         [1 if t == 0 else 0 for t in range(0, 20)]),
-    # Disable compation_readahead_size because the test is not passing.
+    "bytes_per_sync": lambda: random.choice([0, 262144]),
+    "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
+    # Disable compaction_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
     "db_write_buffer_size" : lambda: random.choice(
@@ -148,7 +157,9 @@ default_params = {
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
-    "sync_fault_injection": False,
+    "sync_fault_injection": 0,
+    # TODO: reenable after investigating failure
+    # "sync_fault_injection": lambda: random.randint(0, 1),
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
@@ -159,6 +170,9 @@ default_params = {
     "memtable_prefix_bloom_size_ratio": lambda: random.choice([0.001, 0.01, 0.1, 0.5]),
     "memtable_whole_key_filtering": lambda: random.randint(0, 1),
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
+    "adaptive_readahead": lambda: random.choice([0, 1]),
+    "async_io": lambda: random.choice([0, 1]),
+    "wal_compression": lambda: random.choice(["none", "zstd"]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -198,6 +212,23 @@ def setup_expected_values_dir():
             shutil.rmtree(expected_values_dir)
         os.mkdir(expected_values_dir)
     return expected_values_dir
+
+multiops_txn_key_spaces_file = None
+def setup_multiops_txn_key_spaces_file():
+    global multiops_txn_key_spaces_file
+    if multiops_txn_key_spaces_file is not None:
+        return multiops_txn_key_spaces_file
+    key_spaces_file_prefix = "rocksdb_crashtest_multiops_txn_key_spaces"
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+    if test_tmpdir is None or test_tmpdir == "":
+        multiops_txn_key_spaces_file = tempfile.mkstemp(
+                prefix=key_spaces_file_prefix)[1]
+    else:
+        if not os.path.exists(test_tmpdir):
+            os.mkdir(test_tmpdir)
+        multiops_txn_key_spaces_file = tempfile.mkstemp(
+                prefix=key_spaces_file_prefix, dir=test_tmpdir)[1]
+    return multiops_txn_key_spaces_file
 
 
 def is_direct_io_supported(dbname):
@@ -284,10 +315,10 @@ txn_params = {
 }
 
 best_efforts_recovery_params = {
-    "best_efforts_recovery": True,
-    "skip_verifydb": True,
-    "verify_db_one_in": 0,
-    "continuous_verification_interval": 0,
+    "best_efforts_recovery": 1,
+    "atomic_flush": 0,
+    "disable_wal": 1,
+    "column_families": 1,
 }
 
 blob_params = {
@@ -323,9 +354,73 @@ ts_params = {
     "use_block_based_filter": 0,
 }
 
+multiops_txn_default_params = {
+    "test_cf_consistency": 0,
+    "test_batches_snapshots": 0,
+    "test_multi_ops_txns": 1,
+    "use_txn": 1,
+    "two_write_queues": lambda: random.choice([0, 1]),
+    # TODO: enable write-prepared
+    "disable_wal": 0,
+    "use_only_the_last_commit_time_batch_for_recovery": lambda: random.choice([0, 1]),
+    "clear_column_family_one_in": 0,
+    "column_families": 1,
+    "enable_pipelined_write": lambda: random.choice([0, 1]),
+    # This test already acquires snapshots in reads
+    "acquire_snapshot_one_in": 0,
+    "backup_one_in": 0,
+    "writepercent": 0,
+    "delpercent": 0,
+    "delrangepercent": 0,
+    "customopspercent": 80,
+    "readpercent": 5,
+    "iterpercent": 15,
+    "prefixpercent": 0,
+    "verify_db_one_in": 1000,
+    "continuous_verification_interval": 1000,
+    "delay_snapshot_read_one_in": 3,
+    # 65536 is the smallest possible value for write_buffer_size. Smaller
+    # values will be sanitized to 65536 during db open. SetOptions currently
+    # does not sanitize options, but very small write_buffer_size may cause
+    # assertion failure in
+    # https://github.com/facebook/rocksdb/blob/7.0.fb/db/memtable.cc#L117.
+    "write_buffer_size": 65536,
+    # flush more frequently to generate more files, thus trigger more
+    # compactions.
+    "flush_one_in": 1000,
+    "key_spaces_path": setup_multiops_txn_key_spaces_file(),
+    "rollback_one_in":  4,
+    # Re-enable once we have a compaction for MultiOpsTxnStressTest
+    "enable_compaction_filter": 0,
+}
+
+multiops_wc_txn_params = {
+    "txn_write_policy": 0,
+    # TODO re-enable pipelined write. Not well tested atm
+    "enable_pipelined_write": 0,
+}
+
+multiops_wp_txn_params = {
+    "txn_write_policy": 1,
+    "wp_snapshot_cache_bits": 1,
+    # try small wp_commit_cache_bits, e.g. 0 once we explore storing full
+    # commit sequence numbers in commit cache
+    "wp_commit_cache_bits": 10,
+    # pipeline write is not currnetly compatible with WritePrepared txns
+    "enable_pipelined_write": 0,
+    # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
+    "checkpoint_one_in": 0,
+    # Required to be 1 in order to use commit-time-batch
+    "use_only_the_last_commit_time_batch_for_recovery": 1,
+    "recycle_log_file_num": 0,
+    "clear_wp_commit_cache_one_in": 10,
+}
+
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
+    if is_release_mode():
+        dest_params['read_fault_one_in'] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
         dest_params["compression_zstd_max_train_bytes"] = 0
         dest_params["compression_max_dict_buffer_bytes"] = 0
@@ -407,6 +502,15 @@ def finalize_and_sanitize(src_params):
     if (dest_params.get("prefix_size") == -1 and
         dest_params.get("memtable_whole_key_filtering") == 0):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
+    if dest_params.get("two_write_queues") == 1:
+        dest_params["enable_pipelined_write"] = 0
+    if dest_params.get("best_efforts_recovery") == 1:
+      dest_params["disable_wal"] = 1
+      dest_params["atomic_flush"] = 0
+      dest_params["enable_compaction_filter"] = 0
+      dest_params["sync"] = 0
+      dest_params["write_fault_one_in"] = 0
+
     return dest_params
 
 def gen_cmd_params(args):
@@ -431,6 +535,12 @@ def gen_cmd_params(args):
         params.update(best_efforts_recovery_params)
     if args.enable_ts:
         params.update(ts_params)
+    if args.test_multiops_txn:
+        params.update(multiops_txn_default_params)
+        if args.write_policy == 'write_committed':
+            params.update(multiops_wc_txn_params)
+        elif args.write_policy == 'write_prepared':
+            params.update(multiops_wp_txn_params)
 
     # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
     # if specified on the command line; otherwise, apply BlobDB related overrides
@@ -453,46 +563,11 @@ def gen_cmd(params, unknown_params):
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
-                         'test_best_efforts_recovery', 'enable_ts', 'stress_cmd'])
+                         'test_best_efforts_recovery', 'enable_ts',
+                         'test_multiops_txn', 'write_policy', 'stress_cmd'])
         and v is not None] + unknown_params
     return cmd
 
-
-# Inject inconsistency to db directory.
-def inject_inconsistencies_to_db_dir(dir_path):
-    files = os.listdir(dir_path)
-    file_num_rgx = re.compile(r'(?P<number>[0-9]{6})')
-    largest_fnum = 0
-    for f in files:
-        m = file_num_rgx.search(f)
-        if m and not f.startswith('LOG'):
-            largest_fnum = max(largest_fnum, int(m.group('number')))
-
-    candidates = [
-        f for f in files if re.search(r'[0-9]+\.sst', f)
-    ]
-    deleted = 0
-    corrupted = 0
-    for f in candidates:
-        rnd = random.randint(0, 99)
-        f_path = os.path.join(dir_path, f)
-        if rnd < 10:
-            os.unlink(f_path)
-            deleted = deleted + 1
-        elif 10 <= rnd and rnd < 30:
-            with open(f_path, "a") as fd:
-                fd.write('12345678')
-            corrupted = corrupted + 1
-    print('Removed %d table files' % deleted)
-    print('Corrupted %d table files' % corrupted)
-
-    # Add corrupted MANIFEST and SST
-    for num in range(largest_fnum + 1, largest_fnum + 10):
-        rnd = random.randint(0, 1)
-        fname = ("MANIFEST-%06d" % num) if rnd == 0 else ("%06d.sst" % num)
-        print('Write %s' % fname)
-        with open(os.path.join(dir_path, fname), "w") as fd:
-            fd.write("garbage")
 
 def execute_cmd(cmd, timeout):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE,
@@ -546,9 +621,6 @@ def blackbox_crash_main(args, unknown_args):
                 print('***' + line + '***')
 
         time.sleep(1)  # time to stabilize before the next run
-
-        if args.test_best_efforts_recovery:
-            inject_inconsistencies_to_db_dir(dbname)
 
         time.sleep(1)  # time to stabilize before the next run
 
@@ -713,6 +785,8 @@ def main():
     parser.add_argument("--txn", action='store_true')
     parser.add_argument("--test_best_efforts_recovery", action='store_true')
     parser.add_argument("--enable_ts", action='store_true')
+    parser.add_argument("--test_multiops_txn", action='store_true')
+    parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
 
     all_params = dict(list(default_params.items())
@@ -722,7 +796,10 @@ def main():
                       + list(blackbox_simple_default_params.items())
                       + list(whitebox_simple_default_params.items())
                       + list(blob_params.items())
-                      + list(ts_params.items()))
+                      + list(ts_params.items())
+                      + list(multiops_txn_default_params.items())
+                      + list(multiops_wc_txn_params.items())
+                      + list(multiops_wp_txn_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
@@ -744,6 +821,8 @@ def main():
     # Only delete the `expected_values_dir` if test passes
     if expected_values_dir is not None:
         shutil.rmtree(expected_values_dir)
+    if multiops_txn_key_spaces_file is not None:
+        os.remove(multiops_txn_key_spaces_file)
 
 
 if __name__ == '__main__':

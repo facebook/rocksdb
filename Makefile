@@ -8,7 +8,7 @@
 
 BASH_EXISTS := $(shell which bash)
 SHELL := $(shell which bash)
-include python.mk
+include common.mk
 
 CLEAN_FILES = # deliberately empty, so we can append below.
 CFLAGS += ${EXTRA_CFLAGS}
@@ -232,14 +232,20 @@ include make_config.mk
 
 ROCKSDB_PLUGIN_MKS = $(foreach plugin, $(ROCKSDB_PLUGINS), plugin/$(plugin)/*.mk)
 include $(ROCKSDB_PLUGIN_MKS)
-ROCKSDB_PLUGIN_SOURCES = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach source, $($(plugin)_SOURCES), plugin/$(plugin)/$(source)))
-ROCKSDB_PLUGIN_HEADERS = $(foreach plugin, $(ROCKSDB_PLUGINS), $(foreach header, $($(plugin)_HEADERS), plugin/$(plugin)/$(header)))
+ROCKSDB_PLUGIN_PROTO =ROCKSDB_NAMESPACE::ObjectLibrary\&, const std::string\&
+ROCKSDB_PLUGIN_SOURCES = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach source, $($(p)_SOURCES), plugin/$(p)/$(source)))
+ROCKSDB_PLUGIN_HEADERS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach header, $($(p)_HEADERS), plugin/$(p)/$(header)))
+ROCKSDB_PLUGIN_LIBS = $(foreach p, $(ROCKSDB_PLUGINS), $(foreach lib, $($(p)_LIBS), -l$(lib)))
+ROCKSDB_PLUGIN_W_FUNCS = $(foreach p, $(ROCKSDB_PLUGINS), $(if $($(p)_FUNC), $(p)))
+ROCKSDB_PLUGIN_EXTERNS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), int $($(p)_FUNC)($(ROCKSDB_PLUGIN_PROTO));)
+ROCKSDB_PLUGIN_BUILTINS = $(foreach p, $(ROCKSDB_PLUGIN_W_FUNCS), {\"$(p)\"\, $($(p)_FUNC)}\,)
+ROCKSDB_PLUGIN_LDFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
 ROCKSDB_PLUGIN_PKGCONFIG_REQUIRES = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_PKGCONFIG_REQUIRES))
+
 CXXFLAGS += $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_CXXFLAGS))
+PLATFORM_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 
 # Patch up the link flags for JNI from the plugins
-ROCKSDB_PLUGIN_LDFLAGS = $(foreach plugin, $(ROCKSDB_PLUGINS), $($(plugin)_LDFLAGS))
-PLATFORM_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 JAVA_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 JAVA_STATIC_LDFLAGS += $(ROCKSDB_PLUGIN_LDFLAGS)
 
@@ -282,7 +288,7 @@ missing_make_config_paths := $(shell				\
 	grep "\./\S*\|/\S*" -o $(CURDIR)/make_config.mk | 	\
 	while read path;					\
 		do [ -e $$path ] || echo $$path; 		\
-	done | sort | uniq)
+	done | sort | uniq | grep -v "/DOES/NOT/EXIST")
 
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) does not exist))
@@ -334,6 +340,8 @@ endif
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
 	DISABLE_JEMALLOC=1
+	ASAN_OPTIONS?=detect_stack_use_after_return=1
+	export ASAN_OPTIONS
 	EXEC_LDFLAGS += -fsanitize=address
 	PLATFORM_CCFLAGS += -fsanitize=address
 	PLATFORM_CXXFLAGS += -fsanitize=address
@@ -394,6 +402,10 @@ ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
+		ifeq ($(USE_FOLLY),1)
+			PLATFORM_CXXFLAGS += -DUSE_JEMALLOC
+			PLATFORM_CCFLAGS  += -DUSE_JEMALLOC
+		endif
 	endif
 	ifdef WITH_JEMALLOC_FLAG
 		PLATFORM_LDFLAGS += -ljemalloc
@@ -404,8 +416,8 @@ ifndef DISABLE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
-ifndef USE_FOLLY_DISTRIBUTED_MUTEX
-	USE_FOLLY_DISTRIBUTED_MUTEX=0
+ifndef USE_FOLLY
+	USE_FOLLY=0
 endif
 
 ifndef GTEST_THROW_ON_FAILURE
@@ -425,8 +437,12 @@ else
 	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 endif
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	FOLLY_DIR = ./third-party/folly
+# This provides a Makefile simulation of a Meta-internal folly integration.
+# It is not validated for general use.
+ifeq ($(USE_FOLLY),1)
+	ifeq (,$(FOLLY_DIR))
+		FOLLY_DIR = ./third-party/folly
+	endif
 	# AIX: pre-defined system headers are surrounded by an extern "C" block
 	ifeq ($(PLATFORM), OS_AIX)
 		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
@@ -435,6 +451,8 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
 		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
 	endif
+	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
@@ -521,7 +539,7 @@ LIB_OBJECTS += $(patsubst %.c, $(OBJ_DIR)/%.o, $(LIB_SOURCES_C))
 LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
 endif
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+ifeq ($(USE_FOLLY),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
@@ -556,11 +574,6 @@ ALL_SOURCES += $(ROCKSDB_PLUGIN_SOURCES)
 TESTS = $(patsubst %.cc, %, $(notdir $(TEST_MAIN_SOURCES)))
 TESTS += $(patsubst %.c, %, $(notdir $(TEST_MAIN_SOURCES_C)))
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	TESTS += folly_synchronization_distributed_mutex_test
-	ALL_SOURCES += third-party/folly/folly/synchronization/test/DistributedMutexTest.cc
-endif
-
 # `make check-headers` to very that each header file includes its own
 # dependencies
 ifneq ($(filter check-headers, $(MAKECMDGOALS)),)
@@ -585,9 +598,6 @@ am__v_CCH_1 =
 check-headers: $(HEADER_OK_FILES)
 
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
-ifdef COMPILE_WITH_UBSAN
-TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
-endif
 ifdef ASSERT_STATUS_CHECKED
 # TODO: finish fixing all tests to pass this check
 TESTS_FAILING_ASC = \
@@ -607,10 +617,13 @@ ROCKSDBTESTS_SUBSET ?= $(TESTS)
 # env_test - suspicious use of test::TmpDir
 # deletefile_test - serial because it generates giant temporary files in
 #   its various tests. Parallel can fill up your /dev/shm
+# db_bloom_filter_test - serial because excessive space usage by instances
+#   of DBFilterConstructionReserveMemoryTestWithParam can fill up /dev/shm
 NON_PARALLEL_TEST = \
 	c_test \
 	env_test \
 	deletefile_test \
+	db_bloom_filter_test \
 
 PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
 
@@ -728,7 +741,7 @@ else
 	git_mod  := $(shell git diff-index HEAD --quiet 2>/dev/null; echo $$?)
 	git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
 endif
-gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ util/build_version.cc.in
+gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ -e s/@ROCKSDB_PLUGIN_BUILTINS@/'$(ROCKSDB_PLUGIN_BUILTINS)'/ -e s/@ROCKSDB_PLUGIN_EXTERNS@/"$(ROCKSDB_PLUGIN_EXTERNS)"/ util/build_version.cc.in
 
 # Record the version of the source that we are compiling.
 # We keep a record of the git revision in this file.  It is then built
@@ -782,15 +795,10 @@ $(SHARED4): $(LIB_OBJECTS)
 	$(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(LIB_OBJECTS) $(LDFLAGS) -o $@
 endif  # PLATFORM_SHARED_EXT
 
-.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
-	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
-	analyze tools tools_lib check-headers \
-	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
-	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
-	blackbox_crash_test_with_best_efforts_recovery \
-	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
-
+.PHONY: check clean coverage ldb_tests package dbg gen-pc build_size \
+	release tags tags0 valgrind_check format static_lib shared_lib all \
+	rocksdbjavastatic rocksdbjava install install-static install-shared \
+	uninstall analyze tools tools_lib check-headers checkout_folly
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
@@ -824,20 +832,8 @@ release: clean
 coverage: clean
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
 	cd coverage && ./coverage_test.sh
-        # Delete intermediate files
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
-
-ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
-# Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
-# and create a randomly-named rocksdb.XXXX directory therein.
-# We'll use that directory in the "make check" rules.
-ifeq ($(TMPD),)
-TMPDIR := $(shell echo $${TMPDIR:-/tmp})
-TMPD := $(shell f=/dev/shm; test -k $$f || f=$(TMPDIR);     \
-  perl -le 'use File::Temp "tempdir";'					\
-    -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
-endif
-endif
+	# Delete intermediate files
+	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
 # Run all tests in parallel, accumulating per-test logs in t/log-*.
 #
@@ -878,7 +874,7 @@ $(parallel_tests):
 		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
     printf '%s\n' \
       '#!/bin/sh' \
-      "d=\$(TMPD)$$TEST_SCRIPT" \
+      "d=\$(TEST_TMPDIR)$$TEST_SCRIPT" \
       'mkdir -p $$d' \
       "TEST_TMPDIR=\$$d $(DRIVER) ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
 		> $$TEST_SCRIPT; \
@@ -907,7 +903,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*MySQLStyleTransactionTest.*$$|^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -938,7 +934,6 @@ endif
 
 .PHONY: check_0
 check_0:
-	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
@@ -949,7 +944,8 @@ check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(EXCLUDE_TESTS_REGEX)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu '{} $(parallel_redir)' ; \
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu \
+	    --tmpdir=$(TEST_TMPDIR) '{} $(parallel_redir)' ; \
 	parallel_retcode=$$? ; \
 	awk '{ if ($$7 != 0 || $$8 != 0) { if ($$7 == "Exitval") { h = $$0; } else { if (!f) print h; print; f = 1 } } } END { if(f) exit 1; }' < LOG ; \
 	awk_retcode=$$?; \
@@ -960,7 +956,6 @@ valgrind-exclude-regexp = InlineSkipTest.ConcurrentInsert|TransactionStressTest.
 .PHONY: valgrind_check_0
 valgrind_check_0: test_log_prefix := valgrind_
 valgrind_check_0:
-	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
@@ -972,10 +967,11 @@ valgrind_check_0:
 	  | grep -E '$(tests-regexp)'					\
 	  | grep -E -v '$(valgrind-exclude-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG --eta --gnu \
-	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) \
+	   --tmpdir=$(TEST_TMPDIR) \
+	   '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) \
 	  $(parallel_redir)' \
 
-CLEAN_FILES += t LOG $(TMPD)
+CLEAN_FILES += t LOG $(TEST_TMPDIR)
 
 # When running parallel "make check", you can monitor its progress
 # from another window.
@@ -998,12 +994,12 @@ check: all
 	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
+	    $(MAKE) T="$$t" check_0;                       \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
 	      echo "===== Running $$t (`date`)"; ./$$t || exit 1; done;          \
 	fi
-	rm -rf $(TMPD)
+	rm -rf $(TEST_TMPDIR)
 ifneq ($(PLATFORM), OS_AIX)
 	$(PYTHON) tools/check_all_python.py
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
@@ -1100,11 +1096,11 @@ valgrind_test_some:
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
-	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
+	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-      $(MAKE) TMPD=$(TMPD)                                        \
-      DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0; \
+	  $(MAKE)                                                       \
+	  DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0;   \
 	else                                                            \
 		for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
 			$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
@@ -1124,51 +1120,12 @@ valgrind_check_some: $(ROCKSDBTESTS_SUBSET)
 		fi; \
 	done
 
-ifneq ($(PAR_TEST),)
-parloop:
-	ret_bad=0;							\
-	for t in $(PAR_TEST); do		\
-		echo "===== Running $$t in parallel $(NUM_PAR) (`date`)";\
-		if [ $(db_test) -eq 1 ]; then \
-			seq $(J) | v="$$t" build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
-				'timeout 2m ./db_test --gtest_filter=$$v >> $$s/log-{} 2>1'; \
-		else\
-			seq $(J) | v="./$$t" build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{};' \
-			     'export TEST_TMPDIR=$$s; timeout 10m $$v >> $$s/log-{} 2>1'; \
-		fi; \
-		ret_code=$$?; \
-		if [ $$ret_code -ne 0 ]; then \
-			ret_bad=$$ret_code; \
-			echo $$t exited with $$ret_code; \
-		fi; \
-	done; \
-	exit $$ret_bad;
-endif
-
 test_names = \
   ./db_test --gtest_list_tests						\
     | perl -n								\
       -e 's/ *\#.*//;'							\
       -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
       -e 'print qq! $$p$$2!'
-
-parallel_check: $(TESTS)
-	$(AM_V_GEN)if test "$(J)" > 1                                  \
-	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
-	        grep -q 'GNU Parallel';                                 \
-	then                                                            \
-	    echo Running in parallel $(J);			\
-	else                                                            \
-	    echo "Need to have GNU Parallel and J > 1"; exit 1;		\
-	fi;								\
-	ret_bad=0;							\
-	echo $(J);\
-	echo Test Dir: $(TMPD); \
-        seq $(J) | build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
-	$(MAKE)  PAR_TEST="$(shell $(test_names))" TMPD=$(TMPD) \
-		J=$(J) db_test=1 parloop; \
-	$(MAKE) PAR_TEST="$(filter-out db_test, $(TESTS))" \
-		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
 
 analyze: clean
 	USE_CLANG=1 $(MAKE) analyze_incremental
@@ -1212,9 +1169,9 @@ clean-rocks:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(PARALLEL_TEST) $(ALL_STATIC_LIBS) $(ALL_SHARED_LIBS) $(MICROBENCHS)
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	$(FIND) . -name "*.[oda]" -exec rm -f {} \;
-	$(FIND) . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm -f {} \;
+	$(FIND) . -type f \( -name "*.gcda" -o -name "*.gcno" \) -exec rm -f {} \;
 
-clean-rocksjava:
+clean-rocksjava: clean-rocks
 	rm -rf jl jls
 	cd java && $(MAKE) clean
 
@@ -1298,11 +1255,6 @@ trace_analyzer: $(OBJ_DIR)/tools/trace_analyzer.o $(ANALYZE_OBJECTS) $(TOOLS_LIB
 block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_trace_analyzer_tool.o $(ANALYZE_OBJECTS) $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-folly_synchronization_distributed_mutex_test: $(OBJ_DIR)/third-party/folly/folly/synchronization/test/DistributedMutexTest.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-endif
-
 cache_bench: $(OBJ_DIR)/cache/cache_bench.o $(CACHE_BENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1367,6 +1319,9 @@ ribbon_test: $(OBJ_DIR)/util/ribbon_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/option_change_migration_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+agg_merge_test: $(OBJ_DIR)/utilities/agg_merge/agg_merge_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 stringappend_test: $(OBJ_DIR)/utilities/merge_operators/string_append/stringappend_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1549,7 +1504,7 @@ perf_context_test: $(OBJ_DIR)/db/perf_context_test.o $(TEST_LIBRARY) $(LIBRARY)
 prefix_test: $(OBJ_DIR)/db/prefix_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-backupable_db_test: $(OBJ_DIR)/utilities/backupable/backupable_db_test.o $(TEST_LIBRARY) $(LIBRARY)
+backup_engine_test: $(OBJ_DIR)/utilities/backup/backup_engine_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 checkpoint_test: $(OBJ_DIR)/utilities/checkpoint/checkpoint_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1840,7 +1795,7 @@ statistics_test: $(OBJ_DIR)/monitoring/statistics_test.o $(TEST_LIBRARY) $(LIBRA
 stats_history_test: $(OBJ_DIR)/monitoring/stats_history_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-lru_secondary_cache_test: $(OBJ_DIR)/cache/lru_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+compressed_secondary_cache_test: $(OBJ_DIR)/cache/compressed_secondary_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 lru_cache_test: $(OBJ_DIR)/cache/lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2042,8 +1997,8 @@ ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-sources.jar
 SHA256_CMD = sha256sum
 
-ZLIB_VER ?= 1.2.11
-ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+ZLIB_VER ?= 1.2.12
+ZLIB_SHA256 ?= 91844808532e5ce316b3c010929493c0244f3d37593afd6de04f71821d5136d9
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.8
 BZIP2_SHA256 ?= ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
@@ -2370,10 +2325,58 @@ jtest: rocksdbjava
 jdb_bench:
 	cd java;$(MAKE) db_bench;
 
-commit_prereq: build_tools/rocksdb-lego-determinator \
-               build_tools/precommit_checker.py
-	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
-	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
+commit_prereq:
+	echo "TODO: bring this back using parts of old precommit_checker.py and rocksdb-lego-determinator"
+	false # J=$(J) build_tools/precommit_checker.py unit clang_unit release clang_release tsan asan ubsan lite unit_non_shm
+	# $(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
+
+# For public CI runs, checkout folly in a way that can build with RocksDB.
+# This is mostly intended as a test-only simulation of Meta-internal folly
+# integration.
+checkout_folly:
+	if [ -e third-party/folly ]; then \
+		cd third-party/folly && git fetch origin; \
+	else \
+		cd third-party && git clone https://github.com/facebook/folly.git; \
+	fi
+	@# Pin to a particular version for public CI, so that PR authors don't
+	@# need to worry about folly breaking our integration. Update periodically
+	cd third-party/folly && git reset --hard 98b9b2c1124e99f50f9085ddee74ce32afffc665
+	@# A hack to remove boost dependency.
+	@# NOTE: this hack is not needed if using FBCODE compiler config
+	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
+
+# ---------------------------------------------------------------------------
+#   Build size testing
+# ---------------------------------------------------------------------------
+
+REPORT_BUILD_STATISTIC?=echo STATISTIC:
+
+build_size:
+	# === normal build, static ===
+	$(MAKE) clean
+	$(MAKE) static_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib $$(stat --printf="%s" librocksdb.a)
+	strip librocksdb.a
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_stripped $$(stat --printf="%s" librocksdb.a)
+	# === normal build, shared ===
+	$(MAKE) clean
+	$(MAKE) shared_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib $$(stat --printf="%s" `readlink -f librocksdb.so`)
+	strip `readlink -f librocksdb.so`
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
+	# === lite build, static ===
+	$(MAKE) clean
+	$(MAKE) LITE=1 static_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite $$(stat --printf="%s" librocksdb.a)
+	strip librocksdb.a
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite_stripped $$(stat --printf="%s" librocksdb.a)
+	# === lite build, shared ===
+	$(MAKE) clean
+	$(MAKE) LITE=1 shared_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite $$(stat --printf="%s" `readlink -f librocksdb.so`)
+	strip `readlink -f librocksdb.so`
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
@@ -2427,7 +2430,7 @@ endif
 ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
+ifeq ($(USE_FOLLY),1)
   DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
 endif
 endif
@@ -2475,7 +2478,7 @@ list_all_tests:
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets check-headers check-sources jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test checkout_folly, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif

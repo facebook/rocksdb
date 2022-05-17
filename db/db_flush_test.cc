@@ -2271,7 +2271,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
 
   // The recovered min log number with prepared data should be non-zero.
   // In 2pc mode, MinLogNumberToKeep returns the
-  // VersionSet::min_log_number_to_keep_2pc recovered from MANIFEST, if it's 0,
+  // VersionSet::min_log_number_to_keep recovered from MANIFEST, if it's 0,
   // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
   cfs.push_back(kDefaultColumnFamilyName);
   ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
@@ -2356,7 +2356,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
     ASSERT_OK(Flush(cf_ids));
     uint64_t log_num_after_flush = dbfull()->TEST_GetCurrentLogNumber();
 
-    uint64_t min_log_number_to_keep = port::kMaxUint64;
+    uint64_t min_log_number_to_keep = std::numeric_limits<uint64_t>::max();
     autovector<ColumnFamilyData*> flushed_cfds;
     autovector<autovector<VersionEdit*>> flush_edits;
     for (size_t i = 0; i != num_cfs; ++i) {

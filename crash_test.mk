@@ -5,7 +5,7 @@
 # build DB_STRESS_CMD so it must exist prior.
 DB_STRESS_CMD?=./db_stress
 
-include python.mk
+include common.mk
 
 CRASHTEST_MAKE=$(MAKE) -f crash_test.mk
 CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD)
@@ -16,7 +16,9 @@ CRASHTEST_PY=$(PYTHON) -u tools/db_crashtest.py --stress_cmd=$(DB_STRESS_CMD)
 	blackbox_crash_test_with_txn blackbox_crash_test_with_ts \
 	blackbox_crash_test_with_best_efforts_recovery \
 	whitebox_crash_test whitebox_crash_test_with_atomic_flush \
-	whitebox_crash_test_with_txn whitebox_crash_test_with_ts
+	whitebox_crash_test_with_txn whitebox_crash_test_with_ts \
+	blackbox_crash_test_with_multiops_wc_txn \
+	blackbox_crash_test_with_multiops_wp_txn
 
 crash_test: $(DB_STRESS_CMD)
 # Do not parallelize
@@ -40,6 +42,12 @@ crash_test_with_ts: $(DB_STRESS_CMD)
 	$(CRASHTEST_MAKE) whitebox_crash_test_with_ts
 	$(CRASHTEST_MAKE) blackbox_crash_test_with_ts
 
+crash_test_with_multiops_wc_txn: $(DB_STRESS_CMD)
+	$(CRASHTEST_MAKE) blackbox_crash_test_with_multiops_wc_txn
+
+crash_test_with_multiops_wp_txn: $(DB_STRESS_CMD)
+	$(CRASHTEST_MAKE) blackbox_crash_test_with_multiops_wp_txn
+
 blackbox_crash_test: $(DB_STRESS_CMD)
 	$(CRASHTEST_PY) --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(CRASHTEST_PY) blackbox $(CRASH_TEST_EXT_ARGS)
@@ -55,6 +63,12 @@ blackbox_crash_test_with_best_efforts_recovery: $(DB_STRESS_CMD)
 
 blackbox_crash_test_with_ts: $(DB_STRESS_CMD)
 	$(CRASHTEST_PY) --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_multiops_wc_txn: $(DB_STRESS_CMD)
+	$(CRASHTEST_PY) --test_multiops_txn --write_policy write_committed blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_multiops_wp_txn: $(DB_STRESS_CMD)
+	$(CRASHTEST_PY) --test_multiops_txn --write_policy write_prepared blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887

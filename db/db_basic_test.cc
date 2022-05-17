@@ -175,7 +175,10 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
-TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
+// TODO akanksha: Update the test to check that combination
+// does not actually write to FS (use open read-only with
+// CompositeEnvWrapper+ReadOnlyFileSystem).
+TEST_F(DBBasicTest, DISABLED_ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
   ASSERT_OK(Put("foo", "v3"));
@@ -3780,7 +3783,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
 
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
-      std::string key = "k" + ToString(i);
+      std::string key = "k" + std::to_string(i);
       ASSERT_OK(Put(key, rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());
@@ -3863,7 +3866,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
 
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
-      std::string key = "k" + ToString(i);
+      std::string key = "k" + std::to_string(i);
       ASSERT_OK(Put(key, rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());

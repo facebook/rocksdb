@@ -147,7 +147,7 @@ class Repairer {
     const auto* cf_opts = GetColumnFamilyOptions(cf_name);
     if (cf_opts == nullptr) {
       return Status::Corruption("Encountered unknown column family with name=" +
-                                cf_name + ", id=" + ToString(cf_id));
+                                cf_name + ", id=" + std::to_string(cf_id));
     }
     Options opts(db_options_, *cf_opts);
     MutableCFOptions mut_cf_opts(opts);
@@ -450,7 +450,7 @@ class Repairer {
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
-          {}, kMaxSequenceNumber, snapshot_checker,
+          {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
           nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
           nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
@@ -565,10 +565,13 @@ class Repairer {
 
         counter++;
 
-        t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
-                                 parsed.type);
+        status = t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
+                                          parsed.type);
+        if (!status.ok()) {
+          break;
+        }
       }
-      if (!iter->status().ok()) {
+      if (status.ok() && !iter->status().ok()) {
         status = iter->status();
       }
       delete iter;

@@ -18,7 +18,6 @@ namespace ROCKSDB_NAMESPACE {
 //
 // To open a TransactionDB with a custom TransactionDBMutexFactory, set
 // TransactionDBOptions.custom_mutex_factory.
-
 class TransactionDBMutex {
  public:
   virtual ~TransactionDBMutex() {}

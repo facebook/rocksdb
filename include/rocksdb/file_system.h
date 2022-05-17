@@ -89,6 +89,12 @@ struct IOOptions {
   // Priority - high or low
   IOPriority prio;
 
+  // Priority used to charge rate limiter configured in file system level (if
+  // any)
+  // Limitation: right now RocksDB internal does not consider this
+  // rate_limiter_priority
+  Env::IOPriority rate_limiter_priority;
+
   // Type of data being read/written
   IOType type;
 
@@ -109,6 +115,7 @@ struct IOOptions {
   explicit IOOptions(bool force_dir_fsync_)
       : timeout(std::chrono::microseconds::zero()),
         prio(IOPriority::kIOLow),
+        rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_) {}
 };
@@ -658,6 +665,17 @@ class FileSystem : public Customizable {
 
   virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
                         size_t /*min_completions*/) {
+    return IOStatus::OK();
+  }
+
+  // EXPERIMENTAL
+  // Abort the read IO requests submitted asynchronously. Underlying FS is
+  // required to support AbortIO API. AbortIO implementation should ensure that
+  // the all the read requests related to io_handles should be aborted and
+  // it shouldn't call the callback for these io_handles.
+  //
+  // Default implementation is to return IOStatus::OK.
+  virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
     return IOStatus::OK();
   }
 
@@ -1491,6 +1509,10 @@ class FileSystemWrapper : public FileSystem {
   virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t min_completions) override {
     return target_->Poll(io_handles, min_completions);
+  }
+
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    return target_->AbortIO(io_handles);
   }
 
  protected:

@@ -63,13 +63,8 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     if [ "$LIB_MODE" == "shared" ]; then
       PIC_BUILD=1
     fi
-    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
-      # we need this to build with MySQL. Don't use for other purposes.
-      source "$PWD/build_tools/fbcode_config4.8.1.sh"
-    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_5xx" ]; then
-      source "$PWD/build_tools/fbcode_config.sh"
-    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007" ]; then
-      source "$PWD/build_tools/fbcode_config_platform007.sh"
+    if [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM010" ]; then
+      source "$PWD/build_tools/fbcode_config_platform010.sh"
     elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
       source "$PWD/build_tools/fbcode_config_platform009.sh"
     else
@@ -474,7 +469,7 @@ EOF
 
     if ! test $ROCKSDB_DISABLE_MEMKIND; then
         # Test whether memkind library is installed
-        $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o test.o 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS $LDFLAGS -x c++ - -o test.o -lmemkind 2>/dev/null  <<EOF
           #include <memkind.h>
           int main() {
             memkind_malloc(MEMKIND_DAX_KMEM, 1024);
@@ -598,7 +593,7 @@ EOF
     fi
     if ! test $ROCKSDB_DISABLE_BENCHMARK; then
         # Test whether google benchmark is available
-        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark 2>/dev/null  <<EOF
+        $CXX $PLATFORM_CXXFLAGS -x c++ - -o /dev/null -lbenchmark -lpthread 2>/dev/null  <<EOF
           #include <benchmark/benchmark.h>
           int main() {}
 EOF
@@ -885,8 +880,8 @@ if test -n "$WITH_JEMALLOC_FLAG"; then
   echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
-if test -n "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
-  echo "USE_FOLLY_DISTRIBUTED_MUTEX=$USE_FOLLY_DISTRIBUTED_MUTEX" >> "$OUTPUT"
+if test -n "$USE_FOLLY"; then
+  echo "USE_FOLLY=$USE_FOLLY" >> "$OUTPUT"
 fi
 if test -n "$PPC_LIBC_IS_GNU"; then
   echo "PPC_LIBC_IS_GNU=$PPC_LIBC_IS_GNU" >> "$OUTPUT"

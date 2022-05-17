@@ -51,6 +51,7 @@
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -146,6 +147,13 @@ class PosixFileSystem : public FileSystem {
   const char* NickName() const override { return kDefaultName(); }
 
   ~PosixFileSystem() override {}
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == "posix") {
+      return true;
+    } else {
+      return FileSystem::IsInstanceOf(name);
+    }
+  }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -325,14 +333,7 @@ class PosixFileSystem : public FileSystem {
     SetFD_CLOEXEC(fd, &options);
 
     if (options.use_mmap_writes) {
-      if (!checkedDiskForMmap_) {
-        // this will be executed once in the program's lifetime.
-        // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-        if (!SupportsFastAllocate(fname)) {
-          forceMmapOff_ = true;
-        }
-        checkedDiskForMmap_ = true;
-      }
+      MaybeForceDisableMmap(fd);
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options));
@@ -431,14 +432,7 @@ class PosixFileSystem : public FileSystem {
     }
 
     if (options.use_mmap_writes) {
-      if (!checkedDiskForMmap_) {
-        // this will be executed once in the program's lifetime.
-        // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-        if (!SupportsFastAllocate(fname)) {
-          forceMmapOff_ = true;
-        }
-        checkedDiskForMmap_ = true;
-      }
+      MaybeForceDisableMmap(fd);
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options));
@@ -620,8 +614,7 @@ class PosixFileSystem : public FileSystem {
         return IOStatus::NotFound();
       default:
         assert(err == EIO || err == ENOMEM);
-        return IOStatus::IOError("Unexpected error(" +
-                                 ROCKSDB_NAMESPACE::ToString(err) +
+        return IOStatus::IOError("Unexpected error(" + std::to_string(err) +
                                  ") accessing file `" + fname + "' ");
     }
   }
@@ -824,12 +817,11 @@ class PosixFileSystem : public FileSystem {
       errno = ENOLCK;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
-      return IOError(
-          "lock hold by current process, acquire time " +
-              ROCKSDB_NAMESPACE::ToString(prev_info.acquire_time) +
-              " acquiring thread " +
-              ROCKSDB_NAMESPACE::ToString(prev_info.acquiring_thread),
-          fname, errno);
+      return IOError("lock hold by current process, acquire time " +
+                         std::to_string(prev_info.acquire_time) +
+                         " acquiring thread " +
+                         std::to_string(prev_info.acquiring_thread),
+                     fname, errno);
     }
 
     IOStatus result = IOStatus::OK();
@@ -999,8 +991,7 @@ class PosixFileSystem : public FileSystem {
   }
 #endif
  private:
-  bool checkedDiskForMmap_;
-  bool forceMmapOff_;  // do we override Env options?
+  bool forceMmapOff_ = false;  // do we override Env options?
 
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname) {
@@ -1011,10 +1002,10 @@ class PosixFileSystem : public FileSystem {
     return false;  // stat() failed return false
   }
 
-  bool SupportsFastAllocate(const std::string& path) {
+  bool SupportsFastAllocate(int fd) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     struct statfs s;
-    if (statfs(path.c_str(), &s)) {
+    if (fstatfs(fd, &s)) {
       return false;
     }
     switch (s.f_type) {
@@ -1028,9 +1019,24 @@ class PosixFileSystem : public FileSystem {
         return false;
     }
 #else
-    (void)path;
+    (void)fd;
     return false;
 #endif
+  }
+
+  void MaybeForceDisableMmap(int fd) {
+    static std::once_flag s_check_disk_for_mmap_once;
+    assert(this == FileSystem::Default().get());
+    std::call_once(
+        s_check_disk_for_mmap_once,
+        [this](int fdesc) {
+          // this will be executed once in the program's lifetime.
+          // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
+          if (!SupportsFastAllocate(fdesc)) {
+            forceMmapOff_ = true;
+          }
+        },
+        fd);
   }
 
 #ifdef ROCKSDB_IOURING_PRESENT
@@ -1045,9 +1051,12 @@ class PosixFileSystem : public FileSystem {
 
   // EXPERIMENTAL
   //
-  // TODO akankshamahajan: Update Poll API to take into account min_completions
+  // TODO akankshamahajan:
+  // 1. Update Poll API to take into account min_completions
   // and returns if number of handles in io_handles (any order) completed is
   // equal to atleast min_completions.
+  // 2. Currently in case of direct_io, Read API is called because of which call
+  // to Poll API fails as it expects IOHandle to be populated.
   virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t /*min_completions*/) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
@@ -1094,12 +1103,14 @@ class PosixFileSystem : public FileSystem {
         req.offset = posix_handle->offset;
         req.len = posix_handle->len;
         size_t finished_len = 0;
+        size_t bytes_read = 0;
         UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
-                     true /*async_read*/, finished_len, &req);
+                     true /*async_read*/, finished_len, &req, bytes_read);
         posix_handle->is_finished = true;
         io_uring_cqe_seen(iu, cqe);
         posix_handle->cb(req, posix_handle->cb_arg);
         (void)finished_len;
+        (void)bytes_read;
 
         if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           break;
@@ -1111,6 +1122,19 @@ class PosixFileSystem : public FileSystem {
     (void)io_handles;
     return IOStatus::NotSupported("Poll");
 #endif
+  }
+
+  // TODO akanksha: Look into flags and see how to provide support for AbortIO
+  // in posix for IOUring requests. Currently it calls Poll to wait for requests
+  // to complete the request.
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    IOStatus s = Poll(io_handles, io_handles.size());
+    // If Poll is not supported then it didn't submit any request and it should
+    // return OK.
+    if (s.IsNotSupported()) {
+      return IOStatus::OK();
+    }
+    return s;
   }
 
 #if defined(ROCKSDB_IOURING_PRESENT)
@@ -1166,8 +1190,7 @@ size_t PosixFileSystem::GetLogicalBlockSizeForWriteIfNeeded(
 }
 
 PosixFileSystem::PosixFileSystem()
-    : checkedDiskForMmap_(false),
-      forceMmapOff_(false),
+    : forceMmapOff_(false),
       page_size_(getpagesize()),
       allow_non_owner_access_(true) {
 #if defined(ROCKSDB_IOURING_PRESENT)
@@ -1188,10 +1211,9 @@ PosixFileSystem::PosixFileSystem()
 // Default Posix FileSystem
 //
 std::shared_ptr<FileSystem> FileSystem::Default() {
-  static PosixFileSystem default_fs;
-  static std::shared_ptr<PosixFileSystem> default_fs_ptr(
-      &default_fs, [](PosixFileSystem*) {});
-  return default_fs_ptr;
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<FileSystem>, instance)
+  (std::make_shared<PosixFileSystem>());
+  return instance;
 }
 
 #ifndef ROCKSDB_LITE
