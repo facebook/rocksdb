@@ -405,13 +405,6 @@ class CompactionJobTestBase : public testing::Test {
         compaction_job.versions_->GetColumnFamilySet()->write_controller();
 
     {
-      // When the state from WriteController is CompactionPressure.
-      std::unique_ptr<WriteControllerToken> compaction_pressure_token =
-          write_controller->GetCompactionPressureToken();
-      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_HIGH);
-    }
-
-    {
       // When the state from WriteController is Delayed.
       std::unique_ptr<WriteControllerToken> delay_token =
           write_controller->GetDelayToken(1000000);
