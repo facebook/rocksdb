@@ -2483,8 +2483,6 @@ Env::IOPriority CompactionJob::GetRateLimiterPriority() {
         versions_->GetColumnFamilySet()->write_controller();
     if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
       return Env::IO_USER;
-    } else if (write_controller->NeedSpeedupCompaction()) {
-      return Env::IO_HIGH;
     }
   }
 
