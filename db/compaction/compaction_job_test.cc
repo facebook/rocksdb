@@ -393,13 +393,13 @@ class CompactionJobTestBase : public testing::Test {
     }
 
     if (check_get_priority) {
-      CheckGetRateLimiterPriorityForWrite(compaction_job);
+      CheckGetRateLimiterPriority(compaction_job);
     }
   }
 
-  void CheckGetRateLimiterPriorityForWrite(CompactionJob& compaction_job) {
+  void CheckGetRateLimiterPriority(CompactionJob& compaction_job) {
     // When the state from WriteController is normal.
-    ASSERT_EQ(compaction_job.GetRateLimiterPriorityForWrite(), Env::IO_LOW);
+    ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_LOW);
 
     WriteController* write_controller =
         compaction_job.versions_->GetColumnFamilySet()->write_controller();
@@ -408,21 +408,21 @@ class CompactionJobTestBase : public testing::Test {
       // When the state from WriteController is CompactionPressure.
       std::unique_ptr<WriteControllerToken> compaction_pressure_token =
           write_controller->GetCompactionPressureToken();
-      ASSERT_EQ(compaction_job.GetRateLimiterPriorityForWrite(), Env::IO_HIGH);
+      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_HIGH);
     }
 
     {
       // When the state from WriteController is Delayed.
       std::unique_ptr<WriteControllerToken> delay_token =
           write_controller->GetDelayToken(1000000);
-      ASSERT_EQ(compaction_job.GetRateLimiterPriorityForWrite(), Env::IO_USER);
+      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
     }
 
     {
       // When the state from WriteController is Stopped.
       std::unique_ptr<WriteControllerToken> stop_token =
           write_controller->GetStopToken();
-      ASSERT_EQ(compaction_job.GetRateLimiterPriorityForWrite(), Env::IO_USER);
+      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
     }
   }
 
@@ -1322,7 +1322,7 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   }
 }
 
-TEST_F(CompactionJobTest, GetRateLimiterPriorityForWrite) {
+TEST_F(CompactionJobTest, GetRateLimiterPriority) {
   NewDB();
 
   auto expected_results = CreateTwoFiles(false);

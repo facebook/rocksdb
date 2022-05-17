@@ -2285,7 +2285,7 @@ Status CompactionJob::OpenCompactionOutputFile(
         /*enable_hash=*/paranoid_file_checks_);
   }
 
-  writable_file->SetIOPriority(GetRateLimiterPriorityForWrite());
+  writable_file->SetIOPriority(GetRateLimiterPriority());
   writable_file->SetWriteLifeTimeHint(write_hint_);
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
@@ -2476,7 +2476,7 @@ std::string CompactionJob::GetTableFileName(uint64_t file_number) {
                        file_number, compact_->compaction->output_path_id());
 }
 
-Env::IOPriority CompactionJob::GetRateLimiterPriorityForWrite() {
+Env::IOPriority CompactionJob::GetRateLimiterPriority() {
   if (versions_ && versions_->GetColumnFamilySet() &&
       versions_->GetColumnFamilySet()->write_controller()) {
     WriteController* write_controller =

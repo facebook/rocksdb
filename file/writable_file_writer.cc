@@ -736,8 +736,8 @@ IOStatus WritableFileWriter::WriteDirect(
     if (rate_limiter_ != nullptr &&
         rate_limiter_priority_used != Env::IO_TOTAL) {
       size = rate_limiter_->RequestToken(left, buf_.Alignment(),
-                                         writable_file_->GetIOPriority(),
-                                         stats_, RateLimiter::OpType::kWrite);
+                                         rate_limiter_priority_used, stats_,
+                                         RateLimiter::OpType::kWrite);
     }
 
     {
@@ -839,8 +839,8 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
     while (data_size > 0) {
       size_t size;
       size = rate_limiter_->RequestToken(data_size, buf_.Alignment(),
-                                         writable_file_->GetIOPriority(),
-                                         stats_, RateLimiter::OpType::kWrite);
+                                         rate_limiter_priority_used, stats_,
+                                         RateLimiter::OpType::kWrite);
       data_size -= size;
     }
   }
