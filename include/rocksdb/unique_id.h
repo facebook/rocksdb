@@ -24,8 +24,8 @@ namespace ROCKSDB_NAMESPACE {
 // generated in the same process (even different DBs, RocksDB >= 6.26),
 // and first 128 bits are guaranteed not "all zeros" (RocksDB >= 6.26)
 // so that the "all zeros" value can be used reliably for a null ID.
-// These IDs are more than sufficient for SST uniqueness within a each of
-// meany DBs or hosts. For an extreme example assuming random IDs, consider
+// These IDs are more than sufficient for SST uniqueness within each of
+// many DBs or hosts. For an extreme example assuming random IDs, consider
 // 10^9 hosts each with 10^9 live SST files being replaced at 10^6/second.
 // Such a service would need to run for 10 million years to see an ID
 // collision among live SST files on any host.
@@ -47,8 +47,6 @@ Status GetUniqueIdFromTableProperties(const TableProperties &props,
 Status GetExtendedUniqueIdFromTableProperties(const TableProperties &props,
                                               std::string *out_id);
 
-// EXPERIMENTAL: This API is subject to change
-//
 // Converts a binary string (unique id) to hexadecimal, with each 64 bits
 // separated by '-', e.g. 6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B
 // Also works on unique id prefix.
