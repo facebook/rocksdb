@@ -1831,6 +1831,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_wal_compression(o, 1);
     CheckCondition(1 == rocksdb_options_get_wal_compression(o));
 
+    rocksdb_options_set_experimental_mempurge_threshold(o, 29.0);
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(o));
+
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
@@ -1961,6 +1965,8 @@ int main(int argc, char** argv) {
     CheckCondition(4 == rocksdb_options_get_bottommost_compression(copy));
     CheckCondition(2 == rocksdb_options_get_compaction_style(copy));
     CheckCondition(1 == rocksdb_options_get_atomic_flush(copy));
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(copy));
 
     // Copies should be independent.
     rocksdb_options_set_allow_ingest_behind(copy, 0);
@@ -2308,6 +2314,12 @@ int main(int argc, char** argv) {
     rocksdb_options_set_atomic_flush(copy, 0);
     CheckCondition(0 == rocksdb_options_get_atomic_flush(copy));
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
+
+    rocksdb_options_set_experimental_mempurge_threshold(copy, 229.0);
+    CheckCondition(229.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(copy));
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(o));
 
     rocksdb_options_destroy(copy);
     rocksdb_options_destroy(o);

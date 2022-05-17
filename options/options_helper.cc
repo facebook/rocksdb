@@ -212,6 +212,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->max_successive_merges = moptions.max_successive_merges;
   cf_opts->inplace_update_num_locks = moptions.inplace_update_num_locks;
   cf_opts->prefix_extractor = moptions.prefix_extractor;
+  cf_opts->experimental_mempurge_threshold =
+      moptions.experimental_mempurge_threshold;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;

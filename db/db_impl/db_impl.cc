@@ -577,17 +577,25 @@ Status DBImpl::CloseHelper() {
   trim_history_scheduler_.Clear();
 
   // For now, simply trigger a manual flush at close time
-  // on all the column families.
+  // on all the column families that have used mempurge.
   // TODO(bjlemaire): Check if this is needed. Also, in the
   // future we can contemplate doing a more fine-grained
   // flushing by first checking if there is a need for
   // flushing (but need to implement something
   // else than imm()->IsFlushPending() because the output
+<<<<<<< HEAD
   // memtables added to imm() don't trigger flushes).
   if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
     Status flush_ret;
     mutex_.Unlock();
     for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
+=======
+  // memtables added to imm() dont trigger flushes).
+  Status flush_ret;
+  mutex_.Unlock();
+  for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
+    if (cf->GetMempurgeUsed()) {
+>>>>>>> 672f4c48e (Switched mempurge flag from immutable DB option to Mutable CF option flag.)
       if (immutable_db_options_.atomic_flush) {
         flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
                                          FlushReason::kManualFlush);
@@ -605,8 +613,8 @@ Status DBImpl::CloseHelper() {
         }
       }
     }
-    mutex_.Lock();
   }
+  mutex_.Lock();
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();

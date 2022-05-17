@@ -550,7 +550,8 @@ ColumnFamilyData::ColumnFamilyData(
       prev_compaction_needed_bytes_(0),
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0),
-      db_paths_registered_(false) {
+      db_paths_registered_(false),
+      mempurge_used_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.

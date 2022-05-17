@@ -116,6 +116,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_successive_merges", "30"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
+      {"experimental_mempurge_threshold", "0.003"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
       {"min_blob_size", "1K"},
@@ -164,7 +165,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
@@ -256,6 +256,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.experimental_mempurge_threshold, 0.003);
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -329,7 +330,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
@@ -2345,6 +2345,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"max_successive_merges", "30"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
+      {"experimental_mempurge_threshold", "0.003"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
       {"min_blob_size", "1K"},
@@ -2393,7 +2394,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
@@ -2479,6 +2479,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.experimental_mempurge_threshold, 0.003);
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -2553,7 +2554,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);

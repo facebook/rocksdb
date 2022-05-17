@@ -778,12 +778,14 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = 1.0;
+  options.experimental_mempurge_threshold = 0.0;
 #ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
 #endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+  db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}});
   std::atomic<uint32_t> mempurge_count{0};
   std::atomic<uint32_t> sst_count{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
