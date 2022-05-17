@@ -194,34 +194,7 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
   }
 }
 
-// If async_read = true:
-// async_read is enabled in case of sequential reads. So when
-// buffers are switched, we clear the curr_ buffer as we assume the data has
-// been consumed because of sequential reads.
-//
-// Scenarios for prefetching asynchronously:
-// Case1: If both buffers are empty, prefetch n bytes
-//        synchronously in curr_
-//        and prefetch readahead_size_/2 async in second buffer.
-// Case2: If second buffer has partial or full data, make it current and
-//        prefetch readahead_size_/2 async in second buffer. In case of
-//        partial data, prefetch remaining bytes from size n synchronously to
-//        fulfill the requested bytes request.
-// Case3: If curr_ has partial data, prefetch remaining bytes from size n
-//        synchronously in curr_ to fulfill the requested bytes request and
-//        prefetch readahead_size_/2 bytes async in second buffer.
-// Case4: If data is in both buffers, copy requested data from curr_ and second
-//        buffer to third buffer. If all requested bytes have been copied, do
-//        the asynchronous prefetching in second buffer.
-Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
-                                         RandomAccessFileReader* reader,
-                                         uint64_t offset, size_t length,
-                                         size_t readahead_size,
-                                         Env::IOPriority rate_limiter_priority,
-                                         bool& copy_to_third_buffer) {
-  if (!enable_) {
-    return Status::OK();
-  }
+void FilePrefetchBuffer::FindDataInBuffer(uint64_t& offset, size_t& length) {
   if (async_read_in_progress_ && fs_ != nullptr) {
     // Wait for prefetch data to complete.
     // No mutex is needed as PrefetchAsyncCallback updates the result in second
@@ -242,11 +215,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     del_fn_ = nullptr;
   }
 
-  TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:Start");
   Status s;
-  size_t prefetch_size = length + readahead_size;
-
-  size_t alignment = reader->file()->GetRequiredBufferAlignment();
   // Index of second buffer.
   uint32_t second = curr_ ^ 1;
 
@@ -275,6 +244,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     curr_ = curr_ ^ 1;
     second = curr_ ^ 1;
   }
+
   // After swap check if all the requested bytes are in curr_, it will go for
   // async prefetching only.
   if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
@@ -282,8 +252,46 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
           bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
     offset += length;
     length = 0;
-    prefetch_size = readahead_size;
   }
+}
+
+// If async_read = true:
+// async_read is enabled in case of sequential reads. So when
+// buffers are switched, we clear the curr_ buffer as we assume the data has
+// been consumed because of sequential reads.
+//
+// Scenarios for prefetching asynchronously:
+// Case1: If both buffers are empty, prefetch n bytes
+//        synchronously in curr_
+//        and prefetch readahead_size_/2 async in second buffer.
+// Case2: If second buffer has partial or full data, make it current and
+//        prefetch readahead_size_/2 async in second buffer. In case of
+//        partial data, prefetch remaining bytes from size n synchronously to
+//        fulfill the requested bytes request.
+// Case3: If curr_ has partial data, prefetch remaining bytes from size n
+//        synchronously in curr_ to fulfill the requested bytes request and
+//        prefetch readahead_size_/2 bytes async in second buffer.
+// Case4: If data is in both buffers, copy requested data from curr_ and second
+//        buffer to third buffer. If all requested bytes have been copied, do
+//        the asynchronous prefetching in second buffer.
+Status FilePrefetchBuffer::PrefetchAsyncInternal(
+    const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
+    size_t length, size_t readahead_size, Env::IOPriority rate_limiter_priority,
+    bool& copy_to_third_buffer) {
+  if (!enable_) {
+    return Status::OK();
+  }
+
+  TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsyncInternal:Start");
+
+  FindDataInBuffer(offset, length);
+
+  Status s;
+  size_t prefetch_size = length + readahead_size;
+  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  // Index of second buffer.
+  uint32_t second = curr_ ^ 1;
+
   // Data is overlapping i.e. some of the data is in curr_ buffer and remaining
   // in second buffer.
   if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
@@ -312,11 +320,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     // swap the buffers.
     curr_ = curr_ ^ 1;
     // Update prefetch_size as length has been updated in CopyDataToBuffer.
-    prefetch_size = length + readahead_size;
   }
 
-  // Update second again if swap happened.
-  second = curr_ ^ 1;
   size_t _offset = static_cast<size_t>(offset);
 
   // offset and size alignment for curr_ buffer with synchronous prefetching
@@ -481,8 +486,9 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
         if (async_io_) {
           // Prefetch n + readahead_size_/2 synchronously as remaining
           // readahead_size_/2 will be prefetched asynchronously.
-          s = PrefetchAsync(opts, reader, offset, n, readahead_size_ / 2,
-                            rate_limiter_priority, copy_to_third_buffer);
+          s = PrefetchAsyncInternal(opts, reader, offset, n,
+                                    readahead_size_ / 2, rate_limiter_priority,
+                                    copy_to_third_buffer);
         } else {
           s = Prefetch(opts, reader, offset, n + readahead_size_,
                        rate_limiter_priority);
@@ -543,5 +549,77 @@ void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
     size_t current_size = bufs_[index].buffer_.CurrentSize();
     bufs_[index].buffer_.Size(current_size + req.result.size());
   }
+}
+
+Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
+                                         RandomAccessFileReader* reader,
+                                         uint64_t offset, size_t n,
+                                         Env::IOPriority rate_limiter_priority,
+                                         Slice* result) {
+  assert(reader != nullptr);
+  size_t new_length = n;
+  uint64_t new_offset = offset;
+
+  TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:Start");
+
+  FindDataInBuffer(new_offset, new_length);
+
+  // All requested bytes are already in the curr_ buffer. So no need to Read
+  // again.
+  if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
+      offset + n <= bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
+    uint64_t offset_in_buffer = offset - bufs_[curr_].offset_;
+    *result = Slice(bufs_[curr_].buffer_.BufferStart() + offset_in_buffer, n);
+    return Status::OK();
+  }
+
+  Status s;
+  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  // Index of second buffer.
+  uint32_t second = curr_ ^ 1;
+
+  // TODO akanksha: Handle the scenario if data is overlapping in 2 buffers.
+  // Currently, tt covers 2 scenarios. Either one buffer (curr_) has no data or
+  // it has partial data. It ignores the contents in second buffer (overlapping
+  // data in 2 buffers) and send the request to re-read that data again.
+  bufs_[second].buffer_.Clear();
+
+  size_t offset_to_read = static_cast<size_t>(new_offset);
+  uint64_t rounddown_start = 0;
+  uint64_t roundup_end = 0;
+
+  if (bufs_[curr_].buffer_.CurrentSize() == 0) {
+    // Prefetch full data.
+    rounddown_start = Rounddown(offset_to_read, alignment);
+    roundup_end = Roundup(offset_to_read + n, alignment);
+  } else {
+    // Prefetch remaining data.
+    size_t rem_length = n - (bufs_[curr_].buffer_.CurrentSize() -
+                             (offset - bufs_[curr_].offset_));
+    rounddown_start = bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
+    roundup_end = Roundup(rounddown_start + rem_length, alignment);
+  }
+
+  uint64_t roundup_len = roundup_end - rounddown_start;
+  assert(roundup_len >= alignment);
+  assert(roundup_len % alignment == 0);
+
+  uint64_t chunk_len = 0;
+  CalculateOffsetAndLen(alignment, rounddown_start, roundup_len, second,
+                        false /*refit_tail*/, chunk_len);
+  size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
+
+  s = ReadAsync(opts, reader, rate_limiter_priority, read_len, chunk_len,
+                rounddown_start, second);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Update read pattern so that TryReadFromCacheAsync call be called to Poll
+  // the data.
+  UpdateReadPattern(offset, n, /*decrease_readaheadsize=*/false);
+  prev_len_ = 0;
+  return Status::TryAgain();
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -31,7 +31,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
                            UncompressionDict::GetEmptyDict(), filter_block,
                            BlockType::kFilter, get_context, lookup_context,
                            /* for_compaction */ false, use_cache,
-                           /* wait_for_cache */ true);
+                           /* wait_for_cache */ true, /* async_read */ false);
 
   return s;
 }
