@@ -7036,51 +7036,6 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
   }
 }
 
-TEST_F(DBTest, ManualFlushWithStoppedWritesTest) {
-  Options options = CurrentOptions();
-
-  // Setting a small write buffer size. This will block writes
-  // rather quickly until a flush is made.
-  constexpr unsigned int memtableSize = 1000;
-  options.db_write_buffer_size = memtableSize;
-  options.max_background_flushes = 1;
-  Reopen(options);
-
-  std::atomic<bool> done(false);
-
-  // Will suppress future flushes.
-  // This simulates a situation where the writes will be stopped for any reason.
-  ASSERT_OK(dbfull()->PauseBackgroundWork());
-
-  port::Thread backgroundWriter([&]() {
-    Random rnd(301);
-    // These writes won't finish.
-    ASSERT_OK(Put("k1", rnd.RandomString(memtableSize / 2)));
-    ASSERT_OK(Put("k2", rnd.RandomString(memtableSize / 2)));
-    ASSERT_OK(Put("k3", rnd.RandomString(memtableSize / 2)));
-    ASSERT_OK(Put("k4", rnd.RandomString(memtableSize / 2)));
-    done.store(true);
-  });
-
-  env_->SleepForMicroseconds(1000000 / 2);
-  // make sure thread is stuck waiting for flush.
-  ASSERT_FALSE(done.load());
-
-  FlushOptions flushOptions;
-  flushOptions.wait = false;
-  flushOptions.allow_write_stall = true;
-
-  // This is the main goal of the test. This manual flush should not deadlock
-  // as we use wait=false, and even allow_write_stall=true for extra safety.
-  ASSERT_OK(dbfull()->Flush(flushOptions));
-
-  // This will re-allow background flushes.
-  ASSERT_OK(dbfull()->ContinueBackgroundWork());
-
-  backgroundWriter.join();
-  ASSERT_TRUE(done.load());
-}
-
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE
