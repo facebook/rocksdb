@@ -5799,12 +5799,6 @@ cpp_unittest_wrapper(name="work_queue_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="writable_file_io_priority_test",
-            srcs=["util/writable_file_io_priority_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
 cpp_unittest_wrapper(name="write_batch_test",
             srcs=["db/write_batch_test.cc"],
             deps=[":rocksdb_test_lib"],
