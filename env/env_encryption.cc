@@ -118,10 +118,6 @@ IOStatus EncryptedSequentialFile::PositionedRead(uint64_t offset, size_t n,
   return io_s;
 }
 
-IOStatus EncryptedSequentialFile::GetFileSize(uint64_t& size) const {
-  return status_to_io_status(file_->GetFileSize(size));
-}
-
   // Read up to "n" bytes from the file starting at "offset".
   // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
   // to the data that was read (including if fewer than "n" bytes were

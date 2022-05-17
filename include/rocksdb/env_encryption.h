@@ -234,8 +234,6 @@ class EncryptedSequentialFile : public FSSequentialFile {
   IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
                           Slice* result, char* scratch,
                           IODebugContext* dbg) override;
-
-  IOStatus GetFileSize(uint64_t& size) const override;
 };
 
 // A file abstraction for randomly reading the contents of a file.

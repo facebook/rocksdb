@@ -134,9 +134,6 @@ class LegacySequentialFileWrapper : public FSSequentialFile {
     return status_to_io_status(
         target_->PositionedRead(offset, n, result, scratch));
   }
-  IOStatus GetFileSize(uint64_t& size) const override {
-    return status_to_io_status(target_->GetFileSize(size));
-  }
 
  private:
   std::unique_ptr<SequentialFile> target_;

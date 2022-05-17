@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-
 #include <algorithm>
 #include <deque>
 #include <string>
@@ -497,11 +496,6 @@ class SeqStringSource : public FSSequentialFile {
     }
     // TODO(yhchiang): Currently doesn't handle the overflow case.
     offset_ += static_cast<size_t>(n);
-    return IOStatus::OK();
-  }
-
-  IOStatus GetFileSize(uint64_t& size) const override {
-    size = data_.size();
     return IOStatus::OK();
   }
 

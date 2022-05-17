@@ -507,10 +507,6 @@ class SpecialEnv : public EnvWrapper {
       }
       virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
 
-      virtual Status GetFileSize(uint64_t& size) const override {
-        return target_->GetFileSize(size);
-      }
-
      private:
       std::unique_ptr<SequentialFile> target_;
       anon::AtomicCounter* counter_;

@@ -304,6 +304,8 @@ void Reader::UnmarkEOFInternal() {
 
   Slice read_buffer;
   // TODO: rate limit log reader
+  // Note that this might overcharge SequentialFileReader's internal rate
+  // limiter if priority is not IO_TOTAL (when we reach EOF).
   Status status = file_->Read(remaining, &read_buffer,
                               backing_store_ + eof_offset_, Env::IO_TOTAL);
 
@@ -351,6 +353,8 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
     // TODO: rate limit log reader
+    // Note that this might overcharge SequentialFileReader's internal rate
+    // limiter if priority is not IO_TOTAL (when we reach EOF).
     Status status =
         file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
     TEST_SYNC_POINT_CALLBACK("LogReader::ReadMore:AfterReadFile", &status);
@@ -643,6 +647,8 @@ bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
     // Last read was a full read, so this is a trailer to skip
     buffer_.clear();
     // TODO: rate limit log reader
+    // Note that this might overcharge SequentialFileReader's internal rate
+    // limiter if priority is not IO_TOTAL (when we reach EOF).
     Status status =
         file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
     end_of_buffer_offset_ += buffer_.size();

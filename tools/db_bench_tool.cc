@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/utilities/backup_engine.h"
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
@@ -61,6 +60,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
@@ -1161,6 +1161,12 @@ DEFINE_uint64(restore_rate_limit, 0ull,
               "If non-zero, db_bench will rate limit reads and writes for DB "
               "restore. This "
               "is the global rate in ops/second.");
+
+DEFINE_string(backup_dir, "",
+              "If not empty string, use the given dir for backup.");
+
+DEFINE_string(restore_dir, "",
+              "If not empty string, use the given dir for restore.");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -8247,20 +8253,20 @@ class Benchmark {
   }
 
   void Backup(ThreadState* thread) {
+    std::cout << "Backup path: [" << FLAGS_backup_dir << "]" << std::endl;
     DB* db = SelectDB(thread);
-    std::string backup_dir = FLAGS_db + "/backups";
-    std::unique_ptr<BackupEngineOptions> engine_options_(
-        new BackupEngineOptions(backup_dir));
+    std::unique_ptr<BackupEngineOptions> engine_options(
+        new BackupEngineOptions(FLAGS_backup_dir));
     Status s;
     BackupEngine* backup_engine;
     if (FLAGS_backup_rate_limit > 0) {
-      engine_options_.get()->backup_rate_limiter.reset(NewGenericRateLimiter(
+      engine_options->backup_rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_backup_rate_limit, 100000 /* refill_period_us */,
           10 /* fairness */, RateLimiter::Mode::kAllIo));
     }
     // Build new backup of the entire DB
-    engine_options_->destroy_old_data = true;
-    s = BackupEngine::Open(FLAGS_env, *engine_options_, &backup_engine);
+    engine_options->destroy_old_data = true;
+    s = BackupEngine::Open(FLAGS_env, *engine_options, &backup_engine);
     assert(s.ok());
     s = backup_engine->CreateNewBackup(db);
     assert(s.ok());
@@ -8270,22 +8276,21 @@ class Benchmark {
     assert(backup_info.size() == 1);
   }
 
-  void Restore(ThreadState* thread) {
-    std::string backup_dir = FLAGS_db + "/backups";
-    std::unique_ptr<BackupEngineOptions> engine_options_(
-        new BackupEngineOptions(backup_dir));
+  void Restore(ThreadState* /* thread */) {
+    std::cout << "Restore path: [" << FLAGS_restore_dir << "]" << std::endl;
+    std::unique_ptr<BackupEngineOptions> engine_options(
+        new BackupEngineOptions(FLAGS_backup_dir));
     if (FLAGS_restore_rate_limit > 0) {
-      engine_options_.get()->restore_rate_limiter.reset(NewGenericRateLimiter(
+      engine_options->restore_rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_restore_rate_limit, 100000 /* refill_period_us */,
           10 /* fairness */, RateLimiter::Mode::kAllIo));
     }
     BackupEngineReadOnly* backup_engine;
-    Status s = BackupEngineReadOnly::Open(Env::Default(), *engine_options_,
-                                          &backup_engine);
+    Status s =
+        BackupEngineReadOnly::Open(FLAGS_env, *engine_options, &backup_engine);
     assert(s.ok());
-    std::string restore_dir =
-        FLAGS_db + "/restore_" + std::to_string(thread->rand.Next());
-    s = backup_engine->RestoreDBFromLatestBackup(restore_dir, restore_dir);
+    s = backup_engine->RestoreDBFromLatestBackup(FLAGS_restore_dir,
+                                                 FLAGS_restore_dir);
     assert(s.ok());
     delete backup_engine;
   }
@@ -8433,6 +8438,14 @@ int db_bench_tool(int argc, char** argv) {
     FLAGS_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbbench";
     FLAGS_db = default_db_path;
+  }
+
+  if (FLAGS_backup_dir.empty()) {
+    FLAGS_backup_dir = FLAGS_db + "/backup";
+  }
+
+  if (FLAGS_restore_dir.empty()) {
+    FLAGS_restore_dir = FLAGS_db + "/restore";
   }
 
   if (FLAGS_stats_interval_seconds > 0) {

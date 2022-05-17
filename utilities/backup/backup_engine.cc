@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <cstdio>
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
@@ -1449,6 +1448,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           uint64_t size_bytes = 0;
           IOStatus io_st;
           if (type == kTableFile || type == kBlobFile) {
+            // TODO: can we just use size_limit_bytes and remove this call?
             io_st = db_fs_->GetFileSize(src_dirname + "/" + fname, io_options_,
                                         &size_bytes, nullptr);
           }
@@ -1498,7 +1498,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
               live_dst_paths, backup_items_to_finish, new_backup_id,
               false /* shared */, "" /* src_dir */, fname,
               EnvOptions() /* src_env_options */, rate_limiter, type,
-              contents.size(), db_options.statistics.get(), 0 /* size_limit */,
+              contents.size(), db_options.statistics.get(), contents.size(),
               false /* shared_checksum */, options.progress_callback, contents);
         } /* create_file_cb */,
         &sequence_number,
@@ -1923,7 +1923,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
         GetAbsolutePath(file), dst, Temperature::kUnknown /* src_temp */,
         file_info->temp, "" /* contents */, backup_env_, db_env_,
         EnvOptions() /* src_env_options */, options_.sync,
-        options_.restore_rate_limiter.get(), 0 /* size_limit */,
+        options_.restore_rate_limiter.get(), file_info->size,
         nullptr /* stats */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
@@ -2105,8 +2105,8 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     // Return back current temperature in FileSystem
     *src_temperature = src_file->GetTemperature();
 
-    src_reader.reset(new SequentialFileReader(std::move(src_file), src, nullptr,
-                                              {}, rate_limiter));
+    src_reader.reset(new SequentialFileReader(
+        std::move(src_file), src, nullptr /* io_tracer */, {}, rate_limiter));
     buf.reset(new char[buf_size]);
   }
 
@@ -2142,9 +2142,14 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     io_s = dest_writer->Append(data);
 
     if (rate_limiter != nullptr) {
+      if (!src.empty()) {
+        rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
+                              RateLimiter::OpType::kWrite);
+      } else {
         LoopRateLimitRequestHelper(data.size(), rate_limiter, Env::IO_LOW,
                                    nullptr /* stats */,
                                    RateLimiter::OpType::kWrite);
+      }
     }
     while (*bytes_toward_next_callback >=
            options_.callback_trigger_interval_size) {
@@ -2416,7 +2421,7 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   file_options.temperature = src_temperature;
   RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
   IOStatus io_s = SequentialFileReader::Create(
-      src_fs, src, file_options, &src_reader, nullptr, rate_limiter);
+      src_fs, src, file_options, &src_reader, nullptr /* dbg */, rate_limiter);
   if (!io_s.ok()) {
     return io_s;
   }
@@ -2833,9 +2838,9 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
 
   std::unique_ptr<LineFileReader> backup_meta_reader;
   {
-    IOStatus io_s =
-        LineFileReader::Create(fs_, meta_filename_, FileOptions(),
-                               &backup_meta_reader, nullptr, rate_limiter);
+    IOStatus io_s = LineFileReader::Create(fs_, meta_filename_, FileOptions(),
+                                           &backup_meta_reader,
+                                           nullptr /* dbg */, rate_limiter);
     if (!io_s.ok()) {
       return io_s;
     }

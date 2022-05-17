@@ -7,7 +7,6 @@
 #include <array>
 
 #include "file/sequence_file_reader.h"
-#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,8 +32,7 @@ class LineFileReader {
   static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
                          const std::string& fname, const FileOptions& file_opts,
                          std::unique_ptr<LineFileReader>* reader,
-                         IODebugContext* dbg,
-                         RateLimiter* rate_limiter = nullptr);
+                         IODebugContext* dbg, RateLimiter* rate_limiter);
 
   LineFileReader(const LineFileReader&) = delete;
   LineFileReader& operator=(const LineFileReader&) = delete;
@@ -43,6 +41,9 @@ class LineFileReader {
   // the line to `out`, without delimiter, or returning false on failure. You
   // must check GetStatus() to determine whether the failure was just
   // end-of-file (OK status) or an I/O error (another status).
+  // Caller can set rate limiting priority other than the default value
+  // Env::IO_TOTAL and the internal rate will be charged at the specified
+  // priority.
   bool ReadLine(std::string* out,
                 Env::IOPriority rate_limiter_priority = Env::IO_TOTAL);
 

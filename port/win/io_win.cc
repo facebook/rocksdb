@@ -666,13 +666,6 @@ IOStatus WinSequentialFile::InvalidateCache(size_t offset, size_t length) {
   return IOStatus::OK();
 }
 
-IOStatus WinSequentialFile::GetFileSize(uint64_t& size) const {
-  IOOptions io_opts;
-  IOStatus io_s =
-      FileSystem::Default()->GetFileSize(filename_, io_opts, &size, nullptr);
-  return io_s;
-}
-
 //////////////////////////////////////////////////////////////////////////////////////////////////
 /// WinRandomAccessBase
 

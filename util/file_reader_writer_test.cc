@@ -725,7 +725,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
     while (reader->ReadLine(&line)) {
@@ -746,7 +747,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
     // Read part way through the file

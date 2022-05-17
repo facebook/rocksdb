@@ -8,7 +8,6 @@
 #include <cstring>
 
 #include "monitoring/iostats_context_imp.h"
-#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 

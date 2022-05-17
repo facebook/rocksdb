@@ -45,10 +45,6 @@ class CompositeSequentialFileWrapper : public SequentialFile {
     return target_->PositionedRead(offset, n, io_opts, result, scratch, &dbg);
   }
 
-  Status GetFileSize(uint64_t& size) const override {
-    return target_->GetFileSize(size);
-  }
-
  private:
   std::unique_ptr<FSSequentialFile> target_;
 };

@@ -749,11 +749,6 @@ class FSSequentialFile {
   // open.
   virtual Temperature GetTemperature() const { return Temperature::kUnknown; }
 
-  // Get the file size. After call, size is set to the file size if
-  // ok status is returned.
-  virtual IOStatus GetFileSize(uint64_t& /* size */) const {
-    return IOStatus::NotSupported("GetFileSize");
-  }
   // If you're adding methods here, remember to add them to
   // SequentialFileWrapper too.
 };
@@ -1553,9 +1548,6 @@ class FSSequentialFileWrapper : public FSSequentialFile {
   }
   Temperature GetTemperature() const override {
     return target_->GetTemperature();
-  }
-  IOStatus GetFileSize(uint64_t& size) const override {
-    return target_->GetFileSize(size);
   }
 
  private:

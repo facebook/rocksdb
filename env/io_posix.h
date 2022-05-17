@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <errno.h>
-#include <sys/types.h>
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #include <sys/uio.h>
@@ -202,7 +201,6 @@ class PosixSequentialFile : public FSSequentialFile {
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
-  virtual IOStatus GetFileSize(uint64_t& size) const override;
 };
 
 #if defined(ROCKSDB_IOURING_PRESENT)

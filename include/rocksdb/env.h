@@ -17,7 +17,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <sys/types.h>
 
 #include <cstdarg>
 #include <functional>
@@ -739,9 +738,6 @@ class SequentialFile {
         "SequentialFile::PositionedRead() not supported.");
   }
 
-  virtual Status GetFileSize(uint64_t& /* size */) const {
-    return Status::NotSupported("GetFileSize");
-  }
   // If you're adding methods here, remember to add them to
   // SequentialFileWrapper too.
 };
@@ -1669,9 +1665,6 @@ class SequentialFileWrapper : public SequentialFile {
   Status PositionedRead(uint64_t offset, size_t n, Slice* result,
                         char* scratch) override {
     return target_->PositionedRead(offset, n, result, scratch);
-  }
-  Status GetFileSize(uint64_t& size) const override {
-    return target_->GetFileSize(size);
   }
 
  private:

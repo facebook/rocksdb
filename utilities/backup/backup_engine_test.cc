@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <gtest/gtest.h>
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 #include "rocksdb/utilities/backup_engine.h"
@@ -171,16 +170,10 @@ class TestFs : public FileSystemWrapper {
       return IOStatus::OK();
     }
 
-    IOStatus GetFileSize(uint64_t& size) const override {
-      size = file_size_;
-      return IOStatus::OK();
-    }
-
    private:
     size_t size_left = 200;
     Random rnd_;
     bool fail_reads_;
-    uint64_t file_size_ = 200;
   };
 
   IOStatus NewSequentialFile(const std::string& f, const FileOptions& file_opts,
