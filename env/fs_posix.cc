@@ -51,6 +51,7 @@
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -1210,10 +1211,9 @@ PosixFileSystem::PosixFileSystem()
 // Default Posix FileSystem
 //
 std::shared_ptr<FileSystem> FileSystem::Default() {
-  static PosixFileSystem default_fs;
-  static std::shared_ptr<PosixFileSystem> default_fs_ptr(
-      &default_fs, [](PosixFileSystem*) {});
-  return default_fs_ptr;
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<FileSystem>, instance)
+  (std::make_shared<PosixFileSystem>());
+  return instance;
 }
 
 #ifndef ROCKSDB_LITE
