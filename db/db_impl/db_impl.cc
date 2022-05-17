@@ -583,19 +583,11 @@ Status DBImpl::CloseHelper() {
   // flushing by first checking if there is a need for
   // flushing (but need to implement something
   // else than imm()->IsFlushPending() because the output
-<<<<<<< HEAD
-  // memtables added to imm() don't trigger flushes).
-  if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
-    Status flush_ret;
-    mutex_.Unlock();
-    for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
-=======
   // memtables added to imm() dont trigger flushes).
   Status flush_ret;
   mutex_.Unlock();
   for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
     if (cf->GetMempurgeUsed()) {
->>>>>>> 672f4c48e (Switched mempurge flag from immutable DB option to Mutable CF option flag.)
       if (immutable_db_options_.atomic_flush) {
         flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
                                          FlushReason::kManualFlush);
