@@ -1260,15 +1260,18 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_clear(wb);
     rocksdb_writebatch_put_cf(wb, handles[1], "bar", 3, "b", 1);
     rocksdb_writebatch_put_cf(wb, handles[1], "box", 3, "c", 1);
+    rocksdb_writebatch_put_cf(wb, handles[1], "buff", 4, "rocksdb", 7);
     rocksdb_writebatch_delete_cf(wb, handles[1], "bar", 3);
     rocksdb_write(db, woptions, wb, &err);
     CheckNoError(err);
     CheckGetCF(db, roptions, handles[1], "baz", NULL);
     CheckGetCF(db, roptions, handles[1], "bar", NULL);
     CheckGetCF(db, roptions, handles[1], "box", "c");
+    CheckGetCF(db, roptions, handles[1], "buff", "rocksdb");
     CheckPinGetCF(db, roptions, handles[1], "baz", NULL);
     CheckPinGetCF(db, roptions, handles[1], "bar", NULL);
     CheckPinGetCF(db, roptions, handles[1], "box", "c");
+    CheckPinGetCF(db, roptions, handles[1], "buff", "rocksdb");
     rocksdb_writebatch_destroy(wb);
 
     rocksdb_flush_wal(db, 1, &err);
@@ -1297,6 +1300,26 @@ int main(int argc, char** argv) {
         break;
       }
       Free(&vals[i]);
+    }
+
+    {
+      const char* batched_keys[4] = {"box", "buff", "barfooxx", "box"};
+      const size_t batched_keys_sizes[4] = {3, 4, 8, 3};
+      const char* expected_value[4] = {"c", "rocksdb", NULL, "c"};
+      char* batched_errs[4];
+
+      rocksdb_pinnableslice_t* pvals[4];
+      rocksdb_batched_multi_get_cf(db, roptions, handles[1], 4, batched_keys,
+                                   batched_keys_sizes, pvals, batched_errs,
+                                   false);
+      const char* val;
+      size_t val_len;
+      for (i = 0; i < 4; ++i) {
+        val = rocksdb_pinnableslice_value(pvals[i], &val_len);
+        CheckNoError(batched_errs[i]);
+        CheckEqual(expected_value[i], val, val_len);
+        rocksdb_pinnableslice_destroy(pvals[i]);
+      }
     }
 
     {
@@ -1330,7 +1353,7 @@ int main(int argc, char** argv) {
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
-    CheckCondition(i == 3);
+    CheckCondition(i == 4);
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
@@ -1354,7 +1377,7 @@ int main(int argc, char** argv) {
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
-    CheckCondition(i == 3);
+    CheckCondition(i == 4);
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);

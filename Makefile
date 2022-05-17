@@ -795,17 +795,10 @@ $(SHARED4): $(LIB_OBJECTS)
 	$(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(LIB_OBJECTS) $(LDFLAGS) -o $@
 endif  # PLATFORM_SHARED_EXT
 
-.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
-	release tags tags0 valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava gen-pc install install-static install-shared uninstall \
-	analyze tools tools_lib check-headers checkout_folly \
-	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
-	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
-	blackbox_crash_test_with_best_efforts_recovery \
-	blackbox_crash_test_with_ts whitebox_crash_test_with_ts \
-	blackbox_crash_test_with_multiops_wc_txn \
-	blackbox_crash_test_with_multiops_wp_txn
-
+.PHONY: check clean coverage ldb_tests package dbg gen-pc build_size \
+	release tags tags0 valgrind_check format static_lib shared_lib all \
+	rocksdbjavastatic rocksdbjava install install-static install-shared \
+	uninstall analyze tools tools_lib check-headers checkout_folly
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
@@ -2352,6 +2345,38 @@ checkout_folly:
 	@# A hack to remove boost dependency.
 	@# NOTE: this hack is not needed if using FBCODE compiler config
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
+
+# ---------------------------------------------------------------------------
+#   Build size testing
+# ---------------------------------------------------------------------------
+
+REPORT_BUILD_STATISTIC?=echo STATISTIC:
+
+build_size:
+	# === normal build, static ===
+	$(MAKE) clean
+	$(MAKE) static_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib $$(stat --printf="%s" librocksdb.a)
+	strip librocksdb.a
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_stripped $$(stat --printf="%s" librocksdb.a)
+	# === normal build, shared ===
+	$(MAKE) clean
+	$(MAKE) shared_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib $$(stat --printf="%s" `readlink -f librocksdb.so`)
+	strip `readlink -f librocksdb.so`
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
+	# === lite build, static ===
+	$(MAKE) clean
+	$(MAKE) LITE=1 static_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite $$(stat --printf="%s" librocksdb.a)
+	strip librocksdb.a
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.static_lib_lite_stripped $$(stat --printf="%s" librocksdb.a)
+	# === lite build, shared ===
+	$(MAKE) clean
+	$(MAKE) LITE=1 shared_lib
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite $$(stat --printf="%s" `readlink -f librocksdb.so`)
+	strip `readlink -f librocksdb.so`
+	$(REPORT_BUILD_STATISTIC) rocksdb.build_size.shared_lib_lite_stripped $$(stat --printf="%s" `readlink -f librocksdb.so`)
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

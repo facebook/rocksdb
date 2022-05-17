@@ -2928,6 +2928,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         if (first_block) {
           iiter->Seek(key);
+          if (!iiter->Valid()) {
+            break;
+          }
         }
         first_block = false;
         iiter->Next();

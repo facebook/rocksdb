@@ -4266,19 +4266,20 @@ TEST_F(OptionTypeInfoTest, TestInvalidArgs) {
 }
 
 TEST_F(OptionTypeInfoTest, TestParseFunc) {
-  OptionTypeInfo opt_info(
-      0, OptionType::kUnknown, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone,
-      [](const ConfigOptions& /*opts*/, const std::string& name,
-         const std::string& value, void* addr) {
-        auto ptr = static_cast<std::string*>(addr);
-        if (name == "Oops") {
-          return Status::InvalidArgument(value);
-        } else {
-          *ptr = value + " " + name;
-          return Status::OK();
-        }
-      });
+  OptionTypeInfo opt_info(0, OptionType::kUnknown,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetParseFunc([](const ConfigOptions& /*opts*/,
+                           const std::string& name, const std::string& value,
+                           void* addr) {
+    auto ptr = static_cast<std::string*>(addr);
+    if (name == "Oops") {
+      return Status::InvalidArgument(value);
+    } else {
+      *ptr = value + " " + name;
+      return Status::OK();
+    }
+  });
   ConfigOptions config_options;
   std::string base;
   ASSERT_OK(opt_info.Parse(config_options, "World", "Hello", &base));
@@ -4287,19 +4288,19 @@ TEST_F(OptionTypeInfoTest, TestParseFunc) {
 }
 
 TEST_F(OptionTypeInfoTest, TestSerializeFunc) {
-  OptionTypeInfo opt_info(
-      0, OptionType::kString, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone, nullptr,
-      [](const ConfigOptions& /*opts*/, const std::string& name,
-         const void* /*addr*/, std::string* value) {
-        if (name == "Oops") {
-          return Status::InvalidArgument(name);
-        } else {
-          *value = name;
-          return Status::OK();
-        }
-      },
-      nullptr);
+  OptionTypeInfo opt_info(0, OptionType::kString,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetSerializeFunc([](const ConfigOptions& /*opts*/,
+                               const std::string& name, const void* /*addr*/,
+                               std::string* value) {
+    if (name == "Oops") {
+      return Status::InvalidArgument(name);
+    } else {
+      *value = name;
+      return Status::OK();
+    }
+  });
   ConfigOptions config_options;
   std::string base;
   std::string value;
@@ -4309,24 +4310,24 @@ TEST_F(OptionTypeInfoTest, TestSerializeFunc) {
 }
 
 TEST_F(OptionTypeInfoTest, TestEqualsFunc) {
-  OptionTypeInfo opt_info(
-      0, OptionType::kInt, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone, nullptr, nullptr,
-      [](const ConfigOptions& /*opts*/, const std::string& name,
-         const void* addr1, const void* addr2, std::string* mismatch) {
-        auto i1 = *(static_cast<const int*>(addr1));
-        auto i2 = *(static_cast<const int*>(addr2));
-        if (name == "LT") {
-          return i1 < i2;
-        } else if (name == "GT") {
-          return i1 > i2;
-        } else if (name == "EQ") {
-          return i1 == i2;
-        } else {
-          *mismatch = name + "???";
-          return false;
-        }
-      });
+  OptionTypeInfo opt_info(0, OptionType::kInt, OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetEqualsFunc([](const ConfigOptions& /*opts*/,
+                            const std::string& name, const void* addr1,
+                            const void* addr2, std::string* mismatch) {
+    auto i1 = *(static_cast<const int*>(addr1));
+    auto i2 = *(static_cast<const int*>(addr2));
+    if (name == "LT") {
+      return i1 < i2;
+    } else if (name == "GT") {
+      return i1 > i2;
+    } else if (name == "EQ") {
+      return i1 == i2;
+    } else {
+      *mismatch = name + "???";
+      return false;
+    }
+  });
 
   ConfigOptions config_options;
   int int1 = 100;
@@ -4340,6 +4341,64 @@ TEST_F(OptionTypeInfoTest, TestEqualsFunc) {
   ASSERT_FALSE(
       opt_info.AreEqual(config_options, "NO", &int1, &int2, &mismatch));
   ASSERT_EQ(mismatch, "NO???");
+}
+
+TEST_F(OptionTypeInfoTest, TestPrepareFunc) {
+  OptionTypeInfo opt_info(0, OptionType::kInt, OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetPrepareFunc(
+      [](const ConfigOptions& /*opts*/, const std::string& name, void* addr) {
+        auto i1 = static_cast<int*>(addr);
+        if (name == "x2") {
+          *i1 *= 2;
+        } else if (name == "/2") {
+          *i1 /= 2;
+        } else {
+          return Status::InvalidArgument("Bad Argument", name);
+        }
+        return Status::OK();
+      });
+  ConfigOptions config_options;
+  int int1 = 100;
+  ASSERT_OK(opt_info.Prepare(config_options, "x2", &int1));
+  ASSERT_EQ(int1, 200);
+  ASSERT_OK(opt_info.Prepare(config_options, "/2", &int1));
+  ASSERT_EQ(int1, 100);
+  ASSERT_NOK(opt_info.Prepare(config_options, "??", &int1));
+  ASSERT_EQ(int1, 100);
+}
+TEST_F(OptionTypeInfoTest, TestValidateFunc) {
+  OptionTypeInfo opt_info(0, OptionType::kSizeT,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetValidateFunc([](const DBOptions& db_opts,
+                              const ColumnFamilyOptions& cf_opts,
+                              const std::string& name, const void* addr) {
+    const auto sz = static_cast<const size_t*>(addr);
+    bool is_valid = false;
+    if (name == "keep_log_file_num") {
+      is_valid = (*sz == db_opts.keep_log_file_num);
+    } else if (name == "write_buffer_size") {
+      is_valid = (*sz == cf_opts.write_buffer_size);
+    }
+    if (is_valid) {
+      return Status::OK();
+    } else {
+      return Status::InvalidArgument("Mismatched value", name);
+    }
+  });
+  ConfigOptions config_options;
+  DBOptions db_options;
+  ColumnFamilyOptions cf_options;
+
+  ASSERT_OK(opt_info.Validate(db_options, cf_options, "keep_log_file_num",
+                              &db_options.keep_log_file_num));
+  ASSERT_OK(opt_info.Validate(db_options, cf_options, "write_buffer_size",
+                              &cf_options.write_buffer_size));
+  ASSERT_NOK(opt_info.Validate(db_options, cf_options, "keep_log_file_num",
+                               &cf_options.write_buffer_size));
+  ASSERT_NOK(opt_info.Validate(db_options, cf_options, "write_buffer_size",
+                               &db_options.keep_log_file_num));
 }
 
 TEST_F(OptionTypeInfoTest, TestOptionFlags) {
