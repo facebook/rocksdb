@@ -886,103 +886,27 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
   }
 }
 
-/*
- * A cache wrapper that tracks peaks and increments of filter
- * construction cache reservation.
- *        p0
- *       / \   p1
- *      /   \  /\
- *     /     \/  \
- *  a /       b   \
- * peaks = {p0, p1}
- * increments = {p1-a, p2-b}
- */
-class FilterConstructResPeakTrackingCache : public CacheWrapper {
- public:
-  explicit FilterConstructResPeakTrackingCache(std::shared_ptr<Cache> target)
-      : CacheWrapper(std::move(target)),
-        cur_cache_res_(0),
-        cache_res_peak_(0),
-        cache_res_increment_(0),
-        last_peak_tracked_(false),
-        cache_res_increments_sum_(0) {}
-
-  using Cache::Insert;
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    Status s = target_->Insert(key, value, charge, deleter, handle, priority);
-    if (deleter == kNoopDeleterForFilterConstruction) {
-      if (last_peak_tracked_) {
-        cache_res_peak_ = 0;
-        cache_res_increment_ = 0;
-        last_peak_tracked_ = false;
-      }
-      cur_cache_res_ += charge;
-      cache_res_peak_ = std::max(cache_res_peak_, cur_cache_res_);
-      cache_res_increment_ += charge;
-    }
-    return s;
-  }
-
-  using Cache::Release;
-  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
-    auto deleter = GetDeleter(handle);
-    if (deleter == kNoopDeleterForFilterConstruction) {
-      if (!last_peak_tracked_) {
-        cache_res_peaks_.push_back(cache_res_peak_);
-        cache_res_increments_sum_ += cache_res_increment_;
-        last_peak_tracked_ = true;
-      }
-      cur_cache_res_ -= GetCharge(handle);
-    }
-    bool is_successful = target_->Release(handle, erase_if_last_ref);
-    return is_successful;
-  }
-
-  std::deque<std::size_t> GetReservedCachePeaks() { return cache_res_peaks_; }
-
-  std::size_t GetReservedCacheIncrementSum() {
-    return cache_res_increments_sum_;
-  }
-
- private:
-  static const Cache::DeleterFn kNoopDeleterForFilterConstruction;
-
-  std::size_t cur_cache_res_;
-  std::size_t cache_res_peak_;
-  std::size_t cache_res_increment_;
-  bool last_peak_tracked_;
-  std::deque<std::size_t> cache_res_peaks_;
-  std::size_t cache_res_increments_sum_;
-};
-
-const Cache::DeleterFn
-    FilterConstructResPeakTrackingCache::kNoopDeleterForFilterConstruction =
-        CacheReservationManagerImpl<
-            CacheEntryRole::kFilterConstruction>::TEST_GetNoopDeleterForRole();
-
 // To align with the type of hash entry being reserved in implementation.
 using FilterConstructionReserveMemoryHash = uint64_t;
 
-class DBFilterConstructionReserveMemoryTestWithParam
+class ChargeFilterConstructionTestWithParam
     : public DBTestBase,
-      public testing::WithParamInterface<
-          std::tuple<bool, std::string, bool, bool>> {
+      public testing::WithParamInterface<std::tuple<
+          CacheEntryRoleOptions::Decision, std::string, bool, bool>> {
  public:
-  DBFilterConstructionReserveMemoryTestWithParam()
+  ChargeFilterConstructionTestWithParam()
       : DBTestBase("db_bloom_filter_tests",
                    /*env_do_fsync=*/true),
         num_key_(0),
-        reserve_table_builder_memory_(std::get<0>(GetParam())),
+        charge_filter_construction_(std::get<0>(GetParam())),
         policy_(std::get<1>(GetParam())),
         partition_filters_(std::get<2>(GetParam())),
         detect_filter_construct_corruption_(std::get<3>(GetParam())) {
-    if (!reserve_table_builder_memory_ || policy_ == kDeprecatedBlock ||
-        policy_ == kLegacyBloom) {
+    if (charge_filter_construction_ ==
+            CacheEntryRoleOptions::Decision::kDisabled ||
+        policy_ == kDeprecatedBlock || policy_ == kLegacyBloom) {
       // For these cases, we only interested in whether filter construction
-      // cache resevation happens instead of its accuracy. Therefore we don't
+      // cache charging happens instead of its accuracy. Therefore we don't
       // need many keys.
       num_key_ = 5;
     } else if (partition_filters_) {
@@ -997,11 +921,11 @@ class DBFilterConstructionReserveMemoryTestWithParam
                  sizeof(FilterConstructionReserveMemoryHash);
     } else if (policy_ == kFastLocalBloom) {
       // For Bloom Filter + FullFilter case, since we design the num_key_ to
-      // make hash entry cache reservation be a multiple of dummy entries, the
+      // make hash entry cache charging be a multiple of dummy entries, the
       // correct behavior of charging final filter on top of it will trigger at
       // least another dummy entry insertion. Therefore we can assert that
       // behavior and we don't need a large number of keys to verify we
-      // indeed charge the final filter for cache reservation, even though final
+      // indeed charge the final filter for in cache, even though final
       // filter is a lot smaller than hash entries.
       num_key_ = 1 *
                  CacheReservationManagerImpl<
@@ -1011,7 +935,7 @@ class DBFilterConstructionReserveMemoryTestWithParam
       // For Ribbon Filter + FullFilter case, we need a large enough number of
       // keys so that charging final filter after releasing the hash entries
       // reservation will trigger at least another dummy entry (or equivalently
-      // to saying, causing another peak in cache reservation) as banding
+      // to saying, causing another peak in cache charging) as banding
       // reservation might not be a multiple of dummy entry.
       num_key_ = 12 *
                  CacheReservationManagerImpl<
@@ -1027,7 +951,9 @@ class DBFilterConstructionReserveMemoryTestWithParam
     // calculation.
     constexpr std::size_t kCacheCapacity = 100 * 1024 * 1024;
 
-    table_options.reserve_table_builder_memory = reserve_table_builder_memory_;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ charge_filter_construction_}});
     table_options.filter_policy = Create(10, policy_);
     table_options.partition_filters = partition_filters_;
     if (table_options.partition_filters) {
@@ -1045,7 +971,8 @@ class DBFilterConstructionReserveMemoryTestWithParam
     lo.capacity = kCacheCapacity;
     lo.num_shard_bits = 0;  // 2^0 shard
     lo.strict_capacity_limit = true;
-    cache_ = std::make_shared<FilterConstructResPeakTrackingCache>(
+    cache_ = std::make_shared<
+        TargetCacheChargeTrackingCache<CacheEntryRole::kFilterConstruction>>(
         (NewLRUCache(lo)));
     table_options.block_cache = cache_;
 
@@ -1054,56 +981,73 @@ class DBFilterConstructionReserveMemoryTestWithParam
 
   std::size_t GetNumKey() { return num_key_; }
 
-  bool ReserveTableBuilderMemory() { return reserve_table_builder_memory_; }
+  CacheEntryRoleOptions::Decision ChargeFilterConstructMemory() {
+    return charge_filter_construction_;
+  }
 
   std::string GetFilterPolicy() { return policy_; }
 
   bool PartitionFilters() { return partition_filters_; }
 
-  std::shared_ptr<FilterConstructResPeakTrackingCache>
-  GetFilterConstructResPeakTrackingCache() {
+  std::shared_ptr<
+      TargetCacheChargeTrackingCache<CacheEntryRole::kFilterConstruction>>
+  GetCache() {
     return cache_;
   }
 
  private:
   std::size_t num_key_;
-  bool reserve_table_builder_memory_;
+  CacheEntryRoleOptions::Decision charge_filter_construction_;
   std::string policy_;
   bool partition_filters_;
-  std::shared_ptr<FilterConstructResPeakTrackingCache> cache_;
+  std::shared_ptr<
+      TargetCacheChargeTrackingCache<CacheEntryRole::kFilterConstruction>>
+      cache_;
   bool detect_filter_construct_corruption_;
 };
 
 INSTANTIATE_TEST_CASE_P(
-    DBFilterConstructionReserveMemoryTestWithParam,
-    DBFilterConstructionReserveMemoryTestWithParam,
-    ::testing::Values(std::make_tuple(false, kFastLocalBloom, false, false),
+    ChargeFilterConstructionTestWithParam,
+    ChargeFilterConstructionTestWithParam,
+    ::testing::Values(
+        std::make_tuple(CacheEntryRoleOptions::Decision::kDisabled,
+                        kFastLocalBloom, false, false),
 
-                      std::make_tuple(true, kFastLocalBloom, false, false),
-                      std::make_tuple(true, kFastLocalBloom, false, true),
-                      std::make_tuple(true, kFastLocalBloom, true, false),
-                      std::make_tuple(true, kFastLocalBloom, true, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kFastLocalBloom, false, false),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kFastLocalBloom, false, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kFastLocalBloom, true, false),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kFastLocalBloom, true, true),
 
-                      std::make_tuple(true, kStandard128Ribbon, false, false),
-                      std::make_tuple(true, kStandard128Ribbon, false, true),
-                      std::make_tuple(true, kStandard128Ribbon, true, false),
-                      std::make_tuple(true, kStandard128Ribbon, true, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kStandard128Ribbon, false, false),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kStandard128Ribbon, false, true),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kStandard128Ribbon, true, false),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kStandard128Ribbon, true, true),
 
-                      std::make_tuple(true, kDeprecatedBlock, false, false),
-                      std::make_tuple(true, kLegacyBloom, false, false)));
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
+                        kDeprecatedBlock, false, false),
+        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled, kLegacyBloom,
+                        false, false)));
 
 // TODO: Speed up this test, and reduce disk space usage (~700MB)
 // The current test inserts many keys (on the scale of dummy entry size)
 // in order to make small memory user (e.g, final filter, partitioned hash
 // entries/filter/banding) , which is proportional to the number of
-// keys, big enough so that its cache reservation triggers dummy entry insertion
+// keys, big enough so that its cache charging triggers dummy entry insertion
 // and becomes observable in the test.
 //
 // However, inserting that many keys slows down this test and leaves future
 // developers an opportunity to speed it up.
 //
 // Possible approaches & challenges:
-// 1. Use sync point during cache reservation of filter construction
+// 1. Use sync point during cache charging of filter construction
 //
 // Benefit: It does not rely on triggering dummy entry insertion
 // but the sync point to verify small memory user is charged correctly.
@@ -1112,7 +1056,7 @@ INSTANTIATE_TEST_CASE_P(
 //
 // 2. Make dummy entry size configurable and set it small in the test
 //
-// Benefit: It increases the precision of cache reservation and therefore
+// Benefit: It increases the precision of cache charging and therefore
 // small memory usage can still trigger insertion of dummy entry.
 //
 // Challenge: change CacheReservationManager related APIs and a hack
@@ -1120,16 +1064,17 @@ INSTANTIATE_TEST_CASE_P(
 // CacheReservationManager used in filter construction for testing
 // since CacheReservationManager is not exposed at the high level.
 //
-TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
+TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
   Options options = CurrentOptions();
   // We set write_buffer_size big enough so that in the case where there is
-  // filter construction cache reservation, flush won't be triggered before we
+  // filter construction cache charging, flush won't be triggered before we
   // manually trigger it for clean testing
   options.write_buffer_size = 640 << 20;
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  std::shared_ptr<FilterConstructResPeakTrackingCache> cache =
-      GetFilterConstructResPeakTrackingCache();
+  std::shared_ptr<
+      TargetCacheChargeTrackingCache<CacheEntryRole::kFilterConstruction>>
+      cache = GetCache();
   options.create_if_missing = true;
   // Disable auto compaction to prevent its unexpected side effect
   // to the number of keys per partition designed by us in the test
@@ -1140,32 +1085,33 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
     ASSERT_OK(Put(Key(i), Key(i)));
   }
 
-  ASSERT_EQ(cache->GetReservedCacheIncrementSum(), 0)
+  ASSERT_EQ(cache->GetChargedCacheIncrementSum(), 0)
       << "Flush was triggered too early in the test case with filter "
-         "construction cache reservation - please make sure no flush triggered "
+         "construction cache charging - please make sure no flush triggered "
          "during the key insertions above";
 
   ASSERT_OK(Flush());
 
-  bool reserve_table_builder_memory = ReserveTableBuilderMemory();
+  bool charge_filter_construction = (ChargeFilterConstructMemory() ==
+                                     CacheEntryRoleOptions::Decision::kEnabled);
   std::string policy = GetFilterPolicy();
   bool partition_filters = PartitionFilters();
   bool detect_filter_construct_corruption =
       table_options.detect_filter_construct_corruption;
 
   std::deque<std::size_t> filter_construction_cache_res_peaks =
-      cache->GetReservedCachePeaks();
+      cache->GetChargedCachePeaks();
   std::size_t filter_construction_cache_res_increments_sum =
-      cache->GetReservedCacheIncrementSum();
+      cache->GetChargedCacheIncrementSum();
 
-  if (!reserve_table_builder_memory) {
+  if (!charge_filter_construction) {
     EXPECT_EQ(filter_construction_cache_res_peaks.size(), 0);
     return;
   }
 
   if (policy == kDeprecatedBlock || policy == kLegacyBloom) {
     EXPECT_EQ(filter_construction_cache_res_peaks.size(), 0)
-        << "There shouldn't be filter construction cache reservation as this "
+        << "There shouldn't be filter construction cache charging as this "
            "feature does not support kDeprecatedBlock "
            "nor kLegacyBloom";
     return;
@@ -1239,14 +1185,14 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
      */
     if (!partition_filters) {
       EXPECT_EQ(filter_construction_cache_res_peaks.size(), 1)
-          << "Filter construction cache reservation should have only 1 peak in "
+          << "Filter construction cache charging should have only 1 peak in "
              "case: kFastLocalBloom + FullFilter";
       std::size_t filter_construction_cache_res_peak =
           filter_construction_cache_res_peaks[0];
       EXPECT_GT(filter_construction_cache_res_peak,
                 predicted_hash_entries_cache_res)
           << "The testing number of hash entries is designed to make hash "
-             "entries cache reservation be multiples of dummy entries"
+             "entries cache charging be multiples of dummy entries"
              " so the correct behavior of charging final filter on top of it"
              " should've triggered at least another dummy entry insertion";
 
@@ -1259,7 +1205,7 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
       return;
     } else {
       EXPECT_GE(filter_construction_cache_res_peaks.size(), 2)
-          << "Filter construction cache reservation should have multiple peaks "
+          << "Filter construction cache charging should have multiple peaks "
              "in case: kFastLocalBloom + "
              "PartitionedFilter";
       std::size_t predicted_filter_construction_cache_res_increments_sum =
@@ -1366,11 +1312,11 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
               CacheReservationManagerImpl<
                   CacheEntryRole::kFilterConstruction>::GetDummyEntrySize()),
           1)
-          << "Final filter cache reservation too small for this test - please "
+          << "Final filter cache charging too small for this test - please "
              "increase the number of keys";
       if (!detect_filter_construct_corruption) {
         EXPECT_EQ(filter_construction_cache_res_peaks.size(), 2)
-            << "Filter construction cache reservation should have 2 peaks in "
+            << "Filter construction cache charging should have 2 peaks in "
                "case: kStandard128Ribbon + "
                "FullFilter. "
                "The second peak is resulted from charging the final filter "
@@ -1389,7 +1335,7 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
                   predicted_filter_construction_cache_res_peak * 1.1);
       } else {
         EXPECT_EQ(filter_construction_cache_res_peaks.size(), 1)
-            << "Filter construction cache reservation should have 1 peaks in "
+            << "Filter construction cache charging should have 1 peaks in "
                "case: kStandard128Ribbon + FullFilter "
                "+ detect_filter_construct_corruption. "
                "The previous second peak now disappears since we don't "
@@ -1410,13 +1356,13 @@ TEST_P(DBFilterConstructionReserveMemoryTestWithParam, ReserveMemory) {
     } else {
       if (!detect_filter_construct_corruption) {
         EXPECT_GE(filter_construction_cache_res_peaks.size(), 3)
-            << "Filter construction cache reservation should have more than 3 "
+            << "Filter construction cache charging should have more than 3 "
                "peaks "
                "in case: kStandard128Ribbon + "
                "PartitionedFilter";
       } else {
         EXPECT_GE(filter_construction_cache_res_peaks.size(), 2)
-            << "Filter construction cache reservation should have more than 2 "
+            << "Filter construction cache charging should have more than 2 "
                "peaks "
                "in case: kStandard128Ribbon + "
                "PartitionedFilter + detect_filter_construct_corruption";

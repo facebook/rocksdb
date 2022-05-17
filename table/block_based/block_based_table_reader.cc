@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string>
@@ -717,7 +718,10 @@ Status BlockBasedTable::Open(
         mem_usage, &(rep->table_reader_cache_res_handle));
     if (s.IsIncomplete()) {
       s = Status::MemoryLimit(
-          "Can't allocate BlockBasedTableReader due to memory limit based on "
+          "Can't allocate " +
+          kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+              CacheEntryRole::kBlockBasedTableReader)] +
+          " due to memory limit based on "
           "cache capacity for memory allocation");
     }
   }

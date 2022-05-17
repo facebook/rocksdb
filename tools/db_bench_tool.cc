@@ -1129,10 +1129,20 @@ DEFINE_bool(async_io, false,
             "When set true, RocksDB does asynchronous reads for internal auto "
             "readahead prefetching.");
 
-DEFINE_bool(reserve_table_reader_memory, false,
-            "A dynamically updating charge to block cache, loosely based on "
-            "the actual memory usage of table reader, will occur to account "
-            "the memory, if block cache available.");
+DEFINE_bool(charge_compression_dictionary_building_buffer, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kCompressionDictionaryBuildingBuffer");
+
+DEFINE_bool(charge_filter_construction, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kFilterConstruction");
+
+DEFINE_bool(charge_table_reader, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kBlockBasedTableReader");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -4162,8 +4172,21 @@ class Benchmark {
             true;
       }
       block_based_options.block_cache = cache_;
-      block_based_options.reserve_table_reader_memory =
-          FLAGS_reserve_table_reader_memory;
+      block_based_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kCompressionDictionaryBuildingBuffer,
+           {/*.charged = */ FLAGS_charge_compression_dictionary_building_buffer
+                ? CacheEntryRoleOptions::Decision::kEnabled
+                : CacheEntryRoleOptions::Decision::kDisabled}});
+      block_based_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kFilterConstruction,
+           {/*.charged = */ FLAGS_charge_filter_construction
+                ? CacheEntryRoleOptions::Decision::kEnabled
+                : CacheEntryRoleOptions::Decision::kDisabled}});
+      block_based_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kBlockBasedTableReader,
+           {/*.charged = */ FLAGS_charge_table_reader
+                ? CacheEntryRoleOptions::Decision::kEnabled
+                : CacheEntryRoleOptions::Decision::kDisabled}});
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;

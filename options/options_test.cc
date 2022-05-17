@@ -854,8 +854,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
-      "reserve_table_builder_memory=true;"
-      "reserve_table_reader_memory=true;"
       "filter_policy=bloomfilter:4.567:false;detect_filter_construct_"
       "corruption=true;"
       // A bug caused read_amp_bytes_per_bit to be a large integer in OPTIONS
@@ -877,8 +875,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.format_version, 5U);
   ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_EQ(new_opt.detect_filter_construct_corruption, true);
-  ASSERT_EQ(new_opt.reserve_table_builder_memory, true);
-  ASSERT_EQ(new_opt.reserve_table_reader_memory, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   auto bfp = new_opt.filter_policy->CheckedCast<BloomFilterPolicy>();
   ASSERT_NE(bfp, nullptr);
