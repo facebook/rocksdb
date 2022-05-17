@@ -186,14 +186,14 @@ elif [[ $cache_index_and_filter -eq 1 ]]; then
   --cache_index_and_filter_blocks=$cache_index_and_filter \
   --cache_high_pri_pool_ratio=0.5"
 else
-  echo CACHE_INDEX_AND_FILTER_BLOCKS was $CACHE_INDEX_AND_FILTER_BLOCKS but most be 0 or 1
+  echo CACHE_INDEX_AND_FILTER_BLOCKS was $CACHE_INDEX_AND_FILTER_BLOCKS but must be 0 or 1
   exit $EXIT_INVALID_ARGS
 fi
 
 soft_pending_arg=""
 if [ ! -z $SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB ]; then
   soft_pending_bytes=$( echo $SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB | \
-    awk '{ printf "%.0f", $1 * 1024 * 1024 * 1024 }' )
+    awk '{ printf "%.0f", $1 * $G }' )
   soft_pending_arg="--soft_pending_compaction_bytes_limit=$soft_pending_bytes"
 fi
 
@@ -224,7 +224,7 @@ fi
 
 min_blob_size=${MIN_BLOB_SIZE:-0}
 blob_file_size=${BLOB_FILE_SIZE:-$(( 256 * $M ))}
-blob_compression_type=${BLOB_COMPRESSION_TYPE:-lz4}
+blob_compression_type=${BLOB_COMPRESSION_TYPE:-${compression_type}}
 blob_gc_age_cutoff=${BLOB_GC_AGE_CUTOFF:-"0.25"}
 blob_gc_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1}
 
@@ -315,6 +315,7 @@ elif [ $compaction_style == "universal" ]; then
   l0_slowdown_writes_trigger=${LEVEL0_SLOWDOWN_WRITES_TRIGGER:-20}
   l0_stop_writes_trigger=${LEVEL0_STOP_WRITES_TRIGGER:-30}
 else
+  # compaction_style == "blob"
   const_params="$blob_const_params"
   l0_file_num_compaction_trigger=${LEVEL0_FILE_NUM_COMPACTION_TRIGGER:-4}
   l0_slowdown_writes_trigger=${LEVEL0_SLOWDOWN_WRITES_TRIGGER:-20}
@@ -715,7 +716,7 @@ function run_fillseq {
       comp_arg=""
     fi
   else
-    # TODO: try to match what is done for leveled, although compression might not be needed
+    # compaction_style == "blob"
     comp_arg="--min_level_to_compress=0"
   fi
 
