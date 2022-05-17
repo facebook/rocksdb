@@ -1424,8 +1424,9 @@ void StressTest::TestCompactFiles(ThreadState* /* thread */,
 Status StressTest::TestBackupRestore(
     ThreadState* thread, const std::vector<int>& rand_column_families,
     const std::vector<int64_t>& rand_keys) {
-  std::string backup_dir = FLAGS_db + "/.backup" + std::to_string(thread->tid);
-  std::string restore_dir =
+  const std::string backup_dir =
+      FLAGS_db + "/.backup" + std::to_string(thread->tid);
+  const std::string restore_dir =
       FLAGS_db + "/.restore" + std::to_string(thread->tid);
   BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
@@ -1558,6 +1559,7 @@ Status StressTest::TestBackupRestore(
   // Not yet implemented: opening restored BlobDB or TransactionDB
   if (s.ok() && !FLAGS_use_txn && !FLAGS_use_blob_db) {
     Options restore_options(options_);
+    restore_options.best_efforts_recovery = false;
     restore_options.listeners.clear();
     // Avoid dangling/shared file descriptors, for reliable destroy
     restore_options.sst_file_manager = nullptr;
@@ -1614,11 +1616,17 @@ Status StressTest::TestBackupRestore(
     bool exists = thread->shared->Exists(rand_column_families[i], rand_keys[0]);
     if (get_status.ok()) {
       if (!exists && from_latest && ShouldAcquireMutexOnKey()) {
-        s = Status::Corruption("key exists in restore but not in original db");
+        std::ostringstream oss;
+        oss << "0x" << key.ToString(true)
+            << " exists in restore but not in original db";
+        s = Status::Corruption(oss.str());
       }
     } else if (get_status.IsNotFound()) {
       if (exists && from_latest && ShouldAcquireMutexOnKey()) {
-        s = Status::Corruption("key exists in original db but not in restore");
+        std::ostringstream oss;
+        oss << "0x" << key.ToString(true)
+            << " exists in original db but not in restore";
+        s = Status::Corruption(oss.str());
       }
     } else {
       s = get_status;
@@ -1760,6 +1768,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
   DB* checkpoint_db = nullptr;
   if (s.ok()) {
     Options options(options_);
+    options.best_efforts_recovery = false;
     options.listeners.clear();
     // Avoid race condition in trash handling after delete checkpoint_db
     options.sst_file_manager.reset();
@@ -1791,13 +1800,18 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
           thread->shared->Exists(rand_column_families[i], rand_keys[0]);
       if (get_status.ok()) {
         if (!exists && ShouldAcquireMutexOnKey()) {
-          s = Status::Corruption(
-              "key exists in checkpoint but not in original db");
+          std::ostringstream oss;
+          oss << "0x" << key.ToString(true) << " exists in checkpoint "
+              << checkpoint_dir << " but not in original db";
+          s = Status::Corruption(oss.str());
         }
       } else if (get_status.IsNotFound()) {
         if (exists && ShouldAcquireMutexOnKey()) {
-          s = Status::Corruption(
-              "key exists in original db but not in checkpoint");
+          std::ostringstream oss;
+          oss << "0x" << key.ToString(true)
+              << " exists in original db but not in checkpoint "
+              << checkpoint_dir;
+          s = Status::Corruption(oss.str());
         }
       } else {
         s = get_status;

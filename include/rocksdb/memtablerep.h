@@ -300,6 +300,9 @@ class MemTableRepFactory : public Customizable {
   static Status CreateFromString(const ConfigOptions& config_options,
                                  const std::string& id,
                                  std::unique_ptr<MemTableRepFactory>* factory);
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<MemTableRepFactory>* factory);
 
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Allocator*, const SliceTransform*,
