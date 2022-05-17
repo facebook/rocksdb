@@ -704,6 +704,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTestWithTimestamp, ReadOnlyDBSimpleIterateAndGet) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -852,6 +853,7 @@ TEST_F(DBBasicTestWithTimestamp, ReadOnlyDBIterators) {
 
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   Options options = CurrentOptions();
