@@ -48,8 +48,9 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     BlockCacheLookupContext* lookup_context) {
   const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
-  const Status s = GetOrReadIndexBlock(no_io, read_options, get_context,
-                                       lookup_context, &index_block);
+  const Status s =
+      GetOrReadIndexBlock(no_io, read_options.rate_limiter_priority,
+                          get_context, lookup_context, &index_block);
   if (!s.ok()) {
     if (iter != nullptr) {
       iter->Invalidate(s);

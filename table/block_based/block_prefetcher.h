@@ -19,6 +19,8 @@ class BlockPrefetcher {
         readahead_size_(initial_auto_readahead_size),
         initial_auto_readahead_size_(initial_auto_readahead_size) {}
 
+  // Only three fields of read_options are used: async_io, readahead_size,
+  // and rate_limiter_priority.
   void PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                         const BlockHandle& handle,
                         const ReadOptions& read_options,
