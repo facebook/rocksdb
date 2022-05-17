@@ -1428,12 +1428,19 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
   tp->orig_file_number = file_number;
   TestIds t;
   {
+    std::string euid;
+    EXPECT_OK(GetExtendedUniqueIdFromTableProperties(*tp, &euid));
+    EXPECT_EQ(euid.size(), 24U);
+    t.external_id[0] = DecodeFixed64(&euid[0]);
+    t.external_id[1] = DecodeFixed64(&euid[8]);
+    t.external_id[2] = DecodeFixed64(&euid[16]);
+
     std::string uid;
     EXPECT_OK(GetUniqueIdFromTableProperties(*tp, &uid));
-    EXPECT_EQ(uid.size(), 24U);
-    t.external_id[0] = DecodeFixed64(&uid[0]);
-    t.external_id[1] = DecodeFixed64(&uid[8]);
-    t.external_id[2] = DecodeFixed64(&uid[16]);
+    EXPECT_EQ(uid.size(), 16U);
+    EXPECT_EQ(uid, euid.substr(0, 16));
+    EXPECT_EQ(t.external_id[0], DecodeFixed64(&uid[0]));
+    EXPECT_EQ(t.external_id[1], DecodeFixed64(&uid[8]));
   }
   // All these should be effectively random
   EXPECT_TRUE(seen->insert(t.external_id[0]).second);
@@ -1443,6 +1450,7 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
   // Get internal with internal API
   EXPECT_OK(GetSstInternalUniqueId(db_id, db_session_id, file_number,
                                    &t.internal_id));
+  EXPECT_NE(t.internal_id, kNullUniqueId64x3);
 
   // Verify relationship
   UniqueId64x3 tmp = t.internal_id;
@@ -1450,6 +1458,21 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
   EXPECT_EQ(tmp, t.external_id);
   ExternalUniqueIdToInternal(&tmp);
   EXPECT_EQ(tmp, t.internal_id);
+
+  // And 128-bit internal version
+  UniqueId64x2 tmp2{};
+  EXPECT_OK(GetSstInternalUniqueId(db_id, db_session_id, file_number, &tmp2));
+  EXPECT_NE(tmp2, kNullUniqueId64x2);
+
+  EXPECT_EQ(tmp2[0], t.internal_id[0]);
+  EXPECT_EQ(tmp2[1], t.internal_id[1]);
+  InternalUniqueIdToExternal(&tmp2);
+  EXPECT_EQ(tmp2[0], t.external_id[0]);
+  EXPECT_EQ(tmp2[1], t.external_id[1]);
+  ExternalUniqueIdToInternal(&tmp2);
+  EXPECT_EQ(tmp2[0], t.internal_id[0]);
+  EXPECT_EQ(tmp2[1], t.internal_id[1]);
+
   return t;
 }
 }  // namespace
@@ -1590,7 +1613,7 @@ TEST_F(TablePropertyTest, UniqueIdHumanStrings) {
   SetGoodTableProperties(&tp);
 
   std::string tmp;
-  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+  EXPECT_OK(GetExtendedUniqueIdFromTableProperties(tp, &tmp));
   EXPECT_EQ(tmp,
             (std::string{{'\x64', '\x74', '\xdf', '\x65', '\x03', '\x23',
                           '\xbd', '\xf0', '\xb4', '\x8e', '\x64', '\xf3',
@@ -1598,6 +1621,9 @@ TEST_F(TablePropertyTest, UniqueIdHumanStrings) {
                           '\x4b', '\x32', '\xe7', '\xf7', '\x44', '\x4b'}}));
   EXPECT_EQ(UniqueIdToHumanString(tmp),
             "6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B");
+
+  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "6474DF650323BDF0-B48E64F3039308CA");
 
   // including zero padding
   tmp = std::string(24U, '\0');
@@ -1632,16 +1658,22 @@ TEST_F(TablePropertyTest, UniqueIdsFailure) {
   SetGoodTableProperties(&tp);
   tp.db_id = "";
   EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+  EXPECT_TRUE(
+      GetExtendedUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
 
   // Missing session id
   SetGoodTableProperties(&tp);
   tp.db_session_id = "";
   EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+  EXPECT_TRUE(
+      GetExtendedUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
 
   // Missing file number
   SetGoodTableProperties(&tp);
   tp.orig_file_number = 0;
   EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+  EXPECT_TRUE(
+      GetExtendedUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
 }
 
 // This test include all the basic checks except those for index size and block

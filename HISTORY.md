@@ -18,6 +18,7 @@
 * Renamed CompactionFilter::Decision::kRemoveWithSingleDelete to kPurge since the latter sounds more general and hides the implementation details of how compaction iterator handles keys.
 * Added ability to specify functions for Prepare and Validate to OptionsTypeInfo.  Added methods to OptionTypeInfo to set the functions via an API.  These methods are intended for RocksDB plugin developers for configuration management.
 * Added a new immutable db options, enforce_single_del_contracts. If set to false (default is true), compaction will NOT fail due to a single delete followed by a delete for the same key. The purpose of this temporay option is to help existing use cases migrate.
+* Changed `GetUniqueIdFromTableProperties` to return a 128-bit unique identifier, which will be the standard size now. The old functionality (192-bit) is available from `GetExtendedUniqueIdFromTableProperties`. Both functions are no longer "experimental" and are ready for production use.
 
 ### Bug Fixes
 * RocksDB calls FileSystem::Poll API during FilePrefetchBuffer destruction which impacts performance as it waits for read requets completion which is not needed anymore. Calling FileSystem::AbortIO to abort those requests instead fixes that performance issue.
