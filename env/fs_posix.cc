@@ -178,8 +178,18 @@ class PosixFileSystem : public FileSystem {
       fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
-      return IOError("While opening a file for sequentially reading", fname,
-                     errno);
+      int err = errno;
+      switch (err) {
+        case EACCES:
+        case ELOOP:
+        case ENAMETOOLONG:
+        case ENOENT:
+        case ENOTDIR:
+          return IOStatus::NotFound();
+        default:
+          return IOError("While opening a file for sequentially reading", fname,
+                         errno);
+      }
     }
 
     SetFD_CLOEXEC(fd, &options);
