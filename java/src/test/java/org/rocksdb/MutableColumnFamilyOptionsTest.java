@@ -119,7 +119,7 @@ public class MutableColumnFamilyOptionsTest {
         + "min_write_buffer_number_to_merge=1;  max_write_buffer_number_to_maintain=0;  compaction_filter=nullptr;  merge_operator=nullptr;  "
         + "num_levels=7;  optimize_filters_for_hits=false;  force_consistency_checks=true;  table_factory=BlockBasedTable;  "
         + "max_write_buffer_size_to_maintain=0;  memtable_insert_with_hint_prefix_extractor=nullptr;  level_compaction_dynamic_level_bytes=false;  "
-        + "inplace_update_support=false;";
+        + "inplace_update_support=false;  experimental_mempurge_threshold=0.003";
 
     MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder cf =
         MutableColumnFamilyOptions.parse(optionsString, true);
