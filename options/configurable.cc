@@ -690,14 +690,26 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
                                        const Configurable& that_one,
                                        std::string* mismatch) {
   assert(mismatch != nullptr);
-  for (auto const& o : this_one.options_) {
-    const auto this_offset = this_one.GetOptionsPtr(o.name);
-    const auto that_offset = that_one.GetOptionsPtr(o.name);
+  if (this_one.options_.size() != that_one.options_.size()) {
+    // The two types do not have the same number of registered options,
+    // therefore they cannot be the same.
+    return false;
+  }
+
+  for (size_t i = 0; i < this_one.options_.size(); i++) {
+    const auto& this_opt = this_one.options_[i];
+    const auto& that_opt = that_one.options_[i];
+    if (this_opt.name != that_opt.name ||
+        this_opt.type_map != that_opt.type_map) {
+      return false;
+    }
+    const auto this_offset = this_opt.opt_ptr;
+    const auto that_offset = that_opt.opt_ptr;
     if (this_offset != that_offset) {
       if (this_offset == nullptr || that_offset == nullptr) {
         return false;
-      } else if (o.type_map != nullptr) {
-        for (const auto& map_iter : *(o.type_map)) {
+      } else if (this_opt.type_map != nullptr) {
+        for (const auto& map_iter : *(this_opt.type_map)) {
           const auto& opt_info = map_iter.second;
           if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
             if (!config_options.mutable_options_only) {

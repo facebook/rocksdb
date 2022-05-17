@@ -643,17 +643,45 @@ TEST_F(ConfigurableTest, TestNoCompare) {
 
   std::unique_ptr<Configurable> base, copy;
   base.reset(SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode,
-                                        &nocomp_option_info));
+                                        &normal_option_info));
   copy.reset(SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode,
                                         &normal_option_info));
   ASSERT_OK(base->ConfigureFromString(config_options_, "int=10"));
-  ASSERT_OK(copy->ConfigureFromString(config_options_, "int=20"));
+  ASSERT_OK(copy->ConfigureFromString(config_options_, "int=10"));
   std::string bvalue, cvalue, mismatch;
+  ASSERT_OK(base->GetOption(config_options_, "int", &bvalue));
+  ASSERT_OK(copy->GetOption(config_options_, "int", &cvalue));
+  ASSERT_EQ(bvalue, "10");
+  ASSERT_EQ(cvalue, "10");
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
+
+  ASSERT_OK(copy->ConfigureFromString(config_options_, "int=20"));
+  ASSERT_OK(copy->GetOption(config_options_, "int", &cvalue));
+  ASSERT_EQ(cvalue, "20");
+  ASSERT_FALSE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
+
+  base.reset(SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode,
+                                        &nocomp_option_info));
+  copy.reset(SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode,
+                                        &nocomp_option_info));
+  ASSERT_OK(base->ConfigureFromString(config_options_, "int=10"));
+  ASSERT_OK(copy->ConfigureFromString(config_options_, "int=20"));
   ASSERT_OK(base->GetOption(config_options_, "int", &bvalue));
   ASSERT_OK(copy->GetOption(config_options_, "int", &cvalue));
   ASSERT_EQ(bvalue, "10");
   ASSERT_EQ(cvalue, "20");
   ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_TRUE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
+
+  copy.reset(SimpleConfigurable::Create("c", TestConfigMode::kDefaultMode,
+                                        &normal_option_info));
+  ASSERT_OK(copy->ConfigureFromString(config_options_, "int=10"));
+  ASSERT_OK(copy->GetOption(config_options_, "int", &cvalue));
+  ASSERT_EQ(bvalue, cvalue);
+  // The registered options do not match.  The values will not match
+  ASSERT_FALSE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
   ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
 }
 

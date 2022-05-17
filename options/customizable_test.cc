@@ -376,6 +376,19 @@ TEST_F(CustomizableTest, SimpleConfigureTest) {
       configurable->AreEquivalent(config_options_, copy.get(), &mismatch));
 }
 
+TEST_F(CustomizableTest, AreEquivalentTest) {
+  std::string mismatch;
+  std::unique_ptr<Customizable> base(new ACustomizable("A"));
+  std::unique_ptr<Customizable> copy(new ACustomizable("A"));
+  ASSERT_TRUE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
+  copy.reset(new ACustomizable("B"));
+  ASSERT_FALSE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
+  copy.reset(new TestCustomizable("A"));
+  ASSERT_FALSE(base->AreEquivalent(config_options_, copy.get(), &mismatch));
+  ASSERT_FALSE(copy->AreEquivalent(config_options_, base.get(), &mismatch));
+}
+
 TEST_F(CustomizableTest, ConfigureFromPropsTest) {
   std::unordered_map<std::string, std::string> opt_map = {
       {"unique.id", "A"}, {"unique.A.int", "1"},    {"unique.A.bool", "true"},
