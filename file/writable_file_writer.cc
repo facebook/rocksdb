@@ -56,7 +56,8 @@ IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
   {
     IOOptions io_options;
     WritableFileWriter::DecideRateLimiterPriority(
-        writable_file_->GetIOPriority(), op_rate_limiter_priority, io_options);
+        writable_file_->GetIOPriority(), op_rate_limiter_priority,
+        io_options.rate_limiter_priority);
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
     writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left,
@@ -338,7 +339,8 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
 #endif
     IOOptions io_options;
     WritableFileWriter::DecideRateLimiterPriority(
-        writable_file_->GetIOPriority(), op_rate_limiter_priority, io_options);
+        writable_file_->GetIOPriority(), op_rate_limiter_priority,
+        io_options.rate_limiter_priority);
     s = writable_file_->Flush(io_options, nullptr);
 #ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
@@ -509,7 +511,7 @@ IOStatus WritableFileWriter::WriteBuffered(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options);
+          io_options.rate_limiter_priority);
 
   while (left > 0) {
     size_t allowed = left;
@@ -598,7 +600,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options);
+          io_options.rate_limiter_priority);
   // Check how much is allowed. Here, we loop until the rate limiter allows to
   // write the entire buffer.
   // TODO: need to be improved since it sort of defeats the purpose of the rate
@@ -728,7 +730,7 @@ IOStatus WritableFileWriter::WriteDirect(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options);
+          io_options.rate_limiter_priority);
 
   while (left > 0) {
     // Check how much is allowed
@@ -829,7 +831,7 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options);
+          io_options.rate_limiter_priority);
   // Check how much is allowed. Here, we loop until the rate limiter allows to
   // write the entire buffer.
   // TODO: need to be improved since it sort of defeats the purpose of the rate
@@ -899,7 +901,8 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
 #endif  // !ROCKSDB_LITE
 Env::IOPriority WritableFileWriter::DecideRateLimiterPriority(
     Env::IOPriority writable_file_io_priority,
-    Env::IOPriority op_rate_limiter_priority, IOOptions& io_options) {
+    Env::IOPriority op_rate_limiter_priority,
+    Env::IOPriority& iooptions_io_priority) {
   Env::IOPriority rate_limiter_priority{Env::IO_TOTAL};
   if (writable_file_io_priority == Env::IO_TOTAL &&
       op_rate_limiter_priority == Env::IO_TOTAL) {
@@ -911,7 +914,7 @@ Env::IOPriority WritableFileWriter::DecideRateLimiterPriority(
   } else {
     rate_limiter_priority = op_rate_limiter_priority;
   }
-  io_options.rate_limiter_priority = rate_limiter_priority;
+  iooptions_io_priority = rate_limiter_priority;
   return rate_limiter_priority;
 }
 

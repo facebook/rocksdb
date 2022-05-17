@@ -563,7 +563,6 @@ TEST_MAIN_SOURCES =                                                     \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
   util/work_queue_test.cc                                               \
-  util/writable_file_io_priority_test.cc                                \
   utilities/agg_merge/agg_merge_test.cc                                 \
   utilities/backup/backup_engine_test.cc                                \
   utilities/blob_db/blob_db_test.cc                                     \
