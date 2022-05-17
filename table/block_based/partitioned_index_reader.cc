@@ -121,9 +121,9 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
 
   CachableEntry<Block> index_block;
   {
-    Status s =
-        GetOrReadIndexBlock(false /* no_io */, ro, nullptr /* get_context */,
-                            &lookup_context, &index_block);
+    Status s = GetOrReadIndexBlock(false /* no_io */, ro.rate_limiter_priority,
+                                   nullptr /* get_context */, &lookup_context,
+                                   &index_block);
     if (!s.ok()) {
       return s;
     }
