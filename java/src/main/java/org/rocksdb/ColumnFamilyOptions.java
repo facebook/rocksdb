@@ -1389,6 +1389,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
   private native double memtablePrefixBloomSizeRatio(long handle);
+  private native void setExperimentalMempurgeThreshold(
+      long handle, double experimentalMempurgeThreshold);
+  private native double experimentalMempurgeThreshold(long handle);
   private native void setMemtableWholeKeyFiltering(long handle, boolean memtableWholeKeyFiltering);
   private native boolean memtableWholeKeyFiltering(long handle);
   private native void setBloomLocality(
