@@ -158,6 +158,7 @@ public class MutableColumnFamilyOptionsTest {
     assertThat(cf.periodicCompactionSeconds()).isEqualTo(0);
     assertThat(cf.paranoidFileChecks()).isEqualTo(true);
     assertThat(cf.memtablePrefixBloomSizeRatio()).isEqualTo(7.5);
+    assertThat(cf.experimentalMempurgeThreshold()).isEqualTo(0.003);
     assertThat(cf.maxSequentialSkipInIterations()).isEqualTo(8);
     assertThat(cf.reportBgIoStats()).isEqualTo(true);
   }
