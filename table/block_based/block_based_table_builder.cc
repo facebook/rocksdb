@@ -461,14 +461,24 @@ struct BlockBasedTableBuilder::Rep {
       buffer_limit = std::min(tbo.target_file_size,
                               compression_opts.max_dict_buffer_bytes);
     }
-    if (table_options.no_block_cache || table_options.block_cache == nullptr) {
-      compression_dict_buffer_cache_res_mgr = nullptr;
-    } else {
+
+    const auto compress_dict_build_buffer_charged =
+        table_options.cache_usage_options.options_overrides
+            .at(CacheEntryRole::kCompressionDictionaryBuildingBuffer)
+            .charged;
+    if (table_options.block_cache &&
+        (compress_dict_build_buffer_charged ==
+             CacheEntryRoleOptions::Decision::kEnabled ||
+         compress_dict_build_buffer_charged ==
+             CacheEntryRoleOptions::Decision::kFallback)) {
       compression_dict_buffer_cache_res_mgr =
           std::make_shared<CacheReservationManagerImpl<
               CacheEntryRole::kCompressionDictionaryBuildingBuffer>>(
               table_options.block_cache);
+    } else {
+      compression_dict_buffer_cache_res_mgr = nullptr;
     }
+
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -942,7 +952,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
             (r->buffer_limit != 0 && r->data_begin_offset > r->buffer_limit);
         bool exceeds_global_block_cache_limit = false;
 
-        // Increase cache reservation for the last buffered data block
+        // Increase cache charging for the last buffered data block
         // only if the block is not going to be unbuffered immediately
         // and there exists a cache reservation manager
         if (!exceeds_buffer_limit &&
