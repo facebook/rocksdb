@@ -832,6 +832,8 @@ Status DB::OpenAndCompact(
       override_options.table_factory;
   compaction_input.column_family.options.sst_partitioner_factory =
       override_options.sst_partitioner_factory;
+  compaction_input.column_family.options.table_properties_collector_factories =
+      override_options.table_properties_collector_factories;
   compaction_input.db_options.listeners = override_options.listeners;
 
   std::vector<ColumnFamilyDescriptor> column_families;

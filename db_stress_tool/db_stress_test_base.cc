@@ -2339,8 +2339,21 @@ void StressTest::Open(SharedState* shared) {
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
-    block_based_options.reserve_table_reader_memory =
-        FLAGS_reserve_table_reader_memory;
+    block_based_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kCompressionDictionaryBuildingBuffer,
+         {/*.charged = */ FLAGS_charge_compression_dictionary_building_buffer
+              ? CacheEntryRoleOptions::Decision::kEnabled
+              : CacheEntryRoleOptions::Decision::kDisabled}});
+    block_based_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ FLAGS_charge_filter_construction
+              ? CacheEntryRoleOptions::Decision::kEnabled
+              : CacheEntryRoleOptions::Decision::kDisabled}});
+    block_based_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kBlockBasedTableReader,
+         {/*.charged = */ FLAGS_charge_table_reader
+              ? CacheEntryRoleOptions::Decision::kEnabled
+              : CacheEntryRoleOptions::Decision::kDisabled}});
     block_based_options.format_version =
         static_cast<uint32_t>(FLAGS_format_version);
     block_based_options.index_block_restart_interval =

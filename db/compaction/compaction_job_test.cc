@@ -1107,6 +1107,21 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_number */ 19);
 }
 
+TEST_F(CompactionJobTest, NoEnforceSingleDeleteContract) {
+  db_options_.enforce_single_del_contracts = false;
+  NewDB();
+
+  auto file =
+      mock::MakeMockFile({{KeyStr("a", 4U, kTypeSingleDeletion), ""},
+                          {KeyStr("a", 3U, kTypeDeletion), "dontcare"}});
+  AddMockFile(file);
+  SetLastSequence(4U);
+
+  auto expected_results = mock::MakeMockFile();
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results);
+}
+
 TEST_F(CompactionJobTest, InputSerialization) {
   // Setup a random CompactionServiceInput
   CompactionServiceInput input;

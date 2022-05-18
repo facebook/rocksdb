@@ -22,6 +22,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "rocksdb/cache.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -102,6 +103,23 @@ struct MetadataCacheOptions {
   // any effect. Otherwise the unpartitioned meta-blocks would be held in table
   // reader memory, outside the block cache.
   PinningTier unpartitioned_pinning = PinningTier::kFallback;
+};
+
+struct CacheEntryRoleOptions {
+  enum class Decision {
+    kEnabled,
+    kDisabled,
+    kFallback,
+  };
+  Decision charged = Decision::kFallback;
+  bool operator==(const CacheEntryRoleOptions& other) const {
+    return charged == other.charged;
+  }
+};
+
+struct CacheUsageOptions {
+  CacheEntryRoleOptions options;
+  std::map<CacheEntryRole, CacheEntryRoleOptions> options_overrides;
 };
 
 // For advanced user only
@@ -287,47 +305,80 @@ struct BlockBasedTableOptions {
   // separately
   uint64_t metadata_block_size = 4096;
 
-  // If true, a dynamically updating charge to block cache, loosely based
-  // on the actual memory usage of table building, will occur to account
-  // the memory, if block cache available.
+  // `cache_usage_options` allows users to specify the default
+  // options (`cache_usage_options.options`) and the overriding
+  // options (`cache_usage_options.options_overrides`)
+  // for different `CacheEntryRole` under various features related to cache
+  // usage.
   //
-  // Charged memory usage includes:
-  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
-  // 2. More to come...
+  // For a certain `CacheEntryRole role` and a certain feature `f` of
+  // `CacheEntryRoleOptions`:
+  // 1. If `options_overrides` has an entry for `role` and
+  // `options_overrides[role].f != kFallback`, we use
+  // `options_overrides[role].f`
+  // 2. Otherwise, if `options[role].f != kFallback`, we use `options[role].f`
+  // 3. Otherwise, we follow the compatible existing behavior for `f` (see
+  // each feature's comment for more)
   //
-  // Note:
-  // 1. Bloom Filter (format_version >= 5) and Ribbon Filter construction
+  // `cache_usage_options` currently supports specifying options for the
+  // following features:
   //
-  // If additional temporary memory of Ribbon Filter uses up too much memory
-  // relative to the avaible space left in the block cache
+  // 1. Memory charging to block cache (`CacheEntryRoleOptions::charged`)
+  // Memory charging is a feature of accounting memory usage of specific area
+  // (represented by `CacheEntryRole`) toward usage in block cache (if
+  // available), by updating a dynamical charge to the block cache loosely based
+  // on the actual memory usage of that area.
+  //
+  // (a) CacheEntryRole::kCompressionDictionaryBuildingBuffer
+  // (i) If kEnabled:
+  // Charge memory usage of the buffered data used as training samples for
+  // dictionary compression.
+  // If such memory usage exceeds the avaible space left in the block cache
   // at some point (i.e, causing a cache full under
-  // LRUCacheOptions::strict_capacity_limit = true), construction will fall back
-  // to Bloom Filter.
+  // `LRUCacheOptions::strict_capacity_limit` = true), the data will then be
+  // unbuffered.
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kEnabled.
   //
-  // Default: false
-  bool reserve_table_builder_memory = false;
-
-  // If true, a dynamically updating charge to block cache, loosely based
-  // on the actual memory usage of table reader, will occur to account
-  // the memory, if block cache available.
+  // (b) CacheEntryRole::kFilterConstruction
+  // (i) If kEnabled:
+  // Charge memory usage of Bloom Filter
+  // (format_version >= 5) and Ribbon Filter construction.
+  // If additional temporary memory of Ribbon Filter exceeds the avaible
+  // space left in the block cache at some point (i.e, causing a cache full
+  // under `LRUCacheOptions::strict_capacity_limit` = true),
+  // construction will fall back to Bloom Filter.
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kDisabled.
   //
-  // Charged memory usage includes:
-  // 1. Table properties
-  // 2. Index block/Filter block/Uncompression dictionary if stored in table
-  // reader (i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
-  // false)
-  // 3. Some internal data structures
-  // 4. More to come...
+  // (c) CacheEntryRole::kBlockBasedTableReader
+  // (i) If kEnabled:
+  // Charge memory usage of table properties +
+  // index block/filter block/uncompression dictionary (when stored in table
+  // reader i.e, BlockBasedTableOptions::cache_index_and_filter_blocks ==
+  // false) + some internal data structures during table reader creation.
+  // If such a table reader exceeds
+  // the avaible space left in the block cache at some point (i.e, causing
+  // a cache full under `LRUCacheOptions::strict_capacity_limit` = true),
+  // creation will fail with Status::MemoryLimit().
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kDisabled.
   //
-  // Note:
-  // If creation of a table reader uses up too much memory
-  // relative to the avaible space left in the block cache
-  // at some point (i.e, causing a cache full under
-  // LRUCacheOptions::strict_capacity_limit = true), such creation will fail
-  // with Status::MemoryLimit().
+  // (d) Other CacheEntryRole
+  // Not supported.
+  // `Status::kNotSupported` will be returned if
+  // `CacheEntryRoleOptions::charged` is set to {`kEnabled`, `kDisabled`}.
   //
-  // Default: false
-  bool reserve_table_reader_memory = false;
+  //
+  // 2. More to come ...
+  //
+  CacheUsageOptions cache_usage_options;
 
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.

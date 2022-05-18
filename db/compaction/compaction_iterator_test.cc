@@ -279,7 +279,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         snapshot_checker_.get(), Env::Default(),
         false /* report_detailed_time */, false, range_del_agg_.get(),
         nullptr /* blob_file_builder */, true /*allow_data_in_errors*/,
-        std::move(compaction), filter, &shutting_down_,
+        true /*enforce_single_del_contracts*/, std::move(compaction), filter,
+        &shutting_down_,
         /*manual_compaction_paused=*/nullptr,
         /*manual_compaction_canceled=*/nullptr, /*info_log=*/nullptr,
         full_history_ts_low));

@@ -66,7 +66,7 @@ class CTREncryptionProvider : public EncryptionProvider {
 
   static const char* kClassName() { return "CTR"; }
   const char* Name() const override { return kClassName(); }
-
+  bool IsInstanceOf(const std::string& name) const override;
   // GetPrefixLength returns the length of the prefix that is added to every
   // file
   // and used for storing encryption options.
