@@ -84,7 +84,7 @@ class FilterBlockBuilder {
       Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
 
   // This is called when finishes using the FilterBitsBuilder
-  // in order to release memory usage and cache reservation
+  // in order to release memory usage and cache charge
   // associated with it timely
   virtual void ResetFilterBitsBuilder() {}
 

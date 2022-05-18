@@ -618,18 +618,23 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
   }
 }
 
-TEST(FullBloomFilterConstructionReserveMemTest,
-     RibbonFilterFallBackOnLargeBanding) {
+class ChargeFilterConstructionTest : public testing::Test {};
+TEST_F(ChargeFilterConstructionTest, RibbonFilterFallBackOnLargeBanding) {
   constexpr std::size_t kCacheCapacity =
       8 * CacheReservationManagerImpl<
               CacheEntryRole::kFilterConstruction>::GetDummyEntrySize();
   constexpr std::size_t num_entries_for_cache_full = kCacheCapacity / 8;
 
-  for (bool reserve_builder_mem : {true, false}) {
-    bool will_fall_back = reserve_builder_mem;
+  for (CacheEntryRoleOptions::Decision charge_filter_construction_mem :
+       {CacheEntryRoleOptions::Decision::kEnabled,
+        CacheEntryRoleOptions::Decision::kDisabled}) {
+    bool will_fall_back = charge_filter_construction_mem ==
+                          CacheEntryRoleOptions::Decision::kEnabled;
 
     BlockBasedTableOptions table_options;
-    table_options.reserve_table_builder_memory = reserve_builder_mem;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ charge_filter_construction_mem}});
     LRUCacheOptions lo;
     lo.capacity = kCacheCapacity;
     lo.num_shard_bits = 0;  // 2^0 shard
@@ -651,7 +656,7 @@ TEST(FullBloomFilterConstructionReserveMemTest,
     Slice filter = filter_bits_builder->Finish(&buf);
 
     // To verify Ribbon Filter fallbacks to Bloom Filter properly
-    // based on cache reservation result
+    // based on cache charging result
     // See BloomFilterPolicy::GetBloomBitsReader re: metadata
     // -1 = Marker for newer Bloom implementations
     // -2 = Marker for Standard128 Ribbon
@@ -661,7 +666,8 @@ TEST(FullBloomFilterConstructionReserveMemTest,
       EXPECT_EQ(filter.data()[filter.size() - 5], static_cast<char>(-2));
     }
 
-    if (reserve_builder_mem) {
+    if (charge_filter_construction_mem ==
+        CacheEntryRoleOptions::Decision::kEnabled) {
       const size_t dummy_entry_num = static_cast<std::size_t>(std::ceil(
           filter.size() * 1.0 /
           CacheReservationManagerImpl<

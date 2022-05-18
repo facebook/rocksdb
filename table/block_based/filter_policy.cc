@@ -109,7 +109,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   static constexpr uint32_t kMetadataLen = 5;
 
   // Number of hash entries to accumulate before charging their memory usage to
-  // the cache when cache reservation is available
+  // the cache when cache charging is available
   static const std::size_t kUint64tHashEntryCacheResBucketSize =
       CacheReservationManagerImpl<
           CacheEntryRole::kFilterConstruction>::GetDummyEntrySize() /
@@ -257,7 +257,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
   // For reserving memory used in (new) Bloom and Ribbon Filter construction
   std::shared_ptr<CacheReservationManager> cache_res_mgr_;
 
-  // For managing cache reservation for final filter in (new) Bloom and Ribbon
+  // For managing cache charge for final filter in (new) Bloom and Ribbon
   // Filter construction
   std::deque<std::unique_ptr<CacheReservationManager::CacheReservationHandle>>
       final_filter_cache_res_handles_;
@@ -270,7 +270,7 @@ class XXPH3FilterBitsBuilder : public BuiltinFilterBitsBuilder {
     std::deque<uint64_t> entries;
 
     // If cache_res_mgr_ != nullptr,
-    // it manages cache reservation for buckets of hash entries in (new) Bloom
+    // it manages cache charge for buckets of hash entries in (new) Bloom
     // or Ribbon Filter construction.
     // Otherwise, it is empty.
     std::deque<std::unique_ptr<CacheReservationManager::CacheReservationHandle>>
@@ -338,7 +338,7 @@ class FastLocalBloomBitsBuilder : public XXPH3FilterBitsBuilder {
         final_filter_cache_res_handle;
     len_with_metadata =
         AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
-    // Cache reservation for mutable_buf
+    // Cache charging for mutable_buf
     if (cache_res_mgr_) {
       Status s = cache_res_mgr_->MakeCacheReservation(
           len_with_metadata * sizeof(char), &final_filter_cache_res_handle);
@@ -655,7 +655,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
         Standard128RibbonTypesAndSettings>::EstimateMemoryUsage(num_slots);
     Status status_banding_cache_res = Status::OK();
 
-    // Cache reservation for banding
+    // Cache charging for banding
     std::unique_ptr<CacheReservationManager::CacheReservationHandle>
         banding_res_handle;
     if (cache_res_mgr_) {
@@ -665,7 +665,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
 
     if (status_banding_cache_res.IsIncomplete()) {
       ROCKS_LOG_WARN(info_log_,
-                     "Cache reservation for Ribbon filter banding failed due "
+                     "Cache charging for Ribbon filter banding failed due "
                      "to cache full");
       SwapEntriesWith(&bloom_fallback_);
       assert(hash_entries_info_.entries.empty());
@@ -717,7 +717,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
         final_filter_cache_res_handle;
     len_with_metadata =
         AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
-    // Cache reservation for mutable_buf
+    // Cache charging for mutable_buf
     if (cache_res_mgr_) {
       Status s = cache_res_mgr_->MakeCacheReservation(
           len_with_metadata * sizeof(char), &final_filter_cache_res_handle);
@@ -1483,11 +1483,19 @@ std::string BloomFilterPolicy::GetId() const {
 FilterBitsBuilder* BloomLikeFilterPolicy::GetFastLocalBloomBuilderWithContext(
     const FilterBuildingContext& context) const {
   bool offm = context.table_options.optimize_filters_for_memory;
-  bool reserve_filter_construction_mem =
-      (context.table_options.reserve_table_builder_memory &&
-       context.table_options.block_cache);
+  const auto options_overrides_iter =
+      context.table_options.cache_usage_options.options_overrides.find(
+          CacheEntryRole::kFilterConstruction);
+  const auto filter_construction_charged =
+      options_overrides_iter !=
+              context.table_options.cache_usage_options.options_overrides.end()
+          ? options_overrides_iter->second.charged
+          : context.table_options.cache_usage_options.options.charged;
+
   std::shared_ptr<CacheReservationManager> cache_res_mgr;
-  if (reserve_filter_construction_mem) {
+  if (context.table_options.block_cache &&
+      filter_construction_charged ==
+          CacheEntryRoleOptions::Decision::kEnabled) {
     cache_res_mgr = std::make_shared<
         CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>>(
         context.table_options.block_cache);
@@ -1525,11 +1533,19 @@ BloomLikeFilterPolicy::GetStandard128RibbonBuilderWithContext(
     const FilterBuildingContext& context) const {
   // FIXME: code duplication with GetFastLocalBloomBuilderWithContext
   bool offm = context.table_options.optimize_filters_for_memory;
-  bool reserve_filter_construction_mem =
-      (context.table_options.reserve_table_builder_memory &&
-       context.table_options.block_cache);
+  const auto options_overrides_iter =
+      context.table_options.cache_usage_options.options_overrides.find(
+          CacheEntryRole::kFilterConstruction);
+  const auto filter_construction_charged =
+      options_overrides_iter !=
+              context.table_options.cache_usage_options.options_overrides.end()
+          ? options_overrides_iter->second.charged
+          : context.table_options.cache_usage_options.options.charged;
+
   std::shared_ptr<CacheReservationManager> cache_res_mgr;
-  if (reserve_filter_construction_mem) {
+  if (context.table_options.block_cache &&
+      filter_construction_charged ==
+          CacheEntryRoleOptions::Decision::kEnabled) {
     cache_res_mgr = std::make_shared<
         CacheReservationManagerImpl<CacheEntryRole::kFilterConstruction>>(
         context.table_options.block_cache);
