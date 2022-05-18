@@ -1540,7 +1540,8 @@ Status Version::VerifySstUniqueIds() const {
     for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
       if (meta->unique_id != kNullUniqueId64x2) {
         std::shared_ptr<const TableProperties> props;
-        Status s = GetTableProperties(&props, meta); // may open the file if it's not
+        Status s =
+            GetTableProperties(&props, meta);  // may open the file if it's not
         if (!s.ok()) {
           return s;
         }

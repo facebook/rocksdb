@@ -706,6 +706,9 @@ Status DBImpl::Recover(
 
 Status DBImpl::VerifySstUniqueIdInManifest() {
   mutex_.AssertHeld();
+  ROCKS_LOG_INFO(
+      immutable_db_options_.info_log,
+      "Verifying SST unique id between MANIFEST and SST file table properties");
   Status status;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (!cfd->IsDropped()) {

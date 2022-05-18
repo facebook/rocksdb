@@ -314,7 +314,8 @@ Status BuildTable(
       // Set unique_id only if db_id and db_session_id exist
       if (!tboptions.db_id.empty() && !tboptions.db_session_id.empty()) {
         if (!GetSstInternalUniqueId(tboptions.db_id, tboptions.db_session_id,
-                                   meta->fd.GetNumber(), &(meta->unique_id)).ok()) {
+                                    meta->fd.GetNumber(), &(meta->unique_id))
+                 .ok()) {
           // if failed to get unique id, just set it Null
           meta->unique_id = kNullUniqueId64x2;
         }
