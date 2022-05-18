@@ -810,6 +810,7 @@ Status FlushJob::WriteLevel0Table() {
 
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
+    Env::IOPriority io_priority = GetRateLimiterPriorityForWrite();
     db_mutex_->Unlock();
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
@@ -925,7 +926,7 @@ Status FlushJob::WriteLevel0Table() {
           snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
           cfd_->internal_stats(), &io_s, io_tracer_,
           BlobFileCreationReason::kFlush, event_logger_, job_context_->job_id,
-          Env::IO_HIGH, &table_properties_, write_hint, full_history_ts_low,
+          io_priority, &table_properties_, write_hint, full_history_ts_low,
           blob_callback_, &num_input_entries, &memtable_payload_bytes,
           &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
@@ -1032,6 +1033,19 @@ Status FlushJob::WriteLevel0Table() {
   return s;
 }
 
+Env::IOPriority FlushJob::GetRateLimiterPriorityForWrite() {
+  if (versions_ && versions_->GetColumnFamilySet() &&
+      versions_->GetColumnFamilySet()->write_controller()) {
+    WriteController* write_controller =
+        versions_->GetColumnFamilySet()->write_controller();
+    if (write_controller->IsStopped() || write_controller->NeedsDelay()) {
+      return Env::IO_USER;
+    }
+  }
+
+  return Env::IO_HIGH;
+}
+
 #ifndef ROCKSDB_LITE
 std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   db_mutex_->AssertHeld();
@@ -1064,7 +1078,6 @@ std::unique_ptr<FlushJobInfo> FlushJob::GetFlushJobInfo() const {
   }
   return info;
 }
-
 #endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
