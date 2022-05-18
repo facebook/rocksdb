@@ -194,7 +194,7 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
   }
 }
 
-void FilePrefetchBuffer::FindDataInBuffer(uint64_t& offset, size_t& length) {
+void FilePrefetchBuffer::PollAndUpdateBuffersIfNeeded(uint64_t offset) {
   if (async_read_in_progress_ && fs_ != nullptr) {
     // Wait for prefetch data to complete.
     // No mutex is needed as PrefetchAsyncCallback updates the result in second
@@ -244,15 +244,6 @@ void FilePrefetchBuffer::FindDataInBuffer(uint64_t& offset, size_t& length) {
     curr_ = curr_ ^ 1;
     second = curr_ ^ 1;
   }
-
-  // After swap check if all the requested bytes are in curr_, it will go for
-  // async prefetching only.
-  if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
-      offset + length <=
-          bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
-    offset += length;
-    length = 0;
-  }
 }
 
 // If async_read = true:
@@ -284,7 +275,16 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
 
   TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsyncInternal:Start");
 
-  FindDataInBuffer(offset, length);
+  PollAndUpdateBuffersIfNeeded(offset);
+
+  // If all the requested bytes are in curr_, it will go for async prefetching
+  // only.
+  if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
+      offset + length <=
+          bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
+    offset += length;
+    length = 0;
+  }
 
   Status s;
   size_t prefetch_size = length + readahead_size;
@@ -320,9 +320,11 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
     // swap the buffers.
     curr_ = curr_ ^ 1;
     // Update prefetch_size as length has been updated in CopyDataToBuffer.
+    prefetch_size = length + readahead_size;
   }
 
   size_t _offset = static_cast<size_t>(offset);
+  second = curr_ ^ 1;
 
   // offset and size alignment for curr_ buffer with synchronous prefetching
   uint64_t rounddown_start1 = Rounddown(_offset, alignment);
@@ -557,12 +559,9 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
                                          Env::IOPriority rate_limiter_priority,
                                          Slice* result) {
   assert(reader != nullptr);
-  size_t new_length = n;
-  uint64_t new_offset = offset;
-
   TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:Start");
 
-  FindDataInBuffer(new_offset, new_length);
+  PollAndUpdateBuffersIfNeeded(offset);
 
   // All requested bytes are already in the curr_ buffer. So no need to Read
   // again.
@@ -582,9 +581,11 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   // Currently, tt covers 2 scenarios. Either one buffer (curr_) has no data or
   // it has partial data. It ignores the contents in second buffer (overlapping
   // data in 2 buffers) and send the request to re-read that data again.
+
+  // Clear the second buffer in order to do asynchronous prefetching.
   bufs_[second].buffer_.Clear();
 
-  size_t offset_to_read = static_cast<size_t>(new_offset);
+  size_t offset_to_read = static_cast<size_t>(offset);
   uint64_t rounddown_start = 0;
   uint64_t roundup_end = 0;
 
@@ -605,8 +606,13 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   assert(roundup_len % alignment == 0);
 
   uint64_t chunk_len = 0;
-  CalculateOffsetAndLen(alignment, rounddown_start, roundup_len, second,
-                        false /*refit_tail*/, chunk_len);
+  CalculateOffsetAndLen(alignment, rounddown_start, roundup_len, second, false,
+                        chunk_len);
+
+  // Update the buffer offset.
+  bufs_[second].offset_ = rounddown_start;
+  assert(roundup_len >= chunk_len);
+
   size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
 
   s = ReadAsync(opts, reader, rate_limiter_priority, read_len, chunk_len,
@@ -617,9 +623,10 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   }
 
   // Update read pattern so that TryReadFromCacheAsync call be called to Poll
-  // the data.
+  // the data. It will return without polling if blocks are not sequential.
   UpdateReadPattern(offset, n, /*decrease_readaheadsize=*/false);
   prev_len_ = 0;
+
   return Status::TryAgain();
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -229,9 +229,10 @@ class FilePrefetchBuffer {
                              size_t roundup_len, size_t index, bool refit_tail,
                              uint64_t& chunk_len);
 
-  // Checks if data is in any buffer. It clears the outdated data and swaps the
-  // curr_ also if required.
-  void FindDataInBuffer(uint64_t& offset, size_t& length);
+  // It calls Poll API if any there is any pending asynchronous request. It then
+  // checks if data is in any buffer. It clears the outdated data and swaps the
+  // buffers if required.
+  void PollAndUpdateBuffersIfNeeded(uint64_t offset);
 
   Status PrefetchAsyncInternal(const IOOptions& opts,
                                RandomAccessFileReader* reader, uint64_t offset,
