@@ -3987,13 +3987,14 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
 
       // should be slightly above 512KB due to non-data blocks read. Arbitrarily
       // chose 1MB as the upper bound on the total bytes read.
-      size_t rate_limited_bytes =
-          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL);
+      size_t rate_limited_bytes = static_cast<size_t>(
+          options.rate_limiter->GetTotalBytesThrough(Env::IO_TOTAL));
       // The charges can exist for `IO_LOW` and `IO_USER` priorities.
       size_t rate_limited_bytes_by_pri =
           options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW) +
           options.rate_limiter->GetTotalBytesThrough(Env::IO_USER);
-      ASSERT_EQ(rate_limited_bytes, rate_limited_bytes_by_pri);
+      ASSERT_EQ(rate_limited_bytes,
+                static_cast<size_t>(rate_limited_bytes_by_pri));
       // Include the explicit prefetch of the footer in direct I/O case.
       size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
       ASSERT_GE(
@@ -4014,7 +4015,8 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
       rate_limited_bytes_by_pri =
           options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW) +
           options.rate_limiter->GetTotalBytesThrough(Env::IO_USER);
-      ASSERT_EQ(rate_limited_bytes, rate_limited_bytes_by_pri);
+      ASSERT_EQ(rate_limited_bytes,
+                static_cast<size_t>(rate_limited_bytes_by_pri));
     }
   }
 }

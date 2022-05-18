@@ -38,7 +38,6 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
-#include "db/write_controller.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
 #include "file/read_write_util.h"
@@ -50,7 +49,6 @@
 #include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -2154,7 +2152,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       vset_->block_cache_tracer_->is_tracing_enabled()) {
     tracing_mget_id = vset_->block_cache_tracer_->NextGetId();
   }
-
   // Even though we know the batch size won't be > MAX_BATCH_SIZE,
   // use autovector in order to avoid unnecessary construction of GetContext
   // objects, which is expensive
