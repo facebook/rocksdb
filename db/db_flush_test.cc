@@ -788,11 +788,11 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   options.experimental_mempurge_threshold = 1.0;
 #endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
-  // Dynamically activate the MemPurge prototype without restarting the DB.
-  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
 
   // RocksDB lite does not support dynamic options
 #ifndef ROCKSDB_LITE
+  // Dynamically activate the MemPurge prototype without restarting the DB.
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}}));
 #endif
 
