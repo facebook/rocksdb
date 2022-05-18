@@ -58,10 +58,9 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
       return s;
     }
   }
-
-  std::string* ts = column_family->GetComparator()->timestamp_size() > 0
-                        ? timestamp
-                        : nullptr;
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
 
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
