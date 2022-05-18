@@ -117,7 +117,7 @@ TEST_P(DBRateLimiterOnReadTest, Get) {
   Init();
 
   // In Init(), compaction may request tokens for `Env::IO_USER`.
-  int expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
   for (int i = 0; i < kNumFiles; ++i) {
     {
       std::string value;
@@ -146,7 +146,7 @@ TEST_P(DBRateLimiterOnReadTest, NewMultiGet) {
   Init();
 
   // In Init(), compaction may request tokens for `Env::IO_USER`.
-  int expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   const int kNumKeys = kNumFiles * kNumKeysPerFile;
   {
@@ -178,7 +178,7 @@ TEST_P(DBRateLimiterOnReadTest, OldMultiGet) {
   Init();
 
   // In Init(), compaction may request tokens for `Env::IO_USER`.
-  int expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   const int kNumKeys = kNumFiles * kNumKeysPerFile;
   {
@@ -208,7 +208,7 @@ TEST_P(DBRateLimiterOnReadTest, Iterator) {
   Init();
 
   // In Init(), compaction may request tokens for `Env::IO_USER`.
-  int expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
   std::unique_ptr<Iterator> iter(db_->NewIterator(GetReadOptions()));
 
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -237,7 +237,7 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
   }
   Init();
   // In Init(), compaction may request tokens for `Env::IO_USER`.
-  int expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   ASSERT_OK(db_->VerifyChecksum(GetReadOptions()));
   // The files are tiny so there should have just been one read per file.
@@ -252,7 +252,7 @@ TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
   Init();
 
   // In Init(), compaction may request tokens for `Env::IO_USER`.
-  int expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   ASSERT_OK(db_->VerifyFileChecksums(GetReadOptions()));
   // The files are tiny so there should have just been one read per file.
