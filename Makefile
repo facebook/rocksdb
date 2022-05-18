@@ -632,7 +632,6 @@ TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
 	db_blob_basic_test \
 	db_encryption_test \
-	db_test2 \
 	external_sst_file_basic_test \
 	auto_roll_logger_test \
 	bloom_test \
@@ -654,7 +653,6 @@ TESTS_PLATFORM_DEPENDENT := \
 	rate_limiter_test \
 	perf_context_test \
 	iostats_context_test \
-	db_wal_test \
 
 # Sort ROCKSDBTESTS_SUBSET for filtering, except db_test is special (expensive)
 # so is placed first (out-of-order)
