@@ -83,11 +83,10 @@ void BlockPrefetcher::PrefetchIfNeeded(
   // If prefetch is not supported, fall back to use internal prefetch buffer.
   // Discarding other return status of Prefetch calls intentionally, as
   // we can fallback to reading from disk if Prefetch fails.
-  IOOptions opts;
-  opts.rate_limiter_priority = rate_limiter_priority;
   Status s = rep->file->Prefetch(
       handle.offset(),
-      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_, opts);
+      BlockBasedTable::BlockSizeWithTrailer(handle) + readahead_size_,
+      rate_limiter_priority);
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size_,
                                              max_auto_readahead_size,
