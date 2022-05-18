@@ -12,8 +12,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
-thread_local ThreadStatusUpdater* ThreadStatusUtil::thread_updater_local_cache_ =
-    nullptr;
+thread_local ThreadStatusUpdater*
+    ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
 thread_local bool ThreadStatusUtil::thread_updater_initialized_ = false;
 
 void ThreadStatusUtil::RegisterThread(const Env* env,
