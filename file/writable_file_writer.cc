@@ -57,7 +57,7 @@ IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
     IOOptions io_options;
     WritableFileWriter::DecideRateLimiterPriority(
         writable_file_->GetIOPriority(), op_rate_limiter_priority,
-        io_options.rate_limiter_priority);
+        io_options.io_priority);
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
     TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
     writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left,
@@ -216,7 +216,7 @@ IOStatus WritableFileWriter::Close() {
 
   IOStatus interim;
   IOOptions io_options;
-  io_options.rate_limiter_priority = writable_file_->GetIOPriority();
+  io_options.io_priority = writable_file_->GetIOPriority();
   // In direct I/O mode we write whole pages so
   // we need to let the file know where data ends.
   if (use_direct_io()) {
@@ -340,7 +340,7 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
     IOOptions io_options;
     WritableFileWriter::DecideRateLimiterPriority(
         writable_file_->GetIOPriority(), op_rate_limiter_priority,
-        io_options.rate_limiter_priority);
+        io_options.io_priority);
     s = writable_file_->Flush(io_options, nullptr);
 #ifndef ROCKSDB_LITE
     if (ShouldNotifyListeners()) {
@@ -449,7 +449,7 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
 #endif
 
   IOOptions io_options;
-  io_options.rate_limiter_priority = writable_file_->GetIOPriority();
+  io_options.io_priority = writable_file_->GetIOPriority();
   if (use_fsync) {
     s = writable_file_->Fsync(io_options, nullptr);
   } else {
@@ -482,7 +482,7 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   }
 #endif
   IOOptions io_options;
-  io_options.rate_limiter_priority = writable_file_->GetIOPriority();
+  io_options.io_priority = writable_file_->GetIOPriority();
   IOStatus s = writable_file_->RangeSync(offset, nbytes, io_options, nullptr);
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
@@ -511,7 +511,7 @@ IOStatus WritableFileWriter::WriteBuffered(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options.rate_limiter_priority);
+          io_options.io_priority);
 
   while (left > 0) {
     size_t allowed = left;
@@ -600,7 +600,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options.rate_limiter_priority);
+          io_options.io_priority);
   // Check how much is allowed. Here, we loop until the rate limiter allows to
   // write the entire buffer.
   // TODO: need to be improved since it sort of defeats the purpose of the rate
@@ -730,7 +730,7 @@ IOStatus WritableFileWriter::WriteDirect(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options.rate_limiter_priority);
+          io_options.io_priority);
 
   while (left > 0) {
     // Check how much is allowed
@@ -831,7 +831,7 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
   Env::IOPriority rate_limiter_priority_used =
       WritableFileWriter::DecideRateLimiterPriority(
           writable_file_->GetIOPriority(), op_rate_limiter_priority,
-          io_options.rate_limiter_priority);
+          io_options.io_priority);
   // Check how much is allowed. Here, we loop until the rate limiter allows to
   // write the entire buffer.
   // TODO: need to be improved since it sort of defeats the purpose of the rate

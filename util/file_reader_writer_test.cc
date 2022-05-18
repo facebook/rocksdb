@@ -923,7 +923,7 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
 
     IOStatus Append(const Slice& /*data*/, const IOOptions& options,
                     IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Append(const Slice& data, const IOOptions& options,
@@ -934,7 +934,7 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
     IOStatus PositionedAppend(const Slice& /*data*/, uint64_t /*offset*/,
                               const IOOptions& options,
                               IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus PositionedAppend(
@@ -942,33 +942,33 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
         const IOOptions& options,
         const DataVerificationInfo& /* verification_info */,
         IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Truncate(uint64_t /*size*/, const IOOptions& options,
                       IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Close(const IOOptions& options, IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Flush(const IOOptions& options, IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Sync(const IOOptions& options, IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus Fsync(const IOOptions& options, IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     uint64_t GetFileSize(const IOOptions& options,
                          IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return 0;
     }
     void GetPreallocationStatus(size_t* /*block_size*/,
@@ -983,20 +983,20 @@ class WritableFileWriterIOPriorityTest : public testing::Test {
     IOStatus Allocate(uint64_t /*offset*/, uint64_t /*len*/,
                       const IOOptions& options,
                       IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
     IOStatus RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/,
                        const IOOptions& options,
                        IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
       return IOStatus::OK();
     }
 
     void PrepareWrite(size_t /*offset*/, size_t /*len*/,
                       const IOOptions& options,
                       IODebugContext* /*dbg*/) override {
-      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      EXPECT_EQ(options.io_priority, io_priority_);
     }
 
     bool IsSyncThreadSafe() const override { return true; }

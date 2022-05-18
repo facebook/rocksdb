@@ -53,16 +53,6 @@ struct ConfigOptions;
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
 
-// Priority of an IO request. This is a hint and does not guarantee any
-// particular QoS.
-// IO_LOW - Typically background reads/writes such as compaction/flush
-// IO_HIGH - Typically user reads/synchronous WAL writes
-enum class IOPriority : uint8_t {
-  kIOLow,
-  kIOHigh,
-  kIOTotal,
-};
-
 // Type of the data begin read/written. It can be passed down as a flag
 // for the FileSystem implementation to optionally handle different types in
 // different ways
@@ -86,14 +76,10 @@ struct IOOptions {
   // Timeout for the operation in microseconds
   std::chrono::microseconds timeout;
 
-  // Priority - high or low
-  IOPriority prio;
-
   // Priority used to charge rate limiter configured in file system level (if
-  // any)
-  // Limitation: right now RocksDB internal does not consider this
-  // rate_limiter_priority
-  Env::IOPriority rate_limiter_priority;
+  // any).
+  // Limitation: right now RocksDB internal rate limiter does not consider this.
+  Env::IOPriority io_priority;
 
   // Type of data being read/written
   IOType type;
@@ -114,8 +100,7 @@ struct IOOptions {
 
   explicit IOOptions(bool force_dir_fsync_)
       : timeout(std::chrono::microseconds::zero()),
-        prio(IOPriority::kIOLow),
-        rate_limiter_priority(Env::IO_TOTAL),
+        io_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_) {}
 };
