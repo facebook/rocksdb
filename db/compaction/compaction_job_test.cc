@@ -321,7 +321,8 @@ class CompactionJobTestBase : public testing::Test {
       const std::vector<SequenceNumber>& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
-      uint64_t expected_oldest_blob_file_number = kInvalidBlobFileNumber) {
+      uint64_t expected_oldest_blob_file_number = kInvalidBlobFileNumber,
+      bool check_get_priority = false) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -389,6 +390,32 @@ class CompactionJobTestBase : public testing::Test {
         ASSERT_EQ(output_files[0]->oldest_blob_file_number,
                   expected_oldest_blob_file_number);
       }
+    }
+
+    if (check_get_priority) {
+      CheckGetRateLimiterPriority(compaction_job);
+    }
+  }
+
+  void CheckGetRateLimiterPriority(CompactionJob& compaction_job) {
+    // When the state from WriteController is normal.
+    ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_LOW);
+
+    WriteController* write_controller =
+        compaction_job.versions_->GetColumnFamilySet()->write_controller();
+
+    {
+      // When the state from WriteController is Delayed.
+      std::unique_ptr<WriteControllerToken> delay_token =
+          write_controller->GetDelayToken(1000000);
+      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
+    }
+
+    {
+      // When the state from WriteController is Stopped.
+      std::unique_ptr<WriteControllerToken> stop_token =
+          write_controller->GetStopToken();
+      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
     }
   }
 
@@ -1301,6 +1328,17 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   for (const auto& item : status_list) {
     item.PermitUncheckedError();
   }
+}
+
+TEST_F(CompactionJobTest, GetRateLimiterPriority) {
+  NewDB();
+
+  auto expected_results = CreateTwoFiles(false);
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto files = cfd->current()->storage_info()->LevelFiles(0);
+  ASSERT_EQ(2U, files.size());
+  RunCompaction({files}, expected_results, {}, kMaxSequenceNumber, 1, true,
+                kInvalidBlobFileNumber, true);
 }
 
 class CompactionJobTimestampTest : public CompactionJobTestBase {

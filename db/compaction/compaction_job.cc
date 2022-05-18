@@ -2285,7 +2285,7 @@ Status CompactionJob::OpenCompactionOutputFile(
         /*enable_hash=*/paranoid_file_checks_);
   }
 
-  writable_file->SetIOPriority(Env::IOPriority::IO_LOW);
+  writable_file->SetIOPriority(GetRateLimiterPriority());
   writable_file->SetWriteLifeTimeHint(write_hint_);
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
@@ -2474,6 +2474,19 @@ void CompactionJob::LogCompaction() {
 std::string CompactionJob::GetTableFileName(uint64_t file_number) {
   return TableFileName(compact_->compaction->immutable_options()->cf_paths,
                        file_number, compact_->compaction->output_path_id());
+}
+
+Env::IOPriority CompactionJob::GetRateLimiterPriority() {
+  if (versions_ && versions_->GetColumnFamilySet() &&
+      versions_->GetColumnFamilySet()->write_controller()) {
+    WriteController* write_controller =
+        versions_->GetColumnFamilySet()->write_controller();
+    if (write_controller->NeedsDelay() || write_controller->IsStopped()) {
+      return Env::IO_USER;
+    }
+  }
+
+  return Env::IO_LOW;
 }
 
 #ifndef ROCKSDB_LITE

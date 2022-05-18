@@ -137,6 +137,8 @@ class CompactionJob {
   IOStatus io_status_;
 
  private:
+  friend class CompactionJobTestBase;
+
   // Generates a histogram representing potential divisions of key ranges from
   // the input. It adds the starting and/or ending keys of certain input files
   // to the working set and then finds the approximate size of data in between
@@ -234,6 +236,10 @@ class CompactionJob {
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);
+  // The rate limiter priority (io_priority) is determined dynamically here.
+  // The Compaction Read and Write priorities are the same for different
+  // scenarios, such as write stalled.
+  Env::IOPriority GetRateLimiterPriority();
 };
 
 // CompactionServiceInput is used the pass compaction information between two
