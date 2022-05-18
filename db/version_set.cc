@@ -2324,7 +2324,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                             num_index_read + num_filter_read);
           RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
                             num_data_read);
-          RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+          RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL,
+                            num_sst_read);
         }
         num_filter_read = 0;
         num_index_read = 0;
