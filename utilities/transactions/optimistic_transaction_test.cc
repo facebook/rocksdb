@@ -1390,6 +1390,20 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   delete transaction;
 }
 
+TEST_P(OptimisticTransactionTest, SharedSnapshotMissingCommitTs) {
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+  ASSERT_OK(txn->Put("a", "v"));
+  Status s = txn->CommitAndCreateSnapshot();
+  ASSERT_TRUE(s.IsInvalidArgument());
+}
+
+TEST_P(OptimisticTransactionTest, SharedSnapshotSetCommitTs) {
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+  ASSERT_OK(txn->Put("a", "v"));
+  Status s = txn->CommitAndCreateSnapshot(nullptr, /*ts=*/100);
+  ASSERT_TRUE(s.IsNotSupported());
+}
+
 INSTANTIATE_TEST_CASE_P(
     InstanceOccGroup, OptimisticTransactionTest,
     testing::Values(OccValidationPolicy::kValidateSerial,
