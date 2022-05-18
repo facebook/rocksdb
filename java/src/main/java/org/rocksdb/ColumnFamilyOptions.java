@@ -684,6 +684,18 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setExperimentalMempurgeThreshold(
+      final double experimentalMempurgeThreshold) {
+    setExperimentalMempurgeThreshold(nativeHandle_, experimentalMempurgeThreshold);
+    return this;
+  }
+
+  @Override
+  public double experimentalMempurgeThreshold() {
+    return experimentalMempurgeThreshold(nativeHandle_);
+  }
+
+  @Override
   public ColumnFamilyOptions setMemtableWholeKeyFiltering(final boolean memtableWholeKeyFiltering) {
     setMemtableWholeKeyFiltering(nativeHandle_, memtableWholeKeyFiltering);
     return this;
