@@ -193,14 +193,14 @@ fi
 soft_pending_arg=""
 if [ ! -z $SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB ]; then
   soft_pending_bytes=$( echo $SOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB | \
-    awk '{ printf "%.0f", $1 * $G }' )
+    awk '{ printf "%.0f", $1 * GB }' GB=$G )
   soft_pending_arg="--soft_pending_compaction_bytes_limit=$soft_pending_bytes"
 fi
 
 hard_pending_arg=""
 if [ ! -z $HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB ]; then
   hard_pending_bytes=$( echo $HARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB | \
-    awk '{ printf "%.0f", $1 * 1024 * 1024 * 1024 }' )
+    awk '{ printf "%.0f", $1 * GB }' GB=$G )
   hard_pending_arg="--hard_pending_compaction_bytes_limit=$hard_pending_bytes"
 fi
 
