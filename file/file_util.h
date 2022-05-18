@@ -79,10 +79,7 @@ inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
     opts.timeout = ro.io_timeout;
   }
 
-  if (ro.rate_limiter_priority != Env::IO_TOTAL) {
-    opts.rate_limiter_priority = ro.rate_limiter_priority;
-  }
-
+  opts.rate_limiter_priority = ro.rate_limiter_priority;
   return IOStatus::OK();
 }
 
