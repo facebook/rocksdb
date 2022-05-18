@@ -1150,8 +1150,7 @@ struct DBOptions {
 #endif  // ROCKSDB_LITE
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
-  // / SetOptions will fail if options file is not detected or properly
-  // persisted.
+  // SetOptions will fail if options file is not properly persisted.
   //
   // DEFAULT: false
   bool fail_if_options_file_error = false;
