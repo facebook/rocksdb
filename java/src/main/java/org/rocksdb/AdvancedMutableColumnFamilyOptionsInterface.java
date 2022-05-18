@@ -82,6 +82,31 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
   double memtablePrefixBloomSizeRatio();
 
   /**
+   * Threshold used in the MemPurge (memtable garbage collection)
+   * feature. A value of 0.0 corresponds to no MemPurge,
+   * a value of 1.0 will trigger a MemPurge as often as possible.
+   *
+   * Default: 0.0 (disabled)
+   *
+   * @param experimentalMempurgeThreshold the threshold used by
+   *     the MemPurge decider.
+   * @return the reference to the current options.
+   */
+  T setExperimentalMempurgeThreshold(double experimentalMempurgeThreshold);
+
+  /**
+   * if prefix_extractor is set and memtable_prefix_bloom_size_ratio is not 0,
+   * create prefix bloom for memtable with the size of
+   * write_buffer_size * memtable_prefix_bloom_size_ratio.
+   * If it is larger than 0.25, it is santinized to 0.25.
+   *
+   * Default: 0 (disabled)
+   *
+   * @return the ratio of memtable used by the bloom filter
+   */
+  double memtablePrefixBloomSizeRatio();
+
+  /**
    * Enable whole key bloom filter in memtable. Note this will only take effect
    * if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
    * can potentially reduce CPU usage for point-look-ups.
