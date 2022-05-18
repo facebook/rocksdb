@@ -777,16 +777,25 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
 
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
+#ifndef ROCKSDB_LITE
   // Initially deactivate the MemPurge prototype.
   options.experimental_mempurge_threshold = 0.0;
-#ifndef ROCKSDB_LITE
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
+#else
+  // Activate directly the MemPurge prototype.
+  // (RocksDB lite does not support dynamic options)
+  options.experimental_mempurge_threshold = 1.0;
 #endif  // !ROCKSDB_LITE
   ASSERT_OK(TryReopen(options));
   // Dynamically activate the MemPurge prototype without restarting the DB.
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
-  db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}});
+
+  // RocksDB lite does not support dynamic options
+#ifndef ROCKSDB_LITE
+  ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}}));
+#endif
+
   std::atomic<uint32_t> mempurge_count{0};
   std::atomic<uint32_t> sst_count{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -917,6 +926,8 @@ TEST_F(DBFlushTest, MemPurgeBasic) {
   Close();
 }
 
+// RocksDB lite does not support dynamic options
+#ifndef ROCKSDB_LITE
 TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   Options options = CurrentOptions();
 
@@ -957,7 +968,7 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   ASSERT_OK(TryReopen(options));
   // Dynamically activate the MemPurge prototype without restarting the DB.
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
-  db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}});
+  ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}}));
   std::atomic<uint32_t> mempurge_count{0};
   std::atomic<uint32_t> sst_count{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -1002,7 +1013,7 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   EXPECT_EQ(sst_count.exchange(0), EXPECTED_SST_COUNT);
 
   // Dynamically deactivate MemPurge.
-  db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "0.0"}});
+  ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "0.0"}}));
 
   // Insertion of of K-V pairs, multiple times (overwrites).
   for (size_t i = 0; i < NUM_REPEAT; i++) {
@@ -1026,6 +1037,7 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
 
   Close();
 }
+#endif
 
 TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   Options options = CurrentOptions();
