@@ -173,7 +173,10 @@ void DbStressListener::VerifyTableFileUniqueId(
     const TableProperties& new_file_properties, const std::string& file_path) {
   // Verify unique ID
   std::string id;
-  Status s = GetUniqueIdFromTableProperties(new_file_properties, &id);
+  // Unit tests verify that GetUniqueIdFromTableProperties returns just a
+  // substring of this, and we're only going to pull out 64 bits, so using
+  // GetExtendedUniqueIdFromTableProperties is arguably stronger testing here.
+  Status s = GetExtendedUniqueIdFromTableProperties(new_file_properties, &id);
   if (!s.ok()) {
     fprintf(stderr, "Error getting SST unique id for %s: %s\n",
             file_path.c_str(), s.ToString().c_str());
