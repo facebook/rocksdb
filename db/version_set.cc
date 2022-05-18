@@ -2248,25 +2248,12 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
   // blob_file => [[blob_idx, it], ...]
   std::unordered_map<uint64_t, BlobReadRequests> blob_rqs;
-  int level = fp.GetHitFileLevel();
+  int prev_level = -1;
 
   while (!fp.IsSearchEnded()) {
-    // Report MultiGet stats per level.
-    if (level >= 0 && level != (int)fp.GetHitFileLevel()) {
-      // Dump the stats if the search has moved to the next level and
-      // reset for next level.
-      RecordInHistogram(db_statistics_,
-                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                        num_index_read + num_filter_read);
-      RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                        num_data_read);
-      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
-      num_filter_read = 0;
-      num_index_read = 0;
-      num_data_read = 0;
-      num_sst_read = 0;
-      level = fp.GetHitFileLevel();
-    }
+    // This will be set to true later if we actually look up in a file in L0.
+    // For per level stats purposes, an L0 file is treated as a level
+    bool dump_stats_for_l0_file = false;
 
     // Avoid using the coroutine version if we're looking in a L0 file, since
     // L0 files won't be parallelized anyway. The regular synchronous version
@@ -2279,6 +2266,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                             fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
                             blob_rqs, num_filter_read, num_index_read,
                             num_data_read, num_sst_read);
+        if (fp.GetHitFileLevel() == 0) {
+          dump_stats_for_l0_file = true;
+        }
       }
       if (s.ok()) {
         f = fp.GetNextFileInLevel();
@@ -2324,6 +2314,24 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         // Its possible there is no overlap on this level and f is nullptr
         f = fp.GetNextFileInLevel();
       }
+      if (dump_stats_for_l0_file ||
+          (prev_level != 0 && prev_level != (int)fp.GetHitFileLevel())) {
+        // Dump the stats if the search has moved to the next level and
+        // reset for next level.
+        if (num_sst_read || (num_filter_read + num_index_read)) {
+          RecordInHistogram(db_statistics_,
+                            NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                            num_index_read + num_filter_read);
+          RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
+                            num_data_read);
+          RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+        }
+        num_filter_read = 0;
+        num_index_read = 0;
+        num_data_read = 0;
+        num_sst_read = 0;
+      }
+      prev_level = fp.GetHitFileLevel();
     }
   }
 
