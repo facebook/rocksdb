@@ -7198,7 +7198,7 @@ TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
   ASSERT_EQ("0,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
 
-  // Reopen without verification should fail
+  // Reopen with verification should fail
   options.verify_sst_unique_id_in_manifest = true;
   skipped = 0;
   Reopen(options);
@@ -7249,7 +7249,7 @@ TEST_F(DBTest2, SstUniqueIdVerify) {
   ASSERT_EQ("0,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
 
-  // Reopen without verification should fail
+  // Reopen with verification should fail
   options.verify_sst_unique_id_in_manifest = true;
   s = TryReopen(options);
   ASSERT_TRUE(s.IsCorruption());
