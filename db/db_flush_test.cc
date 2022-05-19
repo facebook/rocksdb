@@ -960,15 +960,17 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Initially deactivate the MemPurge prototype.
-  options.experimental_mempurge_threshold = 0.0;
-#ifndef ROCKSDB_LITE
+  // (negative values are equivalent to 0.0).
+  options.experimental_mempurge_threshold = -25.3;
   TestFlushListener* listener = new TestFlushListener(options.env, this);
   options.listeners.emplace_back(listener);
-#endif  // !ROCKSDB_LITE
+
   ASSERT_OK(TryReopen(options));
   // Dynamically activate the MemPurge prototype without restarting the DB.
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
-  ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "1.0"}}));
+  // Values greater than 1.0 are equivalent to 1.0
+  ASSERT_OK(
+      db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "3.7898"}}));
   std::atomic<uint32_t> mempurge_count{0};
   std::atomic<uint32_t> sst_count{0};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -1013,7 +1015,8 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   EXPECT_EQ(sst_count.exchange(0), EXPECTED_SST_COUNT);
 
   // Dynamically deactivate MemPurge.
-  ASSERT_OK(db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "0.0"}}));
+  ASSERT_OK(
+      db_->SetOptions(cfh, {{"experimental_mempurge_threshold", "-1023.0"}}));
 
   // Insertion of of K-V pairs, multiple times (overwrites).
   for (size_t i = 0; i < NUM_REPEAT; i++) {
@@ -1037,6 +1040,11 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
 
   Close();
 }
+// Closes the "#ifndef ROCKSDB_LITE"
+// End of MemPurgeBasicToggle, which is not
+// supported with RocksDB LITE because it
+// relies on dynamically changing the option
+// flag experimental_mempurge_threshold.
 #endif
 
 TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
@@ -1055,7 +1063,7 @@ TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = 1.0;
+  options.experimental_mempurge_threshold = 15.0;
 
   ASSERT_OK(TryReopen(options));
 
@@ -1262,7 +1270,7 @@ TEST_F(DBFlushTest, MemPurgeAndCompactionFilter) {
   // Enforce size of a single MemTable to 64MB (64MB = 67108864 bytes).
   options.write_buffer_size = 1 << 20;
   // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = 1.0;
+  options.experimental_mempurge_threshold = 26.55;
 
   ASSERT_OK(TryReopen(options));
 
@@ -1337,8 +1345,9 @@ TEST_F(DBFlushTest, DISABLED_MemPurgeWALSupport) {
 
   // Enforce size of a single MemTable to 128KB.
   options.write_buffer_size = 128 << 10;
-  // Activate the MemPurge prototype.
-  options.experimental_mempurge_threshold = 1.0;
+  // Activate the MemPurge prototype
+  // (values >1.0 are equivalent to 1.0).
+  options.experimental_mempurge_threshold = 2.5;
 
   ASSERT_OK(TryReopen(options));
 
