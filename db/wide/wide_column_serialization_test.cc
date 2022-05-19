@@ -14,7 +14,7 @@ TEST(WideColumnSerializationTest, SerializeDeserialize) {
   WideColumnDescs column_descs{{"foo", "bar"}, {"hello", "world"}};
   std::string output;
 
-  ASSERT_OK(WideColumnSerialization::Serialize(column_descs, &output));
+  ASSERT_OK(WideColumnSerialization::Serialize(column_descs, output));
 
   {
     Slice input(output);

@@ -15,23 +15,22 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
-                                          std::string* output) {
+                                          std::string& output) {
   // Column names should be strictly ascending
   assert(std::adjacent_find(
              column_descs.cbegin(), column_descs.cend(),
              [](const WideColumnDesc& lhs, const WideColumnDesc& rhs) {
                return lhs.name().compare(rhs.name()) > 0;
              }) == column_descs.cend());
-  assert(output);
 
   if (column_descs.size() >
       static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
     return Status::InvalidArgument("Too many wide columns");
   }
 
-  PutVarint32(output, kCurrentVersion);
+  PutVarint32(&output, kCurrentVersion);
 
-  PutVarint32(output, static_cast<uint32_t>(column_descs.size()));
+  PutVarint32(&output, static_cast<uint32_t>(column_descs.size()));
 
   size_t total_column_value_size = 0;
 
@@ -48,18 +47,18 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
       return Status::InvalidArgument("Wide column value too long");
     }
 
-    PutLengthPrefixedSlice(output, name);
-    PutVarint32(output, static_cast<uint32_t>(value.size()));
+    PutLengthPrefixedSlice(&output, name);
+    PutVarint32(&output, static_cast<uint32_t>(value.size()));
 
     total_column_value_size += value.size();
   }
 
-  output->reserve(output->size() + total_column_value_size);
+  output.reserve(output.size() + total_column_value_size);
 
   for (const auto& desc : column_descs) {
     const Slice& value = desc.value();
 
-    output->append(value.data(), value.size());
+    output.append(value.data(), value.size());
   }
 
   return Status::OK();

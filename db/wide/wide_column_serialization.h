@@ -42,7 +42,7 @@ using WideColumnDescs = std::vector<WideColumnDesc>;
 class WideColumnSerialization {
  public:
   static Status Serialize(const WideColumnDescs& column_descs,
-                          std::string* output);
+                          std::string& output);
   static Status DeserializeOne(Slice* input, const Slice& column_name,
                                WideColumnDesc* column_desc);
   static Status DeserializeAll(Slice* input, WideColumnDescs* column_descs);
