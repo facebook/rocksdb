@@ -372,17 +372,17 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   // TODO: rate limit footer reads.
   if (prefetch_buffer == nullptr ||
       !prefetch_buffer->TryReadFromCache(
-          IOOptions(), file, read_offset, Footer::kMaxEncodedLength,
-          &footer_input, nullptr, Env::IO_TOTAL /* rate_limiter_priority */)) {
+          opts, file, read_offset, Footer::kMaxEncodedLength, &footer_input,
+          nullptr, opts.rate_limiter_priority)) {
     if (file->use_direct_io()) {
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, nullptr, &internal_buf,
-                     Env::IO_TOTAL /* rate_limiter_priority */);
+                     opts.rate_limiter_priority);
     } else {
       footer_buf.reserve(Footer::kMaxEncodedLength);
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
                      &footer_input, &footer_buf[0], nullptr,
-                     Env::IO_TOTAL /* rate_limiter_priority */);
+                     opts.rate_limiter_priority);
     }
     if (!s.ok()) return s;
   }
