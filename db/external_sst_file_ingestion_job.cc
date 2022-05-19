@@ -142,6 +142,9 @@ Status ExternalSstFileIngestionJob::Prepare(
                  ingestion_options_.failed_move_fall_back_to_copy) {
         // Original file is on a different FS, use copy instead of hard linking.
         f.copy_file = true;
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Triy to link file %s but it's not supported : %s",
+                       path_outside_db.c_str(), status.ToString().c_str());
       }
     } else {
       f.copy_file = true;

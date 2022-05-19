@@ -116,9 +116,8 @@ TEST_P(DBRateLimiterOnReadTest, Get) {
   }
   Init();
 
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
-
-  int expected = 0;
+  // In Init(), compaction may request tokens for `Env::IO_USER`.
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
   for (int i = 0; i < kNumFiles; ++i) {
     {
       std::string value;
@@ -146,7 +145,8 @@ TEST_P(DBRateLimiterOnReadTest, NewMultiGet) {
   }
   Init();
 
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+  // In Init(), compaction may request tokens for `Env::IO_USER`.
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   const int kNumKeys = kNumFiles * kNumKeysPerFile;
   {
@@ -166,7 +166,7 @@ TEST_P(DBRateLimiterOnReadTest, NewMultiGet) {
       ASSERT_TRUE(statuses[i].IsNotSupported());
     }
   }
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+  ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
 TEST_P(DBRateLimiterOnReadTest, OldMultiGet) {
@@ -177,10 +177,10 @@ TEST_P(DBRateLimiterOnReadTest, OldMultiGet) {
   }
   Init();
 
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+  // In Init(), compaction may request tokens for `Env::IO_USER`.
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   const int kNumKeys = kNumFiles * kNumKeysPerFile;
-  int expected = 0;
   {
     std::vector<std::string> key_bufs;
     key_bufs.reserve(kNumKeys);
@@ -207,10 +207,10 @@ TEST_P(DBRateLimiterOnReadTest, Iterator) {
   }
   Init();
 
+  // In Init(), compaction may request tokens for `Env::IO_USER`.
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
   std::unique_ptr<Iterator> iter(db_->NewIterator(GetReadOptions()));
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
-  int expected = 0;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ++expected;
     ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
@@ -236,12 +236,12 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
     return;
   }
   Init();
-
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+  // In Init(), compaction may request tokens for `Env::IO_USER`.
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   ASSERT_OK(db_->VerifyChecksum(GetReadOptions()));
   // The files are tiny so there should have just been one read per file.
-  int expected = kNumFiles;
+  expected += kNumFiles;
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
@@ -251,11 +251,12 @@ TEST_P(DBRateLimiterOnReadTest, VerifyFileChecksums) {
   }
   Init();
 
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+  // In Init(), compaction may request tokens for `Env::IO_USER`.
+  int64_t expected = options_.rate_limiter->GetTotalRequests(Env::IO_USER);
 
   ASSERT_OK(db_->VerifyFileChecksums(GetReadOptions()));
   // The files are tiny so there should have just been one read per file.
-  int expected = kNumFiles;
+  expected += kNumFiles;
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 

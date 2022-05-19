@@ -91,7 +91,8 @@ void PartitionedIndexIterator::InitPartitionedIndexBlock() {
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
     block_prefetcher_.PrefetchIfNeeded(
         rep, partitioned_index_handle, read_options_.readahead_size,
-        is_for_compaction, read_options_.async_io);
+        is_for_compaction, read_options_.async_io,
+        read_options_.rate_limiter_priority);
     Status s;
     table_->NewDataBlockIterator<IndexBlockIter>(
         read_options_, partitioned_index_handle, &block_iter_,
