@@ -188,16 +188,7 @@ class FilterBlockReader {
                              const Slice* const const_ikey_ptr,
                              bool* filter_checked, bool need_upper_bound_check,
                              bool no_io,
-                             BlockCacheLookupContext* lookup_context) {
-    if (need_upper_bound_check) {
-      return true;
-    }
-    *filter_checked = true;
-    Slice prefix = prefix_extractor->Transform(user_key_without_ts);
-    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, no_io,
-                          const_ikey_ptr, /* get_context */ nullptr,
-                          lookup_context);
-  }
+                             BlockCacheLookupContext* lookup_context) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

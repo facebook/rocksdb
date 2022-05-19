@@ -6309,115 +6309,118 @@ TEST_F(DBTest2, BlockBasedTablePrefixGetIndexNotFound) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, AutoPrefixMode1) {
-  // create a DB with block prefix index
-  BlockBasedTableOptions table_options;
-  Options options = CurrentOptions();
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-  options.statistics = CreateDBStatistics();
+  do {
+    // create a DB with block prefix index
+    Options options = CurrentOptions();
+    BlockBasedTableOptions table_options =
+        *options.table_factory->GetOptions<BlockBasedTableOptions>();
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+    options.statistics = CreateDBStatistics();
 
-  Reopen(options);
+    Reopen(options);
 
-  Random rnd(301);
-  std::string large_value = rnd.RandomString(500);
+    Random rnd(301);
+    std::string large_value = rnd.RandomString(500);
 
-  ASSERT_OK(Put("a1", large_value));
-  ASSERT_OK(Put("x1", large_value));
-  ASSERT_OK(Put("y1", large_value));
-  ASSERT_OK(Flush());
+    ASSERT_OK(Put("a1", large_value));
+    ASSERT_OK(Put("x1", large_value));
+    ASSERT_OK(Put("y1", large_value));
+    ASSERT_OK(Flush());
 
-  ReadOptions ro;
-  ro.total_order_seek = false;
-  ro.auto_prefix_mode = true;
-  {
-    std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
-    iterator->Seek("b1");
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_EQ("x1", iterator->key().ToString());
-    ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
-    ASSERT_OK(iterator->status());
-  }
+    ReadOptions ro;
+    ro.total_order_seek = false;
+    ro.auto_prefix_mode = true;
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("x1", iterator->key().ToString());
+      ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      ASSERT_OK(iterator->status());
+    }
 
-  std::string ub_str = "b9";
-  Slice ub(ub_str);
-  ro.iterate_upper_bound = &ub;
-
-  {
-    std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
-    iterator->Seek("b1");
-    ASSERT_FALSE(iterator->Valid());
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
-    ASSERT_OK(iterator->status());
-  }
-
-  ub_str = "z";
-  ub = Slice(ub_str);
-  {
-    std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
-    iterator->Seek("b1");
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_EQ("x1", iterator->key().ToString());
-    ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
-    ASSERT_OK(iterator->status());
-  }
-
-  ub_str = "c";
-  ub = Slice(ub_str);
-  {
-    std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
-    iterator->Seek("b1");
-    ASSERT_FALSE(iterator->Valid());
-    ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
-    ASSERT_OK(iterator->status());
-  }
-
-  // The same queries without recreating iterator
-  {
-    ub_str = "b9";
-    ub = Slice(ub_str);
+    std::string ub_str = "b9";
+    Slice ub(ub_str);
     ro.iterate_upper_bound = &ub;
 
-    std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
-    iterator->Seek("b1");
-    ASSERT_FALSE(iterator->Valid());
-    ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
-    ASSERT_OK(iterator->status());
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_FALSE(iterator->Valid());
+      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      ASSERT_OK(iterator->status());
+    }
 
     ub_str = "z";
     ub = Slice(ub_str);
-
-    iterator->Seek("b1");
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_EQ("x1", iterator->key().ToString());
-    ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("x1", iterator->key().ToString());
+      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      ASSERT_OK(iterator->status());
+    }
 
     ub_str = "c";
     ub = Slice(ub_str);
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_FALSE(iterator->Valid());
+      ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      ASSERT_OK(iterator->status());
+    }
 
-    iterator->Seek("b1");
-    ASSERT_FALSE(iterator->Valid());
-    ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+    // The same queries without recreating iterator
+    {
+      ub_str = "b9";
+      ub = Slice(ub_str);
+      ro.iterate_upper_bound = &ub;
 
-    ub_str = "b9";
-    ub = Slice(ub_str);
-    ro.iterate_upper_bound = &ub;
-    iterator->SeekForPrev("b1");
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_EQ("a1", iterator->key().ToString());
-    ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_FALSE(iterator->Valid());
+      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      ASSERT_OK(iterator->status());
 
-    ub_str = "zz";
-    ub = Slice(ub_str);
-    ro.iterate_upper_bound = &ub;
-    iterator->SeekToLast();
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_EQ("y1", iterator->key().ToString());
+      ub_str = "z";
+      ub = Slice(ub_str);
 
-    iterator->SeekToFirst();
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_EQ("a1", iterator->key().ToString());
-  }
+      iterator->Seek("b1");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("x1", iterator->key().ToString());
+      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+
+      ub_str = "c";
+      ub = Slice(ub_str);
+
+      iterator->Seek("b1");
+      ASSERT_FALSE(iterator->Valid());
+      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+
+      ub_str = "b9";
+      ub = Slice(ub_str);
+      ro.iterate_upper_bound = &ub;
+      iterator->SeekForPrev("b1");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+
+      ub_str = "zz";
+      ub = Slice(ub_str);
+      ro.iterate_upper_bound = &ub;
+      iterator->SeekToLast();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("y1", iterator->key().ToString());
+
+      iterator->SeekToFirst();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+    }
+  } while (ChangeOptions(kSkipPlainTable));
 }
 
 class RenameCurrentTest : public DBTestBase,
