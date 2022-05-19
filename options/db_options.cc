@@ -228,6 +228,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    track_and_verify_wals_in_manifest),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"verify_sst_unique_id_in_manifest",
+         {offsetof(struct ImmutableDBOptions, verify_sst_unique_id_in_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"skip_log_error_on_recovery",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -680,6 +684,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       flush_verify_memtable_count(options.flush_verify_memtable_count),
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
+      verify_sst_unique_id_in_manifest(
+          options.verify_sst_unique_id_in_manifest),
       env(options.env),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
@@ -775,6 +781,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    "                              "
                    "Options.track_and_verify_wals_in_manifest: %d",
                    track_and_verify_wals_in_manifest);
+  ROCKS_LOG_HEADER(log, "       Options.verify_sst_unique_id_in_manifest: %d",
+                   verify_sst_unique_id_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",

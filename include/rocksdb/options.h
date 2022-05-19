@@ -492,6 +492,23 @@ struct DBOptions {
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
 
+  // EXPERIMENTAL: This API/behavior is subject to change
+  // If true, during DB-open it verifies the SST unique id between MANIFEST
+  // and SST properties, which is to make sure the SST is not overwritten or
+  // misplaced. A corruption error will be reported if mismatch detected, but
+  // only when MANIFEST tracks the unique id, which starts from version 7.3.
+  // The unique id is an internal unique id and subject to change.
+  //
+  // Note:
+  // 1. if enabled, it opens every SST files during DB open to read the unique
+  //    id from SST properties, so it's recommended to have `max_open_files=-1`
+  //    to pre-open the SST files before the verification.
+  // 2. existing SST files won't have its unique_id tracked in MANIFEST, then
+  //    verification will be skipped.
+  //
+  // Default: false
+  bool verify_sst_unique_id_in_manifest = false;
+
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
   // future, support for doing storage operations such as read/write files

@@ -27,6 +27,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
+#include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -206,7 +207,7 @@ class CompactionJobTestBase : public testing::Test {
                  oldest_blob_file_number, kUnknownOldestAncesterTime,
                  kUnknownFileCreationTime, kUnknownFileChecksum,
                  kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                 kDisableUserTimestamp);
+                 kDisableUserTimestamp, kNullUniqueId64x2);
 
     mutex_.Lock();
     EXPECT_OK(
@@ -360,8 +361,8 @@ class CompactionJobTestBase : public testing::Test {
         table_cache_, &event_logger, false, false, dbname_,
         &compaction_job_stats_, Env::Priority::USER, nullptr /* IOTracer */,
         /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, /*db_id=*/"",
-        /*db_session_id=*/"", full_history_ts_low_);
+        /*manual_compaction_canceled=*/nullptr, env_->GenerateUniqueId(),
+        DBImpl::GenerateDbSessionId(nullptr), full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
@@ -1254,13 +1255,14 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   result.status =
       status_list.at(rnd.Uniform(static_cast<int>(status_list.size())));
   while (!rnd.OneIn(10)) {
+    UniqueId64x2 id{rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX)};
     result.output_files.emplace_back(
         rnd.RandomString(rnd.Uniform(kStrMaxLen)), rnd64.Uniform(UINT64_MAX),
         rnd64.Uniform(UINT64_MAX),
         rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
         rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen)),
         rnd64.Uniform(UINT64_MAX), rnd64.Uniform(UINT64_MAX),
-        rnd64.Uniform(UINT64_MAX), rnd.OneIn(2));
+        rnd64.Uniform(UINT64_MAX), rnd.OneIn(2), id);
   }
   result.output_level = rnd.Uniform(10);
   result.output_path = rnd.RandomString(rnd.Uniform(kStrMaxLen));
@@ -1287,6 +1289,16 @@ TEST_F(CompactionJobTest, ResultSerialization) {
   std::string mismatch;
   ASSERT_FALSE(deserialized1.TEST_Equals(&result, &mismatch));
   ASSERT_EQ(mismatch, "stats.num_input_files");
+
+  // Test unique id mismatch
+  if (!result.output_files.empty()) {
+    CompactionServiceResult deserialized_tmp;
+    ASSERT_OK(CompactionServiceResult::Read(output, &deserialized_tmp));
+    deserialized_tmp.output_files[0].unique_id[0] += 1;
+    ASSERT_FALSE(deserialized_tmp.TEST_Equals(&result, &mismatch));
+    ASSERT_EQ(mismatch, "output_files.unique_id");
+    deserialized_tmp.status.PermitUncheckedError();
+  }
 
   // Test unknown field
   CompactionServiceResult deserialized2;

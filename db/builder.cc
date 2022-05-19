@@ -37,6 +37,7 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
@@ -310,6 +311,15 @@ Status BuildTable(
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
       file_checksum = meta->file_checksum;
       file_checksum_func_name = meta->file_checksum_func_name;
+      // Set unique_id only if db_id and db_session_id exist
+      if (!tboptions.db_id.empty() && !tboptions.db_session_id.empty()) {
+        if (!GetSstInternalUniqueId(tboptions.db_id, tboptions.db_session_id,
+                                    meta->fd.GetNumber(), &(meta->unique_id))
+                 .ok()) {
+          // if failed to get unique id, just set it Null
+          meta->unique_id = kNullUniqueId64x2;
+        }
+      }
     }
 
     if (s.ok()) {

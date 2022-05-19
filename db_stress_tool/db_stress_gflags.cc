@@ -952,4 +952,10 @@ DEFINE_bool(
 DEFINE_string(wal_compression, "none",
               "Algorithm to use for WAL compression. none to disable.");
 
+DEFINE_bool(
+    verify_sst_unique_id_in_manifest, false,
+    "Enable DB options `verify_sst_unique_id_in_manifest`, if true, during "
+    "DB-open try verifying the SST unique id between MANIFEST and SST "
+    "properties.");
+
 #endif  // GFLAGS

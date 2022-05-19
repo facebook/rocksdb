@@ -64,6 +64,7 @@
 #include "table/block_based/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/hash.h"
@@ -1047,6 +1048,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   const Compaction* compaction = sub_compact->compaction;
   CompactionServiceInput compaction_input;
   compaction_input.output_level = compaction->output_level();
+  compaction_input.db_id = db_id_;
 
   const std::vector<CompactionInputFiles>& inputs =
       *(compact_->compaction->inputs());
@@ -1208,6 +1210,7 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
     meta.oldest_ancester_time = file.oldest_ancester_time;
     meta.file_creation_time = file.file_creation_time;
     meta.marked_for_compaction = file.marked_for_compaction;
+    meta.unique_id = file.unique_id;
 
     auto cfd = compaction->column_family_data();
     sub_compact->outputs.emplace_back(std::move(meta),
@@ -2277,6 +2280,18 @@ Status CompactionJob::OpenCompactionOutputFile(
     meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
     meta.temperature = temperature;
+    assert(!db_id_.empty());
+    assert(!db_session_id_.empty());
+    s = GetSstInternalUniqueId(db_id_, db_session_id_, meta.fd.GetNumber(),
+                               &meta.unique_id);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "[%s] [JOB %d] file #%" PRIu64
+                      " failed to generate unique id: %s.",
+                      cfd->GetName().c_str(), job_id_, meta.fd.GetNumber(),
+                      s.ToString().c_str());
+      return s;
+    }
     sub_compact->outputs.emplace_back(
         std::move(meta), cfd->internal_comparator(),
         /*enable_order_check=*/
@@ -2609,7 +2624,7 @@ Status CompactionServiceCompactionJob::Run() {
         meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
         meta.largest.Encode().ToString(), meta.oldest_ancester_time,
         meta.file_creation_time, output_file.validator.GetHash(),
-        meta.marked_for_compaction);
+        meta.marked_for_compaction, meta.unique_id);
   }
   compaction_result_->num_output_records = sub_compact->num_output_records;
   compaction_result_->total_bytes = sub_compact->total_bytes;
@@ -2713,6 +2728,9 @@ static std::unordered_map<std::string, OptionTypeInfo> cs_input_type_info = {
     {"output_level",
      {offsetof(struct CompactionServiceInput, output_level), OptionType::kInt,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+    {"db_id",
+     {offsetof(struct CompactionServiceInput, db_id),
+      OptionType::kEncodedString}},
     {"has_begin",
      {offsetof(struct CompactionServiceInput, has_begin), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -2770,6 +2788,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct CompactionServiceOutputFile, marked_for_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"unique_id",
+         OptionTypeInfo::Array<uint64_t, 2>(
+             offsetof(struct CompactionServiceOutputFile, unique_id),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+             {0, OptionType::kUInt64T})},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

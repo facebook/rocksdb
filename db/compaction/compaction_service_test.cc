@@ -288,6 +288,16 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
         auto s = static_cast<Status*>(status);
         *s = Status::Aborted("MyTestCompactionService failed to compact!");
       });
+
+  // tracking success unique id verification
+  std::atomic_int verify_passed{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::VerifySstUniqueIds::Passed", [&](void* arg) {
+        // override job status
+        auto id = static_cast<std::string*>(arg);
+        assert(!id->empty());
+        verify_passed++;
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Status s;
@@ -312,6 +322,12 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
     }
   }
   ASSERT_TRUE(s.IsAborted());
+
+  // Test verification
+  ASSERT_EQ(verify_passed, 0);
+  options.verify_sst_unique_id_in_manifest = true;
+  Reopen(options);
+  ASSERT_GT(verify_passed, 0);
 }
 
 TEST_F(CompactionServiceTest, ManualCompaction) {

@@ -59,6 +59,7 @@
 #include "table/plain/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
@@ -1532,6 +1533,40 @@ void Version::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
     }
   }
   *creation_time = oldest_time;
+}
+
+Status Version::VerifySstUniqueIds() const {
+  for (int level = 0; level < storage_info_.num_non_empty_levels_; level++) {
+    for (FileMetaData* meta : storage_info_.LevelFiles(level)) {
+      if (meta->unique_id != kNullUniqueId64x2) {
+        std::shared_ptr<const TableProperties> props;
+        Status s =
+            GetTableProperties(&props, meta);  // may open the file if it's not
+        if (!s.ok()) {
+          return s;
+        }
+        UniqueId64x2 id;
+        s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                   props->orig_file_number, &id);
+        if (!s.ok() || id != meta->unique_id) {
+          std::ostringstream oss;
+          oss << "SST #" << meta->fd.GetNumber() << " unique ID mismatch. ";
+          oss << "Manifest: "
+              << InternalUniqueIdToHumanString(&(meta->unique_id)) << ", ";
+          if (s.ok()) {
+            oss << "Table Properties: " << InternalUniqueIdToHumanString(&id);
+          } else {
+            oss << "Failed to get Table Properties: " << s.ToString();
+          }
+          return Status::Corruption("VersionSet", oss.str());
+        }
+        TEST_SYNC_POINT_CALLBACK("Version::VerifySstUniqueIds::Passed", &id);
+      } else {
+        TEST_SYNC_POINT_CALLBACK("Version::VerifySstUniqueIds::Skipped", meta);
+      }
+    }
+  }
+  return Status::OK();
 }
 
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
@@ -5492,13 +5527,14 @@ Status VersionSet::WriteCurrentStateToManifest(
         for (const auto& f : level_files) {
           assert(f);
 
-          edit.AddFile(
-              level, f->fd.GetNumber(), f->fd.GetPathId(), f->fd.GetFileSize(),
-              f->smallest, f->largest, f->fd.smallest_seqno,
-              f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
-              f->oldest_blob_file_number, f->oldest_ancester_time,
-              f->file_creation_time, f->file_checksum,
-              f->file_checksum_func_name, f->min_timestamp, f->max_timestamp);
+          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
+                       f->fd.GetFileSize(), f->smallest, f->largest,
+                       f->fd.smallest_seqno, f->fd.largest_seqno,
+                       f->marked_for_compaction, f->temperature,
+                       f->oldest_blob_file_number, f->oldest_ancester_time,
+                       f->file_creation_time, f->file_checksum,
+                       f->file_checksum_func_name, f->min_timestamp,
+                       f->max_timestamp, f->unique_id);
         }
       }
 

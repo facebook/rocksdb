@@ -118,6 +118,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -278,6 +279,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
+  ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);
@@ -799,6 +801,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
   };
   ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
@@ -807,6 +810,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
+  ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
   Status s = GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt);
@@ -2312,6 +2316,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -4597,6 +4602,68 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
   ASSERT_EQ(e1.b.i, 77);
   ASSERT_EQ(e1.j, 22);
   ASSERT_EQ(e1.b.s, "66");
+}
+
+TEST_F(OptionTypeInfoTest, TestArrayType) {
+  OptionTypeInfo array_info = OptionTypeInfo::Array<std::string, 4>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+      {0, OptionType::kString});
+  std::array<std::string, 4> array1, array2;
+  std::string mismatch;
+
+  ConfigOptions config_options;
+  TestParseAndCompareOption(config_options, array_info, "v", "a:b:c:d", &array1,
+                            &array2);
+
+  ASSERT_EQ(array1.size(), 4);
+  ASSERT_EQ(array1[0], "a");
+  ASSERT_EQ(array1[1], "b");
+  ASSERT_EQ(array1[2], "c");
+  ASSERT_EQ(array1[3], "d");
+  array1[3] = "e";
+  ASSERT_FALSE(
+      array_info.AreEqual(config_options, "v", &array1, &array2, &mismatch));
+  ASSERT_EQ(mismatch, "v");
+
+  // Test vectors with inner brackets
+  TestParseAndCompareOption(config_options, array_info, "v", "a:{b}:c:d",
+                            &array1, &array2);
+  ASSERT_EQ(array1.size(), 4);
+  ASSERT_EQ(array1[0], "a");
+  ASSERT_EQ(array1[1], "b");
+  ASSERT_EQ(array1[2], "c");
+  ASSERT_EQ(array1[3], "d");
+
+  std::array<std::string, 3> array3, array4;
+  OptionTypeInfo bar_info = OptionTypeInfo::Array<std::string, 3>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+      {0, OptionType::kString}, '|');
+  TestParseAndCompareOption(config_options, bar_info, "v", "x|y|z", &array3,
+                            &array4);
+
+  // Test arrays with inner array
+  TestParseAndCompareOption(config_options, bar_info, "v",
+                            "a|{b1|b2}|{c1|c2|{d1|d2}}", &array3, &array4,
+                            false);
+  ASSERT_EQ(array3.size(), 3);
+  ASSERT_EQ(array3[0], "a");
+  ASSERT_EQ(array3[1], "b1|b2");
+  ASSERT_EQ(array3[2], "c1|c2|{d1|d2}");
+
+  TestParseAndCompareOption(config_options, bar_info, "v",
+                            "{a1|a2}|{b1|{c1|c2}}|d1", &array3, &array4, true);
+  ASSERT_EQ(array3.size(), 3);
+  ASSERT_EQ(array3[0], "a1|a2");
+  ASSERT_EQ(array3[1], "b1|{c1|c2}");
+  ASSERT_EQ(array3[2], "d1");
+
+  // Test invalid input: less element than requested
+  auto s = bar_info.Parse(config_options, "opt_name1", "a1|a2", &array3);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  // Test invalid input: more element than requested
+  s = bar_info.Parse(config_options, "opt_name2", "a1|b|c1|d3", &array3);
+  ASSERT_TRUE(s.IsInvalidArgument());
 }
 
 TEST_F(OptionTypeInfoTest, TestVectorType) {

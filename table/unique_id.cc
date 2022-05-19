@@ -107,6 +107,20 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   return Status::OK();
 }
 
+Status GetSstInternalUniqueId(const std::string &db_id,
+                              const std::string &db_session_id,
+                              uint64_t file_number, UniqueId64x2 *out) {
+  UniqueId64x3 tmp{};
+  Status s = GetSstInternalUniqueId(db_id, db_session_id, file_number, &tmp);
+  if (s.ok()) {
+    (*out)[0] = tmp[0];
+    (*out)[1] = tmp[1];
+  } else {
+    *out = {0, 0};
+  }
+  return s;
+}
+
 namespace {
 // For InternalUniqueIdToExternal / ExternalUniqueIdToInternal we want all
 // zeros in first 128 bits to map to itself, so that excluding zero in
@@ -146,6 +160,19 @@ std::string EncodeUniqueIdBytes(UniqueIdPtr in) {
     EncodeFixed64(&ret[16], in.ptr[2]);
   }
   return ret;
+}
+
+Status DecodeUniqueIdBytes(const std::string &unique_id, UniqueIdPtr out) {
+  if (unique_id.size() != (out.extended ? 24 : 16)) {
+    return Status::NotSupported("Not a valid unique_id");
+  }
+  const char *buf = &unique_id.front();
+  out.ptr[0] = DecodeFixed64(&buf[0]);
+  out.ptr[1] = DecodeFixed64(&buf[8]);
+  if (out.extended) {
+    out.ptr[2] = DecodeFixed64(&buf[16]);
+  }
+  return Status::OK();
 }
 
 template <typename ID>

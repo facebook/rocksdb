@@ -7149,6 +7149,112 @@ TEST_F(DBTest2, RenameDirectory) {
   dbname_ = old_dbname;
 }
 
+TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
+  const int kNumSst = 3;
+  const int kLevel0Trigger = 4;
+  auto options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kLevel0Trigger;
+  options.statistics = CreateDBStatistics();
+
+  // Existing manifest doesn't have unique id
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEdit::EncodeTo:UniqueId", [&](void* arg) {
+        auto unique_id = static_cast<UniqueId64x2*>(arg);
+        // remove id before writing it to manifest
+        (*unique_id)[0] = 0;
+        (*unique_id)[1] = 0;
+      });
+  std::atomic_int skipped = 0;
+  SyncPoint::GetInstance()->SetCallBack("Version::VerifySstUniqueIds::Skipped",
+                                        [&](void* /*arg*/) { skipped++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // generate a few SSTs
+  for (int i = 0; i < kNumSst; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Reopen without verification
+  Reopen(options);
+
+  // Reopen with verification, but it's skipped because manifest doesn't have id
+  options.verify_sst_unique_id_in_manifest = true;
+  Reopen(options);
+  ASSERT_EQ(skipped, kNumSst);
+
+  // test compaction generated Sst
+  for (int i = kNumSst; i < kLevel0Trigger; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+#endif  // ROCKSDB_LITE
+
+  // Reopen with verification should fail
+  options.verify_sst_unique_id_in_manifest = true;
+  skipped = 0;
+  Reopen(options);
+  ASSERT_EQ(skipped, 1);
+}
+
+TEST_F(DBTest2, SstUniqueIdVerify) {
+  const int kNumSst = 3;
+  const int kLevel0Trigger = 4;
+  auto options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kLevel0Trigger;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
+        auto props = static_cast<TableProperties*>(props_vs);
+        // update table property session_id to a different one
+        props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // generate a few SSTs
+  for (int i = 0; i < kNumSst; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Reopen with verification should report corruption
+  options.verify_sst_unique_id_in_manifest = true;
+  auto s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+
+  // Reopen without verification should be fine
+  options.verify_sst_unique_id_in_manifest = false;
+  Reopen(options);
+
+  // test compaction generated Sst
+  for (int i = kNumSst; i < kLevel0Trigger; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+#endif  // ROCKSDB_LITE
+
+  // Reopen with verification should fail
+  options.verify_sst_unique_id_in_manifest = true;
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   Destroy(last_options_);
