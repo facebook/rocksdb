@@ -175,7 +175,7 @@ class RandomAccessFileReader {
   IOStatus Prefetch(uint64_t offset, size_t n,
                     const Env::IOPriority rate_limiter_priority) const {
     IOOptions opts;
-    opts.rate_limiter_priority = rate_limiter_priority;
+    opts.io_priority = rate_limiter_priority;
     return file_->Prefetch(offset, n, opts, nullptr);
   }
 

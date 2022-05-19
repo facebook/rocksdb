@@ -373,16 +373,14 @@ Status ReadFooterFromFile(const IOOptions& opts, RandomAccessFileReader* file,
   if (prefetch_buffer == nullptr ||
       !prefetch_buffer->TryReadFromCache(
           opts, file, read_offset, Footer::kMaxEncodedLength, &footer_input,
-          nullptr, opts.rate_limiter_priority)) {
+          nullptr, opts.io_priority)) {
     if (file->use_direct_io()) {
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, nullptr, &internal_buf,
-                     opts.rate_limiter_priority);
+                     &footer_input, nullptr, &internal_buf, opts.io_priority);
     } else {
       footer_buf.reserve(Footer::kMaxEncodedLength);
       s = file->Read(opts, read_offset, Footer::kMaxEncodedLength,
-                     &footer_input, &footer_buf[0], nullptr,
-                     opts.rate_limiter_priority);
+                     &footer_input, &footer_buf[0], nullptr, opts.io_priority);
     }
     if (!s.ok()) return s;
   }
