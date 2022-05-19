@@ -31,6 +31,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/coro_utils.h"
 #include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -141,10 +142,11 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  void MultiGet(const ReadOptions& readOptions,
-                const MultiGetContext::Range* mget_range,
-                const SliceTransform* prefix_extractor,
-                bool skip_filters = false) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
+                                  const ReadOptions& readOptions,
+                                  const MultiGetContext::Range* mget_range,
+                                  const SliceTransform* prefix_extractor,
+                                  bool skip_filters = false);
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
@@ -366,13 +368,14 @@ class BlockBasedTable : public TableReader {
                        bool for_compaction, bool use_cache,
                        bool wait_for_cache) const;
 
-  void RetrieveMultipleBlocks(
-      const ReadOptions& options, const MultiGetRange* batch,
+  DECLARE_SYNC_AND_ASYNC_CONST(
+      void, RetrieveMultipleBlocks, const ReadOptions& options,
+      const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
       autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
       autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
           results,
-      char* scratch, const UncompressionDict& uncompression_dict) const;
+      char* scratch, const UncompressionDict& uncompression_dict);
 
   // Get the iterator from the index reader.
   //

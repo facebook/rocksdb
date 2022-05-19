@@ -2590,7 +2590,8 @@ Status DBImpl::MultiGetImpl(
                             ? MultiGetContext::MAX_BATCH_SIZE
                             : keys_left;
     MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
-                        batch_size, snapshot, read_options);
+                        batch_size, snapshot, read_options, GetFileSystem(),
+                        stats_);
     MultiGetRange range = ctx.GetMultiGetRange();
     range.AddValueSize(curr_value_size);
     bool lookup_current = false;
