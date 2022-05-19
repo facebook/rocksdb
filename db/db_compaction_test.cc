@@ -7499,7 +7499,8 @@ TEST_F(DBCompactionTest, IOPriorityTest) {
   ASSERT_OK(Put("key1", rnd.RandomString(990)));
   ASSERT_OK(Put("key9", rnd.RandomString(990)));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
-  ASSERT_EQ("1", FilesPerLevel(0));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,1", FilesPerLevel(0));
 
   ASSERT_OK(Put("key2", rnd.RandomString(990)));
   ASSERT_OK(Put("key9", rnd.RandomString(990)));
@@ -7520,7 +7521,8 @@ TEST_F(DBCompactionTest, IOPriorityTest) {
   ASSERT_OK(Put("key3", rnd.RandomString(990)));
   ASSERT_OK(Put("key8", rnd.RandomString(990)));
   ASSERT_OK(dbfull()->TEST_FlushMemTable());
-  ASSERT_EQ("1,0,1", FilesPerLevel(0));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,1,1", FilesPerLevel(0));
 
   // trigger L1 -> L2 compaction which use IO_LOW
   ASSERT_OK(Put("key4", rnd.RandomString(990)));

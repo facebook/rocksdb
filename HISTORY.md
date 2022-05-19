@@ -33,6 +33,7 @@
 * During Flush write or Compaction write/read, the WriteController is used to determine whether DB writes are stalled or slowed down. The priority (Env::IOPriority) can then be determined accordingly and be passed in IOOptions to the file system.
 * Use Env::IO_MID instead of Env::IO_LOW for the L0->L0 && L0->L1 compaction
 
+
 ## 7.2.0 (04/15/2022)
 ### Bug Fixes
 * Fixed bug which caused rocksdb failure in the situation when rocksdb was accessible using UNC path
