@@ -16,11 +16,11 @@ TEST(WideColumnSerializationTest, SerializeDeserialize) {
 
   ASSERT_OK(WideColumnSerialization::Serialize(column_descs, output));
 
-    Slice input(output);
-    WideColumnDescs deserialized_descs;
+  Slice input(output);
+  WideColumnDescs deserialized_descs;
 
-    ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_descs));
-    ASSERT_EQ(column_descs, deserialized_descs);
+  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_descs));
+  ASSERT_EQ(column_descs, deserialized_descs);
 
   {
     const auto it = WideColumnSerialization::Find(deserialized_descs, "foo");
