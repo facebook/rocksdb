@@ -19,8 +19,6 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   awaiter->io_handle_.resize(awaiter->num_reqs_);
   awaiter->del_fn_.resize(awaiter->num_reqs_);
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
-    awaiter->io_handle_.push_back(nullptr);
-    awaiter->del_fn_.push_back(nullptr);
     awaiter->file_
         ->ReadAsync(
             awaiter->read_reqs_[i], awaiter->opts_,

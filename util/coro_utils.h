@@ -35,7 +35,7 @@ namespace ROCKSDB_NAMESPACE {
   folly::coro::Task<__ret_type__> __func_name__##Coroutine(__VA_ARGS__) const;
 
 constexpr bool using_coroutines() { return true; }
-#else  // USE_COROUTINES
+#else  // !USE_COROUTINES
 
 // The follwoing macros expand to a regular function declaration for a given
 // function
@@ -67,7 +67,7 @@ constexpr bool using_coroutines() { return false; }
 // the function name with the Coroutine suffix. For example -
 // DEFINE_SYNC_AND_ASYNC(int, foo)(bool bar) {}
 // would expand to -
-// int fooCoroutine(bool bar) {}
+// folly::coro::Task<int> fooCoroutine(bool bar) {}
 #define DEFINE_SYNC_AND_ASYNC(__ret_type__, __func_name__) \
   folly::coro::Task<__ret_type__> __func_name__##Coroutine
 

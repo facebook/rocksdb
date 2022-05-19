@@ -2133,26 +2133,20 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
 };
 
 TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
-  std::vector<std::string> key_strs;
-  std::vector<Slice> keys;
-  std::vector<PinnableSlice> values;
-  std::vector<Status> statuses;
-
   // All 3 keys in L0. The L0 files should be read serially.
-  key_strs.push_back(Key(0));
-  key_strs.push_back(Key(40));
-  key_strs.push_back(Key(80));
-  keys.push_back(key_strs[0]);
-  keys.push_back(key_strs[1]);
-  keys.push_back(key_strs[2]);
-  values.resize(keys.size());
-  statuses.resize(keys.size());
+  std::vector<std::string> key_strs{Key(0), Key(40), Key(80)};
+  std::vector<Slice> keys{key_strs[0], key_strs[1], key_strs[2]};
+  std::vector<PinnableSlice> values(key_strs.size());
+  std::vector<Status> statuses(key_strs.size());
 
   ReadOptions ro;
   ro.async_io = true;
   dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
                      keys.data(), values.data(), statuses.data());
   ASSERT_EQ(values.size(), 3);
+  ASSERT_OK(statuses[0]);
+  ASSERT_OK(statuses[1]);
+  ASSERT_OK(statuses[2]);
   ASSERT_EQ(values[0], "val_l0_" + std::to_string(0));
   ASSERT_EQ(values[1], "val_l0_" + std::to_string(40));
   ASSERT_EQ(values[2], "val_l0_" + std::to_string(80));
@@ -2208,7 +2202,7 @@ TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
   std::vector<PinnableSlice> values;
   std::vector<Status> statuses;
 
-  // 24 is the last key in the first L1 file
+  // 21 is the last key in the first L1 file
   key_strs.push_back(Key(21));
   key_strs.push_back(Key(54));
   key_strs.push_back(Key(102));
