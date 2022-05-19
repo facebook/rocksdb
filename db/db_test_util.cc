@@ -9,10 +9,16 @@
 
 #include "db/db_test_util.h"
 
+#include "cache/cache_reservation_manager.h"
 #include "db/forward_iterator.h"
+#include "env/mock_env.h"
+#include "port/lang.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/unique_id.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "table/format.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -43,6 +49,7 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   manifest_sync_error_.store(false, std::memory_order_release);
   manifest_write_error_.store(false, std::memory_order_release);
   log_write_error_.store(false, std::memory_order_release);
+  no_file_overwrite_.store(false, std::memory_order_release);
   random_file_open_counter_.store(0, std::memory_order_relaxed);
   delete_count_.store(0, std::memory_order_relaxed);
   num_open_wal_file_.store(0);
@@ -57,26 +64,22 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
-#ifndef ROCKSDB_LITE
-  const char* test_env_uri = getenv("TEST_ENV_URI");
-  if (test_env_uri) {
-    Env* test_env = nullptr;
-    Status s = Env::LoadEnv(test_env_uri, &test_env, &env_guard_);
-    base_env = test_env;
-    EXPECT_OK(s);
-    EXPECT_NE(Env::Default(), base_env);
-  }
-#endif  // !ROCKSDB_LITE
+  ConfigOptions config_options;
+  EXPECT_OK(test::CreateEnvFromSystem(config_options, &base_env, &env_guard_));
   EXPECT_NE(nullptr, base_env);
   if (getenv("MEM_ENV")) {
-    mem_env_ = new MockEnv(base_env);
+    mem_env_ = MockEnv::Create(base_env, base_env->GetSystemClock());
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
-    Status s = EncryptionProvider::CreateFromString(
-        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
-        &provider);
+    std::string provider_id = getenv("ENCRYPTED_ENV");
+    if (provider_id.find("=") == std::string::npos &&
+        !EndsWith(provider_id, "://test")) {
+      provider_id = provider_id + "://test";
+    }
+    EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
+                                                   &provider));
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE
@@ -200,28 +203,28 @@ bool DBTestBase::ChangeCompactOptions() {
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompaction) {
     option_config_ = kUniversalCompactionMultiLevel;
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompactionMultiLevel) {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kLevelSubcompactions) {
     option_config_ = kUniversalSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;
@@ -236,7 +239,7 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kDBLogDir) {
     option_config_ = kWalDirAndMmapReads;
@@ -244,14 +247,14 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kWalDirAndMmapReads) {
     option_config_ = kRecycleLogFiles;
     Destroy(last_options_);
     auto options = CurrentOptions();
     Destroy(options);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;
@@ -340,6 +343,9 @@ Options DBTestBase::GetDefaultOptions() const {
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
   options.env = env_;
+  if (!env_->skip_fsync_) {
+    options.track_and_verify_wals_in_manifest = true;
+  }
   return options;
 }
 
@@ -357,6 +363,17 @@ Options DBTestBase::GetOptions(
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "NewWritableFile:O_DIRECT");
 #endif
+  // kMustFreeHeapAllocations -> indicates ASAN build
+  if (kMustFreeHeapAllocations && !options_override.full_block_cache) {
+    // Detecting block cache use-after-free is normally difficult in unit
+    // tests, because as a cache, it tends to keep unreferenced entries in
+    // memory, and we normally want unit tests to take advantage of block
+    // cache for speed. However, we also want a strong chance of detecting
+    // block cache use-after-free in unit tests in ASAN builds, so for ASAN
+    // builds we use a trivially small block cache to which entries can be
+    // added but are immediately freed on no more references.
+    table_options.block_cache = NewLRUCache(/* too small */ 1);
+  }
 
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config) {
@@ -423,7 +440,6 @@ Options DBTestBase::GetOptions(
       break;
     case kFullFilterWithNewTableReaderForCompactions:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-      options.new_table_reader_for_compaction_inputs = true;
       options.compaction_readahead_size = 10 * 1024 * 1024;
       break;
     case kPartitionedFilterWithNewTableReaderForCompactions:
@@ -431,7 +447,6 @@ Options DBTestBase::GetOptions(
       table_options.partition_filters = true;
       table_options.index_type =
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-      options.new_table_reader_for_compaction_inputs = true;
       options.compaction_readahead_size = 10 * 1024 * 1024;
       break;
     case kUncompressed:
@@ -453,7 +468,6 @@ Options DBTestBase::GetOptions(
       options.max_manifest_file_size = 50;  // 50 bytes
       break;
     case kPerfOptions:
-      options.soft_rate_limit = 2.0;
       options.delayed_write_rate = 8 * 1024 * 1024;
       options.report_bg_io_stats = true;
       // TODO(3.13) -- test more options
@@ -473,16 +487,15 @@ Options DBTestBase::GetOptions(
     case kInfiniteMaxOpenFiles:
       options.max_open_files = -1;
       break;
-    case kxxHashChecksum: {
-      table_options.checksum = kxxHash;
-      break;
-    }
-    case kxxHash64Checksum: {
-      table_options.checksum = kxxHash64;
+    case kXXH3Checksum: {
+      table_options.checksum = kXXH3;
+      // Thrown in here for basic coverage:
+      options.DisableExtraChecks();
       break;
     }
     case kFIFOCompaction: {
       options.compaction_style = kCompactionStyleFIFO;
+      options.max_open_files = -1;
       break;
     }
     case kBlockBasedTableWithPrefixHashIndex: {
@@ -496,6 +509,7 @@ Options DBTestBase::GetOptions(
       break;
     }
     case kBlockBasedTableWithPartitionedIndex: {
+      table_options.format_version = 3;
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       options.prefix_extractor.reset(NewNoopTransform());
       break;
@@ -514,6 +528,11 @@ Options DBTestBase::GetOptions(
     }
     case kBlockBasedTableWithIndexRestartInterval: {
       table_options.index_block_restart_interval = 8;
+      break;
+    }
+    case kBlockBasedTableWithLatestFormat: {
+      // In case different from default
+      table_options.format_version = kLatestFormatVersion;
       break;
     }
     case kOptimizeFiltersForHits: {
@@ -677,7 +696,7 @@ void DBTestBase::Close() {
 void DBTestBase::DestroyAndReopen(const Options& options) {
   // Destroy using last options
   Destroy(last_options_);
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
 }
 
 void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
@@ -790,10 +809,6 @@ Status DBTestBase::DeleteRange(int cf, const std::string& begin,
   return db_->DeleteRange(WriteOptions(), handles_[cf], begin, end);
 }
 
-bool DBTestBase::SetPreserveDeletesSequenceNumber(SequenceNumber sn) {
-  return db_->SetPreserveDeletesSequenceNumber(sn);
-}
-
 std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot) {
   ReadOptions options;
   options.verify_checksums = true;
@@ -841,7 +856,7 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
   std::vector<Status> s;
   if (!batched) {
     s = db_->MultiGet(options, handles, keys, &result);
-    for (unsigned int i = 0; i < s.size(); ++i) {
+    for (size_t i = 0; i < s.size(); ++i) {
       if (s[i].IsNotFound()) {
         result[i] = "NOT_FOUND";
       } else if (!s[i].ok()) {
@@ -854,13 +869,16 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
     s.resize(cfs.size());
     db_->MultiGet(options, cfs.size(), handles.data(), keys.data(),
                   pin_values.data(), s.data());
-    for (unsigned int i = 0; i < s.size(); ++i) {
+    for (size_t i = 0; i < s.size(); ++i) {
       if (s[i].IsNotFound()) {
         result[i] = "NOT_FOUND";
       } else if (!s[i].ok()) {
         result[i] = s[i].ToString();
       } else {
         result[i].assign(pin_values[i].data(), pin_values[i].size());
+        // Increase likelihood of detecting potential use-after-free bugs with
+        // PinnableSlices tracking the same resource
+        pin_values[i].Reset();
       }
     }
   }
@@ -873,23 +891,25 @@ std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
   options.verify_checksums = true;
   options.snapshot = snapshot;
   std::vector<Slice> keys;
-  std::vector<std::string> result;
+  std::vector<std::string> result(k.size());
   std::vector<Status> statuses(k.size());
   std::vector<PinnableSlice> pin_values(k.size());
 
-  for (unsigned int i = 0; i < k.size(); ++i) {
+  for (size_t i = 0; i < k.size(); ++i) {
     keys.push_back(k[i]);
   }
   db_->MultiGet(options, dbfull()->DefaultColumnFamily(), keys.size(),
                 keys.data(), pin_values.data(), statuses.data());
-  result.resize(k.size());
-  for (auto iter = result.begin(); iter != result.end(); ++iter) {
-    iter->assign(pin_values[iter - result.begin()].data(),
-                 pin_values[iter - result.begin()].size());
-  }
-  for (unsigned int i = 0; i < statuses.size(); ++i) {
+  for (size_t i = 0; i < statuses.size(); ++i) {
     if (statuses[i].IsNotFound()) {
       result[i] = "NOT_FOUND";
+    } else if (!statuses[i].ok()) {
+      result[i] = statuses[i].ToString();
+    } else {
+      result[i].assign(pin_values[i].data(), pin_values[i].size());
+      // Increase likelihood of detecting potential use-after-free bugs with
+      // PinnableSlices tracking the same resource
+      pin_values[i].Reset();
     }
   }
   return result;
@@ -1079,10 +1099,10 @@ int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
   if (cf == 0) {
     // default cfd
     EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(level), &property));
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
   } else {
     EXPECT_TRUE(db_->GetProperty(
-        handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
+        handles_[cf], "rocksdb.num-files-at-level" + std::to_string(level),
         &property));
   }
   return atoi(property.c_str());
@@ -1093,12 +1113,12 @@ double DBTestBase::CompressionRatioAtLevel(int level, int cf) {
   if (cf == 0) {
     // default cfd
     EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        "rocksdb.compression-ratio-at-level" + std::to_string(level),
         &property));
   } else {
     EXPECT_TRUE(db_->GetProperty(
         handles_[cf],
-        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        "rocksdb.compression-ratio-at-level" + std::to_string(level),
         &property));
   }
   return std::stod(property);
@@ -1133,29 +1153,78 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   result.resize(last_non_zero_offset);
   return result;
 }
+
 #endif  // !ROCKSDB_LITE
 
-size_t DBTestBase::CountFiles() {
-  std::vector<std::string> files;
-  env_->GetChildren(dbname_, &files);
+std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
 
-  std::vector<std::string> logfiles;
-  if (dbname_ != last_options_.wal_dir) {
-    env_->GetChildren(last_options_.wal_dir, &logfiles);
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+
+  std::vector<uint64_t> result;
+  result.reserve(blob_files.size());
+
+  for (const auto& blob_file : blob_files) {
+    assert(blob_file);
+    result.emplace_back(blob_file->GetBlobFileNumber());
   }
 
-  return files.size() + logfiles.size();
+  return result;
 }
 
-uint64_t DBTestBase::Size(const Slice& start, const Slice& limit, int cf) {
-  Range r(start, limit);
-  uint64_t size;
-  if (cf == 0) {
-    db_->GetApproximateSizes(&r, 1, &size);
-  } else {
-    db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+size_t DBTestBase::CountFiles() {
+  size_t count = 0;
+  std::vector<std::string> files;
+  if (env_->GetChildren(dbname_, &files).ok()) {
+    count += files.size();
   }
-  return size;
+
+  if (dbname_ != last_options_.wal_dir) {
+    if (env_->GetChildren(last_options_.wal_dir, &files).ok()) {
+      count += files.size();
+    }
+  }
+
+  return count;
+};
+
+Status DBTestBase::CountFiles(size_t* count) {
+  std::vector<std::string> files;
+  Status s = env_->GetChildren(dbname_, &files);
+  if (!s.ok()) {
+    return s;
+  }
+  size_t files_count = files.size();
+
+  if (dbname_ != last_options_.wal_dir) {
+    s = env_->GetChildren(last_options_.wal_dir, &files);
+    if (!s.ok()) {
+      return s;
+    }
+    *count = files_count + files.size();
+  }
+
+  return Status::OK();
+}
+
+Status DBTestBase::Size(const Slice& start, const Slice& limit, int cf,
+                        uint64_t* size) {
+  Range r(start, limit);
+  if (cf == 0) {
+    return db_->GetApproximateSizes(&r, 1, size);
+  } else {
+    return db_->GetApproximateSizes(handles_[1], &r, 1, size);
+  }
 }
 
 void DBTestBase::Compact(int cf, const Slice& start, const Slice& limit,
@@ -1274,8 +1343,8 @@ void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
   }
   ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(200)));
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 
@@ -1421,26 +1490,26 @@ void DBTestBase::CopyFile(const std::string& source,
   ASSERT_OK(destfile->Close());
 }
 
-Status DBTestBase::GetAllSSTFiles(
-    std::unordered_map<std::string, uint64_t>* sst_files,
+Status DBTestBase::GetAllDataFiles(
+    const FileType file_type, std::unordered_map<std::string, uint64_t>* files,
     uint64_t* total_size /* = nullptr */) {
   if (total_size) {
     *total_size = 0;
   }
-  std::vector<std::string> files;
-  Status s = env_->GetChildren(dbname_, &files);
+  std::vector<std::string> children;
+  Status s = env_->GetChildren(dbname_, &children);
   if (s.ok()) {
-    for (auto& file_name : files) {
+    for (auto& file_name : children) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+      if (ParseFileName(file_name, &number, &type) && type == file_type) {
         std::string file_path = dbname_ + "/" + file_name;
         uint64_t file_size = 0;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
           break;
         }
-        (*sst_files)[file_path] = file_size;
+        (*files)[file_path] = file_size;
         if (total_size) {
           *total_size += file_size;
         }
@@ -1615,5 +1684,72 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
   return result;
 }
 #endif  // ROCKSDB_LITE
+
+void VerifySstUniqueIds(const TablePropertiesCollection& props) {
+  ASSERT_FALSE(props.empty());  // suspicious test if empty
+  std::unordered_set<std::string> seen;
+  for (auto& pair : props) {
+    std::string id;
+    ASSERT_OK(GetUniqueIdFromTableProperties(*pair.second, &id));
+    ASSERT_TRUE(seen.insert(id).second);
+  }
+}
+
+template <CacheEntryRole R>
+TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
+    std::shared_ptr<Cache> target)
+    : CacheWrapper(std::move(target)),
+      cur_cache_charge_(0),
+      cache_charge_peak_(0),
+      cache_charge_increment_(0),
+      last_peak_tracked_(false),
+      cache_charge_increments_sum_(0) {}
+
+template <CacheEntryRole R>
+Status TargetCacheChargeTrackingCache<R>::Insert(
+    const Slice& key, void* value, size_t charge,
+    void (*deleter)(const Slice& key, void* value), Handle** handle,
+    Priority priority) {
+  Status s = target_->Insert(key, value, charge, deleter, handle, priority);
+  if (deleter == kNoopDeleter) {
+    if (last_peak_tracked_) {
+      cache_charge_peak_ = 0;
+      cache_charge_increment_ = 0;
+      last_peak_tracked_ = false;
+    }
+    if (s.ok()) {
+      cur_cache_charge_ += charge;
+    }
+    cache_charge_peak_ = std::max(cache_charge_peak_, cur_cache_charge_);
+    cache_charge_increment_ += charge;
+  }
+
+  return s;
+}
+
+template <CacheEntryRole R>
+bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
+                                                bool erase_if_last_ref) {
+  auto deleter = GetDeleter(handle);
+  if (deleter == kNoopDeleter) {
+    if (!last_peak_tracked_) {
+      cache_charge_peaks_.push_back(cache_charge_peak_);
+      cache_charge_increments_sum_ += cache_charge_increment_;
+      last_peak_tracked_ = true;
+    }
+    cur_cache_charge_ -= GetCharge(handle);
+  }
+  bool is_successful = target_->Release(handle, erase_if_last_ref);
+  return is_successful;
+}
+
+template <CacheEntryRole R>
+const Cache::DeleterFn TargetCacheChargeTrackingCache<R>::kNoopDeleter =
+    CacheReservationManagerImpl<R>::TEST_GetNoopDeleterForRole();
+
+template class TargetCacheChargeTrackingCache<
+    CacheEntryRole::kFilterConstruction>;
+template class TargetCacheChargeTrackingCache<
+    CacheEntryRole::kBlockBasedTableReader>;
 
 }  // namespace ROCKSDB_NAMESPACE

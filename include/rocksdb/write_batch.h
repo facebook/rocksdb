@@ -25,10 +25,13 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
@@ -60,21 +63,37 @@ struct SavePoint {
 
 class WriteBatch : public WriteBatchBase {
  public:
-  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
-  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
+  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
+      : WriteBatch(reserved_bytes, max_bytes, 0, 0) {}
+
+  // `protection_bytes_per_key` is the number of bytes used to store
+  // protection information for each key entry. Currently supported values are
+  // zero (disabled) and eight.
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes,
+                      size_t protection_bytes_per_key, size_t default_cf_ts_sz);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
   // Store the mapping "key->value" in the database.
+  // The following Put(..., const Slice& key, ...) API can also be used when
+  // user-defined timestamp is enabled as long as `key` points to a contiguous
+  // buffer with timestamp appended after user key. The caller is responsible
+  // for setting up the memory buffer pointed to by `key`.
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value) override;
   Status Put(const Slice& key, const Slice& value) override {
     return Put(nullptr, key, value);
   }
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& ts, const Slice& value) override;
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatenations of arrays of
   // slices.
+  // The following Put(..., const SliceParts& key, ...) API can be used when
+  // user-defined timestamp is enabled as long as the timestamp is the last
+  // Slice in `key`, a SliceParts (array of Slices). The caller is responsible
+  // for setting up the `key` SliceParts object.
   Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
              const SliceParts& value) override;
   Status Put(const SliceParts& key, const SliceParts& value) override {
@@ -83,10 +102,20 @@ class WriteBatch : public WriteBatchBase {
 
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
+  // The following Delete(..., const Slice& key) can be used when user-defined
+  // timestamp is enabled as long as `key` points to a contiguous buffer with
+  // timestamp appended after user key. The caller is responsible for setting
+  // up the memory buffer pointed to by `key`.
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   Status Delete(const Slice& key) override { return Delete(nullptr, key); }
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const Slice& ts) override;
 
   // variant that takes SliceParts
+  // These two variants of Delete(..., const SliceParts& key) can be used when
+  // user-defined timestamp is enabled as long as the timestamp is the last
+  // Slice in `key`, a SliceParts (array of Slices). The caller is responsible
+  // for setting up the `key` SliceParts object.
   Status Delete(ColumnFamilyHandle* column_family,
                 const SliceParts& key) override;
   Status Delete(const SliceParts& key) override { return Delete(nullptr, key); }
@@ -98,6 +127,8 @@ class WriteBatch : public WriteBatchBase {
   Status SingleDelete(const Slice& key) override {
     return SingleDelete(nullptr, key);
   }
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
 
   // variant that takes SliceParts
   Status SingleDelete(ColumnFamilyHandle* column_family,
@@ -112,6 +143,12 @@ class WriteBatch : public WriteBatchBase {
                      const Slice& end_key) override;
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) override {
     return DeleteRange(nullptr, begin_key, end_key);
+  }
+  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
+                     const Slice& /*ts*/) override {
+    return Status::NotSupported(
+        "DeleteRange does not support user-defined timestamp");
   }
 
   // variant that takes SliceParts
@@ -130,6 +167,11 @@ class WriteBatch : public WriteBatchBase {
                const Slice& value) override;
   Status Merge(const Slice& key, const Slice& value) override {
     return Merge(nullptr, key, value);
+  }
+  Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*ts*/, const Slice& /*value*/) override {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp");
   }
 
   // variant that takes SliceParts
@@ -265,6 +307,12 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument("MarkCommit() handler not defined.");
     }
 
+    virtual Status MarkCommitWithTimestamp(const Slice& /*xid*/,
+                                           const Slice& /*commit_ts*/) {
+      return Status::InvalidArgument(
+          "MarkCommitWithTimestamp() handler not defined.");
+    }
+
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.
@@ -272,8 +320,17 @@ class WriteBatch : public WriteBatchBase {
 
    protected:
     friend class WriteBatchInternal;
-    virtual bool WriteAfterCommit() const { return true; }
-    virtual bool WriteBeforePrepare() const { return false; }
+    enum class OptionState {
+      kUnknown,
+      kDisabled,
+      kEnabled,
+    };
+    virtual OptionState WriteAfterCommit() const {
+      return OptionState::kUnknown;
+    }
+    virtual OptionState WriteBeforePrepare() const {
+      return OptionState::kUnknown;
+    }
   };
   Status Iterate(Handler* handler) const;
 
@@ -307,17 +364,32 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkEndPrepare will be called during Iterate
   bool HasEndPrepare() const;
 
-  // Returns trie if MarkCommit will be called during Iterate
+  // Returns true if MarkCommit will be called during Iterate
   bool HasCommit() const;
 
-  // Returns trie if MarkRollback will be called during Iterate
+  // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // Assign timestamp to write batch
-  Status AssignTimestamp(const Slice& ts);
-
-  // Assign timestamps to write batch
-  Status AssignTimestamps(const std::vector<Slice>& ts_list);
+  // Experimental.
+  //
+  // Update timestamps of existing entries in the write batch if
+  // applicable. If a key is intended for a column family that disables
+  // timestamp, then this API won't set the timestamp for this key.
+  // This requires that all keys, if enable timestamp, (possibly from multiple
+  // column families) in the write batch have timestamps of the same format.
+  //
+  // ts_sz_func: callable object to obtain the timestamp sizes of column
+  // families. If ts_sz_func() accesses data structures, then the caller of this
+  // API must guarantee thread-safety. Like other parts of RocksDB, this API is
+  // not exception-safe. Therefore, ts_sz_func() must not throw.
+  //
+  // in: cf, the column family id.
+  // ret: timestamp size of the given column family. Return
+  //      std::numeric_limits<size_t>::max() indicating "don't know or column
+  //      family info not found", this will cause UpdateTimestamps() to fail.
+  // size_t ts_sz_func(uint32_t cf);
+  Status UpdateTimestamps(const Slice& ts,
+                          std::function<size_t(uint32_t /*cf*/)> ts_sz_func);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
@@ -337,6 +409,12 @@ class WriteBatch : public WriteBatchBase {
   const SavePoint& GetWalTerminationPoint() const { return wal_term_point_; }
 
   void SetMaxBytes(size_t max_bytes) override { max_bytes_ = max_bytes; }
+
+  struct ProtectionInfo;
+  size_t GetProtectionBytesPerKey() const;
+
+  // Clears prot_info_ if there are no entries.
+  void ClearProtectionInfoIfEmpty();
 
  private:
   friend class WriteBatchInternal;
@@ -367,11 +445,25 @@ class WriteBatch : public WriteBatchBase {
   // more details.
   bool is_latest_persistent_state_ = false;
 
+  std::unique_ptr<ProtectionInfo> prot_info_;
+
+  size_t default_cf_ts_sz_ = 0;
+
+  // False if all keys are from column families that disable user-defined
+  // timestamp OR UpdateTimestamps() has been called at least once.
+  // This flag will be set to true if any of the above Put(), Delete(),
+  // SingleDelete(), etc. APIs are called at least once.
+  // Calling Put(ts), Delete(ts), SingleDelete(ts), etc. will not set this flag
+  // to true because the assumption is that these APIs have already set the
+  // timestamps to desired values.
+  bool needs_in_place_update_ts_ = false;
+
+  // True if the write batch contains at least one key from a column family
+  // that enables user-defined timestamp.
+  bool has_key_with_ts_ = false;
+
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
-  const size_t timestamp_size_;
-
-  // Intentionally copyable
 };
 
 }  // namespace ROCKSDB_NAMESPACE

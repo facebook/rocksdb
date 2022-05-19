@@ -15,6 +15,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/filter_block_reader_common.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/format.h"
 #include "util/hash.h"
 
@@ -37,16 +39,22 @@ namespace ROCKSDB_NAMESPACE {
 class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
  public:
   BlockBasedFilterBlockBuilder(const SliceTransform* prefix_extractor,
-                               const BlockBasedTableOptions& table_opt);
+                               const BlockBasedTableOptions& table_opt,
+                               int bits_per_key);
   // No copying allowed
   BlockBasedFilterBlockBuilder(const BlockBasedFilterBlockBuilder&) = delete;
   void operator=(const BlockBasedFilterBlockBuilder&) = delete;
 
   virtual bool IsBlockBased() override { return true; }
   virtual void StartBlock(uint64_t block_offset) override;
-  virtual void Add(const Slice& key) override;
-  virtual size_t NumAdded() const override { return num_added_; }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
+  virtual void Add(const Slice& key_without_ts) override;
+  virtual bool IsEmpty() const override {
+    return start_.empty() && filter_offsets_.empty();
+  }
+  virtual size_t EstimateEntriesAdded() override;
+  virtual Slice Finish(
+      const BlockHandle& tmp, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
 
  private:
@@ -57,9 +65,9 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   // important: all of these might point to invalid addresses
   // at the time of destruction of this filter block. destructor
   // should NOT dereference them.
-  const FilterPolicy* policy_;
   const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;
+  int bits_per_key_;
 
   size_t prev_prefix_start_;        // the position of the last appended prefix
                                     // to "entries_".
@@ -70,7 +78,7 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   std::string result_;              // Filter data computed so far
   std::vector<Slice> tmp_entries_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
-  size_t num_added_;  // Number of keys added
+  uint64_t total_added_in_built_;  // Total keys added to filters built so far
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

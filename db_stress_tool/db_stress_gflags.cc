@@ -19,7 +19,10 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   return true;
 }
 
-DEFINE_uint64(seed, 2341234, "Seed for PRNG");
+DEFINE_uint64(seed, 2341234,
+              "Seed for PRNG. When --nooverwritepercent is "
+              "nonzero and --expected_values_dir is nonempty, this value "
+              "must be fixed across invocations.");
 static const bool FLAGS_seed_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
@@ -86,6 +89,11 @@ DEFINE_bool(test_cf_consistency, false,
             "If set, runs the stress test dedicated to verifying writes to "
             "multiple column families are consistent. Setting this implies "
             "`atomic_flush=true` is set true if `disable_wal=false`.\n");
+
+DEFINE_bool(test_multi_ops_txns, false,
+            "If set, runs stress test dedicated to verifying multi-ops "
+            "transactions on a simple relational table with primary and "
+            "secondary index.");
 
 DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
@@ -179,9 +187,15 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
-DEFINE_int64(compressed_cache_size, -1,
+DEFINE_int64(compressed_cache_size, 0,
              "Number of bytes to use as a cache of compressed data."
-             " Negative means use default settings.");
+             " 0 means use default settings.");
+
+DEFINE_int32(
+    compressed_cache_numshardbits, -1,
+    "Number of shards for the compressed block cache is 2 ** "
+    "compressed_cache_numshardbits. Negative value means default settings. "
+    "This is applied only if compressed_cache_size is greater than 0.");
 
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
@@ -216,6 +230,10 @@ DEFINE_int32(
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().index_block_restart_interval,
     "Number of keys between restart points "
     "for delta encoding of keys in index block.");
+
+DEFINE_bool(disable_auto_compactions,
+            ROCKSDB_NAMESPACE::Options().disable_auto_compactions,
+            "If true, RocksDB internally will not trigger compactions.");
 
 DEFINE_int32(max_background_compactions,
              ROCKSDB_NAMESPACE::Options().max_background_compactions,
@@ -284,8 +302,28 @@ DEFINE_int32(set_in_place_one_in, 0,
 DEFINE_int64(cache_size, 2LL * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
+DEFINE_int32(cache_numshardbits, 6,
+             "Number of shards for the block cache"
+             " is 2 ** cache_numshardbits. Negative means use default settings."
+             " This is applied only if FLAGS_cache_size is non-negative.");
+
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
+
+DEFINE_bool(charge_compression_dictionary_building_buffer, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kCompressionDictionaryBuildingBuffer");
+
+DEFINE_bool(charge_filter_construction, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kFilterConstruction");
+
+DEFINE_bool(charge_table_reader, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kBlockBasedTableReader");
 
 DEFINE_int32(
     top_level_index_pinning,
@@ -321,36 +359,86 @@ DEFINE_uint64(compaction_ttl, 1000,
 DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
+DEFINE_double(experimental_mempurge_threshold, 0.0,
+              "Maximum estimated useful payload that triggers a "
+              "mempurge process to collect memtable garbage bytes.");
+
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
 #ifndef ROCKSDB_LITE
-// BlobDB Options
-DEFINE_bool(use_blob_db, false, "Use BlobDB.");
+// Options for StackableDB-based BlobDB
+DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Use BlobDB.");
 
-DEFINE_uint64(blob_db_min_blob_size,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
-              "Smallest blob to store in a file. Blobs smaller than this "
-              "will be inlined with the key in the LSM tree.");
+DEFINE_uint64(
+    blob_db_min_blob_size,
+    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
+    "[Stacked BlobDB] Smallest blob to store in a file. Blobs "
+    "smaller than this will be inlined with the key in the LSM tree.");
 
-DEFINE_uint64(blob_db_bytes_per_sync,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
-              "Sync blob files once per every N bytes written.");
+DEFINE_uint64(
+    blob_db_bytes_per_sync,
+    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
+    "[Stacked BlobDB] Sync blob files once per every N bytes written.");
 
 DEFINE_uint64(blob_db_file_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().blob_file_size,
-              "Target size of each blob file.");
+              "[Stacked BlobDB] Target size of each blob file.");
 
 DEFINE_bool(
     blob_db_enable_gc,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().enable_garbage_collection,
-    "Enable BlobDB garbage collection.");
+    "[Stacked BlobDB] Enable BlobDB garbage collection.");
 
 DEFINE_double(
     blob_db_gc_cutoff,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
-    "Cutoff ratio for BlobDB garbage collection.");
+    "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
 #endif  // !ROCKSDB_LITE
+
+// Options for integrated BlobDB
+DEFINE_bool(allow_setting_blob_options_dynamically, false,
+            "[Integrated BlobDB] Allow setting blob options dynamically.");
+
+DEFINE_bool(
+    enable_blob_files,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,
+    "[Integrated BlobDB] Enable writing large values to separate blob files.");
+
+DEFINE_uint64(min_blob_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
+              "[Integrated BlobDB] The size of the smallest value to be stored "
+              "separately in a blob file.");
+
+DEFINE_uint64(blob_file_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_size,
+              "[Integrated BlobDB] The size limit for blob files.");
+
+DEFINE_string(blob_compression_type, "none",
+              "[Integrated BlobDB] The compression algorithm to use for large "
+              "values stored in blob files.");
+
+DEFINE_bool(enable_blob_garbage_collection,
+            ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                .enable_blob_garbage_collection,
+            "[Integrated BlobDB] Enable blob garbage collection.");
+
+DEFINE_double(blob_garbage_collection_age_cutoff,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_age_cutoff,
+              "[Integrated BlobDB] The cutoff in terms of blob file age for "
+              "garbage collection.");
+
+DEFINE_double(blob_garbage_collection_force_threshold,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_force_threshold,
+              "[Integrated BlobDB] The threshold for the ratio of garbage in "
+              "the oldest blob files for forcing garbage collection.");
+
+DEFINE_uint64(blob_compaction_readahead_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_compaction_readahead_size,
+              "[Integrated BlobDB] Compaction readahead for blob files.");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -375,6 +463,12 @@ DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
 
+DEFINE_int32(
+    ribbon_starting_level, 999,
+    "Use Bloom filter on levels below specified and Ribbon beginning on level "
+    "specified. Flush is considered level -1. 999 or more -> always Bloom. 0 "
+    "-> Ribbon except Bloom for flush. -1 -> always Ribbon.");
+
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
             "for block-based table");
@@ -383,6 +477,12 @@ DEFINE_bool(
     optimize_filters_for_memory,
     ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
     "Minimize memory footprint of filters");
+
+DEFINE_bool(
+    detect_filter_construct_corruption,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .detect_filter_construct_corruption,
+    "Detect corruption during new Bloom Filter and Ribbon Filter construction");
 
 DEFINE_int32(
     index_type,
@@ -398,12 +498,14 @@ DEFINE_string(secondaries_base, "",
 DEFINE_bool(test_secondary, false, "Test secondary instance.");
 
 DEFINE_string(
-    expected_values_path, "",
-    "File where the array of expected uint32_t values will be stored. If "
-    "provided and non-empty, the DB state will be verified against these "
-    "values after recovery. --max_key and --column_family must be kept the "
-    "same across invocations of this program that use the same "
-    "--expected_values_path.");
+    expected_values_dir, "",
+    "Dir where files containing info about the latest/historical values will "
+    "be stored. If provided and non-empty, the DB state will be verified "
+    "against values from these files after recovery. --max_key and "
+    "--column_family must be kept the same across invocations of this program "
+    "that use the same --expected_values_dir. Currently historical values are "
+    "only tracked when --sync_fault_injection is set. See --seed and "
+    "--nooverwritepercent for further requirements.");
 
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
@@ -430,12 +532,20 @@ DEFINE_bool(sync, false, "Sync all writes to disk");
 
 DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
+DEFINE_uint64(bytes_per_sync, ROCKSDB_NAMESPACE::Options().bytes_per_sync,
+              "If nonzero, sync SST file data incrementally after every "
+              "`bytes_per_sync` bytes are written");
+
+DEFINE_uint64(wal_bytes_per_sync,
+              ROCKSDB_NAMESPACE::Options().wal_bytes_per_sync,
+              "If nonzero, sync WAL file data incrementally after every "
+              "`bytes_per_sync` bytes are written");
+
 DEFINE_int32(kill_random_test, 0,
              "If non-zero, kill at various points in source code with "
              "probability 1/this");
 static const bool FLAGS_kill_random_test_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
-extern int rocksdb_kill_odds;
 
 DEFINE_string(kill_exclude_prefixes, "",
               "If non-empty, kill points with prefix in the list given will be"
@@ -469,6 +579,16 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
+
+DEFINE_bool(rate_limit_user_ops, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for reads associated with user operations.");
+
+DEFINE_bool(rate_limit_auto_wal_flush, false,
+            "When true use Env::IO_USER priority level to charge internal rate "
+            "limiter for automatic WAL flush (`Options::manual_wal_flush` == "
+            "false) after the user "
+            "write operation.");
 
 DEFINE_uint64(sst_file_manager_bytes_per_sec, 0,
               "Set `Options::sst_file_manager` to delete at this rate. By "
@@ -595,7 +715,8 @@ static const bool FLAGS_delrangepercent_dummy __attribute__((__unused__)) =
 
 DEFINE_int32(nooverwritepercent, 60,
              "Ratio of keys without overwrite to total workload (expressed as "
-             " a percentage)");
+             "a percentage). When --expected_values_dir is nonempty, must "
+             "keep this value constant across invocations.");
 static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_nooverwritepercent, &ValidateInt32Percent);
 
@@ -608,6 +729,10 @@ static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
+
+DEFINE_int32(
+    customopspercent, 0,
+    "Ratio of custom operations to total workload (expressed as a percentage)");
 
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
@@ -623,23 +748,22 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
 DEFINE_int32(compression_parallel_threads, 1,
              "Number of threads for parallel compression.");
 
+DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
+              "Buffering limit for SST file data to sample for dictionary "
+              "compression.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
 
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
-DEFINE_string(hdfs, "",
-              "Name of hdfs environment. Mutually exclusive with"
-              " --env_uri and --fs_uri.");
-
-DEFINE_string(
-    env_uri, "",
-    "URI for env lookup. Mutually exclusive with --hdfs and --fs_uri");
+DEFINE_string(env_uri, "",
+              "URI for env lookup. Mutually exclusive with --fs_uri");
 
 DEFINE_string(fs_uri, "",
               "URI for registry Filesystem lookup. Mutually exclusive"
-              " with --hdfs and --env_uri."
+              " with --env_uri."
               " Creates a default environment with the specified filesystem.");
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
@@ -736,7 +860,10 @@ DEFINE_int32(get_property_one_in, 1000,
 
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
-            " and unsynced data in DB will lost after crash.");
+            "and unsynced data in DB will lost after crash. In such a case we "
+            "track DB changes in a trace file (\"*.trace\") in "
+            "--expected_values_dir for verifying there are no holes in the "
+            "recovered data.");
 
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");
@@ -750,8 +877,79 @@ DEFINE_bool(paranoid_file_checks, true,
             "After writing every SST file, reopen it and read all the keys "
             "and validate checksums");
 
+DEFINE_bool(fail_if_options_file_error, false,
+            "Fail operations that fail to detect or properly persist options "
+            "file.");
+
+DEFINE_uint64(batch_protection_bytes_per_key, 0,
+              "If nonzero, enables integrity protection in `WriteBatch` at the "
+              "specified number of bytes per key. Currently the only supported "
+              "nonzero value is eight.");
+
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");
+
+DEFINE_int32(write_fault_one_in, 0,
+             "On non-zero, enables fault injection on write");
+
+DEFINE_uint64(user_timestamp_size, 0,
+              "Number of bytes for a user-defined timestamp. Currently, only "
+              "8-byte is supported");
+
+DEFINE_int32(open_metadata_write_fault_one_in, 0,
+             "On non-zero, enables fault injection on file metadata write "
+             "during DB reopen.");
+
+#ifndef ROCKSDB_LITE
+DEFINE_string(secondary_cache_uri, "",
+              "Full URI for creating a customized secondary cache object");
+DEFINE_int32(secondary_cache_fault_one_in, 0,
+             "On non-zero, enables fault injection in secondary cache inserts"
+             " and lookups");
+#endif  // ROCKSDB_LITE
+DEFINE_int32(open_write_fault_one_in, 0,
+             "On non-zero, enables fault injection on file writes "
+             "during DB reopen.");
+DEFINE_int32(open_read_fault_one_in, 0,
+             "On non-zero, enables fault injection on file reads "
+             "during DB reopen.");
+DEFINE_int32(injest_error_severity, 1,
+             "The severity of the injested IO Error. 1 is soft error (e.g. "
+             "retryable error), 2 is fatal error, and the default is "
+             "retryable error.");
+DEFINE_int32(prepopulate_block_cache,
+             static_cast<int32_t>(ROCKSDB_NAMESPACE::BlockBasedTableOptions::
+                                      PrepopulateBlockCache::kDisable),
+             "Options related to cache warming (see `enum "
+             "PrepopulateBlockCache` in table.h)");
+
+DEFINE_bool(two_write_queues, false,
+            "Set to true to enable two write queues. Default: false");
+#ifndef ROCKSDB_LITE
+
+DEFINE_bool(use_only_the_last_commit_time_batch_for_recovery, false,
+            "If true, the commit-time write batch will not be immediately "
+            "inserted into the memtables. Default: false");
+
+DEFINE_uint64(
+    wp_snapshot_cache_bits, 7ull,
+    "Number of bits to represent write-prepared transaction db's snapshot "
+    "cache. Default: 7 (128 entries)");
+
+DEFINE_uint64(wp_commit_cache_bits, 23ull,
+              "Number of bits to represent write-prepared transaction db's "
+              "commit cache. Default: 23 (8M entries)");
+#endif  // !ROCKSDB_LITE
+
+DEFINE_bool(adaptive_readahead, false,
+            "Carry forward internal auto readahead size from one file to next "
+            "file at each level during iteration");
+DEFINE_bool(
+    async_io, false,
+    "Does asynchronous prefetching when internal auto readahead is enabled");
+
+DEFINE_string(wal_compression, "none",
+              "Algorithm to use for WAL compression. none to disable.");
 
 #endif  // GFLAGS

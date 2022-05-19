@@ -9,19 +9,14 @@
 
 #pragma once
 #include <stdio.h>
+
 #include <memory>
 #include <string>
 #include <utility>
-#include "db/lookup_key.h"
-#include "db/merge_context.h"
-#include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
+
 #include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
@@ -70,7 +65,8 @@ enum ValueType : unsigned char {
   // another.
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
-  kMaxValue = 0x7F  // Not used for storing records.
+  kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
+  kMaxValue = 0x7F                    // Not used for storing records.
 };
 
 // Defined in dbformat.cc
@@ -94,9 +90,13 @@ inline bool IsExtendedValueType(ValueType t) {
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
-static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
+static const SequenceNumber kDisableGlobalSequenceNumber =
+    std::numeric_limits<uint64_t>::max();
 
 constexpr uint64_t kNumInternalBytes = 8;
+
+// Defined in dbformat.cc
+extern const std::string kDisableUserTimestamp;
 
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
@@ -122,7 +122,7 @@ struct ParsedInternalKey {
 
   void SetTimestamp(const Slice& ts) {
     assert(ts.size() <= user_key.size());
-    const char* addr = user_key.data() - ts.size();
+    const char* addr = user_key.data() + user_key.size() - ts.size();
     memcpy(const_cast<char*>(addr), ts.data(), ts.size());
   }
 };
@@ -146,8 +146,10 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
   *seq = packed >> 8;
   *t = static_cast<ValueType>(packed & 0xff);
 
-  assert(*seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(*t));
+  // Commented the following two assertions in order to test key-value checksum
+  // on corrupted keys without crashing ("DbKvChecksumTest").
+  // assert(*seq <= kMaxSequenceNumber);
+  // assert(IsExtendedValueType(*t));
 }
 
 EntryType GetEntryType(ValueType value_type);
@@ -167,6 +169,14 @@ extern void AppendInternalKeyWithDifferentTimestamp(
 extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
                                     ValueType t);
 
+// Append the key and a minimal timestamp to *result
+extern void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                      size_t ts_sz);
+
+// Append the key and a maximal timestamp to *result
+extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                      size_t ts_sz);
+
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //
@@ -182,19 +192,27 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
 
 inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
                                              size_t ts_sz) {
-  assert(internal_key.size() >= kNumInternalBytes + ts_sz);
-  return Slice(internal_key.data(),
-               internal_key.size() - kNumInternalBytes - ts_sz);
+  Slice ret = internal_key;
+  ret.remove_suffix(kNumInternalBytes + ts_sz);
+  return ret;
 }
 
 inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
-  assert(user_key.size() >= ts_sz);
-  return Slice(user_key.data(), user_key.size() - ts_sz);
+  Slice ret = user_key;
+  ret.remove_suffix(ts_sz);
+  return ret;
 }
 
 inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
   assert(user_key.size() >= ts_sz);
   return Slice(user_key.data() + user_key.size() - ts_sz, ts_sz);
+}
+
+inline Slice ExtractTimestampFromKey(const Slice& internal_key, size_t ts_sz) {
+  const size_t key_size = internal_key.size();
+  assert(key_size >= kNumInternalBytes + ts_sz);
+  return Slice(internal_key.data() + key_size - ts_sz - kNumInternalBytes,
+               ts_sz);
 }
 
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
@@ -502,6 +520,7 @@ class IterKey {
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
+  // user_key does not have timestamp.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
@@ -605,7 +624,7 @@ class IterKey {
   void EnlargeBuffer(size_t key_size);
 };
 
-// Convert from a SliceTranform of user keys, to a SliceTransform of
+// Convert from a SliceTransform of user keys, to a SliceTransform of
 // user keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:
@@ -645,7 +664,7 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 
 // Read record from a write batch piece from input.
 // tag, column_family, key, value and blob are return values. Callers own the
-// Slice they point to.
+// slice they point to.
 // Tag is defined as ValueType.
 // input will be advanced to after the record.
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,

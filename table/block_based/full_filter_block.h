@@ -7,15 +7,16 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_based/filter_block_reader_common.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/parsed_full_filter_block.h"
 #include "util/hash.h"
 
@@ -50,10 +51,21 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
 
   virtual bool IsBlockBased() override { return false; }
   virtual void StartBlock(uint64_t /*block_offset*/) override {}
-  virtual void Add(const Slice& key) override;
-  virtual size_t NumAdded() const override { return num_added_; }
-  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
+  virtual void Add(const Slice& key_without_ts) override;
+  virtual bool IsEmpty() const override { return !any_added_; }
+  virtual size_t EstimateEntriesAdded() override;
+  virtual Slice Finish(
+      const BlockHandle& tmp, Status* status,
+      std::unique_ptr<const char[]>* filter_data = nullptr) override;
   using FilterBlockBuilder::Finish;
+
+  virtual void ResetFilterBitsBuilder() override {
+    filter_bits_builder_.reset();
+  }
+
+  virtual Status MaybePostVerifyFilter(const Slice& filter_content) override {
+    return filter_bits_builder_->MaybePostVerify(filter_content);
+  }
 
  protected:
   virtual void AddKey(const Slice& key);
@@ -61,6 +73,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   virtual void Reset();
   void AddPrefix(const Slice& key);
   const SliceTransform* prefix_extractor() { return prefix_extractor_; }
+  const std::string& last_prefix_str() const { return last_prefix_str_; }
 
  private:
   // important: all of these might point to invalid addresses
@@ -72,10 +85,13 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
   std::string last_whole_key_str_;
   bool last_prefix_recorded_;
   std::string last_prefix_str_;
-
-  uint32_t num_added_;
+  // Whether prefix_extractor_->InDomain(last_whole_key_) is true.
+  // Used in partitioned filters so that the last prefix from the previous
+  // filter partition will be added to the current partition if
+  // last_key_in_domain_ is true, regardless of the current key.
+  bool last_key_in_domain_;
+  bool any_added_;
   std::unique_ptr<const char[]> filter_data_;
-
 };
 
 // A FilterBlockReader is used to parse filter from SST table.

@@ -7,17 +7,20 @@
 
 #include <memory>
 #include <string>
+
 #include "db/dbformat.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
+#include "rocksdb/advanced_options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class SstFileDumper {
  public:
   explicit SstFileDumper(const Options& options, const std::string& file_name,
-                         size_t readahead_size, bool verify_checksum,
-                         bool output_hex, bool decode_blob_index,
+                         Temperature file_temp, size_t readahead_size,
+                         bool verify_checksum, bool output_hex,
+                         bool decode_blob_index,
                          const EnvOptions& soptions = EnvOptions(),
                          bool silent = false);
 
@@ -40,7 +43,8 @@ class SstFileDumper {
       const std::vector<std::pair<CompressionType, const char*>>&
           compression_types,
       int32_t compress_level_from, int32_t compress_level_to,
-      uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes);
+      uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
+      uint64_t max_dict_buffer_bytes);
 
   Status ShowCompressionSize(size_t block_size, CompressionType compress_type,
                              const CompressionOptions& compress_opt);
@@ -62,7 +66,7 @@ class SstFileDumper {
 
   // Helper function to call the factory with settings specific to the
   // factory implementation
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
+  Status NewTableReader(const ImmutableOptions& ioptions,
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
                         uint64_t file_size,
@@ -70,6 +74,7 @@ class SstFileDumper {
 
   std::string file_name_;
   uint64_t read_num_;
+  Temperature file_temp_;
   bool output_hex_;
   bool decode_blob_index_;
   EnvOptions soptions_;
@@ -84,7 +89,7 @@ class SstFileDumper {
   std::unique_ptr<TableReader> table_reader_;
   std::unique_ptr<RandomAccessFileReader> file_;
 
-  const ImmutableCFOptions ioptions_;
+  const ImmutableOptions ioptions_;
   const MutableCFOptions moptions_;
   ReadOptions read_options_;
   InternalKeyComparator internal_comparator_;

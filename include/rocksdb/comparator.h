@@ -10,6 +10,7 @@
 
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -20,7 +21,11 @@ class Slice;
 // used as keys in an sstable or a database.  A Comparator implementation
 // must be thread-safe since rocksdb may invoke its methods concurrently
 // from multiple threads.
-class Comparator {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class Comparator : public Customizable {
  public:
   Comparator() : timestamp_size_(0) {}
 
@@ -35,9 +40,13 @@ class Comparator {
     return *this;
   }
 
-  virtual ~Comparator() {}
+  ~Comparator() override {}
 
+  static Status CreateFromString(const ConfigOptions& opts,
+                                 const std::string& id,
+                                 const Comparator** comp);
   static const char* Type() { return "Comparator"; }
+
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
   //   == 0 iff "a" == "b",
@@ -66,7 +75,7 @@ class Comparator {
   //
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Advanced functions: these are used to reduce the space requirements
   // for internal data structures like index blocks.
@@ -110,7 +119,9 @@ class Comparator {
   // == 0 iff t1 == t2
   // > 0  iff t1 > t2
   // Note that an all-zero byte array will be the smallest (oldest) timestamp
-  // of the same length.
+  // of the same length, and a byte array with all bits 1 will be the largest.
+  // In the future, we can extend Comparator so that subclasses can specify
+  // both largest and smallest timestamps.
   virtual int CompareTimestamp(const Slice& /*ts1*/,
                                const Slice& /*ts2*/) const {
     return 0;
@@ -119,6 +130,11 @@ class Comparator {
   virtual int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/,
                                       const Slice& b, bool /*b_has_ts*/) const {
     return Compare(a, b);
+  }
+
+  virtual bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return 0 ==
+           CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
   }
 
  private:

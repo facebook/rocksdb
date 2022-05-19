@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -14,8 +15,11 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
+#include "rocksdb/types.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
+#include "table/table_properties_internal.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -45,6 +49,8 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   ASSERT_EQ(props.size(), unique_entries.size());
   ASSERT_EQ(expected_entries_size, sum);
+
+  VerifySstUniqueIds(props);
 }
 }  // namespace
 
@@ -52,7 +58,7 @@ class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {
  public:
   DBTablePropertiesTest()
-      : DBTestBase("/db_table_properties_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_table_properties_test", /*env_do_fsync=*/false) {}
   TablePropertiesCollection TestGetPropertiesOfTablesInRange(
       std::vector<Range> ranges, std::size_t* num_properties = nullptr,
       std::size_t* num_files = nullptr);
@@ -61,37 +67,167 @@ class DBTablePropertiesTest : public DBTestBase,
 TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 8;
+  // Part of strategy to prevent pinning table files
+  options.max_open_files = 42;
   Reopen(options);
+
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
-    for (int i = 0; i < 10 + table; ++i) {
-      db_->Put(WriteOptions(), ToString(table * 100 + i), "val");
+    // Use old meta name for table properties for one file
+    if (table == 3) {
+      SyncPoint::GetInstance()->SetCallBack(
+          "BlockBasedTableBuilder::WritePropertiesBlock:Meta", [&](void* meta) {
+            *reinterpret_cast<const std::string**>(meta) =
+                &kPropertiesBlockOldName;
+          });
+      SyncPoint::GetInstance()->EnableProcessing();
     }
-    db_->Flush(FlushOptions());
+    // Build file
+    for (int i = 0; i < 10 + table; ++i) {
+      ASSERT_OK(
+          db_->Put(WriteOptions(), std::to_string(table * 100 + i), "val"));
+    }
+    ASSERT_OK(db_->Flush(FlushOptions()));
   }
+  SyncPoint::GetInstance()->DisableProcessing();
+  std::string original_session_id;
+  ASSERT_OK(db_->GetDbSessionId(original_session_id));
+
+  // Part of strategy to prevent pinning table files
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEditHandler::LoadTables:skip_load_table_files",
+      [&](void* skip_load) { *reinterpret_cast<bool*>(skip_load) = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   // 1. Read table properties directly from file
   Reopen(options);
+  // Clear out auto-opened files
+  dbfull()->TEST_table_cache()->EraseUnRefEntries();
+  ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 
   // 2. Put two tables to table cache and
   Reopen(options);
+  // Clear out auto-opened files
+  dbfull()->TEST_table_cache()->EraseUnRefEntries();
+  ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 2; ++i) {
-    Get(ToString(i * 100 + 0));
+    Get(std::to_string(i * 100 + 0));
   }
 
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 
   // 3. Put all tables to table cache
   Reopen(options);
-  // fetch key from 1st and 2nd table, which will internally place that table to
-  // the table cache.
+  // fetch key from all tables, which will place them in table cache.
   for (int i = 0; i < 4; ++i) {
-    Get(ToString(i * 100 + 0));
+    Get(std::to_string(i * 100 + 0));
   }
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+
+  // 4. Try to read CORRUPT properties (a) directly from file, and (b)
+  // through reader on Get
+
+  // It's not practical to prevent table file read on Open, so we
+  // corrupt after open and after purging table cache.
+  for (bool direct : {true, false}) {
+    Reopen(options);
+    // Clear out auto-opened files
+    dbfull()->TEST_table_cache()->EraseUnRefEntries();
+    ASSERT_EQ(dbfull()->TEST_table_cache()->GetUsage(), 0U);
+
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    std::string sst_file = props.begin()->first;
+
+    // Corrupt the file's TableProperties using session id
+    std::string contents;
+    ASSERT_OK(
+        ReadFileToString(env_->GetFileSystem().get(), sst_file, &contents));
+    size_t pos = contents.find(original_session_id);
+    ASSERT_NE(pos, std::string::npos);
+    ASSERT_OK(test::CorruptFile(env_, sst_file, static_cast<int>(pos), 1,
+                                /*verify checksum fails*/ false));
+
+    // Try to read CORRUPT properties
+    if (direct) {
+      ASSERT_TRUE(db_->GetPropertiesOfAllTables(&props).IsCorruption());
+    } else {
+      bool found_corruption = false;
+      for (int i = 0; i < 4; ++i) {
+        std::string result = Get(std::to_string(i * 100 + 0));
+        if (result.find_first_of("Corruption: block checksum mismatch") !=
+            std::string::npos) {
+          found_corruption = true;
+        }
+      }
+      ASSERT_TRUE(found_corruption);
+    }
+
+    // UN-corrupt file for next iteration
+    ASSERT_OK(test::CorruptFile(env_, sst_file, static_cast<int>(pos), 1,
+                                /*verify checksum fails*/ false));
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTablePropertiesTest, InvalidIgnored) {
+  // RocksDB versions 2.5 - 2.7 generate some properties that Block considers
+  // invalid in some way. This approximates that.
+
+  // Inject properties block data that Block considers invalid
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTableBuilder::WritePropertiesBlock:BlockData",
+      [&](void* block_data) {
+        *reinterpret_cast<Slice*>(block_data) = Slice("X");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // Build file
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i), "val"));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Not crashing is good enough
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+}
+
+TEST_F(DBTablePropertiesTest, CreateOnDeletionCollectorFactory) {
+  ConfigOptions options;
+  options.ignore_unsupported_options = false;
+
+  std::shared_ptr<TablePropertiesCollectorFactory> factory;
+  std::string id = CompactOnDeletionCollectorFactory::kClassName();
+  ASSERT_OK(
+      TablePropertiesCollectorFactory::CreateFromString(options, id, &factory));
+  auto del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(0U, del_factory->GetWindowSize());
+  ASSERT_EQ(0U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.0, del_factory->GetDeletionRatio());
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      options, "window_size=100; deletion_trigger=90; id=" + id, &factory));
+  del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(100U, del_factory->GetWindowSize());
+  ASSERT_EQ(90U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.0, del_factory->GetDeletionRatio());
+  ASSERT_OK(TablePropertiesCollectorFactory::CreateFromString(
+      options,
+      "window_size=100; deletion_trigger=90; deletion_ratio=0.5; id=" + id,
+      &factory));
+  del_factory = factory->CheckedCast<CompactOnDeletionCollectorFactory>();
+  ASSERT_NE(del_factory, nullptr);
+  ASSERT_EQ(100U, del_factory->GetWindowSize());
+  ASSERT_EQ(90U, del_factory->GetDeletionTrigger());
+  ASSERT_EQ(0.5, del_factory->GetDeletionRatio());
 }
 
 TablePropertiesCollection
@@ -161,14 +297,14 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   for (int i = 0; i < 10000; i++) {
     ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
   }
-  Flush();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   if (NumTableFilesAtLevel(0) == 0) {
     ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
-    Flush();
+    ASSERT_OK(Flush());
   }
 
-  db_->PauseBackgroundWork();
+  ASSERT_OK(db_->PauseBackgroundWork());
 
   // Ensure that we have at least L0, L1 and L2
   ASSERT_GT(NumTableFilesAtLevel(0), 0);
@@ -236,8 +372,8 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
   // Create one table per CF, then verify it was created with the column family
   // name property.
   for (uint32_t cf = 0; cf < 2; ++cf) {
-    Put(cf, "key", "val");
-    Flush(cf);
+    ASSERT_OK(Put(cf, "key", "val"));
+    ASSERT_OK(Flush(cf));
 
     TablePropertiesCollection fname_to_props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
@@ -260,17 +396,17 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
   CreateAndReopenWithCF({"goku"}, CurrentOptions());
 
   for (uint32_t cf = 0; cf < 2; ++cf) {
-    Put(cf, "key", "val");
-    Put(cf, "foo", "bar");
-    Flush(cf);
+    ASSERT_OK(Put(cf, "key", "val"));
+    ASSERT_OK(Put(cf, "foo", "bar"));
+    ASSERT_OK(Flush(cf));
 
     TablePropertiesCollection fname_to_props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
     ASSERT_EQ(1U, fname_to_props.size());
 
     std::string id, sid;
-    db_->GetDbIdentity(id);
-    db_->GetDbSessionId(sid);
+    ASSERT_OK(db_->GetDbIdentity(id));
+    ASSERT_OK(db_->GetDbSessionId(sid));
     ASSERT_EQ(id, fname_to_props.begin()->second->db_id);
     ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
   }
@@ -281,7 +417,7 @@ class DBTableHostnamePropertyTest
       public ::testing::WithParamInterface<std::tuple<int, std::string>> {
  public:
   DBTableHostnamePropertyTest()
-      : DBTestBase("/db_table_hostname_property_test",
+      : DBTestBase("db_table_hostname_property_test",
                    /*env_do_fsync=*/false) {}
 };
 
@@ -298,9 +434,9 @@ TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
   CreateAndReopenWithCF({"goku"}, opts);
 
   for (uint32_t cf = 0; cf < 2; ++cf) {
-    Put(cf, "key", "val");
-    Put(cf, "foo", "bar");
-    Flush(cf);
+    ASSERT_OK(Put(cf, "key", "val"));
+    ASSERT_OK(Put(cf, "foo", "bar"));
+    ASSERT_OK(Flush(cf));
 
     TablePropertiesCollection fname_to_props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
@@ -356,8 +492,8 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
   // during flush
-  Put(Key(0), "val");
-  Flush();
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
   MoveFilesToLevel(1);
 
   DeletionTriggeredCompactionTestListener *listener =
@@ -368,14 +504,14 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      Delete(Key(i));
+      ASSERT_OK(Delete(Key(i)));
     } else {
-      Put(Key(i), "val");
+      ASSERT_OK(Put(Key(i), "val"));
     }
   }
-  Flush();
+  ASSERT_OK(Flush());
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
   // Change the window size and deletion trigger and ensure new values take
@@ -389,14 +525,14 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      Delete(Key(i));
+      ASSERT_OK(Delete(Key(i)));
     } else {
-      Put(Key(i), "val");
+      ASSERT_OK(Put(Key(i), "val"));
     }
   }
-  Flush();
+  ASSERT_OK(Flush());
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
   // Change the window size to disable delete triggered compaction
@@ -408,14 +544,14 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      Delete(Key(i));
+      ASSERT_OK(Delete(Key(i)));
     } else {
-      Put(Key(i), "val");
+      ASSERT_OK(Put(Key(i), "val"));
     }
   }
-  Flush();
+  ASSERT_OK(Flush());
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
   ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_WRITE_BYTES_MARKED));
   ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_MARKED));
@@ -438,8 +574,8 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
 
   // Add an L2 file to prevent tombstones from dropping due to obsolescence
   // during flush
-  Put(Key(0), "val");
-  Flush();
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
   MoveFilesToLevel(2);
 
   auto* listener = new DeletionTriggeredCompactionTestListener();

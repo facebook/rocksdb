@@ -7,28 +7,35 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/db.h"
-
 #include <memory>
+
 #include "db/column_family.h"
+#include "db/db_test_util.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-static std::string PrintContents(WriteBatch* b) {
+static std::string PrintContents(WriteBatch* b,
+                                 bool merge_operator_supported = true) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   Options options;
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  if (merge_operator_supported) {
+    options.merge_operator.reset(new TestPutOperator());
+  }
+  ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                                kMaxSequenceNumber, 0 /* column_family_id */);
@@ -59,6 +66,7 @@ static std::string PrintContents(WriteBatch* b) {
     if (iter == nullptr) {
       continue;
     }
+    EXPECT_OK(iter->status());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
       ikey.clear();
@@ -110,18 +118,21 @@ static std::string PrintContents(WriteBatch* b) {
           break;
       }
       state.append("@");
-      state.append(NumberToString(ikey.sequence));
+      state.append(std::to_string(ikey.sequence));
     }
+    EXPECT_OK(iter->status());
   }
-  EXPECT_EQ(b->HasPut(), put_count > 0);
-  EXPECT_EQ(b->HasDelete(), delete_count > 0);
-  EXPECT_EQ(b->HasSingleDelete(), single_delete_count > 0);
-  EXPECT_EQ(b->HasDeleteRange(), delete_range_count > 0);
-  EXPECT_EQ(b->HasMerge(), merge_count > 0);
-  if (!s.ok()) {
+  if (s.ok()) {
+    EXPECT_EQ(b->HasPut(), put_count > 0);
+    EXPECT_EQ(b->HasDelete(), delete_count > 0);
+    EXPECT_EQ(b->HasSingleDelete(), single_delete_count > 0);
+    EXPECT_EQ(b->HasDeleteRange(), delete_range_count > 0);
+    EXPECT_EQ(b->HasMerge(), merge_count > 0);
+    if (count != WriteBatchInternal::Count(b)) {
+      state.append("CountMismatch()");
+    }
+  } else {
     state.append(s.ToString());
-  } else if (count != WriteBatchInternal::Count(b)) {
-    state.append("CountMismatch()");
   }
   delete mem->Unref();
   return state;
@@ -242,7 +253,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "PutCF(" + ToString(column_family_id) + ", " +
+        seen += "PutCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
@@ -251,7 +262,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Delete(" + key.ToString() + ")";
       } else {
-        seen += "DeleteCF(" + ToString(column_family_id) + ", " +
+        seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ")";
       }
       return Status::OK();
@@ -261,7 +272,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "SingleDelete(" + key.ToString() + ")";
       } else {
-        seen += "SingleDeleteCF(" + ToString(column_family_id) + ", " +
+        seen += "SingleDeleteCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ")";
       }
       return Status::OK();
@@ -272,7 +283,7 @@ namespace {
         seen += "DeleteRange(" + begin_key.ToString() + ", " +
                 end_key.ToString() + ")";
       } else {
-        seen += "DeleteRangeCF(" + ToString(column_family_id) + ", " +
+        seen += "DeleteRangeCF(" + std::to_string(column_family_id) + ", " +
                 begin_key.ToString() + ", " + end_key.ToString() + ")";
       }
       return Status::OK();
@@ -282,7 +293,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "MergeCF(" + ToString(column_family_id) + ", " +
+        seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
@@ -305,6 +316,11 @@ namespace {
     }
     Status MarkCommit(const Slice& xid) override {
       seen += "MarkCommit(" + xid.ToString() + ")";
+      return Status::OK();
+    }
+    Status MarkCommitWithTimestamp(const Slice& xid, const Slice& ts) override {
+      seen += "MarkCommitWithTimestamp(" + xid.ToString() + ", " +
+              ts.ToString(true) + ")";
       return Status::OK();
     }
     Status MarkRollback(const Slice& xid) override {
@@ -352,6 +368,16 @@ TEST_F(WriteBatchTest, MergeNotImplemented) {
 
   WriteBatch::Handler handler;
   ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST_F(WriteBatchTest, MergeWithoutOperatorInsertionFailure) {
+  WriteBatch batch;
+  ASSERT_OK(batch.Merge(Slice("foo"), Slice("bar")));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ(
+      "Invalid argument: Merge requires `ColumnFamilyOptions::merge_operator "
+      "!= nullptr`",
+      PrintContents(&batch, false /* merge_operator_supported */));
 }
 
 TEST_F(WriteBatchTest, Blob) {
@@ -608,13 +634,16 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
  public:
   explicit ColumnFamilyHandleImplDummy(int id)
       : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
+  explicit ColumnFamilyHandleImplDummy(int id, const Comparator* ucmp)
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
+        id_(id),
+        ucmp_(ucmp) {}
   uint32_t GetID() const override { return id_; }
-  const Comparator* GetComparator() const override {
-    return BytewiseComparator();
-  }
+  const Comparator* GetComparator() const override { return ucmp_; }
 
  private:
   uint32_t id_;
+  const Comparator* const ucmp_ = BytewiseComparator();
 };
 }  // namespace anonymous
 
@@ -878,6 +907,200 @@ TEST_F(WriteBatchTest, MemoryLimitTest) {
   ASSERT_OK(batch.Put("b", "...."));
   s = batch.Put("c", "....");
   ASSERT_TRUE(s.IsMemoryLimit());
+}
+
+namespace {
+class TimestampChecker : public WriteBatch::Handler {
+ public:
+  explicit TimestampChecker(
+      std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps, Slice ts)
+      : cf_to_ucmps_(std::move(cf_to_ucmps)), timestamp_(std::move(ts)) {}
+  Status PutCF(uint32_t cf, const Slice& key, const Slice& /*value*/) override {
+    auto cf_iter = cf_to_ucmps_.find(cf);
+    if (cf_iter == cf_to_ucmps_.end()) {
+      return Status::Corruption();
+    }
+    const Comparator* const ucmp = cf_iter->second;
+    assert(ucmp);
+    size_t ts_sz = ucmp->timestamp_size();
+    if (ts_sz == 0) {
+      return Status::OK();
+    }
+    if (key.size() < ts_sz) {
+      return Status::Corruption();
+    }
+    Slice ts = ExtractTimestampFromUserKey(key, ts_sz);
+    if (ts.compare(timestamp_) != 0) {
+      return Status::Corruption();
+    }
+    return Status::OK();
+  }
+
+ private:
+  std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps_;
+  Slice timestamp_;
+};
+
+Status CheckTimestampsInWriteBatch(
+    WriteBatch& wb, Slice timestamp,
+    std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps) {
+  TimestampChecker ts_checker(cf_to_ucmps, timestamp);
+  return wb.Iterate(&ts_checker);
+}
+}  // namespace
+
+TEST_F(WriteBatchTest, SanityChecks) {
+  ColumnFamilyHandleImplDummy cf0(0,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+  ColumnFamilyHandleImplDummy cf4(4);
+
+  WriteBatch wb(0, 0, 0, /*default_cf_ts_sz=*/sizeof(uint64_t));
+
+  // Sanity checks for the new WriteBatch APIs with extra 'ts' arg.
+  ASSERT_TRUE(wb.Put(nullptr, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(nullptr, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(nullptr, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(nullptr, "begin_key", "end_key", "ts").IsNotSupported());
+
+  ASSERT_TRUE(wb.Put(&cf4, "key", "ts", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf4, "key", "ts").IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf4, "key", "ts", "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf4, "begin_key", "end_key", "ts").IsNotSupported());
+
+  constexpr size_t wrong_ts_sz = 1 + sizeof(uint64_t);
+  std::string ts(wrong_ts_sz, '\0');
+
+  ASSERT_TRUE(wb.Put(&cf0, "key", ts, "value").IsInvalidArgument());
+  ASSERT_TRUE(wb.Delete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.SingleDelete(&cf0, "key", ts).IsInvalidArgument());
+  ASSERT_TRUE(wb.Merge(&cf0, "key", ts, "value").IsNotSupported());
+  ASSERT_TRUE(
+      wb.DeleteRange(&cf0, "begin_key", "end_key", ts).IsNotSupported());
+
+  // Sanity checks for the new WriteBatch APIs without extra 'ts' arg.
+  WriteBatch wb1(0, 0, 0, wrong_ts_sz);
+  ASSERT_TRUE(wb1.Put(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Delete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.SingleDelete(&cf0, "key").IsInvalidArgument());
+  ASSERT_TRUE(wb1.Merge(&cf0, "key", "value").IsInvalidArgument());
+  ASSERT_TRUE(
+      wb1.DeleteRange(&cf0, "begin_key", "end_key").IsInvalidArgument());
+}
+
+TEST_F(WriteBatchTest, UpdateTimestamps) {
+  // We assume the last eight bytes of each key is reserved for timestamps.
+  // Therefore, we must make sure each key is longer than eight bytes.
+  constexpr size_t key_size = 16;
+  constexpr size_t num_of_keys = 10;
+  std::vector<std::string> key_strs(num_of_keys, std::string(key_size, '\0'));
+
+  ColumnFamilyHandleImplDummy cf0(0);
+  ColumnFamilyHandleImplDummy cf4(4,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+  ColumnFamilyHandleImplDummy cf5(5,
+                                  test::BytewiseComparatorWithU64TsWrapper());
+
+  const std::unordered_map<uint32_t, const Comparator*> cf_to_ucmps = {
+      {0, cf0.GetComparator()},
+      {4, cf4.GetComparator()},
+      {5, cf5.GetComparator()}};
+
+  static constexpr size_t timestamp_size = sizeof(uint64_t);
+
+  {
+    WriteBatch wb1, wb2, wb3, wb4, wb5, wb6, wb7;
+    ASSERT_OK(wb1.Put(&cf0, "key", "value"));
+    ASSERT_FALSE(WriteBatchInternal::HasKeyWithTimestamp(wb1));
+    ASSERT_OK(wb2.Put(&cf4, "key", "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb2));
+    ASSERT_OK(wb3.Put(&cf4, "key", /*ts=*/std::string(timestamp_size, '\xfe'),
+                      "value"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb3));
+    ASSERT_OK(wb4.Delete(&cf4, "key",
+                         /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb4));
+    ASSERT_OK(wb5.Delete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb5));
+    ASSERT_OK(wb6.SingleDelete(&cf4, "key"));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb6));
+    ASSERT_OK(wb7.SingleDelete(&cf4, "key",
+                               /*ts=*/std::string(timestamp_size, '\xfe')));
+    ASSERT_TRUE(WriteBatchInternal::HasKeyWithTimestamp(wb7));
+  }
+
+  WriteBatch batch;
+  // Write to the batch. We will assign timestamps later.
+  for (const auto& key_str : key_strs) {
+    ASSERT_OK(batch.Put(&cf0, key_str, "value"));
+    ASSERT_OK(batch.Put(&cf4, key_str, "value"));
+    ASSERT_OK(batch.Put(&cf5, key_str, "value"));
+  }
+
+  const auto checker1 = [](uint32_t cf) {
+    if (cf == 4 || cf == 5) {
+      return timestamp_size;
+    } else if (cf == 0) {
+      return static_cast<size_t>(0);
+    } else {
+      return std::numeric_limits<size_t>::max();
+    }
+  };
+  ASSERT_OK(
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xfe'), checker1));
+  ASSERT_OK(CheckTimestampsInWriteBatch(
+      batch, std::string(timestamp_size, '\xfe'), cf_to_ucmps));
+
+  // We use indexed_cf_to_ucmps, non_indexed_cfs_with_ts and timestamp_size to
+  // simulate the case in which a transaction enables indexing for some writes
+  // while disables indexing for other writes. A transaction uses a
+  // WriteBatchWithIndex object to buffer writes (we consider Write-committed
+  // policy only). If indexing is enabled, then writes go through
+  // WriteBatchWithIndex API populating a WBWI internal data structure, i.e. a
+  // mapping from cf to user comparators. If indexing is disabled, a transaction
+  // writes directly to the underlying raw WriteBatch. We will need to track the
+  // comparator information for the column families to which un-indexed writes
+  // are performed. When calling UpdateTimestamp API of WriteBatch, we need
+  // indexed_cf_to_ucmps, non_indexed_cfs_with_ts, and timestamp_size to perform
+  // checking.
+  std::unordered_map<uint32_t, const Comparator*> indexed_cf_to_ucmps = {
+      {0, cf0.GetComparator()}, {4, cf4.GetComparator()}};
+  std::unordered_set<uint32_t> non_indexed_cfs_with_ts = {cf5.GetID()};
+  const auto checker2 = [&indexed_cf_to_ucmps,
+                         &non_indexed_cfs_with_ts](uint32_t cf) {
+    if (non_indexed_cfs_with_ts.count(cf) > 0) {
+      return timestamp_size;
+    }
+    auto cf_iter = indexed_cf_to_ucmps.find(cf);
+    if (cf_iter == indexed_cf_to_ucmps.end()) {
+      assert(false);
+      return std::numeric_limits<size_t>::max();
+    }
+    const Comparator* const ucmp = cf_iter->second;
+    assert(ucmp);
+    return ucmp->timestamp_size();
+  };
+  ASSERT_OK(
+      batch.UpdateTimestamps(std::string(timestamp_size, '\xef'), checker2));
+  ASSERT_OK(CheckTimestampsInWriteBatch(
+      batch, std::string(timestamp_size, '\xef'), cf_to_ucmps));
+}
+
+TEST_F(WriteBatchTest, CommitWithTimestamp) {
+  WriteBatch wb;
+  const std::string txn_name = "xid1";
+  std::string ts;
+  constexpr uint64_t commit_ts = 23;
+  PutFixed64(&ts, commit_ts);
+  ASSERT_OK(WriteBatchInternal::MarkCommitWithTimestamp(&wb, txn_name, ts));
+  TestHandler handler;
+  ASSERT_OK(wb.Iterate(&handler));
+  ASSERT_EQ("MarkCommitWithTimestamp(" + txn_name + ", " +
+                Slice(ts).ToString(true) + ")",
+            handler.seen);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

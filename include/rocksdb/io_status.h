@@ -28,7 +28,7 @@ class IOStatus : public Status {
   using Code = Status::Code;
   using SubCode = Status::SubCode;
 
-  enum IOErrorScope {
+  enum IOErrorScope : unsigned char {
     kIOErrorScopeFileSystem,
     kIOErrorScopeFile,
     kIOErrorScopeRange,
@@ -57,11 +57,13 @@ class IOStatus : public Status {
 
   void SetRetryable(bool retryable) { retryable_ = retryable; }
   void SetDataLoss(bool data_loss) { data_loss_ = data_loss; }
-  void SetScope(IOErrorScope scope) { scope_ = scope; }
+  void SetScope(IOErrorScope scope) {
+    scope_ = static_cast<unsigned char>(scope);
+  }
 
   bool GetRetryable() const { return retryable_; }
   bool GetDataLoss() const { return data_loss_; }
-  IOErrorScope GetScope() const { return scope_; }
+  IOErrorScope GetScope() const { return static_cast<IOErrorScope>(scope_); }
 
   // Return a success status.
   static IOStatus OK() { return IOStatus(); }
@@ -137,15 +139,9 @@ class IOStatus : public Status {
 
  private:
   friend IOStatus status_to_io_status(Status&&);
-  bool retryable_;
-  bool data_loss_;
-  IOErrorScope scope_;
 
   explicit IOStatus(Code _code, SubCode _subcode = kNone)
-      : Status(_code, _subcode),
-        retryable_(false),
-        data_loss_(false),
-        scope_(kIOErrorScopeFileSystem) {}
+      : Status(_code, _subcode, false, false, kIOErrorScopeFileSystem) {}
 
   IOStatus(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2);
   IOStatus(Code _code, const Slice& msg, const Slice& msg2)
@@ -154,10 +150,7 @@ class IOStatus : public Status {
 
 inline IOStatus::IOStatus(Code _code, SubCode _subcode, const Slice& msg,
                           const Slice& msg2)
-    : Status(_code, _subcode),
-      retryable_(false),
-      data_loss_(false),
-      scope_(kIOErrorScopeFileSystem) {
+    : Status(_code, _subcode, false, false, kIOErrorScopeFileSystem) {
   assert(code_ != kOk);
   assert(subcode_ != kMaxSubCode);
   const size_t len1 = msg.size();
@@ -171,7 +164,7 @@ inline IOStatus::IOStatus(Code _code, SubCode _subcode, const Slice& msg,
     memcpy(result + len1 + 2, msg2.data(), len2);
   }
   result[size] = '\0';  // null terminator for C style string
-  state_ = result;
+  state_.reset(result);
 }
 
 inline IOStatus::IOStatus(const IOStatus& s) : Status(s.code_, s.subcode_) {
@@ -181,7 +174,7 @@ inline IOStatus::IOStatus(const IOStatus& s) : Status(s.code_, s.subcode_) {
   retryable_ = s.retryable_;
   data_loss_ = s.data_loss_;
   scope_ = s.scope_;
-  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
 }
 inline IOStatus& IOStatus::operator=(const IOStatus& s) {
   // The following condition catches both aliasing (when this == &s),
@@ -196,8 +189,7 @@ inline IOStatus& IOStatus::operator=(const IOStatus& s) {
     retryable_ = s.retryable_;
     data_loss_ = s.data_loss_;
     scope_ = s.scope_;
-    delete[] state_;
-    state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+    state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
   }
   return *this;
 }
@@ -228,9 +220,7 @@ inline IOStatus& IOStatus::operator=(IOStatus&& s)
     data_loss_ = s.data_loss_;
     scope_ = s.scope_;
     s.scope_ = kIOErrorScopeFileSystem;
-    delete[] state_;
-    state_ = nullptr;
-    std::swap(state_, s.state_);
+    state_ = std::move(s.state_);
   }
   return *this;
 }
@@ -252,18 +242,10 @@ inline bool IOStatus::operator!=(const IOStatus& rhs) const {
 }
 
 inline IOStatus status_to_io_status(Status&& status) {
-  if (status.ok()) {
-    // Fast path
-    return IOStatus::OK();
-  } else {
-    const char* state = status.getState();
-    if (state) {
-      return IOStatus(status.code(), status.subcode(),
-                      Slice(state, strlen(status.getState()) + 1), Slice());
-    } else {
-      return IOStatus(status.code(), status.subcode());
-    }
-  }
+  IOStatus io_s;
+  Status& s = io_s;
+  s = std::move(status);
+  return io_s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

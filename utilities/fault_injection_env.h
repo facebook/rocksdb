@@ -73,6 +73,11 @@ class TestWritableFile : public WritableFile {
                             FaultInjectionTestEnv* env);
   virtual ~TestWritableFile();
   virtual Status Append(const Slice& data) override;
+  virtual Status Append(
+      const Slice& data,
+      const DataVerificationInfo& /*verification_info*/) override {
+    return Append(data);
+  }
   virtual Status Truncate(uint64_t size) override {
     return target_->Truncate(size);
   }
@@ -83,6 +88,11 @@ class TestWritableFile : public WritableFile {
   virtual Status PositionedAppend(const Slice& data,
                                   uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
+  }
+  virtual Status PositionedAppend(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& /*verification_info*/) override {
+    return PositionedAppend(data, offset);
   }
   virtual bool use_direct_io() const override {
     return target_->use_direct_io();
@@ -141,6 +151,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
       : EnvWrapper(base), filesystem_active_(true) {}
   virtual ~FaultInjectionTestEnv() { error_.PermitUncheckedError(); }
 
+  static const char* kClassName() { return "FaultInjectionTestEnv"; }
+  const char* Name() const override { return kClassName(); }
+
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override;
 
@@ -165,11 +178,14 @@ class FaultInjectionTestEnv : public EnvWrapper {
   virtual Status RenameFile(const std::string& s,
                             const std::string& t) override;
 
+  virtual Status LinkFile(const std::string& s, const std::string& t) override;
+
 // Undef to eliminate clash on Windows
 #undef GetFreeSpace
   virtual Status GetFreeSpace(const std::string& path,
                               uint64_t* disk_free) override {
-    if (!IsFilesystemActive() && error_ == Status::NoSpace()) {
+    if (!IsFilesystemActive() &&
+        error_.subcode() == IOStatus::SubCode::kNoSpace) {
       *disk_free = 0;
       return Status::OK();
     } else {
@@ -226,13 +242,13 @@ class FaultInjectionTestEnv : public EnvWrapper {
     SetFilesystemActiveNoLock(active, error);
     error.PermitUncheckedError();
   }
-  void AssertNoOpenFile() { assert(open_files_.empty()); }
+  void AssertNoOpenFile() { assert(open_managed_files_.empty()); }
   Status GetError() { return error_; }
 
  private:
   port::Mutex mutex_;
   std::map<std::string, FileState> db_file_state_;
-  std::set<std::string> open_files_;
+  std::set<std::string> open_managed_files_;
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes

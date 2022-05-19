@@ -9,15 +9,17 @@
 #include <cstdio>
 int main() {
   fprintf(stderr, "Please install gflags to run io_tracer_parser_test\n");
-  return 1;
+  return 0;
 }
 #else
 
 #include <string>
 #include <vector>
 
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "tools/io_tracer_parser_tool.h"
@@ -64,7 +66,7 @@ class IOTracerParserTest : public testing::Test {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
 
-    ASSERT_OK(db_->StartIOTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(db_->StartIOTrace(trace_opt, std::move(trace_writer)));
 
     for (int i = 0; i < 10; i++) {
       ASSERT_OK(db_->Put(write_opt, "key_" + std::to_string(i),

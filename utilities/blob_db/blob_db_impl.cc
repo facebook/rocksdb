@@ -15,7 +15,6 @@
 #include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -81,7 +80,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       bdb_options_(blob_db_options),
       db_options_(db_options),
       cf_options_(cf_options),
-      env_options_(db_options),
+      file_options_(db_options),
       statistics_(db_options_.statistics.get()),
       next_file_number_(1),
       flush_sequence_(0),
@@ -92,10 +91,11 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       fifo_eviction_seq_(0),
       evict_expiration_up_to_(0),
       debug_level_(0) {
+  clock_ = env_->GetSystemClock().get();
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;
-  env_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
+  file_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
 }
 
 BlobDBImpl::~BlobDBImpl() {
@@ -177,7 +177,8 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
                     "Failed to create blob_dir %s, status: %s",
                     blob_dir_.c_str(), s.ToString().c_str());
   }
-  s = env_->NewDirectory(blob_dir_, &dir_ent_);
+  s = env_->GetFileSystem()->NewDirectory(blob_dir_, IOOptions(), &dir_ent_,
+                                          nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to open blob_dir %s, status: %s", blob_dir_.c_str(),
@@ -196,12 +197,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
     cf_options_.compaction_filter_factory =
         std::make_shared<BlobIndexCompactionFilterFactoryGC>(
-            this, env_, cf_options_, statistics_);
+            this, clock_, cf_options_, statistics_);
   } else {
     db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
     cf_options_.compaction_filter_factory =
         std::make_shared<BlobIndexCompactionFilterFactory>(
-            this, env_, cf_options_, statistics_);
+            this, clock_, cf_options_, statistics_);
   }
 
   // Reset user compaction filter after building into compaction factory.
@@ -345,7 +346,8 @@ Status BlobDBImpl::OpenAllBlobFiles() {
     blob_file->MarkImmutable(/* sequence */ 0);
 
     // Read file header and footer
-    Status read_metadata_status = blob_file->ReadMetadata(env_, env_options_);
+    Status read_metadata_status =
+        blob_file->ReadMetadata(env_->GetFileSystem(), file_options_);
     if (read_metadata_status.IsCorruption()) {
       // Remove incomplete file.
       if (!obsolete_files_.empty()) {
@@ -678,7 +680,7 @@ Status BlobDBImpl::GetBlobFileReader(
     std::shared_ptr<RandomAccessFileReader>* reader) {
   assert(reader != nullptr);
   bool fresh_open = false;
-  Status s = blob_file->GetReader(env_, env_options_, reader, &fresh_open);
+  Status s = blob_file->GetReader(env_, file_options_, reader, &fresh_open);
   if (s.ok() && fresh_open) {
     assert(*reader != nullptr);
     open_file_count_++;
@@ -719,21 +721,23 @@ void BlobDBImpl::RegisterBlobFile(std::shared_ptr<BlobFile> blob_file) {
 
 Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   std::string fpath(bfile->PathName());
-  std::unique_ptr<WritableFile> wfile;
+  std::unique_ptr<FSWritableFile> wfile;
+  const auto& fs = env_->GetFileSystem();
 
-  Status s = env_->ReopenWritableFile(fpath, &wfile, env_options_);
+  Status s = fs->ReopenWritableFile(fpath, file_options_, &wfile, nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to open blob file for write: %s status: '%s'"
                     " exists: '%s'",
                     fpath.c_str(), s.ToString().c_str(),
-                    env_->FileExists(fpath).ToString().c_str());
+                    fs->FileExists(fpath, file_options_.io_options, nullptr)
+                        .ToString()
+                        .c_str());
     return s;
   }
 
   std::unique_ptr<WritableFileWriter> fwriter;
-  fwriter.reset(new WritableFileWriter(
-      NewLegacyWritableFileWrapper(std::move(wfile)), fpath, env_options_));
+  fwriter.reset(new WritableFileWriter(std::move(wfile), fpath, file_options_));
 
   uint64_t boffset = bfile->GetFileSize();
   if (debug_level_ >= 2 && boffset) {
@@ -754,9 +758,11 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
     return Status::Corruption("Invalid blob file size");
   }
 
+  constexpr bool do_flush = true;
+
   bfile->log_writer_ = std::make_shared<BlobLogWriter>(
-      std::move(fwriter), env_, statistics_, bfile->file_number_,
-      db_options_.use_fsync, boffset);
+      std::move(fwriter), clock_, statistics_, bfile->file_number_,
+      db_options_.use_fsync, do_flush, boffset);
   bfile->log_writer_->last_elem_type_ = et;
 
   return s;
@@ -992,7 +998,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
 };
 
 Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
-  StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
+  StopWatch write_sw(clock_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
       static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
@@ -1027,7 +1033,7 @@ Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
 
 Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
                             const Slice& value, uint64_t expiration) {
-  StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
+  StopWatch write_sw(clock_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_PUT);
   Status s;
   WriteBatch batch;
@@ -1134,7 +1140,7 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   if (bdb_options_.compression == kNoCompression) {
     return raw;
   }
-  StopWatch compression_sw(env_, statistics_, BLOB_DB_COMPRESSION_MICROS);
+  StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
   CompressionType type = bdb_options_.compression;
   CompressionOptions opts;
   CompressionContext context(type);
@@ -1154,7 +1160,8 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
 
   {
-    StopWatch decompression_sw(env_, statistics_, BLOB_DB_DECOMPRESSION_MICROS);
+    StopWatch decompression_sw(clock_, statistics_,
+                               BLOB_DB_DECOMPRESSION_MICROS);
     UncompressionContext context(compression_type);
     UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                            compression_type);
@@ -1381,7 +1388,7 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
 std::vector<Status> BlobDBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  StopWatch multiget_sw(env_, statistics_, BLOB_DB_MULTIGET_MICROS);
+  StopWatch multiget_sw(clock_, statistics_, BLOB_DB_MULTIGET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
@@ -1533,16 +1540,17 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
   Slice blob_record;
 
   {
-    StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
+    StopWatch read_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
+    // TODO: rate limit old blob DB file reads.
     if (reader->use_direct_io()) {
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, nullptr,
-                       &aligned_buf);
+                       &aligned_buf, Env::IO_TOTAL /* rate_limiter_priority */);
     } else {
       buf.reserve(static_cast<size_t>(record_size));
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, &buf[0],
-                       nullptr);
+                       nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
     }
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
@@ -1612,7 +1620,7 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value, uint64_t* expiration) {
-  StopWatch get_sw(env_, statistics_, BLOB_DB_GET_MICROS);
+  StopWatch get_sw(clock_, statistics_, BLOB_DB_GET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_GET);
   return GetImpl(read_options, column_family, key, value, expiration);
 }
@@ -1686,35 +1694,30 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 
   for (auto blob_file_pair : blob_files_) {
     auto blob_file = blob_file_pair.second;
-    char buf[1000];
-    int pos = snprintf(buf, sizeof(buf),
-                       "Blob file %" PRIu64 ", size %" PRIu64
-                       ", blob count %" PRIu64 ", immutable %d",
-                       blob_file->BlobFileNumber(), blob_file->GetFileSize(),
-                       blob_file->BlobCount(), blob_file->Immutable());
+    std::ostringstream buf;
+
+    buf << "Blob file " << blob_file->BlobFileNumber() << ", size "
+        << blob_file->GetFileSize() << ", blob count " << blob_file->BlobCount()
+        << ", immutable " << blob_file->Immutable();
+
     if (blob_file->HasTTL()) {
       ExpirationRange expiration_range;
-
       {
         ReadLock file_lock(&blob_file->mutex_);
         expiration_range = blob_file->GetExpirationRange();
       }
+      buf << ", expiration range (" << expiration_range.first << ", "
+          << expiration_range.second << ")";
 
-      pos += snprintf(buf + pos, sizeof(buf) - pos,
-                      ", expiration range (%" PRIu64 ", %" PRIu64 ")",
-                      expiration_range.first, expiration_range.second);
       if (!blob_file->Obsolete()) {
-        pos += snprintf(buf + pos, sizeof(buf) - pos,
-                        ", expire in %" PRIu64 " seconds",
-                        expiration_range.second - now);
+        buf << ", expire in " << (expiration_range.second - now) << "seconds";
       }
     }
     if (blob_file->Obsolete()) {
-      pos += snprintf(buf + pos, sizeof(buf) - pos, ", obsolete at %" PRIu64,
-                      blob_file->GetObsoleteSequence());
+      buf << ", obsolete at " << blob_file->GetObsoleteSequence();
     }
-    snprintf(buf + pos, sizeof(buf) - pos, ".");
-    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf);
+    buf << ".";
+    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf.str().c_str());
   }
 
   // reschedule
@@ -1912,7 +1915,7 @@ Status BlobDBImpl::SyncBlobFiles() {
     }
   }
 
-  s = dir_ent_->Fsync();
+  s = dir_ent_->FsyncWithDirOptions(IOOptions(), nullptr, DirFsyncOptions());
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to sync blob directory, status: %s",
@@ -2004,7 +2007,9 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
 
   // directory change. Fsync
   if (file_deleted) {
-    Status s = dir_ent_->Fsync();
+    Status s = dir_ent_->FsyncWithDirOptions(
+        IOOptions(), nullptr,
+        DirFsyncOptions(DirFsyncOptions::FsyncReason::kFileDeleted));
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log, "Failed to sync dir %s: %s",
                       blob_dir_.c_str(), s.ToString().c_str());
@@ -2045,8 +2050,8 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
   }
   auto* iter = db_impl_->NewIteratorImpl(
       read_options, cfd, snapshot->GetSequenceNumber(),
-      nullptr /*read_callback*/, true /*allow_blob*/);
-  return new BlobDBIterator(own_snapshot, iter, this, env_, statistics_);
+      nullptr /*read_callback*/, true /*expose_blob_index*/);
+  return new BlobDBIterator(own_snapshot, iter, this, clock_, statistics_);
 }
 
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
@@ -2060,21 +2065,21 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
                                         : bdb_options.blob_dir;
 
   std::vector<std::string> filenames;
-  env->GetChildren(blobdir, &filenames);
-
-  for (const auto& f : filenames) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(f, &number, &type) && type == kBlobFile) {
-      Status del = DeleteDBFile(&soptions, blobdir + "/" + f, blobdir, true,
-                                /*force_fg=*/false);
-      if (status.ok() && !del.ok()) {
-        status = del;
+  if (env->GetChildren(blobdir, &filenames).ok()) {
+    for (const auto& f : filenames) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kBlobFile) {
+        Status del = DeleteDBFile(&soptions, blobdir + "/" + f, blobdir, true,
+                                  /*force_fg=*/false);
+        if (status.ok() && !del.ok()) {
+          status = del;
+        }
       }
     }
+    // TODO: What to do if we cannot delete the directory?
+    env->DeleteDir(blobdir).PermitUncheckedError();
   }
-  env->DeleteDir(blobdir);
-
   Status destroy = DestroyDB(dbname, options);
   if (status.ok() && !destroy.ok()) {
     status = destroy;

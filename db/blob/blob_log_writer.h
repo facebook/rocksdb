@@ -9,7 +9,6 @@
 #include <string>
 
 #include "db/blob/blob_log_format.h"
-#include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -18,7 +17,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriter;
-
+class SystemClock;
 /**
  * BlobLogWriter is the blob log stream writer. It provides an append-only
  * abstraction for writing blob data.
@@ -32,9 +31,9 @@ class BlobLogWriter {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this BlobLogWriter is in use.
-  BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
+  BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest, SystemClock* clock,
                 Statistics* statistics, uint64_t log_number, bool use_fsync,
-                uint64_t boffset = 0);
+                bool do_flush, uint64_t boffset = 0);
   // No copying allowed
   BlobLogWriter(const BlobLogWriter&) = delete;
   BlobLogWriter& operator=(const BlobLogWriter&) = delete;
@@ -69,11 +68,12 @@ class BlobLogWriter {
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
-  Env* env_;
+  SystemClock* clock_;
   Statistics* statistics_;
   uint64_t log_number_;
   uint64_t block_offset_;  // Current offset in block
   bool use_fsync_;
+  bool do_flush_;
 
  public:
   enum ElemType { kEtNone, kEtFileHdr, kEtRecord, kEtFileFooter };

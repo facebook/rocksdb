@@ -48,7 +48,6 @@ class HistogramBucketMapper {
   std::vector<uint64_t> bucketValues_;
   uint64_t maxBucketValue_;
   uint64_t minBucketValue_;
-  std::map<uint64_t, uint64_t> valueIndexMap_;
 };
 
 struct HistogramStat {

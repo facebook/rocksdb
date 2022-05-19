@@ -62,12 +62,13 @@ class TransactionTestBase : public ::testing::Test {
     options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+    special_env.skip_fsync_ = true;
     env = new FaultInjectionTestEnv(&special_env);
     options.env = env;
     options.two_write_queues = two_write_queue;
     dbname = test::PerThreadDBPath("transaction_testdb");
 
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
     txn_db_options.write_policy = write_policy;
@@ -84,7 +85,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
-    assert(s.ok());
+    EXPECT_OK(s);
   }
 
   ~TransactionTestBase() {
@@ -94,8 +95,12 @@ class TransactionTestBase : public ::testing::Test {
     // seems to be a bug in btrfs that the makes readdir return recently
     // unlink-ed files. By using the default fs we simply ignore errors resulted
     // from attempting to delete such files in DestroyDB.
-    options.env = Env::Default();
-    DestroyDB(dbname, options);
+    if (getenv("KEEP_DB") == nullptr) {
+      options.env = Env::Default();
+      EXPECT_OK(DestroyDB(dbname, options));
+    } else {
+      fprintf(stdout, "db is still in %s\n", dbname.c_str());
+    }
     delete env;
   }
 
@@ -165,15 +170,14 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
                             use_seq_per_batch, use_batch_per_txn);
-    StackableDB* stackable_db = new StackableDB(root_db);
+    auto stackable_db = std::make_unique<StackableDB>(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
-      s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+      // If WrapStackableDB() returns non-ok, then stackable_db is already
+      // deleted within WrapStackableDB().
+      s = TransactionDB::WrapStackableDB(stackable_db.release(), txn_db_options,
                                          compaction_enabled_cf_indices,
                                          *handles, &db);
-    }
-    if (!s.ok()) {
-      delete stackable_db;
     }
     return s;
   }
@@ -390,7 +394,7 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == WRITE_COMMITTED) {
       options.unordered_write = false;
     }
-    ReOpen();
+    ASSERT_OK(ReOpen());
 
     for (int i = 0; i < 1024; i++) {
       auto istr = std::to_string(index);
@@ -409,9 +413,9 @@ class TransactionTestBase : public ::testing::Test {
         case 1: {
           WriteBatch wb;
           committed_kvs[k] = v;
-          wb.Put(k, v);
+          ASSERT_OK(wb.Put(k, v));
           committed_kvs[k] = v2;
-          wb.Put(k, v2);
+          ASSERT_OK(wb.Put(k, v2));
           ASSERT_OK(db->Write(write_options, &wb));
 
         } break;
@@ -431,7 +435,7 @@ class TransactionTestBase : public ::testing::Test {
           delete txn;
           break;
         default:
-          assert(0);
+          FAIL();
       }
 
       index++;
@@ -444,9 +448,9 @@ class TransactionTestBase : public ::testing::Test {
     auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
     if (empty_wal) {
-      db_impl->TEST_FlushMemTable();
+      ASSERT_OK(db_impl->TEST_FlushMemTable());
     } else {
-      db_impl->FlushWAL(true);
+      ASSERT_OK(db_impl->FlushWAL(true));
     }
     auto s = ReOpenNoDelete();
     if (empty_wal) {
@@ -460,7 +464,7 @@ class TransactionTestBase : public ::testing::Test {
     db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Check that WAL is empty
     VectorLogPtr log_files;
-    db_impl->GetSortedWalFiles(log_files);
+    ASSERT_OK(db_impl->GetSortedWalFiles(log_files));
     ASSERT_EQ(0, log_files.size());
 
     for (auto& kv : committed_kvs) {
@@ -516,6 +520,46 @@ class MySQLStyleTransactionTest
  protected:
   // Also emulate slow threads by addin artiftial delays
   const bool with_slow_threads_;
+};
+
+class WriteCommittedTxnWithTsTest
+    : public TransactionTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
+ public:
+  WriteCommittedTxnWithTsTest()
+      : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            WRITE_COMMITTED, kOrderedWrite) {}
+  ~WriteCommittedTxnWithTsTest() override {
+    for (auto* h : handles_) {
+      delete h;
+    }
+  }
+
+  Status GetFromDb(ReadOptions read_opts, ColumnFamilyHandle* column_family,
+                   const Slice& key, TxnTimestamp ts, std::string* value) {
+    std::string ts_buf;
+    PutFixed64(&ts_buf, ts);
+    Slice ts_slc = ts_buf;
+    read_opts.timestamp = &ts_slc;
+    assert(db);
+    return db->Get(read_opts, column_family, key, value);
+  }
+
+  Transaction* NewTxn(WriteOptions write_opts, TransactionOptions txn_opts) {
+    assert(db);
+    auto* txn = db->BeginTransaction(write_opts, txn_opts);
+    assert(txn);
+    const bool enable_indexing = std::get<2>(GetParam());
+    if (enable_indexing) {
+      txn->EnableIndexing();
+    } else {
+      txn->DisableIndexing();
+    }
+    return txn;
+  }
+
+ protected:
+  std::vector<ColumnFamilyHandle*> handles_{};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

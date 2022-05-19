@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+
 #include <algorithm>
 #include <random>
 
@@ -60,6 +61,8 @@ class Random {
     return seed_;
   }
 
+  uint64_t Next64() { return (uint64_t{Next()} << 32) | Next(); }
+
   // Returns a uniformly distributed value in the range [0..n-1]
   // REQUIRES: n > 0
   uint32_t Uniform(int n) { return Next() % n; }
@@ -91,6 +94,9 @@ class Random {
 
   // Generates a random string of len bytes using human-readable characters
   std::string HumanReadableString(int len);
+
+  // Generates a random binary data
+  std::string RandomBinaryString(int len);
 
   // Returns a Random instance for use by the current thread without
   // additional locking

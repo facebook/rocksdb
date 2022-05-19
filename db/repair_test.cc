@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "rocksdb/options.h"
 #ifndef ROCKSDB_LITE
 
 #include <algorithm>
@@ -22,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 class RepairTest : public DBTestBase {
  public:
-  RepairTest() : DBTestBase("/repair_test", /*env_do_fsync=*/true) {}
+  RepairTest() : DBTestBase("repair_test", /*env_do_fsync=*/true) {}
 
   Status GetFirstSstPath(std::string* first_sst_path) {
     assert(first_sst_path != nullptr);
@@ -66,6 +67,35 @@ TEST_F(RepairTest, LostManifest) {
   ASSERT_EQ(Get("key2"), "val2");
 }
 
+TEST_F(RepairTest, LostManifestMoreDbFeatures) {
+  // Add a couple SST files, delete the manifest, and verify RepairDB() saves
+  // the day.
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Put("key3", "val3"));
+  ASSERT_OK(Put("key4", "val4"));
+  ASSERT_OK(Flush());
+  // Test an SST file containing only a range tombstone
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key2",
+                             "key3z"));
+  ASSERT_OK(Flush());
+  // Need to get path before Close() deletes db_, but delete it after Close() to
+  // ensure Close() didn't change the manifest.
+  std::string manifest_path =
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+
+  Close();
+  ASSERT_OK(env_->FileExists(manifest_path));
+  ASSERT_OK(env_->DeleteFile(manifest_path));
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
+  Reopen(CurrentOptions());
+
+  ASSERT_EQ(Get("key"), "val");
+  ASSERT_EQ(Get("key2"), "NOT_FOUND");
+  ASSERT_EQ(Get("key3"), "NOT_FOUND");
+  ASSERT_EQ(Get("key4"), "val4");
+}
+
 TEST_F(RepairTest, CorruptManifest) {
   // Manifest is in an invalid format. Expect a full recovery.
   ASSERT_OK(Put("key", "val"));
@@ -80,8 +110,8 @@ TEST_F(RepairTest, CorruptManifest) {
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
 
-  LegacyFileSystemWrapper fs(env_);
-  ASSERT_OK(CreateFile(&fs, manifest_path, "blah", false /* use_fsync */));
+  ASSERT_OK(CreateFile(env_->GetFileSystem(), manifest_path, "blah",
+                       false /* use_fsync */));
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
@@ -163,8 +193,8 @@ TEST_F(RepairTest, CorruptSst) {
   ASSERT_OK(GetFirstSstPath(&sst_path));
   ASSERT_FALSE(sst_path.empty());
 
-  LegacyFileSystemWrapper fs(env_);
-  ASSERT_OK(CreateFile(&fs, sst_path, "blah", false /* use_fsync */));
+  ASSERT_OK(CreateFile(env_->GetFileSystem(), sst_path, "blah",
+                       false /* use_fsync */));
 
   Close();
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
@@ -184,7 +214,7 @@ TEST_F(RepairTest, UnflushedSst) {
   {
     uint64_t total_ssts_size;
     std::unordered_map<std::string, uint64_t> sst_files;
-    ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+    ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
     ASSERT_EQ(total_ssts_size, 0);
   }
   // Need to get path before Close() deletes db_, but delete it after Close() to
@@ -203,7 +233,7 @@ TEST_F(RepairTest, UnflushedSst) {
   {
     uint64_t total_ssts_size;
     std::unordered_map<std::string, uint64_t> sst_files;
-    ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+    ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
     ASSERT_GT(total_ssts_size, 0);
   }
   ASSERT_EQ(Get("key"), "val");
@@ -221,7 +251,7 @@ TEST_F(RepairTest, SeparateWalDir) {
     {
       uint64_t total_ssts_size;
       std::unordered_map<std::string, uint64_t> sst_files;
-      ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+      ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
       ASSERT_EQ(total_ssts_size, 0);
     }
     std::string manifest_path =
@@ -241,7 +271,7 @@ TEST_F(RepairTest, SeparateWalDir) {
     {
       uint64_t total_ssts_size;
       std::unordered_map<std::string, uint64_t> sst_files;
-      ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+      ASSERT_OK(GetAllDataFiles(kTableFile, &sst_files, &total_ssts_size));
       ASSERT_GT(total_ssts_size, 0);
     }
     ASSERT_EQ(Get("key"), "val");
@@ -259,7 +289,7 @@ TEST_F(RepairTest, RepairMultipleColumnFamilies) {
   CreateAndReopenWithCF({"pikachu1", "pikachu2"}, CurrentOptions());
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_OK(Put(i, "key" + ToString(j), "val" + ToString(j)));
+      ASSERT_OK(Put(i, "key" + std::to_string(j), "val" + std::to_string(j)));
       if (j == kEntriesPerCf - 1 && i == kNumCfs - 1) {
         // Leave one unflushed so we can verify WAL entries are properly
         // associated with column families.
@@ -283,7 +313,7 @@ TEST_F(RepairTest, RepairMultipleColumnFamilies) {
                            CurrentOptions());
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+      ASSERT_EQ(Get(i, "key" + std::to_string(j)), "val" + std::to_string(j));
     }
   }
 }
@@ -304,7 +334,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
                            std::vector<Options>{opts, rev_opts});
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_OK(Put(i, "key" + ToString(j), "val" + ToString(j)));
+      ASSERT_OK(Put(i, "key" + std::to_string(j), "val" + std::to_string(j)));
       if (i == kNumCfs - 1 && j == kEntriesPerCf - 1) {
         // Leave one unflushed so we can verify RepairDB's flush logic
         continue;
@@ -322,7 +352,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
                                         std::vector<Options>{opts, rev_opts}));
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+      ASSERT_EQ(Get(i, "key" + std::to_string(j)), "val" + std::to_string(j));
     }
   }
 
@@ -347,7 +377,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
                                         std::vector<Options>{opts, rev_opts}));
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+      ASSERT_EQ(Get(i, "key" + std::to_string(j)), "val" + std::to_string(j));
     }
   }
 }

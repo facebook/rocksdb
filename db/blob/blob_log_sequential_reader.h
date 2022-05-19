@@ -10,12 +10,15 @@
 #include "db/blob/blob_log_format.h"
 #include "rocksdb/slice.h"
 
+#define MAX_HEADER_SIZE(a, b, c) (a > b ? (a > c ? a : c) : (b > c ? b : c))
+
 namespace ROCKSDB_NAMESPACE {
 
 class RandomAccessFileReader;
 class Env;
 class Statistics;
 class Status;
+class SystemClock;
 
 /**
  * BlobLogSequentialReader is a general purpose log stream reader
@@ -35,7 +38,7 @@ class BlobLogSequentialReader {
 
   // Create a reader that will return log records from "*file_reader".
   BlobLogSequentialReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
-                          Env* env, Statistics* statistics);
+                          SystemClock* clock, Statistics* statistics);
 
   // No copying allowed
   BlobLogSequentialReader(const BlobLogSequentialReader&) = delete;
@@ -63,14 +66,18 @@ class BlobLogSequentialReader {
   Status ReadSlice(uint64_t size, Slice* slice, char* buf);
 
   const std::unique_ptr<RandomAccessFileReader> file_;
-  Env* env_;
+  SystemClock* clock_;
+
   Statistics* statistics_;
 
   Slice buffer_;
-  char header_buf_[BlobLogRecord::kHeaderSize];
+  char header_buf_[MAX_HEADER_SIZE(BlobLogHeader::kSize, BlobLogFooter::kSize,
+                                   BlobLogRecord::kHeaderSize)];
 
   // which byte to read next
   uint64_t next_byte_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
+
+#undef MAX_HEADER_SIZE

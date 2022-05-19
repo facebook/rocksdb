@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -24,9 +25,86 @@ using TransactionName = std::string;
 
 using TransactionID = uint64_t;
 
-// An endpoint for a range of keys.
+using TxnTimestamp = uint64_t;
+
+constexpr TxnTimestamp kMaxTxnTimestamp =
+    std::numeric_limits<TxnTimestamp>::max();
+
+/*
+  class Endpoint allows to define prefix ranges.
+
+  Prefix ranges are introduced below.
+
+  == Basic Ranges ==
+  Let's start from basic ranges. Key Comparator defines ordering of rowkeys.
+  Then, one can specify finite closed ranges by just providing rowkeys of their
+  endpoints:
+
+    lower_endpoint <= X <= upper_endpoint
+
+  However our goal is to provide a richer set of endpoints. Read on.
+
+  == Lexicographic ordering ==
+  A lexicographic (or dictionary) ordering satisfies these criteria: If there
+  are two keys in form
+    key_a = {prefix_a, suffix_a}
+    key_b = {prefix_b, suffix_b}
+  and
+    prefix_a < prefix_b
+  then
+    key_a < key_b.
+
+  == Prefix ranges ==
+  With lexicographic ordering, one may want to define ranges in form
+
+     "prefix is $PREFIX"
+
+  which translates to a range in form
+
+    {$PREFIX, -infinity} < X < {$PREFIX, +infinity}
+
+  where -infinity will compare less than any possible suffix, and +infinity
+  will compare as greater than any possible suffix.
+
+  class Endpoint allows to define these kind of rangtes.
+
+  == Notes ==
+  BytewiseComparator and ReverseBytewiseComparator produce lexicographic
+  ordering.
+
+  The row comparison function is able to compare key prefixes. If the data
+  domain includes keys A and B, then the comparison function is able to compare
+  equal-length prefixes:
+
+    min_len= min(byte_length(A), byte_length(B));
+    cmp(Slice(A, min_len), Slice(B, min_len));  // this call is valid
+
+  == Other options ==
+  As far as MyRocks is concerned, the alternative to prefix ranges would be to
+  support both open (non-inclusive) and closed (inclusive) range endpoints.
+*/
+
 class Endpoint {
-  // TODO
+ public:
+  Slice slice;
+
+  /*
+    true  : the key has a "+infinity" suffix. A suffix that would compare as
+            greater than any other suffix
+    false : otherwise
+  */
+  bool inf_suffix;
+
+  explicit Endpoint(const Slice& slice_arg, bool inf_suffix_arg = false)
+      : slice(slice_arg), inf_suffix(inf_suffix_arg) {}
+
+  explicit Endpoint(const char* s, bool inf_suffix_arg = false)
+      : slice(s), inf_suffix(inf_suffix_arg) {}
+
+  Endpoint(const char* s, size_t size, bool inf_suffix_arg = false)
+      : slice(s, size), inf_suffix(inf_suffix_arg) {}
+
+  Endpoint() : inf_suffix(false) {}
 };
 
 // Provides notification to the caller of SetSnapshotOnNextOperation when
@@ -282,6 +360,12 @@ class Transaction {
     }
   }
 
+  // Get a range lock on [start_endpoint; end_endpoint].
+  virtual Status GetRangeLock(ColumnFamilyHandle*, const Endpoint&,
+                              const Endpoint&) {
+    return Status::NotSupported();
+  }
+
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
                               std::string* value, bool exclusive = true,
                               const bool do_validate = true) = 0;
@@ -473,6 +557,18 @@ class Transaction {
 
   virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) = 0;
 
+  // Note: data in the commit-time-write-batch bypasses concurrency control,
+  // thus should be used with great caution.
+  // For write-prepared/write-unprepared transactions,
+  // GetCommitTimeWriteBatch() can be used only if the transaction is started
+  // with
+  // `TransactionOptions::use_only_the_last_commit_time_batch_for_recovery` set
+  // to true. Otherwise, it is possible that two uncommitted versions of the
+  // same key exist in the database due to the current implementation (see the
+  // explanation in WritePreparedTxn::CommitInternal).
+  // During bottommost compaction, RocksDB may
+  // set the sequence numbers of both to zero once becoming committed, causing
+  // output SST file to have two identical internal keys.
   virtual WriteBatch* GetCommitTimeWriteBatch() = 0;
 
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
@@ -515,6 +611,14 @@ class Transaction {
   // assigns the id. Although currently it is the case, the id is not guaranteed
   // to remain the same across restarts.
   uint64_t GetId() { return id_; }
+
+  virtual Status SetReadTimestampForValidation(TxnTimestamp /*ts*/) {
+    return Status::NotSupported("timestamp not supported");
+  }
+
+  virtual Status SetCommitTimestamp(TxnTimestamp /*ts*/) {
+    return Status::NotSupported("timestamp not supported");
+  }
 
  protected:
   explicit Transaction(const TransactionDB* /*db*/) {}

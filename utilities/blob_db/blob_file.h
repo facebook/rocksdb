@@ -15,6 +15,7 @@
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -208,9 +209,10 @@ class BlobFile {
   // Read blob file header and footer. Return corruption if file header is
   // malform or incomplete. If footer is malform or incomplete, set
   // footer_valid_ to false and return Status::OK.
-  Status ReadMetadata(Env* env, const EnvOptions& env_options);
+  Status ReadMetadata(const std::shared_ptr<FileSystem>& fs,
+                      const FileOptions& file_options);
 
-  Status GetReader(Env* env, const EnvOptions& env_options,
+  Status GetReader(Env* env, const FileOptions& file_options,
                    std::shared_ptr<RandomAccessFileReader>* reader,
                    bool* fresh_open);
 

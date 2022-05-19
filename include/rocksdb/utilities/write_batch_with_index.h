@@ -40,12 +40,13 @@ enum WriteType {
   kDeleteRangeRecord,
   kLogDataRecord,
   kXIDRecord,
+  kUnknownRecord,
 };
 
 // an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
 // Used in WBWIIterator.
 struct WriteEntry {
-  WriteType type;
+  WriteType type = kUnknownRecord;
   Slice key;
   Slice value;
 };
@@ -109,20 +110,32 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   Status Put(const Slice& key, const Slice& value) override;
 
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& ts, const Slice& value) override;
+
   using WriteBatchBase::Merge;
   Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
                const Slice& value) override;
 
   Status Merge(const Slice& key, const Slice& value) override;
+  Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*ts*/, const Slice& /*value*/) override {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp");
+  }
 
   using WriteBatchBase::Delete;
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   Status Delete(const Slice& key) override;
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const Slice& ts) override;
 
   using WriteBatchBase::SingleDelete;
   Status SingleDelete(ColumnFamilyHandle* column_family,
                       const Slice& key) override;
   Status SingleDelete(const Slice& key) override;
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
 
   using WriteBatchBase::DeleteRange;
   Status DeleteRange(ColumnFamilyHandle* /* column_family */,
@@ -133,6 +146,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   }
   Status DeleteRange(const Slice& /* begin_key */,
                      const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
+  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
+                     const Slice& /*ts*/) override {
     return Status::NotSupported(
         "DeleteRange unsupported in WriteBatchWithIndex");
   }
@@ -168,7 +187,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // returned iterator will also delete the base_iterator.
   //
   // Updating write batch with the current key of the iterator is not safe.
-  // We strongly recommand users not to do it. It will invalidate the current
+  // We strongly recommend users not to do it. It will invalidate the current
   // key() and value() of the iterator. This invalidation happens even before
   // the write batch update finishes. The state may recover after Next() is
   // called.
@@ -256,6 +275,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   friend class WritePreparedTxn;
   friend class WriteUnpreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
+  friend class WriteBatchWithIndexInternal;
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the
   // last sub-batch.

@@ -56,6 +56,8 @@ class CuckooTableFactory : public TableFactory {
       const CuckooTableOptions& table_option = CuckooTableOptions());
   ~CuckooTableFactory() {}
 
+  // Method to allow CheckedCast to work for this class
+  static const char* kClassName() { return kCuckooTableName(); }
   const char* Name() const override { return kCuckooTableName(); }
 
   using TableFactory::NewTableReader;
@@ -67,7 +69,7 @@ class CuckooTableFactory : public TableFactory {
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   std::string GetPrintableOptions() const override;
 

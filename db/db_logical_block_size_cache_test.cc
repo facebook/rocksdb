@@ -167,9 +167,14 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
 }
 
 TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
-  // Tests that CreateColumnFamilies will cache the cf_paths,
-  // drop the column family handle won't drop the cache,
-  // drop and then delete the column family handle will drop the cache.
+  // To test:
+  // (1) CreateColumnFamilies will cache the cf_paths in
+  // DBLogicalBlockSizeCache
+  // (2) Dropping column family handles associated with
+  // that cf_paths won't drop the cached cf_paths
+  // (3) Deleting all the column family handles associated
+  //  with that cf_paths will drop the cached cf_paths
+
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
@@ -190,7 +195,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
-  // Drop column family does not drop cache.
+  // Drop column family does not drop cf_path_0_'s entry from cache
   for (ColumnFamilyHandle* cf : cfs) {
     ASSERT_OK(db->DropColumnFamily(cf));
     ASSERT_EQ(2, cache_->Size());
@@ -200,22 +205,24 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamilies) {
     ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
   }
 
-  // Delete one handle will not drop cache because another handle is still
-  // referencing cf_path_0_.
+  // Delete one cf handle will not drop cf_path_0_'s entry from cache because
+  // another handle is still referencing cf_path_0_.
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[0]));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(dbname_));
   ASSERT_EQ(1, cache_->GetRefCount(dbname_));
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
-  ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
-  // Delete the last handle will drop cache.
+  // Delete all cf handles and ensure the ref count of cf_path_0_ in cache_
+  // can be properly decreased by releasing any background reference to the
+  // ColumnFamilyData during db deletion
   ASSERT_OK(db->DestroyColumnFamilyHandle(cfs[1]));
-  ASSERT_EQ(1, cache_->Size());
   ASSERT_TRUE(cache_->Contains(dbname_));
   ASSERT_EQ(1, cache_->GetRefCount(dbname_));
-
   delete db;
+
+  // Now cf_path_0_ in cache_ has been properly decreased and cf_path_0_'s entry
+  // is dropped from cache
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(dbname_, options,
       {{"cf1", cf_options}, {"cf2", cf_options}}));
@@ -401,7 +408,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ColumnFamilyOptions cf_options0;
   cf_options0.cf_paths = {{cf_path_0_, 1024}};
   ColumnFamilyHandle* cf0;
-  db0->CreateColumnFamily(cf_options0, "cf", &cf0);
+  ASSERT_OK(db0->CreateColumnFamily(cf_options0, "cf", &cf0));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
@@ -421,7 +428,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ColumnFamilyOptions cf_options1;
   cf_options1.cf_paths = {{cf_path_1_, 1024}};
   ColumnFamilyHandle* cf1;
-  db1->CreateColumnFamily(cf_options1, "cf", &cf1);
+  ASSERT_OK(db1->CreateColumnFamily(cf_options1, "cf", &cf1));
   ASSERT_EQ(4, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
@@ -432,7 +439,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_TRUE(cache_->Contains(cf_path_1_));
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
 
-  db0->DestroyColumnFamilyHandle(cf0);
+  ASSERT_OK(db0->DestroyColumnFamilyHandle(cf0));
   delete db0;
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_1_));
@@ -441,7 +448,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
   ASSERT_OK(DestroyDB(data_path_0_, options, {{"cf", cf_options0}}));
 
-  db1->DestroyColumnFamilyHandle(cf1);
+  ASSERT_OK(db1->DestroyColumnFamilyHandle(cf1));
   delete db1;
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(data_path_1_, options, {{"cf", cf_options1}}));
@@ -466,7 +473,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
 
   ColumnFamilyHandle* cf0;
-  db0->CreateColumnFamily(cf_options, "cf", &cf0);
+  ASSERT_OK(db0->CreateColumnFamily(cf_options, "cf", &cf0));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
@@ -482,14 +489,14 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
   ColumnFamilyHandle* cf1;
-  db1->CreateColumnFamily(cf_options, "cf", &cf1);
+  ASSERT_OK(db1->CreateColumnFamily(cf_options, "cf", &cf1));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(2, cache_->GetRefCount(data_path_0_));
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
-  db0->DestroyColumnFamilyHandle(cf0);
+  ASSERT_OK(db0->DestroyColumnFamilyHandle(cf0));
   delete db0;
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -498,7 +505,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
   ASSERT_OK(DestroyDB(dbname_ + "/db0", options, {{"cf", cf_options}}));
 
-  db1->DestroyColumnFamilyHandle(cf1);
+  ASSERT_OK(db1->DestroyColumnFamilyHandle(cf1));
   delete db1;
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(dbname_ + "/db1", options, {{"cf", cf_options}}));

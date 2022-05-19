@@ -13,15 +13,20 @@
 #include <memory>
 #include <string>
 
-#include "db/dbformat.h"
+#include "cache/cache_reservation_manager.h"
+#include "port/port.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/table.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct ColumnFamilyOptions;
 struct ConfigOptions;
+struct DBOptions;
 struct EnvOptions;
 
 class BlockBasedTableBuilder;
+class RandomAccessFileReader;
+class WritableFileWriter;
 
 // A class used to track actual bytes written from the tail in the recent SST
 // file opens, and provide a suggestion for following open.
@@ -46,6 +51,9 @@ class BlockBasedTableFactory : public TableFactory {
 
   ~BlockBasedTableFactory() {}
 
+  // Method to allow CheckedCast to work for this class
+  static const char* kClassName() { return kBlockBasedTableName(); }
+
   const char* Name() const override { return kBlockBasedTableName(); }
 
   using TableFactory::NewTableReader;
@@ -57,7 +65,7 @@ class BlockBasedTableFactory : public TableFactory {
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const override;
+      WritableFileWriter* file) const override;
 
   // Valdates the specified DB Options.
   Status ValidateOptions(const DBOptions& db_opts,
@@ -82,6 +90,7 @@ class BlockBasedTableFactory : public TableFactory {
 
  private:
   BlockBasedTableOptions table_options_;
+  std::shared_ptr<CacheReservationManager> table_reader_cache_res_mgr_;
   mutable TailPrefetchStats tail_prefetch_stats_;
 };
 

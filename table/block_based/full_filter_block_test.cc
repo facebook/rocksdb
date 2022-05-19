@@ -3,13 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "table/block_based/full_filter_block.h"
+
 #include <set>
 
-#include "table/block_based/full_filter_block.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/status.h"
 #include "table/block_based/block_based_table_reader.h"
-#include "table/block_based/mock_block_based_table.h"
 #include "table/block_based/filter_policy_internal.h"
+#include "table/block_based/mock_block_based_table.h"
+#include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
@@ -27,6 +30,8 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
     hash_entries_.push_back(Hash(key.data(), key.size(), 1));
   }
 
+  using FilterBitsBuilder::Finish;
+
   // Generate the filter using the keys that are added
   Slice Finish(std::unique_ptr<const char[]>* buf) override {
     uint32_t len = static_cast<uint32_t>(hash_entries_.size()) * 4;
@@ -38,6 +43,10 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
     buf->reset(const_data);
     return Slice(data, len);
   }
+
+  size_t EstimateEntriesAdded() override { return hash_entries_.size(); }
+
+  size_t ApproximateNumEntries(size_t bytes) override { return bytes / 4; }
 
  private:
   std::vector<uint32_t> hash_entries_;
@@ -75,25 +84,10 @@ class TestFilterBitsReader : public FilterBitsReader {
 class TestHashFilter : public FilterPolicy {
  public:
   const char* Name() const override { return "TestHashFilter"; }
+  const char* CompatibilityName() const override { return Name(); }
 
-  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
-    for (int i = 0; i < n; i++) {
-      uint32_t h = Hash(keys[i].data(), keys[i].size(), 1);
-      PutFixed32(dst, h);
-    }
-  }
-
-  bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
-    uint32_t h = Hash(key.data(), key.size(), 1);
-    for (unsigned int i = 0; i + 4 <= filter.size(); i += 4) {
-      if (h == DecodeFixed32(filter.data() + i)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  FilterBitsBuilder* GetFilterBitsBuilder() const override {
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
     return new TestFilterBitsBuilder();
   }
 
@@ -218,14 +212,20 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
     uniq_.insert(key.ToString());
   }
 
+  using FilterBitsBuilder::Finish;
+
   Slice Finish(std::unique_ptr<const char[]>* buf) override {
     Slice rv = b_->Finish(buf);
+    Status s_dont_care = b_->MaybePostVerify(rv);
+    s_dont_care.PermitUncheckedError();
     uniq_.clear();
     return rv;
   }
 
-  int CalculateNumEntry(const uint32_t bytes) override {
-    return b_->CalculateNumEntry(bytes);
+  size_t EstimateEntriesAdded() override { return b_->EstimateEntriesAdded(); }
+
+  size_t ApproximateNumEntries(size_t bytes) override {
+    return b_->ApproximateNumEntries(bytes);
   }
 
   size_t CountUnique() { return uniq_.size(); }
@@ -239,11 +239,9 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
     const bool WHOLE_KEY = true;
     FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                    bits_builder);
-    ASSERT_EQ(0, builder.NumAdded());
     ASSERT_EQ(0, bits_builder->CountUnique());
     // adds key and empty prefix; both abstractions count them
     builder.Add("key1");
-    ASSERT_EQ(2, builder.NumAdded());
     ASSERT_EQ(2, bits_builder->CountUnique());
     // Add different key (unique) and also empty prefix (not unique).
     // From here in this test, it's immaterial whether the block builder
@@ -262,7 +260,6 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
   const bool WHOLE_KEY = true;
   FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                  bits_builder);
-  ASSERT_EQ(0, builder.NumAdded());
   builder.Add("");  // test with empty key too
   builder.Add("prefix1key1");
   builder.Add("prefix1key1");
@@ -275,14 +272,19 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
 
 TEST_F(FullFilterBlockTest, SingleChunk) {
   FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
-  ASSERT_EQ(0, builder.NumAdded());
+  ASSERT_TRUE(builder.IsEmpty());
   builder.Add("foo");
+  ASSERT_FALSE(builder.IsEmpty());
   builder.Add("bar");
   builder.Add("box");
   builder.Add("box");
   builder.Add("hello");
-  ASSERT_EQ(5, builder.NumAdded());
-  Slice slice = builder.Finish();
+  // "box" only counts once
+  ASSERT_EQ(4, builder.EstimateEntriesAdded());
+  ASSERT_FALSE(builder.IsEmpty());
+  Status s;
+  Slice slice = builder.Finish(BlockHandle(), &s);
+  ASSERT_OK(s);
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),

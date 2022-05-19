@@ -2,7 +2,7 @@
 #     This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:
-#     You must have at least Visual Studio 2015 Update 3. Start the Developer Command Prompt window that is a part of Visual Studio installation.
+#     You must have at least Visual Studio 2019. Start the Developer Command Prompt window that is a part of Visual Studio installation.
 #     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
 #     You must have git.exe in your %PATH% environment variable.
 #
@@ -14,7 +14,7 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 15 Win64" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
+#        sample command: cmake -G "Visual Studio 16 2019" -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m to use all avail cores)
 #        msbuild rocksdb.sln
@@ -27,18 +27,21 @@
 #
 # Linux:
 #
-# 1. Install a recent toolchain such as devtoolset-3 if you're on a older distro. C++11 required.
+# 1. Install a recent toolchain if you're on a older distro. C++17 required (GCC >= 7, Clang >= 5)
 # 2. mkdir build; cd build
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.10)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 include(ReadVersion)
+include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
+  DESCRIPTION "An embeddable persistent key-value store for fast storage"
+  HOMEPAGE_URL https://rocksdb.org/
   LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
@@ -62,6 +65,7 @@ if(CCACHE_FOUND)
 endif(CCACHE_FOUND)
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
+option(WITH_LIBURING "build with liburing" ON)
 option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
@@ -70,28 +74,20 @@ option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, 
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
-# third-party/folly is only validated to work on Linux and Windows for now.
-# So only turn it on there by default.
-if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
-  if(MSVC AND MSVC_VERSION LESS 1910)
-    # Folly does not compile with MSVC older than VS2017
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
-  else()
-    option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" ON)
-  endif()
-else()
-  option(WITH_FOLLY_DISTRIBUTED_MUTEX "build with folly::DistributedMutex" OFF)
+
+if ($ENV{CIRCLECI})
+  message(STATUS "Build for CircieCI env, a few tests may be disabled")
+  add_definitions(-DCIRCLECI)
 endif()
 
 if( NOT DEFINED CMAKE_CXX_STANDARD )
-  set(CMAKE_CXX_STANDARD 11)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 include(CMakeDependentOption)
-CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
-  "NOT MSVC;NOT MINGW" OFF)
 
 if(MSVC)
+  option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
@@ -107,6 +103,11 @@ else()
     endif()
   endif()
 
+  if(MINGW)
+    option(WITH_GFLAGS "build with GFlags" OFF)
+  else()
+    option(WITH_GFLAGS "build with GFlags" ON)
+  endif()
   set(GFLAGS_LIB)
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
@@ -118,11 +119,11 @@ else()
         set(GFLAGS_LIB ${GFLAGS_TARGET})
       else()
         # Config with GFLAGS_LIBRARIES available since gflags 2.1.0
-        set(GFLAGS_LIB ${GFLAGS_LIBRARIES})
+        set(GFLAGS_LIB ${gflags_LIBRARIES})
       endif()
     else()
       find_package(gflags REQUIRED)
-        set(GFLAGS_LIB gflags::gflags)
+      set(GFLAGS_LIB gflags::gflags)
     endif()
     include_directories(${GFLAGS_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
@@ -170,24 +171,6 @@ else()
   endif()
 endif()
 
-string(TIMESTAMP TS "%Y/%m/%d %H:%M:%S" UTC)
-set(GIT_DATE_TIME "${TS}" CACHE STRING "the time we first built rocksdb")
-
-find_package(Git)
-
-if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  if(WIN32)
-    execute_process(COMMAND $ENV{COMSPEC} /C ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
-  else()
-    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
-  endif()
-else()
-  set(GIT_SHA 0)
-endif()
-
-string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
-
-
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
   if(WITH_MD_LIBRARY)
@@ -197,17 +180,15 @@ if(WIN32 AND MSVC)
   endif()
 endif()
 
-set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
-configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
-add_library(build_version OBJECT ${BUILD_VERSION_CC})
-target_include_directories(build_version PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/util)
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall -pthread")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing -Wno-invalid-offsetof")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
+  endif()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
@@ -243,14 +224,21 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
   endif(HAS_ALTIVEC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
         CHECK_C_COMPILER_FLAG("-march=armv8-a+crc+crypto" HAS_ARMV8_CRC)
   if(HAS_ARMV8_CRC)
     message(STATUS " HAS_ARMV8_CRC yes")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
   endif(HAS_ARMV8_CRC)
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
+  CHECK_C_COMPILER_FLAG("-march=native" HAS_S390X_MARCH_NATIVE)
+  if(HAS_S390X_MARCH_NATIVE)
+    message(STATUS " HAS_S390X_MARCH_NATIVE yes")
+  endif(HAS_S390X_MARCH_NATIVE)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
 
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
@@ -277,23 +265,30 @@ if(PORTABLE)
     if(FORCE_AVX2)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
     endif()
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
+    endif()
   endif()
 else()
   if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
-    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^s390x" AND NOT HAS_S390X_MARCH_NATIVE)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=z196")
+    elseif(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64" AND NOT HAS_ARMV8_CRC)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
     endif()
   endif()
 endif()
 
 include(CheckCXXSourceCompiles)
+set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-CHECK_CXX_SOURCE_COMPILES("
+if (NOT PORTABLE OR FORCE_SSE42)
+  CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
 #include <wmmintrin.h>
@@ -305,24 +300,51 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-unset(CMAKE_REQUIRED_FLAGS)
-if(HAVE_SSE42)
-  add_definitions(-DHAVE_SSE42)
-  add_definitions(-DHAVE_PCLMUL)
-elseif(FORCE_SSE42)
-  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  if(HAVE_SSE42)
+    add_definitions(-DHAVE_SSE42)
+    add_definitions(-DHAVE_PCLMUL)
+  elseif(FORCE_SSE42)
+    message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+  endif()
 endif()
 
-CHECK_CXX_SOURCE_COMPILES("
-#if defined(_MSC_VER) && !defined(__thread)
-#define __thread __declspec(thread)
-#endif
+# Check if -latomic is required or not
+if (NOT MSVC)
+  set(CMAKE_REQUIRED_FLAGS "--std=c++17")
+  CHECK_CXX_SOURCE_COMPILES("
+#include <atomic>
+std::atomic<uint64_t> x(0);
 int main() {
-  static __thread int tls;
+  uint64_t i = x.load(std::memory_order_relaxed);
+  bool b = x.is_lock_free();
+  return 0;
 }
-" HAVE_THREAD_LOCAL)
-if(HAVE_THREAD_LOCAL)
-  add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
+" BUILTIN_ATOMIC)
+  if (NOT BUILTIN_ATOMIC)
+    #TODO: Check if -latomic exists
+    list(APPEND THIRDPARTY_LIBS atomic)
+  endif()
+endif()
+
+if (WITH_LIBURING)
+  find_package(uring)
+  if (uring_FOUND)
+    add_definitions(-DROCKSDB_IOURING_PRESENT)
+    list(APPEND THIRDPARTY_LIBS uring::uring)
+  endif()
+endif()
+
+# Reset the required flags
+set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
+
+option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
+if (NOT WITH_IOSTATS_CONTEXT)
+  add_definitions(-DNIOSTATS_CONTEXT)
+endif()
+
+option(WITH_PERF_CONTEXT "Enable perf context" ON)
+if (NOT WITH_PERF_CONTEXT)
+  add_definitions(-DNPERF_CONTEXT)
 endif()
 
 option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
@@ -346,7 +368,7 @@ endif()
 
 option(WITH_TSAN "build with TSAN" OFF)
 if(WITH_TSAN)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread -pie")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread -Wl,-pie")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fPIC")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -fPIC")
   if(WITH_JEMALLOC)
@@ -397,28 +419,30 @@ if (ASSERT_STATUS_CHECKED)
   add_definitions(-DROCKSDB_ASSERT_STATUS_CHECKED)
 endif()
 
-if(DEFINED USE_RTTI)
-  if(USE_RTTI)
-    message(STATUS "Enabling RTTI")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
-  else()
-    if(MSVC)
-      message(STATUS "Disabling RTTI in Release builds. Always on in Debug.")
-      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
-      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
-    else()
-      message(STATUS "Disabling RTTI in Release builds")
-      set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
-      set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
-    endif()
-  endif()
-else()
+
+# RTTI is by default AUTO which enables it in debug and disables it in release.
+set(USE_RTTI AUTO CACHE STRING "Enable RTTI in builds")
+set_property(CACHE USE_RTTI PROPERTY STRINGS AUTO ON OFF)
+if(USE_RTTI STREQUAL "AUTO")
   message(STATUS "Enabling RTTI in Debug builds only (default)")
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
   if(MSVC)
-     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
   else()
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
+  endif()
+elseif(USE_RTTI)
+  message(STATUS "Enabling RTTI in all builds")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DROCKSDB_USE_RTTI")
+else()
+  if(MSVC)
+    message(STATUS "Disabling RTTI in Release builds. Always on in Debug.")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DROCKSDB_USE_RTTI")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /GR-")
+  else()
+    message(STATUS "Disabling RTTI in all builds")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fno-rtti")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -fno-rtti")
   endif()
 endif()
@@ -466,11 +490,6 @@ if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
   add_definitions(-fno-builtin-memcmp -DCYGWIN)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   add_definitions(-DOS_MACOSX)
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES arm)
-    add_definitions(-DIOS_CROSS_COMPILE -DROCKSDB_LITE)
-    # no debug info for IOS, that will make our library big
-    add_definitions(-DNDEBUG)
-  endif()
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_definitions(-DOS_LINUX)
 elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
@@ -554,10 +573,16 @@ if(HAVE_AUXV_GETAUXVAL)
   add_definitions(-DROCKSDB_AUXV_GETAUXVAL_PRESENT)
 endif()
 
+check_cxx_symbol_exists(F_FULLFSYNC "fcntl.h" HAVE_FULLFSYNC)
+if(HAVE_FULLFSYNC)
+  add_definitions(-DHAVE_FULLFSYNC)
+endif()
+
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
 endif()
 find_package(Threads REQUIRED)
 
@@ -565,23 +590,30 @@ find_package(Threads REQUIRED)
 
 set(SOURCES
         cache/cache.cc
+        cache/cache_entry_roles.cc
+        cache/cache_key.cc
+        cache/cache_reservation_manager.cc
         cache/clock_cache.cc
+        cache/compressed_secondary_cache.cc
+        cache/fast_lru_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
+        db/blob/blob_fetcher.cc
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
         db/blob/blob_file_cache.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
+        db/blob/blob_garbage_meter.cc
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
+        db/blob/prefetch_buffer_collection.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
-        db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
         db/compaction/compaction_picker.cc
@@ -592,6 +624,7 @@ set(SOURCES
         db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
+        db/db_impl/compacted_db_impl.cc
         db/db_impl/db_impl.cc
         db/db_impl/db_impl_write.cc
         db/db_impl/db_impl_compaction_flush.cc
@@ -642,17 +675,20 @@ set(SOURCES
         db/write_batch_base.cc
         db/write_controller.cc
         db/write_thread.cc
+        env/composite_env.cc
         env/env.cc
         env/env_chroot.cc
         env/env_encryption.cc
-        env/env_hdfs.cc
         env/file_system.cc
         env/file_system_tracer.cc
+        env/fs_remap.cc
         env/mock_env.cc
+        env/unique_id_gen.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
         file/file_util.cc
         file/filename.cc
+        file/line_file_reader.cc
         file/random_access_file_reader.cc
         file/read_write_util.cc
         file/readahead_raf.cc
@@ -666,6 +702,7 @@ set(SOURCES
         memory/concurrent_arena.cc
         memory/jemalloc_nodump_allocator.cc
         memory/memkind_kmem_allocator.cc
+        memory/memory_allocator.cc
         memtable/alloc_tracker.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -687,6 +724,7 @@ set(SOURCES
         monitoring/thread_status_util_debug.cc
         options/cf_options.cc
         options/configurable.cc
+        options/customizable.cc
         options/db_options.cc
         options/options.cc
         options/options_helper.cc
@@ -740,6 +778,7 @@ set(SOURCES
         table/table_factory.cc
         table/table_properties.cc
         table/two_level_iterator.cc
+        table/unique_id.cc
         test_util/sync_point.cc
         test_util/sync_point_impl.cc
         test_util/testutil.cc
@@ -751,12 +790,17 @@ set(SOURCES
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
         tools/trace_analyzer_tool.cc
-        trace_replay/trace_replay.cc
         trace_replay/block_cache_tracer.cc
         trace_replay/io_tracer.cc
+        trace_replay/trace_record_handler.cc
+        trace_replay/trace_record_result.cc
+        trace_replay/trace_record.cc
+        trace_replay/trace_replay.cc
+        util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
+        util/compression.cc
         util/compression_context_cache.cc
         util/concurrent_task_limiter_impl.cc
         util/crc32c.cc
@@ -765,6 +809,7 @@ set(SOURCES
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc
+        util/ribbon_config.cc
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
@@ -772,25 +817,32 @@ set(SOURCES
         util/thread_local.cc
         util/threadpool_imp.cc
         util/xxhash.cc
-        utilities/backupable/backupable_db.cc
+        utilities/agg_merge/agg_merge.cc
+        utilities/backup/backup_engine.cc
         utilities/blob_db/blob_compaction_filter.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
         utilities/blob_db/blob_db_impl_filesnapshot.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
+        utilities/cache_dump_load.cc
+        utilities/cache_dump_load_impl.cc
         utilities/cassandra/cassandra_compaction_filter.cc
         utilities/cassandra/format.cc
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
+        utilities/compaction_filters.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
+        utilities/counted_fs.cc
         utilities/debug.cc
         utilities/env_mirror.cc
         utilities/env_timed.cc
         utilities/fault_injection_env.cc
         utilities/fault_injection_fs.cc
+        utilities/fault_injection_secondary_cache.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/memory/memory_util.cc
+        utilities/merge_operators.cc
         utilities/merge_operators/bytesxor.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
@@ -810,9 +862,12 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
+        utilities/trace/replayer_impl.cc
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -826,9 +881,48 @@ set(SOURCES
         utilities/transactions/write_unprepared_txn.cc
         utilities/transactions/write_unprepared_txn_db.cc
         utilities/ttl/db_ttl_impl.cc
+        utilities/wal_filter.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
-        utilities/write_batch_with_index/write_batch_with_index_internal.cc
-        $<TARGET_OBJECTS:build_version>)
+        utilities/write_batch_with_index/write_batch_with_index_internal.cc)
+
+list(APPEND SOURCES
+  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc
+  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
+  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
+  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
+
+message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")
+if ( ROCKSDB_PLUGINS )
+  string(REPLACE " " ";" PLUGINS ${ROCKSDB_PLUGINS})
+  foreach (plugin ${PLUGINS})
+    add_subdirectory("plugin/${plugin}")
+    foreach (src ${${plugin}_SOURCES})
+      list(APPEND SOURCES plugin/${plugin}/${src})
+      set_source_files_properties(
+        plugin/${plugin}/${src}
+        PROPERTIES COMPILE_FLAGS "${${plugin}_COMPILE_FLAGS}")
+    endforeach()
+    foreach (path ${${plugin}_INCLUDE_PATHS})
+      include_directories(${path})
+    endforeach()
+    foreach (lib ${${plugin}_LIBS})
+      list(APPEND THIRDPARTY_LIBS ${lib})
+    endforeach()
+    foreach (link_path ${${plugin}_LINK_PATHS})
+      link_directories(AFTER ${link_path})
+    endforeach()
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${${plugin}_CMAKE_SHARED_LINKER_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${${plugin}_CMAKE_EXE_LINKER_FLAGS}")
+  endforeach()
+endif()
 
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
@@ -853,13 +947,8 @@ if(WIN32)
     port/win/env_win.cc
     port/win/env_default.cc
     port/win/port_win.cc
-    port/win/win_logger.cc)
-  if(NOT MINGW)
-    # Mingw only supports std::thread when using
-    # posix threads.
-    list(APPEND SOURCES
-      port/win/win_thread.cc)
-  endif()
+    port/win/win_logger.cc
+    port/win/win_thread.cc)
 if(WITH_XPRESS)
   list(APPEND SOURCES
     port/win/xpress_win.cc)
@@ -878,13 +967,12 @@ else()
     env/io_posix.cc)
 endif()
 
-if(WITH_FOLLY_DISTRIBUTED_MUTEX)
+if(USE_FOLLY)
   list(APPEND SOURCES
-    third-party/folly/folly/detail/Futex.cpp
-    third-party/folly/folly/synchronization/AtomicNotification.cpp
-    third-party/folly/folly/synchronization/DistributedMutex.cpp
-    third-party/folly/folly/synchronization/ParkingLot.cpp
-    third-party/folly/folly/synchronization/WaitOptions.cpp)
+    third-party/folly/folly/container/detail/F14Table.cpp
+    third-party/folly/folly/lang/SafeAssert.cpp
+    third-party/folly/folly/lang/ToAscii.cpp
+    third-party/folly/folly/ScopeGuard.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -892,12 +980,6 @@ set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
 
 option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
-option(WITH_LIBRADOS "Build with librados" OFF)
-if(WITH_LIBRADOS)
-  list(APPEND SOURCES
-    utilities/env_librados.cc)
-  list(APPEND THIRDPARTY_LIBS rados)
-endif()
 
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
@@ -905,12 +987,66 @@ else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
-add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
+set(ROCKSDB_PLUGIN_EXTERNS "")
+set(ROCKSDB_PLUGIN_BUILTINS "")
+message(STATUS "ROCKSDB PLUGINS TO BUILD ${ROCKSDB_PLUGINS}")
+list(APPEND PLUGINS ${ROCKSDB_PLUGINS})
+foreach(PLUGIN IN LISTS PLUGINS)
+  set(PLUGIN_ROOT "${CMAKE_SOURCE_DIR}/plugin/${PLUGIN}/")
+  message("including rocksb plugin ${PLUGIN_ROOT}")
+  set(PLUGINMKFILE "${PLUGIN_ROOT}${PLUGIN}.mk")
+  if (NOT EXISTS ${PLUGINMKFILE})
+    message(FATAL_ERROR "Missing plugin makefile: ${PLUGINMKFILE}")
+  endif()
+  file(READ ${PLUGINMKFILE} PLUGINMK)
+  string(REGEX MATCH "SOURCES = ([^\n]*)" FOO ${PLUGINMK})
+  set(MK_SOURCES ${CMAKE_MATCH_1})
+  separate_arguments(MK_SOURCES)
+  foreach(MK_FILE IN LISTS MK_SOURCES)
+    list(APPEND SOURCES "${PLUGIN_ROOT}${MK_FILE}")
+  endforeach()
+  string(REGEX MATCH "_FUNC = ([^\n]*)" FOO ${PLUGINMK})
+  if (NOT ${CMAKE_MATCH_1} STREQUAL "")
+    string(APPEND ROCKSDB_PLUGIN_BUILTINS "{\"${PLUGIN}\", " ${CMAKE_MATCH_1} "},")
+    string(APPEND ROCKSDB_PLUGIN_EXTERNS "int " ${CMAKE_MATCH_1} "(ROCKSDB_NAMESPACE::ObjectLibrary&, const std::string&); ")
+  endif()
+  string(REGEX MATCH "_LIBS = ([^\n]*)" FOO ${PLUGINMK})
+  if (NOT ${CMAKE_MATCH_1} STREQUAL "")
+    list(APPEND THIRDPARTY_LIBS "${CMAKE_MATCH_1}")
+  endif()
+  message("THIRDPARTY_LIBS=${THIRDPARTY_LIBS}")
+  #TODO: We need to set any compile/link-time flags and add any link libraries
+endforeach()
+
+string(TIMESTAMP TS "%Y-%m-%d %H:%M:%S" UTC)
+set(BUILD_DATE "${TS}" CACHE STRING "the time we first built rocksdb")
+
+find_package(Git)
+
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD )
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE GIT_MOD COMMAND "${GIT_EXECUTABLE}" diff-index HEAD --quiet)
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_DATE COMMAND "${GIT_EXECUTABLE}" log -1 --date=format:"%Y-%m-%d %T" --format="%ad")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG RESULT_VARIABLE rv COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (rv AND NOT rv EQUAL 0)
+    execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match OUTPUT_STRIP_TRAILING_WHITESPACE)
+  endif()
+else()
+  set(GIT_SHA 0)
+  set(GIT_MOD 1)
+endif()
+string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
+string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
+
+set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
+configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
+
+add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(ROCKSDB_BUILD_SHARED)
-  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
+  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
   target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
@@ -928,7 +1064,7 @@ if(ROCKSDB_BUILD_SHARED)
                           LINKER_LANGUAGE CXX
                           VERSION ${rocksdb_VERSION}
                           SOVERSION ${rocksdb_VERSION_MAJOR}
-                          OUTPUT_NAME "rocksdb")
+                          OUTPUT_NAME "rocksdb${ARTIFACT_SUFFIX}")
   endif()
 endif()
 
@@ -984,6 +1120,12 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     COMPATIBILITY SameMajorVersion
   )
 
+  configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc
+    @ONLY
+  )
+
   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
@@ -1022,6 +1164,13 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     COMPONENT devel
     DESTINATION ${package_config_destination}
   )
+
+  install(
+    FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc
+    COMPONENT devel
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+  )
 endif()
 
 option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
@@ -1041,21 +1190,29 @@ if(WITH_TESTS)
   )
   if(WITH_ALL_TESTS)
     list(APPEND TESTS
+        cache/cache_reservation_manager_test.cc
         cache/cache_test.cc
+        cache/compressed_secondary_cache_test.cc
         cache/lru_cache_test.cc
+        db/blob/blob_counting_iterator_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_cache_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
+        db/blob/blob_garbage_meter_test.cc
         db/blob/db_blob_basic_test.cc
+        db/blob/db_blob_compaction_test.cc
+        db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
+        db/compaction/clipping_iterator_test.cc
         db/compaction/compaction_job_stats_test.cc
         db/compaction/compaction_job_test.cc
         db/compaction/compaction_iterator_test.cc
         db/compaction/compaction_picker_test.cc
+        db/compaction/compaction_service_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
@@ -1065,12 +1222,14 @@ if(WITH_TESTS)
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
         db/db_dynamic_level_test.cc
+        db/db_encryption_test.cc
         db/db_flush_test.cc
         db/db_inplace_update_test.cc
         db/db_io_failure_test.cc
         db/db_iter_test.cc
         db/db_iter_stress_test.cc
         db/db_iterator_test.cc
+        db/db_kv_checksum_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
         db/db_merge_operator_test.cc
@@ -1078,7 +1237,8 @@ if(WITH_TESTS)
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
-        db/db_impl/db_secondary_test.cc
+        db/db_rate_limiter_test.cc
+        db/db_secondary_test.cc
         db/db_sst_test.cc
         db/db_statistics_test.cc
         db/db_table_properties_test.cc
@@ -1089,6 +1249,7 @@ if(WITH_TESTS)
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/db_with_timestamp_compaction_test.cc
+        db/db_write_buffer_manager_test.cc
         db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
@@ -1100,6 +1261,7 @@ if(WITH_TESTS)
         db/file_indexer_test.cc
         db/filename_test.cc
         db/flush_job_test.cc
+        db/import_column_family_test.cc
         db/listener_test.cc
         db/log_test.cc
         db/manual_compaction_test.cc
@@ -1133,7 +1295,7 @@ if(WITH_TESTS)
         logging/env_logger_test.cc
         logging/event_logger_test.cc
         memory/arena_test.cc
-        memory/memkind_kmem_allocator_test.cc
+        memory/memory_allocator_test.cc
         memtable/inlineskiplist_test.cc
         memtable/skiplist_test.cc
         memtable/write_buffer_manager_test.cc
@@ -1142,6 +1304,7 @@ if(WITH_TESTS)
         monitoring/statistics_test.cc
         monitoring/stats_history_test.cc
         options/configurable_test.cc
+        options/customizable_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc
@@ -1158,6 +1321,7 @@ if(WITH_TESTS)
         table/table_test.cc
         table/block_fetcher_test.cc
         test_util/testutil_test.cc
+        trace_replay/block_cache_tracer_test.cc
         trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
         tools/io_tracer_parser_test.cc
@@ -1186,13 +1350,15 @@ if(WITH_TESTS)
         util/thread_list_test.cc
         util/thread_local_test.cc
         util/work_queue_test.cc
-        utilities/backupable/backupable_db_test.cc
+        utilities/agg_merge/agg_merge_test.cc
+        utilities/backup/backup_engine_test.cc
         utilities/blob_db/blob_db_test.cc
         utilities/cassandra/cassandra_functional_test.cc
         utilities/cassandra/cassandra_format_test.cc
         utilities/cassandra/cassandra_row_merge_test.cc
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
+        utilities/env_timed_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/object_registry_test.cc
@@ -1206,24 +1372,21 @@ if(WITH_TESTS)
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
         utilities/transactions/lock/point/point_lock_manager_test.cc
+        utilities/transactions/write_committed_transaction_ts_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
+        utilities/transactions/lock/range/range_locking_test.cc
         utilities/ttl/ttl_test.cc
+        utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )
-  endif()
-  if(WITH_LIBRADOS)
-    list(APPEND TESTS utilities/env_librados_test.cc)
-  endif()
-
-  if(WITH_FOLLY_DISTRIBUTED_MUTEX)
-    list(APPEND TESTS third-party/folly/folly/synchronization/test/DistributedMutexTest.cpp)
   endif()
 
   set(TESTUTIL_SOURCE
       db/db_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
+      utilities/agg_merge/test_agg_merge.cc
       utilities/cassandra/test_utils.cc
   )
   enable_testing()
@@ -1242,21 +1405,17 @@ if(WITH_TESTS)
 
   foreach(sourcefile ${TESTS})
       get_filename_component(exename ${sourcefile} NAME_WE)
-      add_executable(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-      set_target_properties(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX}
+      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+      set_target_properties(${exename}${ARTIFACT_SUFFIX}
         PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
+      target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
-        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-        add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
-      endif()
-      if("${exename}" MATCHES "env_librados_test")
-        # env_librados_test.cc uses librados directly
-        target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} rados)
+        gtest_discover_tests(${exename} DISCOVERY_TIMEOUT 120)
+        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
       endif()
   endforeach(sourcefile ${TESTS})
 
@@ -1281,40 +1440,42 @@ if(WITH_TESTS)
 endif()
 
 if(WITH_BENCHMARK_TOOLS)
-  add_executable(db_bench
+  add_executable(db_bench${ARTIFACT_SUFFIX}
+    tools/simulated_hybrid_file_system.cc
     tools/db_bench.cc
     tools/db_bench_tool.cc)
-  target_link_libraries(db_bench
+  target_link_libraries(db_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
-  add_executable(cache_bench
-    cache/cache_bench.cc)
-  target_link_libraries(cache_bench
+  add_executable(cache_bench${ARTIFACT_SUFFIX}
+    cache/cache_bench.cc
+    cache/cache_bench_tool.cc)
+  target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(memtablerep_bench
+  add_executable(memtablerep_bench${ARTIFACT_SUFFIX}
     memtable/memtablerep_bench.cc)
-  target_link_libraries(memtablerep_bench
+  target_link_libraries(memtablerep_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(range_del_aggregator_bench
+  add_executable(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     db/range_del_aggregator_bench.cc)
-  target_link_libraries(range_del_aggregator_bench
+  target_link_libraries(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(table_reader_bench
+  add_executable(table_reader_bench${ARTIFACT_SUFFIX}
     table/table_reader_bench.cc)
-  target_link_libraries(table_reader_bench
+  target_link_libraries(table_reader_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
 
-  add_executable(filter_bench
+  add_executable(filter_bench${ARTIFACT_SUFFIX}
     util/filter_bench.cc)
-  target_link_libraries(filter_bench
+  target_link_libraries(filter_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(hash_table_bench
+  add_executable(hash_table_bench${ARTIFACT_SUFFIX}
     utilities/persistent_cache/hash_table_bench.cc)
-  target_link_libraries(hash_table_bench
+  target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 
@@ -1333,4 +1494,9 @@ endif()
 option(WITH_EXAMPLES "build with examples" OFF)
 if(WITH_EXAMPLES)
   add_subdirectory(examples)
+endif()
+
+option(WITH_BENCHMARK "build benchmark tests" OFF)
+if(WITH_BENCHMARK)
+  add_subdirectory(${PROJECT_SOURCE_DIR}/microbench/)
 endif()

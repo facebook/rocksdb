@@ -265,27 +265,27 @@ public abstract class AbstractEventListener extends RocksCallbackObject implemen
   }
 
   @Override
-  public void OnFileFlushFinish(final FileOperationInfo fileOperationInfo) {
+  public void onFileFlushFinish(final FileOperationInfo fileOperationInfo) {
     // no-op
   }
 
   @Override
-  public void OnFileSyncFinish(final FileOperationInfo fileOperationInfo) {
+  public void onFileSyncFinish(final FileOperationInfo fileOperationInfo) {
     // no-op
   }
 
   @Override
-  public void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
+  public void onFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
     // no-op
   }
 
   @Override
-  public void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
+  public void onFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
     // no-op
   }
 
   @Override
-  public void OnFileCloseFinish(final FileOperationInfo fileOperationInfo) {
+  public void onFileCloseFinish(final FileOperationInfo fileOperationInfo) {
     // no-op
   }
 

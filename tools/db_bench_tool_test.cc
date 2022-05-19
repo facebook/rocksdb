@@ -32,7 +32,6 @@ class DBBenchTest : public testing::Test {
     Env::Default()->CreateDir(test_path_);
     db_path_ = test_path_ + "/db";
     wal_path_ = test_path_ + "/wal";
-    fs_.reset(new LegacyFileSystemWrapper(Env::Default()));
   }
 
   ~DBBenchTest() {
@@ -114,7 +113,6 @@ class DBBenchTest : public testing::Test {
   std::string db_path_;
   std::string test_path_;
   std::string wal_path_;
-  std::unique_ptr<LegacyFileSystemWrapper> fs_;
 
   char arg_buffer_[kArgBufferSize];
   char* argv_[kMaxArgCount];
@@ -129,8 +127,8 @@ TEST_F(DBBenchTest, OptionsFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
   Options opt = GetDefaultOptions();
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
-                                  {ColumnFamilyOptions()}, kOptionsFileName,
-                                  fs_.get()));
+                                  {ColumnFamilyOptions(opt)}, kOptionsFileName,
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file
@@ -149,7 +147,7 @@ TEST_F(DBBenchTest, OptionsFileUniversal) {
 
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
-                                  fs_.get()));
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file
@@ -166,7 +164,7 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
 
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
-                                  fs_.get()));
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file
@@ -196,12 +194,10 @@ const std::string options_file_content = R"OPTIONS_FILE(
   use_adaptive_mutex=false
   max_total_wal_size=18446744073709551615
   compaction_readahead_size=0
-  new_table_reader_for_compaction_inputs=false
   keep_log_file_num=10
   skip_stats_update_on_db_open=false
   max_manifest_file_size=18446744073709551615
   db_log_dir=
-  skip_log_error_on_recovery=false
   writable_file_max_buffer_size=1048576
   paranoid_checks=true
   is_fd_close_on_exec=true
@@ -254,7 +250,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   level0_slowdown_writes_trigger=50
   level0_file_num_compaction_trigger=10
   expanded_compaction_factor=25
-  soft_rate_limit=0.000000
   max_write_buffer_number_to_maintain=0
   max_write_buffer_size_to_maintain=0
   verify_checksums_in_compaction=true
@@ -268,18 +263,24 @@ const std::string options_file_content = R"OPTIONS_FILE(
   inplace_update_support=false
   compaction_style=kCompactionStyleUniversal
   memtable_prefix_bloom_probes=6
-  purge_redundant_kvs_while_flush=true
   filter_deletes=false
   hard_pending_compaction_bytes_limit=0
   disable_auto_compactions=false
   compaction_measure_io_stats=false
+  enable_blob_files=true
+  min_blob_size=16
+  blob_file_size=10485760
+  blob_compression_type=kNoCompression
+  enable_blob_garbage_collection=true
+  blob_garbage_collection_age_cutoff=0.5
+  blob_garbage_collection_force_threshold=0.75
+  blob_compaction_readahead_size=262144
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0
   skip_table_builder_flush=false
   cache_index_and_filter_blocks=false
   flush_block_policy_factory=FlushBlockBySizePolicyFactory
-  hash_index_allow_collision=true
   index_type=kBinarySearch
   whole_key_filtering=true
   checksum=kCRC32c
@@ -318,7 +319,7 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();
 }
 

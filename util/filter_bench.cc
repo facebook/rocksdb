@@ -19,6 +19,9 @@ int main() {
 #include "memory/arena.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/system_clock.h"
+#include "rocksdb/table.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
@@ -29,6 +32,7 @@ int main() {
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
@@ -80,7 +84,8 @@ DEFINE_bool(new_builder, false,
 
 DEFINE_uint32(impl, 0,
               "Select filter implementation. Without -use_plain_table_bloom:"
-              "0 = full filter, 1 = block-based filter. With "
+              "0 = legacy full Bloom filter, 1 = block-based Bloom filter, "
+              "2 = format_version 5 Bloom filter, 3 = Ribbon128 filter. With "
               "-use_plain_table_bloom: 0 = no locality, 1 = locality.");
 
 DEFINE_bool(net_includes_hashing, false,
@@ -90,6 +95,23 @@ DEFINE_bool(net_includes_hashing, false,
 
 DEFINE_bool(optimize_filters_for_memory, false,
             "Setting for BlockBasedTableOptions::optimize_filters_for_memory");
+
+DEFINE_bool(detect_filter_construct_corruption, false,
+            "Setting for "
+            "BlockBasedTableOptions::detect_filter_construct_corruption");
+
+DEFINE_uint32(block_cache_capacity_MB, 8,
+              "Setting for "
+              "LRUCacheOptions::capacity");
+
+DEFINE_bool(charge_filter_construction, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kFilterConstruction");
+
+DEFINE_bool(strict_capacity_limit, false,
+            "Setting for "
+            "LRUCacheOptions::strict_capacity_limit");
 
 DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
 
@@ -121,21 +143,28 @@ using ROCKSDB_NAMESPACE::Arena;
 using ROCKSDB_NAMESPACE::BlockContents;
 using ROCKSDB_NAMESPACE::BloomFilterPolicy;
 using ROCKSDB_NAMESPACE::BloomHash;
+using ROCKSDB_NAMESPACE::BloomLikeFilterPolicy;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
+using ROCKSDB_NAMESPACE::Cache;
+using ROCKSDB_NAMESPACE::CacheEntryRole;
+using ROCKSDB_NAMESPACE::CacheEntryRoleOptions;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
+using ROCKSDB_NAMESPACE::FilterPolicy;
 using ROCKSDB_NAMESPACE::FullFilterBlockReader;
 using ROCKSDB_NAMESPACE::GetSliceHash;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
 using ROCKSDB_NAMESPACE::Lower32of64;
+using ROCKSDB_NAMESPACE::LRUCacheOptions;
 using ROCKSDB_NAMESPACE::ParsedFullFilterBlock;
 using ROCKSDB_NAMESPACE::PlainTableBloomV1;
 using ROCKSDB_NAMESPACE::Random32;
 using ROCKSDB_NAMESPACE::Slice;
 using ROCKSDB_NAMESPACE::static_cast_with_check;
+using ROCKSDB_NAMESPACE::Status;
 using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::mock::MockBlockBasedTableTester;
 
@@ -189,10 +218,13 @@ void PrintWarnings() {
 #endif
 }
 
+void PrintError(const char *error) { fprintf(stderr, "ERROR: %s\n", error); }
+
 struct FilterInfo {
   uint32_t filter_id_ = 0;
   std::unique_ptr<const char[]> owner_;
   Slice filter_;
+  Status filter_construction_status = Status::OK();
   uint32_t keys_added_ = 0;
   std::unique_ptr<FilterBitsReader> reader_;
   std::unique_ptr<FullFilterBlockReader> full_block_reader_;
@@ -262,27 +294,51 @@ static uint32_t DryRunHash64(Slice &s) {
   return Lower32of64(GetSliceHash64(s));
 }
 
+const std::shared_ptr<const FilterPolicy> &GetPolicy() {
+  static std::shared_ptr<const FilterPolicy> policy;
+  if (!policy) {
+    policy = BloomLikeFilterPolicy::Create(
+        BloomLikeFilterPolicy::GetAllFixedImpls().at(FLAGS_impl),
+        FLAGS_bits_per_key);
+  }
+  return policy;
+}
+
 struct FilterBench : public MockBlockBasedTableTester {
   std::vector<KeyMaker> kms_;
   std::vector<FilterInfo> infos_;
   Random32 random_;
   std::ostringstream fp_rate_report_;
   Arena arena_;
-  StderrLogger stderr_logger_;
   double m_queries_;
+  StderrLogger stderr_logger_;
 
   FilterBench()
-      : MockBlockBasedTableTester(new BloomFilterPolicy(
-            FLAGS_bits_per_key,
-            static_cast<BloomFilterPolicy::Mode>(FLAGS_impl))),
+      : MockBlockBasedTableTester(GetPolicy()),
         random_(FLAGS_seed),
         m_queries_(0) {
     for (uint32_t i = 0; i < FLAGS_batch_size; ++i) {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
-    ioptions_.info_log = &stderr_logger_;
+    ioptions_.logger = &stderr_logger_;
     table_options_.optimize_filters_for_memory =
         FLAGS_optimize_filters_for_memory;
+    table_options_.detect_filter_construct_corruption =
+        FLAGS_detect_filter_construct_corruption;
+    table_options_.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ FLAGS_charge_filter_construction
+              ? CacheEntryRoleOptions::Decision::kEnabled
+              : CacheEntryRoleOptions::Decision::kDisabled}});
+    if (FLAGS_charge_filter_construction) {
+      table_options_.no_block_cache = false;
+      LRUCacheOptions lo;
+      lo.capacity = FLAGS_block_cache_capacity_MB * 1024 * 1024;
+      lo.num_shard_bits = 0;  // 2^0 shard
+      lo.strict_capacity_limit = FLAGS_strict_capacity_limit;
+      std::shared_ptr<Cache> cache(NewLRUCache(lo));
+      table_options_.block_cache = cache;
+    }
   }
 
   void Go();
@@ -306,9 +362,9 @@ void FilterBench::Go() {
       throw std::runtime_error(
           "Block-based filter not currently supported by filter_bench");
     }
-    if (FLAGS_impl > 2) {
+    if (FLAGS_impl > 3) {
       throw std::runtime_error(
-          "-impl must currently be 0 or 2 for Block-based table");
+          "-impl must currently be 0, 2, or 3 for Block-based table");
     }
   }
 
@@ -357,8 +413,8 @@ void FilterBench::Go() {
     max_mem = static_cast<size_t>(1024 * 1024 * working_mem_size_mb);
   }
 
-  ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                         true);
+  ROCKSDB_NAMESPACE::StopWatchNano timer(
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   infos_.clear();
   while ((working_mem_size_mb == 0 || total_size < max_mem) &&
@@ -392,7 +448,15 @@ void FilterBench::Go() {
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));
       }
-      info.filter_ = builder->Finish(&info.owner_);
+      info.filter_ =
+          builder->Finish(&info.owner_, &info.filter_construction_status);
+      if (info.filter_construction_status.ok()) {
+        info.filter_construction_status =
+            builder->MaybePostVerify(info.filter_);
+      }
+      if (!info.filter_construction_status.ok()) {
+        PrintError(info.filter_construction_status.ToString().c_str());
+      }
 #ifdef PREDICT_FP_RATE
       weighted_predicted_fp_rate +=
           keys_to_add *
@@ -561,15 +625,25 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     // 100% of queries to 1 filter
     num_primary_filters = 1;
   } else if (mode == kFiftyOneFilter) {
+    if (num_infos < 50) {
+      return 0.0;  // skip
+    }
     // 50% of queries
     primary_filter_threshold /= 2;
     // to 1% of filters
     num_primary_filters = (num_primary_filters + 99) / 100;
   } else if (mode == kEightyTwentyFilter) {
+    if (num_infos < 5) {
+      return 0.0;  // skip
+    }
     // 80% of queries
     primary_filter_threshold = primary_filter_threshold / 5 * 4;
     // to 20% of filters
     num_primary_filters = (num_primary_filters + 4) / 5;
+  } else if (mode == kRandomFilter) {
+    if (num_infos == 1) {
+      return 0.0;  // skip
+    }
   }
   uint32_t batch_size = 1;
   std::unique_ptr<Slice[]> batch_slices;
@@ -587,8 +661,8 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     batch_slice_ptrs[i] = &batch_slices[i];
   }
 
-  ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                         true);
+  ROCKSDB_NAMESPACE::StopWatchNano timer(
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
     bool inside_this_time = random_.Next() <= inside_threshold;

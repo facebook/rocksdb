@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -42,6 +43,10 @@ struct FileChecksumGenContext {
 // * Finalize is called at most once during the life of the object
 // * All calls to Update come before Finalize
 // * All calls to GetChecksum come after Finalize
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumGenerator {
  public:
   virtual ~FileChecksumGenerator() {}
@@ -63,24 +68,36 @@ class FileChecksumGenerator {
 };
 
 // Create the FileChecksumGenerator object for each SST file.
-class FileChecksumGenFactory {
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
+class FileChecksumGenFactory : public Customizable {
  public:
-  virtual ~FileChecksumGenFactory() {}
+  ~FileChecksumGenFactory() override {}
+  static const char* Type() { return "FileChecksumGenFactory"; }
+  static Status CreateFromString(
+      const ConfigOptions& options, const std::string& value,
+      std::shared_ptr<FileChecksumGenFactory>* result);
 
   // Create a new FileChecksumGenerator.
   virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
       const FileChecksumGenContext& context) = 0;
 
   // Return the name of this FileChecksumGenFactory.
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 };
 
 // FileChecksumList stores the checksum information of a list of files (e.g.,
-// SST files). The FileChecksumLIst can be used to store the checksum
+// SST files). The FileChecksumList can be used to store the checksum
 // information of all SST file getting  from the MANIFEST, which are
 // the checksum information of all valid SST file of a DB instance. It can
 // also be used to store the checksum information of a list of SST files to
 // be ingested.
+//
+// Exceptions MUST NOT propagate out of overridden functions into RocksDB,
+// because RocksDB is not exception-safe. This could cause undefined behavior
+// including data loss, unreported corruption, deadlocks, and more.
 class FileChecksumList {
  public:
   virtual ~FileChecksumList() {}
@@ -116,7 +133,7 @@ class FileChecksumList {
 // Create a new file checksum list.
 extern FileChecksumList* NewFileChecksumList();
 
-// Return a shared_ptr of the builtin Crc32c based file checksum generatory
+// Return a shared_ptr of the builtin Crc32c based file checksum generator
 // factory object, which can be shared to create the Crc32c based checksum
 // generator object.
 // Note: this implementation is compatible with many other crc32c checksum

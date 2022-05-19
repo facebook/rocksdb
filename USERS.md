@@ -26,6 +26,9 @@ Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasu
 ## Yahoo
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights
 
+## Baidu
+[Apache Doris](http://doris.apache.org/master/en/) is a MPP analytical database engine released by Baidu. It [uses RocksDB](http://doris.apache.org/master/en/administrator-guide/operation/tablet-meta-tool.html) to manage its tablet's metadata.
+
 ## CockroachDB
 CockroachDB is an open-source geo-replicated transactional database. They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
 
@@ -44,7 +47,7 @@ Tango is using RocksDB as a graph storage to store all users' connection data an
 Turn is using RocksDB as a storage layer for their key/value store, serving at peak 2.4MM QPS out of different datacenters.
 Check out our RocksDB Protobuf merge operator at: https://github.com/vladb38/rocksdb_protobuf
 
-## Santanader UK/Cloudera Profession Services
+## Santander UK/Cloudera Profession Services
 Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santanders-near-real-time-data-ingest-architecture/
 
 ## Airbnb
@@ -67,7 +70,7 @@ Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtub
 [VWO's](https://vwo.com/) Smart Code checker and URL helper uses RocksDB to store all the URLs where VWO's Smart Code is installed.
 
 ## quasardb
-[quasardb](https://www.quasardb.net) is a high-performance, distributed, transactional key-value database that integrates well with in-memory analytics engines such as Apache Spark. 
+[quasardb](https://www.quasardb.net) is a high-performance, distributed, transactional key-value database that integrates well with in-memory analytics engines such as Apache Spark.
 quasardb uses a heavily tuned RocksDB as its persistence layer.
 
 ## Netflix
@@ -86,7 +89,7 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 [Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and scalable task queue.
 
 ## 360 Pika
-[360](http://www.360.cn/) [Pika](https://github.com/Qihoo360/pika) is a nosql compatible with redis. With the huge amount of data stored, redis may suffer for a capacity bottleneck, and pika was born for solving it. It has widely been widely used in many company
+[360](http://www.360.cn/) [Pika](https://github.com/Qihoo360/pika) is a nosql compatible with redis. With the huge amount of data stored, redis may suffer for a capacity bottleneck, and pika was born for solving it. It has widely been used in many companies.
 
 ## LzLabs
 LzLabs is using RocksDB as a storage engine in their multi-database distributed framework to store application configuration and user data.
@@ -96,16 +99,30 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 
 ## IOTA Foundation
  [IOTA Foundation](https://www.iota.org/) is using RocksDB in the [IOTA Reference Implementation (IRI)](https://github.com/iotaledger/iri) to store the local state of the Tangle. The Tangle is the first open-source distributed ledger powering the future of the Internet of Things.
- 
+
 ## Avrio Project
  [Avrio Project](http://avrio-project.github.io/avrio.network/) is using RocksDB in [Avrio ](https://github.com/avrio-project/avrio) to store blocks, account balances and data and other blockchain-releated data. Avrio is a multiblockchain decentralized cryptocurrency empowering monetary transactions.
- 
+
 ## Crux
 [Crux](https://github.com/juxt/crux) is a document database that uses RocksDB for local [EAV](https://en.wikipedia.org/wiki/Entity%E2%80%93attribute%E2%80%93value_model) index storage to enable point-in-time bitemporal Datalog queries. The "unbundled" architecture uses Kafka to provide horizontal scalability.
 
 ## Nebula Graph
-
 [Nebula Graph](https://github.com/vesoft-inc/nebula) is a distributed, scalable, lightning-fast, open source graph database capable of hosting super large scale graphs with dozens of billions of vertices (nodes) and trillions of edges, with milliseconds of latency.
 
 ## YugabyteDB
 [YugabyteDB](https://www.yugabyte.com/) is an open source, high performance, distributed SQL database that uses RocksDB as its storage layer. For more information, please see https://github.com/yugabyte/yugabyte-db/.
+
+## ArangoDB
+[ArangoDB](https://www.arangodb.com/) is a native multi-model database with flexible data models for documents, graphs, and key-values, for building high performance applications using a convenient SQL-like query language or JavaScript extensions. It uses RocksDB as its storage engine.
+
+## Milvus
+[Milvus](https://milvus.io/) is an open source vector database for unstructured data. It uses RocksDB not only as one of the supported kv storage engines, but also as a message queue.
+
+## Kafka
+[Kafka](https://kafka.apache.org/) is an open-source distributed event streaming platform, it uses RocksDB to store state in Kafka Streams: https://www.confluent.io/blog/how-to-tune-rocksdb-kafka-streams-state-stores-performance/.
+
+## Solana Labs
+[Solana](https://github.com/solana-labs/solana) is a fast, secure, scalable, and decentralized blockchain.  It uses RocksDB as the underlying storage for its ledger store.
+
+## Others
+More databases using RocksDB can be found at [dbdb.io](https://dbdb.io/browse?embeds=rocksdb).

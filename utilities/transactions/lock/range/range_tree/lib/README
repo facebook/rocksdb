@@ -1,0 +1,13 @@
+The files in this directory originally come from
+https://github.com/percona/PerconaFT/.
+
+This directory only includes the "locktree" part of PerconaFT, and its
+dependencies.
+
+The following modifications were made:
+- Make locktree usable outside of PerconaFT library
+- Add shared read-only lock support
+
+The files named *_subst.* are substitutes of the PerconaFT's files, they
+contain replacements of PerconaFT's functionality.
+

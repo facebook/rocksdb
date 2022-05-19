@@ -43,6 +43,7 @@ struct LockInfo {
     txn_ids = lock_info.txn_ids;
     expiration_time = lock_info.expiration_time;
   }
+  DECLARE_DEFAULT_MOVES(LockInfo);
 };
 
 struct LockMapStripe {
@@ -61,7 +62,7 @@ struct LockMapStripe {
 
   // Locked keys mapped to the info about the transactions that locked them.
   // TODO(agiardullo): Explore performance of other data structures.
-  std::unordered_map<std::string, LockInfo> keys;
+  UnorderedMap<std::string, LockInfo> keys;
 };
 
 // Map of #num_stripes LockMapStripes
@@ -94,69 +95,11 @@ struct LockMap {
   size_t GetStripe(const std::string& key) const;
 };
 
-void DeadlockInfoBuffer::AddNewPath(DeadlockPath path) {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  if (paths_buffer_.empty()) {
-    return;
-  }
-
-  paths_buffer_[buffer_idx_] = std::move(path);
-  buffer_idx_ = (buffer_idx_ + 1) % paths_buffer_.size();
-}
-
-void DeadlockInfoBuffer::Resize(uint32_t target_size) {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  paths_buffer_ = Normalize();
-
-  // Drop the deadlocks that will no longer be needed ater the normalize
-  if (target_size < paths_buffer_.size()) {
-    paths_buffer_.erase(
-        paths_buffer_.begin(),
-        paths_buffer_.begin() + (paths_buffer_.size() - target_size));
-    buffer_idx_ = 0;
-  }
-  // Resize the buffer to the target size and restore the buffer's idx
-  else {
-    auto prev_size = paths_buffer_.size();
-    paths_buffer_.resize(target_size);
-    buffer_idx_ = (uint32_t)prev_size;
-  }
-}
-
-std::vector<DeadlockPath> DeadlockInfoBuffer::Normalize() {
-  auto working = paths_buffer_;
-
-  if (working.empty()) {
-    return working;
-  }
-
-  // Next write occurs at a nonexistent path's slot
-  if (paths_buffer_[buffer_idx_].empty()) {
-    working.resize(buffer_idx_);
-  } else {
-    std::rotate(working.begin(), working.begin() + buffer_idx_, working.end());
-  }
-
-  return working;
-}
-
-std::vector<DeadlockPath> DeadlockInfoBuffer::PrepareBuffer() {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  // Reversing the normalized vector returns the latest deadlocks first
-  auto working = Normalize();
-  std::reverse(working.begin(), working.end());
-
-  return working;
-}
-
 namespace {
 void UnrefLockMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
   auto lock_maps_cache =
-      static_cast<std::unordered_map<uint32_t, std::shared_ptr<LockMap>>*>(ptr);
+      static_cast<UnorderedMap<uint32_t, std::shared_ptr<LockMap>>*>(ptr);
   delete lock_maps_cache;
 }
 }  // anonymous namespace
@@ -171,8 +114,6 @@ PointLockManager::PointLockManager(PessimisticTransactionDB* txn_db,
       mutex_factory_(opt.custom_mutex_factory
                          ? opt.custom_mutex_factory
                          : std::make_shared<TransactionDBMutexFactoryImpl>()) {}
-
-PointLockManager::~PointLockManager() {}
 
 size_t LockMap::GetStripe(const std::string& key) const {
   assert(num_stripes_ > 0);
@@ -490,7 +431,14 @@ bool PointLockManager::IncrementWaiters(
                         extracted_info.m_waiting_key});
         head = queue_parents[head];
       }
-      env->GetCurrentTime(&deadlock_time);
+      if (!env->GetCurrentTime(&deadlock_time).ok()) {
+        /*
+          TODO(AR) this preserves the current behaviour whilst checking the
+          status of env->GetCurrentTime to ensure that ASSERT_STATUS_CHECKED
+          passes. Should we instead raise an error if !ok() ?
+        */
+        deadlock_time = 0;
+      }
       std::reverse(path.begin(), path.end());
       dlock_buffer_.AddNewPath(DeadlockPath(path, deadlock_time));
       deadlock_time = 0;
@@ -506,7 +454,14 @@ bool PointLockManager::IncrementWaiters(
   }
 
   // Wait cycle too big, just assume deadlock.
-  env->GetCurrentTime(&deadlock_time);
+  if (!env->GetCurrentTime(&deadlock_time).ok()) {
+    /*
+      TODO(AR) this preserves the current behaviour whilst checking the status
+      of env->GetCurrentTime to ensure that ASSERT_STATUS_CHECKED passes.
+      Should we instead raise an error if !ok() ?
+    */
+    deadlock_time = 0;
+  }
   dlock_buffer_.AddNewPath(DeadlockPath(deadlock_time, true));
   DecrementWaitersImpl(txn, wait_ids);
   return true;
@@ -658,7 +613,7 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
     }
 
     // Bucket keys by lock_map_ stripe
-    std::unordered_map<size_t, std::vector<const std::string*>> keys_by_stripe(
+    UnorderedMap<size_t, std::vector<const std::string*>> keys_by_stripe(
         lock_map->num_stripes_);
     std::unique_ptr<LockTracker::KeyIterator> key_it(
         tracker.GetKeyIterator(cf));

@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 
+#include "rocksdb/rocksdb_namespace.h"
 #include "util/math128.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -141,7 +142,7 @@ namespace ribbon {
 // only some small fixed number of columns (typically k=3) to 1 for each
 // row of C, with remaining entries implicitly 0. This is implemented as
 // three hash functions over [0,m), and S can be implemented as a vector
-// vector of b-bit values. Now, a query only involves looking up k rows
+// of b-bit values. Now, a query only involves looking up k rows
 // (values) in S and computing their bitwise XOR. Additionally, this
 // construction can use a linear time algorithm called "peeling" for
 // finding a solution in many cases of one existing, but peeling
@@ -405,7 +406,10 @@ namespace ribbon {
 //   // big enough for the largest number of columns allowed.
 //   typename ResultRow;
 //   // An unsigned integer type sufficient for representing the number of
-//   // rows in the solution structure. (TODO: verify any extra needed?)
+//   // rows in the solution structure, and at least the arithmetic
+//   // promotion size (usually 32 bits). uint32_t recommended because a
+//   // single Ribbon construction doesn't really scale to billions of
+//   // entries.
 //   typename Index;
 // };
 
@@ -498,12 +502,13 @@ namespace ribbon {
 //   // slot index i.
 //   void Prefetch(Index i) const;
 //
-//   // Returns a pointer to CoeffRow for slot index i.
-//   CoeffRow* CoeffRowPtr(Index i);
-//
-//   // Returns a pointer to ResultRow for slot index i. (Gaussian row
-//   // operations involve both side of the equation.)
-//   ResultRow* ResultRowPtr(Index i);
+//   // Load or store CoeffRow and ResultRow for slot index i.
+//   // (Gaussian row operations involve both sides of the equation.)
+//   // Bool `for_back_subst` indicates that customizing values for
+//   // unconstrained solution rows (cr == 0) is allowed.
+//   void LoadRow(Index i, CoeffRow *cr, ResultRow *rr, bool for_back_subst)
+//        const;
+//   void StoreRow(Index i, CoeffRow cr, ResultRow rr);
 //
 //   // Returns the number of columns that can start an r-sequence of
 //   // coefficients, which is the number of slots minus r (kCoeffBits)
@@ -545,6 +550,7 @@ bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
                 typename BandingStorage::CoeffRow cr, BacktrackStorage *bts,
                 typename BandingStorage::Index *backtrack_pos) {
   using CoeffRow = typename BandingStorage::CoeffRow;
+  using ResultRow = typename BandingStorage::ResultRow;
   using Index = typename BandingStorage::Index;
 
   Index i = start;
@@ -554,30 +560,33 @@ bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
     int tz = CountTrailingZeroBits(cr);
     i += static_cast<Index>(tz);
     cr >>= tz;
-  } else {
-    assert((cr & 1) == 1);
   }
 
   for (;;) {
-    CoeffRow other = *(bs->CoeffRowPtr(i));
-    if (other == 0) {
-      *(bs->CoeffRowPtr(i)) = cr;
-      *(bs->ResultRowPtr(i)) = rr;
+    assert((cr & 1) == 1);
+    CoeffRow cr_at_i;
+    ResultRow rr_at_i;
+    bs->LoadRow(i, &cr_at_i, &rr_at_i, /* for_back_subst */ false);
+    if (cr_at_i == 0) {
+      bs->StoreRow(i, cr, rr);
       bts->BacktrackPut(*backtrack_pos, i);
       ++*backtrack_pos;
       return true;
     }
-    assert((other & 1) == 1);
-    cr ^= other;
-    rr ^= *(bs->ResultRowPtr(i));
+    assert((cr_at_i & 1) == 1);
+    // Gaussian row reduction
+    cr ^= cr_at_i;
+    rr ^= rr_at_i;
     if (cr == 0) {
       // Inconsistency or (less likely) redundancy
       break;
     }
+    // Find relative offset of next non-zero coefficient.
     int tz = CountTrailingZeroBits(cr);
     i += static_cast<Index>(tz);
     cr >>= tz;
   }
+
   // Failed, unless result row == 0 because e.g. a duplicate input or a
   // stock hash collision, with same result row. (For filter, stock hash
   // collision implies same result row.) Or we could have a full equation
@@ -673,8 +682,11 @@ bool BandingAddRange(BandingStorage *bs, BacktrackStorage *bts,
     while (backtrack_pos > 0) {
       --backtrack_pos;
       Index i = bts->BacktrackGet(backtrack_pos);
-      *(bs->CoeffRowPtr(i)) = 0;
-      // Not required: *(bs->ResultRowPtr(i)) = 0;
+      // Clearing the ResultRow is not strictly required, but is required
+      // for good FP rate on inputs that might have been backtracked out.
+      // (We don't want anything we've backtracked on to leak into final
+      // result, as that might not be "harmless".)
+      bs->StoreRow(i, 0, 0);
     }
   }
   return false;
@@ -771,8 +783,9 @@ void SimpleBackSubst(SimpleSolutionStorage *sss, const BandingStorage &bs) {
 
   for (Index i = num_slots; i > 0;) {
     --i;
-    CoeffRow cr = *const_cast<BandingStorage &>(bs).CoeffRowPtr(i);
-    ResultRow rr = *const_cast<BandingStorage &>(bs).ResultRowPtr(i);
+    CoeffRow cr;
+    ResultRow rr;
+    bs.LoadRow(i, &cr, &rr, /* for_back_subst */ true);
     // solution row
     ResultRow sr = 0;
     for (Index j = 0; j < kResultBits; ++j) {
@@ -967,8 +980,9 @@ inline void BackSubstBlock(typename BandingStorage::CoeffRow *state,
 
   for (Index i = start_slot + kCoeffBits; i > start_slot;) {
     --i;
-    CoeffRow cr = *const_cast<BandingStorage &>(bs).CoeffRowPtr(i);
-    ResultRow rr = *const_cast<BandingStorage &>(bs).ResultRowPtr(i);
+    CoeffRow cr;
+    ResultRow rr;
+    bs.LoadRow(i, &cr, &rr, /* for_back_subst */ true);
     for (Index j = 0; j < num_columns; ++j) {
       // Compute next solution bit at row i, column j (see derivation below)
       CoeffRow tmp = state[j] << 1;
@@ -1041,13 +1055,13 @@ void InterleavedBackSubst(InterleavedSolutionStorage *iss,
   std::unique_ptr<CoeffRow[]> state{new CoeffRow[num_columns]()};
 
   Index block = num_blocks;
-  Index segment = num_segments;
+  Index segment_num = num_segments;
   while (block > upper_start_block) {
     --block;
     BackSubstBlock(state.get(), num_columns, bs, block * kCoeffBits);
-    segment -= num_columns;
+    segment_num -= num_columns;
     for (Index i = 0; i < num_columns; ++i) {
-      iss->StoreSegment(segment + i, state[i]);
+      iss->StoreSegment(segment_num + i, state[i]);
     }
   }
   // Now (if applicable), region using lower number of columns
@@ -1057,23 +1071,67 @@ void InterleavedBackSubst(InterleavedSolutionStorage *iss,
   while (block > 0) {
     --block;
     BackSubstBlock(state.get(), num_columns, bs, block * kCoeffBits);
-    segment -= num_columns;
+    segment_num -= num_columns;
     for (Index i = 0; i < num_columns; ++i) {
-      iss->StoreSegment(segment + i, state[i]);
+      iss->StoreSegment(segment_num + i, state[i]);
     }
   }
   // Verify everything processed
   assert(block == 0);
-  assert(segment == 0);
+  assert(segment_num == 0);
 }
 
-// General PHSF query a key from InterleavedSolutionStorage.
+// Prefetch memory for a key in InterleavedSolutionStorage.
 template <typename InterleavedSolutionStorage, typename PhsfQueryHasher>
-typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
+inline void InterleavedPrepareQuery(
     const typename PhsfQueryHasher::Key &key, const PhsfQueryHasher &hasher,
-    const InterleavedSolutionStorage &iss) {
+    const InterleavedSolutionStorage &iss,
+    typename PhsfQueryHasher::Hash *saved_hash,
+    typename InterleavedSolutionStorage::Index *saved_segment_num,
+    typename InterleavedSolutionStorage::Index *saved_num_columns,
+    typename InterleavedSolutionStorage::Index *saved_start_bit) {
   using Hash = typename PhsfQueryHasher::Hash;
+  using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
+  using Index = typename InterleavedSolutionStorage::Index;
 
+  static_assert(sizeof(Index) == sizeof(typename PhsfQueryHasher::Index),
+                "must be same");
+
+  const Hash hash = hasher.GetHash(key);
+  const Index start_slot = hasher.GetStart(hash, iss.GetNumStarts());
+
+  constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
+
+  const Index upper_start_block = iss.GetUpperStartBlock();
+  Index num_columns = iss.GetUpperNumColumns();
+  Index start_block_num = start_slot / kCoeffBits;
+  Index segment_num = start_block_num * num_columns -
+                      std::min(start_block_num, upper_start_block);
+  // Change to lower num columns if applicable.
+  // (This should not compile to a conditional branch.)
+  num_columns -= (start_block_num < upper_start_block) ? 1 : 0;
+
+  Index start_bit = start_slot % kCoeffBits;
+
+  Index segment_count = num_columns + (start_bit == 0 ? 0 : num_columns);
+
+  iss.PrefetchSegmentRange(segment_num, segment_num + segment_count);
+
+  *saved_hash = hash;
+  *saved_segment_num = segment_num;
+  *saved_num_columns = num_columns;
+  *saved_start_bit = start_bit;
+}
+
+// General PHSF query from InterleavedSolutionStorage, using data for
+// the query key from InterleavedPrepareQuery
+template <typename InterleavedSolutionStorage, typename PhsfQueryHasher>
+inline typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
+    typename PhsfQueryHasher::Hash hash,
+    typename InterleavedSolutionStorage::Index segment_num,
+    typename InterleavedSolutionStorage::Index num_columns,
+    typename InterleavedSolutionStorage::Index start_bit,
+    const PhsfQueryHasher &hasher, const InterleavedSolutionStorage &iss) {
   using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
   using Index = typename InterleavedSolutionStorage::Index;
   using ResultRow = typename InterleavedSolutionStorage::ResultRow;
@@ -1085,32 +1143,20 @@ typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
 
   constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
 
-  const Hash hash = hasher.GetHash(key);
-  const Index start_slot = hasher.GetStart(hash, iss.GetNumStarts());
-
-  const Index upper_start_block = iss->GetUpperStartBlock();
-  Index num_columns = iss->GetUpperNumColumns();
-  Index start_block_num = start_slot / kCoeffBits;
-  Index segment = start_block_num * num_columns -
-                  std::min(start_block_num, upper_start_block);
-  // Change to lower num columns if applicable.
-  // (This should not compile to a conditional branch.)
-  num_columns -= (start_block_num < upper_start_block) ? 1 : 0;
-
   const CoeffRow cr = hasher.GetCoeffRow(hash);
-  Index start_bit = start_slot % kCoeffBits;
 
   ResultRow sr = 0;
-  const CoeffRow cr_left = cr << start_bit;
+  const CoeffRow cr_left = cr << static_cast<unsigned>(start_bit);
   for (Index i = 0; i < num_columns; ++i) {
-    sr ^= BitParity(iss->LoadSegment(segment + i) & cr_left) << i;
+    sr ^= BitParity(iss.LoadSegment(segment_num + i) & cr_left) << i;
   }
 
   if (start_bit > 0) {
-    segment += num_columns;
-    const CoeffRow cr_right = cr >> (kCoeffBits - start_bit);
+    segment_num += num_columns;
+    const CoeffRow cr_right =
+        cr >> static_cast<unsigned>(kCoeffBits - start_bit);
     for (Index i = 0; i < num_columns; ++i) {
-      sr ^= BitParity(iss->LoadSegment(segment + i) & cr_right) << i;
+      sr ^= BitParity(iss.LoadSegment(segment_num + i) & cr_right) << i;
     }
   }
 
@@ -1119,12 +1165,12 @@ typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
 
 // Filter query a key from InterleavedFilterQuery.
 template <typename InterleavedSolutionStorage, typename FilterQueryHasher>
-bool InterleavedFilterQuery(const typename FilterQueryHasher::Key &key,
-                            const FilterQueryHasher &hasher,
-                            const InterleavedSolutionStorage &iss) {
-  // BEGIN mostly copied from InterleavedPhsfQuery
-  using Hash = typename FilterQueryHasher::Hash;
-
+inline bool InterleavedFilterQuery(
+    typename FilterQueryHasher::Hash hash,
+    typename InterleavedSolutionStorage::Index segment_num,
+    typename InterleavedSolutionStorage::Index num_columns,
+    typename InterleavedSolutionStorage::Index start_bit,
+    const FilterQueryHasher &hasher, const InterleavedSolutionStorage &iss) {
   using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
   using Index = typename InterleavedSolutionStorage::Index;
   using ResultRow = typename InterleavedSolutionStorage::ResultRow;
@@ -1140,38 +1186,28 @@ bool InterleavedFilterQuery(const typename FilterQueryHasher::Key &key,
 
   constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
 
-  const Hash hash = hasher.GetHash(key);
-  const Index start_slot = hasher.GetStart(hash, iss.GetNumStarts());
-
-  const Index upper_start_block = iss.GetUpperStartBlock();
-  Index num_columns = iss.GetUpperNumColumns();
-  Index start_block_num = start_slot / kCoeffBits;
-  Index segment = start_block_num * num_columns -
-                  std::min(start_block_num, upper_start_block);
-  // Change to lower num columns if applicable.
-  // (This should not compile to a conditional branch.)
-  num_columns -= (start_block_num < upper_start_block) ? 1 : 0;
-
   const CoeffRow cr = hasher.GetCoeffRow(hash);
-  Index start_bit = start_slot % kCoeffBits;
-  // END mostly copied from InterleavedPhsfQuery.
-
   const ResultRow expected = hasher.GetResultRowFromHash(hash);
 
+  // TODO: consider optimizations such as
+  // * get rid of start_bit == 0 condition with careful fetching & shifting
   if (start_bit == 0) {
     for (Index i = 0; i < num_columns; ++i) {
-      if (BitParity(iss.LoadSegment(segment + i) & cr) !=
+      if (BitParity(iss.LoadSegment(segment_num + i) & cr) !=
           (static_cast<int>(expected >> i) & 1)) {
         return false;
       }
     }
   } else {
+    const CoeffRow cr_left = cr << static_cast<unsigned>(start_bit);
+    const CoeffRow cr_right =
+        cr >> static_cast<unsigned>(kCoeffBits - start_bit);
+
     for (Index i = 0; i < num_columns; ++i) {
-      CoeffRow soln_col =
-          (iss.LoadSegment(segment + i) >> static_cast<unsigned>(start_bit)) |
-          (iss.LoadSegment(segment + num_columns + i)
-           << static_cast<unsigned>(kCoeffBits - start_bit));
-      if (BitParity(soln_col & cr) != (static_cast<int>(expected >> i) & 1)) {
+      CoeffRow soln_data =
+          (iss.LoadSegment(segment_num + i) & cr_left) ^
+          (iss.LoadSegment(segment_num + num_columns + i) & cr_right);
+      if (BitParity(soln_data) != (static_cast<int>(expected >> i) & 1)) {
         return false;
       }
     }

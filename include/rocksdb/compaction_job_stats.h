@@ -25,25 +25,33 @@ struct CompactionJobStats {
 
   // the number of compaction input records.
   uint64_t num_input_records;
-  // the number of compaction input files.
+  // the number of blobs read from blob files
+  uint64_t num_blobs_read;
+  // the number of compaction input files (table files)
   size_t num_input_files;
-  // the number of compaction input files at the output level.
+  // the number of compaction input files at the output level (table files)
   size_t num_input_files_at_output_level;
 
   // the number of compaction output records.
   uint64_t num_output_records;
-  // the number of compaction output files.
+  // the number of compaction output files (table files)
   size_t num_output_files;
+  // the number of compaction output files (blob files)
+  size_t num_output_files_blob;
 
   // true if the compaction is a full compaction (all live SST files input)
   bool is_full_compaction;
   // true if the compaction is a manual compaction
   bool is_manual_compaction;
 
-  // the size of the compaction input in bytes.
+  // the total size of table files in the compaction input
   uint64_t total_input_bytes;
-  // the size of the compaction output in bytes.
+  // the total size of blobs read from blob files
+  uint64_t total_blob_bytes_read;
+  // the total size of table files in the compaction output
   uint64_t total_output_bytes;
+  // the total size of blob files in the compaction output
+  uint64_t total_output_bytes_blob;
 
   // number of records being replaced by newer record associated with same key.
   // this could be a new value or a deletion entry for that key so this field

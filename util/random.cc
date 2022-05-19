@@ -14,11 +14,7 @@
 #include "port/likely.h"
 #include "util/thread_local.h"
 
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-#define STORAGE_DECL static __thread
-#else
-#define STORAGE_DECL static
-#endif
+#define STORAGE_DECL static thread_local
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -49,6 +45,15 @@ std::string Random::RandomString(int len) {
   ret.resize(len);
   for (int i = 0; i < len; i++) {
     ret[i] = static_cast<char>(' ' + Uniform(95));  // ' ' .. '~'
+  }
+  return ret;
+}
+
+std::string Random::RandomBinaryString(int len) {
+  std::string ret;
+  ret.resize(len);
+  for (int i = 0; i < len; i++) {
+    ret[i] = static_cast<char>(Uniform(CHAR_MAX));
   }
   return ret;
 }

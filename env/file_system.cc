@@ -3,10 +3,21 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#include "env/composite_env_wrapper.h"
 #include "rocksdb/file_system.h"
+
+#include "env/composite_env_wrapper.h"
+#include "env/env_chroot.h"
+#include "env/env_encryption_ctr.h"
+#include "env/fs_readonly.h"
+#include "env/mock_env.h"
 #include "options/db_options.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/utilities/customizable_util.h"
 #include "rocksdb/utilities/object_registry.h"
+#include "rocksdb/utilities/options_type.h"
+#include "util/string_util.h"
+#include "utilities/counted_fs.h"
+#include "utilities/env_timed.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -16,14 +27,80 @@ FileSystem::~FileSystem() {}
 
 Status FileSystem::Load(const std::string& value,
                         std::shared_ptr<FileSystem>* result) {
-  Status s;
+  return CreateFromString(ConfigOptions(), value, result);
+}
+
 #ifndef ROCKSDB_LITE
-  s = ObjectRegistry::NewInstance()->NewSharedObject<FileSystem>(value, result);
-#else
-  (void)result;
-  s = Status::NotSupported("Cannot load FileSystem in LITE mode", value);
-#endif
-  return s;
+static int RegisterBuiltinFileSystems(ObjectLibrary& library,
+                                      const std::string& /*arg*/) {
+  library.AddFactory<FileSystem>(
+      TimedFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TimedFileSystem(nullptr));
+        return guard->get();
+      });
+  library.AddFactory<FileSystem>(
+      ReadOnlyFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new ReadOnlyFileSystem(nullptr));
+        return guard->get();
+      });
+  library.AddFactory<FileSystem>(
+      EncryptedFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* errmsg) {
+        Status s = NewEncryptedFileSystemImpl(nullptr, nullptr, guard);
+        if (!s.ok()) {
+          *errmsg = s.ToString();
+        }
+        return guard->get();
+      });
+  library.AddFactory<FileSystem>(
+      CountedFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new CountedFileSystem(FileSystem::Default()));
+        return guard->get();
+      });
+  library.AddFactory<FileSystem>(
+      MockFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /*errmsg*/) {
+        guard->reset(new MockFileSystem(SystemClock::Default()));
+        return guard->get();
+      });
+#ifndef OS_WIN
+  library.AddFactory<FileSystem>(
+      ChrootFileSystem::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<FileSystem>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new ChrootFileSystem(nullptr, ""));
+        return guard->get();
+      });
+#endif  // OS_WIN
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
+}
+#endif  // ROCKSDB_LITE
+
+Status FileSystem::CreateFromString(const ConfigOptions& config_options,
+                                    const std::string& value,
+                                    std::shared_ptr<FileSystem>* result) {
+  auto default_fs = FileSystem::Default();
+  if (default_fs->IsInstanceOf(value)) {
+    *result = default_fs;
+    return Status::OK();
+  } else {
+#ifndef ROCKSDB_LITE
+    static std::once_flag once;
+    std::call_once(once, [&]() {
+      RegisterBuiltinFileSystems(*(ObjectLibrary::Default().get()), "");
+    });
+#endif  // ROCKSDB_LITE
+    return LoadSharedObject<FileSystem>(config_options, value, nullptr, result);
+  }
 }
 
 IOStatus FileSystem::ReuseWritableFile(const std::string& fname,
@@ -83,6 +160,14 @@ FileOptions FileSystem::OptimizeForCompactionTableRead(
   return optimized_file_options;
 }
 
+FileOptions FileSystem::OptimizeForBlobFileRead(
+    const FileOptions& file_options,
+    const ImmutableDBOptions& db_options) const {
+  FileOptions optimized_file_options(file_options);
+  optimized_file_options.use_direct_reads = db_options.use_direct_reads;
+  return optimized_file_options;
+}
+
 IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
                            const std::string& fname, bool should_sync) {
   std::unique_ptr<FSWritableFile> file;
@@ -129,13 +214,58 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
   return s;
 }
 
-#ifdef OS_WIN
-std::shared_ptr<FileSystem> FileSystem::Default() {
-  static LegacyFileSystemWrapper default_fs(Env::Default());
-  static std::shared_ptr<LegacyFileSystemWrapper> default_fs_ptr(
-      &default_fs, [](LegacyFileSystemWrapper*) {});
-  return default_fs_ptr;
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo> fs_wrapper_type_info = {
+#ifndef ROCKSDB_LITE
+    {"target",
+     OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
+FileSystemWrapper::FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
+    : target_(t) {
+  RegisterOptions("", &target_, &fs_wrapper_type_info);
 }
-#endif
 
+Status FileSystemWrapper::PrepareOptions(const ConfigOptions& options) {
+  if (target_ == nullptr) {
+    target_ = FileSystem::Default();
+  }
+  return FileSystem::PrepareOptions(options);
+}
+
+#ifndef ROCKSDB_LITE
+std::string FileSystemWrapper::SerializeOptions(
+    const ConfigOptions& config_options, const std::string& header) const {
+  auto parent = FileSystem::SerializeOptions(config_options, "");
+  if (config_options.IsShallow() || target_ == nullptr ||
+      target_->IsInstanceOf(FileSystem::kDefaultName())) {
+    return parent;
+  } else {
+    std::string result = header;
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
+    }
+    result.append(parent);
+    if (!EndsWith(result, config_options.delimiter)) {
+      result.append(config_options.delimiter);
+    }
+    result.append("target=").append(target_->ToString(config_options));
+    return result;
+  }
+}
+#endif  // ROCKSDB_LITE
+
+DirFsyncOptions::DirFsyncOptions() { reason = kDefault; }
+
+DirFsyncOptions::DirFsyncOptions(std::string file_renamed_new_name) {
+  reason = kFileRenamed;
+  renamed_new_name = file_renamed_new_name;
+}
+
+DirFsyncOptions::DirFsyncOptions(FsyncReason fsync_reason) {
+  assert(fsync_reason != kFileRenamed);
+  reason = fsync_reason;
+}
 }  // namespace ROCKSDB_NAMESPACE

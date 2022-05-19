@@ -393,46 +393,6 @@ public class RocksDBTest {
     }
   }
 
-  @SuppressWarnings("deprecated")
-  @Test
-  public void multiGet() throws RocksDBException {
-    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final ReadOptions rOpt = new ReadOptions()) {
-      db.put("key1".getBytes(), "value".getBytes());
-      db.put("key2".getBytes(), "12345678".getBytes());
-      List<byte[]> lookupKeys = new ArrayList<>();
-      lookupKeys.add("key1".getBytes());
-      lookupKeys.add("key2".getBytes());
-      Map<byte[], byte[]> results = db.multiGet(lookupKeys);
-      assertThat(results).isNotNull();
-      assertThat(results.values()).isNotNull();
-      assertThat(results.values()).
-          contains("value".getBytes(), "12345678".getBytes());
-      // test same method with ReadOptions
-      results = db.multiGet(rOpt, lookupKeys);
-      assertThat(results).isNotNull();
-      assertThat(results.values()).isNotNull();
-      assertThat(results.values()).
-          contains("value".getBytes(), "12345678".getBytes());
-
-      // remove existing key
-      lookupKeys.remove("key2".getBytes());
-      // add non existing key
-      lookupKeys.add("key3".getBytes());
-      results = db.multiGet(lookupKeys);
-      assertThat(results).isNotNull();
-      assertThat(results.values()).isNotNull();
-      assertThat(results.values()).
-          contains("value".getBytes());
-      // test same call with readOptions
-      results = db.multiGet(rOpt, lookupKeys);
-      assertThat(results).isNotNull();
-      assertThat(results.values()).isNotNull();
-      assertThat(results.values()).
-          contains("value".getBytes());
-    }
-  }
-
   @Test
   public void multiGetAsList() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
@@ -1271,6 +1231,26 @@ public class RocksDBTest {
     }
   }
 
+  @Test
+  public void getApproximateMemTableStatsSingleKey() throws RocksDBException {
+    final byte key1[] = "key1".getBytes(UTF_8);
+    final byte key2[] = "key2".getBytes(UTF_8);
+    final byte key3[] = "key3".getBytes(UTF_8);
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      final String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put(key1, key1);
+
+        final RocksDB.CountAndSize stats =
+            db.getApproximateMemTableStats(new Range(new Slice(key1), new Slice(key3)));
+
+        assertThat(stats).isNotNull();
+        assertThat(stats.count).isEqualTo(1);
+        assertThat(stats.size).isGreaterThan(1);
+      }
+    }
+  }
+
   @Ignore("TODO(AR) re-enable when ready!")
   @Test
   public void compactFiles() throws RocksDBException {
@@ -1439,28 +1419,17 @@ public class RocksDBTest {
   }
 
   @Test
-  public void setPreserveDeletesSequenceNumber() throws RocksDBException {
-    try (final Options options = new Options().setCreateIfMissing(true)) {
-      final String dbPath = dbFolder.getRoot().getAbsolutePath();
-      try (final RocksDB db = RocksDB.open(options, dbPath)) {
-        assertThat(db.setPreserveDeletesSequenceNumber(db.getLatestSequenceNumber()))
-            .isFalse();
-      }
-    }
-  }
-
-  @Test
   public void getLiveFiles() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true)) {
       final String dbPath = dbFolder.getRoot().getAbsolutePath();
       try (final RocksDB db = RocksDB.open(options, dbPath)) {
         final RocksDB.LiveFiles livefiles = db.getLiveFiles(true);
         assertThat(livefiles).isNotNull();
-        assertThat(livefiles.manifestFileSize).isEqualTo(13);
+        assertThat(livefiles.manifestFileSize).isEqualTo(59);
         assertThat(livefiles.files.size()).isEqualTo(3);
         assertThat(livefiles.files.get(0)).isEqualTo("/CURRENT");
-        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000001");
-        assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000005");
+        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000004");
+        assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000007");
       }
     }
   }

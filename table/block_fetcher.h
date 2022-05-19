@@ -12,6 +12,7 @@
 #include "table/block_based/block.h"
 #include "table/block_based/block_type.h"
 #include "table/format.h"
+#include "table/persistent_cache_options.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -37,12 +38,15 @@ namespace ROCKSDB_NAMESPACE {
 class BlockFetcher {
  public:
   BlockFetcher(RandomAccessFileReader* file,
-               FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
-               const ReadOptions& read_options, const BlockHandle& handle,
-               BlockContents* contents, const ImmutableCFOptions& ioptions,
+               FilePrefetchBuffer* prefetch_buffer,
+               const Footer& footer /* ref retained */,
+               const ReadOptions& read_options,
+               const BlockHandle& handle /* ref retained */,
+               BlockContents* contents,
+               const ImmutableOptions& ioptions /* ref retained */,
                bool do_uncompress, bool maybe_compressed, BlockType block_type,
-               const UncompressionDict& uncompression_dict,
-               const PersistentCacheOptions& cache_options,
+               const UncompressionDict& uncompression_dict /* ref retained */,
+               const PersistentCacheOptions& cache_options /* ref retained */,
                MemoryAllocator* memory_allocator = nullptr,
                MemoryAllocator* memory_allocator_compressed = nullptr,
                bool for_compaction = false)
@@ -57,15 +61,22 @@ class BlockFetcher {
         maybe_compressed_(maybe_compressed),
         block_type_(block_type),
         block_size_(static_cast<size_t>(handle_.size())),
-        block_size_with_trailer_(block_size(handle_)),
+        block_size_with_trailer_(block_size_ + footer.GetBlockTrailerSize()),
         uncompression_dict_(uncompression_dict),
         cache_options_(cache_options),
         memory_allocator_(memory_allocator),
         memory_allocator_compressed_(memory_allocator_compressed),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction) {
+    io_status_.PermitUncheckedError();  // TODO(AR) can we improve on this?
+  }
 
-  Status ReadBlockContents();
-  CompressionType get_compression_type() const { return compression_type_; }
+  IOStatus ReadBlockContents();
+  inline CompressionType get_compression_type() const {
+    return compression_type_;
+  }
+  inline size_t GetBlockSizeWithTrailer() const {
+    return block_size_with_trailer_;
+  }
 
 #ifndef NDEBUG
   int TEST_GetNumStackBufMemcpy() const { return num_stack_buf_memcpy_; }
@@ -90,7 +101,7 @@ class BlockFetcher {
   const ReadOptions read_options_;
   const BlockHandle& handle_;
   BlockContents* contents_;
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const bool do_uncompress_;
   const bool maybe_compressed_;
   const BlockType block_type_;
@@ -100,7 +111,7 @@ class BlockFetcher {
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
-  Status status_;
+  IOStatus io_status_;
   Slice slice_;
   char* used_buf_ = nullptr;
   AlignedBuf direct_io_buf_;
@@ -124,6 +135,6 @@ class BlockFetcher {
   void GetBlockContents();
   void InsertCompressedBlockToPersistentCacheIfNeeded();
   void InsertUncompressedBlockToPersistentCacheIfNeeded();
-  void CheckBlockChecksum();
+  void ProcessTrailerIfPresent();
 };
 }  // namespace ROCKSDB_NAMESPACE

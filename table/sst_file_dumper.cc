@@ -18,7 +18,6 @@
 #include "db/blob/blob_index.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "options/cf_options.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -43,11 +42,13 @@ namespace ROCKSDB_NAMESPACE {
 
 SstFileDumper::SstFileDumper(const Options& options,
                              const std::string& file_path,
-                             size_t readahead_size, bool verify_checksum,
-                             bool output_hex, bool decode_blob_index,
-                             const EnvOptions& soptions, bool silent)
+                             Temperature file_temp, size_t readahead_size,
+                             bool verify_checksum, bool output_hex,
+                             bool decode_blob_index, const EnvOptions& soptions,
+                             bool silent)
     : file_name_(file_path),
       read_num_(0),
+      file_temp_(file_temp),
       output_hex_(output_hex),
       decode_blob_index_(decode_blob_index),
       soptions_(soptions),
@@ -75,16 +76,19 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   // Warning about 'magic_number' being uninitialized shows up only in UBsan
   // builds. Though access is guarded by 's.ok()' checks, fix the issue to
   // avoid any warnings.
-  uint64_t magic_number = Footer::kInvalidTableMagicNumber;
+  uint64_t magic_number = Footer::kNullTableMagicNumber;
 
   // read table magic number
   Footer footer;
 
-  std::unique_ptr<RandomAccessFile> file;
+  const auto& fs = options_.env->GetFileSystem();
+  std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size = 0;
-  Status s = options_.env->NewRandomAccessFile(file_path, &file, soptions_);
+  FileOptions fopts = soptions_;
+  fopts.temperature = file_temp_;
+  Status s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   if (s.ok()) {
-    s = options_.env->GetFileSize(file_path, &file_size);
+    s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   }
 
   // check empty file
@@ -93,11 +97,11 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     return Status::Aborted(file_path, "Empty file");
   }
 
-  file_.reset(new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                         file_path));
+  file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
-  FilePrefetchBuffer prefetch_buffer(nullptr, 0, 0, true /* enable */,
-                                     false /* track_min_offset */);
+  FilePrefetchBuffer prefetch_buffer(
+      0 /* readahead_size */, 0 /* max_readahead_size */, true /* enable */,
+      false /* track_min_offset */);
   if (s.ok()) {
     const uint64_t kSstDumpTailPrefetchSize = 512 * 1024;
     uint64_t prefetch_size = (file_size > kSstDumpTailPrefetchSize)
@@ -106,7 +110,8 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     uint64_t prefetch_off = file_size - prefetch_size;
     IOOptions opts;
     s = prefetch_buffer.Prefetch(opts, file_.get(), prefetch_off,
-                                 static_cast<size_t>(prefetch_size));
+                                 static_cast<size_t>(prefetch_size),
+                                 Env::IO_TOTAL /* rate_limiter_priority */);
 
     s = ReadFooterFromFile(opts, file_.get(), &prefetch_buffer, file_size,
                            &footer);
@@ -119,11 +124,11 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     if (magic_number == kPlainTableMagicNumber ||
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
-      options_.env->NewRandomAccessFile(file_path, &file, soptions_);
-      file_.reset(new RandomAccessFileReader(
-          NewLegacyRandomAccessFileWrapper(file), file_path));
+
+      fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
+      file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
-    options_.comparator = &internal_comparator_;
+
     // For old sst format, ReadTableProperties might fail but file can be read
     if (ReadTableProperties(magic_number, file_.get(), file_size,
                             (magic_number == kBlockBasedTableMagicNumber)
@@ -131,9 +136,24 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                 : nullptr)
             .ok()) {
       s = SetTableOptionsByMagicNumber(magic_number);
+      if (s.ok()) {
+        if (table_properties_ && !table_properties_->comparator_name.empty()) {
+          ConfigOptions config_options;
+          const Comparator* user_comparator = nullptr;
+          s = Comparator::CreateFromString(config_options,
+                                           table_properties_->comparator_name,
+                                           &user_comparator);
+          if (s.ok()) {
+            assert(user_comparator);
+            internal_comparator_ =
+                InternalKeyComparator(user_comparator, /*named=*/true);
+          }
+        }
+      }
     } else {
       s = SetOldTableOptions();
     }
+    options_.comparator = internal_comparator_.user_comparator();
   }
 
   if (s.ok()) {
@@ -144,11 +164,11 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
 }
 
 Status SstFileDumper::NewTableReader(
-    const ImmutableCFOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
+    const ImmutableOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
     const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
     std::unique_ptr<TableReader>* /*table_reader*/) {
   auto t_opt =
-      TableReaderOptions(ioptions_, moptions_.prefix_extractor.get(), soptions_,
+      TableReaderOptions(ioptions_, moptions_.prefix_extractor, soptions_,
                          internal_comparator_, false /* skip_filters */,
                          false /* imortal */, true /* force_direct_prefetch */);
   // Allow open file with global sequence number for backward compatibility.
@@ -177,8 +197,10 @@ Status SstFileDumper::VerifyChecksum() {
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
   Env* env = options_.env;
-  env->NewWritableFile(out_filename, &out_file, soptions_);
-  Status s = table_reader_->DumpTable(out_file.get());
+  Status s = env->NewWritableFile(out_filename, &out_file, soptions_);
+  if (s.ok()) {
+    s = table_reader_->DumpTable(out_file.get());
+  }
   if (!s.ok()) {
     // close the file before return error, ignore the close error if there's any
     out_file->Close().PermitUncheckedError();
@@ -190,23 +212,20 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
 Status SstFileDumper::CalculateCompressedTableSize(
     const TableBuilderOptions& tb_options, size_t block_size,
     uint64_t* num_data_blocks, uint64_t* compressed_table_size) {
-  std::unique_ptr<WritableFile> out_file;
   std::unique_ptr<Env> env(NewMemEnv(options_.env));
-  Status s = env->NewWritableFile(testFileName, &out_file, soptions_);
+  std::unique_ptr<WritableFileWriter> dest_writer;
+  Status s =
+      WritableFileWriter::Create(env->GetFileSystem(), testFileName,
+                                 FileOptions(soptions_), &dest_writer, nullptr);
   if (!s.ok()) {
     return s;
   }
-  std::unique_ptr<WritableFileWriter> dest_writer;
-  dest_writer.reset(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(out_file)),
-                             testFileName, soptions_));
   BlockBasedTableOptions table_options;
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);
   std::unique_ptr<TableBuilder> table_builder;
   table_builder.reset(block_based_tf.NewTableBuilder(
       tb_options,
-      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
       read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
@@ -233,7 +252,8 @@ Status SstFileDumper::ShowAllCompressionSizes(
     const std::vector<std::pair<CompressionType, const char*>>&
         compression_types,
     int32_t compress_level_from, int32_t compress_level_to,
-    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes) {
+    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
+    uint64_t max_dict_buffer_bytes) {
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
   for (auto& i : compression_types) {
     if (CompressionTypeSupported(i.first)) {
@@ -241,6 +261,7 @@ Status SstFileDumper::ShowAllCompressionSizes(
       CompressionOptions compress_opt;
       compress_opt.max_dict_bytes = max_dict_bytes;
       compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
+      compress_opt.max_dict_buffer_bytes = max_dict_buffer_bytes;
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;
@@ -262,18 +283,18 @@ Status SstFileDumper::ShowCompressionSize(
   Options opts;
   opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   opts.statistics->set_stats_level(StatsLevel::kAll);
-  const ImmutableCFOptions imoptions(opts);
+  const ImmutableOptions imoptions(opts);
   const ColumnFamilyOptions cfo(opts);
   const MutableCFOptions moptions(cfo);
   ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      block_based_table_factories;
+  IntTblPropCollectorFactories block_based_table_factories;
 
   std::string column_family_name;
   int unknown_level = -1;
   TableBuilderOptions tb_opts(
       imoptions, moptions, ikc, &block_based_table_factories, compress_type,
-      0 /* sample_for_compression */, compress_opt, false /* skip_filters */,
+      compress_opt,
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
   std::chrono::steady_clock::time_point start =
@@ -330,18 +351,16 @@ Status SstFileDumper::ShowCompressionSize(
   return Status::OK();
 }
 
+// Reads TableProperties prior to opening table reader in order to set up
+// options.
 Status SstFileDumper::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFileReader* file,
                                           uint64_t file_size,
                                           FilePrefetchBuffer* prefetch_buffer) {
-  TableProperties* table_properties = nullptr;
   Status s = ROCKSDB_NAMESPACE::ReadTableProperties(
-      file, file_size, table_magic_number, ioptions_, &table_properties,
-      /* compression_type_missing= */ false,
+      file, file_size, table_magic_number, ioptions_, &table_properties_,
       /* memory_allocator= */ nullptr, prefetch_buffer);
-  if (s.ok()) {
-    table_properties_.reset(table_properties);
-  } else {
+  if (!s.ok()) {
     if (!silent_) {
       fprintf(stdout, "Not able to read table properties\n");
     }
@@ -486,6 +505,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
   return ret;
 }
 
+// Provides TableProperties to API user
 Status SstFileDumper::ReadTableProperties(
     std::shared_ptr<const TableProperties>* table_properties) {
   if (!table_reader_) {

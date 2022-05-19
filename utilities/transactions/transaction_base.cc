@@ -11,6 +11,7 @@
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
@@ -28,7 +29,7 @@ TransactionBaseImpl::TransactionBaseImpl(
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       lock_tracker_factory_(lock_tracker_factory),
-      start_time_(db_->GetEnv()->NowMicros()),
+      start_time_(dbimpl_->GetSystemClock()->NowMicros()),
       write_batch_(cmp_, 0, true, 0),
       tracked_locks_(lock_tracker_factory_.Create()),
       indexing_enabled_(true) {
@@ -67,7 +68,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   name_.clear();
   log_number_ = 0;
   write_options_ = write_options;
-  start_time_ = db_->GetEnv()->NowMicros();
+  start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
 }
@@ -124,7 +125,9 @@ Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
 
 void TransactionBaseImpl::SetSavePoint() {
   if (save_points_ == nullptr) {
-    save_points_.reset(new std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>());
+    save_points_.reset(
+        new std::stack<TransactionBaseImpl::SavePoint,
+                       autovector<TransactionBaseImpl::SavePoint>>());
   }
   save_points_->emplace(snapshot_, snapshot_needed_, snapshot_notifier_,
                         num_puts_, num_deletes_, num_merges_,
@@ -306,7 +309,8 @@ Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options) {
   Iterator* db_iter = db_->NewIterator(read_options);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return write_batch_.NewIteratorWithBase(db_->DefaultColumnFamily(), db_iter,
+                                          &read_options);
 }
 
 Iterator* TransactionBaseImpl::GetIterator(const ReadOptions& read_options,
@@ -540,7 +544,7 @@ WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
 }
 
 uint64_t TransactionBaseImpl::GetElapsedTime() const {
-  return (db_->GetEnv()->NowMicros() - start_time_) / 1000;
+  return (dbimpl_->GetSystemClock()->NowMicros() - start_time_) / 1000;
 }
 
 uint64_t TransactionBaseImpl::GetNumPuts() const { return num_puts_; }
@@ -658,6 +662,10 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
     }
 
     Status MarkCommit(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
+    Status MarkCommitWithTimestamp(const Slice&, const Slice&) override {
       return Status::InvalidArgument();
     }
 

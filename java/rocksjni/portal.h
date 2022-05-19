@@ -30,12 +30,13 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/table_filter_jnicallback.h"
@@ -120,7 +121,8 @@ template<class PTR, class DERIVED> class NativeRocksMutableObject
       return true;  // signal exception
     }
 
-    env->CallVoidMethod(jobj, mid, reinterpret_cast<jlong>(ptr), java_owns_handle);
+    env->CallVoidMethod(jobj, mid, GET_CPLUSPLUS_POINTER(ptr),
+                        java_owns_handle);
     if(env->ExceptionCheck()) {
       return true;  // signal exception
     }
@@ -2125,7 +2127,7 @@ class JniUtil {
         std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)> op,
         JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
+      if (env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
         return nullptr;
       }
@@ -2135,12 +2137,43 @@ class JniUtil {
 
       auto status = op(key_slice);
 
-      if(key != nullptr) {
+      if (key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
 
       return std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
           new ROCKSDB_NAMESPACE::Status(status));
+    }
+
+    /*
+     * Helper for operations on a key which is a region of an array
+     * Used to extract the common code from seek/seekForPrev.
+     * Possible that it can be generalised from that.
+     *
+     * We use GetByteArrayRegion to copy the key region of the whole array into
+     * a char[] We suspect this is not much slower than GetByteArrayElements,
+     * which probably copies anyway.
+     */
+    static void k_op_region(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
+                            JNIEnv* env, jbyteArray jkey, jint jkey_off,
+                            jint jkey_len) {
+      const std::unique_ptr<char[]> key(new char[jkey_len]);
+      if (key == nullptr) {
+        jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+        env->ThrowNew(oom_class,
+                      "Memory allocation failed in RocksDB JNI function");
+        return;
+      }
+      env->GetByteArrayRegion(jkey, jkey_off, jkey_len,
+                              reinterpret_cast<jbyte*>(key.get()));
+      if (env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return;
+      }
+
+      ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key.get()),
+                                         jkey_len);
+      op(key_slice);
     }
 
     /*
@@ -2243,9 +2276,9 @@ class JniUtil {
         jboolean *has_exception) {
       const jsize len = static_cast<jsize>(pointers.size());
       std::unique_ptr<jlong[]> results(new jlong[len]);
-      std::transform(pointers.begin(), pointers.end(), results.get(), [](T* pointer) -> jlong {
-        return reinterpret_cast<jlong>(pointer);
-      });
+      std::transform(
+          pointers.begin(), pointers.end(), results.get(),
+          [](T* pointer) -> jlong { return GET_CPLUSPLUS_POINTER(pointer); });
 
       jlongArray jpointers = env->NewLongArray(len);
       if (jpointers == nullptr) {
@@ -2785,7 +2818,7 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(cfo));
+    jobject jcfd = env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(cfo));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -2871,7 +2904,7 @@ class WriteBatchJni
       return nullptr;
     }
 
-    jobject jwb = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(wb));
+    jobject jwb = env->NewObject(jclazz, mid, GET_CPLUSPLUS_POINTER(wb));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -3241,6 +3274,27 @@ class WriteBatchHandlerJni
   }
 
   /**
+   * Get the Java Method: WriteBatch.Handler#markCommitWithTimestamp
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retrieved
+   */
+  static jmethodID getMarkCommitWithTimestampMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "markCommitWithTimestamp", "([B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
    * Get the Java Method: WriteBatch.Handler#shouldContinue
    *
    * @param env A pointer to the Java environment
@@ -3388,13 +3442,13 @@ class HistogramDataJni : public JavaClass {
   }
 };
 
-// The portal class for org.rocksdb.BackupableDBOptions
-class BackupableDBOptionsJni
-    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupableDBOptions*,
-                                BackupableDBOptionsJni> {
+// The portal class for org.rocksdb.BackupEngineOptions
+class BackupEngineOptionsJni
+    : public RocksDBNativeClass<ROCKSDB_NAMESPACE::BackupEngineOptions*,
+                                BackupEngineOptionsJni> {
  public:
   /**
-   * Get the Java Class org.rocksdb.BackupableDBOptions
+   * Get the Java Class org.rocksdb.BackupEngineOptions
    *
    * @param env A pointer to the Java environment
    *
@@ -3404,7 +3458,7 @@ class BackupableDBOptionsJni
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/BackupableDBOptions");
+                                         "org/rocksdb/BackupEngineOptions");
   }
 };
 
@@ -3414,7 +3468,7 @@ class BackupEngineJni
                                 BackupEngineJni> {
  public:
   /**
-   * Get the Java Class org.rocksdb.BackupableEngine
+   * Get the Java Class org.rocksdb.BackupEngine
    *
    * @param env A pointer to the Java environment
    *
@@ -3475,7 +3529,7 @@ class ColumnFamilyHandleJni
     assert(jclazz != nullptr);
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
-    return env->NewObject(jclazz, ctor, reinterpret_cast<jlong>(info));
+    return env->NewObject(jclazz, ctor, GET_CPLUSPLUS_POINTER(info));
   }
 
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
@@ -4876,7 +4930,7 @@ class TickerTypeJni {
       case ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND:
         return 0x5E;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED:
-        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
+        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return -0x01;
       case ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED:
         return 0x60;
@@ -4982,9 +5036,67 @@ class TickerTypeJni {
         return -0x14;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
         return -0x15;
-
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT:
+        return -0x16;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT:
+        return -0x17;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT:
+        return -0x18;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT:
+        return -0x19;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT:
+        return -0x1A;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT:
+        return -0x1B;
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH:
+        return -0x1C;
+      case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH:
+        return -0x1D;
+      case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS:
+        return -0x1E;
+      case ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES:
+        return -0x1F;
+      case ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES:
+        return -0x20;
+      case ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES:
+        return -0x21;
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES:
+        return -0x22;
+      case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
+        return -0x23;
+      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
+        return -0x24;
+      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
+        return -0x25;
+      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
+        return -0x26;
+      case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
+        return -0x27;
+      case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
+        return -0x28;
+      case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
+        return -0x29;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
+        return -0x2A;
+      case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT:
+        return -0x2B;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES:
+        return -0x2C;
+      case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT:
+        return -0x2D;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT:
+        return -0x2E;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
-        // 0x5F for backwards compatibility on current minor version.
+        // 0x5F was the max value in the initial copy of tickers to Java.
+        // Since these values are exposed directly to Java clients, we keep
+        // the value the same forever.
+        //
+        // TODO: This particular case seems confusing and unnecessary to pin the
+        // value since it's meant to be the number of tickers, not an actual
+        // ticker value. But we aren't yet in a position to fix it since the
+        // number of tickers doesn't fit in the Java representation (jbyte).
         return 0x5F;
       default:
         // undefined/default
@@ -5187,7 +5299,7 @@ class TickerTypeJni {
       case 0x5E:
         return ROCKSDB_NAMESPACE::Tickers::NUMBER_MULTIGET_KEYS_FOUND;
       case -0x01:
-        // -0x01 to fixate the new value that incorrectly changed TICKER_ENUM_MAX.
+        // -0x01 so we can skip over the already taken 0x5F (TICKER_ENUM_MAX).
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_CREATED;
       case 0x60:
         return ROCKSDB_NAMESPACE::Tickers::NO_ITERATOR_DELETED;
@@ -5294,8 +5406,68 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC;
       case -0x15:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL;
+      case -0x16:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT;
+      case -0x17:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT;
+      case -0x18:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT;
+      case -0x19:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT;
+      case -0x1A:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT;
+      case -0x1B:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT;
+      case -0x1C:
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH;
+      case -0x1D:
+        return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
+      case -0x1E:
+        return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS;
+      case -0x1F:
+        return ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES;
+      case -0x20:
+        return ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES;
+      case -0x21:
+        return ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES;
+      case -0x22:
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES;
+      case -0x23:
+        return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES;
+      case -0x24:
+        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
+      case -0x25:
+        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
+      case -0x26:
+        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
+      case -0x27:
+        return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
+      case -0x28:
+        return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
+      case -0x29:
+        return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
+      case -0x2A:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES;
+      case -0x2B:
+        return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT;
+      case -0x2C:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES;
+      case -0x2D:
+        return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT;
+      case -0x2E:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT;
       case 0x5F:
-        // 0x5F for backwards compatibility on current minor version.
+        // 0x5F was the max value in the initial copy of tickers to Java.
+        // Since these values are exposed directly to Java clients, we keep
+        // the value the same forever.
+        //
+        // TODO: This particular case seems confusing and unnecessary to pin the
+        // value since it's meant to be the number of tickers, not an actual
+        // ticker value. But we aren't yet in a position to fix it since the
+        // number of tickers doesn't fit in the Java representation (jbyte).
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
 
       default:
@@ -5413,6 +5585,14 @@ class HistogramTypeJni {
         return 0x30;
       case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
         return 0x31;
+      case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
+        return 0x32;
+      case ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES:
+        return 0x33;
+      case ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS:
+        return 0x34;
+      case ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED:
+        return 0x35;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5527,6 +5707,15 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL;
       case 0x31:
         return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
+      case 0x32:
+        return ROCKSDB_NAMESPACE::Histograms::
+            ERROR_HANDLER_AUTORESUME_RETRY_COUNT;
+      case 0x33:
+        return ROCKSDB_NAMESPACE::Histograms::ASYNC_READ_BYTES;
+      case 0x34:
+        return ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS;
+      case 0x35:
+        return ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -6042,7 +6231,11 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+    jmethodID mid = env->GetMethodID(
+        jclazz, "<init>",
+        "(JJJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
+        "lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
+        "String;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6151,25 +6344,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    // Map<String, Long>
-    jobject jproperties_offsets = ROCKSDB_NAMESPACE::HashMapJni::fromCppMap(
-        env, &table_properties.properties_offsets);
-    if (env->ExceptionCheck()) {
-      // exception occurred creating java map
-      env->DeleteLocalRef(jcolumn_family_name);
-      env->DeleteLocalRef(jfilter_policy_name);
-      env->DeleteLocalRef(jcomparator_name);
-      env->DeleteLocalRef(jmerge_operator_name);
-      env->DeleteLocalRef(jprefix_extractor_name);
-      env->DeleteLocalRef(jproperty_collectors_names);
-      env->DeleteLocalRef(jcompression_name);
-      env->DeleteLocalRef(juser_collected_properties);
-      env->DeleteLocalRef(jreadable_properties);
-      return nullptr;
-    }
-
-    jobject jtable_properties = env->NewObject(jclazz, mid,
-        static_cast<jlong>(table_properties.data_size),
+    jobject jtable_properties = env->NewObject(
+        jclazz, mid, static_cast<jlong>(table_properties.data_size),
         static_cast<jlong>(table_properties.index_size),
         static_cast<jlong>(table_properties.index_partitions),
         static_cast<jlong>(table_properties.top_level_index_size),
@@ -6188,17 +6364,16 @@ class TablePropertiesJni : public JavaClass {
         static_cast<jlong>(table_properties.column_family_id),
         static_cast<jlong>(table_properties.creation_time),
         static_cast<jlong>(table_properties.oldest_key_time),
-        jcolumn_family_name,
-        jfilter_policy_name,
-        jcomparator_name,
-        jmerge_operator_name,
-        jprefix_extractor_name,
-        jproperty_collectors_names,
-        jcompression_name,
-        juser_collected_properties,
-        jreadable_properties,
-        jproperties_offsets
-    );
+        static_cast<jlong>(
+            table_properties.slow_compression_estimated_data_size),
+        static_cast<jlong>(
+            table_properties.fast_compression_estimated_data_size),
+        static_cast<jlong>(
+            table_properties.external_sst_file_global_seqno_offset),
+        jcolumn_family_name, jfilter_policy_name, jcomparator_name,
+        jmerge_operator_name, jprefix_extractor_name,
+        jproperty_collectors_names, jcompression_name,
+        juser_collected_properties, jreadable_properties);
 
     if (env->ExceptionCheck()) {
       return nullptr;
@@ -6411,6 +6586,8 @@ class ChecksumTypeJni {
         return 0x2;
       case ROCKSDB_NAMESPACE::ChecksumType::kxxHash64:
         return 0x3;
+      case ROCKSDB_NAMESPACE::ChecksumType::kXXH3:
+        return 0x4;
       default:
         return 0x7F;  // undefined
     }
@@ -6947,6 +7124,10 @@ class CompactionReasonJni {
         return ROCKSDB_NAMESPACE::CompactionReason::kFlush;
       case 0x0D:
         return ROCKSDB_NAMESPACE::CompactionReason::kExternalSstIngestion;
+      case 0x0E:
+        return ROCKSDB_NAMESPACE::CompactionReason::kPeriodicCompaction;
+      case 0x0F:
+        return ROCKSDB_NAMESPACE::CompactionReason::kChangeTemperature;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::CompactionReason::kUnknown;
@@ -7689,7 +7870,7 @@ class SanityLevelJni {
 class EnabledEventCallbackJni {
  public:
   // Returns the set of equivalent C++
-  // rocksdb::EnabledEventCallbackJni::EnabledEventCallback enums for
+  // ROCKSDB_NAMESPACE::EnabledEventCallbackJni::EnabledEventCallback enums for
   // the provided Java jenabled_event_callback_values
   static std::set<EnabledEventCallback> toCppEnabledEventCallbacks(
       jlong jenabled_event_callback_values) {
@@ -7955,7 +8136,7 @@ class AbstractEventListenerJni
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileFlushFinish
+   * Get the Java Method: AbstractEventListener#onFileFlushFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7965,13 +8146,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileFlushFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileFlushFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileSyncFinish
+   * Get the Java Method: AbstractEventListener#onFileSyncFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7981,13 +8162,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileRangeSyncFinish
+   * Get the Java Method: AbstractEventListener#onFileRangeSyncFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7997,13 +8178,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileRangeSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileRangeSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileTruncateFinish
+   * Get the Java Method: AbstractEventListener#onFileTruncateFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -8013,13 +8194,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileTruncateFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileTruncateFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileCloseFinish
+   * Get the Java Method: AbstractEventListener#onFileCloseFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -8029,7 +8210,7 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileCloseFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileCloseFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
@@ -8197,7 +8378,7 @@ class CompactionJobInfoJni : public JavaClass {
     static jmethodID ctor = getConstructorMethodId(env, jclazz);
     assert(ctor != nullptr);
     return env->NewObject(jclazz, ctor,
-                          reinterpret_cast<jlong>(compaction_job_info));
+                          GET_CPLUSPLUS_POINTER(compaction_job_info));
   }
 
   static jclass getJClass(JNIEnv* env) {

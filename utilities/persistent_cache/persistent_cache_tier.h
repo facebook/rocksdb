@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/status.h"
+#include "rocksdb/system_clock.h"
 
 // Persistent Cache
 //
@@ -86,6 +87,8 @@ struct PersistentCacheConfig {
       const std::shared_ptr<Logger>& _log,
       const uint32_t _write_buffer_size = 1 * 1024 * 1024 /*1MB*/) {
     env = _env;
+    clock = (env != nullptr) ? env->GetSystemClock().get()
+                             : SystemClock::Default().get();
     path = _path;
     log = _log;
     cache_size = _cache_size;
@@ -124,10 +127,10 @@ struct PersistentCacheConfig {
   }
 
   //
-  // Env abstraction to use for systmer level operations
+  // Env abstraction to use for system level operations
   //
   Env* env;
-
+  SystemClock* clock;
   //
   // Path for the block cache where blocks are persisted
   //
@@ -232,7 +235,7 @@ struct PersistentCacheConfig {
 // to enable management and stacking of tiers.
 class PersistentCacheTier : public PersistentCache {
  public:
-  typedef std::shared_ptr<PersistentCacheTier> Tier;
+  using Tier = std::shared_ptr<PersistentCacheTier>;
 
   virtual ~PersistentCacheTier() {}
 

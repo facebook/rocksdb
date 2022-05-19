@@ -11,7 +11,7 @@
 #include "db/blob/blob_log_format.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/statistics.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
@@ -19,14 +19,16 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
-                             Env* env, Statistics* statistics,
-                             uint64_t log_number, bool use_fs, uint64_t boffset)
+                             SystemClock* clock, Statistics* statistics,
+                             uint64_t log_number, bool use_fs, bool do_flush,
+                             uint64_t boffset)
     : dest_(std::move(dest)),
-      env_(env),
+      clock_(clock),
       statistics_(statistics),
       log_number_(log_number),
       block_offset_(boffset),
       use_fsync_(use_fs),
+      do_flush_(do_flush),
       last_elem_type_(kEtNone) {}
 
 BlobLogWriter::~BlobLogWriter() = default;
@@ -34,7 +36,7 @@ BlobLogWriter::~BlobLogWriter() = default;
 Status BlobLogWriter::Sync() {
   TEST_SYNC_POINT("BlobLogWriter::Sync");
 
-  StopWatch sync_sw(env_, statistics_, BLOB_DB_BLOB_FILE_SYNC_MICROS);
+  StopWatch sync_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_SYNC_MICROS);
   Status s = dest_->Sync(use_fsync_);
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_SYNCED);
   return s;
@@ -49,7 +51,9 @@ Status BlobLogWriter::WriteHeader(BlobLogHeader& header) {
   Status s = dest_->Append(Slice(str));
   if (s.ok()) {
     block_offset_ += str.size();
-    s = dest_->Flush();
+    if (do_flush_) {
+      s = dest_->Flush();
+    }
   }
   last_elem_type_ = kEtFileHdr;
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_WRITTEN,
@@ -144,7 +148,7 @@ Status BlobLogWriter::EmitPhysicalRecord(const std::string& headerbuf,
                                          const Slice& key, const Slice& val,
                                          uint64_t* key_offset,
                                          uint64_t* blob_offset) {
-  StopWatch write_sw(env_, statistics_, BLOB_DB_BLOB_FILE_WRITE_MICROS);
+  StopWatch write_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_WRITE_MICROS);
   Status s = dest_->Append(Slice(headerbuf));
   if (s.ok()) {
     s = dest_->Append(key);
@@ -152,7 +156,7 @@ Status BlobLogWriter::EmitPhysicalRecord(const std::string& headerbuf,
   if (s.ok()) {
     s = dest_->Append(val);
   }
-  if (s.ok()) {
+  if (do_flush_ && s.ok()) {
     s = dest_->Flush();
   }
 

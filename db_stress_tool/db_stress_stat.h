@@ -11,9 +11,9 @@
 
 #include "monitoring/histogram.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/snapshot.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/system_clock.h"
 #include "util/gflags_compat.h"
 #include "util/random.h"
 
@@ -21,9 +21,10 @@ DECLARE_bool(histogram);
 DECLARE_bool(progress_reports);
 
 namespace ROCKSDB_NAMESPACE {
+
 // Database statistics
-static std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats;
-static std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_secondaries;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats;
+extern std::shared_ptr<ROCKSDB_NAMESPACE::Statistics> dbstats_secondaries;
 
 class Stats {
  private:
@@ -73,7 +74,7 @@ class Stats {
     seconds_ = 0;
     num_compact_files_succeed_ = 0;
     num_compact_files_failed_ = 0;
-    start_ = Env::Default()->NowMicros();
+    start_ = SystemClock::Default()->NowMicros();
     last_op_finish_ = start_;
     finish_ = start_;
   }
@@ -102,13 +103,13 @@ class Stats {
   }
 
   void Stop() {
-    finish_ = Env::Default()->NowMicros();
+    finish_ = SystemClock::Default()->NowMicros();
     seconds_ = (finish_ - start_) * 1e-6;
   }
 
   void FinishedSingleOp() {
     if (FLAGS_histogram) {
-      auto now = Env::Default()->NowMicros();
+      auto now = SystemClock::Default()->NowMicros();
       auto micros = now - last_op_finish_;
       hist_.Add(micros);
       if (micros > 20000) {

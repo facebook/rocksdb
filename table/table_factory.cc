@@ -3,48 +3,63 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <mutex>
+
 #include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
 #include "table/plain/plain_table_factory.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-Status TableFactory::CreateFromString(const ConfigOptions& config_options_in,
-                                      const std::string& id,
-                                      std::shared_ptr<TableFactory>* factory) {
-  Status status;
-  std::string name = id;
-
-  std::string existing_opts;
-
-  ConfigOptions config_options = config_options_in;
-  if (factory->get() != nullptr && name == factory->get()->Name()) {
-    config_options.delimiter = ";";
-
-    status = factory->get()->GetOptionString(config_options, &existing_opts);
-    if (!status.ok()) {
-      return status;
-    }
-  }
-  if (name == TableFactory::kBlockBasedTableName()) {
-    factory->reset(new BlockBasedTableFactory());
+static void RegisterTableFactories(const std::string& /*arg*/) {
 #ifndef ROCKSDB_LITE
-  } else if (name == TableFactory::kPlainTableName()) {
-    factory->reset(new PlainTableFactory());
-  } else if (name == TableFactory::kCuckooTableName()) {
-    factory->reset(new CuckooTableFactory());
+  static std::once_flag loaded;
+  std::call_once(loaded, []() {
+    auto library = ObjectLibrary::Default();
+    library->AddFactory<TableFactory>(
+        TableFactory::kBlockBasedTableName(),
+        [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+           std::string* /* errmsg */) {
+          guard->reset(new BlockBasedTableFactory());
+          return guard->get();
+        });
+    library->AddFactory<TableFactory>(
+        TableFactory::kPlainTableName(),
+        [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+           std::string* /* errmsg */) {
+          guard->reset(new PlainTableFactory());
+          return guard->get();
+        });
+    library->AddFactory<TableFactory>(
+        TableFactory::kCuckooTableName(),
+        [](const std::string& /*uri*/, std::unique_ptr<TableFactory>* guard,
+           std::string* /* errmsg */) {
+          guard->reset(new CuckooTableFactory());
+          return guard->get();
+        });
+  });
 #endif  // ROCKSDB_LITE
-  } else {
-    status = Status::NotSupported("Could not load table factory: ", name);
-    return status;
-  }
-  if (status.ok() && !existing_opts.empty()) {
-    config_options.invoke_prepare_options = false;
-    status = factory->get()->ConfigureFromString(config_options, existing_opts);
-  }
-  return status;
 }
 
+static bool LoadFactory(const std::string& name,
+                        std::shared_ptr<TableFactory>* factory) {
+  if (name == TableFactory::kBlockBasedTableName()) {
+    factory->reset(new BlockBasedTableFactory());
+    return true;
+  } else {
+    return false;
+  }
+}
+
+Status TableFactory::CreateFromString(const ConfigOptions& config_options,
+                                      const std::string& value,
+                                      std::shared_ptr<TableFactory>* factory) {
+  RegisterTableFactories("");
+  return LoadSharedObject<TableFactory>(config_options, value, LoadFactory,
+                                        factory);
+}
 }  // namespace ROCKSDB_NAMESPACE

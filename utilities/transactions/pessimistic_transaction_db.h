@@ -21,6 +21,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
 #include "utilities/transactions/lock/lock_manager.h"
+#include "utilities/transactions/lock/range/range_lock_manager.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
@@ -98,6 +99,8 @@ class PessimisticTransactionDB : public TransactionDB {
 
   Status TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
                  const std::string& key, bool exclusive);
+  Status TryRangeLock(PessimisticTransaction* txn, uint32_t cfh_id,
+                      const Endpoint& start_endp, const Endpoint& end_endp);
 
   void UnLock(PessimisticTransaction* txn, const LockTracker& keys);
   void UnLock(PessimisticTransaction* txn, uint32_t cfh_id,
@@ -152,6 +155,11 @@ class PessimisticTransactionDB : public TransactionDB {
   std::shared_ptr<Logger> info_log_;
   const TransactionDBOptions txn_db_options_;
 
+  static Status FailIfBatchHasTs(const WriteBatch* wb);
+
+  static Status FailIfCfEnablesTs(const DB* db,
+                                  const ColumnFamilyHandle* column_family);
+
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
@@ -172,11 +180,12 @@ class PessimisticTransactionDB : public TransactionDB {
   friend class WriteUnpreparedTransactionTest_RecoveryTest_Test;
   friend class WriteUnpreparedTransactionTest_MarkLogWithPrepSection_Test;
 
-  std::unique_ptr<LockManager> lock_manager_;
+  Transaction* BeginInternalTransaction(const WriteOptions& options);
+
+  std::shared_ptr<LockManager> lock_manager_;
 
   // Must be held when adding/dropping column families.
   InstrumentedMutex column_family_mutex_;
-  Transaction* BeginInternalTransaction(const WriteOptions& options);
 
   // Used to ensure that no locks are stolen from an expirable transaction
   // that has started a commit. Only transactions with an expiration time
@@ -220,6 +229,31 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
                        WriteBatch* updates) override;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 };
+
+inline Status PessimisticTransactionDB::FailIfBatchHasTs(
+    const WriteBatch* batch) {
+  if (batch != nullptr && WriteBatchInternal::HasKeyWithTimestamp(*batch)) {
+    return Status::NotSupported(
+        "Writes with timestamp must go through transaction API instead of "
+        "TransactionDB.");
+  }
+  return Status::OK();
+}
+
+inline Status PessimisticTransactionDB::FailIfCfEnablesTs(
+    const DB* db, const ColumnFamilyHandle* column_family) {
+  assert(db);
+  column_family = column_family ? column_family : db->DefaultColumnFamily();
+  assert(column_family);
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  if (ucmp->timestamp_size() > 0) {
+    return Status::NotSupported(
+        "Write operation with user timestamp must go through the transaction "
+        "API instead of TransactionDB.");
+  }
+  return Status::OK();
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

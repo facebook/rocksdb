@@ -5,8 +5,11 @@
 
 #include "trace_replay/io_tracer.h"
 
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
@@ -22,6 +25,7 @@ class IOTracerTest : public testing::Test {
   IOTracerTest() {
     test_path_ = test::PerThreadDBPath("io_tracer_test");
     env_ = ROCKSDB_NAMESPACE::Env::Default();
+    clock_ = env_->GetSystemClock().get();
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/io_trace";
   }
@@ -52,13 +56,16 @@ class IOTracerTest : public testing::Test {
     assert(writer);
     for (uint64_t i = 0; i < nrecords; i++) {
       IOTraceRecord record;
-      record.trace_type = TraceType::kIOLenAndOffset;
+      record.io_op_data = 0;
+      record.trace_type = TraceType::kIOTracer;
+      record.io_op_data |= (1 << IOTraceOp::kIOLen);
+      record.io_op_data |= (1 << IOTraceOp::kIOOffset);
       record.file_operation = GetFileOperation(i);
       record.io_status = IOStatus::OK().ToString();
       record.file_name = kDummyFile + std::to_string(i);
       record.len = i;
       record.offset = i + 20;
-      ASSERT_OK(writer->WriteIOOp(record));
+      EXPECT_OK(writer->WriteIOOp(record, nullptr));
     }
   }
 
@@ -75,23 +82,148 @@ class IOTracerTest : public testing::Test {
   }
 
   Env* env_;
+  SystemClock* clock_;
   EnvOptions env_options_;
   std::string trace_file_path_;
   std::string test_path_;
 };
 
+TEST_F(IOTracerTest, MultipleRecordsWithDifferentIOOpOptions) {
+  std::string file_name = kDummyFile + std::to_string(5);
+  {
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    IOTracer writer;
+    ASSERT_OK(writer.StartIOTrace(clock_, trace_opt, std::move(trace_writer)));
+
+    // Write general record.
+    IOTraceRecord record0(0, TraceType::kIOTracer, 0 /*io_op_data*/,
+                          GetFileOperation(0), 155 /*latency*/,
+                          IOStatus::OK().ToString(), file_name);
+    writer.WriteIOOp(record0, nullptr);
+
+    // Write record with FileSize.
+    uint64_t io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOFileSize);
+    IOTraceRecord record1(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(1), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name,
+                          256 /*file_size*/);
+    writer.WriteIOOp(record1, nullptr);
+
+    // Write record with Length.
+    io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOLen);
+    IOTraceRecord record2(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(2), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name, 100 /*length*/,
+                          200 /*offset*/);
+    writer.WriteIOOp(record2, nullptr);
+
+    // Write record with Length and offset.
+    io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOLen);
+    io_op_data |= (1 << IOTraceOp::kIOOffset);
+    IOTraceRecord record3(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(3), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name, 120 /*length*/,
+                          17 /*offset*/);
+    writer.WriteIOOp(record3, nullptr);
+
+    // Write record with offset.
+    io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOOffset);
+    IOTraceRecord record4(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(4), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name, 13 /*length*/,
+                          50 /*offset*/);
+    writer.WriteIOOp(record4, nullptr);
+
+    // Write record with IODebugContext.
+    io_op_data = 0;
+    IODebugContext dbg;
+    dbg.SetRequestId("request_id_1");
+    IOTraceRecord record5(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(5), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name);
+    writer.WriteIOOp(record5, &dbg);
+
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+  }
+  {
+    // Verify trace file is generated correctly.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+                                 &trace_reader));
+    IOTraceReader reader(std::move(trace_reader));
+    IOTraceHeader header;
+    ASSERT_OK(reader.ReadHeader(&header));
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
+
+    // Read general record.
+    IOTraceRecord record0;
+    ASSERT_OK(reader.ReadIOOp(&record0));
+    ASSERT_EQ(record0.file_operation, GetFileOperation(0));
+    ASSERT_EQ(record0.latency, 155);
+    ASSERT_EQ(record0.file_name, file_name);
+
+    // Read record with FileSize.
+    IOTraceRecord record1;
+    ASSERT_OK(reader.ReadIOOp(&record1));
+    ASSERT_EQ(record1.file_size, 256);
+    ASSERT_EQ(record1.len, 0);
+    ASSERT_EQ(record1.offset, 0);
+
+    // Read record with Length.
+    IOTraceRecord record2;
+    ASSERT_OK(reader.ReadIOOp(&record2));
+    ASSERT_EQ(record2.len, 100);
+    ASSERT_EQ(record2.file_size, 0);
+    ASSERT_EQ(record2.offset, 0);
+
+    // Read record with Length and offset.
+    IOTraceRecord record3;
+    ASSERT_OK(reader.ReadIOOp(&record3));
+    ASSERT_EQ(record3.len, 120);
+    ASSERT_EQ(record3.file_size, 0);
+    ASSERT_EQ(record3.offset, 17);
+
+    // Read record with offset.
+    IOTraceRecord record4;
+    ASSERT_OK(reader.ReadIOOp(&record4));
+    ASSERT_EQ(record4.len, 0);
+    ASSERT_EQ(record4.file_size, 0);
+    ASSERT_EQ(record4.offset, 50);
+
+    IOTraceRecord record5;
+    ASSERT_OK(reader.ReadIOOp(&record5));
+    ASSERT_EQ(record5.len, 0);
+    ASSERT_EQ(record5.file_size, 0);
+    ASSERT_EQ(record5.offset, 0);
+    ASSERT_EQ(record5.request_id, "request_id_1");
+    // Read one more record and it should report error.
+    IOTraceRecord record6;
+    ASSERT_NOK(reader.ReadIOOp(&record6));
+  }
+}
+
 TEST_F(IOTracerTest, AtomicWrite) {
   std::string file_name = kDummyFile + std::to_string(0);
   {
-    IOTraceRecord record(0, TraceType::kIOFileName, GetFileOperation(0), 0,
+    IOTraceRecord record(0, TraceType::kIOTracer, 0 /*io_op_data*/,
+                         GetFileOperation(0), 10 /*latency*/,
                          IOStatus::OK().ToString(), file_name);
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
-    ASSERT_OK(writer.WriteIOOp(record));
+    ASSERT_OK(writer.StartIOTrace(clock_, trace_opt, std::move(trace_writer)));
+    writer.WriteIOOp(record, nullptr);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -115,16 +247,18 @@ TEST_F(IOTracerTest, AtomicWrite) {
 }
 
 TEST_F(IOTracerTest, AtomicWriteBeforeStartTrace) {
+  std::string file_name = kDummyFile + std::to_string(0);
   {
-    IOTraceRecord record(0, TraceType::kIOGeneral, GetFileOperation(0), 0,
-                         IOStatus::OK().ToString());
+    IOTraceRecord record(0, TraceType::kIOTracer, 0 /*io_op_data*/,
+                         GetFileOperation(0), 0, IOStatus::OK().ToString(),
+                         file_name);
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
     // The record should not be written to the trace_file since StartIOTrace is
     // not called.
-    ASSERT_OK(writer.WriteIOOp(record));
+    writer.WriteIOOp(record, nullptr);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -139,21 +273,24 @@ TEST_F(IOTracerTest, AtomicWriteBeforeStartTrace) {
 }
 
 TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
+  std::string file_name = kDummyFile + std::to_string(0);
   {
-    IOTraceRecord record(0, TraceType::kIOFileNameAndFileSize,
-                         GetFileOperation(2), 0 /*latency*/,
-                         IOStatus::OK().ToString(), "", 10 /*file_size*/);
+    uint64_t io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOFileSize);
+    IOTraceRecord record(
+        0, TraceType::kIOTracer, io_op_data, GetFileOperation(2), 0 /*latency*/,
+        IOStatus::OK().ToString(), file_name, 10 /*file_size*/);
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
-    ASSERT_OK(writer.WriteIOOp(record));
+    ASSERT_OK(writer.StartIOTrace(clock_, trace_opt, std::move(trace_writer)));
+    writer.WriteIOOp(record, nullptr);
     writer.EndIOTrace();
     // Write the record again. This time the record should not be written since
     // EndIOTrace is called.
-    ASSERT_OK(writer.WriteIOOp(record));
+    writer.WriteIOOp(record, nullptr);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -183,7 +320,7 @@ TEST_F(IOTracerTest, AtomicMultipleWrites) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    IOTraceWriter writer(env_, trace_opt, std::move(trace_writer));
+    IOTraceWriter writer(clock_, trace_opt, std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
     // Write 10 records
     WriteIOOp(&writer, 10);

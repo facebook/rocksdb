@@ -13,7 +13,9 @@
 
 #include "db/log_reader.h"
 #include "db/version_edit.h"
+#include "db/version_edit_handler.h"
 #include "file/sequence_file_reader.h"
+#include "rocksdb/utilities/customizable_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -95,7 +97,7 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   if (checksum_list == nullptr) {
     return Status::InvalidArgument("checksum_list is nullptr");
   }
-
+  assert(checksum_list);
   checksum_list->reset();
   Status s;
 
@@ -123,32 +125,48 @@ Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
   reporter.status_ptr = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
-  Slice record;
-  std::string scratch;
-  while (reader.LastRecordEnd() < manifest_file_size &&
-         reader.ReadRecord(&record, &scratch) && s.ok()) {
-    VersionEdit edit;
-    s = edit.DecodeFrom(record);
-    if (!s.ok()) {
-      break;
-    }
-
-    // Remove the deleted files from the checksum_list
-    for (const auto& deleted_file : edit.GetDeletedFiles()) {
-      checksum_list->RemoveOneFileChecksum(deleted_file.second);
-    }
-
-    // Add the new files to the checksum_list
-    for (const auto& new_file : edit.GetNewFiles()) {
-      checksum_list->InsertOneFileChecksum(
-          new_file.second.fd.GetNumber(), new_file.second.file_checksum,
-          new_file.second.file_checksum_func_name);
-    }
-  }
-  assert(!s.ok() ||
+  FileChecksumRetriever retriever(manifest_file_size, *checksum_list);
+  retriever.Iterate(reader, &s);
+  assert(!retriever.status().ok() ||
          manifest_file_size == std::numeric_limits<uint64_t>::max() ||
          reader.LastRecordEnd() == manifest_file_size);
-  return s;
+
+  return retriever.status();
 }
 
+#ifndef ROCKSDB_LITE
+namespace {
+static int RegisterFileChecksumGenFactories(ObjectLibrary& library,
+                                            const std::string& /*arg*/) {
+  library.AddFactory<FileChecksumGenFactory>(
+      FileChecksumGenCrc32cFactory::kClassName(),
+      [](const std::string& /*uri*/,
+         std::unique_ptr<FileChecksumGenFactory>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new FileChecksumGenCrc32cFactory());
+        return guard->get();
+      });
+  return 1;
+}
+}  // namespace
+#endif  // !ROCKSDB_LITE
+
+Status FileChecksumGenFactory::CreateFromString(
+    const ConfigOptions& options, const std::string& value,
+    std::shared_ptr<FileChecksumGenFactory>* result) {
+#ifndef ROCKSDB_LITE
+  static std::once_flag once;
+  std::call_once(once, [&]() {
+    RegisterFileChecksumGenFactories(*(ObjectLibrary::Default().get()), "");
+  });
+#endif  // ROCKSDB_LITE
+  if (value == FileChecksumGenCrc32cFactory::kClassName()) {
+    *result = GetFileChecksumGenCrc32cFactory();
+    return Status::OK();
+  } else {
+    Status s = LoadSharedObject<FileChecksumGenFactory>(options, value, nullptr,
+                                                        result);
+    return s;
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE

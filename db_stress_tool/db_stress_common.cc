@@ -16,12 +16,11 @@
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
-ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env = nullptr;
-#ifndef NDEBUG
+ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
+ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
 // If non-null, injects read error at a rate specified by the
-// read_fault_one_in flag
+// read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
-#endif // NDEBUG
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
@@ -30,7 +29,7 @@ enum ROCKSDB_NAMESPACE::ChecksumType checksum_type_e =
     ROCKSDB_NAMESPACE::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;
 std::vector<double> sum_probs(100001);
-int64_t zipf_sum_size = 100000;
+constexpr int64_t zipf_sum_size = 100000;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -225,13 +224,29 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
       ((rand % kRandomValueMaxFactor) + 1) * FLAGS_value_size_mult;
   assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
   (void)max_sz;
-  *((uint32_t*)v) = rand;
+  PutUnaligned(reinterpret_cast<uint32_t*>(v), rand);
   for (size_t i = sizeof(uint32_t); i < value_sz; i++) {
     v[i] = (char)(rand ^ i);
   }
   v[value_sz] = '\0';
   return value_sz;  // the size of the value set.
 }
+
+uint32_t GetValueBase(Slice s) {
+  assert(s.size() >= sizeof(uint32_t));
+  uint32_t res;
+  GetUnaligned(reinterpret_cast<const uint32_t*>(s.data()), &res);
+  return res;
+}
+
+std::string NowNanosStr() {
+  uint64_t t = db_stress_env->NowNanos();
+  std::string ret;
+  PutFixed64(&ret, t);
+  return ret;
+}
+
+std::string GenerateTimestampForRead() { return NowNanosStr(); }
 
 namespace {
 
