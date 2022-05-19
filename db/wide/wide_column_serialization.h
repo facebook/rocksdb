@@ -44,8 +44,9 @@ class WideColumnSerialization {
   static Status Serialize(const WideColumnDescs& column_descs,
                           std::string& output);
   static Status Deserialize(Slice& input, WideColumnDescs& column_descs);
-  static Status DeserializeOne(Slice& input, const Slice& column_name,
-                               WideColumnDesc& column_desc);
+
+  static WideColumnDescs::const_iterator Find(
+      const WideColumnDescs& column_descs, const Slice& column_name);
 
   static constexpr uint32_t kCurrentVersion = 1;
 };

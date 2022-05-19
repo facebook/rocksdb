@@ -64,30 +64,6 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
   return Status::OK();
 }
 
-Status WideColumnSerialization::DeserializeOne(Slice& input,
-                                               const Slice& column_name,
-                                               WideColumnDesc& column_desc) {
-  WideColumnDescs all_column_descs;
-
-  const Status s = Deserialize(input, all_column_descs);
-  if (!s.ok()) {
-    return s;
-  }
-
-  auto it = std::lower_bound(all_column_descs.cbegin(), all_column_descs.cend(),
-                             column_name,
-                             [](const WideColumnDesc& lhs, const Slice& rhs) {
-                               return lhs.name().compare(rhs) < 0;
-                             });
-  if (it == all_column_descs.end() || it->name() != column_name) {
-    return Status::NotFound("Wide column not found");
-  }
-
-  column_desc = *it;
-
-  return Status::OK();
-}
-
 Status WideColumnSerialization::Deserialize(Slice& input,
                                             WideColumnDescs& column_descs) {
   assert(column_descs.empty());
@@ -152,6 +128,21 @@ Status WideColumnSerialization::Deserialize(Slice& input,
   }
 
   return Status::OK();
+}
+
+WideColumnDescs::const_iterator WideColumnSerialization::Find(
+    const WideColumnDescs& column_descs, const Slice& column_name) {
+  const auto it =
+      std::lower_bound(column_descs.cbegin(), column_descs.cend(), column_name,
+                       [](const WideColumnDesc& lhs, const Slice& rhs) {
+                         return lhs.name().compare(rhs) < 0;
+                       });
+
+  if (it == column_descs.cend() || it->name() != column_name) {
+    return column_descs.cend();
+  }
+
+  return it;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

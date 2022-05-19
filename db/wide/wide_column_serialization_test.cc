@@ -16,42 +16,32 @@ TEST(WideColumnSerializationTest, SerializeDeserialize) {
 
   ASSERT_OK(WideColumnSerialization::Serialize(column_descs, output));
 
-  {
     Slice input(output);
     WideColumnDescs deserialized_descs;
 
     ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_descs));
     ASSERT_EQ(column_descs, deserialized_descs);
+
+  {
+    const auto it = WideColumnSerialization::Find(deserialized_descs, "foo");
+    ASSERT_NE(it, deserialized_descs.cend());
+    ASSERT_EQ(*it, deserialized_descs.front());
   }
 
   {
-    Slice input(output);
-    WideColumnDesc deserialized_desc;
-
-    ASSERT_OK(WideColumnSerialization::DeserializeOne(input, "foo",
-                                                      deserialized_desc));
-
-    WideColumnDesc expected_desc{"foo", "bar"};
-    ASSERT_EQ(deserialized_desc, expected_desc);
+    const auto it = WideColumnSerialization::Find(deserialized_descs, "hello");
+    ASSERT_NE(it, deserialized_descs.cend());
+    ASSERT_EQ(*it, deserialized_descs.back());
   }
 
   {
-    Slice input(output);
-    WideColumnDesc deserialized_desc;
-
-    ASSERT_OK(WideColumnSerialization::DeserializeOne(input, "hello",
-                                                      deserialized_desc));
-
-    WideColumnDesc expected_desc{"hello", "world"};
-    ASSERT_EQ(deserialized_desc, expected_desc);
+    const auto it = WideColumnSerialization::Find(deserialized_descs, "fubar");
+    ASSERT_EQ(it, deserialized_descs.cend());
   }
 
   {
-    Slice input(output);
-    WideColumnDesc deserialized_desc;
-
-    ASSERT_NOK(WideColumnSerialization::DeserializeOne(input, "snafu",
-                                                       deserialized_desc));
+    const auto it = WideColumnSerialization::Find(deserialized_descs, "snafu");
+    ASSERT_EQ(it, deserialized_descs.cend());
   }
 }
 
