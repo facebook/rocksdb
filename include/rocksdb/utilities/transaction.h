@@ -620,6 +620,8 @@ class Transaction {
     return Status::NotSupported("timestamp not supported");
   }
 
+  virtual TxnTimestamp GetCommitTimestamp() const { return kMaxTxnTimestamp; }
+
  protected:
   explicit Transaction(const TransactionDB* /*db*/) {}
   Transaction() : log_number_(0), txn_state_(STARTED) {}
