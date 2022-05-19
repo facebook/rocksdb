@@ -12,14 +12,6 @@
 #include "db_stress_tool/db_stress_shared_state.h"
 
 namespace ROCKSDB_NAMESPACE {
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-#if defined(OS_SOLARIS)
-__thread bool SharedState::ignore_read_error;
-#else
 thread_local bool SharedState::ignore_read_error;
-#endif // OS_SOLARIS
-#else
-bool SharedState::ignore_read_error;
-#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

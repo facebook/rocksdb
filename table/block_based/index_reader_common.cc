@@ -33,7 +33,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 }
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
-    bool no_io, GetContext* get_context,
+    bool no_io, Env::IOPriority rate_limiter_priority, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<Block>* index_block) const {
   assert(index_block != nullptr);
@@ -44,6 +44,7 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
   }
 
   ReadOptions read_options;
+  read_options.rate_limiter_priority = rate_limiter_priority;
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
