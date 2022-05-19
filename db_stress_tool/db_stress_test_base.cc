@@ -2943,7 +2943,8 @@ void InitializeOptionsFromFlags(
   options.level_compaction_dynamic_level_bytes =
       FLAGS_level_compaction_dynamic_level_bytes;
   options.track_and_verify_wals_in_manifest = true;
-  options.verify_sst_unique_id_in_manifest = FLAGS_verify_sst_unique_id_in_manifest;
+  options.verify_sst_unique_id_in_manifest =
+      FLAGS_verify_sst_unique_id_in_manifest;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;
