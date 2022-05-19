@@ -64,12 +64,12 @@ Status WideColumnSerialization::Serialize(const WideColumnDescs& column_descs,
   return Status::OK();
 }
 
-Status WideColumnSerialization::DeserializeOne(Slice* input,
+Status WideColumnSerialization::DeserializeOne(Slice& input,
                                                const Slice& column_name,
-                                               WideColumnDesc* column_desc) {
+                                               WideColumnDesc& column_desc) {
   WideColumnDescs all_column_descs;
 
-  const Status s = DeserializeIndex(input, &all_column_descs);
+  const Status s = DeserializeIndex(input, all_column_descs);
   if (!s.ok()) {
     return s;
   }
@@ -83,24 +83,22 @@ Status WideColumnSerialization::DeserializeOne(Slice* input,
     return Status::NotFound("Wide column not found");
   }
 
-  *column_desc = *it;
+  column_desc = *it;
 
   return Status::OK();
 }
 
-Status WideColumnSerialization::DeserializeAll(Slice* input,
-                                               WideColumnDescs* column_descs) {
+Status WideColumnSerialization::DeserializeAll(Slice& input,
+                                               WideColumnDescs& column_descs) {
   return DeserializeIndex(input, column_descs);
 }
 
 Status WideColumnSerialization::DeserializeIndex(
-    Slice* input, WideColumnDescs* column_descs) {
-  assert(input);
-  assert(column_descs);
-  assert(column_descs->empty());
+    Slice& input, WideColumnDescs& column_descs) {
+  assert(column_descs.empty());
 
   uint32_t version = 0;
-  if (!GetVarint32(input, &version)) {
+  if (!GetVarint32(&input, &version)) {
     return Status::Corruption("Error decoding wide column version");
   }
 
@@ -109,7 +107,7 @@ Status WideColumnSerialization::DeserializeIndex(
   }
 
   uint32_t num_columns = 0;
-  if (!GetVarint32(input, &num_columns)) {
+  if (!GetVarint32(&input, &num_columns)) {
     return Status::Corruption("Error decoding number of wide columns");
   }
 
@@ -117,33 +115,33 @@ Status WideColumnSerialization::DeserializeIndex(
     return Status::OK();
   }
 
-  column_descs->reserve(num_columns);
+  column_descs.reserve(num_columns);
 
   autovector<uint32_t, 64> column_value_sizes;
   column_value_sizes.reserve(num_columns);
 
   for (uint32_t i = 0; i < num_columns; ++i) {
     Slice name;
-    if (!GetLengthPrefixedSlice(input, &name)) {
+    if (!GetLengthPrefixedSlice(&input, &name)) {
       return Status::Corruption("Error decoding wide column name");
     }
 
-    if (!column_descs->empty() &&
-        column_descs->back().name().compare(name) >= 0) {
+    if (!column_descs.empty() &&
+        column_descs.back().name().compare(name) >= 0) {
       return Status::Corruption("Wide columns out of order");
     }
 
-    column_descs->emplace_back(name, Slice());
+    column_descs.emplace_back(name, Slice());
 
     uint32_t value_size = 0;
-    if (!GetVarint32(input, &value_size)) {
+    if (!GetVarint32(&input, &value_size)) {
       return Status::Corruption("Error decoding wide column value size");
     }
 
     column_value_sizes.emplace_back(value_size);
   }
 
-  const Slice data(*input);
+  const Slice data(input);
   size_t pos = 0;
 
   for (uint32_t i = 0; i < num_columns; ++i) {
@@ -153,7 +151,7 @@ Status WideColumnSerialization::DeserializeIndex(
       return Status::Corruption("Error decoding wide column value payload");
     }
 
-    (*column_descs)[i].value() = Slice(data.data() + pos, value_size);
+    column_descs[i].value() = Slice(data.data() + pos, value_size);
 
     pos += value_size;
   }
