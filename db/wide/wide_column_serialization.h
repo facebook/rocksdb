@@ -43,14 +43,11 @@ class WideColumnSerialization {
  public:
   static Status Serialize(const WideColumnDescs& column_descs,
                           std::string& output);
+  static Status Deserialize(Slice& input, WideColumnDescs& column_descs);
   static Status DeserializeOne(Slice& input, const Slice& column_name,
                                WideColumnDesc& column_desc);
-  static Status DeserializeAll(Slice& input, WideColumnDescs& column_descs);
 
   static constexpr uint32_t kCurrentVersion = 1;
-
- private:
-  static Status DeserializeIndex(Slice& input, WideColumnDescs& column_descs);
 };
 
 inline bool operator==(const WideColumnDesc& lhs, const WideColumnDesc& rhs) {

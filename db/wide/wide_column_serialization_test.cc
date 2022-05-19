@@ -20,8 +20,7 @@ TEST(WideColumnSerializationTest, SerializeDeserialize) {
     Slice input(output);
     WideColumnDescs deserialized_descs;
 
-    ASSERT_OK(
-        WideColumnSerialization::DeserializeAll(input, deserialized_descs));
+    ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_descs));
     ASSERT_EQ(column_descs, deserialized_descs);
   }
 
@@ -64,7 +63,7 @@ TEST(WideColumnSerializationTest, DeserializeVersionError) {
   Slice input(buf);
   WideColumnDescs descs;
 
-  const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, descs);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "version"));
 }
@@ -79,7 +78,7 @@ TEST(WideColumnSerializationTest, DeserializeUnsupportedVersion) {
   Slice input(buf);
   WideColumnDescs descs;
 
-  const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, descs);
   ASSERT_TRUE(s.IsNotSupported());
   ASSERT_TRUE(std::strstr(s.getState(), "version"));
 }
@@ -93,7 +92,7 @@ TEST(WideColumnSerializationTest, DeserializeNumberOfColumnsError) {
   Slice input(buf);
   WideColumnDescs descs;
 
-  const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, descs);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "number"));
 }
@@ -111,7 +110,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
     Slice input(buf);
     WideColumnDescs descs;
 
-    const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, descs);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "name"));
   }
@@ -124,7 +123,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
     Slice input(buf);
     WideColumnDescs descs;
 
-    const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, descs);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "value size"));
   }
@@ -137,7 +136,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
     Slice input(buf);
     WideColumnDescs descs;
 
-    const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, descs);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "name"));
   }
@@ -150,7 +149,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
     Slice input(buf);
     WideColumnDescs descs;
 
-    const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, descs);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "value size"));
   }
@@ -163,7 +162,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
     Slice input(buf);
     WideColumnDescs descs;
 
-    const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, descs);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "payload"));
   }
@@ -175,7 +174,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
     Slice input(buf);
     WideColumnDescs descs;
 
-    const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, descs);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "payload"));
   }
@@ -187,7 +186,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
     Slice input(buf);
     WideColumnDescs descs;
 
-    ASSERT_OK(WideColumnSerialization::DeserializeAll(input, descs));
+    ASSERT_OK(WideColumnSerialization::Deserialize(input, descs));
   }
 }
 
@@ -211,7 +210,7 @@ TEST(WideColumnSerializationTest, DeserializeColumnsOutOfOrder) {
   Slice input(buf);
   WideColumnDescs descs;
 
-  const Status s = WideColumnSerialization::DeserializeAll(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, descs);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "order"));
 }
