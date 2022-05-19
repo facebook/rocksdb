@@ -332,7 +332,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
   }
   BlockCacheLookupContext lookup_context{
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
-      /*get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
+      /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
                          &lookup_context);
 
@@ -552,7 +552,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         bool does_referenced_key_exist = false;
         BlockCacheLookupContext lookup_data_block_context(
             TableReaderCaller::kUserMultiGet, tracing_mget_id,
-            /*get_from_user_specified_snapshot=*/read_options.snapshot !=
+            /*_get_from_user_specified_snapshot=*/read_options.snapshot !=
                 nullptr);
         if (first_block) {
           if (!block_handles[idx_in_batch].IsNull() ||
@@ -693,15 +693,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           }
           BlockCacheTraceRecord access_record(
               rep_->ioptions.clock->NowMicros(),
-              /*block_key=*/"", lookup_data_block_context.block_type,
+              /*_block_key=*/"", lookup_data_block_context.block_type,
               lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
-              /*cf_name=*/"", rep_->level_for_tracing(),
+              /*_cf_name=*/"", rep_->level_for_tracing(),
               rep_->sst_number_for_tracing(), lookup_data_block_context.caller,
               lookup_data_block_context.is_cache_hit,
               lookup_data_block_context.no_insert,
               lookup_data_block_context.get_id,
               lookup_data_block_context.get_from_user_specified_snapshot,
-              /*referenced_key=*/"", referenced_data_size,
+              /*_referenced_key=*/"", referenced_data_size,
               lookup_data_block_context.num_keys_in_block,
               does_referenced_key_exist);
           // TODO: Should handle status here?
