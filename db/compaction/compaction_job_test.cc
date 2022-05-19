@@ -399,7 +399,7 @@ class CompactionJobTestBase : public testing::Test {
 
   void CheckGetRateLimiterPriority(CompactionJob& compaction_job) {
     // When the state from WriteController is normal.
-    ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_LOW);
+    ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_MID);
 
     WriteController* write_controller =
         compaction_job.versions_->GetColumnFamilySet()->write_controller();
