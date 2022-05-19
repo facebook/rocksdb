@@ -68,6 +68,10 @@
 * Add `fail_if_not_bottommost_level` to IngestExternalFileOptions so that ingestion will fail if the file(s) cannot be ingested to the bottommost level.
 * Add output parameter `is_in_sec_cache` to `SecondaryCache::Lookup()`. It is to indicate whether the handle is possibly erased from the secondary cache after the Lookup.
 
+### New Features
+* Support Mingw when using the Makefile.
+* Support more cross-compilation scenarios when using the Makefile.
+
 ## 7.1.0 (03/23/2022)
 ### New Features
 * Allow WriteBatchWithIndex to index a WriteBatch that includes keys with user-defined timestamps. The index itself does not have timestamp.
