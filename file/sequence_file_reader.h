@@ -104,7 +104,7 @@ class SequentialFileReader {
   // `rate_limiter_priority` is used to charge the internal rate limiter when
   // enabled. The special value `Env::IO_TOTAL` makes this operation bypass the
   // rate limiter. The amount charged to the internal rate limiter is n, even
-  // when less than n bytes are read (e.g. at end of file). To avoid
+  // when less than n bytes are actually read (e.g. at end of file). To avoid
   // overcharging the rate limiter, the caller can use file size to cap n to
   // read until end of file.
   IOStatus Read(size_t n, Slice* result, char* scratch,

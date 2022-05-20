@@ -3572,6 +3572,13 @@ class Benchmark {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
 #ifndef ROCKSDB_LITE
+        if (name == "backup") {
+          std::cout << "Backup path: [" << FLAGS_backup_dir << "]" << std::endl;
+        } else if (name == "restore") {
+          std::cout << "Backup path: [" << FLAGS_backup_dir << "]" << std::endl;
+          std::cout << "Restore path: [" << FLAGS_restore_dir << "]"
+                    << std::endl;
+        }
         // A trace_file option can be provided both for trace and replay
         // operations. But db_bench does not support tracing and replaying at
         // the same time, for now. So, start tracing only when it is not a
@@ -8253,7 +8260,6 @@ class Benchmark {
   }
 
   void Backup(ThreadState* thread) {
-    std::cout << "Backup path: [" << FLAGS_backup_dir << "]" << std::endl;
     DB* db = SelectDB(thread);
     std::unique_ptr<BackupEngineOptions> engine_options(
         new BackupEngineOptions(FLAGS_backup_dir));
@@ -8277,7 +8283,6 @@ class Benchmark {
   }
 
   void Restore(ThreadState* /* thread */) {
-    std::cout << "Restore path: [" << FLAGS_restore_dir << "]" << std::endl;
     std::unique_ptr<BackupEngineOptions> engine_options(
         new BackupEngineOptions(FLAGS_backup_dir));
     if (FLAGS_restore_rate_limit > 0) {

@@ -597,8 +597,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   ReadaheadSequentialFileTest() {}
   std::string Read(size_t n) {
     Slice result;
-    Status s =
-        test_read_holder_->Read(n, &result, scratch_.get(), Env::IO_TOTAL);
+    Status s = test_read_holder_->Read(
+        n, &result, scratch_.get(), Env::IO_TOTAL /* rate_limiter_priority*/);
     EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
