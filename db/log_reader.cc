@@ -308,8 +308,9 @@ void Reader::UnmarkEOFInternal() {
   // Note that the Read here might overcharge SequentialFileReader's internal
   // rate limiter if priority is not IO_TOTAL, e.g., when there is not enough
   // content left until EOF to read.
-  Status status = file_->Read(remaining, &read_buffer,
-                              backing_store_ + eof_offset_, Env::IO_TOTAL);
+  Status status =
+      file_->Read(remaining, &read_buffer, backing_store_ + eof_offset_,
+                  Env::IO_TOTAL /* rate_limiter_priority */);
 
   size_t added = read_buffer.size();
   end_of_buffer_offset_ += added;
@@ -359,8 +360,8 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
     // Note that the Read here might overcharge SequentialFileReader's internal
     // rate limiter if priority is not IO_TOTAL, e.g., when there is not enough
     // content left until EOF to read.
-    Status status =
-        file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
+    Status status = file_->Read(kBlockSize, &buffer_, backing_store_,
+                                Env::IO_TOTAL /* rate_limiter_priority */);
     TEST_SYNC_POINT_CALLBACK("LogReader::ReadMore:AfterReadFile", &status);
     end_of_buffer_offset_ += buffer_.size();
     if (!status.ok()) {
@@ -655,8 +656,8 @@ bool FragmentBufferedReader::TryReadMore(size_t* drop_size, int* error) {
     // Note that the Read here might overcharge SequentialFileReader's internal
     // rate limiter if priority is not IO_TOTAL, e.g., when there is not enough
     // content left until EOF to read.
-    Status status =
-        file_->Read(kBlockSize, &buffer_, backing_store_, Env::IO_TOTAL);
+    Status status = file_->Read(kBlockSize, &buffer_, backing_store_,
+                                Env::IO_TOTAL /* rate_limiter_priority */);
     end_of_buffer_offset_ += buffer_.size();
     if (!status.ok()) {
       buffer_.clear();

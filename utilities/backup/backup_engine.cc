@@ -1448,7 +1448,6 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           uint64_t size_bytes = 0;
           IOStatus io_st;
           if (type == kTableFile || type == kBlobFile) {
-            // TODO: can we just use size_limit_bytes and remove this call?
             io_st = db_fs_->GetFileSize(src_dirname + "/" + fname, io_options_,
                                         &size_bytes, nullptr);
           }
@@ -1498,7 +1497,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
               live_dst_paths, backup_items_to_finish, new_backup_id,
               false /* shared */, "" /* src_dir */, fname,
               EnvOptions() /* src_env_options */, rate_limiter, type,
-              contents.size(), db_options.statistics.get(), contents.size(),
+              contents.size(), db_options.statistics.get(), 0 /* size_limit */,
               false /* shared_checksum */, options.progress_callback, contents);
         } /* create_file_cb */,
         &sequence_number,
@@ -2118,7 +2117,8 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     if (!src.empty()) {
       size_t buffer_to_read =
           (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
-      io_s = src_reader->Read(buffer_to_read, &data, buf.get(), Env::IO_LOW);
+      io_s = src_reader->Read(buffer_to_read, &data, buf.get(),
+                              Env::IO_LOW /* rate_limiter_priority */);
       *bytes_toward_next_callback += data.size();
     } else {
       data = contents;
@@ -2436,7 +2436,8 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     }
     size_t buffer_to_read =
         (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
-    io_s = src_reader->Read(buffer_to_read, &data, buf.get(), Env::IO_LOW);
+    io_s = src_reader->Read(buffer_to_read, &data, buf.get(),
+                            Env::IO_LOW /* rate_limiter_priority */);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -2852,7 +2853,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
 
   // Failures handled at the end
   std::string line;
-  if (backup_meta_reader->ReadLine(&line, Env::IO_LOW)) {
+  if (backup_meta_reader->ReadLine(&line,
+                                   Env::IO_LOW /* rate_limiter_priority */)) {
     if (StartsWith(line, kSchemaVersionPrefix)) {
       std::string ver = line.substr(kSchemaVersionPrefix.size());
       if (ver == "2" || StartsWith(ver, "2.")) {
@@ -2868,14 +2870,17 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   }
   if (!line.empty()) {
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
-  } else if (backup_meta_reader->ReadLine(&line)) {
+  } else if (backup_meta_reader->ReadLine(
+                 &line, Env::IO_LOW /* rate_limiter_priority */)) {
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
-  if (backup_meta_reader->ReadLine(&line)) {
+  if (backup_meta_reader->ReadLine(&line,
+                                   Env::IO_LOW /* rate_limiter_priority */)) {
     sequence_number_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   uint32_t num_files = UINT32_MAX;
-  while (backup_meta_reader->ReadLine(&line)) {
+  while (backup_meta_reader->ReadLine(
+      &line, Env::IO_LOW /* rate_limiter_priority */)) {
     if (line.empty()) {
       return IOStatus::Corruption("Unexpected empty line");
     }
@@ -2914,7 +2919,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   }
   std::vector<std::shared_ptr<FileInfo>> files;
   bool footer_present = false;
-  while (backup_meta_reader->ReadLine(&line)) {
+  while (backup_meta_reader->ReadLine(
+      &line, Env::IO_LOW /* rate_limiter_priority */)) {
     std::vector<std::string> components = StringSplit(line, ' ');
 
     if (components.size() < 1) {
@@ -3014,7 +3020,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
 
   if (footer_present) {
     assert(schema_major_version >= 2);
-    while (backup_meta_reader->ReadLine(&line)) {
+    while (backup_meta_reader->ReadLine(
+        &line, Env::IO_LOW /* rate_limiter_priority */)) {
       if (line.empty()) {
         return IOStatus::Corruption("Unexpected empty line");
       }

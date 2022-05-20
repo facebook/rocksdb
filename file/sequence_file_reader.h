@@ -64,7 +64,8 @@ class SequentialFileReader {
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      RateLimiter* rate_limiter = nullptr)
+      RateLimiter* rate_limiter =
+          nullptr)  // TODO: migrate call sites to provide rate limiter
       : file_name_(_file_name),
         file_(std::move(_file), io_tracer, _file_name),
         listeners_(),
@@ -81,7 +82,8 @@ class SequentialFileReader {
       size_t _readahead_size,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      RateLimiter* rate_limiter = nullptr)
+      RateLimiter* rate_limiter =
+          nullptr)  // TODO: migrate call sites to provide rate limiter
       : file_name_(_file_name),
         file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
               io_tracer, _file_name),

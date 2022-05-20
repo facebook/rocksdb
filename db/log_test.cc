@@ -118,6 +118,7 @@ class LogTest
       }
 
       contents_.remove_prefix(n);
+
       return IOStatus::OK();
     }
   };
