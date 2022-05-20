@@ -341,4 +341,57 @@ IOStatus BlockFetcher::ReadBlockContents() {
   return io_status_;
 }
 
+IOStatus BlockFetcher::ReadAsyncBlockContents() {
+  if (TryGetUncompressBlockFromPersistentCache()) {
+    compression_type_ = kNoCompression;
+#ifndef NDEBUG
+    contents_->is_raw_block = true;
+#endif  // NDEBUG
+    return IOStatus::OK();
+  } else if (!TryGetCompressedBlockFromPersistentCache()) {
+    if (prefetch_buffer_ != nullptr) {
+      IOOptions opts;
+      IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
+      if (io_s.ok()) {
+        io_s = status_to_io_status(prefetch_buffer_->PrefetchAsync(
+            opts, file_, handle_.offset(), block_size_with_trailer_,
+            read_options_.rate_limiter_priority, &slice_));
+        if (io_s.IsTryAgain()) {
+          return io_s;
+        }
+        if (!io_s.ok()) {
+          // Fallback to sequential reading of data blocks.
+          return ReadBlockContents();
+        }
+        // Data Block is already in prefetch.
+        got_from_prefetch_buffer_ = true;
+        ProcessTrailerIfPresent();
+        if (!io_status_.ok()) {
+          return io_status_;
+        }
+        used_buf_ = const_cast<char*>(slice_.data());
+
+        if (do_uncompress_ && compression_type_ != kNoCompression) {
+          PERF_TIMER_GUARD(block_decompress_time);
+          // compressed page, uncompress, update cache
+          UncompressionContext context(compression_type_);
+          UncompressionInfo info(context, uncompression_dict_,
+                                 compression_type_);
+          io_status_ = status_to_io_status(UncompressBlockContents(
+              info, slice_.data(), block_size_, contents_,
+              footer_.format_version(), ioptions_, memory_allocator_));
+#ifndef NDEBUG
+          num_heap_buf_memcpy_++;
+#endif
+          compression_type_ = kNoCompression;
+        } else {
+          GetBlockContents();
+        }
+        InsertUncompressedBlockToPersistentCacheIfNeeded();
+      }
+    }
+  }
+  return io_status_;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

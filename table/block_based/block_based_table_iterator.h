@@ -41,7 +41,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         allow_unprepared_value_(allow_unprepared_value),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
-        need_upper_bound_check_(need_upper_bound_check) {}
+        need_upper_bound_check_(need_upper_bound_check),
+        async_read_in_progress_(false) {}
 
   ~BlockBasedTableIterator() {}
 
@@ -96,6 +97,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
+    } else if (async_read_in_progress_) {
+      return Status::TryAgain();
     } else {
       return Status::OK();
     }
@@ -236,10 +239,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
 
+  bool async_read_in_progress_;
+
   // If `target` is null, seek to first.
-  void SeekImpl(const Slice* target);
+  void SeekImpl(const Slice* target, bool async_prefetch);
 
   void InitDataBlock();
+  void AsyncInitDataBlock(bool is_first_pass);
   bool MaterializeCurrentBlock();
   void FindKeyForward();
   void FindBlockForward();

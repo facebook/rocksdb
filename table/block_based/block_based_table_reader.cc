@@ -125,7 +125,7 @@ Status ReadBlockFromFile(
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options, size_t read_amp_bytes_per_bit,
     MemoryAllocator* memory_allocator, bool for_compaction, bool using_zstd,
-    const FilterPolicy* filter_policy) {
+    const FilterPolicy* filter_policy, bool async_read) {
   assert(result);
 
   BlockContents contents;
@@ -133,7 +133,17 @@ Status ReadBlockFromFile(
       file, prefetch_buffer, footer, options, handle, &contents, ioptions,
       do_uncompress, maybe_compressed, block_type, uncompression_dict,
       cache_options, memory_allocator, nullptr, for_compaction);
-  Status s = block_fetcher.ReadBlockContents();
+  Status s;
+  // If prefetch_buffer is not allocated, it will fallback to synchronous
+  // reading of block contents.
+  if (async_read && prefetch_buffer != nullptr) {
+    s = block_fetcher.ReadAsyncBlockContents();
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    s = block_fetcher.ReadBlockContents();
+  }
   if (s.ok()) {
     result->reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(contents), read_amp_bytes_per_bit, ioptions.stats, using_zstd,
@@ -904,10 +914,12 @@ Status BlockBasedTable::ReadRangeDelBlock(
         "Error when seeking to range delete tombstones block from file: %s",
         s.ToString().c_str());
   } else if (!range_del_handle.IsNull()) {
+    Status tmp_status;
     std::unique_ptr<InternalIterator> iter(NewDataBlockIterator<DataBlockIter>(
         read_options, range_del_handle,
         /*input_iter=*/nullptr, BlockType::kRangeDeletion,
-        /*get_context=*/nullptr, lookup_context, Status(), prefetch_buffer));
+        /*get_context=*/nullptr, lookup_context, prefetch_buffer,
+        /*for_compaction= */ false, /*async_read= */ false, tmp_status));
     assert(iter != nullptr);
     s = iter->status();
     if (!s.ok()) {
@@ -1177,7 +1189,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
       UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
       0 /* read_amp_bytes_per_bit */, GetMemoryAllocator(rep_->table_options),
       false /* for_compaction */, rep_->blocks_definitely_zstd_compressed,
-      nullptr /* filter_policy */);
+      nullptr /* filter_policy */, false /* async_read */);
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
@@ -1508,7 +1520,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     const bool wait, const bool for_compaction,
     CachableEntry<TBlocklike>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    BlockContents* contents) const {
+    BlockContents* contents, bool async_read) const {
   assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -1571,7 +1583,18 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             rep_->persistent_cache_options,
             GetMemoryAllocator(rep_->table_options),
             GetMemoryAllocatorForCompressedBlock(rep_->table_options));
-        s = block_fetcher.ReadBlockContents();
+
+        // If prefetch_buffer is not allocated, it will fallback to synchronous
+        // reading of block contents.
+        if (async_read && prefetch_buffer != nullptr) {
+          s = block_fetcher.ReadAsyncBlockContents();
+          if (!s.ok()) {
+            return s;
+          }
+        } else {
+          s = block_fetcher.ReadBlockContents();
+        }
+
         raw_block_comp_type = block_fetcher.get_compression_type();
         contents = &raw_block_contents;
         if (get_context) {
@@ -1678,7 +1701,8 @@ Status BlockBasedTable::RetrieveBlock(
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<TBlocklike>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    bool for_compaction, bool use_cache, bool wait_for_cache) const {
+    bool for_compaction, bool use_cache, bool wait_for_cache,
+    bool async_read) const {
   assert(block_entry);
   assert(block_entry->IsEmpty());
 
@@ -1687,7 +1711,7 @@ Status BlockBasedTable::RetrieveBlock(
     s = MaybeReadBlockAndLoadToCache(
         prefetch_buffer, ro, handle, uncompression_dict, wait_for_cache,
         for_compaction, block_entry, block_type, get_context, lookup_context,
-        /*contents=*/nullptr);
+        /*contents=*/nullptr, async_read);
 
     if (!s.ok()) {
       return s;
@@ -1727,7 +1751,7 @@ Status BlockBasedTable::RetrieveBlock(
             : 0,
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
-        rep_->table_options.filter_policy.get());
+        rep_->table_options.filter_policy.get(), async_read);
 
     if (get_context) {
       switch (block_type) {
@@ -1763,28 +1787,32 @@ template Status BlockBasedTable::RetrieveBlock<BlockContents>(
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<BlockContents>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    bool for_compaction, bool use_cache, bool wait_for_cache) const;
+    bool for_compaction, bool use_cache, bool wait_for_cache,
+    bool async_read) const;
 
 template Status BlockBasedTable::RetrieveBlock<ParsedFullFilterBlock>(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<ParsedFullFilterBlock>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    bool for_compaction, bool use_cache, bool wait_for_cache) const;
+    bool for_compaction, bool use_cache, bool wait_for_cache,
+    bool async_read) const;
 
 template Status BlockBasedTable::RetrieveBlock<Block>(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<Block>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    bool for_compaction, bool use_cache, bool wait_for_cache) const;
+    bool for_compaction, bool use_cache, bool wait_for_cache,
+    bool async_read) const;
 
 template Status BlockBasedTable::RetrieveBlock<UncompressionDict>(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
     const BlockHandle& handle, const UncompressionDict& uncompression_dict,
     CachableEntry<UncompressionDict>* block_entry, BlockType block_type,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    bool for_compaction, bool use_cache, bool wait_for_cache) const;
+    bool for_compaction, bool use_cache, bool wait_for_cache,
+    bool async_read) const;
 
 BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
     const BlockBasedTable* table,
@@ -2153,10 +2181,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       bool does_referenced_key_exist = false;
       DataBlockIter biter;
       uint64_t referenced_data_size = 0;
+      Status tmp_status;
       NewDataBlockIterator<DataBlockIter>(
           read_options, v.handle, &biter, BlockType::kData, get_context,
-          &lookup_data_block_context,
-          /*s=*/Status(), /*prefetch_buffer*/ nullptr);
+          &lookup_data_block_context, /*prefetch_buffer=*/nullptr,
+          /*for_compaction=*/false, /*async_read=*/false, tmp_status);
 
       if (no_io && biter.status().IsIncomplete()) {
         // couldn't get block from block_cache
@@ -2297,11 +2326,12 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 
     // Load the block specified by the block_handle into the block cache
     DataBlockIter biter;
-
+    Status tmp_status;
     NewDataBlockIterator<DataBlockIter>(
         ReadOptions(), block_handle, &biter, /*type=*/BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context, Status(),
-        /*prefetch_buffer=*/nullptr);
+        /*get_context=*/nullptr, &lookup_context,
+        /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
+        /*async_read=*/false, tmp_status);
 
     if (!biter.status().ok()) {
       // there was an unexpected error while pre-fetching
@@ -2696,11 +2726,13 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
     }
 
     std::unique_ptr<InternalIterator> datablock_iter;
+    Status tmp_status;
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
         ReadOptions(), blockhandles_iter->value().handle,
         /*input_iter=*/nullptr, /*type=*/BlockType::kData,
-        /*get_context=*/nullptr, /*lookup_context=*/nullptr, Status(),
-        /*prefetch_buffer=*/nullptr));
+        /*get_context=*/nullptr, /*lookup_context=*/nullptr,
+        /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
+        /*async_read=*/false, tmp_status));
     s = datablock_iter->status();
 
     if (!s.ok()) {
@@ -2927,11 +2959,13 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
     out_stream << "--------------------------------------\n";
 
     std::unique_ptr<InternalIterator> datablock_iter;
+    Status tmp_status;
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
         ReadOptions(), blockhandles_iter->value().handle,
         /*input_iter=*/nullptr, /*type=*/BlockType::kData,
-        /*get_context=*/nullptr, /*lookup_context=*/nullptr, Status(),
-        /*prefetch_buffer=*/nullptr));
+        /*get_context=*/nullptr, /*lookup_context=*/nullptr,
+        /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
+        /*async_read=*/false, tmp_status));
     s = datablock_iter->status();
 
     if (!s.ok()) {

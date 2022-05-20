@@ -114,6 +114,7 @@ PerfContext::PerfContext(const PerfContext& other) {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  number_async_seek = other.number_async_seek;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -212,6 +213,7 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  number_async_seek = other.number_async_seek;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -312,6 +314,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  number_async_seek = other.number_async_seek;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -407,6 +410,7 @@ void PerfContext::Reset() {
   iter_next_cpu_nanos = 0;
   iter_prev_cpu_nanos = 0;
   iter_seek_cpu_nanos = 0;
+  number_async_seek = 0;
   if (per_level_perf_context_enabled && level_to_perf_context) {
     for (auto& kv : *level_to_perf_context) {
       kv.second.Reset();
@@ -526,6 +530,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(iter_next_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_prev_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_seek_cpu_nanos);
+  PERF_CONTEXT_OUTPUT(number_async_seek);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_useful);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_positive);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);

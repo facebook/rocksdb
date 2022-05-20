@@ -3697,6 +3697,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->env_unlock_file_nanos;
     case rocksdb_env_new_logger_nanos:
       return rep->env_new_logger_nanos;
+    case rocksdb_number_async_seek:
+      return rep->number_async_seek;
     default:
       break;
   }
