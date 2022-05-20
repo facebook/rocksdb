@@ -628,6 +628,10 @@ struct BlockBasedTableOptions {
   //
   // Default: 8 KB (8 * 1024).
   size_t initial_auto_readahead_size = 8 * 1024;
+
+  // Add new members above this line.
+  // For each new member, please update BlockBasedTableOptionsAllFieldsSettable
+  // in options_settable_test.cc
 };
 
 // Table Properties that are specific to block-based table properties.

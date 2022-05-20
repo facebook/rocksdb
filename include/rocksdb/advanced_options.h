@@ -937,12 +937,16 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   uint64_t blob_compaction_readahead_size = 0;
 
+  // Add new members above this line.
+  // For each new member, please update ColumnFamilyOptionsAllFieldsSettable in
+  // options_settable_test.cc
+
+  // Data members end here.
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
   explicit AdvancedColumnFamilyOptions(const Options& options);
-
-  // ---------------- OPTIONS NOT SUPPORTED ANYMORE ----------------
 };
 
 }  // namespace ROCKSDB_NAMESPACE

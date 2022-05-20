@@ -316,6 +316,12 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // Add new members above this line.
+  // For each new member, please update ColumnFamilyOptionsAllFieldsSettable in
+  // options_settable_test.cc
+
+  // Data members end here.
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -1366,6 +1372,10 @@ struct DBOptions {
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
   bool enforce_single_del_contracts = true;
+
+  // Add new members above this line.
+  // For each new member, please update DBOptionsAllFieldsSettable in
+  // options_settable_test.cc
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
