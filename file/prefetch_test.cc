@@ -1251,6 +1251,8 @@ TEST_P(PrefetchTest2, DecreaseReadAheadIfInCache) {
         ASSERT_EQ(async_read_bytes.count, 0);
       } else {
         ASSERT_GT(async_read_bytes.count, 0);
+        ASSERT_GT(get_perf_context()->number_async_seek, 0);
+        //"ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);")
       }
     }
 

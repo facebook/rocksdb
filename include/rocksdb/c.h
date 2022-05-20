@@ -1553,7 +1553,8 @@ enum {
   rocksdb_env_lock_file_nanos,
   rocksdb_env_unlock_file_nanos,
   rocksdb_env_new_logger_nanos,
-  rocksdb_total_metric_count = 68
+  rocksdb_number_async_seek,
+  rocksdb_total_metric_count = 69
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);

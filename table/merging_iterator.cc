@@ -135,6 +135,7 @@ class MergingIterator : public InternalIterator {
           PERF_TIMER_GUARD(seek_min_heap_time);
           AddToMinHeapOrCheckStatus(&child);
         }
+        PERF_COUNTER_ADD(number_async_seek, 1);
       }
     }
 
