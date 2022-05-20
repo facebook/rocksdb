@@ -666,6 +666,7 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
 
 cpp_library_wrapper(name="rocksdb_test_lib", srcs=[
         "db/db_test_util.cc",
+        "db/db_with_timestamp_test_util.cc",
         "table/mock_table.cc",
         "test_util/mock_time_env.cc",
         "test_util/testharness.cc",
@@ -5171,6 +5172,12 @@ cpp_unittest_wrapper(name="db_range_del_test",
 
 cpp_unittest_wrapper(name="db_rate_limiter_test",
             srcs=["db/db_rate_limiter_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="db_readonly_with_timestamp_test",
+            srcs=["db/db_readonly_with_timestamp_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

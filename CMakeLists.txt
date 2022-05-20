@@ -1217,6 +1217,7 @@ if(WITH_TESTS)
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
+        db/db_readonly_with_timestamp_test.cc
         db/db_with_timestamp_basic_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
@@ -1385,6 +1386,7 @@ if(WITH_TESTS)
 
   set(TESTUTIL_SOURCE
       db/db_test_util.cc
+      db/db_with_timestamp_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
       utilities/agg_merge/test_agg_merge.cc

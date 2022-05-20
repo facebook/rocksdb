@@ -2400,6 +2400,15 @@ class DBImpl : public DB {
   std::unique_ptr<StallInterface> wbm_stall_;
 };
 
+class GetWithTimestampReadCallback : public ReadCallback {
+ public:
+  explicit GetWithTimestampReadCallback(SequenceNumber seq)
+      : ReadCallback(seq) {}
+  bool IsVisibleFullCheck(SequenceNumber seq) override {
+    return seq <= max_visible_seq_;
+  }
+};
+
 extern Options SanitizeOptions(const std::string& db, const Options& src,
                                bool read_only = false);
 

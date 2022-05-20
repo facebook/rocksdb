@@ -1723,17 +1723,6 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
-namespace {
-class GetWithTimestampReadCallback : public ReadCallback {
- public:
-  explicit GetWithTimestampReadCallback(SequenceNumber seq)
-      : ReadCallback(seq) {}
-  bool IsVisibleFullCheck(SequenceNumber seq) override {
-    return seq <= max_visible_seq_;
-  }
-};
-}  // namespace
-
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
