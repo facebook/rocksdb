@@ -563,6 +563,16 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   PollAndUpdateBuffersIfNeeded(offset);
 
+  // Index of second buffer.
+  uint32_t second = curr_ ^ 1;
+
+  // Since PrefetchAsync can be called on non sequqential reads. So offset can
+  // be less than buffers' offset. In that case it clears the buffer and
+  // prefetch that block.
+  if (bufs_[curr_].buffer_.CurrentSize() > 0 && offset < bufs_[curr_].offset_) {
+    bufs_[curr_].buffer_.Clear();
+  }
+
   // All requested bytes are already in the curr_ buffer. So no need to Read
   // again.
   if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
@@ -574,8 +584,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   Status s;
   size_t alignment = reader->file()->GetRequiredBufferAlignment();
-  // Index of second buffer.
-  uint32_t second = curr_ ^ 1;
 
   // TODO akanksha: Handle the scenario if data is overlapping in 2 buffers.
   // Currently, tt covers 2 scenarios. Either one buffer (curr_) has no data or
