@@ -96,6 +96,7 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
 #include "table/block_based/block_based_table_reader_sync_and_async.h"
+#undef WITH_COROUTINES
 // clang-format on
 
 namespace ROCKSDB_NAMESPACE {
