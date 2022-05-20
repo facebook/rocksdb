@@ -261,9 +261,9 @@ void BlockBasedTableIterator::InitDataBlock() {
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context_, s,
+        /*get_context=*/nullptr, &lookup_context_,
         block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction);
+        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s);
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
   }
@@ -296,9 +296,9 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       Status s;
       table_->NewDataBlockIterator<DataBlockIter>(
           read_options_, data_block_handle, &block_iter_, BlockType::kData,
-          /*get_context=*/nullptr, &lookup_context_, s,
+          /*get_context=*/nullptr, &lookup_context_,
           block_prefetcher_.prefetch_buffer(),
-          /*for_compaction=*/is_for_compaction, /*async_read=*/true);
+          /*for_compaction=*/is_for_compaction, /*async_read=*/true, s);
 
       if (s.IsTryAgain()) {
         async_read_in_progress_ = true;
@@ -311,9 +311,9 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context_, s,
+        /*get_context=*/nullptr, &lookup_context_,
         block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction, /*async_read=*/false);
+        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s);
   }
   block_iter_points_to_real_block_ = true;
   CheckDataBlockWithinUpperBound();

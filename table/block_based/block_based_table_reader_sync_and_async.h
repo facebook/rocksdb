@@ -592,8 +592,9 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           Status tmp_s;
           NewDataBlockIterator<DataBlockIter>(
               read_options, iiter->value().handle, &next_biter,
-              BlockType::kData, get_context, &lookup_data_block_context, tmp_s,
-              nullptr);
+              BlockType::kData, get_context, &lookup_data_block_context,
+              /* prefetch_buffer= */ nullptr, /* for_compaction = */ false,
+              /*for_async_read = */ false, tmp_s);
           biter = &next_biter;
           reusing_prev_block = false;
           later_reused = false;

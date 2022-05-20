@@ -918,7 +918,8 @@ Status BlockBasedTable::ReadRangeDelBlock(
     std::unique_ptr<InternalIterator> iter(NewDataBlockIterator<DataBlockIter>(
         read_options, range_del_handle,
         /*input_iter=*/nullptr, BlockType::kRangeDeletion,
-        /*get_context=*/nullptr, lookup_context, tmp_status, prefetch_buffer));
+        /*get_context=*/nullptr, lookup_context, prefetch_buffer,
+        /*for_compaction= */ false, /*async_read= */ false, tmp_status));
     assert(iter != nullptr);
     s = iter->status();
     if (!s.ok()) {
@@ -2183,7 +2184,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       Status tmp_status;
       NewDataBlockIterator<DataBlockIter>(
           read_options, v.handle, &biter, BlockType::kData, get_context,
-          &lookup_data_block_context, tmp_status, /*prefetch_buffer*/ nullptr);
+          &lookup_data_block_context, /*prefetch_buffer=*/nullptr,
+          /*for_compaction=*/false, /*async_read=*/false, tmp_status);
 
       if (no_io && biter.status().IsIncomplete()) {
         // couldn't get block from block_cache
@@ -2327,8 +2329,9 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
     Status tmp_status;
     NewDataBlockIterator<DataBlockIter>(
         ReadOptions(), block_handle, &biter, /*type=*/BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context, tmp_status,
-        /*prefetch_buffer=*/nullptr);
+        /*get_context=*/nullptr, &lookup_context,
+        /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
+        /*async_read=*/false, tmp_status);
 
     if (!biter.status().ok()) {
       // there was an unexpected error while pre-fetching
@@ -2727,8 +2730,9 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
         ReadOptions(), blockhandles_iter->value().handle,
         /*input_iter=*/nullptr, /*type=*/BlockType::kData,
-        /*get_context=*/nullptr, /*lookup_context=*/nullptr, tmp_status,
-        /*prefetch_buffer=*/nullptr));
+        /*get_context=*/nullptr, /*lookup_context=*/nullptr,
+        /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
+        /*async_read=*/false, tmp_status));
     s = datablock_iter->status();
 
     if (!s.ok()) {
@@ -2959,8 +2963,9 @@ Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
         ReadOptions(), blockhandles_iter->value().handle,
         /*input_iter=*/nullptr, /*type=*/BlockType::kData,
-        /*get_context=*/nullptr, /*lookup_context=*/nullptr, tmp_status,
-        /*prefetch_buffer=*/nullptr));
+        /*get_context=*/nullptr, /*lookup_context=*/nullptr,
+        /*prefetch_buffer=*/nullptr, /*for_compaction=*/false,
+        /*async_read=*/false, tmp_status));
     s = datablock_iter->status();
 
     if (!s.ok()) {
