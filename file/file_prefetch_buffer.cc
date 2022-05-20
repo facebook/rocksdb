@@ -241,7 +241,6 @@ void FilePrefetchBuffer::PollAndUpdateBuffersIfNeeded(uint64_t offset) {
     // outdated data and switch the buffers.
     bufs_[curr_].buffer_.Clear();
     curr_ = curr_ ^ 1;
-    second = curr_ ^ 1;
   }
 }
 

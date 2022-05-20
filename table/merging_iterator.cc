@@ -131,7 +131,10 @@ class MergingIterator : public InternalIterator {
     for (auto& child : children_) {
       if (child.status() == Status::TryAgain()) {
         child.Seek(target);
-        AddToMinHeapOrCheckStatus(&child);
+        {
+          PERF_TIMER_GUARD(seek_min_heap_time);
+          AddToMinHeapOrCheckStatus(&child);
+        }
       }
     }
 
