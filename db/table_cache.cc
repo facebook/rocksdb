@@ -51,6 +51,7 @@ static void DeleteEntry(const Slice& /*key*/, void* value) {
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
 #include "db/table_cache_sync_and_async.h"
+#undef WITH_COROUTINES
 // clang-format on
 
 namespace ROCKSDB_NAMESPACE {

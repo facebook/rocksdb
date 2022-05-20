@@ -82,6 +82,7 @@
 #undef WITHOUT_COROUTINES
 #define WITH_COROUTINES
 #include "db/version_set_sync_and_async.h"
+#undef WITH_COROUTINES
 // clang-format on
 
 namespace ROCKSDB_NAMESPACE {
