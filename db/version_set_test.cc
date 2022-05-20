@@ -160,7 +160,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kDisableUserTimestamp, kDisableUserTimestamp);
     f->compensated_file_size = file_size;
-    vstorage_.AddFile(level, f);
+    vstorage_.AddFile(level, f, true /*newly_added*/);
   }
 
   void AddBlob(uint64_t blob_file_number, uint64_t total_blob_count,

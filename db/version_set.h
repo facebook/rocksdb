@@ -127,7 +127,7 @@ class VersionStorageInfo {
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
-  void AddFile(int level, FileMetaData* f);
+  void AddFile(int level, FileMetaData* f, bool newly_added);
 
   void ReserveBlob(size_t size) { blob_files_.reserve(size); }
 
@@ -280,6 +280,11 @@ class VersionStorageInfo {
   // REQUIRES: This version has been saved (see VersionBuilder::SaveTo)
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
     return files_[level];
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  const std::vector<FileMetaData*>& NewlyAddedFiles() const {
+    return new_files_;
   }
 
   class FileLocation {
@@ -578,6 +583,9 @@ class VersionStorageInfo {
   // in increasing order of keys
   std::vector<FileMetaData*>* files_;
 
+  // List of files newly added to this version. Unodered.
+  std::vector<FileMetaData*> new_files_;
+
   // Map of all table files in version. Maps file number to (level, position on
   // level).
   using FileLocations = UnorderedMap<uint64_t, FileLocation>;
@@ -676,6 +684,11 @@ class VersionStorageInfo {
   // Estimated bytes needed to be compacted until all levels' size is down to
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;
+
+  // total size of all table files
+  uint64_t total_file_size_;
+  // total size of newly added table files
+  uint64_t new_file_size_;
 
   bool finalized_;
 
@@ -786,7 +799,8 @@ class Version {
   // Add all files listed in the current version to *live_table_files and
   // *live_blob_files.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
-                    std::vector<uint64_t>* live_blob_files) const;
+                    std::vector<uint64_t>* live_blob_files,
+                    bool only_new_table_files = false) const;
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
@@ -1274,7 +1288,8 @@ class VersionSet {
   // Add all files listed in any live version to *live_table_files and
   // *live_blob_files. Note that these lists may contain duplicates.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
-                    std::vector<uint64_t>* live_blob_files) const;
+                    std::vector<uint64_t>* live_blob_files,
+                    bool only_new_table_files = false) const;
 
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search

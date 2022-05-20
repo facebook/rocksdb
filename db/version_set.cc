@@ -1724,6 +1724,7 @@ VersionStorageInfo::VersionStorageInfo(
       file_indexer_(user_comparator),
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
+      new_files_(1),
       base_level_(num_levels_ == 1 ? -1 : 1),
       level_multiplier_(0.0),
       files_by_compaction_pri_(num_levels_),
@@ -1741,6 +1742,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_deletions_(0),
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
+      total_file_size_(0),
+      new_file_size_(0),
       finalized_(false),
       force_consistency_checks_(_force_consistency_checks) {
   if (ref_vstorage != nullptr) {
@@ -3071,17 +3074,23 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
 }
 } // anonymous namespace
 
-void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
+void VersionStorageInfo::AddFile(int level, FileMetaData* f, bool newly_added) {
   auto& level_files = files_[level];
   level_files.push_back(f);
 
   f->refs++;
+
+  auto file_size = f->fd.GetFileSize();
+  total_file_size_ += file_size;
+  if (newly_added) {
+    new_files_.push_back(f);
+    new_file_size_ += file_size;
+  }
 }
 
 void VersionStorageInfo::AddBlobFile(
     std::shared_ptr<BlobFileMetaData> blob_file_meta) {
   assert(blob_file_meta);
-
   assert(blob_files_.empty() ||
          (blob_files_.back() && blob_files_.back()->GetBlobFileNumber() <
                                     blob_file_meta->GetBlobFileNumber()));
@@ -3928,16 +3937,24 @@ bool VersionStorageInfo::RangeMightExistAfterSortedRun(
 }
 
 void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
-                           std::vector<uint64_t>* live_blob_files) const {
+                           std::vector<uint64_t>* live_blob_files,
+                           bool only_new_table_files) const {
   assert(live_table_files);
   assert(live_blob_files);
 
-  for (int level = 0; level < storage_info_.num_levels(); ++level) {
-    const auto& level_files = storage_info_.LevelFiles(level);
-    for (const auto& meta : level_files) {
+  if (only_new_table_files) {
+    const auto& files = storage_info_.NewlyAddedFiles();
+    for (const auto& meta : files) {
       assert(meta);
-
       live_table_files->emplace_back(meta->fd.GetNumber());
+    }
+  } else {
+    for (int level = 0; level < storage_info_.num_levels(); ++level) {
+      const auto& level_files = storage_info_.LevelFiles(level);
+      for (const auto& meta : level_files) {
+        assert(meta);
+        live_table_files->emplace_back(meta->fd.GetNumber());
+      }
     }
   }
 
@@ -5753,7 +5770,8 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
 }
 
 void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
-                              std::vector<uint64_t>* live_blob_files) const {
+                              std::vector<uint64_t>* live_blob_files,
+                              bool only_new_table_files) const {
   assert(live_table_files);
   assert(live_blob_files);
 
@@ -5771,18 +5789,24 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
 
     Version* const dummy_versions = cfd->dummy_versions();
     assert(dummy_versions);
+    Version* v = dummy_versions->next_;
+    // Scan the full list of files from the first version.
+    const auto* vstorage0 = v->storage_info();
+    assert(vstorage0);
+    for (int level = 0; level < vstorage0->num_levels(); ++level) {
+      total_table_files += vstorage0->LevelFiles(level).size();
+    }
+    total_blob_files += vstorage0->GetBlobFiles().size();
+    v = v->next_;
 
-    for (Version* v = dummy_versions->next_; v != dummy_versions;
-         v = v->next_) {
+    // Scan the delta list of files from other versions.
+    for (; v != dummy_versions; v = v->next_) {
       assert(v);
 
       const auto* vstorage = v->storage_info();
       assert(vstorage);
 
-      for (int level = 0; level < vstorage->num_levels(); ++level) {
-        total_table_files += vstorage->LevelFiles(level).size();
-      }
-
+      total_table_files += vstorage->NewlyAddedFiles().size();
       total_blob_files += vstorage->GetBlobFiles().size();
     }
   }
@@ -5803,10 +5827,15 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
 
     Version* const dummy_versions = cfd->dummy_versions();
     assert(dummy_versions);
+    Version* v = dummy_versions->next_;
+    // Get the full list of files from the first version.
+    v->AddLiveFiles(live_table_files, live_blob_files,
+                    false /*only_new_table_files*/);
+    v = v->next_;
 
-    for (Version* v = dummy_versions->next_; v != dummy_versions;
-         v = v->next_) {
-      v->AddLiveFiles(live_table_files, live_blob_files);
+    for (; v != dummy_versions; v = v->next_) {
+      v->AddLiveFiles(live_table_files, live_blob_files,
+                      true /*only_new_table_files*/);
       if (v == current) {
         found_current = true;
       }
@@ -5815,7 +5844,8 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_table_files,
     if (!found_current && current != nullptr) {
       // Should never happen unless it is a bug.
       assert(false);
-      current->AddLiveFiles(live_table_files, live_blob_files);
+      current->AddLiveFiles(live_table_files, live_blob_files,
+                            false /*only_new_table_files*/);
     }
   }
 }
@@ -6033,8 +6063,18 @@ uint64_t VersionSet::GetNumLiveVersions(Version* dummy_versions) {
 }
 
 uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
+  uint64_t total_size = 0;
+  for (Version* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
+    VersionStorageInfo* storage_info = v->storage_info();
+    if (total_size == 0) {
+      total_size = storage_info->total_file_size_;
+    } else {
+      total_size += storage_info->new_file_size_;
+    }
+  }
+#ifndef NDEBUG
   std::unordered_set<uint64_t> unique_files;
-  uint64_t total_files_size = 0;
+  uint64_t total_size2 = 0;
   for (Version* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
     VersionStorageInfo* storage_info = v->storage_info();
     for (int level = 0; level < storage_info->num_levels_; level++) {
@@ -6042,12 +6082,14 @@ uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
         if (unique_files.find(file_meta->fd.packed_number_and_path_id) ==
             unique_files.end()) {
           unique_files.insert(file_meta->fd.packed_number_and_path_id);
-          total_files_size += file_meta->fd.GetFileSize();
+          total_size2 += file_meta->fd.GetFileSize();
         }
       }
     }
   }
-  return total_files_size;
+  assert(total_size == total_size2);
+#endif  // !NDEBUG
+  return total_size;
 }
 
 uint64_t VersionSet::GetTotalBlobFileSize(Version* dummy_versions) {

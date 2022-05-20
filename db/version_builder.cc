@@ -1061,12 +1061,16 @@ class VersionBuilder::Rep {
       const auto& add_files = level_state.added_files;
       const auto add_it = add_files.find(file_number);
 
-      // Note: if the file appears both in the base version and in the added
-      // list, the added FileMetaData supersedes the one in the base version.
-      if (add_it != add_files.end() && add_it->second != f) {
-        vstorage->RemoveCurrentStats(f);
+      if (add_it != add_files.end()) {
+        // Note: if the file appears both in the base version and in the added
+        // list, the added FileMetaData supersedes the one in the base version.
+        if (add_it->second != f) {
+          vstorage->RemoveCurrentStats(f);
+        } else {
+          vstorage->AddFile(level, f, true /*newly_added*/);
+        }
       } else {
-        vstorage->AddFile(level, f);
+        vstorage->AddFile(level, f, false /*newly_added*/);
       }
     }
   }

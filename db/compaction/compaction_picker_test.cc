@@ -119,7 +119,7 @@ class CompactionPickerTest : public testing::Test {
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
     f->oldest_ancester_time = oldest_ancestor_time;
-    vstorage->AddFile(level, f);
+    vstorage->AddFile(level, f, true /*newly_added*/);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});
   }
