@@ -452,7 +452,13 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
-  if (!enable_ || (offset < bufs_[curr_].offset_)) {
+
+  // In case of async_io_, offset can be less than bufs_[curr_].offset_ because
+  // of reads not sequential and PrefetchAsync can be called for any block and
+  // RocksDB will call TryReadFromCacheAsync after PrefetchAsync to Poll for
+  // requested bytes. IsEligibleForPrefetch API will return false in case reads
+  // are not sequential and Non sequential reads will be handled there.
+  if (!enable_ || (offset < bufs_[curr_].offset_ && async_io_ == false)) {
     return false;
   }
 
@@ -464,7 +470,8 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   //    If readahead is not enabled: return false.
   TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::TryReadFromCache",
                            &readahead_size_);
-  if (offset + n > bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
+  if (offset < bufs_[curr_].offset_ ||
+      offset + n > bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
     if (readahead_size_ > 0) {
       Status s;
       assert(reader != nullptr);
@@ -557,6 +564,9 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
                                          Env::IOPriority rate_limiter_priority,
                                          Slice* result) {
   assert(reader != nullptr);
+  if (!enable_) {
+    return Status::NotSupported();
+  }
   TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:Start");
 
   PollAndUpdateBuffersIfNeeded(offset);
