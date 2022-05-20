@@ -355,10 +355,11 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "write_dbid_to_manifest=false;"
                              "best_efforts_recovery=false;"
                              "max_bgerror_resume_count=2;"
-                             "bgerror_resume_retry_interval=1000000"
+                             "bgerror_resume_retry_interval=1000000;"
                              "db_host_id=hostname;"
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
-                             "allow_data_in_errors=false",
+                             "allow_data_in_errors=false;"
+                             "enforce_single_del_contracts=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
