@@ -653,6 +653,9 @@ inline std::string CompressionOptionsToString(
   result.append("max_dict_buffer_bytes=")
       .append(std::to_string(compression_options.max_dict_buffer_bytes))
       .append("; ");
+  result.append("use_zstd_dict_trainer=")
+      .append(std::to_string(compression_options.use_zstd_dict_trainer))
+      .append("; ");
   return result;
 }
 
@@ -1480,6 +1483,52 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   (void)max_dict_bytes;
   return "";
 #endif  // ZSTD_VERSION_NUMBER >= 10103
+}
+
+inline bool ZSTD_FinalizeDictionarySupported() {
+#ifdef ZSTD
+  // ZDICT_finalizeDictionary API is stable since v1.4.5
+  return (ZSTD_versionNumber() >= 10405);
+#else
+  return false;
+#endif
+}
+
+inline std::string ZSTD_FinalizeDictionary(
+    const std::string& samples, const std::vector<size_t>& sample_lens,
+    size_t max_dict_bytes, int level) {
+  // ZDICT_finalizeDictionary is stable since version v1.4.5
+#if ZSTD_VERSION_NUMBER >= 10405  // v1.4.5+
+  assert(samples.empty() == sample_lens.empty());
+  if (samples.empty()) {
+    return "";
+  }
+  if (level == CompressionOptions::kDefaultCompressionLevel) {
+    // 3 is the value of ZSTD_CLEVEL_DEFAULT (not exposed publicly), see
+    // https://github.com/facebook/zstd/issues/1148
+    level = 3;
+  }
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_finalizeDictionary(
+      dict_data.data(), max_dict_bytes, samples.data(),
+      std::min(static_cast<size_t>(samples.size()), max_dict_bytes),
+      samples.data(), sample_lens.data(),
+      static_cast<unsigned>(sample_lens.size()),
+      {level, 0 /* notificationLevel */, 0 /* dictID */});
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  } else {
+    assert(dict_len <= max_dict_bytes);
+    dict_data.resize(dict_len);
+    return dict_data;
+  }
+#else   // up to v1.4.4
+  (void)samples;
+  (void)sample_lens;
+  (void)max_dict_bytes;
+  (void)level;
+  return "";
+#endif  // ZSTD_VERSION_NUMBER >= 10405
 }
 
 inline bool CompressData(const Slice& raw,

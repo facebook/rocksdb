@@ -2539,6 +2539,9 @@ int main(int argc, char** argv) {
         200 ==
         rocksdb_options_get_compression_options_max_dict_buffer_bytes(co));
 
+    rocksdb_options_set_compression_options_use_zstd_dict_trainer(co, 0);
+    CheckCondition(
+        0 == rocksdb_options_get_compression_options_use_zstd_dict_trainer(co));
     rocksdb_options_destroy(co);
   }
 

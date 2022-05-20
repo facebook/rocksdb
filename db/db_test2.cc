@@ -1296,6 +1296,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
   enum DictionaryTypes : int {
     kWithoutDict,
     kWithDict,
+    kWithZSTDfinalizeDict,
     kWithZSTDTrainedDict,
     kDictEnd,
   };
@@ -1304,6 +1305,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
     options.compression = compression_type;
     size_t bytes_without_dict = 0;
     size_t bytes_with_dict = 0;
+    size_t bytes_with_zstd_finalize_dict = 0;
     size_t bytes_with_zstd_trained_dict = 0;
     for (int i = kWithoutDict; i < kDictEnd; i++) {
       // First iteration: compress without preset dictionary
@@ -1323,12 +1325,21 @@ TEST_F(DBTest2, PresetCompressionDict) {
           options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = 0;
           break;
+        case kWithZSTDfinalizeDict:
+          if (compression_type != kZSTD) {
+            continue;
+          }
+          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
+          options.compression_opts.zstd_max_train_bytes = kL0FileBytes;
+          options.compression_opts.use_zstd_dict_trainer = false;
+          break;
         case kWithZSTDTrainedDict:
           if (compression_type != kZSTD) {
             continue;
           }
           options.compression_opts.max_dict_bytes = kBlockSizeBytes;
           options.compression_opts.zstd_max_train_bytes = kL0FileBytes;
+          options.compression_opts.use_zstd_dict_trainer = true;
           break;
         default:
           assert(false);
@@ -1365,6 +1376,8 @@ TEST_F(DBTest2, PresetCompressionDict) {
         bytes_without_dict = total_sst_bytes;
       } else if (i == kWithDict) {
         bytes_with_dict = total_sst_bytes;
+      } else if (i == kWithZSTDfinalizeDict) {
+        bytes_with_zstd_finalize_dict = total_sst_bytes;
       } else if (i == kWithZSTDTrainedDict) {
         bytes_with_zstd_trained_dict = total_sst_bytes;
       }
@@ -1375,6 +1388,13 @@ TEST_F(DBTest2, PresetCompressionDict) {
       }
       if (i == kWithDict) {
         ASSERT_GT(bytes_without_dict, bytes_with_dict);
+      } else if (i == kWithZSTDTrainedDict) {
+        // In zstd compression, it is sometimes possible that using a finalized
+        // dictionary does not get as good a compression ratio as raw content
+        // dictionary. But using a dictionary should always get better
+        // compression ratio than not using one.
+        ASSERT_TRUE(bytes_with_dict > bytes_with_zstd_finalize_dict ||
+                    bytes_without_dict > bytes_with_zstd_finalize_dict);
       } else if (i == kWithZSTDTrainedDict) {
         // In zstd compression, it is sometimes possible that using a trained
         // dictionary does not get as good a compression ratio as without
