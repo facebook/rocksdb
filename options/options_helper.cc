@@ -184,6 +184,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.checksum_handoff_file_types =
       immutable_db_options.checksum_handoff_file_types;
   options.lowest_used_cache_tier = immutable_db_options.lowest_used_cache_tier;
+  options.enforce_single_del_contracts =
+      immutable_db_options.enforce_single_del_contracts;
   return options;
 }
 
