@@ -38,6 +38,7 @@
 
 #include "rocksdb/write_batch.h"
 
+#include <limits>
 #include <map>
 #include <stack>
 #include <stdexcept>
@@ -932,17 +933,17 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
                                      const WideColumnDescs& column_descs) {
   assert(b);
 
-  if (key.size() > size_t{port::kMaxUint32}) {
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("key is too large");
   }
 
   std::string entity;
-  const Status s = WideColumnSerialization::Serialize(column_descs, &entity);
+  const Status s = WideColumnSerialization::Serialize(column_descs, entity);
   if (!s.ok()) {
     return s;
   }
 
-  if (entity.size() > size_t{port::kMaxUint32}) {
+  if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("wide column entity is too large");
   }
 
