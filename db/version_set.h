@@ -685,11 +685,6 @@ class VersionStorageInfo {
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;
 
-  // total size of all table files
-  uint64_t total_file_size_;
-  // total size of newly added table files
-  uint64_t new_file_size_;
-
   bool finalized_;
 
   // If set to true, we will run consistency checks even if RocksDB
@@ -1288,8 +1283,7 @@ class VersionSet {
   // Add all files listed in any live version to *live_table_files and
   // *live_blob_files. Note that these lists may contain duplicates.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
-                    std::vector<uint64_t>* live_blob_files,
-                    bool only_new_table_files = false) const;
+                    std::vector<uint64_t>* live_blob_files) const;
 
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search
