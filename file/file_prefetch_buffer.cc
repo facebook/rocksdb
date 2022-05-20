@@ -215,7 +215,6 @@ void FilePrefetchBuffer::PollAndUpdateBuffersIfNeeded(uint64_t offset) {
     del_fn_ = nullptr;
   }
 
-  Status s;
   // Index of second buffer.
   uint32_t second = curr_ ^ 1;
 
