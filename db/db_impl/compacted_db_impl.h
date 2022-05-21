@@ -28,12 +28,22 @@ class CompactedDBImpl : public DBImpl {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>&,
-      const std::vector<Slice>& keys, std::vector<std::string>* values)
-    override;
+      const ReadOptions& options, const std::vector<ColumnFamilyHandle*>&,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
+
+  std::vector<Status> MultiGet(const ReadOptions& options,
+                               const std::vector<ColumnFamilyHandle*>&,
+                               const std::vector<Slice>& keys,
+                               std::vector<std::string>* values,
+                               std::vector<std::string>* timestamps) override;
 
   using DBImpl::Put;
   virtual Status Put(const WriteOptions& /*options*/,
