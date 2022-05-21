@@ -447,18 +447,23 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
 bool FilePrefetchBuffer::TryReadFromCacheAsync(
     const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
     size_t n, Slice* result, Status* status,
-    Env::IOPriority rate_limiter_priority, bool for_compaction /* = false */
-) {
+    Env::IOPriority rate_limiter_priority) {
+  assert(async_io_);
+
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
+  }
+
+  if (!enable_) {
+    return false;
   }
 
   // In case of async_io_, offset can be less than bufs_[curr_].offset_ because
   // of reads not sequential and PrefetchAsync can be called for any block and
   // RocksDB will call TryReadFromCacheAsync after PrefetchAsync to Poll for
-  // requested bytes. IsEligibleForPrefetch API will return false in case reads
-  // are not sequential and Non sequential reads will be handled there.
-  if (!enable_ || (offset < bufs_[curr_].offset_ && async_io_ == false)) {
+  // requested bytes.
+  if (bufs_[curr_].buffer_.CurrentSize() > 0 && offset < bufs_[curr_].offset_ &&
+      prev_len_ != 0) {
     return false;
   }
 
@@ -476,31 +481,19 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
       Status s;
       assert(reader != nullptr);
       assert(max_readahead_size_ >= readahead_size_);
-      if (for_compaction) {
-        s = Prefetch(opts, reader, offset, std::max(n, readahead_size_),
-                     rate_limiter_priority);
-      } else {
-        if (implicit_auto_readahead_) {
-          if (!IsEligibleForPrefetch(offset, n)) {
-            // Ignore status as Prefetch is not called.
-            s.PermitUncheckedError();
-            return false;
-          }
-        }
-        // async prefetching is enabled if it's implicit_auto_readahead_ or
-        // explicit readahead_size_ is passed along with ReadOptions.async_io =
-        // true.
-        if (async_io_) {
-          // Prefetch n + readahead_size_/2 synchronously as remaining
-          // readahead_size_/2 will be prefetched asynchronously.
-          s = PrefetchAsyncInternal(opts, reader, offset, n,
-                                    readahead_size_ / 2, rate_limiter_priority,
-                                    copy_to_third_buffer);
-        } else {
-          s = Prefetch(opts, reader, offset, n + readahead_size_,
-                       rate_limiter_priority);
+
+      if (implicit_auto_readahead_) {
+        if (!IsEligibleForPrefetch(offset, n)) {
+          // Ignore status as Prefetch is not called.
+          s.PermitUncheckedError();
+          return false;
         }
       }
+
+      // Prefetch n + readahead_size_/2 synchronously as remaining
+      // readahead_size_/2 will be prefetched asynchronously.
+      s = PrefetchAsyncInternal(opts, reader, offset, n, readahead_size_ / 2,
+                                rate_limiter_priority, copy_to_third_buffer);
       if (!s.ok()) {
         if (status) {
           *status = s;
@@ -574,7 +567,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   // Index of second buffer.
   uint32_t second = curr_ ^ 1;
 
-  // Since PrefetchAsync can be called on non sequqential reads. So offset can
+  // Since PrefetchAsync can be called on non sequential reads. So offset can
   // be less than buffers' offset. In that case it clears the buffer and
   // prefetch that block.
   if (bufs_[curr_].buffer_.CurrentSize() > 0 && offset < bufs_[curr_].offset_) {

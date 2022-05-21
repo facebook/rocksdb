@@ -89,6 +89,7 @@ class FilePrefetchBuffer {
     // while curr_ is being consumed. If data is overlapping in two buffers,
     // data is copied to third buffer to return continuous buffer.
     bufs_.resize(3);
+    (void)async_io_;
   }
 
   ~FilePrefetchBuffer() {
@@ -170,8 +171,7 @@ class FilePrefetchBuffer {
   bool TryReadFromCacheAsync(const IOOptions& opts,
                              RandomAccessFileReader* reader, uint64_t offset,
                              size_t n, Slice* result, Status* status,
-                             Env::IOPriority rate_limiter_priority,
-                             bool for_compaction);
+                             Env::IOPriority rate_limiter_priority);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
