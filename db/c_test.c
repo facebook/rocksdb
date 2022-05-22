@@ -169,6 +169,16 @@ static void CheckPinGetCF(rocksdb_t* db, const rocksdb_readoptions_t* options,
   rocksdb_pinnableslice_destroy(p);
 }
 
+static void CheckMultiGetValues(size_t num_keys, char** values,
+                                size_t* values_sizes, char** errs,
+                                const char** expected) {
+  for (size_t i = 0; i < num_keys; i++) {
+    CheckNoError(errs[i]);
+    CheckEqual(expected[i], values[i], values_sizes[i]);
+    Free(&values[i]);
+  }
+}
+
 static void CheckIter(rocksdb_iterator_t* iter,
                       const char* key, const char* val) {
   size_t len;
@@ -973,24 +983,9 @@ int main(int argc, char** argv) {
     char* vals[3];
     size_t vals_sizes[3];
     char* errs[3];
+    const char* expected[3] = {"c", "hello", NULL};
     rocksdb_multi_get(db, roptions, 3, keys, keys_sizes, vals, vals_sizes, errs);
-
-    int i;
-    for (i = 0; i < 3; i++) {
-      CheckEqual(NULL, errs[i], 0);
-      switch (i) {
-      case 0:
-        CheckEqual("c", vals[i], vals_sizes[i]);
-        break;
-      case 1:
-        CheckEqual("hello", vals[i], vals_sizes[i]);
-        break;
-      case 2:
-        CheckEqual(NULL, vals[i], vals_sizes[i]);
-        break;
-      }
-      Free(&vals[i]);
-    }
+    CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
   }
 
   StartPhase("pin_get");
@@ -2703,6 +2698,19 @@ int main(int argc, char** argv) {
     CheckTxnDBPinGet(txn_db, roptions, "box", "c");
     CheckNoError(err);
 
+    // multi get
+    {
+      const char* keys[3] = {"box", "foo", "notfound"};
+      const size_t keys_sizes[3] = {3, 3, 8};
+      char* vals[3];
+      size_t vals_sizes[3];
+      char* errs[3];
+      const char* expected[3] = {"c", NULL, NULL};
+      rocksdb_transactiondb_multi_get(txn_db, roptions, 3, keys, keys_sizes,
+                                      vals, vals_sizes, errs);
+      CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
+    }
+
     // begin a transaction
     txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
     // put
@@ -2710,6 +2718,17 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckTxnGet(txn, roptions, "foo", "hello");
     CheckTxnPinGet(txn, roptions, "foo", "hello");
+    {
+      const char* keys[3] = {"box", "foo", "notfound"};
+      const size_t keys_sizes[3] = {3, 3, 8};
+      char* vals[3];
+      size_t vals_sizes[3];
+      char* errs[3];
+      const char* expected[3] = {"c", "hello", NULL};
+      rocksdb_transaction_multi_get(txn, roptions, 3, keys, keys_sizes, vals,
+                                    vals_sizes, errs);
+      CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
+    }
     // delete
     rocksdb_transaction_delete(txn, "foo", 3, &err);
     CheckNoError(err);
@@ -2722,6 +2741,17 @@ int main(int argc, char** argv) {
     // read from outside transaction, before commit
     CheckTxnDBGet(txn_db, roptions, "foo", NULL);
     CheckTxnDBPinGet(txn_db, roptions, "foo", NULL);
+    {
+      const char* keys[3] = {"box", "foo", "notfound"};
+      const size_t keys_sizes[3] = {3, 3, 8};
+      char* vals[3];
+      size_t vals_sizes[3];
+      char* errs[3];
+      const char* expected[3] = {"c", NULL, NULL};
+      rocksdb_transactiondb_multi_get(txn_db, roptions, 3, keys, keys_sizes,
+                                      vals, vals_sizes, errs);
+      CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
+    }
 
     // commit
     rocksdb_transaction_commit(txn, &err);
@@ -2730,6 +2760,17 @@ int main(int argc, char** argv) {
     // read from outside transaction, after commit
     CheckTxnDBGet(txn_db, roptions, "foo", "hello");
     CheckTxnDBPinGet(txn_db, roptions, "foo", "hello");
+    {
+      const char* keys[3] = {"box", "foo", "notfound"};
+      const size_t keys_sizes[3] = {3, 3, 8};
+      char* vals[3];
+      size_t vals_sizes[3];
+      char* errs[3];
+      const char* expected[3] = {"c", "hello", NULL};
+      rocksdb_transactiondb_multi_get(txn_db, roptions, 3, keys, keys_sizes,
+                                      vals, vals_sizes, errs);
+      CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
+    }
 
     // reuse old transaction
     txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, txn);
@@ -2804,6 +2845,18 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", "cf_hello");
     CheckTxnDBPinGetCF(txn_db, roptions, cfh, "cf_foo", "cf_hello");
+    {
+      const rocksdb_column_family_handle_t* get_handles[2] = {cfh, cfh};
+      const char* keys[2] = {"cf_foo", "notfound"};
+      const size_t keys_sizes[2] = {6, 8};
+      char* vals[2];
+      size_t vals_sizes[2];
+      char* errs[2];
+      const char* expected[2] = {"cf_hello", NULL};
+      rocksdb_transactiondb_multi_get_cf(txn_db, roptions, get_handles, 2, keys,
+                                         keys_sizes, vals, vals_sizes, errs);
+      CheckMultiGetValues(2, vals, vals_sizes, errs, expected);
+    }
 
     rocksdb_transactiondb_delete_cf(txn_db, woptions, cfh, "cf_foo", 6, &err);
     CheckNoError(err);
@@ -2966,6 +3019,18 @@ int main(int argc, char** argv) {
     CheckGetCF(db, roptions, cfh1, "key_cf1", "val_cf1");
     CheckTxnGetCF(txn, roptions, cfh1, "key_cf1", "val_cf1");
     CheckTxnPinGetCF(txn, roptions, cfh1, "key_cf1", "val_cf1");
+    {
+      const rocksdb_column_family_handle_t* get_handles[3] = {cfh1, cfh2, cfh2};
+      const char* keys[3] = {"key_cf1", "key_cf2", "notfound"};
+      const size_t keys_sizes[3] = {7, 7, 8};
+      char* vals[3];
+      size_t vals_sizes[3];
+      char* errs[3];
+      const char* expected[3] = {"val_cf1", "val_cf2", NULL};
+      rocksdb_transaction_multi_get_cf(txn, roptions, get_handles, 3, keys,
+                                       keys_sizes, vals, vals_sizes, errs);
+      CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
+    }
 
     // Check iterator with column family
     rocksdb_transaction_put_cf(txn, cfh1, "key1_cf", 7, "val1_cf", 7, &err);
