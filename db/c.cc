@@ -4068,6 +4068,8 @@ rocksdb_comparator_t* rocksdb_comparator_create(
   result->destructor_ = destructor;
   result->compare_ = compare;
   result->name_ = name;
+  result->compare_ts_ = nullptr;
+  result->compare_without_ts_ = nullptr;
   return result;
 }
 
