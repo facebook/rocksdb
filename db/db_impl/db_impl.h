@@ -1397,9 +1397,8 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
-  // SetDbSessionId() should be called in the constuctor DBImpl()
-  // to ensure that db_session_id_ gets updated every time the DB is opened
-  void SetDbSessionId();
+  // Set DB identity file, and write DB ID to manifest if necessary.
+  Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1417,10 +1416,10 @@ class DBImpl : public DB {
   // deleted. All those edits are persisted to new Manifest after successfully
   // syncing the new WAL.
   Status DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx);
-  Status DeleteUnreferencedSstFiles();
 
-  // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
+  // SetDbSessionId() should be called in the constuctor DBImpl()
+  // to ensure that db_session_id_ gets updated every time the DB is opened
+  void SetDbSessionId();
 
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
@@ -1429,6 +1428,9 @@ class DBImpl : public DB {
   // recovery_ctx stores the context about version edits and
   // LogAndApplyForRecovery persist all those edits to new Manifest after
   // successfully syncing new WAL.
+  // LogAndApplyForRecovery should be called only once during recovery and it
+  // should be called when RocksDB writes to a first new MANIFEST since this
+  // recovery.
   Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
 
  private:
