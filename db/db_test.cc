@@ -4273,6 +4273,10 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
             auto istr = std::to_string(i);
             WriteBatch batch;
             ASSERT_OK(batch.Put("a" + istr, "b" + istr));
+            if (wopt.protection_bytes_per_key > 0) {
+              ASSERT_OK(WriteBatchInternal::SetProtectionBytesPerKey(
+                  &batch, wopt.protection_bytes_per_key));
+            }
             ASSERT_OK(
                 dbfull()->WriteImpl(wopt, &batch, nullptr, nullptr, 0, true));
           }
