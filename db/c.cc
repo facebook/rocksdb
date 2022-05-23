@@ -31,6 +31,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/sst_partitioner.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -200,6 +201,10 @@ struct rocksdb_optimistictransactiondb_t {
 };
 struct rocksdb_optimistictransaction_options_t {
   OptimisticTransactionOptions rep;
+};
+
+struct rocksdb_sst_partitioner_factory_t {
+  std::shared_ptr<ROCKSDB_NAMESPACE::SstPartitionerFactory> rep;
 };
 
 struct rocksdb_compactionfiltercontext_t {
@@ -630,6 +635,33 @@ void rocksdb_backup_engine_info_destroy(
 void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be->rep;
   delete be;
+}
+
+rocksdb_sst_partitioner_factory_t*
+rocksdb_sst_partitioner_fixed_prefix_factory_create(long prefix_len) {
+  rocksdb_sst_partitioner_factory_t* factory =
+      new rocksdb_sst_partitioner_factory_t;
+  factory->rep =
+      ROCKSDB_NAMESPACE::NewSstPartitionerFixedPrefixFactory(prefix_len);
+  return factory;
+}
+
+void rocksdb_sst_partitioner_factory_destroy(
+    rocksdb_sst_partitioner_factory_t* factory) {
+  delete factory;
+}
+
+void rocksdb_options_set_sst_partitioner_factory(
+    rocksdb_options_t* opt, rocksdb_sst_partitioner_factory_t* factory) {
+  opt->rep.sst_partitioner_factory = factory->rep;
+}
+
+rocksdb_sst_partitioner_factory_t* rocksdb_options_get_sst_partitioner_factory(
+    rocksdb_options_t* opt) {
+  rocksdb_sst_partitioner_factory_t* factory =
+      new rocksdb_sst_partitioner_factory_t;
+  factory->rep = opt->rep.sst_partitioner_factory;
+  return factory;
 }
 
 rocksdb_backup_engine_options_t* rocksdb_backup_engine_options_create(

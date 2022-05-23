@@ -129,6 +129,8 @@ typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
 typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
 typedef struct rocksdb_memory_consumers_t rocksdb_memory_consumers_t;
 typedef struct rocksdb_memory_usage_t rocksdb_memory_usage_t;
+typedef struct rocksdb_sst_partitioner_factory_t
+    rocksdb_sst_partitioner_factory_t;
 
 /* DB operations */
 
@@ -2363,6 +2365,19 @@ rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t*,
 
 extern ROCKSDB_LIBRARY_API void rocksdb_cancel_all_background_work(
     rocksdb_t* db, unsigned char wait);
+
+/* SST Partitioner */
+extern ROCKSDB_LIBRARY_API rocksdb_sst_partitioner_factory_t*
+rocksdb_sst_partitioner_fixed_prefix_factory_create(long prefix_len);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_sst_partitioner_factory_destroy(
+    rocksdb_sst_partitioner_factory_t* factory);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_sst_partitioner_factory(
+    rocksdb_options_t* opt, rocksdb_sst_partitioner_factory_t* factory);
+
+extern ROCKSDB_LIBRARY_API rocksdb_sst_partitioner_factory_t*
+rocksdb_options_get_sst_partitioner_factory(rocksdb_options_t* opt);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
