@@ -34,6 +34,7 @@ class WideColumnDesc {
   Slice value_;
 };
 
+// Note: column names and values are compared bytewise.
 bool operator==(const WideColumnDesc& lhs, const WideColumnDesc& rhs);
 bool operator!=(const WideColumnDesc& lhs, const WideColumnDesc& rhs);
 
