@@ -26,6 +26,7 @@
 * The contract for implementations of Comparator::IsSameLengthImmediateSuccessor has been updated to work around a design bug in `auto_prefix_mode`.
 * The API documentation for `auto_prefix_mode` now notes some corner cases in which it returns different results than `total_order_seek`, due to design bugs that are not easily fixed. Users using built-in comparators and keys at least the size of a fixed prefix length are not affected.
 * Obsoleted the NUM_DATA_BLOCKS_READ_PER_LEVEL stat and introduced the NUM_LEVEL_READ_PER_MULTIGET and MULTIGET_COROUTINE_COUNT stats
+* Introduced `WriteOptions::protection_bytes_per_key`, which can be used to enable key-value integrity protection for live updates.
 
 ### New Features
 * Add FileSystem::ReadAsync API in io_tracing
@@ -39,6 +40,9 @@
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
 * Removed support for reading Bloom filters using obsolete block-based filter format. (Support for writing such filters was dropped in 7.0.) For good read performance on old DBs using these filters, a full compaction is required.
 * Per KV checksum in write batch is verified before a write batch is written to WAL to detect any corruption to the write batch (#10114).
+
+### Bug Fixes
+* Fixed a bug in calculating key-value integrity protection for users of in-place memtable updates. In particular, the affected users would be those who configure `protection_bytes_per_key > 0` on `WriteBatch` or `WriteOptions`, and configure `inplace_callback != nullptr`.
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
