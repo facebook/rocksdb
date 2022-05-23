@@ -1129,6 +1129,12 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
 
   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
+  foreach (plugin ${PLUGINS})
+    foreach (header ${${plugin}_HEADERS})
+      install(FILES plugin/${plugin}/${header} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rocksdb/plugin/${plugin})
+    endforeach()
+  endforeach()
+
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
 
   install(
