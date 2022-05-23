@@ -123,7 +123,16 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
 Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
                                  WriteBatch* my_batch,
                                  WriteCallback* callback) {
-  return WriteImpl(write_options, my_batch, callback, nullptr);
+  Status s;
+  if (my_batch->GetProtectionBytesPerKey() == 0 &&
+      write_options.protection_bytes_per_key != 0) {
+    s = WriteBatchInternal::SetProtectionBytesPerKey(
+        my_batch, write_options.protection_bytes_per_key);
+  }
+  if (s.ok()) {
+    s = WriteImpl(write_options, my_batch, callback, nullptr);
+  }
+  return s;
 }
 #endif  // ROCKSDB_LITE
 
