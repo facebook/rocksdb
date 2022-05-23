@@ -1857,11 +1857,12 @@ Status DBImpl::RunManualCompaction(
     }
   }
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "[%s] Manual compaction starting", cfd->GetName().c_str());
-
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
+
+  ROCKS_LOG_BUFFER(&log_buffer, "[%s] Manual compaction starting",
+                   cfd->GetName().c_str());
+
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to
   // true.

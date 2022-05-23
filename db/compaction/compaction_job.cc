@@ -2115,11 +2115,11 @@ Status CompactionJob::InstallCompactionResults(
 
   {
     Compaction::InputLevelSummaryBuffer inputs_summary;
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
-                   compaction->column_family_data()->GetName().c_str(), job_id_,
-                   compaction->InputLevelSummary(&inputs_summary),
-                   compact_->total_bytes + compact_->total_blob_bytes);
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
+                     compaction->column_family_data()->GetName().c_str(),
+                     job_id_, compaction->InputLevelSummary(&inputs_summary),
+                     compact_->total_bytes + compact_->total_blob_bytes);
   }
 
   VersionEdit* const edit = compaction->edit();
