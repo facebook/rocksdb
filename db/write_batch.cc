@@ -2844,16 +2844,10 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
+  assert(b->prot_info_ == nullptr);
 
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
-
-  // If we have a prot_info_, update protection info entries for the batch.
-  if (b->prot_info_) {
-    ProtectionInfoUpdater prot_info_updater(b->prot_info_.get());
-    return b->Iterate(&prot_info_updater);
-  }
-
   return Status::OK();
 }
 
@@ -2908,6 +2902,18 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
   } else {
     return leftByteSize + rightByteSize - WriteBatchInternal::kHeader;
   }
+}
+
+Status WriteBatchInternal::SetProtectionBytesPerKey(WriteBatch* wb,
+                                                    size_t bytes_per_key) {
+  assert(wb->prot_info_ == nullptr && bytes_per_key > 0);
+  if (bytes_per_key != 8) {
+    return Status::NotSupported(
+        "WriteBatch protection info must be eight bytes/key");
+  }
+  wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
+  ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
+  return wb->Iterate(&prot_info_updater);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
