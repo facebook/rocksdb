@@ -1159,6 +1159,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
               if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
                 // shift the value buffer as well.
                 memcpy(p, prev_buffer, new_prev_size);
+                prev_buffer = p;
               }
             }
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
