@@ -10,6 +10,78 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+TEST(WideColumnSerializationTest, Construct) {
+  constexpr char foo[] = "foo";
+  constexpr char bar[] = "bar";
+
+  const std::string foo_str(foo);
+  const std::string bar_str(bar);
+
+  const Slice foo_slice(foo_str);
+  const Slice bar_slice(bar_str);
+
+  {
+    WideColumnDesc desc(foo, bar);
+    ASSERT_EQ(desc.name(), foo);
+    ASSERT_EQ(desc.value(), bar);
+  }
+
+  {
+    WideColumnDesc desc(foo_str, bar);
+    ASSERT_EQ(desc.name(), foo_str);
+    ASSERT_EQ(desc.value(), bar);
+  }
+
+  {
+    WideColumnDesc desc(foo_slice, bar);
+    ASSERT_EQ(desc.name(), foo_slice);
+    ASSERT_EQ(desc.value(), bar);
+  }
+
+  {
+    WideColumnDesc desc(foo, bar_str);
+    ASSERT_EQ(desc.name(), foo);
+    ASSERT_EQ(desc.value(), bar_str);
+  }
+
+  {
+    WideColumnDesc desc(foo_str, bar_str);
+    ASSERT_EQ(desc.name(), foo_str);
+    ASSERT_EQ(desc.value(), bar_str);
+  }
+
+  {
+    WideColumnDesc desc(foo_slice, bar_str);
+    ASSERT_EQ(desc.name(), foo_slice);
+    ASSERT_EQ(desc.value(), bar_str);
+  }
+
+  {
+    WideColumnDesc desc(foo, bar_slice);
+    ASSERT_EQ(desc.name(), foo);
+    ASSERT_EQ(desc.value(), bar_slice);
+  }
+
+  {
+    WideColumnDesc desc(foo_str, bar_slice);
+    ASSERT_EQ(desc.name(), foo_str);
+    ASSERT_EQ(desc.value(), bar_slice);
+  }
+
+  {
+    WideColumnDesc desc(foo_slice, bar_slice);
+    ASSERT_EQ(desc.name(), foo_slice);
+    ASSERT_EQ(desc.value(), bar_slice);
+  }
+
+  {
+    WideColumnDesc desc(std::piecewise_construct, std::forward_as_tuple(foo, 1),
+                        std::forward_as_tuple(bar, 2));
+    ASSERT_EQ(desc.name(), "f");
+    ASSERT_EQ(desc.value(), "ba");
+  }
+}
+
 TEST(WideColumnSerializationTest, SerializeDeserialize) {
   WideColumnDescs column_descs{{"foo", "bar"}, {"hello", "world"}};
   std::string output;

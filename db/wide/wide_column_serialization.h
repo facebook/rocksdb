@@ -7,6 +7,8 @@
 
 #include <cstdint>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
@@ -22,6 +24,13 @@ class WideColumnDesc {
   template <typename N, typename V>
   WideColumnDesc(N&& name, V&& value)
       : name_(std::forward<N>(name)), value_(std::forward<V>(value)) {}
+
+  template <typename NTuple, typename VTuple>
+  WideColumnDesc(std::piecewise_construct_t, NTuple&& name_tuple,
+                 VTuple&& value_tuple)
+      : name_(std::make_from_tuple<Slice>(std::forward<NTuple>(name_tuple))),
+        value_(std::make_from_tuple<Slice>(std::forward<VTuple>(value_tuple))) {
+  }
 
   const Slice& name() const { return name_; }
   const Slice& value() const { return value_; }
