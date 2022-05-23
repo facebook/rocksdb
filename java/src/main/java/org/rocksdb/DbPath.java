@@ -6,6 +6,7 @@
 package org.rocksdb;
 
 import java.nio.file.Path;
+import java.util.Objects;
 
 /**
  * Tuple of database path and target size
@@ -31,11 +32,7 @@ public class DbPath {
 
     final DbPath dbPath = (DbPath) o;
 
-    if (targetSize != dbPath.targetSize) {
-      return false;
-    }
-
-    return path != null ? path.equals(dbPath.path) : dbPath.path == null;
+    return targetSize == dbPath.targetSize && Objects.equals(this.path, dbPath.path);
   }
 
   @Override

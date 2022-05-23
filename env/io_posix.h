@@ -40,7 +40,7 @@
 namespace ROCKSDB_NAMESPACE {
 std::string IOErrorMsg(const std::string& context,
                        const std::string& file_name);
-// file_name can be left empty if it is not unkown.
+// file_name can be left empty if it is not unknown.
 IOStatus IOError(const std::string& context, const std::string& file_name,
                  int err_number);
 

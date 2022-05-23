@@ -147,7 +147,7 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    */
   @Override
   public boolean equals(final Object other) {
-    if (other != null && other instanceof AbstractSlice) {
+    if (other instanceof AbstractSlice) {
       return compare((AbstractSlice<?>)other) == 0;
     } else {
       return false;

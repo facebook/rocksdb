@@ -459,6 +459,7 @@ public class MutableColumnFamilyOptions
       return setEnum(MiscOption.compression, compressionType);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public CompressionType compressionType() {
       return (CompressionType) getEnum(MiscOption.compression);
@@ -532,6 +533,7 @@ public class MutableColumnFamilyOptions
       return setEnum(BlobOption.blob_compression_type, compressionType);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     public CompressionType blobCompressionType() {
       return (CompressionType) getEnum(BlobOption.blob_compression_type);

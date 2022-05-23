@@ -15,7 +15,7 @@ public enum InfoLogLevel {
 
   private final byte value_;
 
-  private InfoLogLevel(final byte value) {
+  InfoLogLevel(final byte value) {
     value_ = value;
   }
 
