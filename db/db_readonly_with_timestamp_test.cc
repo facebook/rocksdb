@@ -101,6 +101,46 @@ TEST_F(DBReadOnlyTestWithTimestamp,
   Close();
 }
 
+TEST_F(DBReadOnlyTestWithTimestamp,
+       IteratorAndGetWriteWithTimestampReadWithoutTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database in read only mode to test its timestamp support.
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  ReadOptions read_opts;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    std::string value_from_get;
+    ASSERT_TRUE(
+        db_->Get(read_opts, Key1(key), &value_from_get).IsInvalidArgument());
+  }
+
+  Close();
+}
+
 TEST_F(DBReadOnlyTestWithTimestamp, IteratorAndGet) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -321,6 +361,41 @@ TEST_F(DBReadOnlyTestWithTimestamp,
   Close();
 }
 
+TEST_F(DBReadOnlyTestWithTimestamp,
+       IteratorsWriteWithTimestampReadWithoutTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(key));
+    ASSERT_OK(s);
+  }
+
+  // Reopen the database in read only mode to test its timestamp support.
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  ReadOptions read_opts;
+  {
+    std::vector<Iterator*> iters;
+    ASSERT_TRUE(
+        db_->NewIterators(read_opts, {db_->DefaultColumnFamily()}, &iters)
+            .IsInvalidArgument());
+  }
+
+  Close();
+}
+
 TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGetReadTimestampSizeMismatch) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -404,6 +479,46 @@ TEST_F(DBReadOnlyTestWithTimestamp,
   Close();
 }
 
+TEST_F(DBReadOnlyTestWithTimestamp,
+       CompactedDBGetWriteWithTimestampReadWithoutTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(0));
+    ASSERT_OK(s);
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  Close();
+
+  // Reopen the database in read only mode as a Compacted DB to test its
+  // timestamp support.
+  options.max_open_files = -1;
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+  ReadOptions read_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    std::string value_from_get;
+    ASSERT_TRUE(
+        db_->Get(read_opts, Key1(key), &value_from_get).IsInvalidArgument());
+  }
+  Close();
+}
+
 TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGet) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -462,7 +577,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGet) {
 TEST_F(DBReadOnlyTestWithTimestamp,
        CompactedDBMultiGetReadTimestampSizeMismatch) {
   const int kNumKeysPerFile = 128;
-  const uint64_t kMaxKey = 3;
+  const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -516,7 +631,7 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 TEST_F(DBReadOnlyTestWithTimestamp,
        CompactedDBMultiGetReadTimestampSpecifiedWithoutWriteTimestamp) {
   const int kNumKeysPerFile = 128;
-  const uint64_t kMaxKey = 3;
+  const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -562,9 +677,57 @@ TEST_F(DBReadOnlyTestWithTimestamp,
   Close();
 }
 
+TEST_F(DBReadOnlyTestWithTimestamp,
+       CompactedDBMultiGetWriteWithTimestampReadWithoutTimestamp) {
+  const int kNumKeysPerFile = 128;
+  const uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  std::string write_timestamp = Timestamp(1, 0);
+  WriteOptions write_opts;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    Status s = db_->Put(write_opts, Key1(key), write_timestamp,
+                        "value" + std::to_string(0));
+    ASSERT_OK(s);
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  Close();
+
+  // Reopen the database in read only mode as a Compacted DB to test its
+  // timestamp support.
+  options.max_open_files = -1;
+  ASSERT_OK(ReadOnlyReopen(options));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+  ReadOptions read_opts;
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  for (uint64_t key = 0; key <= kMaxKey; ++key) {
+    key_strs.push_back(Key1(key));
+  }
+  for (const auto& key_str : key_strs) {
+    keys.emplace_back(key_str);
+  }
+  std::vector<std::string> values;
+  std::vector<Status> status_list = db_->MultiGet(read_opts, keys, &values);
+  for (const auto& status : status_list) {
+    ASSERT_TRUE(status.IsInvalidArgument());
+  }
+  Close();
+}
+
 TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBMultiGet) {
   const int kNumKeysPerFile = 128;
-  const uint64_t kMaxKey = 4;
+  const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;

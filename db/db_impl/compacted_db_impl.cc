@@ -40,7 +40,8 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
 
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             const Slice& key, PinnableSlice* value) {
-  return Get(options, nullptr, key, value, /*timestamp*/ nullptr);
+  return Get(options, /*column_family*/ nullptr, key, value,
+             /*timestamp*/ nullptr);
 }
 
 Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
@@ -68,8 +69,16 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                          nullptr, nullptr, true, nullptr, nullptr, nullptr,
                          nullptr, &read_cb);
 
-  Status s = files_.files[FindFile(lkey.user_key())].fd.table_reader->Get(
-      options, lkey.internal_key(), &get_context, nullptr);
+  const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
+  if (user_comparator_->CompareWithoutTimestamp(
+          key, /*a_has_ts=*/false,
+          ExtractUserKeyAndStripTimestamp(f.smallest_key,
+                                          user_comparator_->timestamp_size()),
+          /*b_has_ts=*/false) < 0) {
+    return Status::NotFound();
+  }
+  Status s = f.fd.table_reader->Get(options, lkey.internal_key(), &get_context,
+                                    nullptr);
   if (!s.ok() && !s.IsNotFound()) {
     return s;
   }
@@ -110,8 +119,11 @@ std::vector<Status> CompactedDBImpl::MultiGet(
   for (const auto& key : keys) {
     LookupKey lkey(key, kMaxSequenceNumber, options.timestamp);
     const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
-    if (user_comparator_->Compare(lkey.internal_key(),
-                                  ExtractUserKey(f.smallest_key)) < 0) {
+    if (user_comparator_->CompareWithoutTimestamp(
+            key, /*a_has_ts=*/false,
+            ExtractUserKeyAndStripTimestamp(f.smallest_key,
+                                            user_comparator_->timestamp_size()),
+            /*b_has_ts=*/false) < 0) {
       reader_list.push_back(nullptr);
     } else {
       f.fd.table_reader->Prepare(lkey.internal_key());

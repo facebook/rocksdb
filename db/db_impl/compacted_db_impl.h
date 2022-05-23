@@ -34,6 +34,9 @@ class CompactedDBImpl : public DBImpl {
              std::string* timestamp) override;
 
   using DB::MultiGet;
+  // Note that CompactedDBImpl::MultiGet is not the optimized version of
+  // MultiGet to use.
+  // TODO: optimize CompactedDBImpl::MultiGet, see DBImpl::MultiGet for details.
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options, const std::vector<ColumnFamilyHandle*>&,
       const std::vector<Slice>& keys,
