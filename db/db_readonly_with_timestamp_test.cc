@@ -15,6 +15,26 @@ class DBReadOnlyTestWithTimestamp : public DBBasicTestWithTimestampBase {
  public:
   DBReadOnlyTestWithTimestamp()
       : DBBasicTestWithTimestampBase("db_readonly_test_with_timestamp") {}
+
+ protected:
+  void CheckDBOpenedAsCompactedDB() {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    ASSERT_NE(versions, nullptr);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    ASSERT_NE(cfd, nullptr);
+
+    Version* const current = cfd->current();
+    ASSERT_NE(current, nullptr);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    ASSERT_NE(storage_info, nullptr);
+
+    // Only 1 L0 file.
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+    // L0 is the max level.
+    ASSERT_EQ(storage_info->num_non_empty_levels(), 1);
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -397,7 +417,7 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 }
 
 TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGetReadTimestampSizeMismatch) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -417,14 +437,13 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGetReadTimestampSizeMismatch) {
     ASSERT_OK(s);
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
 
   ReadOptions read_opts;
   std::string different_size_read_timestamp;
@@ -442,7 +461,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGetReadTimestampSizeMismatch) {
 
 TEST_F(DBReadOnlyTestWithTimestamp,
        CompactedDBGetReadTimestampSpecifiedWithoutWriteTimestamp) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -457,14 +476,13 @@ TEST_F(DBReadOnlyTestWithTimestamp,
     ASSERT_OK(s);
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
 
   ReadOptions read_opts;
   const std::string read_timestamp = Timestamp(2, 0);
@@ -481,7 +499,7 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 
 TEST_F(DBReadOnlyTestWithTimestamp,
        CompactedDBGetWriteWithTimestampReadWithoutTimestamp) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -501,14 +519,13 @@ TEST_F(DBReadOnlyTestWithTimestamp,
     ASSERT_OK(s);
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
 
   ReadOptions read_opts;
   for (uint64_t key = 0; key <= kMaxKey; ++key) {
@@ -520,7 +537,7 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 }
 
 TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGet) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026 * 2;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -544,16 +561,15 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGet) {
                           "value" + std::to_string(i));
       ASSERT_OK(s);
     }
-    ASSERT_OK(db_->Flush(FlushOptions()));
   }
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(db_->Flush(FlushOptions()));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
 
   for (size_t i = 0; i < read_timestamps.size(); ++i) {
     ReadOptions read_opts;
@@ -576,7 +592,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGet) {
 
 TEST_F(DBReadOnlyTestWithTimestamp,
        CompactedDBMultiGetReadTimestampSizeMismatch) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -596,14 +612,13 @@ TEST_F(DBReadOnlyTestWithTimestamp,
     ASSERT_OK(s);
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
 
   ReadOptions read_opts;
   std::string different_size_read_timestamp;
@@ -630,7 +645,7 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 
 TEST_F(DBReadOnlyTestWithTimestamp,
        CompactedDBMultiGetReadTimestampSpecifiedWithoutWriteTimestamp) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -645,14 +660,13 @@ TEST_F(DBReadOnlyTestWithTimestamp,
     ASSERT_OK(s);
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
 
   ReadOptions read_opts;
   std::string read_timestamp = Timestamp(2, 0);
@@ -679,7 +693,7 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 
 TEST_F(DBReadOnlyTestWithTimestamp,
        CompactedDBMultiGetWriteWithTimestampReadWithoutTimestamp) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -699,14 +713,13 @@ TEST_F(DBReadOnlyTestWithTimestamp,
     ASSERT_OK(s);
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
 
   ReadOptions read_opts;
   std::vector<std::string> key_strs;
@@ -726,7 +739,7 @@ TEST_F(DBReadOnlyTestWithTimestamp,
 }
 
 TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBMultiGet) {
-  const int kNumKeysPerFile = 128;
+  const int kNumKeysPerFile = 1026 * 2;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
   options.env = env_;
@@ -752,14 +765,14 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBMultiGet) {
     }
   }
   ASSERT_OK(db_->Flush(FlushOptions()));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   Close();
 
   // Reopen the database in read only mode as a Compacted DB to test its
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  CheckDBOpenedAsCompactedDB();
+
   for (size_t i = 0; i < write_timestamps.size(); ++i) {
     ReadOptions read_opts;
     Slice read_ts = read_timestamps[i];
