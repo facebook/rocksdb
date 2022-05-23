@@ -254,7 +254,7 @@ IF_ROCKSDB_LITE("",
     "operation includes a rare but possible retry in case it got "
     "`Status::Incomplete()`. This happens upon encountering more keys than "
     "have ever been seen by the thread (or eight initially)\n"
-    "\tbackup --  Create a back up of the current DB and verify that a new backup is corrected. "
+    "\tbackup --  Create a backup of the current DB and verify that a new backup is corrected. "
     "Rate limit can be specified through --backup_rate_limit\n"
     "\trestore -- Restore the DB from the latest backup available, rate limit can be specified through --restore_rate_limit\n");
 
