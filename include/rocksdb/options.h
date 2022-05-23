@@ -1737,6 +1737,13 @@ struct WriteOptions {
   // Default: `Env::IO_TOTAL`
   Env::IOPriority rate_limiter_priority;
 
+  // `protection_bytes_per_key` is the number of bytes used to store
+  // protection information for each key entry. Currently supported values are
+  // zero (disabled) and eight.
+  //
+  // Default: zero (disabled).
+  size_t protection_bytes_per_key;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
@@ -1744,7 +1751,8 @@ struct WriteOptions {
         no_slowdown(false),
         low_pri(false),
         memtable_insert_hint_per_batch(false),
-        rate_limiter_priority(Env::IO_TOTAL) {}
+        rate_limiter_priority(Env::IO_TOTAL),
+        protection_bytes_per_key(0) {}
 };
 
 // Options that control flush operations
