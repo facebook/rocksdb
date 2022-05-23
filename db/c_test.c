@@ -398,7 +398,8 @@ static void CheckTxnPinGetCF(rocksdb_transaction_t* txn,
   const char* val = NULL;
   char* err = NULL;
   size_t val_len;
-  p = rocksdb_transaction_get_pinned_cf(txn, options, column_family, key, strlen(key), &err);
+  p = rocksdb_transaction_get_pinned_cf(txn, options, column_family, key,
+                                        strlen(key), &err);
   CheckNoError(err);
   val = rocksdb_pinnableslice_value(p, &val_len);
   CheckEqual(expected, val, val_len);
@@ -413,7 +414,8 @@ static void CheckTxnDBGet(
   char* err = NULL;
   size_t val_len;
   char* val;
-  val = rocksdb_transactiondb_get(txn_db, options, key, strlen(key), &val_len, &err);
+  val = rocksdb_transactiondb_get(txn_db, options, key, strlen(key), &val_len,
+                                  &err);
   CheckNoError(err);
   CheckEqual(expected, val, val_len);
   Free(&val);
@@ -435,8 +437,7 @@ static void CheckTxnDBGetCF(rocksdb_transactiondb_t* txn_db,
 
 static void CheckTxnDBPinGet(rocksdb_transactiondb_t* txn_db,
                              const rocksdb_readoptions_t* options,
-                             const char* key,
-                             const char* expected) {
+                             const char* key, const char* expected) {
   rocksdb_pinnableslice_t* p = NULL;
   const char* val = NULL;
   char* err = NULL;
@@ -456,7 +457,8 @@ static void CheckTxnDBPinGetCF(rocksdb_transactiondb_t* txn_db,
   const char* val = NULL;
   char* err = NULL;
   size_t val_len;
-  p = rocksdb_transactiondb_get_pinned_cf(txn_db, options, column_family, key, strlen(key), &err);
+  p = rocksdb_transactiondb_get_pinned_cf(txn_db, options, column_family, key,
+                                          strlen(key), &err);
   CheckNoError(err);
   val = rocksdb_pinnableslice_value(p, &val_len);
   CheckEqual(expected, val, val_len);
@@ -2864,7 +2866,7 @@ int main(int argc, char** argv) {
     CheckTxnDBPinGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
 
     // flush
-    rocksdb_flushoptions_t *flush_options = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_t* flush_options = rocksdb_flushoptions_create();
     rocksdb_flushoptions_set_wait(flush_options, 1);
     rocksdb_transactiondb_flush_wal(txn_db, 1, &err);
     CheckNoError(err);
@@ -2912,16 +2914,16 @@ int main(int argc, char** argv) {
     rocksdb_transaction_destroy(txn);
 
     // prepare 2 transactions and close db.
-    rocksdb_transaction_t* txn1 = rocksdb_transaction_begin(
-        txn_db, woptions, txn_options, NULL);
+    rocksdb_transaction_t* txn1 =
+        rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
     rocksdb_transaction_put(txn1, "bar1", 4, "1", 1, &err);
     CheckNoError(err);
     rocksdb_transaction_set_name(txn1, "txn1", 4, &err);
     CheckNoError(err);
     rocksdb_transaction_prepare(txn1, &err);
     CheckNoError(err);
-    rocksdb_transaction_t* txn2 = rocksdb_transaction_begin(
-        txn_db, woptions, txn_options, NULL);
+    rocksdb_transaction_t* txn2 =
+        rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
     rocksdb_transaction_put(txn2, "bar2", 4, "2", 1, &err);
     CheckNoError(err);
     rocksdb_transaction_set_name(txn2, "txn2", 4, &err);
