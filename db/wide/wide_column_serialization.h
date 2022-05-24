@@ -21,10 +21,28 @@ class WideColumnDesc {
  public:
   WideColumnDesc() = default;
 
+  // Initializes a WideColumnDesc object by forwarding the name and value
+  // arguments to the corresponding member Slices. This makes it possible to
+  // construct a WideColumnDesc using combinations of const char*, const
+  // std::string&, const Slice& etc., for example:
+  //
+  // constexpr char foo[] = "foo";
+  // const std::string bar("bar");
+  // WideColumnDesc desc(foo, bar);
   template <typename N, typename V>
   WideColumnDesc(N&& name, V&& value)
       : name_(std::forward<N>(name)), value_(std::forward<V>(value)) {}
 
+  // Initializes a WideColumnDesc object by forwarding the elements of
+  // name_tuple and value_tuple to the constructors of the corresponding member
+  // Slices. This makes it possible to initialize the Slices using the Slice
+  // constructors that take more than one argument, for example:
+  //
+  // constexpr char foo_name[] = "foo_name";
+  // constexpr char bar_value[] = "bar_value";
+  // WideColumnDesc desc(std::piecewise_construct,
+  //                     std::forward_as_tuple(foo_name, 3),
+  //                     std::forward_as_tuple(bar_value, 3));
   template <typename NTuple, typename VTuple>
   WideColumnDesc(std::piecewise_construct_t, NTuple&& name_tuple,
                  VTuple&& value_tuple)
