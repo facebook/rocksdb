@@ -54,7 +54,8 @@ class AsyncFileReader {
           file_(file),
           opts_(opts),
           read_reqs_(read_reqs),
-          num_reqs_(num_reqs) {}
+          num_reqs_(num_reqs),
+          next_(nullptr) {}
 
     bool await_ready() noexcept { return false; }
 
@@ -62,7 +63,7 @@ class AsyncFileReader {
     // awaiting_coro parameter is the handle of the awaiter. The handle can be
     // resumed later, so we cache it here.
     bool await_suspend(
-        std::experimental::coroutine_handle<> awaiting_coro) noexcept {
+        folly::coro::impl::coroutine_handle<> awaiting_coro) noexcept {
       awaiting_coro_ = awaiting_coro;
       // MultiReadAsyncImpl always returns true, so caller will be suspended
       return reader_.MultiReadAsyncImpl(this);
@@ -83,7 +84,7 @@ class AsyncFileReader {
     size_t num_reqs_;
     autovector<void*, 32> io_handle_;
     autovector<IOHandleDeleter, 32> del_fn_;
-    std::experimental::coroutine_handle<> awaiting_coro_;
+    folly::coro::impl::coroutine_handle<> awaiting_coro_;
     // Use this to link to the next ReadAwaiter in the suspended coroutine
     // list. The head and tail of the list are tracked by AsyncFileReader.
     // We use this approach rather than an STL container in order to avoid
