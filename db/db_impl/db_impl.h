@@ -113,6 +113,39 @@ class Directories {
 
   FSDirectory* GetDbDir() { return db_dir_.get(); }
 
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) {
+    // close all directories for all database paths
+    IOStatus s = IOStatus::OK();
+    if (db_dir_) {
+      s = db_dir_->Close(options, dbg);
+    }
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (wal_dir_) {
+      s = wal_dir_->Close(options, dbg);
+    }
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (data_dirs_.size() > 0 && s.ok()) {
+      for (auto& data_dir_ptr : data_dirs_) {
+        if (data_dir_ptr) {
+          s = data_dir_ptr->Close(options, dbg);
+          if (!s.ok()) {
+            return s;
+          }
+        }
+      }
+    }
+
+    return s;
+  }
+
  private:
   std::unique_ptr<FSDirectory> db_dir_;
   std::vector<std::unique_ptr<FSDirectory>> data_dirs_;
