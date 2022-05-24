@@ -342,6 +342,7 @@ ts_params = {
     "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
     "delrangepercent": 0,
+    "delpercent": 5,
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
