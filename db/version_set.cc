@@ -3944,14 +3944,12 @@ void Version::AddLiveFiles(std::vector<uint64_t>* live_table_files,
 void Version::RemoveLiveFiles(
     std::vector<ObsoleteFileInfo>& sst_delete_candidates,
     std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const {
-  sst_delete_candidates.erase(
-      std::remove_if(sst_delete_candidates.begin(), sst_delete_candidates.end(),
-                     [this](ObsoleteFileInfo& x) {
-                       return storage_info()->GetFileLocation(
-                                  x.metadata->fd.GetNumber()) !=
-                              VersionStorageInfo::FileLocation::Invalid();
-                     }),
-      sst_delete_candidates.end());
+  for (ObsoleteFileInfo& fi : sst_delete_candidates) {
+    if (storage_info()->GetFileLocation(fi.metadata->fd.GetNumber()) !=
+        VersionStorageInfo::FileLocation::Invalid()) {
+      fi.should_delete_file = false;
+    }
+  }
 
   blob_delete_candidates.erase(
       std::remove_if(

@@ -691,6 +691,11 @@ class VersionStorageInfo {
 struct ObsoleteFileInfo {
   FileMetaData* metadata;
   std::string path;
+  // If false, the FileMataData should be destroyed but the file should
+  // be kept. This is because another FileMetaData still references the
+  // file, usually because the file is trivial moved so two FileMetadata
+  // is managing the file.
+  bool should_delete_file = true;
 
   ObsoleteFileInfo() noexcept : metadata(nullptr) {}
   ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
