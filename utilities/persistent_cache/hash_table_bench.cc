@@ -152,8 +152,8 @@ class HashTableBenchmark {
   }
 
   static uint64_t NowInMillSec() {
-    timeval tv;
-    gettimeofday(&tv, /*tz=*/nullptr);
+    port::TimeVal tv;
+    port::GetTimeOfDay(&tv, /*tz=*/nullptr);
     return tv.tv_sec * 1000 + tv.tv_usec / 1000;
   }
 
