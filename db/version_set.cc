@@ -3945,9 +3945,10 @@ void Version::RemoveLiveFiles(
     std::vector<ObsoleteFileInfo>& sst_delete_candidates,
     std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const {
   for (ObsoleteFileInfo& fi : sst_delete_candidates) {
-    if (storage_info()->GetFileLocation(fi.metadata->fd.GetNumber()) !=
-        VersionStorageInfo::FileLocation::Invalid()) {
-      fi.should_delete_file = false;
+    if (!fi.only_delete_metadata &&
+        storage_info()->GetFileLocation(fi.metadata->fd.GetNumber()) !=
+            VersionStorageInfo::FileLocation::Invalid()) {
+      fi.only_delete_metadata = true;
     }
   }
 

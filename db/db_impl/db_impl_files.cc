@@ -403,7 +403,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   for (auto& file : state.sst_delete_files) {
-    if (file.should_delete_file) {
+    if (!file.only_delete_metadata) {
       candidate_files.emplace_back(
           MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
     }
