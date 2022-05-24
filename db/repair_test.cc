@@ -16,6 +16,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/transaction_log.h"
+#include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -49,8 +50,8 @@ class RepairTest : public DBTestBase {
     SyncPoint::GetInstance()->SetCallBack(
         "Version::VerifySstUniqueIds::Passed", [&](void* arg) {
           // override job status
-          auto id = static_cast<std::string*>(arg);
-          assert(!id->empty());
+          auto id = static_cast<UniqueId64x2*>(arg);
+          assert(*id != kNullUniqueId64x2);
           verify_passed++;
         });
     SyncPoint::GetInstance()->EnableProcessing();
