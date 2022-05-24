@@ -37,7 +37,7 @@ class DBReadOnlyTestWithTimestamp : public DBBasicTestWithTimestampBase {
     ASSERT_EQ(storage_info->num_non_empty_levels(), 1);
   }
 
-  void CheckDBOpenedAsCompactedDBWithOnlyLmaxFiles() {
+  void CheckDBOpenedAsCompactedDBWithOnlyHighestNonEmptyLevelFiles() {
     VersionSet* const versions = dbfull()->GetVersionSet();
     ASSERT_NE(versions, nullptr);
 
@@ -53,14 +53,15 @@ class DBReadOnlyTestWithTimestamp : public DBBasicTestWithTimestampBase {
     // L0 has no files.
     ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
-    // All other levels except the max level have no files.
+    // All other levels have no files except the highest level with files.
     for (int i = 1; i < storage_info->num_non_empty_levels() - 1; ++i) {
       ASSERT_FALSE(storage_info->LevelFilesBrief(i).num_files > 0);
     }
 
-    // Lmax has files.
-    int max_level = storage_info->num_non_empty_levels() - 1;
-    ASSERT_TRUE(storage_info->LevelFilesBrief(max_level).num_files > 0);
+    // The highest level with files have some files.
+    int highest_non_empty_level = storage_info->num_non_empty_levels() - 1;
+    ASSERT_TRUE(
+        storage_info->LevelFilesBrief(highest_non_empty_level).num_files > 0);
   }
 #endif  // !ROCKSDB_LITE
 };
@@ -617,7 +618,8 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGetWithOnlyOneL0File) {
   Close();
 }
 
-TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGetWithOnlyLmaxFiles) {
+TEST_F(DBReadOnlyTestWithTimestamp,
+       CompactedDBGetWithOnlyHighestNonEmptyLevelFiles) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
@@ -651,7 +653,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBGetWithOnlyLmaxFiles) {
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  CheckDBOpenedAsCompactedDBWithOnlyLmaxFiles();
+  CheckDBOpenedAsCompactedDBWithOnlyHighestNonEmptyLevelFiles();
 
   for (size_t i = 0; i < read_timestamps.size(); ++i) {
     ReadOptions read_opts;
@@ -882,7 +884,8 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBMultiGetWithOnlyOneL0File) {
   Close();
 }
 
-TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBMultiGetWithOnlyLmaxFiles) {
+TEST_F(DBReadOnlyTestWithTimestamp,
+       CompactedDBMultiGetWithOnlyHighestNonEmptyLevelFiles) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
@@ -916,7 +919,7 @@ TEST_F(DBReadOnlyTestWithTimestamp, CompactedDBMultiGetWithOnlyLmaxFiles) {
   // timestamp support.
   options.max_open_files = -1;
   ASSERT_OK(ReadOnlyReopen(options));
-  CheckDBOpenedAsCompactedDBWithOnlyLmaxFiles();
+  CheckDBOpenedAsCompactedDBWithOnlyHighestNonEmptyLevelFiles();
 
   for (size_t i = 0; i < write_timestamps.size(); ++i) {
     ReadOptions read_opts;
