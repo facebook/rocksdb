@@ -75,10 +75,14 @@ TEST(WideColumnSerializationTest, Construct) {
   }
 
   {
-    WideColumnDesc desc(std::piecewise_construct, std::forward_as_tuple(foo, 1),
-                        std::forward_as_tuple(bar, 2));
-    ASSERT_EQ(desc.name(), "f");
-    ASSERT_EQ(desc.value(), "ba");
+    constexpr char foo_name[] = "foo_name";
+    constexpr char bar_value[] = "bar_value";
+
+    WideColumnDesc desc(std::piecewise_construct,
+                        std::forward_as_tuple(foo_name, sizeof(foo) - 1),
+                        std::forward_as_tuple(bar_value, sizeof(bar) - 1));
+    ASSERT_EQ(desc.name(), foo);
+    ASSERT_EQ(desc.value(), bar);
   }
 }
 
