@@ -11,14 +11,16 @@
 int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #else
 
+#include <sys/time.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <functional>
 #include <string>
 #include <unordered_map>
-#include <unistd.h>
-#include <sys/time.h>
 
 #include "port/port_posix.h"
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
