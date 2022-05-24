@@ -7,6 +7,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "table/unique_id_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -294,8 +295,8 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
   SyncPoint::GetInstance()->SetCallBack(
       "Version::VerifySstUniqueIds::Passed", [&](void* arg) {
         // override job status
-        auto id = static_cast<std::string*>(arg);
-        assert(!id->empty());
+        auto id = static_cast<UniqueId64x2*>(arg);
+        assert(*id != kNullUniqueId64x2);
         verify_passed++;
       });
   SyncPoint::GetInstance()->EnableProcessing();
