@@ -79,7 +79,7 @@ struct LRUHandle {
   }
 
   // Calculate the memory usage by metadata.
-  inline size_t CalcuMetaCharge(
+  inline size_t CalcMetaCharge(
       CacheMetadataChargePolicy metadata_charge_policy) const {
     if (metadata_charge_policy != kFullChargeCacheMetadata) {
       return 0;
@@ -96,12 +96,12 @@ struct LRUHandle {
 
   inline void CalcTotalCharge(
       size_t charge, CacheMetadataChargePolicy metadata_charge_policy) {
-    total_charge = charge + CalcuMetaCharge(metadata_charge_policy);
+    total_charge = charge + CalcMetaCharge(metadata_charge_policy);
   }
 
   inline size_t GetCharge(
       CacheMetadataChargePolicy metadata_charge_policy) const {
-    size_t meta_charge = CalcuMetaCharge(metadata_charge_policy);
+    size_t meta_charge = CalcMetaCharge(metadata_charge_policy);
     assert(total_charge >= meta_charge);
     return total_charge - meta_charge;
   }
