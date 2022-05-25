@@ -5,6 +5,7 @@
 * Add transaction `get_pinned` and `multi_get` to C API.
 * Add two-phase commit support to C API.
 * Add `rocksdb_transaction_get_writebatch_wi` and `rocksdb_transaction_rebuild_from_writebatch` to C API.
+* Add FileSystem::ReadAsync API in io_tracing
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
