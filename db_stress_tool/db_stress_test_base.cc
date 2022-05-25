@@ -1795,9 +1795,17 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
     for (size_t i = 0; s.ok() && i < rand_column_families.size(); ++i) {
       std::string key_str = Key(rand_keys[0]);
       Slice key = key_str;
+      std::string ts_str;
+      Slice ts;
+      ReadOptions read_opts;
+      if (FLAGS_user_timestamp_size > 0) {
+        ts_str = GenerateTimestampForRead();
+        ts = ts_str;
+        read_opts.timestamp = &ts;
+      }
       std::string value;
       Status get_status = checkpoint_db->Get(
-          ReadOptions(), cf_handles[rand_column_families[i]], key, &value);
+          read_opts, cf_handles[rand_column_families[i]], key, &value);
       bool exists =
           thread->shared->Exists(rand_column_families[i], rand_keys[0]);
       if (get_status.ok()) {
@@ -2762,13 +2770,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
   if (FLAGS_test_secondary || FLAGS_secondary_catch_up_one_in > 0 ||
       FLAGS_continuous_verification_interval > 0) {
     fprintf(stderr, "Secondary instance does not support timestamp.\n");
-    exit(1);
-  }
-  if (FLAGS_checkpoint_one_in > 0) {
-    fprintf(stderr,
-            "-checkpoint_one_in=%d requires "
-            "DBImplReadOnly, which is not supported with timestamp\n",
-            FLAGS_checkpoint_one_in);
     exit(1);
   }
 #ifndef ROCKSDB_LITE
