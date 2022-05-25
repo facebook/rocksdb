@@ -4842,7 +4842,7 @@ Status DBImpl::IngestExternalFiles(
       // LogAndApply persists last sequence number from VersionEdits,
       // which are from file's largest seqno and not from VersionSet.
       //
-      // It is necesary to update last seqno here since LogAndApply releases
+      // It is necessary to update last seqno here since LogAndApply releases
       // mutex when persisting MANIFEST file, and the snapshots taken during
       // that period will not be stable if VersionSet last seqno is updated
       // before LogAndApply.
