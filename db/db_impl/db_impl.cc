@@ -4809,19 +4809,6 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-      int consumed_seqno_count =
-          ingestion_jobs[0].ConsumedSequenceNumbersCount();
-      for (size_t i = 1; i != num_cfs; ++i) {
-        consumed_seqno_count =
-            std::max(consumed_seqno_count,
-                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
-      }
-      if (consumed_seqno_count > 0) {
-        const SequenceNumber last_seqno = versions_->LastSequence();
-        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
-      }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -4851,6 +4838,27 @@ Status DBImpl::IngestExternalFiles(
       status =
           versions_->LogAndApply(cfds_to_commit, mutable_cf_options_list,
                                  edit_lists, &mutex_, directories_.GetDbDir());
+      // It is safe to update VersionSet last seqno here after LogAndApply since
+      // LogAndApply persists last sequence number from VersionEdits,
+      // which are from file's largest seqno and not from VersionSet.
+      //
+      // It is necessary to update last seqno here since LogAndApply releases
+      // mutex when persisting MANIFEST file, and the snapshots taken during
+      // that period will not be stable if VersionSet last seqno is updated
+      // before LogAndApply.
+      int consumed_seqno_count =
+          ingestion_jobs[0].ConsumedSequenceNumbersCount();
+      for (size_t i = 1; i != num_cfs; ++i) {
+        consumed_seqno_count =
+            std::max(consumed_seqno_count,
+                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
+      }
+      if (consumed_seqno_count > 0) {
+        const SequenceNumber last_seqno = versions_->LastSequence();
+        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
+      }
     }
 
     if (status.ok()) {
