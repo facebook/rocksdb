@@ -1506,8 +1506,8 @@ static void PrefixSeekArguments(benchmark::internal::Benchmark* b) {
 static constexpr uint64_t kPrefixSeekNum = 10l << 10;
 //BENCHMARK(PrefixSeek)->Iterations(kPrefixSeekNum)->Apply(PrefixSeekArguments);
 BENCHMARK(PrefixSeek)
-    ->Threads(8)
-    ->Iterations(kPrefixSeekNum / 8)
+    ->Threads(100)
+    ->Iterations(1)
     ->Apply(PrefixSeekArguments);
 
 // TODO: move it to different files, as it's testing an internal API
