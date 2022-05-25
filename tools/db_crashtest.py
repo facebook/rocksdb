@@ -458,6 +458,15 @@ def finalize_and_sanitize(src_params):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
         dest_params["ingest_external_file_one_in"] = 0
+    # File ingestion does not guarantee prefix-recoverability with WAL disabled.
+    # Ingesting a file persists data immediately that is newer than memtable
+    # data that can be lost on restart.
+    #
+    # Even if the above issue is fixed or worked around, our trace-and-replay
+    # does not trace file ingestion, so in its current form it would not recover
+    # the expected state to the correct point in time.
+    if (dest_params.get("disable_wal") == 1):
+        dest_params["ingest_external_file_one_in"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
