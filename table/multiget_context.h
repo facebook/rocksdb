@@ -137,6 +137,9 @@ class MultiGetContext {
           sorted_keys_[iter]->lkey->user_key(),
           read_opts.timestamp == nullptr ? 0 : read_opts.timestamp->size());
       sorted_keys_[iter]->ikey = sorted_keys_[iter]->lkey->internal_key();
+      sorted_keys_[iter]->timestamp = (*sorted_keys)[begin + iter]->timestamp;
+      sorted_keys_[iter]->get_context =
+          (*sorted_keys)[begin + iter]->get_context;
     }
   }
 
