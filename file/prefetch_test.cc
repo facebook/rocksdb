@@ -1531,7 +1531,7 @@ TEST_P(PrefetchTestWithPosix, TraceReadAsyncWithCallbackWrapper) {
   }
 
   SyncPoint::GetInstance()->SetCallBack(
-      "FilePrefetchBuffer::PrefetchAsync:Start",
+      "FilePrefetchBuffer::PrefetchAsyncInternal:Start",
       [&](void*) { buff_prefetch_count++; });
 
   SyncPoint::GetInstance()->SetCallBack(
