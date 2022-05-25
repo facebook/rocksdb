@@ -688,6 +688,53 @@ class VersionStorageInfo {
   friend class VersionSet;
 };
 
+struct ObsoleteFileInfo {
+  FileMetaData* metadata;
+  std::string path;
+  // If true, the FileMataData should be destroyed but the file should
+  // not be deleted. This is because another FileMetaData still references
+  // the file, usually because the file is trivial moved so two FileMetadata
+  // is managing the file.
+  bool only_delete_metadata = false;
+
+  ObsoleteFileInfo() noexcept
+      : metadata(nullptr), only_delete_metadata(false) {}
+  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
+      : metadata(f), path(file_path), only_delete_metadata(false) {}
+
+  ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
+  ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
+
+  ObsoleteFileInfo(ObsoleteFileInfo&& rhs) noexcept : ObsoleteFileInfo() {
+    *this = std::move(rhs);
+  }
+
+  ObsoleteFileInfo& operator=(ObsoleteFileInfo&& rhs) noexcept {
+    path = std::move(rhs.path);
+    metadata = rhs.metadata;
+    rhs.metadata = nullptr;
+
+    return *this;
+  }
+  void DeleteMetadata() {
+    delete metadata;
+    metadata = nullptr;
+  }
+};
+
+class ObsoleteBlobFileInfo {
+ public:
+  ObsoleteBlobFileInfo(uint64_t blob_file_number, std::string path)
+      : blob_file_number_(blob_file_number), path_(std::move(path)) {}
+
+  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
+  const std::string& GetPath() const { return path_; }
+
+ private:
+  uint64_t blob_file_number_;
+  std::string path_;
+};
+
 using MultiGetRange = MultiGetContext::Range;
 // A column family's version consists of the table and blob files owned by
 // the column family at a certain point in time.
@@ -788,6 +835,11 @@ class Version {
   // *live_blob_files.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;
+
+  // Remove live files that are in the delete candidate lists.
+  void RemoveLiveFiles(
+      std::vector<ObsoleteFileInfo>& sst_delete_candidates,
+      std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const;
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
@@ -925,49 +977,6 @@ class Version {
   // No copying allowed
   Version(const Version&) = delete;
   void operator=(const Version&) = delete;
-};
-
-struct ObsoleteFileInfo {
-  FileMetaData* metadata;
-  std::string   path;
-
-  ObsoleteFileInfo() noexcept : metadata(nullptr) {}
-  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
-      : metadata(f), path(file_path) {}
-
-  ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
-  ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
-
-  ObsoleteFileInfo(ObsoleteFileInfo&& rhs) noexcept :
-    ObsoleteFileInfo() {
-      *this = std::move(rhs);
-  }
-
-  ObsoleteFileInfo& operator=(ObsoleteFileInfo&& rhs) noexcept {
-    path = std::move(rhs.path);
-    metadata = rhs.metadata;
-    rhs.metadata = nullptr;
-
-    return *this;
-  }
-
-  void DeleteMetadata() {
-    delete metadata;
-    metadata = nullptr;
-  }
-};
-
-class ObsoleteBlobFileInfo {
- public:
-  ObsoleteBlobFileInfo(uint64_t blob_file_number, std::string path)
-      : blob_file_number_(blob_file_number), path_(std::move(path)) {}
-
-  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
-  const std::string& GetPath() const { return path_; }
-
- private:
-  uint64_t blob_file_number_;
-  std::string path_;
 };
 
 class BaseReferencedVersionBuilder;
@@ -1286,6 +1295,11 @@ class VersionSet {
   // *live_blob_files. Note that these lists may contain duplicates.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;
+
+  // Remove live files that are in the delete candidate lists.
+  void RemoveLiveFiles(
+      std::vector<ObsoleteFileInfo>& sst_delete_candidates,
+      std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const;
 
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search

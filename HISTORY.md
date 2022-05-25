@@ -49,6 +49,7 @@
 
 ### Performance Improvements
 * Avoid calling malloc_usable_size() in LRU Cache's mutex.
+* Reduce DB mutex holding time when finding obsolete files to delete. When a file is trivial moved to another level, the internal files will be referenced twice internally and sometimes opened twice too. If a deletion candidate file is not the last reference, we need to destroy the reference and close the file but not deleting the file. Right now we determine it by building a set of all live files. With the improvement, we check the file against all live LSM-tree versions instead.
 
 ## 7.2.0 (04/15/2022)
 ### Bug Fixes
