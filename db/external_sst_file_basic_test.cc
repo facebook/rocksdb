@@ -1941,6 +1941,9 @@ TEST_F(ExternalSSTFileBasicTest, StableSnapshotWhileLoggingToManifest) {
   const Snapshot* snapshot = nullptr;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void* /* arg */) {
+        // Prevent memory leak: this callback may be called multiple times
+        // and previous snapshot need to be freed
+        db_->ReleaseSnapshot(snapshot);
         snapshot = db_->GetSnapshot();
         ReadOptions read_opts;
         read_opts.snapshot = snapshot;
