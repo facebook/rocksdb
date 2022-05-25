@@ -166,8 +166,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->log_number = MinLogNumberToKeep();
   job_context->prev_log_number = versions_->prev_log_number();
 
-  versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
   if (doing_the_full_scan) {
+    versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
     std::set<std::string> paths;
@@ -242,6 +242,14 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.db_log_dir);
       }
     }
+  } else {
+    // Instead of filling ob_context->sst_live and job_context->blob_live,
+    // directly remove files that show up in any Version. This is because
+    // candidate files tend to be a small percentage of all files, so it is
+    // usually cheaper to check them against every version, compared to
+    // building a map for all files.
+    versions_->RemoveLiveFiles(job_context->sst_delete_files,
+                               job_context->blob_delete_files);
   }
 
   // logs_ is empty when called during recovery, in which case there can't yet
@@ -395,8 +403,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   for (auto& file : state.sst_delete_files) {
-    candidate_files.emplace_back(
-        MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
+    if (!file.only_delete_metadata) {
+      candidate_files.emplace_back(
+          MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
+    }
     if (file.metadata->table_reader_handle) {
       table_cache_->Release(file.metadata->table_reader_handle);
     }
