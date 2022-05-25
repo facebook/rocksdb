@@ -4016,7 +4016,7 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3525));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3525));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7050));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7075));
   c.ResetTableReader();
 }
 

@@ -9,6 +9,7 @@
 
 #include "table/block_fetcher.h"
 
+#include <cassert>
 #include <cinttypes>
 #include <string>
 
@@ -72,10 +73,10 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
     if (io_s.ok()) {
       bool read_from_prefetch_buffer = false;
-      if (read_options_.async_io) {
+      if (read_options_.async_io && !for_compaction_) {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority, for_compaction_);
+            &io_s, read_options_.rate_limiter_priority);
       } else {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
@@ -349,20 +350,20 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
 #endif  // NDEBUG
     return IOStatus::OK();
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
-    if (prefetch_buffer_ != nullptr) {
+    assert(prefetch_buffer_ != nullptr);
+    if (!for_compaction_) {
       IOOptions opts;
       IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
+      if (!io_s.ok()) {
+        return io_s;
+      }
+      io_s = status_to_io_status(prefetch_buffer_->PrefetchAsync(
+          opts, file_, handle_.offset(), block_size_with_trailer_,
+          read_options_.rate_limiter_priority, &slice_));
+      if (io_s.IsTryAgain()) {
+        return io_s;
+      }
       if (io_s.ok()) {
-        io_s = status_to_io_status(prefetch_buffer_->PrefetchAsync(
-            opts, file_, handle_.offset(), block_size_with_trailer_,
-            read_options_.rate_limiter_priority, &slice_));
-        if (io_s.IsTryAgain()) {
-          return io_s;
-        }
-        if (!io_s.ok()) {
-          // Fallback to sequential reading of data blocks.
-          return ReadBlockContents();
-        }
         // Data Block is already in prefetch.
         got_from_prefetch_buffer_ = true;
         ProcessTrailerIfPresent();
@@ -388,8 +389,12 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
           GetBlockContents();
         }
         InsertUncompressedBlockToPersistentCacheIfNeeded();
+        return io_status_;
       }
     }
+    // Fallback to sequential reading of data blocks in case of io_s returns
+    // error or for_compaction_is true.
+    return ReadBlockContents();
   }
   return io_status_;
 }

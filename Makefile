@@ -2064,6 +2064,7 @@ ifeq ($(PLATFORM), OS_OPENBSD)
 	ROCKSDBJNILIB = librocksdbjni-openbsd$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
 endif
+export SHA256_CMD
 
 zlib-$(ZLIB_VER).tar.gz:
 	curl --fail --output zlib-$(ZLIB_VER).tar.gz --location ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz
@@ -2196,7 +2197,7 @@ JAR_CMD := jar
 endif
 endif
 rocksdbjavastatic_javalib:
-	cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib
+	cd java; $(MAKE) javalib
 	rm -f java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(ALL_JNI_NATIVE_SOURCES) \
@@ -2310,7 +2311,7 @@ rocksdbjava: $(LIB_OBJECTS)
 ifeq ($(JAVA_HOME),)
 	$(error JAVA_HOME is not set)
 endif
-	$(AM_V_GEN)cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib;
+	$(AM_V_GEN)cd java; $(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. -I./java/rocksjni $(JAVA_INCLUDE) $(ROCKSDB_PLUGIN_JNI_CXX_INCLUDEFLAGS) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(ALL_JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	$(AM_V_at)cd java; $(JAR_CMD) -cf target/$(ROCKSDB_JAR) HISTORY*.md
@@ -2322,14 +2323,13 @@ jclean:
 	cd java;$(MAKE) clean;
 
 jtest_compile: rocksdbjava
-	cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) java_test
+	cd java;$(MAKE) java_test
 
 jtest_run:
 	cd java;$(MAKE) run_test
 
 jtest: rocksdbjava
-	cd java;$(MAKE) sample; SHA256_CMD='$(SHA256_CMD)' $(MAKE) test;
-	$(PYTHON) tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
+	cd java;$(MAKE) sample test
 
 jdb_bench:
 	cd java;$(MAKE) db_bench;
