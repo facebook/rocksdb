@@ -507,7 +507,8 @@ jobs:
       - install-benchmark
       - run: |
           ulimit -c unlimited
-          DEBUG_LEVEL=0 make -j32 run_microbench
+          DEBUG_LEVEL=0 make -j32 db_basic_bench
+          ./db_basic_bench --benchmark_filter=PrefixSeek
       - post-steps
       - run:
           name: copy bench files

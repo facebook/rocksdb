@@ -1504,7 +1504,7 @@ static void PrefixSeekArguments(benchmark::internal::Benchmark* b) {
 }
 
 static constexpr uint64_t kPrefixSeekNum = 10l << 10;
-BENCHMARK(PrefixSeek)->Iterations(kPrefixSeekNum)->Apply(PrefixSeekArguments);
+//BENCHMARK(PrefixSeek)->Iterations(kPrefixSeekNum)->Apply(PrefixSeekArguments);
 BENCHMARK(PrefixSeek)
     ->Threads(8)
     ->Iterations(kPrefixSeekNum / 8)
