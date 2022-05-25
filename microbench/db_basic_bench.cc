@@ -1464,19 +1464,17 @@ static void PrefixSeek(benchmark::State& state) {
     }
   }
 
-  {
+  for (auto _ : state) {
     std::unique_ptr<Iterator> iter{nullptr};
-    for (auto _ : state) {
-      state.PauseTiming();
-      if (!iter) {
-        iter.reset(db->NewIterator(ReadOptions()));
-      }
-      state.ResumeTiming();
-      iter->Seek(kg.NextPrefix());
-      if (!iter->status().ok()) {
-        state.SkipWithError(iter->status().ToString().c_str());
-        return;
-      }
+    state.PauseTiming();
+    if (!iter) {
+      iter.reset(db->NewIterator(ReadOptions()));
+    }
+    state.ResumeTiming();
+    iter->Seek(kg.NextPrefix());
+    if (!iter->status().ok()) {
+      state.SkipWithError(iter->status().ToString().c_str());
+      return;
     }
   }
 
