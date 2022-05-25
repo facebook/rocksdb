@@ -50,6 +50,15 @@ commands:
             echo "export LZ4_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/lz4" >> $BASH_ENV
             echo "export ZSTD_DOWNLOAD_BASE=https://rocksdb-deps.s3.us-west-2.amazonaws.com/pkgs/zstd" >> $BASH_ENV
 
+  enable-core-dump:
+    steps:
+      - run:
+          name: enable core dump
+          command: |
+            mkdir -p /tmp/core_dumps
+            echo kernel.core_pattern="/tmp/core_dumps/core.%e.%p.%h.%t" | sudo tee -a /etc/sysctl.conf
+            sudo sysctl -p
+
   pre-steps-macos:
       steps:
         - pre-steps
@@ -494,9 +503,19 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
+      - enable-core-dump
       - install-benchmark
-      - run: DEBUG_LEVEL=0 make -j32 run_microbench
+      - run: |
+          ulimit -c unlimited
+          DEBUG_LEVEL=0 make -j32 run_microbench
       - post-steps
+      - run:
+          name: copy bench files
+          command: cp *_bench /tmp/core_dumps/
+          when: on_fail
+      - store_artifacts:
+          path: /tmp/core_dumps
+          when: on_fail
 
   build-linux-mini-crashtest:
     machine:
@@ -828,72 +847,108 @@ jobs:
 
 workflows:
   version: 2
-  jobs-linux-run-tests:
+  jobs-bench-tests0:
     jobs:
-      - build-linux
-      - build-linux-cmake-with-folly
-      - build-linux-gcc-7-with-folly
-      - build-linux-cmake-with-benchmark
-      - build-linux-encrypted_env-no_compression
-      - build-linux-lite
-  jobs-linux-run-tests-san:
+      - build-linux-run-microbench
+  jobs-bench-tests1:
     jobs:
-      - build-linux-clang10-asan
-      - build-linux-clang10-ubsan
-      - build-linux-clang10-mini-tsan:
-          start_test: ""
-          end_test: "env_test"
-      - build-linux-clang10-mini-tsan:
-          start_test: "env_test"
-          end_test: ""
-      - build-linux-shared_lib-alt_namespace-status_checked
-  jobs-linux-no-test-run:
+      - build-linux-run-microbench
+  jobs-bench-tests2:
     jobs:
-      - build-linux-release
-      - build-linux-release-rtti
-      - build-linux-lite-release
-      - build-examples
-      - build-fuzzers
-      - build-linux-clang-no_test_run
-      - build-linux-clang-13-no_test_run
-      - build-linux-gcc-8-no_test_run
-      - build-linux-gcc-10-cxx20-no_test_run
-      - build-linux-gcc-11-no_test_run
-      - build-linux-arm-cmake-no_test_run
-  jobs-linux-other-checks:
+      - build-linux-run-microbench
+  jobs-bench-tests3:
     jobs:
-      - build-linux-clang10-clang-analyze
-      - build-linux-unity-and-headers
-      - build-linux-mini-crashtest
-  jobs-windows:
+      - build-linux-run-microbench
+  jobs-bench-tests4:
     jobs:
-      - build-windows:
-          name: "build-windows-vs2019"
-      - build-windows:
-          name: "build-windows-vs2019-cxx20"
-          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-      - build-windows:
-          name: "build-windows-vs2017"
-          vs_year: "2017"
-          cmake_generator: "Visual Studio 15 Win64"
-      - build-cmake-mingw
-  jobs-java:
+      - build-linux-run-microbench
+  jobs-bench-tests5:
     jobs:
-      - build-linux-java
-      - build-linux-java-static
-      - build-macos-java
-      - build-macos-java-static
-      - build-macos-java-static-universal
-  jobs-macos:
+      - build-linux-run-microbench
+  jobs-bench-tests6:
     jobs:
-      - build-macos
-      - build-macos-cmake:
-          run_even_tests: true
-      - build-macos-cmake:
-          run_even_tests: false
-  jobs-linux-arm:
+      - build-linux-run-microbench
+  jobs-bench-tests7:
     jobs:
-      - build-linux-arm
+      - build-linux-run-microbench
+  jobs-bench-tests8:
+    jobs:
+      - build-linux-run-microbench
+  jobs-bench-tests9:
+    jobs:
+      - build-linux-run-microbench
+  jobs-bench-tests10:
+    jobs:
+      - build-linux-run-microbench
+  jobs-bench-tests11:
+    jobs:
+      - build-linux-run-microbench
+#  jobs-linux-run-tests:
+#    jobs:
+#      - build-linux
+#      - build-linux-cmake-with-folly
+#      - build-linux-gcc-7-with-folly
+#      - build-linux-cmake-with-benchmark
+#      - build-linux-encrypted_env-no_compression
+#      - build-linux-lite
+#  jobs-linux-run-tests-san:
+#    jobs:
+#      - build-linux-clang10-asan
+#      - build-linux-clang10-ubsan
+#      - build-linux-clang10-mini-tsan:
+#          start_test: ""
+#          end_test: "env_test"
+#      - build-linux-clang10-mini-tsan:
+#          start_test: "env_test"
+#          end_test: ""
+#      - build-linux-shared_lib-alt_namespace-status_checked
+#  jobs-linux-no-test-run:
+#    jobs:
+#      - build-linux-release
+#      - build-linux-release-rtti
+#      - build-linux-lite-release
+#      - build-examples
+#      - build-fuzzers
+#      - build-linux-clang-no_test_run
+#      - build-linux-clang-13-no_test_run
+#      - build-linux-gcc-8-no_test_run
+#      - build-linux-gcc-10-cxx20-no_test_run
+#      - build-linux-gcc-11-no_test_run
+#      - build-linux-arm-cmake-no_test_run
+#  jobs-linux-other-checks:
+#    jobs:
+#      - build-linux-clang10-clang-analyze
+#      - build-linux-unity-and-headers
+#      - build-linux-mini-crashtest
+#  jobs-windows:
+#    jobs:
+#      - build-windows:
+#          name: "build-windows-vs2019"
+#      - build-windows:
+#          name: "build-windows-vs2019-cxx20"
+#          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
+#      - build-windows:
+#          name: "build-windows-vs2017"
+#          vs_year: "2017"
+#          cmake_generator: "Visual Studio 15 Win64"
+#      - build-cmake-mingw
+#  jobs-java:
+#    jobs:
+#      - build-linux-java
+#      - build-linux-java-static
+#      - build-macos-java
+#      - build-macos-java-static
+#      - build-macos-java-static-universal
+#  jobs-macos:
+#    jobs:
+#      - build-macos
+#      - build-macos-cmake:
+#          run_even_tests: true
+#      - build-macos-cmake:
+#          run_even_tests: false
+#  jobs-linux-arm:
+#    jobs:
+#      - build-linux-arm
   nightly:
     triggers:
       - schedule:
