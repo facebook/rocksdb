@@ -1061,6 +1061,204 @@ FSDirectory* DBImpl::GetDataDir(ColumnFamilyData* cfd, size_t path_id) const {
   return ret_dir;
 }
 
+namespace {
+Status DeserializeReplicationLogManifestWrite(Slice* src,
+                                              autovector<VersionEdit>* dst) {
+  uint64_t n;
+  if (!GetVarint64(src, &n)) {
+    return Status::Corruption("Unable to decode VersionEdit count");
+  }
+  dst->clear();
+  for (uint64_t i = 0; i < n; ++i) {
+    uint64_t entryLen;
+    if (!GetVarint64(src, &entryLen)) {
+      return Status::Corruption("Unable to decode VersionEdit length");
+    }
+    if (src->size() < entryLen) {
+      return Status::Corruption("Not enough data to decode VersionEdit");
+    }
+
+    VersionEdit e;
+    auto s = e.DecodeFrom(Slice{src->data(), entryLen});
+    if (!s.ok()) {
+      return s;
+    }
+    src->remove_prefix(entryLen);
+    dst->push_back(std::move(e));
+  }
+  return Status::OK();
+}
+}  // namespace
+
+Status DBImpl::ApplyReplicationLogRecord(ReplicationLogRecord record,
+                                         ApplyReplicationLogRecordInfo* info) {
+  JobContext job_context(0, true);
+  Status s;
+
+  {
+    WriteThread::Writer w;
+    InstrumentedMutexLock l(&mutex_);
+    write_thread_.EnterUnbatched(&w, &mutex_);
+
+    switch (record.type) {
+      case ReplicationLogRecord::kMemtableWrite: {
+        mutex_.Unlock();
+        WriteBatch batch;
+        s = WriteBatchInternal::SetContents(&batch, std::move(record.contents));
+        assert(s.ok());
+
+        if (versions_->LastSequence() + 1 !=
+            WriteBatchInternal::Sequence(&batch)) {
+          std::ostringstream oss;
+          oss << "Gap in sequence numbers, expected="
+              << versions_->LastSequence() + 1
+              << " got=" << WriteBatchInternal::Sequence(&batch);
+          return Status::Corruption(oss.str());
+        }
+
+        SequenceNumber next_seq;
+        s = WriteBatchInternal::InsertInto(
+            &batch, column_family_memtables_.get(), &flush_scheduler_,
+            &trim_history_scheduler_,
+            true /* ignore_missing_column_families_ */, 0 /* log_number */,
+            this, false /* concurrent_memtable_writes */, &next_seq,
+            nullptr /* has_valid_writes */, seq_per_batch_, batch_per_txn_);
+        if (s.ok()) {
+          versions_->SetLastSequence(next_seq - 1);
+        }
+        mutex_.Lock();
+        break;
+      }
+      case ReplicationLogRecord::kMemtableSwitch: {
+        WriteContext write_context;
+        autovector<ColumnFamilyData*> cfds;
+        SelectColumnFamiliesForAtomicFlush(&cfds);
+        for (const auto cfd : cfds) {
+          cfd->Ref();
+          s = SwitchMemtable(cfd, &write_context, "");
+          cfd->UnrefAndTryDelete();
+          if (!s.ok()) {
+            break;
+          }
+        }
+        break;
+      }
+      case ReplicationLogRecord::kManifestWrite: {
+        Slice src = record.contents;
+        autovector<VersionEdit> edits;
+        DeserializeReplicationLogManifestWrite(&src, &edits);
+
+        auto mutable_options =
+            default_cf_handle_->cfd()->GetLatestMutableCFOptions();
+        std::unique_ptr<ColumnFamilyOptions> cf_options;
+
+        autovector<ColumnFamilyData*> cfds;
+        autovector<const MutableCFOptions*> mutable_cf_options_list;
+        autovector<autovector<VersionEdit*>> edit_lists;
+
+        std::vector<uint32_t> added_column_families;
+
+        auto current_update_sequence = versions_->GetManifestUpdateSequence();
+        uint64_t latest_applied_update_sequence = 0;
+        for (auto& e : edits) {
+          if (!e.HasManifestUpdateSequence()) {
+            return Status::InvalidArgument(
+                "Manifest write doesn't have a ManifestUpdateSequence");
+          }
+          latest_applied_update_sequence = e.GetManifestUpdateSequence();
+          if (e.GetManifestUpdateSequence() <= current_update_sequence) {
+            // Ignore the update, we already have it
+            continue;
+          }
+          ++current_update_sequence;
+          if (e.GetManifestUpdateSequence() != current_update_sequence) {
+            std::ostringstream oss;
+            oss << "Gap in ManifestUpdateSequence, expected="
+                << current_update_sequence
+                << " got=" << e.GetManifestUpdateSequence();
+            return Status::Corruption(oss.str());
+          }
+
+          if (e.HasLogNumber()) {
+            // Physical replication does not support WAL, but RocksDB expects
+            // some invariants of alive_log_files_ and logs_ and who are we to
+            // argue: at least one alive_log_files_ and logs_ always needs to be
+            // alive and alive means that its log number is greater or equal to
+            // the latest log number.
+            versions_->MarkFileNumberUsed(e.GetLogNumber());
+            alive_log_files_.begin()->number = e.GetLogNumber();
+            logs_.front().number = e.GetLogNumber();
+          }
+
+          ColumnFamilyData* cfd{nullptr};
+          if (!e.IsColumnFamilyAdd()) {
+            cfd = versions_->GetColumnFamilySet()->GetColumnFamily(
+                e.GetColumnFamily());
+          }
+          if (e.IsColumnFamilyAdd()) {
+            single_column_family_mode_ = false;
+            added_column_families.push_back(e.GetColumnFamily());
+            cf_options = std::make_unique<ColumnFamilyOptions>(
+                default_cf_handle_->cfd()->GetLatestCFOptions());
+          } else if (e.IsColumnFamilyDrop()) {
+            info->deleted_column_families.push_back(e.GetColumnFamily());
+          }
+          cfds.push_back(cfd);
+          mutable_cf_options_list.push_back(mutable_options);
+          autovector<VersionEdit*> el;
+          el.push_back(&e);
+          edit_lists.push_back(std::move(el));
+        }
+        s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists,
+                                   &mutex_, directories_.GetDbDir(),
+                                   false /* new_descriptor_log */,
+                                   cf_options.get());
+        if (!s.ok()) {
+          return s;
+        }
+        for (auto cfd : cfds) {
+          if (!cfd) {
+            continue;
+          }
+          auto& sv_context = job_context.superversion_contexts.back();
+          cfd->InstallSuperVersion(&sv_context, &mutex_);
+          sv_context.NewSuperVersion();
+          cfd->imm()->RemoveOldMemTables(cfd->GetLogNumber(),
+                                         &job_context.memtables_to_free);
+        }
+
+        info->has_manifest_writes = true;
+        info->current_manifest_update_seq = current_update_sequence;
+        info->latest_applied_manifest_update_seq =
+            latest_applied_update_sequence;
+
+        for (auto& cf : added_column_families) {
+          auto* cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf);
+          auto& sv_context = job_context.superversion_contexts.back();
+          cfd->InstallSuperVersion(&sv_context, &mutex_);
+          sv_context.NewSuperVersion();
+          info->added_column_families.push_back(
+              std::make_unique<ColumnFamilyHandleImpl>(cfd, this, &mutex_));
+        }
+
+        break;
+      }
+    }
+
+    write_thread_.ExitUnbatched(&w);
+  }
+
+  job_context.Clean();
+
+  return s;
+}
+
+Status DBImpl::GetPersistedReplicationSequence(std::string* out) {
+  InstrumentedMutexLock l(&mutex_);
+  *out = versions_->GetReplicationSequence();
+  return Status::OK();
+}
+
 Status DBImpl::SetOptions(
     ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {

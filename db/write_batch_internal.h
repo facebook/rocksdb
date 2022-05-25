@@ -150,11 +150,16 @@ class WriteBatchInternal {
     return Slice(batch->rep_);
   }
 
+  static std::string StealContents(WriteBatch* batch) {
+      return std::move(batch->rep_);
+  }
+
   static size_t ByteSize(const WriteBatch* batch) {
     return batch->rep_.size();
   }
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
+  static Status SetContents(WriteBatch* batch, std::string contents);
 
   static Status CheckSlicePartsLength(const SliceParts& key,
                                       const SliceParts& value);

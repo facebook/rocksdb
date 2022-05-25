@@ -69,6 +69,21 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+Status SerializeReplicationLogManifestWrite(
+    std::string* dst, const autovector<VersionEdit*>& src) {
+  PutVarint64(dst, src.size());
+  for (auto& e : src) {
+    std::string tmp;
+    if (!e->EncodeTo(&tmp)) {
+      return Status::Corruption("Unable to encode VersionEdit:" +
+                                e->DebugString(true));
+    }
+    PutVarint64(dst, tmp.size());
+    *dst += tmp;
+  }
+  return Status::OK();
+}
+
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
 int FindFileInRange(const InternalKeyComparator& icmp,
@@ -4364,6 +4379,49 @@ Status VersionSet::ProcessManifestWrites(
   }
 #endif  // NDEBUG
 
+  // Assign and verify ManifestUpdateSequences
+  {
+    Status s;
+
+    for (auto& e : batch_edits) {
+      if (!db_options_->replication_log_listener &&
+          !e->HasManifestUpdateSequence() && manifest_update_sequence_ == 0) {
+        // No physical replication, skip
+        continue;
+      }
+
+      ++manifest_update_sequence_;
+
+      if (e->HasManifestUpdateSequence()) {
+        // Update already has the manifest update sequence, verify that it's
+        // correct
+        if (e->GetManifestUpdateSequence() != manifest_update_sequence_) {
+          std::ostringstream oss;
+          oss << "Gap in ManifestUpdateSequence while writing to manifest, "
+                 "expected="
+              << manifest_update_sequence_
+              << " got=" << e->GetManifestUpdateSequence();
+          s = Status::Corruption(oss.str());
+          break;
+        }
+      } else if (db_options_->replication_log_listener) {
+        // No manifest update sequence, this is the leader, set it.
+        e->SetManifestUpdateSequence(manifest_update_sequence_);
+      } else {
+        // Follower and no manifest update sequence set, not great.
+        s = Status::Corruption(
+            "ManifestUpdateSequence missing on the follower");
+      }
+    }
+    if (!s.ok()) {
+      // free up the allocated memory
+      for (auto v : versions) {
+        delete v;
+      }
+      return s;
+    }
+  }
+
   assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size) {
@@ -4387,6 +4445,13 @@ Status VersionSet::ProcessManifestWrites(
     if (column_family_set_->GetMaxColumnFamily() > 0) {
       first_writer.edit_list.front()->SetMaxColumnFamily(
           column_family_set_->GetMaxColumnFamily());
+    }
+    // If we are writing out a new snapshot make sure to also persist
+    // replication sequence and manifest update sequence.
+    if (!replication_sequence_.empty() &&
+        !first_writer.edit_list.front()->HasReplicationSequence()) {
+      first_writer.edit_list.front()->SetReplicationSequence(
+          replication_sequence_);
     }
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
@@ -4469,7 +4534,9 @@ Status VersionSet::ProcessManifestWrites(
           versions[i]->PrepareAppend(*mutable_cf_options_ptrs[i], update_stats);
         }
       }
+    }
 
+    if (s.ok()) {
       // Write new records to MANIFEST log
 #ifndef NDEBUG
       size_t idx = 0;
@@ -4500,6 +4567,16 @@ Status VersionSet::ProcessManifestWrites(
           break;
         }
       }
+
+      if (s.ok() && db_options_->replication_log_listener) {
+        ReplicationLogRecord rlr;
+        rlr.type = ReplicationLogRecord::kManifestWrite;
+        s = SerializeReplicationLogManifestWrite(&rlr.contents, batch_edits);
+        if (s.ok()) {
+          db_options_->replication_log_listener->OnReplicationLogRecord(rlr);
+        }
+      }
+
       if (s.ok()) {
         if (!db_options_->disable_manifest_sync) {
           io_s = SyncManifest(db_options_, descriptor_log_->file());
@@ -4834,7 +4911,8 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit,
   assert(max_last_sequence != nullptr);
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
-  assert(!edit->HasLastSequence());
+  assert(!edit->HasLastSequence() ||
+         edit->GetLastSequence() == *max_last_sequence);
   edit->SetLastSequence(*max_last_sequence);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
@@ -4867,6 +4945,10 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     *max_last_sequence = edit->GetLastSequence();
   } else {
     edit->SetLastSequence(*max_last_sequence);
+  }
+
+  if (edit->HasReplicationSequence()) {
+      replication_sequence_ = edit->GetReplicationSequence();
   }
 
   // The builder can be nullptr only if edit is WAL manipulation,

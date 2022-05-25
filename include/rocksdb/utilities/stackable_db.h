@@ -477,6 +477,15 @@ class StackableDB : public DB {
     return db_->GetDbSessionId(session_id);
   }
 
+  Status ApplyReplicationLogRecord(
+      ReplicationLogRecord record,
+      ApplyReplicationLogRecordInfo* info) override {
+    return db_->ApplyReplicationLogRecord(record, info);
+  }
+  Status GetPersistedReplicationSequence(std::string* out) override {
+    return db_->GetPersistedReplicationSequence(out);
+  }
+
   using DB::SetOptions;
   virtual Status SetOptions(ColumnFamilyHandle* column_family_handle,
                             const std::unordered_map<std::string, std::string>&

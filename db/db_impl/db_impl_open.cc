@@ -291,6 +291,11 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is currently incompatible with best-efforts recovery");
   }
 
+  if (db_options.replication_log_listener && !db_options.atomic_flush) {
+    return Status::InvalidArgument(
+        "atomic_flush has to be set if replication_log_listener is set");
+  }
+
   if (db_options.use_direct_io_for_flush_and_compaction &&
       0 == db_options.writable_file_max_buffer_size) {
     return Status::InvalidArgument(
@@ -528,9 +533,19 @@ Status DBImpl::Recover(
     return s;
   }
   s = SetDBId(read_only);
+  // RocksDB-Cloud skips DeleteUnreferencedSstFiles() for a couple of reasons:
+  // 1) Similar functionality already exists in
+  // CloudEnvImpl::DeleteInvisibleFiles().
+  // 2) We would like to reduce the number of calls to GetChildren(), which are
+  // expensive on cloud storage.
+  // 3) DeleteUnreferencedSstFiles() writes to the MANIFEST and we need to avoid
+  // that when opening an existing database. This is important for physical
+  // replication, where MANIFEST tracks an external log.
+#if 0
   if (s.ok() && !read_only) {
     s = DeleteUnreferencedSstFiles();
   }
+#endif
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
@@ -1272,6 +1287,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // log number
       versions_->MarkFileNumberUsed(max_wal_number + 1);
 
+      size_t total_entries = 0;
       autovector<ColumnFamilyData*> cfds;
       autovector<const MutableCFOptions*> cf_opts;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -1281,6 +1297,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         auto iter = version_edits.find(cfd->GetID());
         assert(iter != version_edits.end());
         edit_lists.push_back({&iter->second});
+        total_entries += iter->second.NumEntries();
       }
 
       std::unique_ptr<VersionEdit> wal_deletion;
@@ -1297,10 +1314,12 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         edit_lists.back().push_back(wal_deletion.get());
       }
 
-      // write MANIFEST with update
-      status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
-                                      directories_.GetDbDir(),
-                                      /*new_descriptor_log=*/true);
+      if (flushed || total_entries > 0) {
+        // write MANIFEST with update, only if we have something to write
+        status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
+                                        directories_.GetDbDir(),
+                                        /*new_descriptor_log=*/true);
+      }
     }
   }
 

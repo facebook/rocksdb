@@ -71,6 +71,8 @@ void VersionEdit::Clear() {
   db_id_.clear();
   comparator_.clear();
   log_number_ = 0;
+  replication_sequence_.clear();
+  manifest_update_sequence_ = 0;
   prev_log_number_ = 0;
   next_file_number_ = 0;
   max_column_family_ = 0;
@@ -79,6 +81,8 @@ void VersionEdit::Clear() {
   has_db_id_ = false;
   has_comparator_ = false;
   has_log_number_ = false;
+  has_replication_sequence_ = false;
+  has_manifest_update_sequence_ = false;
   has_prev_log_number_ = false;
   has_next_file_number_ = false;
   has_max_column_family_ = false;
@@ -110,6 +114,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
   if (has_log_number_) {
     PutVarint32Varint64(dst, kLogNumber, log_number_);
+  }
+  if (has_replication_sequence_) {
+    PutVarint32(dst, kReplicationSequence);
+    PutLengthPrefixedSlice(dst, replication_sequence_);
+  }
+  if (has_manifest_update_sequence_) {
+    PutVarint32Varint64(dst, kManifestUpdateSequence,
+                        manifest_update_sequence_);
   }
   if (has_prev_log_number_) {
     PutVarint32Varint64(dst, kPrevLogNumber, prev_log_number_);
@@ -463,6 +475,23 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kReplicationSequence:
+        if (GetLengthPrefixedSlice(&input, &str)) {
+            replication_sequence_ = str.ToString();
+            has_replication_sequence_ = true;
+        } else {
+          msg = "replication sequence";
+        }
+        break;
+
+      case kManifestUpdateSequence:
+        if (GetVarint64(&input, &manifest_update_sequence_)) {
+            has_manifest_update_sequence_ = true;
+        } else {
+          msg = "manifest update sequence";
+        }
+        break;
+
       case kPrevLogNumber:
         if (GetVarint64(&input, &prev_log_number_)) {
           has_prev_log_number_ = true;
@@ -762,6 +791,14 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  LogNumber: ");
     AppendNumberTo(&r, log_number_);
   }
+  if (has_replication_sequence_) {
+    r.append("\n  ReplicationSequence: ");
+    r.append(Slice(replication_sequence_).ToString(true));
+  }
+  if (has_manifest_update_sequence_) {
+    r.append("\n  ManifestUpdateSequence: ");
+    AppendNumberTo(&r, manifest_update_sequence_);
+  }
   if (has_prev_log_number_) {
     r.append("\n  PrevLogNumber: ");
     AppendNumberTo(&r, prev_log_number_);
@@ -878,6 +915,12 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (has_comparator_) {
     jw << "Comparator" << comparator_;
+  }
+  if (has_replication_sequence_) {
+    jw << "ReplicationSequence" << Slice(replication_sequence_).ToString(true);
+  }
+  if (has_manifest_update_sequence_) {
+    jw << "ManifestUpdateSequence" << manifest_update_sequence_;
   }
   if (has_log_number_) {
     jw << "LogNumber" << log_number_;

@@ -424,6 +424,7 @@ TEST_MAIN_SOURCES =                                                     \
   cloud/cloud_manifest_test.cc                                          \
   cloud/cloud_scheduler_test.cc                                         \
   cloud/remote_compaction_test.cc                                       \
+  cloud/replication_test.cc                                             \
   cache/lru_secondary_cache_test.cc                                     \
   db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \

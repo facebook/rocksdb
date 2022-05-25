@@ -1204,6 +1204,46 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
+  struct ApplyReplicationLogRecordInfo {
+    // If true, the replication event contained manifest writes.
+    bool has_manifest_writes{false};
+    // The following fields are populated only if has_manifest_writes is true:
+    // Manifest update sequence number for the current version of the manifest.
+    uint64_t current_manifest_update_seq{0};
+    // Latest manifest update sequence number that was applied in the call to
+    // ApplyReplicationLogRecord(). Note that the manifest write is ignored if
+    // if its manifest update sequence number is lower than the DB's manifest
+    // update sequence number.
+    uint64_t latest_applied_manifest_update_seq{0};
+    // added_column_families contains column family handles for all column
+    // families that were created as a result of ApplyReplicationLogRecord()
+    // call, if any.
+    std::vector<std::unique_ptr<ColumnFamilyHandle>> added_column_families;
+    // deleted_column_families contains column family IDs for all column
+    // families that were deleted as a result of ApplyReplicationLogRecord()
+    // call, if any.
+    std::vector<uint32_t> deleted_column_families;
+  };
+  // ApplyReplicationLogRecord() applies the replication record provided by the
+  // leader's ReplicationLogListener. Info contains some useful information
+  // about the event that was applied.
+  //
+  //
+  // REQUIRES: info needs to be provided, can't be nullptr.
+  virtual Status ApplyReplicationLogRecord(
+      ReplicationLogRecord record,
+      ApplyReplicationLogRecordInfo* info) = 0;
+  // Returns the latest replication log sequence number (returned by
+  // ReplicationLogListener::OnReplicationLogRecord()) that is persisted in the
+  // LSM tree. All records after the persisted sequence need to be reapplied
+  // (through ApplyReplicationLogRecord()) to catch up with the replication log.
+  //
+  // Note that some replication events after the given sequence might
+  // actually be persisted, in particular the manifest writes.  However,
+  // manifest writes mantain their own versioning and the persisted ones will be
+  // correctly ignored by ApplyReplicationLogRecord().
+  virtual Status GetPersistedReplicationSequence(std::string* out) = 0;
+
   // TODO: documentation needed
   // NOTE: SetOptions is intended only for expert users, and does not apply the
   // same sanitization to options as the standard DB::Open code path does. Use

@@ -1163,6 +1163,13 @@ class VersionSet {
     last_sequence_.store(s, std::memory_order_release);
   }
 
+  // REQUIRED: DB mutex must be locked
+  uint64_t GetManifestUpdateSequence() const {
+    return manifest_update_sequence_;
+  }
+  // REQUIRED: DB mutex must be locked
+  std::string GetReplicationSequence() const { return replication_sequence_; }
+
   // Note: memory_order_release must be sufficient
   void SetLastPublishedSequence(uint64_t s) {
     assert(s >= last_published_sequence_);
@@ -1437,6 +1444,11 @@ class VersionSet {
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;
+
+  // Protected by the DB mutex
+  uint64_t manifest_update_sequence_{0};
+  // Protected by the DB mutex
+  std::string replication_sequence_;
 
   // Queue of writers to the manifest file
   std::deque<ManifestWriter*> manifest_writers_;

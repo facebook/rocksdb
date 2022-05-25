@@ -430,6 +430,53 @@ class CompactionService : public Customizable {
   ~CompactionService() override = default;
 };
 
+struct ReplicationLogRecord {
+  enum Type { kMemtableWrite, kMemtableSwitch, kManifestWrite };
+  Type type;
+  std::string contents;
+};
+
+// ReplicationLogListener provides a mechanism to implement physical replication
+// in RocksDB. A leader registers the ReplicationLogListener through which it
+// captures the replication events, which are then applied on the follower
+// using DB::ApplyReplicationLogRecord().
+// What is replicated in this method?
+// * Manifest writes, which means the LSM trees of the leader and follower are
+// identical.
+// * Memtable writes.
+// * Memtable switches.
+//
+// S3 files are not replicated. Follower needs to be able to locate the leader's
+// SST files, which is usually done by overriding its Env.
+//
+// The support for physical replication is experimental and currently does not
+// support any of the following options:
+// * unordered_write
+// * enable_pipelined_write
+// * two_write_queues
+// * write-ahead logging, i.e. WriteOptions::disableWAL needs to be set to true.
+// Replication log provides write durability.
+//
+// In addition, atomic_flush needs to be true and any manual Flush() call will
+// flush all the existing column families.
+//
+// Follower DB should not be written to and compaction and flushes should be
+// disabled. The only changes to its internal state should happen through
+// ApplyReplicationLogRecord().
+class ReplicationLogListener {
+ public:
+  virtual ~ReplicationLogListener() = default;
+
+  // Important: OnReplicationLogRecord needs to be thread safe. More concretely,
+  // kMemtableWrite and kMemtableSwitch will all be issued from the same thread,
+  // but might be issued concurrently with kManifestWrite.
+  //
+  // Returns a replication log sequence number. This is used on restart, where
+  // the database needs to re-apply all replication log records since
+  // DB::GetPersistedReplicationSequence() (non-inclusive).
+  virtual std::string OnReplicationLogRecord(ReplicationLogRecord record) = 0;
+};
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   // NOT MAINTAINED: This function has not been and is not maintained.
@@ -1335,6 +1382,10 @@ struct DBOptions {
   //
   // Default: kNonVolatileBlockTier
   CacheTier lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
+
+  // See comments above ReplicationLogListener class definition.
+  // Status: Experimental.
+  std::shared_ptr<ReplicationLogListener> replication_log_listener = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

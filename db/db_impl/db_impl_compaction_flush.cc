@@ -1976,6 +1976,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              FlushReason flush_reason, bool writes_stopped) {
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
+  assert(!immutable_db_options_.replication_log_listener);
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -2011,7 +2012,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       // retry resume, it is possible that in some CFs,
       // cfd->imm()->NumNotFlushed() = 0. In this case, so no flush request will
       // be created and scheduled, status::OK() will be returned.
-      s = SwitchMemtable(cfd, &context);
+      s = SwitchMemtable(cfd, &context, "");
     }
     const uint64_t flush_memtable_id = port::kMaxUint64;
     if (s.ok()) {
@@ -2044,7 +2045,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                            "Force flushing stats CF with manual flush of %s "
                            "to avoid holding old logs",
                            cfd->GetName().c_str());
-            s = SwitchMemtable(cfd_stats, &context);
+            s = SwitchMemtable(cfd_stats, &context, "");
             FlushRequest req{{cfd_stats, flush_memtable_id}};
             flush_reqs.emplace_back(std::move(req));
             memtable_ids_to_wait.emplace_back(
@@ -2146,22 +2147,37 @@ Status DBImpl::AtomicFlushMemTables(
     }
     WaitForPendingWrites();
 
-    for (auto cfd : column_family_datas) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
-          !cached_recoverable_state_empty_.load()) {
-        cfds.emplace_back(cfd);
+    if (immutable_db_options_.replication_log_listener) {
+      // If replication_log_listener is installed the only thing we are allowed
+      // to do is flush all column families.
+      SelectColumnFamiliesForAtomicFlush(&cfds);
+    } else {
+      for (auto cfd : column_family_datas) {
+        if (cfd->IsDropped()) {
+          continue;
+        }
+        if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
+            !cached_recoverable_state_empty_.load()) {
+          cfds.emplace_back(cfd);
+        }
       }
     }
+
+    std::string replication_sequence;
+    if (immutable_db_options_.replication_log_listener) {
+        ReplicationLogRecord rlr;
+        rlr.type = ReplicationLogRecord::kMemtableSwitch;
+        replication_sequence = immutable_db_options_.replication_log_listener
+                                   ->OnReplicationLogRecord(std::move(rlr));
+    }
+
     for (auto cfd : cfds) {
       if ((cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load()) ||
           flush_reason == FlushReason::kErrorRecoveryRetryFlush) {
         continue;
       }
       cfd->Ref();
-      s = SwitchMemtable(cfd, &context);
+      s = SwitchMemtable(cfd, &context, replication_sequence);
       cfd->UnrefAndTryDelete();
       if (!s.ok()) {
         break;

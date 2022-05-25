@@ -329,6 +329,11 @@ class DBImpl : public DB {
   virtual void EnableManualCompaction() override;
   virtual void DisableManualCompaction() override;
 
+  Status ApplyReplicationLogRecord(
+      ReplicationLogRecord record,
+      ApplyReplicationLogRecordInfo* info) override;
+  Status GetPersistedReplicationSequence(std::string* out) override;
+
   using DB::SetOptions;
   Status SetOptions(
       ColumnFamilyHandle* column_family,
@@ -1712,7 +1717,8 @@ class DBImpl : public DB {
 
   Status TrimMemtableHistory(WriteContext* context);
 
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                        std::string replication_sequence);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
 

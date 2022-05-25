@@ -664,6 +664,7 @@ ImmutableDBOptions::ImmutableDBOptions() : ImmutableDBOptions(Options()) {}
 
 ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
     : create_if_missing(options.create_if_missing),
+      replication_log_listener(options.replication_log_listener),
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),

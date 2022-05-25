@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <functional>
 #include <string>
+#include <cstring>
 
 //
 // These are inlined methods to deal with pathnames and filenames.

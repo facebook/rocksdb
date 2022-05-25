@@ -472,6 +472,14 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       version_set_->descriptor_last_sequence_ = last_seq;
     }
     version_set_->prev_log_number_ = version_edit_params_.prev_log_number_;
+    if (version_edit_params_.HasManifestUpdateSequence()) {
+      version_set_->manifest_update_sequence_ =
+          version_edit_params_.GetManifestUpdateSequence();
+    }
+    if (version_edit_params_.HasReplicationSequence()) {
+      version_set_->replication_sequence_ =
+          version_edit_params_.GetReplicationSequence();
+    }
   }
 }
 
@@ -635,6 +643,23 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     }
     if (!version_edit_params_.has_prev_log_number_) {
       version_edit_params_.SetPrevLogNumber(0);
+    }
+    if (edit.has_replication_sequence_) {
+      version_edit_params_.SetReplicationSequence(edit.replication_sequence_);
+    }
+    if (edit.has_manifest_update_sequence_) {
+      // Manifest update should be stricly and monotonically increasing.
+      if (version_edit_params_.has_manifest_update_sequence_ &&
+          edit.manifest_update_sequence_ !=
+              version_edit_params_.manifest_update_sequence_ + 1) {
+        std::ostringstream oss;
+        oss << "Gap in ManifestUpdateSequence, expected="
+            << version_edit_params_.manifest_update_sequence_ + 1
+            << " got=" << edit.manifest_update_sequence_;
+        return Status::Corruption(oss.str());
+      }
+      version_edit_params_.SetManifestUpdateSequence(
+          edit.manifest_update_sequence_);
     }
   }
   return s;

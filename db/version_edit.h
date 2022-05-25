@@ -56,6 +56,10 @@ enum Tag : uint32_t {
   kBlobFileAddition = 400,
   kBlobFileGarbage,
 
+  // RocksDB-Cloud additions to the manifest
+  kReplicationSequence = 720,
+  kManifestUpdateSequence = 721,
+
   // Mask for an unidentified tag from the future which can be safely ignored.
   kTagSafeIgnoreMask = 1 << 13,
 
@@ -351,6 +355,34 @@ class VersionEdit {
   bool HasLogNumber() const { return has_log_number_; }
   uint64_t GetLogNumber() const { return log_number_; }
 
+  // Replication sequence is used for the purpose of physical replication. It
+  // points to the latest kManifestSwitch that was succesfully flushed and
+  // persisted in the manifest. All of the replication events after the
+  // persisted replication sequence will need to be reapplied on recovery.
+  // The replication log sequence is an opaque blob of data encoded by the
+  // application and provided to the database through
+  // ReplicationLogListener::OnReplicationLogRecord().
+  void SetReplicationSequence(std::string sequence) {
+    has_replication_sequence_ = true;
+    replication_sequence_ = std::move(sequence);
+  }
+  bool HasReplicationSequence() const { return has_replication_sequence_; }
+  const std::string& GetReplicationSequence() const {
+    return replication_sequence_;
+  }
+
+  // Manifest update sequence is used to for the purposes of phyiscal
+  // replication (see ReplicationLogListener). Each manifest updates gets a
+  // monotonically increasing sequence number, starting from 1. That helps us
+  // detect lost manifest writes and implement exactly-once-write semantics,
+  // i.e. avoid applying the same manifest write twice.
+  void SetManifestUpdateSequence(uint64_t sequence) {
+    has_manifest_update_sequence_ = true;
+    manifest_update_sequence_ = sequence;
+  }
+  bool HasManifestUpdateSequence() const { return has_manifest_update_sequence_; }
+  uint64_t GetManifestUpdateSequence() const { return manifest_update_sequence_; }
+
   void SetPrevLogNumber(uint64_t num) {
     has_prev_log_number_ = true;
     prev_log_number_ = num;
@@ -598,6 +630,8 @@ class VersionEdit {
   std::string db_id_;
   std::string comparator_;
   uint64_t log_number_ = 0;
+  std::string replication_sequence_ = "";
+  uint64_t manifest_update_sequence_ = 0;
   uint64_t prev_log_number_ = 0;
   uint64_t next_file_number_ = 0;
   uint32_t max_column_family_ = 0;
@@ -607,6 +641,8 @@ class VersionEdit {
   bool has_db_id_ = false;
   bool has_comparator_ = false;
   bool has_log_number_ = false;
+  bool has_replication_sequence_ = false;
+  bool has_manifest_update_sequence_ = false;
   bool has_prev_log_number_ = false;
   bool has_next_file_number_ = false;
   bool has_max_column_family_ = false;

@@ -415,6 +415,13 @@ class MemTable {
   // operations on the same MemTable.
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
+  const std::string& GetReplicationSequence() const {
+    return mem_replication_sequence_;
+  }
+  void SetReplicationSequence(std::string sequence) {
+    mem_replication_sequence_ = std::move(sequence);
+  }
+
   // if this memtable contains data from a committed
   // two phase transaction we must take note of the
   // log which contains that data so we can know
@@ -547,6 +554,8 @@ class MemTable {
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;
+
+  std::string mem_replication_sequence_;
 
   // the earliest log containing a prepared section
   // which has been inserted into this memtable.

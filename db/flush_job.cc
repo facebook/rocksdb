@@ -200,6 +200,10 @@ void FlushJob::PickMemTable() {
   edit_->SetLogNumber(max_next_log_number);
   edit_->SetColumnFamily(cfd_->GetID());
 
+  if (auto& ro = mems_.back()->GetReplicationSequence(); !ro.empty()) {
+    edit_->SetReplicationSequence(ro);
+  }
+
   // path 0 for level 0 file.
   meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
 
@@ -354,6 +358,10 @@ void FlushJob::Cancel() {
 }
 
 Status FlushJob::MemPurge() {
+  if (db_options_.replication_log_listener) {
+    return Status::InvalidArgument(
+        "MemPurge not supported with replication_log_listener");
+  }
   Status s;
   db_mutex_->AssertHeld();
   db_mutex_->Unlock();
@@ -832,8 +840,10 @@ Status FlushJob::WriteLevel0Table() {
     for (MemTable* m : mems_) {
       ROCKS_LOG_INFO(
           db_options_.info_log,
-          "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
-          cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
+          "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64
+          ", replication sequence (hex) %s\n",
+          cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber(),
+          Slice(m->GetReplicationSequence()).ToString(true).c_str());
       memtables.push_back(m->NewIterator(ro, &arena));
       auto* range_del_iter =
           m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);

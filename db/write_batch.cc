@@ -2613,9 +2613,14 @@ Status WriteBatchInternal::InsertInto(
 }
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
+  return SetContents(b, contents.ToString());
+}
+
+Status WriteBatchInternal::SetContents(WriteBatch* b, std::string contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
   assert(b->prot_info_ == nullptr);
-  b->rep_.assign(contents.data(), contents.size());
+  using std::swap;
+  swap(b->rep_, contents);
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
   return Status::OK();
 }

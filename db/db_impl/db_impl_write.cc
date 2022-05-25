@@ -159,6 +159,26 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         "`WriteOptions::disableWAL` and "
         "`DBOptions::manual_wal_flush` both set to false");
   }
+  if (immutable_db_options_.replication_log_listener) {
+    if (immutable_db_options_.unordered_write) {
+      return Status::NotSupported(
+          "replication_log_listener is not compatible with unordered_write");
+    }
+    if (two_write_queues_) {
+      return Status::NotSupported(
+          "replication_log_listener is not compatible with two_write_queues");
+    }
+    if (immutable_db_options_.enable_pipelined_write) {
+      return Status::NotSupported(
+          "replication_log_listener is not compatible with "
+          "enable_pipelined_write");
+    }
+    if (!write_options.disableWAL) {
+      return Status::NotSupported(
+          "replication_log_listener is not compatible with "
+          "WAL");
+    }
+  }
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
   if (tracer_) {
@@ -440,6 +460,28 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     assert(last_sequence != kMaxSequenceNumber);
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += seq_inc;
+
+    if (status.ok() && immutable_db_options_.replication_log_listener) {
+      WriteBatch wb;
+      bool first = true;
+      for (auto writer : write_group) {
+        Status s;
+        if (first) {
+          s = WriteBatchInternal::SetContents(&wb, writer->batch->Data());
+          first = false;
+        } else {
+          s = WriteBatchInternal::Append(&wb, writer->batch, true);
+        }
+        assert(s.ok());
+      }
+      WriteBatchInternal::SetSequence(&wb, current_sequence);
+
+      ReplicationLogRecord rlr;
+      rlr.contents = WriteBatchInternal::StealContents(&wb);
+      rlr.type = ReplicationLogRecord::kMemtableWrite;
+      immutable_db_options_.replication_log_listener->OnReplicationLogRecord(
+          std::move(rlr));
+    }
 
     // PreReleaseCallback is called after WAL write and before memtable write
     if (status.ok()) {
@@ -1432,6 +1474,18 @@ void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
   }
 }
 
+namespace {
+inline std::string MaybeRecordMemtableSwitch(
+    const std::shared_ptr<ReplicationLogListener>& replication_log_listener) {
+  if (!replication_log_listener) {
+    return "";
+  }
+  ReplicationLogRecord rlr;
+  rlr.type = ReplicationLogRecord::kMemtableSwitch;
+  return replication_log_listener->OnReplicationLogRecord(std::move(rlr));
+}
+}  // namespace
+
 Status DBImpl::SwitchWAL(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
@@ -1500,9 +1554,12 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
   }
 
+  std::string replication_sequence =
+      MaybeRecordMemtableSwitch(immutable_db_options_.replication_log_listener);
+
   for (const auto cfd : cfds) {
     cfd->Ref();
-    status = SwitchMemtable(cfd, write_context);
+    status = SwitchMemtable(cfd, write_context, replication_sequence);
     cfd->UnrefAndTryDelete();
     if (!status.ok()) {
       break;
@@ -1579,6 +1636,9 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
     MaybeFlushStatsCF(&cfds);
   }
 
+  std::string replication_sequence =
+      MaybeRecordMemtableSwitch(immutable_db_options_.replication_log_listener);
+
   WriteThread::Writer nonmem_w;
   if (two_write_queues_) {
     nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
@@ -1588,7 +1648,7 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
       continue;
     }
     cfd->Ref();
-    status = SwitchMemtable(cfd, write_context);
+    status = SwitchMemtable(cfd, write_context, replication_sequence);
     cfd->UnrefAndTryDelete();
     if (!status.ok()) {
       break;
@@ -1841,9 +1901,12 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
   }
 
+  std::string replication_sequence =
+      MaybeRecordMemtableSwitch(immutable_db_options_.replication_log_listener);
+
   for (auto& cfd : cfds) {
     if (!cfd->mem()->IsEmpty()) {
-      status = SwitchMemtable(cfd, context);
+      status = SwitchMemtable(cfd, context, replication_sequence);
     }
     if (cfd->UnrefAndTryDelete()) {
       cfd = nullptr;
@@ -1895,7 +1958,8 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
 // REQUIRES: this thread is currently at the front of the writer queue
 // REQUIRES: this thread is currently at the front of the 2nd writer queue if
 // two_write_queues_ is true (This is to simplify the reasoning.)
-Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
+Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
+                              std::string replication_sequence) {
   mutex_.AssertHeld();
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
@@ -2080,6 +2144,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
 
   cfd->mem()->SetNextLogNumber(logfile_number_);
+  cfd->mem()->SetReplicationSequence(std::move(replication_sequence));
   assert(new_mem != nullptr);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
