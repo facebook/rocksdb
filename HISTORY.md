@@ -15,6 +15,7 @@
 * Fixed a bug in `WritableFileWriter::WriteDirect` and `WritableFileWriter::WriteDirectWithChecksum`. The rate_limiter_priority specified in ReadOptions was not passed to the RateLimiter when requesting a token.
 * Fixed a bug which might cause process crash when I/O error happens when reading an index block in MultiGet().
 
+
 ### New Features
 * DB::GetLiveFilesStorageInfo is ready for production use.
 * Add new stats PREFETCHED_BYTES_DISCARDED which records number of prefetched bytes discarded by RocksDB FilePrefetchBuffer on destruction and POLL_WAIT_MICROS records wait time for FS::Poll API completion.
