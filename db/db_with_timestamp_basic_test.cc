@@ -1627,9 +1627,8 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
       std::unique_ptr<Iterator> it1(db_->NewIterator(read_opts));
       ASSERT_NE(nullptr, it1);
       ASSERT_OK(it1->status());
-      // TODO(zjay) Fix seek with prefix
-      // it1->Seek(keys[i]);
-      // ASSERT_TRUE(it1->Valid());
+      it1->Seek(keys[i]);
+      ASSERT_TRUE(it1->Valid());
     }
 
     for (int i = 2; i < 4; i++) {
