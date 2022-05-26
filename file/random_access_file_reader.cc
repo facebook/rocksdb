@@ -457,9 +457,16 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
   IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                                 io_handle, del_fn, nullptr /*dbg*/);
+// Suppress false positive clang analyzer warnings.
+// Memory is not released if file_->ReadAsync returns !s.ok(), because
+// ReadAsyncCallback is never called in that case. If ReadAsyncCallback is
+// called then ReadAsync should always return IOStatus::OK().
+#ifndef __clang_analyzer__
   if (!s.ok()) {
     delete read_async_info;
   }
+#endif  // __clang_analyzer__
+
   return s;
 }
 
