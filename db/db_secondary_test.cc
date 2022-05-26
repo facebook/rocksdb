@@ -21,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 class DBSecondaryTestBase : public DBBasicTestWithTimestampBase {
  public:
-  DBSecondaryTestBase(const std::string& dbname)
+  explicit DBSecondaryTestBase(const std::string& dbname)
       : DBBasicTestWithTimestampBase(dbname),
         secondary_path_(),
         handles_secondary_(),
@@ -120,7 +120,7 @@ void DBSecondaryTestBase::CheckFileTypeCounts(const std::string& dir,
 
 class DBSecondaryTest : public DBSecondaryTestBase {
  public:
-  DBSecondaryTest() : DBSecondaryTestBase("db_secondary_test") {}
+  explicit DBSecondaryTest() : DBSecondaryTestBase("db_secondary_test") {}
 };
 
 TEST_F(DBSecondaryTest, NonExistingDb) {
@@ -1263,7 +1263,7 @@ TEST_F(DBSecondaryTest, OpenWithTransactionDB) {
 
 class DBSecondaryTestWithTimestamp : public DBSecondaryTestBase {
  public:
-  DBSecondaryTestWithTimestamp()
+  explicit DBSecondaryTestWithTimestamp()
       : DBSecondaryTestBase("db_secondary_test_with_timestamp") {}
 };
 TEST_F(DBSecondaryTestWithTimestamp, IteratorAndGetReadTimestampSizeMismatch) {
