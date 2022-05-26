@@ -1631,7 +1631,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBSSTTest, GetTotalSstAndBlobFilesSize) {
+TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
