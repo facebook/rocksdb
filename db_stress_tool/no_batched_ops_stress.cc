@@ -818,18 +818,18 @@ class NonBatchedOpsStressTest : public StressTest {
          s.ok() && key < shared->GetMaxKey() &&
          static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
          ++key) {
-      if (!shared->AllowsOverwrite(key)) {
-        // We could alternatively grab `key`'s lock and then include it on the
-        // condition its current value is `DELETION_SENTINEL`.
-        continue;
-      }
-      keys.push_back(key);
       if (key == key_base) {
         range_locks.emplace_back(std::move(lock));
       } else if ((key & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
+      if (!shared->AllowsOverwrite(key)) {
+        // We could alternatively include `key` on the condition its current
+        // value is `DELETION_SENTINEL`.
+        continue;
+      }
+      keys.push_back(key);
 
       uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
       values.push_back(value_base);
