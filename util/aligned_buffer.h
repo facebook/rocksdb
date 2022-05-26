@@ -69,9 +69,7 @@ public:
       bufstart_(nullptr) {
   }
 
-  AlignedBuffer(AlignedBuffer&& o) noexcept {
-    *this = std::move(o);
-  }
+  AlignedBuffer(AlignedBuffer&& o) noexcept { *this = std::move(o); }
 
   AlignedBuffer& operator=(AlignedBuffer&& o) noexcept {
     alignment_ = std::move(o.alignment_);

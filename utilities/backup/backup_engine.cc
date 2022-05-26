@@ -772,8 +772,8 @@ class BackupEngineImpl {
         dst_path(""),
         dst_relative("") {}
 
-    BackupAfterCopyOrCreateWorkItem(BackupAfterCopyOrCreateWorkItem&& o)
-        noexcept {
+    BackupAfterCopyOrCreateWorkItem(
+        BackupAfterCopyOrCreateWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 
@@ -817,8 +817,8 @@ class BackupEngineImpl {
           from_file(_from_file),
           to_file(_to_file),
           checksum_hex(_checksum_hex) {}
-    RestoreAfterCopyOrCreateWorkItem(RestoreAfterCopyOrCreateWorkItem&& o)
-        noexcept {
+    RestoreAfterCopyOrCreateWorkItem(
+        RestoreAfterCopyOrCreateWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 

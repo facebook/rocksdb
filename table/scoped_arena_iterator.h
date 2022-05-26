@@ -12,7 +12,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 class ScopedArenaIterator {
-
   void reset(InternalIterator* iter) noexcept {
     if (iter_ != nullptr) {
       iter_->~InternalIterator();
