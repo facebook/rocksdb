@@ -86,11 +86,7 @@ class ClockCache final : public ShardedCache {
   uint32_t GetHash(Handle* handle) const override;
   DeleterFn GetDeleter(Handle* handle) const override;
 
-  void DisownData() override {
-#ifndef MUST_FREE_HEAP_ALLOCATIONS
-    shards_ = nullptr;
-#endif
-  }
+  void DisownData() override;
 
   void WaitAll(std::vector<Handle*>& /*handles*/) override {}
   MemoryAllocator* memory_allocator() const override {
