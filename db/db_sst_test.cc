@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -1636,6 +1637,8 @@ TEST_F(DBSSTTest, GetTotalSstAndBlobFilesSize) {
   options.compression = kNoCompression;
   options.enable_blob_files = true;
   options.blob_file_size = 32;  // create one blob per file
+  options.skip_checking_sst_file_sizes_on_db_open = true;
+  options.env = MockEnv::Create(Env::Default());
 
   DestroyAndReopen(options);
   // Generate 5 files in L0
@@ -1646,34 +1649,24 @@ TEST_F(DBSSTTest, GetTotalSstAndBlobFilesSize) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ("5", FilesPerLevel(0));
-  ASSERT_EQ(50, GetBlobFileNumbers().size());
+  Close();
 
-  std::vector<LiveFileMetaData> live_files_meta;
-  dbfull()->GetLiveFilesMetaData(&live_files_meta);
-  ASSERT_EQ(live_files_meta.size(), 5);
+  bool is_get_file_size_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "MockFileSystem::GetFileSize:CheckFileType", [&](void* arg) {
+        std::string* filename = reinterpret_cast<std::string*>(arg);
+        if (filename->find(".blob") != std::string::npos) {
+          is_get_file_size_called = true;
+        }
+      });
 
-  std::unordered_map<std::string, uint64_t> known_file_sizes;
-  for (const auto& md : live_files_meta) {
-    known_file_sizes[md.relative_filename] = md.size;
-  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
 
-  std::vector<ColumnFamilyMetaData> cf_meta;
-  dbfull()->GetAllColumnFamilyMetaData(&cf_meta);
-  for (const auto& md : cf_meta) {
-    for (auto lmd : md.levels) {
-      for (auto fmd : lmd.files) {
-        ASSERT_TRUE(known_file_sizes.count(fmd.relative_filename));
-      }
-    }
-    for (auto bmd : md.blob_files) {
-      std::string name = bmd.blob_file_name;
-      if (!name.empty() && name[0] == '/') {
-        name = name.substr(1);
-      }
-      ASSERT_TRUE(!known_file_sizes.count(name));
-    }
-  }
+  ASSERT_EQ(is_get_file_size_called, false);
+
+  Destroy(options);
+  delete options.env;
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
