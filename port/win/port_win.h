@@ -70,19 +70,7 @@ extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
 
-// VS < 2015
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-
-// VS 15 has snprintf
-#define snprintf _snprintf
-
-#define ROCKSDB_NOEXCEPT
-
-#else // VS >= 2015 or MinGW
-
 #define ROCKSDB_NOEXCEPT noexcept
-
-#endif //_MSC_VER
 
 // "Windows is designed to run on little-endian computer architectures."
 // https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types

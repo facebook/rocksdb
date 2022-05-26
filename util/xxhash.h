@@ -3865,13 +3865,7 @@ XXH_FORCE_INLINE XXH_TARGET_SSE2 void XXH3_initCustomSecret_sse2(void* XXH_RESTR
     (void)(&XXH_writeLE64);
     {   int const nbRounds = XXH_SECRET_DEFAULT_SIZE / sizeof(__m128i);
 
-#       if defined(_MSC_VER) && defined(_M_IX86) && _MSC_VER < 1900
-        // MSVC 32bit mode does not support _mm_set_epi64x before 2015
-        XXH_ALIGN(16) const xxh_i64 seed64x2[2] = { (xxh_i64)seed64, (xxh_i64)(0U - seed64) };
-        __m128i const seed = _mm_load_si128((__m128i const*)seed64x2);
-#       else
         __m128i const seed = _mm_set_epi64x((xxh_i64)(0U - seed64), (xxh_i64)seed64);
-#       endif
         int i;
 
         XXH_ALIGN(64)        const float* const src  = (float const*) XXH3_kSecret;
