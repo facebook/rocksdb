@@ -346,6 +346,11 @@ class CloudEnvOptions {
   // Default: false
   bool use_direct_io_for_cloud_download;
 
+  // Experimental option!
+  // If false, we don't roll cloud manifest when opening the database.
+  // Default: true
+  bool roll_cloud_manifest_on_open;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -362,7 +367,8 @@ class CloudEnvOptions {
       int _constant_sst_file_size_in_sst_file_manager = -1,
       bool _skip_cloud_files_in_getchildren = false,
       bool _use_direct_io_for_cloud_download = false,
-      std::shared_ptr<Cache> _sst_file_cache = nullptr)
+      std::shared_ptr<Cache> _sst_file_cache = nullptr,
+      bool _roll_cloud_manifest_on_open = true)
       : log_type(_log_type),
         sst_file_cache(_sst_file_cache),
         keep_local_sst_files(_keep_local_sst_files),
@@ -383,7 +389,8 @@ class CloudEnvOptions {
         constant_sst_file_size_in_sst_file_manager(
             _constant_sst_file_size_in_sst_file_manager),
         skip_cloud_files_in_getchildren(_skip_cloud_files_in_getchildren),
-        use_direct_io_for_cloud_download(_use_direct_io_for_cloud_download) {
+        use_direct_io_for_cloud_download(_use_direct_io_for_cloud_download),
+        roll_cloud_manifest_on_open(_roll_cloud_manifest_on_open) {
     (void) _cloud_type;
   }
 

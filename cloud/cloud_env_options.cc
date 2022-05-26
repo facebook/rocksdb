@@ -39,6 +39,8 @@ void CloudEnvOptions::Dump(Logger* log) const {
          number_objects_listed_in_one_iteration);
   Header(log, "   COptions.use_direct_io_for_cloud_download: %d",
          use_direct_io_for_cloud_download);
+  Header(log, "        COptions.roll_cloud_manifest_on_open: %d",
+         roll_cloud_manifest_on_open);
   if (sst_file_cache != nullptr) {
     Header(log, "           COptions.sst_file_cache size: %ld bytes",
            sst_file_cache->GetCapacity());

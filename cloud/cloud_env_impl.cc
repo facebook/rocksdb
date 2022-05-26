@@ -1468,11 +1468,11 @@ Status CloudEnvImpl::MigrateFromPureRocksDB(const std::string& local_dbname) {
     return Status::OK();
   }
   st = local_env->RenameFile(manifest_filename, local_dbname + "/MANIFEST");
-  if (!st.ok()) {
-    return st;
+  if (st.ok() && cloud_env_options.roll_cloud_manifest_on_open) {
+      st = RollNewEpoch(local_dbname);
   }
 
-  return RollNewEpoch(local_dbname);
+  return st;
 }
 
 Status CloudEnvImpl::PreloadCloudManifest(const std::string& local_dbname) {
@@ -1497,7 +1497,7 @@ Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
     // from the cloud
     st = LoadLocalCloudManifest(local_dbname);
   }
-  if (st.ok()) {
+  if (st.ok() && cloud_env_options.roll_cloud_manifest_on_open) {
     // Rolls the new epoch in CLOUDMANIFEST (only for existing databases)
     st = RollNewEpoch(local_dbname);
     if (st.IsNotFound()) {
@@ -1778,6 +1778,7 @@ Status CloudEnvImpl::CreateCloudManifest(const std::string& local_dbname) {
 
 // REQ: This is an existing database.
 Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
+  assert(cloud_env_options.roll_cloud_manifest_on_open);
   auto oldEpoch = GetCloudManifest()->GetCurrentEpoch().ToString();
   // Find next file number. We use dummy MANIFEST filename, which should get
   // remapped into the correct MANIFEST filename through CloudManifest.
