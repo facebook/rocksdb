@@ -689,6 +689,7 @@ Status DB::OpenAsSecondary(
     s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
     if (!s.ok()) {
       tmp_opts.info_log = nullptr;
+      return s;
     }
   }
 
