@@ -293,6 +293,16 @@ static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
   CheckNoError(err);
   CheckGet(db, roptions, "baz", "bazvalue");
 
+  // Disable compaction
+  rocksdb_disable_manual_compaction(db);
+  rocksdb_compact_range(db, NULL, 0, NULL, 0);
+  // should not filter anything when disabled
+  CheckGet(db, roptions, "foo", "foovalue");
+  CheckGet(db, roptions, "bar", "barvalue");
+  CheckGet(db, roptions, "baz", "bazvalue");
+  // Reenable compaction
+  rocksdb_enable_manual_compaction(db);
+
   // Force compaction
   rocksdb_compact_range(db, NULL, 0, NULL, 0);
   // should have filtered bar, but not foo

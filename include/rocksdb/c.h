@@ -2464,6 +2464,11 @@ rocksdb_options_set_memtable_whole_key_filtering(rocksdb_options_t*,
 extern ROCKSDB_LIBRARY_API void rocksdb_cancel_all_background_work(
     rocksdb_t* db, unsigned char wait);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_disable_manual_compaction(
+    rocksdb_t* db);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_enable_manual_compaction(rocksdb_t* db);
+
 #ifdef __cplusplus
 }  /* end extern "C" */
 #endif

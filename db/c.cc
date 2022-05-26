@@ -5855,6 +5855,14 @@ void rocksdb_cancel_all_background_work(rocksdb_t* db, unsigned char wait) {
   CancelAllBackgroundWork(db->rep, wait);
 }
 
+void rocksdb_disable_manual_compaction(rocksdb_t* db) {
+  db->rep->DisableManualCompaction();
+}
+
+void rocksdb_enable_manual_compaction(rocksdb_t* db) {
+  db->rep->EnableManualCompaction();
+}
+
 }  // end extern "C"
 
 #endif  // !ROCKSDB_LITE
