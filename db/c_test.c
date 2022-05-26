@@ -33,11 +33,6 @@ int geteuid() {
   return result;
 }
 
-// VS < 2015
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-#define snprintf _snprintf
-#endif
-
 #endif
 
 const char* phase = "";

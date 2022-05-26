@@ -70,20 +70,6 @@ extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
 
-// VS < 2015
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-
-// VS 15 has snprintf
-#define snprintf _snprintf
-
-#define ROCKSDB_NOEXCEPT
-
-#else // VS >= 2015 or MinGW
-
-#define ROCKSDB_NOEXCEPT noexcept
-
-#endif //_MSC_VER
-
 // "Windows is designed to run on little-endian computer architectures."
 // https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
 constexpr bool kLittleEndian = true;
@@ -230,8 +216,8 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifdef ROCKSDB_JEMALLOC
 // Separate inlines so they can be replaced if needed
-void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT;
-void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT;
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) noexcept;
+void jemalloc_aligned_free(void* p) noexcept;
 #endif
 
 inline void *cacheline_aligned_alloc(size_t size) {
