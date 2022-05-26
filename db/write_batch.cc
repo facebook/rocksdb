@@ -2906,14 +2906,17 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
 
 Status WriteBatchInternal::SetProtectionBytesPerKey(WriteBatch* wb,
                                                     size_t bytes_per_key) {
-  assert(wb->prot_info_ == nullptr && bytes_per_key > 0);
-  if (bytes_per_key != 8) {
-    return Status::NotSupported(
-        "WriteBatch protection info must be eight bytes/key");
+  assert((wb->prot_info_ == nullptr) != (bytes_per_key == 0));
+  if (bytes_per_key == 0) {
+    wb->prot_info_.reset();
+    return Status::OK();
+  } else if (bytes_per_key == 8) {
+    wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
+    ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
+    return wb->Iterate(&prot_info_updater);
   }
-  wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
-  ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
-  return wb->Iterate(&prot_info_updater);
+  return Status::NotSupported(
+      "WriteBatch protection info must be zero or eight bytes/key");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

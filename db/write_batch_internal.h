@@ -237,9 +237,6 @@ class WriteBatchInternal {
     return wb.has_key_with_ts_;
   }
 
-  // Requires:
-  // - `wb->GetProtectionBytesPerKey() == 0`
-  // - `bytes_per_key > 0`
   static Status SetProtectionBytesPerKey(WriteBatch* wb, size_t bytes_per_key);
 };
 
