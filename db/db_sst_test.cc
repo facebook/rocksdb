@@ -1660,7 +1660,7 @@ TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
         }
       });
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
 
   ASSERT_EQ(is_get_file_size_called, false);
