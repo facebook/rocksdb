@@ -61,7 +61,8 @@ using StaticFactoryFunc = std::function<bool(const std::string&, T**)>;
 // create.
 // @param opt_map Optional name-value pairs of properties to set for the newly
 // created object
-// @param result The newly created and configured instance.
+// @param result The newly created and configured instance. It will always be
+// set on success. It may be modified on failure.
 template <typename T>
 static Status NewSharedObject(
     const ConfigOptions& config_options, const std::string& id,
@@ -74,17 +75,11 @@ static Status NewSharedObject(
 #else
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
-    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      status = Status::OK();
-    } else if (status.ok()) {
+    if (status.ok()) {
       status = Customizable::ConfigureNewObject(config_options, result->get(),
                                                 opt_map);
     }
     return status;
-  } else if (opt_map.empty()) {
-    // There was no ID and no map (everything empty), so reset/clear the result
-    result->reset();
-    return Status::OK();
   } else {
     return Status::NotSupported("Cannot reset object ");
   }
@@ -115,7 +110,8 @@ static Status NewSharedObject(
 // create or return.
 // @param opt_map Optional name-value pairs of properties to set for the newly
 // created object
-// @param result The managed instance.
+// @param result The managed instance. It will always be set on success. It may
+// be modified on failure.
 template <typename T>
 static Status NewManagedObject(
     const ConfigOptions& config_options, const std::string& id,
@@ -133,9 +129,6 @@ static Status NewManagedObject(
     (void)opt_map;
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
-    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      return Status::OK();
-    }
   } else {
     status = Status::NotSupported("Cannot reset object ");
   }
@@ -167,7 +160,8 @@ static Status NewManagedObject(
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
 // @param func  Optional function to call to attempt to create an instance
-// @param result The newly created instance.
+// @param result The newly created instance. It will always be set on success.
+// It may be modified on failure.
 template <typename T>
 static Status LoadSharedObject(const ConfigOptions& config_options,
                                const std::string& value,
@@ -215,7 +209,8 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
 // @param func  Optional function to call to attempt to create an instance
-// @param result The newly created instance.
+// @param result The newly created instance. It will always be set on success.
+// It may be modified on failure.
 template <typename T>
 static Status LoadManagedObject(const ConfigOptions& config_options,
                                 const std::string& value,
@@ -227,8 +222,7 @@ static Status LoadManagedObject(const ConfigOptions& config_options,
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   } else if (value.empty()) {  // No Id and no options.  Clear the object
-    *result = nullptr;
-    return Status::OK();
+    return Status::InvalidArgument("No ID or options available");
   } else {
     return NewManagedObject(config_options, id, opt_map, result);
   }
@@ -246,7 +240,8 @@ static Status LoadManagedObject(const ConfigOptions& config_options,
 // create.
 // @param opt_map Optional name-value pairs of properties to set for the newly
 // created object
-// @param result The newly created and configured instance.
+// @param result The newly created and configured instance. It will always be
+// set on success. It may be modified on failure.
 template <typename T>
 static Status NewUniqueObject(
     const ConfigOptions& config_options, const std::string& id,
@@ -259,17 +254,14 @@ static Status NewUniqueObject(
 #else
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
-    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      status = Status::OK();
-    } else if (status.ok()) {
+    if (status.ok()) {
       status = Customizable::ConfigureNewObject(config_options, result->get(),
                                                 opt_map);
     }
     return status;
   } else if (opt_map.empty()) {
-    // There was no ID and no map (everything empty), so reset/clear the result
-    result->reset();
-    return Status::OK();
+    // There was no ID and no map (everything empty).
+    return Status::InvalidArgument("No ID or options available");
   } else {
     return Status::NotSupported("Cannot reset object ");
   }
@@ -285,7 +277,8 @@ static Status NewUniqueObject(
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
 // @param func  Optional function to call to attempt to create an instance
-// @param result The newly created instance.
+// @param result The newly created instance. It will always be set on success.
+// It may be modified on failure.
 template <typename T>
 static Status LoadUniqueObject(const ConfigOptions& config_options,
                                const std::string& value,
@@ -318,7 +311,8 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
 // create.
 // @param opt_map Optional name-value pairs of properties to set for the newly
 // created object
-// @param result The newly created and configured instance.
+// @param result The newly created and configured instance. It will always be
+// set on success. It may be modified on failure.
 template <typename T>
 static Status NewStaticObject(
     const ConfigOptions& config_options, const std::string& id,
@@ -330,17 +324,14 @@ static Status NewStaticObject(
 #else
     status = Status::NotSupported("Cannot load object in LITE mode ", id);
 #endif  // ROCKSDB_LITE
-    if (config_options.ignore_unsupported_options && status.IsNotSupported()) {
-      status = Status::OK();
-    } else if (status.ok()) {
+    if (status.ok()) {
       status =
           Customizable::ConfigureNewObject(config_options, *result, opt_map);
     }
     return status;
   } else if (opt_map.empty()) {
-    // There was no ID and no map (everything empty), so reset/clear the result
-    *result = nullptr;
-    return Status::OK();
+    // There was no ID and no map (everything empty).
+    return Status::InvalidArgument("No ID or options available");
   } else {
     return Status::NotSupported("Cannot reset object ");
   }
@@ -356,7 +347,8 @@ static Status NewStaticObject(
 // @param value Either the simple name of the instance to create, or a set of
 // name-value pairs to create and initailize the object
 // @param func  Optional function to call to attempt to create an instance
-// @param result The newly created instance.
+// @param result The newly created instance. It will always be set on success.
+// It may be modified on failure.
 template <typename T>
 static Status LoadStaticObject(const ConfigOptions& config_options,
                                const std::string& value,
