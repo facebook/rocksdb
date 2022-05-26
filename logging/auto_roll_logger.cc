@@ -270,6 +270,7 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   Env* env = options.env;
   std::string db_absolute_path;
   Status s = env->GetAbsolutePath(dbname, &db_absolute_path);
+  TEST_SYNC_POINT_CALLBACK("rocksdb::CreateLoggerFromOptions:AfterGetPath", &s);
   if (!s.ok()) {
     return s;
   }
