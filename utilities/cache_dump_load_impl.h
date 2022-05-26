@@ -119,7 +119,7 @@ class CacheDumperImpl : public CacheDumper {
   CacheDumpOptions options_;
   std::shared_ptr<Cache> cache_;
   std::unique_ptr<CacheDumpWriter> writer_;
-  std::unordered_map<Cache::DeleterFn, CacheEntryRole> role_map_;
+  UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
   SystemClock* clock_;
   uint32_t sequence_num_;
   // The cache key prefix filter. Currently, we use db_session_id as the prefix,
@@ -153,7 +153,7 @@ class CacheDumpedLoaderImpl : public CacheDumpedLoader {
   const BlockBasedTableOptions& toptions_;
   std::shared_ptr<SecondaryCache> secondary_cache_;
   std::unique_ptr<CacheDumpReader> reader_;
-  std::unordered_map<Cache::DeleterFn, CacheEntryRole> role_map_;
+  UnorderedMap<Cache::DeleterFn, CacheEntryRole> role_map_;
 };
 
 // The default implementation of CacheDumpWriter. We write the blocks to a file
@@ -258,7 +258,8 @@ class FromFileCacheDumpReader : public CacheDumpReader {
 
     while (to_read > 0) {
       io_s = file_reader_->Read(IOOptions(), offset_, to_read, &result_,
-                                buffer_, nullptr);
+                                buffer_, nullptr,
+                                Env::IO_TOTAL /* rate_limiter_priority */);
       if (!io_s.ok()) {
         return io_s;
       }

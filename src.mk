@@ -2,9 +2,12 @@
 LIB_SOURCES =                                                   \
   cache/cache.cc                                                \
   cache/cache_entry_roles.cc                                    \
-  cache/cache_reservation_manager.cc                                            \
+  cache/cache_key.cc                                            \
+  cache/cache_reservation_manager.cc                            \
   cache/clock_cache.cc                                          \
+  cache/fast_lru_cache.cc                                       \
   cache/lru_cache.cc                                            \
+  cache/compressed_secondary_cache.cc                           \
   cache/sharded_cache.cc                                        \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_fetcher.cc                                       \
@@ -32,7 +35,7 @@ LIB_SOURCES =                                                   \
   db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
-  db/db_impl/compacted_db_impl.cc                                       \
+  db/db_impl/compacted_db_impl.cc                               \
   db/db_impl/db_impl.cc                                         \
   db/db_impl/db_impl_compaction_flush.cc                        \
   db/db_impl/db_impl_debug.cc                                   \
@@ -87,7 +90,6 @@ LIB_SOURCES =                                                   \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
   env/env_encryption.cc                                         \
-  env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
   env/fs_posix.cc                                               \
@@ -114,6 +116,7 @@ LIB_SOURCES =                                                   \
   memory/concurrent_arena.cc                                    \
   memory/jemalloc_nodump_allocator.cc                           \
   memory/memkind_kmem_allocator.cc                              \
+  memory/memory_allocator.cc                                    \
   memtable/alloc_tracker.cc                                     \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -209,9 +212,11 @@ LIB_SOURCES =                                                   \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
   util/build_version.cc                                         \
+  util/cleanable.cc                                             \
   util/coding.cc                                                \
   util/compaction_job_stats_impl.cc                             \
   util/comparator.cc                                            \
+  util/compression.cc                                           \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
@@ -222,7 +227,6 @@ LIB_SOURCES =                                                   \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/ribbon_config.cc                                         \
-  util/regex.cc                                                 \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
   util/status.cc                                                \
@@ -230,7 +234,8 @@ LIB_SOURCES =                                                   \
   util/thread_local.cc                                          \
   util/threadpool_imp.cc                                        \
   util/xxhash.cc                                                \
-  utilities/backupable/backupable_db.cc                         \
+  utilities/agg_merge/agg_merge.cc                              \
+  utilities/backup/backup_engine.cc                             \
   utilities/blob_db/blob_compaction_filter.cc                   \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
@@ -245,6 +250,7 @@ LIB_SOURCES =                                                   \
   utilities/compaction_filters.cc                               \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
+  utilities/counted_fs.cc                                       \
   utilities/debug.cc                                            \
   utilities/env_mirror.cc                                       \
   utilities/env_timed.cc                                        \
@@ -349,24 +355,26 @@ STRESS_LIB_SOURCES =                                            \
   db_stress_tool/db_stress_gflags.cc                           \
   db_stress_tool/db_stress_listener.cc                         \
   db_stress_tool/db_stress_shared_state.cc                     \
+  db_stress_tool/db_stress_stat.cc                             \
   db_stress_tool/db_stress_test_base.cc                        \
   db_stress_tool/db_stress_tool.cc                             \
   db_stress_tool/expected_state.cc                             \
   db_stress_tool/no_batched_ops_stress.cc                      \
+  db_stress_tool/multi_ops_txns_stress.cc                      \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
   test_util/mock_time_env.cc                                    \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
+  utilities/agg_merge/test_agg_merge.cc                                 \
   utilities/cassandra/test_utils.cc                             \
 
-FOLLY_SOURCES = \
-  third-party/folly/folly/detail/Futex.cpp                                     \
-  third-party/folly/folly/synchronization/AtomicNotification.cpp               \
-  third-party/folly/folly/synchronization/DistributedMutex.cpp                 \
-  third-party/folly/folly/synchronization/ParkingLot.cpp                       \
-  third-party/folly/folly/synchronization/WaitOptions.cpp                      \
+FOLLY_SOURCES =                                                 \
+  $(FOLLY_DIR)/folly/container/detail/F14Table.cpp              \
+  $(FOLLY_DIR)/folly/lang/SafeAssert.cpp                        \
+  $(FOLLY_DIR)/folly/lang/ToAscii.cpp                           \
+  $(FOLLY_DIR)/folly/ScopeGuard.cpp                             \
 
 TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \
@@ -395,8 +403,9 @@ BENCH_MAIN_SOURCES =                                                    \
 
 TEST_MAIN_SOURCES =                                                     \
   cache/cache_test.cc                                                   \
-  cache/cache_reservation_manager_test.cc                                               \
+  cache/cache_reservation_manager_test.cc                               \
   cache/lru_cache_test.cc                                               \
+  cache/compressed_secondary_cache_test.cc                              \
   db/blob/blob_counting_iterator_test.cc                                \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \
@@ -442,6 +451,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
+  db/db_rate_limiter_test.cc                                            \
   db/db_secondary_test.cc                                               \
   db/db_sst_test.cc                                                     \
   db/db_statistics_test.cc                                              \
@@ -498,7 +508,7 @@ TEST_MAIN_SOURCES =                                                     \
   logging/env_logger_test.cc                                            \
   logging/event_logger_test.cc                                          \
   memory/arena_test.cc                                                  \
-  memory/memkind_kmem_allocator_test.cc                                 \
+  memory/memory_allocator_test.cc                                       \
   memtable/inlineskiplist_test.cc                                       \
   memtable/skiplist_test.cc                                             \
   memtable/write_buffer_manager_test.cc                                 \
@@ -553,7 +563,8 @@ TEST_MAIN_SOURCES =                                                     \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
   util/work_queue_test.cc                                               \
-  utilities/backupable/backupable_db_test.cc                            \
+  utilities/agg_merge/agg_merge_test.cc                                 \
+  utilities/backup/backup_engine_test.cc                                \
   utilities/blob_db/blob_db_test.cc                                     \
   utilities/cassandra/cassandra_format_test.cc                          \
   utilities/cassandra/cassandra_functional_test.cc                      \
@@ -577,6 +588,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/lock/point/point_lock_manager_test.cc          \
   utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/transactions/write_unprepared_transaction_test.cc           \
+  utilities/transactions/write_committed_transaction_ts_test.cc         \
   utilities/ttl/ttl_test.cc                                             \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
@@ -586,10 +598,11 @@ TEST_MAIN_SOURCES_C = \
 
 MICROBENCH_SOURCES =                                          \
   microbench/ribbon_bench.cc                                  \
+  microbench/db_basic_bench.cc                                  \
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \
-  java/rocksjni/backupablejni.cc                              \
+  java/rocksjni/backup_engine_options.cc                      \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/clock_cache.cc                                \
   java/rocksjni/cache.cc                                      \

@@ -76,7 +76,7 @@ class CompactionPickerTest : public testing::Test {
     options_.num_levels = num_levels;
     vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
                                            style, nullptr, false));
-    vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
+    vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
   }
 
   // Create a new VersionStorageInfo object so we can add mode files and then
@@ -112,13 +112,12 @@ class CompactionPickerTest : public testing::Test {
         file_number, path_id, file_size,
         InternalKey(smallest, smallest_seq, kTypeValue),
         InternalKey(largest, largest_seq, kTypeValue), smallest_seq,
-        largest_seq, marked_for_compact, kInvalidBlobFileNumber,
+        largest_seq, marked_for_compact, temperature, kInvalidBlobFileNumber,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName,
         kDisableUserTimestamp, kDisableUserTimestamp);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
-    f->temperature = temperature;
     f->oldest_ancester_time = oldest_ancestor_time;
     vstorage->AddFile(level, f);
     files_.emplace_back(f);
@@ -149,34 +148,9 @@ class CompactionPickerTest : public testing::Test {
       ASSERT_OK(builder.SaveTo(temp_vstorage_.get()));
       vstorage_ = std::move(temp_vstorage_);
     }
-    vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateFilesByCompactionPri(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateNumNonEmptyLevels();
-    vstorage_->GenerateFileIndexer();
-    vstorage_->GenerateLevelFilesBrief();
+    vstorage_->PrepareForVersionAppend(ioptions_, mutable_cf_options_);
     vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
-    vstorage_->GenerateLevel0NonOverlapping();
-    vstorage_->ComputeFilesMarkedForCompaction();
     vstorage_->SetFinalized();
-  }
-  void AddFileToVersionStorage(int level, uint32_t file_number,
-                               const char* smallest, const char* largest,
-                               uint64_t file_size = 1, uint32_t path_id = 0,
-                               SequenceNumber smallest_seq = 100,
-                               SequenceNumber largest_seq = 100,
-                               size_t compensated_file_size = 0,
-                               bool marked_for_compact = false) {
-    VersionStorageInfo* base_vstorage = vstorage_.release();
-    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
-                                           kCompactionStyleUniversal,
-                                           base_vstorage, false));
-    Add(level, file_number, smallest, largest, file_size, path_id, smallest_seq,
-        largest_seq, compensated_file_size, marked_for_compact);
-
-    VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
-                           nullptr);
-    builder.SaveTo(vstorage_.get());
-    UpdateVersionStorageInfo();
   }
 
  private:
@@ -299,9 +273,9 @@ TEST_F(CompactionPickerTest, NeedsCompactionLevel) {
       // start a brand new version in each test.
       NewVersionStorage(kLevels, kCompactionStyleLevel);
       for (int i = 0; i < file_count; ++i) {
-        Add(level, i, ToString((i + 100) * 1000).c_str(),
-            ToString((i + 100) * 1000 + 999).c_str(),
-            file_size, 0, i * 100, i * 100 + 99);
+        Add(level, i, std::to_string((i + 100) * 1000).c_str(),
+            std::to_string((i + 100) * 1000 + 999).c_str(), file_size, 0,
+            i * 100, i * 100 + 99);
       }
       UpdateVersionStorageInfo();
       ASSERT_EQ(vstorage_->CompactionScoreLevel(0), level);
@@ -465,8 +439,8 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
   for (int i = 1;
        i <= mutable_cf_options_.level0_file_num_compaction_trigger * 2; ++i) {
     NewVersionStorage(1, kCompactionStyleUniversal);
-    Add(0, i, ToString((i + 100) * 1000).c_str(),
-        ToString((i + 100) * 1000 + 999).c_str(), 1000000, 0, i * 100,
+    Add(0, i, std::to_string((i + 100) * 1000).c_str(),
+        std::to_string((i + 100) * 1000 + 999).c_str(), 1000000, 0, i * 100,
         i * 100 + 99);
     UpdateVersionStorageInfo();
     ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
@@ -878,17 +852,17 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace4) {
   // L3: (1101, 1180) (1201, 1280) ... (7901, 7908)
   // L4: (1130, 1150) (1160, 1210) (1230, 1250) (1260 1310) ... (7960, 8010)
   for (int i = 11; i < 79; i++) {
-    Add(3, 100 + i * 3, ToString(i * 100).c_str(),
-        ToString(i * 100 + 80).c_str(), kFileSize, 0, 200, 251);
+    Add(3, 100 + i * 3, std::to_string(i * 100).c_str(),
+        std::to_string(i * 100 + 80).c_str(), kFileSize, 0, 200, 251);
     // Add a tie breaker
     if (i == 66) {
       Add(3, 10000U, "6690", "6699", kFileSize, 0, 200, 251);
     }
 
-    Add(4, 100 + i * 3 + 1, ToString(i * 100 + 30).c_str(),
-        ToString(i * 100 + 50).c_str(), kFileSize, 0, 200, 251);
-    Add(4, 100 + i * 3 + 2, ToString(i * 100 + 60).c_str(),
-        ToString(i * 100 + 110).c_str(), kFileSize, 0, 200, 251);
+    Add(4, 100 + i * 3 + 1, std::to_string(i * 100 + 30).c_str(),
+        std::to_string(i * 100 + 50).c_str(), kFileSize, 0, 200, 251);
+    Add(4, 100 + i * 3 + 2, std::to_string(i * 100 + 60).c_str(),
+        std::to_string(i * 100 + 110).c_str(), kFileSize, 0, 200, 251);
   }
   UpdateVersionStorageInfo();
 
@@ -925,14 +899,14 @@ TEST_F(CompactionPickerTest, UniversalIncrementalSpace5) {
   // L3: (1101, 1180) (1201, 1280) ... (7901, 7908)
   // L4: (1130, 1150) (1160, 1210) (1230, 1250) (1260 1310) ... (7960, 8010)
   for (int i = 11; i < 70; i++) {
-    Add(3, 100 + i * 3, ToString(i * 100).c_str(),
-        ToString(i * 100 + 80).c_str(),
+    Add(3, 100 + i * 3, std::to_string(i * 100).c_str(),
+        std::to_string(i * 100 + 80).c_str(),
         i % 10 == 9 ? kFileSize * 100 : kFileSize, 0, 200, 251);
 
-    Add(4, 100 + i * 3 + 1, ToString(i * 100 + 30).c_str(),
-        ToString(i * 100 + 50).c_str(), kFileSize, 0, 200, 251);
-    Add(4, 100 + i * 3 + 2, ToString(i * 100 + 60).c_str(),
-        ToString(i * 100 + 110).c_str(), kFileSize, 0, 200, 251);
+    Add(4, 100 + i * 3 + 1, std::to_string(i * 100 + 30).c_str(),
+        std::to_string(i * 100 + 50).c_str(), kFileSize, 0, 200, 251);
+    Add(4, 100 + i * 3 + 2, std::to_string(i * 100 + 60).c_str(),
+        std::to_string(i * 100 + 110).c_str(), kFileSize, 0, 200, 251);
   }
   UpdateVersionStorageInfo();
 
@@ -965,13 +939,11 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
 
   // verify whether compaction is needed based on the current
   // size of L0 files.
-  uint64_t current_size = 0;
   for (int i = 1; i <= kFileCount; ++i) {
     NewVersionStorage(1, kCompactionStyleFIFO);
-    Add(0, i, ToString((i + 100) * 1000).c_str(),
-        ToString((i + 100) * 1000 + 999).c_str(),
-        kFileSize, 0, i * 100, i * 100 + 99);
-    current_size += kFileSize;
+    Add(0, i, std::to_string((i + 100) * 1000).c_str(),
+        std::to_string((i + 100) * 1000 + 999).c_str(), kFileSize, 0, i * 100,
+        i * 100 + 99);
     UpdateVersionStorageInfo();
     ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);
@@ -2676,12 +2648,13 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
   ASSERT_EQ(3U, vstorage_->FilesMarkedForCompaction().size());
 
   bool manual_conflict = false;
-  InternalKey* manual_end = NULL;
+  InternalKey* manual_end = nullptr;
   std::unique_ptr<Compaction> compaction(
       universal_compaction_picker.CompactRange(
           cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
-          ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(), NULL,
-          NULL, &manual_end, &manual_conflict, port::kMaxUint64));
+          ColumnFamilyData::kCompactAllLevels, 6, CompactRangeOptions(),
+          nullptr, nullptr, &manual_end, &manual_conflict,
+          std::numeric_limits<uint64_t>::max(), ""));
 
   ASSERT_TRUE(compaction);
 

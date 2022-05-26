@@ -7,12 +7,13 @@
 
 #ifndef ROCKSDB_LITE  // Lite does not support C API
 
-#include "rocksdb/c.h"
-
+#include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+
+#include "rocksdb/c.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -89,10 +90,8 @@ static void CheckEqual(const char* expected, const char* v, size_t n) {
     // ok
     return;
   } else {
-    fprintf(stderr, "%s: expected '%s', got '%s'\n",
-            phase,
-            (expected ? expected : "(null)"),
-            (v ? v : "(null"));
+    fprintf(stderr, "%s: expected '%s', got '%s'\n", phase,
+            (expected ? expected : "(null)"), (v ? v : "(null)"));
     abort();
   }
 }
@@ -224,39 +223,6 @@ static int CmpCompare(void* arg, const char* a, size_t alen,
 static const char* CmpName(void* arg) {
   (void)arg;
   return "foo";
-}
-
-// Custom filter policy
-static unsigned char fake_filter_result = 1;
-static void FilterDestroy(void* arg) { (void)arg; }
-static const char* FilterName(void* arg) {
-  (void)arg;
-  return "TestFilter";
-}
-static char* FilterCreate(
-    void* arg,
-    const char* const* key_array, const size_t* key_length_array,
-    int num_keys,
-    size_t* filter_length) {
-  (void)arg;
-  (void)key_array;
-  (void)key_length_array;
-  (void)num_keys;
-  *filter_length = 4;
-  char* result = malloc(4);
-  memcpy(result, "fake", 4);
-  return result;
-}
-static unsigned char FilterKeyMatch(
-    void* arg,
-    const char* key, size_t length,
-    const char* filter, size_t filter_length) {
-  (void)arg;
-  (void)key;
-  (void)length;
-  CheckCondition(filter_length == 4);
-  CheckCondition(memcmp(filter, "fake", 4) == 0);
-  return fake_filter_result;
 }
 
 // Custom compaction filter
@@ -480,6 +446,10 @@ int main(int argc, char** argv) {
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
   dbpath = rocksdb_dbpath_create(dbpathname, 1024 * 1024);
   env = rocksdb_create_default_env();
+
+  rocksdb_create_dir_if_missing(env, GetTempDir(), &err);
+  CheckNoError(err);
+
   cache = rocksdb_cache_create_lru(100000);
 
   options = rocksdb_options_create();
@@ -490,7 +460,6 @@ int main(int argc, char** argv) {
   rocksdb_options_set_write_buffer_size(options, 100000);
   rocksdb_options_set_paranoid_checks(options, 1);
   rocksdb_options_set_max_open_files(options, 10);
-  rocksdb_options_set_base_background_compactions(options, 1);
 
   table_options = rocksdb_block_based_options_create();
   rocksdb_block_based_options_set_block_cache(table_options, cache);
@@ -1019,7 +988,36 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "foo", NULL);
     rocksdb_release_snapshot(db, snap);
   }
-
+  StartPhase("snapshot_with_memtable_inplace_update");
+  {
+    rocksdb_close(db);
+    const rocksdb_snapshot_t* snap = NULL;
+    const char* s_key = "foo_snap";
+    const char* value1 = "hello_s1";
+    const char* value2 = "hello_s2";
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 0);
+    rocksdb_options_set_inplace_update_support(options, 1);
+    rocksdb_options_set_error_if_exists(options, 0);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, s_key, 8, value1, 8, &err);
+    snap = rocksdb_create_snapshot(db);
+    assert(snap != NULL);
+    rocksdb_put(db, woptions, s_key, 8, value2, 8, &err);
+    CheckNoError(err);
+    rocksdb_readoptions_set_snapshot(roptions, snap);
+    CheckGet(db, roptions, "foo", NULL);
+    // snapshot syntax is invalid, because of inplace update supported is set
+    CheckGet(db, roptions, s_key, value2);
+    // restore the data and options
+    rocksdb_delete(db, woptions, s_key, 8, &err);
+    CheckGet(db, roptions, s_key, NULL);
+    rocksdb_release_snapshot(db, snap);
+    rocksdb_readoptions_set_snapshot(roptions, NULL);
+    rocksdb_options_set_inplace_update_support(options, 0);
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 1);
+    rocksdb_options_set_error_if_exists(options, 1);
+  }
   StartPhase("repair");
   {
     // If we do not compact here, then the lazy deletion of
@@ -1043,18 +1041,15 @@ int main(int argc, char** argv) {
   }
 
   StartPhase("filter");
-  for (run = 0; run <= 4; run++) {
-    // run=0 uses custom filter
+  for (run = 1; run <= 4; run++) {
+    // run=0 uses custom filter (not currently supported)
     // run=1 uses old block-based bloom filter
     // run=2 run uses full bloom filter
     // run=3 uses Ribbon
     // run=4 uses Ribbon-Bloom hybrid configuration
     CheckNoError(err);
     rocksdb_filterpolicy_t* policy;
-    if (run == 0) {
-      policy = rocksdb_filterpolicy_create(NULL, FilterDestroy, FilterCreate,
-                                           FilterKeyMatch, NULL, FilterName);
-    } else if (run == 1) {
+    if (run == 1) {
       policy = rocksdb_filterpolicy_create_bloom(8.0);
     } else if (run == 2) {
       policy = rocksdb_filterpolicy_create_bloom_full(8.0);
@@ -1089,19 +1084,8 @@ int main(int argc, char** argv) {
     }
     rocksdb_compact_range(db, NULL, 0, NULL, 0);
 
-    fake_filter_result = 1;
     CheckGet(db, roptions, "foo", "foovalue");
     CheckGet(db, roptions, "bar", "barvalue");
-    if (run == 0) {
-      // Must not find value when custom filter returns false
-      fake_filter_result = 0;
-      CheckGet(db, roptions, "foo", NULL);
-      CheckGet(db, roptions, "bar", NULL);
-      fake_filter_result = 1;
-
-      CheckGet(db, roptions, "foo", "foovalue");
-      CheckGet(db, roptions, "bar", "barvalue");
-    }
 
     {
       // Query some keys not added to identify Bloom filter implementation
@@ -1114,7 +1098,6 @@ int main(int argc, char** argv) {
       int i;
       char keybuf[100];
       for (i = 0; i < keys_to_query; i++) {
-        fake_filter_result = i % 2;
         snprintf(keybuf, sizeof(keybuf), "no%020d", i);
         CheckGet(db, roptions, keybuf, NULL);
       }
@@ -1124,10 +1107,10 @@ int main(int argc, char** argv) {
       if (run == 0) {
         // Due to half true, half false with fake filter result
         CheckCondition(hits == keys_to_query / 2);
-      } else if (run == 1) {
-        // Essentially a fingerprint of the block-based Bloom schema
-        CheckCondition(hits == 241);
-      } else if (run == 2 || run == 4) {
+      } else if (run == 1 || run == 2 || run == 4) {
+        // For run == 1, block-based Bloom is no longer available in public
+        // API; attempting to enable it enables full Bloom instead.
+        //
         // Essentially a fingerprint of full Bloom schema, format_version=5
         CheckCondition(hits == 188);
       } else {
@@ -1277,15 +1260,18 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_clear(wb);
     rocksdb_writebatch_put_cf(wb, handles[1], "bar", 3, "b", 1);
     rocksdb_writebatch_put_cf(wb, handles[1], "box", 3, "c", 1);
+    rocksdb_writebatch_put_cf(wb, handles[1], "buff", 4, "rocksdb", 7);
     rocksdb_writebatch_delete_cf(wb, handles[1], "bar", 3);
     rocksdb_write(db, woptions, wb, &err);
     CheckNoError(err);
     CheckGetCF(db, roptions, handles[1], "baz", NULL);
     CheckGetCF(db, roptions, handles[1], "bar", NULL);
     CheckGetCF(db, roptions, handles[1], "box", "c");
+    CheckGetCF(db, roptions, handles[1], "buff", "rocksdb");
     CheckPinGetCF(db, roptions, handles[1], "baz", NULL);
     CheckPinGetCF(db, roptions, handles[1], "bar", NULL);
     CheckPinGetCF(db, roptions, handles[1], "box", "c");
+    CheckPinGetCF(db, roptions, handles[1], "buff", "rocksdb");
     rocksdb_writebatch_destroy(wb);
 
     rocksdb_flush_wal(db, 1, &err);
@@ -1314,6 +1300,26 @@ int main(int argc, char** argv) {
         break;
       }
       Free(&vals[i]);
+    }
+
+    {
+      const char* batched_keys[4] = {"box", "buff", "barfooxx", "box"};
+      const size_t batched_keys_sizes[4] = {3, 4, 8, 3};
+      const char* expected_value[4] = {"c", "rocksdb", NULL, "c"};
+      char* batched_errs[4];
+
+      rocksdb_pinnableslice_t* pvals[4];
+      rocksdb_batched_multi_get_cf(db, roptions, handles[1], 4, batched_keys,
+                                   batched_keys_sizes, pvals, batched_errs,
+                                   false);
+      const char* val;
+      size_t val_len;
+      for (i = 0; i < 4; ++i) {
+        val = rocksdb_pinnableslice_value(pvals[i], &val_len);
+        CheckNoError(batched_errs[i]);
+        CheckEqual(expected_value[i], val, val_len);
+        rocksdb_pinnableslice_destroy(pvals[i]);
+      }
     }
 
     {
@@ -1347,7 +1353,7 @@ int main(int argc, char** argv) {
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
-    CheckCondition(i == 3);
+    CheckCondition(i == 4);
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
@@ -1371,7 +1377,7 @@ int main(int argc, char** argv) {
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
-    CheckCondition(i == 3);
+    CheckCondition(i == 4);
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
@@ -1613,9 +1619,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_max_background_compactions(o, 3);
     CheckCondition(3 == rocksdb_options_get_max_background_compactions(o));
 
-    rocksdb_options_set_base_background_compactions(o, 4);
-    CheckCondition(4 == rocksdb_options_get_base_background_compactions(o));
-
     rocksdb_options_set_max_background_flushes(o, 5);
     CheckCondition(5 == rocksdb_options_get_max_background_flushes(o));
 
@@ -1631,12 +1634,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_recycle_log_file_num(o, 9);
     CheckCondition(9 == rocksdb_options_get_recycle_log_file_num(o));
 
-    rocksdb_options_set_soft_rate_limit(o, 2.0);
-    CheckCondition(2.0 == rocksdb_options_get_soft_rate_limit(o));
-
-    rocksdb_options_set_hard_rate_limit(o, 4.0);
-    CheckCondition(4.0 == rocksdb_options_get_hard_rate_limit(o));
-
     rocksdb_options_set_soft_pending_compaction_bytes_limit(o, 10);
     CheckCondition(10 ==
                    rocksdb_options_get_soft_pending_compaction_bytes_limit(o));
@@ -1644,10 +1641,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_hard_pending_compaction_bytes_limit(o, 11);
     CheckCondition(11 ==
                    rocksdb_options_get_hard_pending_compaction_bytes_limit(o));
-
-    rocksdb_options_set_rate_limit_delay_max_milliseconds(o, 1);
-    CheckCondition(1 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(o));
 
     rocksdb_options_set_max_manifest_file_size(o, 12);
     CheckCondition(12 == rocksdb_options_get_max_manifest_file_size(o));
@@ -1685,9 +1678,6 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_is_fd_close_on_exec(o, 1);
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(o));
-
-    rocksdb_options_set_skip_log_error_on_recovery(o, 1);
-    CheckCondition(1 == rocksdb_options_get_skip_log_error_on_recovery(o));
 
     rocksdb_options_set_stats_dump_period_sec(o, 18);
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(o));
@@ -1777,6 +1767,9 @@ int main(int argc, char** argv) {
     rocksdb_options_set_manual_wal_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_manual_wal_flush(o));
 
+    rocksdb_options_set_wal_compression(o, 1);
+    CheckCondition(1 == rocksdb_options_get_wal_compression(o));
+
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
@@ -1848,20 +1841,15 @@ int main(int argc, char** argv) {
     CheckCondition(123456 == rocksdb_options_get_max_subcompactions(copy));
     CheckCondition(2 == rocksdb_options_get_max_background_jobs(copy));
     CheckCondition(3 == rocksdb_options_get_max_background_compactions(copy));
-    CheckCondition(4 == rocksdb_options_get_base_background_compactions(copy));
     CheckCondition(5 == rocksdb_options_get_max_background_flushes(copy));
     CheckCondition(6 == rocksdb_options_get_max_log_file_size(copy));
     CheckCondition(7 == rocksdb_options_get_log_file_time_to_roll(copy));
     CheckCondition(8 == rocksdb_options_get_keep_log_file_num(copy));
     CheckCondition(9 == rocksdb_options_get_recycle_log_file_num(copy));
-    CheckCondition(2.0 == rocksdb_options_get_soft_rate_limit(copy));
-    CheckCondition(4.0 == rocksdb_options_get_hard_rate_limit(copy));
     CheckCondition(
         10 == rocksdb_options_get_soft_pending_compaction_bytes_limit(copy));
     CheckCondition(
         11 == rocksdb_options_get_hard_pending_compaction_bytes_limit(copy));
-    CheckCondition(1 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(copy));
     CheckCondition(12 == rocksdb_options_get_max_manifest_file_size(copy));
     CheckCondition(13 == rocksdb_options_get_table_cache_numshardbits(copy));
     CheckCondition(14 == rocksdb_options_get_arena_block_size(copy));
@@ -1875,7 +1863,6 @@ int main(int argc, char** argv) {
     CheckCondition(
         1 == rocksdb_options_get_use_direct_io_for_flush_and_compaction(copy));
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(copy));
-    CheckCondition(1 == rocksdb_options_get_skip_log_error_on_recovery(copy));
     CheckCondition(18 == rocksdb_options_get_stats_dump_period_sec(copy));
     CheckCondition(5 == rocksdb_options_get_stats_persist_period_sec(copy));
     CheckCondition(1 == rocksdb_options_get_advise_random_on_open(copy));
@@ -2056,10 +2043,6 @@ int main(int argc, char** argv) {
     CheckCondition(13 == rocksdb_options_get_max_background_compactions(copy));
     CheckCondition(3 == rocksdb_options_get_max_background_compactions(o));
 
-    rocksdb_options_set_base_background_compactions(copy, 14);
-    CheckCondition(14 == rocksdb_options_get_base_background_compactions(copy));
-    CheckCondition(4 == rocksdb_options_get_base_background_compactions(o));
-
     rocksdb_options_set_max_background_flushes(copy, 15);
     CheckCondition(15 == rocksdb_options_get_max_background_flushes(copy));
     CheckCondition(5 == rocksdb_options_get_max_background_flushes(o));
@@ -2080,14 +2063,6 @@ int main(int argc, char** argv) {
     CheckCondition(19 == rocksdb_options_get_recycle_log_file_num(copy));
     CheckCondition(9 == rocksdb_options_get_recycle_log_file_num(o));
 
-    rocksdb_options_set_soft_rate_limit(copy, 4.0);
-    CheckCondition(4.0 == rocksdb_options_get_soft_rate_limit(copy));
-    CheckCondition(2.0 == rocksdb_options_get_soft_rate_limit(o));
-
-    rocksdb_options_set_hard_rate_limit(copy, 2.0);
-    CheckCondition(2.0 == rocksdb_options_get_hard_rate_limit(copy));
-    CheckCondition(4.0 == rocksdb_options_get_hard_rate_limit(o));
-
     rocksdb_options_set_soft_pending_compaction_bytes_limit(copy, 110);
     CheckCondition(
         110 == rocksdb_options_get_soft_pending_compaction_bytes_limit(copy));
@@ -2099,12 +2074,6 @@ int main(int argc, char** argv) {
         111 == rocksdb_options_get_hard_pending_compaction_bytes_limit(copy));
     CheckCondition(11 ==
                    rocksdb_options_get_hard_pending_compaction_bytes_limit(o));
-
-    rocksdb_options_set_rate_limit_delay_max_milliseconds(copy, 0);
-    CheckCondition(0 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(copy));
-    CheckCondition(1 ==
-                   rocksdb_options_get_rate_limit_delay_max_milliseconds(o));
 
     rocksdb_options_set_max_manifest_file_size(copy, 112);
     CheckCondition(112 == rocksdb_options_get_max_manifest_file_size(copy));
@@ -2156,10 +2125,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_is_fd_close_on_exec(copy, 0);
     CheckCondition(0 == rocksdb_options_get_is_fd_close_on_exec(copy));
     CheckCondition(1 == rocksdb_options_get_is_fd_close_on_exec(o));
-
-    rocksdb_options_set_skip_log_error_on_recovery(copy, 0);
-    CheckCondition(0 == rocksdb_options_get_skip_log_error_on_recovery(copy));
-    CheckCondition(1 == rocksdb_options_get_skip_log_error_on_recovery(o));
 
     rocksdb_options_set_stats_dump_period_sec(copy, 218);
     CheckCondition(218 == rocksdb_options_get_stats_dump_period_sec(copy));
@@ -2506,53 +2471,53 @@ int main(int argc, char** argv) {
     rocksdb_fifo_compaction_options_destroy(fco);
   }
 
-  StartPhase("backupable_db_option");
+  StartPhase("backup_engine_option");
   {
-    rocksdb_backupable_db_options_t* bdo;
-    bdo = rocksdb_backupable_db_options_create("path");
+    rocksdb_backup_engine_options_t* bdo;
+    bdo = rocksdb_backup_engine_options_create("path");
 
-    rocksdb_backupable_db_options_set_share_table_files(bdo, 1);
+    rocksdb_backup_engine_options_set_share_table_files(bdo, 1);
     CheckCondition(1 ==
-                   rocksdb_backupable_db_options_get_share_table_files(bdo));
+                   rocksdb_backup_engine_options_get_share_table_files(bdo));
 
-    rocksdb_backupable_db_options_set_sync(bdo, 1);
-    CheckCondition(1 == rocksdb_backupable_db_options_get_sync(bdo));
+    rocksdb_backup_engine_options_set_sync(bdo, 1);
+    CheckCondition(1 == rocksdb_backup_engine_options_get_sync(bdo));
 
-    rocksdb_backupable_db_options_set_destroy_old_data(bdo, 1);
+    rocksdb_backup_engine_options_set_destroy_old_data(bdo, 1);
     CheckCondition(1 ==
-                   rocksdb_backupable_db_options_get_destroy_old_data(bdo));
+                   rocksdb_backup_engine_options_get_destroy_old_data(bdo));
 
-    rocksdb_backupable_db_options_set_backup_log_files(bdo, 1);
+    rocksdb_backup_engine_options_set_backup_log_files(bdo, 1);
     CheckCondition(1 ==
-                   rocksdb_backupable_db_options_get_backup_log_files(bdo));
+                   rocksdb_backup_engine_options_get_backup_log_files(bdo));
 
-    rocksdb_backupable_db_options_set_backup_rate_limit(bdo, 123);
+    rocksdb_backup_engine_options_set_backup_rate_limit(bdo, 123);
     CheckCondition(123 ==
-                   rocksdb_backupable_db_options_get_backup_rate_limit(bdo));
+                   rocksdb_backup_engine_options_get_backup_rate_limit(bdo));
 
-    rocksdb_backupable_db_options_set_restore_rate_limit(bdo, 37);
+    rocksdb_backup_engine_options_set_restore_rate_limit(bdo, 37);
     CheckCondition(37 ==
-                   rocksdb_backupable_db_options_get_restore_rate_limit(bdo));
+                   rocksdb_backup_engine_options_get_restore_rate_limit(bdo));
 
-    rocksdb_backupable_db_options_set_max_background_operations(bdo, 20);
+    rocksdb_backup_engine_options_set_max_background_operations(bdo, 20);
     CheckCondition(
-        20 == rocksdb_backupable_db_options_get_max_background_operations(bdo));
+        20 == rocksdb_backup_engine_options_get_max_background_operations(bdo));
 
-    rocksdb_backupable_db_options_set_callback_trigger_interval_size(bdo, 9000);
+    rocksdb_backup_engine_options_set_callback_trigger_interval_size(bdo, 9000);
     CheckCondition(
         9000 ==
-        rocksdb_backupable_db_options_get_callback_trigger_interval_size(bdo));
+        rocksdb_backup_engine_options_get_callback_trigger_interval_size(bdo));
 
-    rocksdb_backupable_db_options_set_max_valid_backups_to_open(bdo, 40);
+    rocksdb_backup_engine_options_set_max_valid_backups_to_open(bdo, 40);
     CheckCondition(
-        40 == rocksdb_backupable_db_options_get_max_valid_backups_to_open(bdo));
+        40 == rocksdb_backup_engine_options_get_max_valid_backups_to_open(bdo));
 
-    rocksdb_backupable_db_options_set_share_files_with_checksum_naming(bdo, 2);
+    rocksdb_backup_engine_options_set_share_files_with_checksum_naming(bdo, 2);
     CheckCondition(
-        2 == rocksdb_backupable_db_options_get_share_files_with_checksum_naming(
+        2 == rocksdb_backup_engine_options_get_share_files_with_checksum_naming(
                  bdo));
 
-    rocksdb_backupable_db_options_destroy(bdo);
+    rocksdb_backup_engine_options_destroy(bdo);
   }
 
   StartPhase("compression_options");
@@ -2954,6 +2919,51 @@ int main(int argc, char** argv) {
     rocksdb_options_set_db_paths(options, paths, 1);
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
+  }
+
+  StartPhase("filter_with_prefix_seek");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_prefix_extractor(
+        options, rocksdb_slicetransform_create_fixed_prefix(1));
+    rocksdb_filterpolicy_t* filter_policy =
+        rocksdb_filterpolicy_create_bloom_full(8.0);
+    rocksdb_block_based_options_set_filter_policy(table_options, filter_policy);
+    rocksdb_options_set_block_based_table_factory(options, table_options);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    int i;
+    for (i = 0; i < 10; ++i) {
+      char key = '0' + (char)i;
+      rocksdb_put(db, woptions, &key, 1, "", 1, &err);
+      CheckNoError(err);
+    }
+
+    // Flush to generate an L0 so that filter will be used later.
+    rocksdb_flushoptions_t* flush_options = rocksdb_flushoptions_create();
+    rocksdb_flushoptions_set_wait(flush_options, 1);
+    rocksdb_flush(db, flush_options, &err);
+    rocksdb_flushoptions_destroy(flush_options);
+    CheckNoError(err);
+
+    rocksdb_readoptions_t* ropts = rocksdb_readoptions_create();
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, ropts);
+
+    rocksdb_iter_seek(iter, "0", 1);
+    int cnt = 0;
+    while (rocksdb_iter_valid(iter)) {
+      ++cnt;
+      rocksdb_iter_next(iter);
+    }
+    CheckCondition(10 == cnt);
+
+    rocksdb_iter_destroy(iter);
+    rocksdb_readoptions_destroy(ropts);
   }
 
   StartPhase("cancel_all_background_work");

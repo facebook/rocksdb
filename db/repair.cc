@@ -147,7 +147,7 @@ class Repairer {
     const auto* cf_opts = GetColumnFamilyOptions(cf_name);
     if (cf_opts == nullptr) {
       return Status::Corruption("Encountered unknown column family with name=" +
-                                cf_name + ", id=" + ToString(cf_id));
+                                cf_name + ", id=" + std::to_string(cf_id));
     }
     Options opts(db_options_, *cf_opts);
     MutableCFOptions mut_cf_opts(opts);
@@ -450,7 +450,7 @@ class Repairer {
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
-          {}, kMaxSequenceNumber, snapshot_checker,
+          {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
           nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
           nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
@@ -544,7 +544,7 @@ class Repairer {
       InternalIterator* iter = table_cache_->NewIterator(
           ropts, file_options_, cfd->internal_comparator(), t->meta,
           nullptr /* range_del_agg */,
-          cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
+          cfd->GetLatestMutableCFOptions()->prefix_extractor,
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
           /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
@@ -565,10 +565,13 @@ class Repairer {
 
         counter++;
 
-        t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
-                                 parsed.type);
+        status = t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
+                                          parsed.type);
+        if (!status.ok()) {
+          break;
+        }
       }
-      if (!iter->status().ok()) {
+      if (status.ok() && !iter->status().ok()) {
         status = iter->status();
       }
       delete iter;
@@ -633,7 +636,7 @@ class Repairer {
             table->meta.fd.GetFileSize(), table->meta.smallest,
             table->meta.largest, table->meta.fd.smallest_seqno,
             table->meta.fd.largest_seqno, table->meta.marked_for_compaction,
-            table->meta.oldest_blob_file_number,
+            table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.file_checksum, table->meta.file_checksum_func_name,
             table->meta.min_timestamp, table->meta.max_timestamp);

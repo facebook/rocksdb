@@ -266,6 +266,50 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
   ASSERT_EQ(c_bbto->block_restart_interval, 13);
 }
 
+TEST_F(DBOptionsTest, SetWithCustomMemTableFactory) {
+  class DummySkipListFactory : public SkipListFactory {
+   public:
+    static const char* kClassName() { return "DummySkipListFactory"; }
+    const char* Name() const override { return kClassName(); }
+    explicit DummySkipListFactory() : SkipListFactory(2) {}
+  };
+  {
+    // Verify the DummySkipList cannot be created
+    ConfigOptions config_options;
+    config_options.ignore_unsupported_options = false;
+    std::unique_ptr<MemTableRepFactory> factory;
+    ASSERT_NOK(MemTableRepFactory::CreateFromString(
+        config_options, DummySkipListFactory::kClassName(), &factory));
+  }
+  Options options;
+  options.create_if_missing = true;
+  // Try with fail_if_options_file_error=false/true to update the options
+  for (bool on_error : {false, true}) {
+    options.fail_if_options_file_error = on_error;
+    options.env = env_;
+    options.disable_auto_compactions = false;
+
+    options.memtable_factory.reset(new DummySkipListFactory());
+    Reopen(options);
+
+    ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+    ASSERT_OK(
+        dbfull()->SetOptions(cfh, {{"disable_auto_compactions", "true"}}));
+    ColumnFamilyDescriptor cfd;
+    ASSERT_OK(cfh->GetDescriptor(&cfd));
+    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+                 DummySkipListFactory::kClassName());
+    ColumnFamilyHandle* test = nullptr;
+    ASSERT_OK(dbfull()->CreateColumnFamily(options, "test", &test));
+    ASSERT_OK(test->GetDescriptor(&cfd));
+    ASSERT_STREQ(cfd.options.memtable_factory->Name(),
+                 DummySkipListFactory::kClassName());
+
+    ASSERT_OK(dbfull()->DropColumnFamily(test));
+    delete test;
+  }
+}
+
 TEST_F(DBOptionsTest, SetBytesPerSync) {
   const size_t kValueSize = 1024 * 1024;  // 1MB
   Options options;
@@ -380,8 +424,8 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   int i = 0;
   for (; i < 3; i++) {
-    ASSERT_OK(Put("foo", ToString(i)));
-    ASSERT_OK(Put("bar", ToString(i)));
+    ASSERT_OK(Put("foo", std::to_string(i)));
+    ASSERT_OK(Put("bar", std::to_string(i)));
     ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -398,8 +442,8 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
             dbfull()->GetDBOptions().writable_file_max_buffer_size);
   i = 0;
   for (; i < 3; i++) {
-    ASSERT_OK(Put("foo", ToString(i)));
-    ASSERT_OK(Put("bar", ToString(i)));
+    ASSERT_OK(Put("foo", std::to_string(i)));
+    ASSERT_OK(Put("bar", std::to_string(i)));
     ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -529,8 +573,8 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   Reopen(options);
   for (int i = 0; i < 3; i++) {
     // Need to insert two keys to avoid trivial move.
-    ASSERT_OK(Put("foo", ToString(i)));
-    ASSERT_OK(Put("bar", ToString(i)));
+    ASSERT_OK(Put("foo", std::to_string(i)));
+    ASSERT_OK(Put("bar", std::to_string(i)));
     ASSERT_OK(Flush());
   }
   ASSERT_EQ("3", FilesPerLevel());
@@ -673,8 +717,8 @@ TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
 
   for (int i = 0; i < 20; i++) {
     unsigned int num = rand() % 5000 + 1;
-    ASSERT_OK(
-        dbfull()->SetDBOptions({{"stats_dump_period_sec", ToString(num)}}));
+    ASSERT_OK(dbfull()->SetDBOptions(
+        {{"stats_dump_period_sec", std::to_string(num)}}));
     ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
   }
   Close();
@@ -865,7 +909,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
+      ASSERT_OK(Put(std::to_string(i * 20 + j), rnd.RandomString(980)));
     }
     ASSERT_OK(Flush());
   }
@@ -896,7 +940,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
+      ASSERT_OK(Put(std::to_string(i * 20 + j), rnd.RandomString(980)));
     }
     ASSERT_OK(Flush());
   }
@@ -928,7 +972,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
+      ASSERT_OK(Put(std::to_string(i * 20 + j), rnd.RandomString(980)));
     }
     ASSERT_OK(Flush());
   }
@@ -959,7 +1003,6 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   options.env = &env;
 
   options.compaction_readahead_size = 0;
-  options.new_table_reader_for_compaction_inputs = true;
   options.level0_file_num_compaction_trigger = 2;
   const std::string kValue(1024, 'v');
   Reopen(options);
@@ -993,7 +1036,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
+      ASSERT_OK(Put(std::to_string(i * 20 + j), rnd.RandomString(980)));
     }
     ASSERT_OK(Flush());
   }

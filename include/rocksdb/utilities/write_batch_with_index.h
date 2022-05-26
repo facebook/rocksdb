@@ -110,20 +110,32 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   Status Put(const Slice& key, const Slice& value) override;
 
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& ts, const Slice& value) override;
+
   using WriteBatchBase::Merge;
   Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
                const Slice& value) override;
 
   Status Merge(const Slice& key, const Slice& value) override;
+  Status Merge(ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
+               const Slice& /*ts*/, const Slice& /*value*/) override {
+    return Status::NotSupported(
+        "Merge does not support user-defined timestamp");
+  }
 
   using WriteBatchBase::Delete;
   Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   Status Delete(const Slice& key) override;
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const Slice& ts) override;
 
   using WriteBatchBase::SingleDelete;
   Status SingleDelete(ColumnFamilyHandle* column_family,
                       const Slice& key) override;
   Status SingleDelete(const Slice& key) override;
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& ts) override;
 
   using WriteBatchBase::DeleteRange;
   Status DeleteRange(ColumnFamilyHandle* /* column_family */,
@@ -134,6 +146,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   }
   Status DeleteRange(const Slice& /* begin_key */,
                      const Slice& /* end_key */) override {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex");
+  }
+  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
+                     const Slice& /*ts*/) override {
     return Status::NotSupported(
         "DeleteRange unsupported in WriteBatchWithIndex");
   }
@@ -257,6 +275,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
   friend class WritePreparedTxn;
   friend class WriteUnpreparedTxn;
   friend class WriteBatchWithIndex_SubBatchCnt_Test;
+  friend class WriteBatchWithIndexInternal;
   // Returns the number of sub-batches inside the write batch. A sub-batch
   // starts right before inserting a key that is a duplicate of a key in the
   // last sub-batch.

@@ -36,7 +36,9 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
         user_comparator_(icomp.user_comparator()),
         block_iter_points_to_real_block_(false),
         lookup_context_(caller),
-        block_prefetcher_(compaction_readahead_size) {
+        block_prefetcher_(
+            compaction_readahead_size,
+            table_->get_rep()->table_options.initial_auto_readahead_size) {
   }
 
   ~PartitionedIndexIterator() override {}
@@ -123,8 +125,10 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
   }
 
   void SetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
-    block_prefetcher_.SetReadaheadState(
-        &(readahead_file_info->index_block_readahead_info));
+    if (read_options_.adaptive_readahead) {
+      block_prefetcher_.SetReadaheadState(
+          &(readahead_file_info->index_block_readahead_info));
+    }
   }
 
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;

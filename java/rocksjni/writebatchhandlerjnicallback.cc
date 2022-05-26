@@ -108,7 +108,7 @@ WriteBatchHandlerJniCallback::WriteBatchHandlerJniCallback(
     // exception thrown
     return;
   }
-    
+
   m_jMarkRollbackMethodId = WriteBatchHandlerJni::getMarkRollbackMethodId(env);
   if(m_jMarkRollbackMethodId == nullptr) {
     // exception thrown
@@ -117,6 +117,13 @@ WriteBatchHandlerJniCallback::WriteBatchHandlerJniCallback(
 
   m_jMarkCommitMethodId = WriteBatchHandlerJni::getMarkCommitMethodId(env);
   if(m_jMarkCommitMethodId == nullptr) {
+    // exception thrown
+    return;
+  }
+
+  m_jMarkCommitWithTimestampMethodId =
+      WriteBatchHandlerJni::getMarkCommitWithTimestampMethodId(env);
+  if (m_jMarkCommitWithTimestampMethodId == nullptr) {
     // exception thrown
     return;
   }
@@ -421,6 +428,23 @@ ROCKSDB_NAMESPACE::Status WriteBatchHandlerJniCallback::MarkCommit(
   };
   auto status = WriteBatchHandlerJniCallback::k_op(xid, markCommit);
   if(status == nullptr) {
+    return ROCKSDB_NAMESPACE::Status::OK();  // TODO(AR) what to do if there is
+                                             // an Exception but we don't know
+                                             // the ROCKSDB_NAMESPACE::Status?
+  } else {
+    return ROCKSDB_NAMESPACE::Status(*status);
+  }
+}
+
+ROCKSDB_NAMESPACE::Status WriteBatchHandlerJniCallback::MarkCommitWithTimestamp(
+    const Slice& xid, const Slice& ts) {
+  auto markCommitWithTimestamp = [this](jbyteArray j_xid, jbyteArray j_ts) {
+    m_env->CallVoidMethod(m_jcallback_obj, m_jMarkCommitWithTimestampMethodId,
+                          j_xid, j_ts);
+  };
+  auto status =
+      WriteBatchHandlerJniCallback::kv_op(xid, ts, markCommitWithTimestamp);
+  if (status == nullptr) {
     return ROCKSDB_NAMESPACE::Status::OK();  // TODO(AR) what to do if there is
                                              // an Exception but we don't know
                                              // the ROCKSDB_NAMESPACE::Status?

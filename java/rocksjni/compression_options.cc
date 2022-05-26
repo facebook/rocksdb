@@ -10,6 +10,7 @@
 
 #include "include/org_rocksdb_CompressionOptions.h"
 #include "rocksdb/advanced_options.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_CompressionOptions
@@ -19,7 +20,7 @@
 jlong Java_org_rocksdb_CompressionOptions_newCompressionOptions(
     JNIEnv*, jclass) {
   const auto* opt = new ROCKSDB_NAMESPACE::CompressionOptions();
-  return reinterpret_cast<jlong>(opt);
+  return GET_CPLUSPLUS_POINTER(opt);
 }
 
 /*

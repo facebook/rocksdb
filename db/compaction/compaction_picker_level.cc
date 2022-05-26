@@ -343,12 +343,13 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
                           ioptions_.level_compaction_dynamic_level_bytes),
       mutable_cf_options_.max_compaction_bytes,
       GetPathId(ioptions_, mutable_cf_options_, output_level_),
-      GetCompressionType(ioptions_, vstorage_, mutable_cf_options_,
-                         output_level_, vstorage_->base_level()),
+      GetCompressionType(vstorage_, mutable_cf_options_, output_level_,
+                         vstorage_->base_level()),
       GetCompressionOptions(mutable_cf_options_, vstorage_, output_level_),
       Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
-      start_level_score_, false /* deletion_compaction */, compaction_reason_);
+      /* trim_ts */ "", start_level_score_, false /* deletion_compaction */,
+      compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -503,7 +504,7 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     return false;
   }
   return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
-                               port::kMaxUint64,
+                               std::numeric_limits<uint64_t>::max(),
                                mutable_cf_options_.max_compaction_bytes,
                                &start_level_inputs_, earliest_mem_seqno_);
 }

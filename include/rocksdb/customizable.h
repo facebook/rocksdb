@@ -55,7 +55,7 @@ namespace ROCKSDB_NAMESPACE {
  */
 class Customizable : public Configurable {
  public:
-  virtual ~Customizable() {}
+  ~Customizable() override {}
 
   // Returns the name of this class of Customizable
   virtual const char* Name() const = 0;
@@ -97,6 +97,20 @@ class Customizable : public Configurable {
         return true;
       } else {
         return false;
+      }
+    }
+  }
+
+  const void* GetOptionsPtr(const std::string& name) const override {
+    const void* ptr = Configurable::GetOptionsPtr(name);
+    if (ptr != nullptr) {
+      return ptr;
+    } else {
+      const auto inner = Inner();
+      if (inner != nullptr) {
+        return inner->GetOptionsPtr(name);
+      } else {
+        return nullptr;
       }
     }
   }

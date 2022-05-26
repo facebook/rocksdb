@@ -294,7 +294,7 @@ class MemTableRep {
 // new MemTableRep objects
 class MemTableRepFactory : public Customizable {
  public:
-  virtual ~MemTableRepFactory() {}
+  ~MemTableRepFactory() override {}
 
   static const char* Type() { return "MemTableRepFactory"; }
   static Status CreateFromString(const ConfigOptions& config_options,
@@ -311,7 +311,7 @@ class MemTableRepFactory : public Customizable {
     return CreateMemTableRep(key_cmp, allocator, slice_transform, logger);
   }
 
-  virtual const char* Name() const = 0;
+  const char* Name() const override = 0;
 
   // Return true if the current MemTableRep supports concurrent inserts
   // Default: false

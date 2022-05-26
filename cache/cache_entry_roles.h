@@ -9,46 +9,15 @@
 #include <cstdint>
 #include <memory>
 #include <type_traits>
-#include <unordered_map>
 
 #include "rocksdb/cache.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// Classifications of block cache entries, for reporting statistics
-// Adding new enum to this class requires corresponding updates to
-// kCacheEntryRoleToCamelString and kCacheEntryRoleToHyphenString
-enum class CacheEntryRole {
-  // Block-based table data block
-  kDataBlock,
-  // Block-based table filter block (full or partitioned)
-  kFilterBlock,
-  // Block-based table metadata block for partitioned filter
-  kFilterMetaBlock,
-  // Block-based table deprecated filter block (old "block-based" filter)
-  kDeprecatedFilterBlock,
-  // Block-based table index block
-  kIndexBlock,
-  // Other kinds of block-based table block
-  kOtherBlock,
-  // WriteBufferManager reservations to account for memtable usage
-  kWriteBuffer,
-  // BlockBasedTableBuilder reservations to account for
-  // compression dictionary building buffer's memory usage
-  kCompressionDictionaryBuildingBuffer,
-  // Filter reservations to account for
-  // (new) bloom and ribbon filter construction's memory usage
-  kFilterConstruction,
-  // Default bucket, for miscellaneous cache entries. Do not use for
-  // entries that could potentially add up to large usage.
-  kMisc,
-};
-constexpr uint32_t kNumCacheEntryRoles =
-    static_cast<uint32_t>(CacheEntryRole::kMisc) + 1;
-
-extern std::array<const char*, kNumCacheEntryRoles>
+extern std::array<std::string, kNumCacheEntryRoles>
     kCacheEntryRoleToCamelString;
-extern std::array<const char*, kNumCacheEntryRoles>
+extern std::array<std::string, kNumCacheEntryRoles>
     kCacheEntryRoleToHyphenString;
 
 // To associate cache entries with their role, we use a hack on the
@@ -75,7 +44,7 @@ void RegisterCacheDeleterRole(Cache::DeleterFn fn, CacheEntryRole role);
 // * This is suitable for preparing for batch operations, like with
 // CacheEntryStatsCollector.
 // * The number of mappings should be sufficiently small (dozens).
-std::unordered_map<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap();
+UnorderedMap<Cache::DeleterFn, CacheEntryRole> CopyCacheDeleterRoleMap();
 
 // ************************************************************** //
 // An automatic registration infrastructure. This enables code

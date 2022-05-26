@@ -18,6 +18,7 @@
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/index_builder.h"
 #include "util/autovector.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 class InternalKeyComparator;
@@ -41,6 +42,23 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       const BlockHandle& last_partition_block_handle, Status* status,
       std::unique_ptr<const char[]>* filter_data = nullptr) override;
 
+  virtual void ResetFilterBitsBuilder() override {
+    // Previously constructed partitioned filters by
+    // this to-be-reset FiterBitsBuilder can also be
+    // cleared
+    filters.clear();
+    FullFilterBlockBuilder::ResetFilterBitsBuilder();
+  }
+
+  // For PartitionFilter, optional post-verifing the filter is done
+  // as part of PartitionFilterBlockBuilder::Finish
+  // to avoid implementation complexity of doing it elsewhere.
+  // Therefore we are skipping it in here.
+  virtual Status MaybePostVerifyFilter(
+      const Slice& /* filter_content */) override {
+    return Status::OK();
+  }
+
  private:
   // Filter data
   BlockBuilder index_on_filter_block_builder_;  // top-level index builder
@@ -48,11 +66,17 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       index_on_filter_block_builder_without_seq_;  // same for user keys
   struct FilterEntry {
     std::string key;
-    Slice filter;
     std::unique_ptr<const char[]> filter_data;
+    Slice filter;
   };
   std::deque<FilterEntry> filters;  // list of partitioned filters and keys used
                                     // in building the index
+
+  // Set to the first non-okay status if any of the filter
+  // partitions experiences construction error.
+  // If partitioned_filters_construction_status_ is non-okay,
+  // then the whole partitioned filters should not be used.
+  Status partitioned_filters_construction_status_;
   std::string last_filter_entry_key;
   std::unique_ptr<const char[]> last_filter_data;
   std::unique_ptr<IndexBuilder> value;
@@ -149,8 +173,7 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
  protected:
   // For partition blocks pinned in cache. Can be a subset of blocks
   // in case some fail insertion on attempt to pin.
-  std::unordered_map<uint64_t, CachableEntry<ParsedFullFilterBlock>>
-      filter_map_;
+  UnorderedMap<uint64_t, CachableEntry<ParsedFullFilterBlock>> filter_map_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
