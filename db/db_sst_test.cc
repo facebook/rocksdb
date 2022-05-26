@@ -1633,12 +1633,13 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
 
 TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
   Options options = CurrentOptions();
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
+  options.env = env.get();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
   options.enable_blob_files = true;
   options.blob_file_size = 32;  // create one blob per file
   options.skip_checking_sst_file_sizes_on_db_open = true;
-  options.env = MockEnv::Create(Env::Default());
 
   DestroyAndReopen(options);
   // Generate 5 files in L0
@@ -1662,11 +1663,11 @@ TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
 
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
-
-  ASSERT_EQ(is_get_file_size_called, false);
+  ASSERT_FALSE(is_get_file_size_called);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 
   Destroy(options);
-  delete options.env;
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
