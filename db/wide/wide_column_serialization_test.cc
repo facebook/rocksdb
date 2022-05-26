@@ -21,103 +21,106 @@ TEST(WideColumnSerializationTest, Construct) {
   const Slice bar_slice(bar_str);
 
   {
-    WideColumnDesc desc(foo, bar);
-    ASSERT_EQ(desc.name(), foo);
-    ASSERT_EQ(desc.value(), bar);
+    WideColumn column(foo, bar);
+    ASSERT_EQ(column.name(), foo);
+    ASSERT_EQ(column.value(), bar);
   }
 
   {
-    WideColumnDesc desc(foo_str, bar);
-    ASSERT_EQ(desc.name(), foo_str);
-    ASSERT_EQ(desc.value(), bar);
+    WideColumn column(foo_str, bar);
+    ASSERT_EQ(column.name(), foo_str);
+    ASSERT_EQ(column.value(), bar);
   }
 
   {
-    WideColumnDesc desc(foo_slice, bar);
-    ASSERT_EQ(desc.name(), foo_slice);
-    ASSERT_EQ(desc.value(), bar);
+    WideColumn column(foo_slice, bar);
+    ASSERT_EQ(column.name(), foo_slice);
+    ASSERT_EQ(column.value(), bar);
   }
 
   {
-    WideColumnDesc desc(foo, bar_str);
-    ASSERT_EQ(desc.name(), foo);
-    ASSERT_EQ(desc.value(), bar_str);
+    WideColumn column(foo, bar_str);
+    ASSERT_EQ(column.name(), foo);
+    ASSERT_EQ(column.value(), bar_str);
   }
 
   {
-    WideColumnDesc desc(foo_str, bar_str);
-    ASSERT_EQ(desc.name(), foo_str);
-    ASSERT_EQ(desc.value(), bar_str);
+    WideColumn column(foo_str, bar_str);
+    ASSERT_EQ(column.name(), foo_str);
+    ASSERT_EQ(column.value(), bar_str);
   }
 
   {
-    WideColumnDesc desc(foo_slice, bar_str);
-    ASSERT_EQ(desc.name(), foo_slice);
-    ASSERT_EQ(desc.value(), bar_str);
+    WideColumn column(foo_slice, bar_str);
+    ASSERT_EQ(column.name(), foo_slice);
+    ASSERT_EQ(column.value(), bar_str);
   }
 
   {
-    WideColumnDesc desc(foo, bar_slice);
-    ASSERT_EQ(desc.name(), foo);
-    ASSERT_EQ(desc.value(), bar_slice);
+    WideColumn column(foo, bar_slice);
+    ASSERT_EQ(column.name(), foo);
+    ASSERT_EQ(column.value(), bar_slice);
   }
 
   {
-    WideColumnDesc desc(foo_str, bar_slice);
-    ASSERT_EQ(desc.name(), foo_str);
-    ASSERT_EQ(desc.value(), bar_slice);
+    WideColumn column(foo_str, bar_slice);
+    ASSERT_EQ(column.name(), foo_str);
+    ASSERT_EQ(column.value(), bar_slice);
   }
 
   {
-    WideColumnDesc desc(foo_slice, bar_slice);
-    ASSERT_EQ(desc.name(), foo_slice);
-    ASSERT_EQ(desc.value(), bar_slice);
+    WideColumn column(foo_slice, bar_slice);
+    ASSERT_EQ(column.name(), foo_slice);
+    ASSERT_EQ(column.value(), bar_slice);
   }
 
   {
     constexpr char foo_name[] = "foo_name";
     constexpr char bar_value[] = "bar_value";
 
-    WideColumnDesc desc(std::piecewise_construct,
-                        std::forward_as_tuple(foo_name, sizeof(foo) - 1),
-                        std::forward_as_tuple(bar_value, sizeof(bar) - 1));
-    ASSERT_EQ(desc.name(), foo);
-    ASSERT_EQ(desc.value(), bar);
+    WideColumn column(std::piecewise_construct,
+                      std::forward_as_tuple(foo_name, sizeof(foo) - 1),
+                      std::forward_as_tuple(bar_value, sizeof(bar) - 1));
+    ASSERT_EQ(column.name(), foo);
+    ASSERT_EQ(column.value(), bar);
   }
 }
 
 TEST(WideColumnSerializationTest, SerializeDeserialize) {
-  WideColumnDescs column_descs{{"foo", "bar"}, {"hello", "world"}};
+  WideColumns columns{{"foo", "bar"}, {"hello", "world"}};
   std::string output;
 
-  ASSERT_OK(WideColumnSerialization::Serialize(column_descs, output));
+  ASSERT_OK(WideColumnSerialization::Serialize(columns, output));
 
   Slice input(output);
-  WideColumnDescs deserialized_descs;
+  WideColumns deserialized_columns;
 
-  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_descs));
-  ASSERT_EQ(column_descs, deserialized_descs);
+  ASSERT_OK(WideColumnSerialization::Deserialize(input, deserialized_columns));
+  ASSERT_EQ(columns, deserialized_columns);
 
   {
-    const auto it = WideColumnSerialization::Find(deserialized_descs, "foo");
-    ASSERT_NE(it, deserialized_descs.cend());
-    ASSERT_EQ(*it, deserialized_descs.front());
+    const auto it = WideColumnSerialization::Find(deserialized_columns, "foo");
+    ASSERT_NE(it, deserialized_columns.cend());
+    ASSERT_EQ(*it, deserialized_columns.front());
   }
 
   {
-    const auto it = WideColumnSerialization::Find(deserialized_descs, "hello");
-    ASSERT_NE(it, deserialized_descs.cend());
-    ASSERT_EQ(*it, deserialized_descs.back());
+    const auto it =
+        WideColumnSerialization::Find(deserialized_columns, "hello");
+    ASSERT_NE(it, deserialized_columns.cend());
+    ASSERT_EQ(*it, deserialized_columns.back());
   }
 
   {
-    const auto it = WideColumnSerialization::Find(deserialized_descs, "fubar");
-    ASSERT_EQ(it, deserialized_descs.cend());
+    const auto it =
+        WideColumnSerialization::Find(deserialized_columns, "fubar");
+    ASSERT_EQ(it, deserialized_columns.cend());
   }
 
   {
-    const auto it = WideColumnSerialization::Find(deserialized_descs, "snafu");
-    ASSERT_EQ(it, deserialized_descs.cend());
+    const auto it =
+        WideColumnSerialization::Find(deserialized_columns, "snafu");
+    ASSERT_EQ(it, deserialized_columns.cend());
   }
 }
 
@@ -127,9 +130,9 @@ TEST(WideColumnSerializationTest, DeserializeVersionError) {
   std::string buf;
 
   Slice input(buf);
-  WideColumnDescs descs;
+  WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, columns);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "version"));
 }
@@ -142,9 +145,9 @@ TEST(WideColumnSerializationTest, DeserializeUnsupportedVersion) {
   PutVarint32(&buf, future_version);
 
   Slice input(buf);
-  WideColumnDescs descs;
+  WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, columns);
   ASSERT_TRUE(s.IsNotSupported());
   ASSERT_TRUE(std::strstr(s.getState(), "version"));
 }
@@ -156,9 +159,9 @@ TEST(WideColumnSerializationTest, DeserializeNumberOfColumnsError) {
   PutVarint32(&buf, WideColumnSerialization::kCurrentVersion);
 
   Slice input(buf);
-  WideColumnDescs descs;
+  WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, columns);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "number"));
 }
@@ -174,9 +177,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   // Can't decode the first column name
   {
     Slice input(buf);
-    WideColumnDescs descs;
+    WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "name"));
   }
@@ -187,9 +190,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   // Can't decode the size of the first column value
   {
     Slice input(buf);
-    WideColumnDescs descs;
+    WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "value size"));
   }
@@ -200,9 +203,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   // Can't decode the second column name
   {
     Slice input(buf);
-    WideColumnDescs descs;
+    WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "name"));
   }
@@ -213,9 +216,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   // Can't decode the size of the second column value
   {
     Slice input(buf);
-    WideColumnDescs descs;
+    WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "value size"));
   }
@@ -226,9 +229,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   // Can't decode the payload of the first column
   {
     Slice input(buf);
-    WideColumnDescs descs;
+    WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "payload"));
   }
@@ -238,9 +241,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   // Can't decode the payload of the second column
   {
     Slice input(buf);
-    WideColumnDescs descs;
+    WideColumns columns;
 
-    const Status s = WideColumnSerialization::Deserialize(input, descs);
+    const Status s = WideColumnSerialization::Deserialize(input, columns);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(std::strstr(s.getState(), "payload"));
   }
@@ -250,9 +253,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsError) {
   // Success
   {
     Slice input(buf);
-    WideColumnDescs descs;
+    WideColumns columns;
 
-    ASSERT_OK(WideColumnSerialization::Deserialize(input, descs));
+    ASSERT_OK(WideColumnSerialization::Deserialize(input, columns));
   }
 }
 
@@ -274,9 +277,9 @@ TEST(WideColumnSerializationTest, DeserializeColumnsOutOfOrder) {
   PutLengthPrefixedSlice(&buf, second_column_name);
 
   Slice input(buf);
-  WideColumnDescs descs;
+  WideColumns columns;
 
-  const Status s = WideColumnSerialization::Deserialize(input, descs);
+  const Status s = WideColumnSerialization::Deserialize(input, columns);
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(std::strstr(s.getState(), "order"));
 }
