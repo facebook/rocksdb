@@ -168,7 +168,7 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
   }
 
   if (batch->GetProtectionBytesPerKey() == 0 &&
-      write_options_orig.protection_bytes_per_key != 0) {
+      write_options_orig.protection_bytes_per_key > 0) {
     auto s = WriteBatchInternal::SetProtectionBytesPerKey(
         batch, write_options_orig.protection_bytes_per_key);
     if (!s.ok()) {

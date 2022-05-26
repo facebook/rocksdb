@@ -73,7 +73,7 @@ class PessimisticTransactionDB : public TransactionDB {
                                             WriteBatch* updates) {
     Status s;
     if (updates->GetProtectionBytesPerKey() == 0 &&
-        opts.protection_bytes_per_key != 0) {
+        opts.protection_bytes_per_key > 0) {
       s = WriteBatchInternal::SetProtectionBytesPerKey(
           updates, opts.protection_bytes_per_key);
     }
