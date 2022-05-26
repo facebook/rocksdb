@@ -78,6 +78,7 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
+    "ingest_external_file_one_in": 1000000,
     "iterpercent": 10,
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
@@ -432,6 +433,11 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+        if dest_params["file_checksum_impl"] != "none":
+            # TODO(T109283569): there is a bug in `GenerateOneFileChecksum()`,
+            # used by `IngestExternalFile()`, causing it to fail with mmap
+            # reads. Remove this once it is fixed.
+            dest_params["ingest_external_file_one_in"] = 0
     if (dest_params["use_direct_io_for_flush_and_compaction"] == 1
             or dest_params["use_direct_reads"] == 1) and \
             not is_direct_io_supported(dest_params["db"]):
@@ -444,12 +450,23 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
-    # DeleteRange is not currnetly compatible with Txns and timestamp
+    # Multi-key operations are not currently compatible with transactions or
+    # timestamp.
     if (dest_params.get("test_batches_snapshots") == 1 or
         dest_params.get("use_txn") == 1 or
         dest_params.get("user_timestamp_size") > 0):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+        dest_params["ingest_external_file_one_in"] = 0
+    # File ingestion does not guarantee prefix-recoverability with WAL disabled.
+    # Ingesting a file persists data immediately that is newer than memtable
+    # data that can be lost on restart.
+    #
+    # Even if the above issue is fixed or worked around, our trace-and-replay
+    # does not trace file ingestion, so in its current form it would not recover
+    # the expected state to the correct point in time.
+    if (dest_params.get("disable_wal") == 1):
+        dest_params["ingest_external_file_one_in"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1

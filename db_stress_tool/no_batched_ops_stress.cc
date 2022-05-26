@@ -805,13 +805,18 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t key_base = rand_keys[0];
     int column_family = rand_column_families[0];
     std::vector<std::unique_ptr<MutexLock>> range_locks;
+    range_locks.reserve(FLAGS_ingest_external_file_width);
+    std::vector<int64_t> keys;
+    keys.reserve(FLAGS_ingest_external_file_width);
     std::vector<uint32_t> values;
+    values.reserve(FLAGS_ingest_external_file_width);
     SharedState* shared = thread->shared;
 
+    assert(FLAGS_nooverwritepercent < 100);
     // Grab locks, set pending state on expected values, and add keys
     for (int64_t key = key_base;
-         s.ok() && key < std::min(key_base + FLAGS_ingest_external_file_width,
-                                  shared->GetMaxKey());
+         s.ok() && key < shared->GetMaxKey() &&
+         static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
          ++key) {
       if (key == key_base) {
         range_locks.emplace_back(std::move(lock));
@@ -819,6 +824,12 @@ class NonBatchedOpsStressTest : public StressTest {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
+      if (!shared->AllowsOverwrite(key)) {
+        // We could alternatively include `key` on the condition its current
+        // value is `DELETION_SENTINEL`.
+        continue;
+      }
+      keys.push_back(key);
 
       uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
       values.push_back(value_base);
@@ -841,10 +852,8 @@ class NonBatchedOpsStressTest : public StressTest {
       fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
       std::terminate();
     }
-    int64_t key = key_base;
-    for (int32_t value : values) {
-      shared->Put(column_family, key, value, false /* pending */);
-      ++key;
+    for (size_t i = 0; i < keys.size(); ++i) {
+      shared->Put(column_family, keys[i], values[i], false /* pending */);
     }
   }
 #endif  // ROCKSDB_LITE
