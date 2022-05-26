@@ -961,7 +961,6 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "003.sst.trash"));
 }
 
-
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
 // deleted from first db_path were deleted using DeleteScheduler and
@@ -1233,7 +1232,9 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_GT(completed_compactions, 0);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
-  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                COMPACTION_CANCELLED),
+            0);
   ASSERT_EQ(0,
             dbfull()->immutable_db_options().statistics.get()->getTickerCount(
                 FILES_MARKED_TRASH));
@@ -1627,6 +1628,52 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ASSERT_EQ(total_sst_files_size, 0);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBSSTTest, GetTotalSstAndBlobFilesSize) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // create one blob per file
+
+  DestroyAndReopen(options);
+  // Generate 5 files in L0
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 10; j++) {
+      std::string val = "val_file_" + std::to_string(i);
+      ASSERT_OK(Put(Key(j), val));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ("5", FilesPerLevel(0));
+  ASSERT_EQ(50, GetBlobFileNumbers().size());
+
+  std::vector<LiveFileMetaData> live_files_meta;
+  dbfull()->GetLiveFilesMetaData(&live_files_meta);
+  ASSERT_EQ(live_files_meta.size(), 5);
+
+  std::unordered_map<std::string, uint64_t> known_file_sizes;
+  for (const auto& md : live_files_meta) {
+    known_file_sizes[md.relative_filename] = md.size;
+  }
+
+  std::vector<ColumnFamilyMetaData> cf_meta;
+  dbfull()->GetAllColumnFamilyMetaData(&cf_meta);
+  for (const auto& md : cf_meta) {
+    for (auto lmd : md.levels) {
+      for (auto fmd : lmd.files) {
+        ASSERT_TRUE(known_file_sizes.count(fmd.relative_filename));
+      }
+    }
+    for (auto bmd : md.blob_files) {
+      std::string name = bmd.blob_file_name;
+      if (!name.empty() && name[0] == '/') {
+        name = name.substr(1);
+      }
+      ASSERT_TRUE(!known_file_sizes.count(name));
+    }
+  }
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
