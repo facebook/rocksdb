@@ -307,7 +307,7 @@ struct BlockContents {
     return usable_size() + sizeof(*this);
   }
 
-  BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT {
+  BlockContents(BlockContents&& other) noexcept {
     *this = std::move(other);
   }
 

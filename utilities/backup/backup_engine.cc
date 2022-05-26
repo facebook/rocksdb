@@ -699,11 +699,11 @@ class BackupEngineImpl {
     CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
     CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
 
-    CopyOrCreateWorkItem(CopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+    CopyOrCreateWorkItem(CopyOrCreateWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 
-    CopyOrCreateWorkItem& operator=(CopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+    CopyOrCreateWorkItem& operator=(CopyOrCreateWorkItem&& o) noexcept {
       src_path = std::move(o.src_path);
       dst_path = std::move(o.dst_path);
       src_temperature = std::move(o.src_temperature);
@@ -773,12 +773,12 @@ class BackupEngineImpl {
         dst_relative("") {}
 
     BackupAfterCopyOrCreateWorkItem(BackupAfterCopyOrCreateWorkItem&& o)
-        ROCKSDB_NOEXCEPT {
+        noexcept {
       *this = std::move(o);
     }
 
     BackupAfterCopyOrCreateWorkItem& operator=(
-        BackupAfterCopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+        BackupAfterCopyOrCreateWorkItem&& o) noexcept {
       result = std::move(o.result);
       shared = o.shared;
       needed_to_copy = o.needed_to_copy;
@@ -818,12 +818,12 @@ class BackupEngineImpl {
           to_file(_to_file),
           checksum_hex(_checksum_hex) {}
     RestoreAfterCopyOrCreateWorkItem(RestoreAfterCopyOrCreateWorkItem&& o)
-        ROCKSDB_NOEXCEPT {
+        noexcept {
       *this = std::move(o);
     }
 
     RestoreAfterCopyOrCreateWorkItem& operator=(
-        RestoreAfterCopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+        RestoreAfterCopyOrCreateWorkItem&& o) noexcept {
       result = std::move(o.result);
       checksum_hex = std::move(o.checksum_hex);
       return *this;

@@ -13,7 +13,7 @@
 namespace ROCKSDB_NAMESPACE {
 class ScopedArenaIterator {
 
-  void reset(InternalIterator* iter) ROCKSDB_NOEXCEPT {
+  void reset(InternalIterator* iter) noexcept {
     if (iter_ != nullptr) {
       iter_->~InternalIterator();
     }
@@ -28,12 +28,12 @@ class ScopedArenaIterator {
   ScopedArenaIterator(const ScopedArenaIterator&) = delete;
   ScopedArenaIterator& operator=(const ScopedArenaIterator&) = delete;
 
-  ScopedArenaIterator(ScopedArenaIterator&& o) ROCKSDB_NOEXCEPT {
+  ScopedArenaIterator(ScopedArenaIterator&& o) noexcept {
     iter_ = o.iter_;
     o.iter_ = nullptr;
   }
 
-  ScopedArenaIterator& operator=(ScopedArenaIterator&& o) ROCKSDB_NOEXCEPT {
+  ScopedArenaIterator& operator=(ScopedArenaIterator&& o) noexcept {
     reset(o.iter_);
     o.iter_ = nullptr;
     return *this;

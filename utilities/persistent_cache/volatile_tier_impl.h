@@ -74,7 +74,7 @@ class VolatileCacheTier : public PersistentCacheTier {
   // Cache data abstraction
   //
   struct CacheData : LRUElement<CacheData> {
-    explicit CacheData(CacheData&& rhs) ROCKSDB_NOEXCEPT
+    explicit CacheData(CacheData&& rhs) noexcept 
         : key(std::move(rhs.key)),
           value(std::move(rhs.value)) {}
 
