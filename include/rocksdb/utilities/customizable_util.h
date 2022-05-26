@@ -222,7 +222,7 @@ static Status LoadManagedObject(const ConfigOptions& config_options,
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   } else if (value.empty()) {  // No Id and no options.  Clear the object
-    return Status::InvalidArgument("No ID or options available");
+    return Status::NotSupported("No ID or options available");
   } else {
     return NewManagedObject(config_options, id, opt_map, result);
   }
@@ -261,7 +261,7 @@ static Status NewUniqueObject(
     return status;
   } else if (opt_map.empty()) {
     // There was no ID and no map (everything empty).
-    return Status::InvalidArgument("No ID or options available");
+    return Status::NotSupported("No ID or options available");
   } else {
     return Status::NotSupported("Cannot reset object ");
   }
@@ -331,7 +331,7 @@ static Status NewStaticObject(
     return status;
   } else if (opt_map.empty()) {
     // There was no ID and no map (everything empty).
-    return Status::InvalidArgument("No ID or options available");
+    return Status::NotSupported("No ID or options available");
   } else {
     return Status::NotSupported("Cannot reset object ");
   }
