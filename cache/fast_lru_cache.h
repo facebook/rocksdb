@@ -271,11 +271,19 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
-  LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-           CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata);
+  explicit LRUCache();
+  explicit LRUCache(const LRUCacheOptions& options);
   ~LRUCache() override;
-  const char* Name() const override { return "LRUCache"; }
+  static const char* kClassName() { return "FastLRUCache"; }
+  const char* Name() const override { return kClassName(); }
+  Status PrepareOptions(const ConfigOptions& config_options) override;
+  bool IsMutable() const override;
+  std::string GetPrintableOptions() const override;
+  void SetCapacity(size_t capacity) override;
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override;
+  size_t GetCapacity() const override;
+  bool HasStrictCapacityLimit() const override;
+
   CacheShard* GetShard(uint32_t shard) override;
   const CacheShard* GetShard(uint32_t shard) const override;
   void* Value(Handle* handle) override;
@@ -286,7 +294,7 @@ class LRUCache
 
  private:
   LRUCacheShard* shards_ = nullptr;
-  int num_shards_ = 0;
+  LRUCacheOptions options_;
 };
 }  // namespace fast_lru_cache
 

@@ -808,7 +808,6 @@ void LRUCache::DisownData() {
   // Leak data only if that won't generate an ASAN/valgrind warning.
   if (!kMustFreeHeapAllocations) {
     shards_ = nullptr;
-    num_shards_ = 0;
   }
 }
 
@@ -884,8 +883,9 @@ std::string LRUCache::GetPrintableOptions() const {
   return ret;
 }
 
+}  // namespace lru_cache
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
-  auto cache = std::make_shared<LRUCache>(cache_opts);
+  auto cache = std::make_shared<lru_cache::LRUCache>(cache_opts);
   Status s = cache->PrepareOptions(ConfigOptions());
   if (s.ok()) {
     return cache;

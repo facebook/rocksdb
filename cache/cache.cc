@@ -10,6 +10,7 @@
 #include "rocksdb/cache.h"
 
 #include "cache/clock_cache.h"
+#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "rocksdb/configurable.h"
 #include "rocksdb/secondary_cache.h"
@@ -21,14 +22,21 @@ namespace {
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinCache(ObjectLibrary& library,
                                 const std::string& /*arg*/) {
-  library.Register<Cache>(
-      LRUCache::kClassName(),
+  library.AddFactory<Cache>(
+      lru_cache::LRUCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
          std::string* /* errmsg */) {
-        guard->reset(new LRUCache());
+        guard->reset(new lru_cache::LRUCache());
         return guard->get();
       });
-  library.Register<Cache>(
+  library.AddFactory<Cache>(
+      fast_lru_cache::LRUCache::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new fast_lru_cache::LRUCache());
+        return guard->get();
+      });
+  library.AddFactory<Cache>(
       ClockCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
          std::string* errmsg) {
@@ -75,7 +83,7 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
       // it is an old-style LRUCache created by capacity only
       cache = NewLRUCache(ParseSizeT(id));
     } else {
-      status = NewManagedObject<Cache>(config_options, id, opt_map, &cache);
+      status = NewSharedObject<Cache>(config_options, id, opt_map, &cache);
       if (status.ok() && !config_options.invoke_prepare_options) {
         // Always invoke PrepareOptions for a cache...
         status = cache->PrepareOptions(config_options);

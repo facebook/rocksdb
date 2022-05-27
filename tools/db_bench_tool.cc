@@ -558,7 +558,7 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for high pri blocks. "
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
-
+DEFINE_string(cache_uri, "", "Full URI for Cache");
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -2892,7 +2892,18 @@ class Benchmark {
     if (capacity <= 0) {
       return nullptr;
     }
-    if (FLAGS_use_clock_cache) {
+    if (!FLAGS_cache_uri.empty()) {
+      std::shared_ptr<Cache> cache;
+      Status s =
+          Cache::CreateFromString(ConfigOptions(), FLAGS_cache_uri, &cache);
+      if (!s.ok() || cache == nullptr) {
+        fprintf(stderr, "Could not create Cache for [%s] status=%s\n",
+                FLAGS_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      } else {
+        return cache;
+      }
+    } else if (FLAGS_use_clock_cache) {
       auto cache = NewClockCache(static_cast<size_t>(capacity),
                                  FLAGS_cache_numshardbits);
       if (!cache) {

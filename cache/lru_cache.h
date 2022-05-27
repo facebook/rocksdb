@@ -455,24 +455,24 @@ class LRUCache
   explicit LRUCache(const LRUCacheOptions& options);
   virtual ~LRUCache();
   static const char* kClassName() { return "LRUCache"; }
-  virtual const char* Name() const override { return kClassName(); }
+  const char* Name() const override { return kClassName(); }
   Status PrepareOptions(const ConfigOptions& config_options) override;
   bool IsMutable() const override;
-  virtual std::string GetPrintableOptions() const override;
+  std::string GetPrintableOptions() const override;
 
-  virtual void SetCapacity(size_t capacity) override;
-  virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
-  virtual size_t GetCapacity() const override;
-  virtual bool HasStrictCapacityLimit() const override;
+  void SetCapacity(size_t capacity) override;
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override;
+  size_t GetCapacity() const override;
+  bool HasStrictCapacityLimit() const override;
 
-  virtual CacheShard* GetShard(uint32_t shard) override;
-  virtual const CacheShard* GetShard(uint32_t shard) const override;
-  virtual void* Value(Handle* handle) override;
-  virtual size_t GetCharge(Handle* handle) const override;
-  virtual uint32_t GetHash(Handle* handle) const override;
-  virtual DeleterFn GetDeleter(Handle* handle) const override;
-  virtual void DisownData() override;
-  virtual void WaitAll(std::vector<Handle*>& handles) override;
+  CacheShard* GetShard(uint32_t shard) override;
+  const CacheShard* GetShard(uint32_t shard) const override;
+  void* Value(Handle* handle) override;
+  size_t GetCharge(Handle* handle) const override;
+  uint32_t GetHash(Handle* handle) const override;
+  DeleterFn GetDeleter(Handle* handle) const override;
+  void DisownData() override;
+  void WaitAll(std::vector<Handle*>& handles) override;
   MemoryAllocator* memory_allocator() const override {
     return options_.memory_allocator.get();
   }

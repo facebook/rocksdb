@@ -16,6 +16,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -435,29 +436,108 @@ size_t LRUCacheShard::GetPinnedUsage() const {
 
 std::string LRUCacheShard::GetPrintableOptions() const { return std::string{}; }
 
-LRUCache::LRUCache(size_t capacity, int num_shard_bits,
-                   bool strict_capacity_limit,
-                   CacheMetadataChargePolicy metadata_charge_policy)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
-  num_shards_ = 1 << num_shard_bits;
-  shards_ = reinterpret_cast<LRUCacheShard*>(
-      port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
-  size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
-  for (int i = 0; i < num_shards_; i++) {
-    new (&shards_[i])
-        LRUCacheShard(per_shard, strict_capacity_limit, metadata_charge_policy,
-                      /* max_upper_hash_bits */ 32 - num_shard_bits);
+namespace {
+static std::unordered_map<std::string, OptionTypeInfo>
+    fast_lru_cache_options_type_info = {
+#ifndef ROCKSDB_LITE
+        {"capacity",
+         {offsetof(struct LRUCacheOptions, capacity), OptionType::kSizeT,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"num_shard_bits",
+         {offsetof(struct LRUCacheOptions, num_shard_bits), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"strict_capacity_limit",
+         {offsetof(struct LRUCacheOptions, strict_capacity_limit),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+#if 0
+        {"metadata_charge_policy",
+         OptionTypeInfo::Enum(
+             offsetof(struct LRUCacheOptions, metadata_charge_policy),
+             &metadata_charge_policy_string_map)},
+#endif  // 0
+#endif  // ROCKSDB_LITE
+};
+}  // namespace
+
+LRUCache::LRUCache(const LRUCacheOptions& options)
+    : ShardedCache(), shards_(nullptr), options_(options) {
+  RegisterOptions(&options_, &fast_lru_cache_options_type_info);
+}
+
+LRUCache::LRUCache() : ShardedCache(), shards_(nullptr) {
+  RegisterOptions(&options_, &fast_lru_cache_options_type_info);
+}
+Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
+  MutexLock l(&capacity_mutex_);
+  if (shards_ != nullptr) {  // Already prepared
+    return Status::OK();
+  } else if (options_.num_shard_bits >= 20) {
+    return Status::InvalidArgument(
+        "The cache cannot be sharded into too many fine pieces");
+  } else if (options_.num_shard_bits < 0) {
+    options_.num_shard_bits = GetDefaultCacheShardBits(options_.capacity);
   }
+  Status s = ShardedCache::PrepareOptions(config_options);
+  if (s.ok()) {
+    auto num_shards = SetNumShards(options_.num_shard_bits);
+    shards_ = reinterpret_cast<LRUCacheShard*>(
+        port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards));
+    size_t per_shard = (options_.capacity + (num_shards - 1)) / num_shards;
+    for (uint32_t i = 0; i < num_shards; i++) {
+      new (&shards_[i])
+          LRUCacheShard(per_shard, options_.strict_capacity_limit,
+                        options_.metadata_charge_policy,
+                        /* max_upper_hash_bits */ 32 - options_.num_shard_bits);
+    }
+  }
+  return s;
 }
 
 LRUCache::~LRUCache() {
   if (shards_ != nullptr) {
-    assert(num_shards_ > 0);
-    for (int i = 0; i < num_shards_; i++) {
+    auto num_shards = GetNumShards();
+    assert(num_shards > 0);
+    for (uint32_t i = 0; i < num_shards; i++) {
       shards_[i].~LRUCacheShard();
     }
     port::cacheline_aligned_free(shards_);
   }
+}
+
+bool LRUCache::IsMutable() const {
+  MutexLock l(&capacity_mutex_);
+  return (shards_ == nullptr);
+}
+
+size_t LRUCache::GetCapacity() const {
+  MutexLock l(&capacity_mutex_);
+  return options_.capacity;
+}
+
+bool LRUCache::HasStrictCapacityLimit() const {
+  MutexLock l(&capacity_mutex_);
+  return options_.strict_capacity_limit;
+}
+
+void LRUCache::SetCapacity(size_t capacity) {
+  uint32_t num_shards = GetNumShards();
+  const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
+  MutexLock l(&capacity_mutex_);
+  for (uint32_t s = 0; s < num_shards; s++) {
+    GetShard(s)->SetCapacity(per_shard);
+  }
+  options_.capacity = capacity;
+}
+
+void LRUCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
+  uint32_t num_shards = GetNumShards();
+  MutexLock l(&capacity_mutex_);
+
+  for (uint32_t s = 0; s < num_shards; s++) {
+    GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
+  }
+  options_.strict_capacity_limit = strict_capacity_limit;
 }
 
 CacheShard* LRUCache::GetShard(uint32_t shard) {
@@ -489,23 +569,24 @@ void LRUCache::DisownData() {
   // Leak data only if that won't generate an ASAN/valgrind warning.
   if (!kMustFreeHeapAllocations) {
     shards_ = nullptr;
-    num_shards_ = 0;
   }
 }
 
+std::string LRUCache::GetPrintableOptions() const { return ""; }
 }  // namespace fast_lru_cache
 
 std::shared_ptr<Cache> NewFastLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  if (num_shard_bits >= 20) {
-    return nullptr;  // The cache cannot be sharded into too many fine pieces.
+  LRUCacheOptions options(capacity, num_shard_bits, strict_capacity_limit, 0.0,
+                          nullptr, false, metadata_charge_policy);
+  auto cache = std::make_shared<fast_lru_cache::LRUCache>(options);
+  Status s = cache->PrepareOptions(ConfigOptions());
+  if (s.ok()) {
+    return cache;
+  } else {
+    return nullptr;
   }
-  if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
-  }
-  return std::make_shared<fast_lru_cache::LRUCache>(
-      capacity, num_shard_bits, strict_capacity_limit, metadata_charge_policy);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
