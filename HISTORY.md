@@ -14,6 +14,9 @@
 ### New Features
 * Add FileSystem::ReadAsync API in io_tracing
 
+### Behavior changes
+* DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
+
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
 * Fixed a bug where manual flush would block forever even though flush options had wait=false.

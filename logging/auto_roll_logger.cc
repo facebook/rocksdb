@@ -270,6 +270,7 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   Env* env = options.env;
   std::string db_absolute_path;
   Status s = env->GetAbsolutePath(dbname, &db_absolute_path);
+  TEST_SYNC_POINT_CALLBACK("rocksdb::CreateLoggerFromOptions:AfterGetPath", &s);
   if (!s.ok()) {
     return s;
   }
@@ -277,10 +278,20 @@ Status CreateLoggerFromOptions(const std::string& dbname,
       InfoLogFileName(dbname, db_absolute_path, options.db_log_dir);
 
   const auto& clock = env->GetSystemClock();
-  env->CreateDirIfMissing(dbname)
-      .PermitUncheckedError();  // In case it does not exist
-  // Currently we only support roll by time-to-roll and log size
+  // In case it does not exist
+  s = env->CreateDirIfMissing(dbname);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!options.db_log_dir.empty()) {
+    s = env->CreateDirIfMissing(options.db_log_dir);
+    if (!s.ok()) {
+      return s;
+    }
+  }
 #ifndef ROCKSDB_LITE
+  // Currently we only support roll by time-to-roll and log size
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
         env->GetFileSystem(), clock, dbname, options.db_log_dir,

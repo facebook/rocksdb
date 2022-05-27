@@ -1733,6 +1733,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
+  if (!impl->immutable_db_options_.info_log) {
+    s = Status::Aborted("Failed to create logger");
+    delete impl;
+    return s;
+  }
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {
     std::vector<std::string> paths;

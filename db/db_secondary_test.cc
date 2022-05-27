@@ -123,6 +123,30 @@ class DBSecondaryTest : public DBSecondaryTestBase {
   explicit DBSecondaryTest() : DBSecondaryTestBase("db_secondary_test") {}
 };
 
+TEST_F(DBSecondaryTest, FailOpenIfLoggerCreationFail) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  Reopen(options);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "rocksdb::CreateLoggerFromOptions:AfterGetPath", [&](void* arg) {
+        auto* s = reinterpret_cast<Status*>(arg);
+        assert(s);
+        *s = Status::IOError("Injected");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  options.max_open_files = -1;
+  Status s = TryOpenSecondary(options);
+  ASSERT_EQ(nullptr, options.info_log);
+  ASSERT_TRUE(s.IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(DBSecondaryTest, NonExistingDb) {
   Destroy(last_options_);
 
