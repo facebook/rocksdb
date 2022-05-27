@@ -329,23 +329,37 @@ Status DBImplSecondary::RecoverLogFiles(
 Status DBImplSecondary::Get(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value,
+                 /*timestamp*/ nullptr);
+}
+
+Status DBImplSecondary::Get(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableSlice* value, std::string* timestamp) {
+  return GetImpl(read_options, column_family, key, value, timestamp);
 }
 
 Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
-                                const Slice& key, PinnableSlice* pinnable_val) {
+                                const Slice& key, PinnableSlice* pinnable_val,
+                                std::string* timestamp) {
   assert(pinnable_val != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   assert(column_family);
-  const Comparator* ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() || read_options.timestamp) {
-    // TODO: support timestamp
-    return Status::NotSupported();
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    const Status s = FailIfCfHasTs(column_family);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -359,23 +373,27 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   // Acquire SuperVersion
   SuperVersion* super_version = GetAndRefSuperVersion(cfd);
   SequenceNumber snapshot = versions_->LastSequence();
+  GetWithTimestampReadCallback read_cb(snapshot);
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
   Status s;
-  LookupKey lkey(key, snapshot);
+  LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
 
   bool done = false;
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
-                              /*timestamp=*/nullptr, &s, &merge_context,
-                              &max_covering_tombstone_seq, read_options)) {
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), ts, &s,
+                              &merge_context, &max_covering_tombstone_seq,
+                              read_options, &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
-                 lkey, pinnable_val->GetSelf(), /*timestamp=*/nullptr, &s,
-                 &merge_context, &max_covering_tombstone_seq, read_options)) {
+                 lkey, pinnable_val->GetSelf(), ts, &s, &merge_context,
+                 &max_covering_tombstone_seq, read_options, &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
@@ -387,9 +405,11 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
-    super_version->current->Get(read_options, lkey, pinnable_val,
-                                /*timestamp=*/nullptr, &s, &merge_context,
-                                &max_covering_tombstone_seq, &pinned_iters_mgr);
+    super_version->current->Get(
+        read_options, lkey, pinnable_val, ts, &s, &merge_context,
+        &max_covering_tombstone_seq, &pinned_iters_mgr, /*value_found*/ nullptr,
+        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
+        /*do_merge*/ true);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
@@ -416,11 +436,17 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
   }
 
   assert(column_family);
-  const Comparator* ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() || read_options.timestamp) {
-    // TODO: support timestamp
-    return NewErrorIterator(Status::NotSupported());
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
+  } else {
+    const Status s = FailIfCfHasTs(column_family);
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
   }
 
   Iterator* result = nullptr;
@@ -479,17 +505,21 @@ Status DBImplSecondary::NewIterators(
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
   }
+
   if (read_options.timestamp) {
-    // TODO: support timestamp
-    return Status::NotSupported();
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      if (!s.ok()) {
+        return s;
+      }
+    }
   } else {
     for (auto* cf : column_families) {
       assert(cf);
-      const Comparator* ucmp = cf->GetComparator();
-      assert(ucmp);
-      if (ucmp->timestamp_size()) {
-        // TODO: support timestamp
-        return Status::NotSupported();
+      const Status s = FailIfCfHasTs(cf);
+      if (!s.ok()) {
+        return s;
       }
     }
   }
@@ -502,7 +532,7 @@ Status DBImplSecondary::NewIterators(
     // TODO (yanqin) support snapshot.
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
-    SequenceNumber read_seq = versions_->LastSequence();
+    SequenceNumber read_seq(kMaxSequenceNumber);
     for (auto cfh : column_families) {
       ColumnFamilyData* cfd = static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       iterators->push_back(
