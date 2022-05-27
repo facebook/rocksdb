@@ -312,6 +312,28 @@ Status CreateLoggerFromOptions(const std::string& dbname,
     s = env->RenameFile(
         fname, OldInfoLogFileName(dbname, clock->NowMicros(), db_absolute_path,
                                   options.db_log_dir));
+
+    // The operation sequence of "FileExists -> Rename" is not atomic. It's
+    // possible that FileExists returns OK but file gets deleted before Rename.
+    // This can cause Rename to return IOError with subcode PathNotFound.
+    // Although it may be a rare case and applications should be discouraged
+    // to not concurrently modifying the contents of the directories accessed
+    // by the database instance, it is still helpful if we can perform some
+    // simple handling of this case. Therefore, we do the following:
+    // 1. if Rename() returns IOError with PathNotFound subcode, then we check
+    //    whether the source file, i.e. LOG, exists.
+    // 2. if LOG exists, it means Rename() failed due to something else. Then
+    //    we report error.
+    // 3. if LOG does not exist, it means it may have been removed/renamed by
+    //    someone else. Since it does not exist, we can reset Status to OK so
+    //    that this caller can try creating a new LOG file. If this succeeds,
+    //    we should still allow it.
+    if (s.IsPathNotFound()) {
+      s = env->FileExists(fname);
+      if (s.IsNotFound()) {
+        s = Status::OK();
+      }
+    }
   } else if (s.IsNotFound()) {
     // "LOG" is not required to exist since this could be a new DB.
     s = Status::OK();
