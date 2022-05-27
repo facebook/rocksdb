@@ -301,6 +301,8 @@ cf_consistency_params = {
     # Snapshots are used heavily in this test mode, while they are incompatible
     # with compaction filter.
     "enable_compaction_filter": 0,
+    # `CfConsistencyStressTest::TestIngestExternalFile()` is not implemented.
+    "ingest_external_file_one_in": 0,
 }
 
 txn_params = {
