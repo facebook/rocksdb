@@ -353,8 +353,6 @@ ts_params = {
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
-    "secondary_catch_up_one_in": 0,
-    "continuous_verification_interval": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "enable_compaction_filter": 0,

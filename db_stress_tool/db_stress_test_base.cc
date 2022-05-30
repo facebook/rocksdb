@@ -2784,15 +2784,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
     exit(1);
   }
-  if (FLAGS_read_only) {
-    fprintf(stderr, "When opened as read-only, timestamp not supported.\n");
-    exit(1);
-  }
-  if (FLAGS_test_secondary || FLAGS_secondary_catch_up_one_in > 0 ||
-      FLAGS_continuous_verification_interval > 0) {
-    fprintf(stderr, "Secondary instance does not support timestamp.\n");
-    exit(1);
-  }
 #ifndef ROCKSDB_LITE
   if (FLAGS_enable_blob_files || FLAGS_use_blob_db) {
     fprintf(stderr, "BlobDB not supported with timestamp.\n");
