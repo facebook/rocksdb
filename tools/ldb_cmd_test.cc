@@ -244,7 +244,7 @@ class FileChecksumTestHelper {
           live_files[i].file_checksum_func_name != stored_func_name) {
         return Status::Corruption(
             "Checksum does not match! The file: " +
-            ToString(live_files[i].file_number) +
+            std::to_string(live_files[i].file_number) +
             ". In Manifest, checksum name: " + stored_func_name +
             " and checksum " + stored_checksum +
             ". However, expected checksum name: " +
@@ -937,7 +937,7 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
 
   // Create three SST files
   for (size_t i = 0; i < 3; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i), ToString(i)));
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i), std::to_string(i)));
     ASSERT_OK(db->Flush(FlushOptions()));
   }
 
@@ -985,7 +985,8 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
   ColumnFamilyOptions cf_opts;
   ASSERT_OK(db->CreateColumnFamily(cf_opts, "cf1", &cf_handle));
   for (size_t i = 3; i < 5; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), cf_handle, ToString(i), ToString(i)));
+    ASSERT_OK(db->Put(WriteOptions(), cf_handle, std::to_string(i),
+                      std::to_string(i)));
     ASSERT_OK(db->Flush(FlushOptions(), cf_handle));
   }
 
@@ -1048,7 +1049,7 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
       Temperature::kWarm, Temperature::kCold};
   std::map<uint64_t, Temperature> number_to_temp;
   for (size_t i = 0; i < kTestTemps.size(); ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), ToString(i), ToString(i)));
+    ASSERT_OK(db->Put(WriteOptions(), std::to_string(i), std::to_string(i)));
     ASSERT_OK(db->Flush(FlushOptions()));
 
     std::map<uint64_t, Temperature> current_temps;
@@ -1069,8 +1070,8 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
 
   for (size_t i = 0; i < kTestTemps.size(); ++i) {
     std::string val;
-    ASSERT_OK(db->Get(ReadOptions(), ToString(i), &val));
-    ASSERT_EQ(val, ToString(i));
+    ASSERT_OK(db->Get(ReadOptions(), std::to_string(i), &val));
+    ASSERT_EQ(val, std::to_string(i));
   }
 
   // Still all unknown
@@ -1101,8 +1102,8 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
 
   for (size_t i = 0; i < kTestTemps.size(); ++i) {
     std::string val;
-    ASSERT_OK(db->Get(ReadOptions(), ToString(i), &val));
-    ASSERT_EQ(val, ToString(i));
+    ASSERT_OK(db->Get(ReadOptions(), std::to_string(i), &val));
+    ASSERT_EQ(val, std::to_string(i));
   }
 
   requests.clear();

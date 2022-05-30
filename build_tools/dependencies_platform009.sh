@@ -20,3 +20,7 @@ VALGRIND_BASE=/mnt/gvfs/third-party2/valgrind/6ae525939ad02e5e676855082fbbc7828d
 LUA_BASE=/mnt/gvfs/third-party2/lua/162efd9561a3d21f6869f4814011e9cf1b3ff4dc/5.3.4/platform009/a6271c4
 BENCHMARK_BASE=/mnt/gvfs/third-party2/benchmark/30bf49ad6414325e17f3425b0edcb64239427ae3/1.6.1/platform009/7f3b187
 BOOST_BASE=/mnt/gvfs/third-party2/boost/201b7d74941e54b436dfa364a063aa6d2cd7de4c/1.69.0/platform009/8a7ffdf
+GLOG_BASE=/mnt/gvfs/third-party2/glog/32d751bd5673375b438158717ab6a57c1cc57e3d/0.3.2_fb/platform009/10a364d/
+FMT_BASE=/mnt/gvfs/third-party2/fmt/ce0c25f67165f4d2c22a29b8ef50f5600d7873ca/6.1.1/platform009/7f3b187/
+DBL_CONV_BASE=/mnt/gvfs/third-party2/double_conversion/109b3d9696d71f1048678cd7da1e22505470543d/20141126/platform009/7f3b187/
+LIBEVENT_BASE=/mnt/gvfs/third-party2/libevent/4a4d3a79a76c2439b6bd471bf3586b3481dde75e/1.4.14b_hphp/platform009/7f3b187/

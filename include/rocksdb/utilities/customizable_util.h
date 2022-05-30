@@ -2,6 +2,15 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
+//
+// The methods in this file are used to instantiate new Customizable
+// instances of objects.  These methods are most typically used by
+// the "CreateFromString" method of a customizable class.
+// If not developing a new Type of customizable class, you probably
+// do not need the methods in this file.
+//
+// See https://github.com/facebook/rocksdb/wiki/RocksDB-Configurable-Objects
+// for more information on how to develop and use customizable objects
 
 #pragma once
 #include <functional>

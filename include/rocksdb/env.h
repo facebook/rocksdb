@@ -796,7 +796,7 @@ class RandomAccessFile {
   // should return after all reads have completed. The reads will be
   // non-overlapping. If the function return Status is not ok, status of
   // individual requests will be ignored and return status will be assumed
-  // for all read requests. The function return status is only meant for any
+  // for all read requests. The function return status is only meant for
   // any errors that occur before even processing specific read requests
   virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) {
     assert(reqs != nullptr);

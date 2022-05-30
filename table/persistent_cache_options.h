@@ -24,9 +24,6 @@ struct PersistentCacheOptions {
       : persistent_cache(_persistent_cache),
         base_cache_key(_base_cache_key),
         statistics(_statistics) {}
-
-  virtual ~PersistentCacheOptions() {}
-
   std::shared_ptr<PersistentCache> persistent_cache;
   OffsetableCacheKey base_cache_key;
   Statistics* statistics = nullptr;

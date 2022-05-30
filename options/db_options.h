@@ -26,6 +26,7 @@ struct ImmutableDBOptions {
   bool paranoid_checks;
   bool flush_verify_memtable_count;
   bool track_and_verify_wals_in_manifest;
+  bool verify_sst_unique_id_in_manifest;
   Env* env;
   std::shared_ptr<RateLimiter> rate_limiter;
   std::shared_ptr<SstFileManager> sst_file_manager;
@@ -105,6 +106,7 @@ struct ImmutableDBOptions {
   Statistics* stats;
   Logger* logger;
   std::shared_ptr<CompactionService> compaction_service;
+  bool enforce_single_del_contracts;
 
   bool IsWalDirSameAsDBPath() const;
   bool IsWalDirSameAsDBPath(const std::string& path) const;

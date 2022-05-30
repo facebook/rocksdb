@@ -559,15 +559,15 @@ enum class CacheEntryRole {
   kIndexBlock,
   // Other kinds of block-based table block
   kOtherBlock,
-  // WriteBufferManager reservations to account for memtable usage
+  // WriteBufferManager's charge to account for its memtable usage
   kWriteBuffer,
-  // BlockBasedTableBuilder reservations to account for
-  // compression dictionary building buffer's memory usage
+  // Compression dictionary building buffer's charge to account for
+  // its memory usage
   kCompressionDictionaryBuildingBuffer,
-  // Filter reservations to account for
+  // Filter's charge to account for
   // (new) bloom and ribbon filter construction's memory usage
   kFilterConstruction,
-  // BlockBasedTableReader reservations to account for
+  // BlockBasedTableReader's charge to account for
   // its memory usage
   kBlockBasedTableReader,
   // Default bucket, for miscellaneous cache entries. Do not use for

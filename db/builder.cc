@@ -37,6 +37,7 @@
 #include "table/block_based/block_based_table_builder.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
@@ -196,6 +197,7 @@ Status BuildTable(
         ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
+        ioptions.enforce_single_del_contracts,
         /*compaction=*/nullptr, compaction_filter.get(),
         /*shutting_down=*/nullptr,
         /*manual_compaction_paused=*/nullptr,
@@ -309,6 +311,15 @@ Status BuildTable(
       meta->file_checksum_func_name = file_writer->GetFileChecksumFuncName();
       file_checksum = meta->file_checksum;
       file_checksum_func_name = meta->file_checksum_func_name;
+      // Set unique_id only if db_id and db_session_id exist
+      if (!tboptions.db_id.empty() && !tboptions.db_session_id.empty()) {
+        if (!GetSstInternalUniqueId(tboptions.db_id, tboptions.db_session_id,
+                                    meta->fd.GetNumber(), &(meta->unique_id))
+                 .ok()) {
+          // if failed to get unique id, just set it Null
+          meta->unique_id = kNullUniqueId64x2;
+        }
+      }
     }
 
     if (s.ok()) {
@@ -330,10 +341,9 @@ Status BuildTable(
     if (s.ok() && !empty) {
       // Verify that the table is usable
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
-      // here because this is a special case after we finish the table building
+      // here because this is a special case after we finish the table building.
       // No matter whether use_direct_io_for_flush_and_compaction is true,
-      // we will regrad this verification as user reads since the goal is
-      // to cache it here for further user reads
+      // the goal is to cache it here for further user reads.
       ReadOptions read_options;
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           read_options, file_options, tboptions.internal_comparator, *meta,

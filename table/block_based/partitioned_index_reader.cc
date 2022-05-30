@@ -49,7 +49,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
   const bool no_io = (read_options.read_tier == kBlockCacheTier);
   CachableEntry<Block> index_block;
   const Status s =
-      GetOrReadIndexBlock(no_io, get_context, lookup_context, &index_block);
+      GetOrReadIndexBlock(no_io, read_options.rate_limiter_priority,
+                          get_context, lookup_context, &index_block);
   if (!s.ok()) {
     if (iter != nullptr) {
       iter->Invalidate(s);
@@ -82,6 +83,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
     ro.io_timeout = read_options.io_timeout;
     ro.adaptive_readahead = read_options.adaptive_readahead;
     ro.async_io = read_options.async_io;
+    ro.rate_limiter_priority = read_options.rate_limiter_priority;
 
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
@@ -119,8 +121,9 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
 
   CachableEntry<Block> index_block;
   {
-    Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
-                                   &lookup_context, &index_block);
+    Status s = GetOrReadIndexBlock(false /* no_io */, ro.rate_limiter_priority,
+                                   nullptr /* get_context */, &lookup_context,
+                                   &index_block);
     if (!s.ok()) {
       return s;
     }
@@ -184,7 +187,8 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
     Status s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
         /*wait=*/true, /*for_compaction=*/false, &block, BlockType::kIndex,
-        /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr);
+        /*get_context=*/nullptr, &lookup_context, /*contents=*/nullptr,
+        /*async_read=*/false);
 
     if (!s.ok()) {
       return s;

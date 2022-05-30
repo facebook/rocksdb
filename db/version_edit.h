@@ -85,6 +85,7 @@ enum NewFileCustomTag : uint32_t {
   kTemperature = 9,
   kMinTimestamp = 10,
   kMaxTimestamp = 11,
+  kUniqueId = 12,
 
   // If this bit for the custom tag is set, opening DB should fail if
   // we don't know this field.
@@ -101,6 +102,8 @@ constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
+
+using UniqueId64x2 = std::array<uint64_t, 2>;
 
 // A copyable structure contains information needed to read data from an SST
 // file. It can contain a pointer to a table reader opened for the file, or
@@ -217,6 +220,9 @@ struct FileMetaData {
   // Max (newest) timestamp of keys in this file
   std::string max_timestamp;
 
+  // SST unique id
+  UniqueId64x2 unique_id{};
+
   FileMetaData() = default;
 
   FileMetaData(uint64_t file, uint32_t file_path_id, uint64_t file_size,
@@ -227,7 +233,8 @@ struct FileMetaData {
                uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
                const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
-               std::string _min_timestamp, std::string _max_timestamp)
+               std::string _min_timestamp, std::string _max_timestamp,
+               UniqueId64x2 _unique_id)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
         largest(largest_key),
@@ -239,7 +246,8 @@ struct FileMetaData {
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
         min_timestamp(std::move(_min_timestamp)),
-        max_timestamp(std::move(_max_timestamp)) {
+        max_timestamp(std::move(_max_timestamp)),
+        unique_id(std::move(_unique_id)) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
 
@@ -408,7 +416,8 @@ class VersionEdit {
                const std::string& file_checksum,
                const std::string& file_checksum_func_name,
                const std::string& min_timestamp,
-               const std::string& max_timestamp) {
+               const std::string& max_timestamp,
+               const UniqueId64x2& unique_id) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
         level,
@@ -416,7 +425,7 @@ class VersionEdit {
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, file_checksum, file_checksum_func_name,
-                     min_timestamp, max_timestamp));
+                     min_timestamp, max_timestamp, unique_id));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }

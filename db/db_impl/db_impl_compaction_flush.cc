@@ -188,7 +188,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // a memtable without knowing such snapshot(s).
   uint64_t max_memtable_id = needs_to_sync_closed_wals
                                  ? cfd->imm()->GetLatestMemTableID()
-                                 : port::kMaxUint64;
+                                 : std::numeric_limits<uint64_t>::max();
 
   // If needs_to_sync_closed_wals is false, then the flush job will pick ALL
   // existing memtables of the column family when PickMemTable() is called
@@ -1041,7 +1041,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
-                            false, port::kMaxUint64, trim_ts);
+                            false, std::numeric_limits<uint64_t>::max(),
+                            trim_ts);
   } else {
     int first_overlapped_level = kInvalidLevel;
     int max_overlapped_level = kInvalidLevel;
@@ -1078,7 +1079,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
       // max_file_num_to_ignore can be used to filter out newly created SST
       // files, useful for bottom level compaction in a manual compaction
-      uint64_t max_file_num_to_ignore = port::kMaxUint64;
+      uint64_t max_file_num_to_ignore = std::numeric_limits<uint64_t>::max();
       uint64_t next_file_number = versions_->current_next_file_number();
       final_output_level = max_overlapped_level;
       int output_level;
@@ -1650,7 +1651,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->smallest, f->largest, f->fd.smallest_seqno, f->fd.largest_seqno,
           f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
           f->oldest_ancester_time, f->file_creation_time, f->file_checksum,
-          f->file_checksum_func_name, f->min_timestamp, f->max_timestamp);
+          f->file_checksum_func_name, f->min_timestamp, f->max_timestamp,
+          f->unique_id);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -1704,11 +1706,9 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   Status s;
   if (immutable_db_options_.atomic_flush) {
     s = AtomicFlushMemTables({cfh->cfd()}, flush_options,
-                             FlushReason::kManualFlush,
-                             write_controller().IsStopped());
+                             FlushReason::kManualFlush);
   } else {
-    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush,
-                      write_controller().IsStopped());
+    s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1857,11 +1857,12 @@ Status DBImpl::RunManualCompaction(
     }
   }
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "[%s] Manual compaction starting", cfd->GetName().c_str());
-
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
+
+  ROCKS_LOG_BUFFER(&log_buffer, "[%s] Manual compaction starting",
+                   cfd->GetName().c_str());
+
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to
   // true.
@@ -2015,7 +2016,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       // be created and scheduled, status::OK() will be returned.
       s = SwitchMemtable(cfd, &context);
     }
-    const uint64_t flush_memtable_id = port::kMaxUint64;
+    const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
@@ -3277,7 +3278,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
             f->oldest_blob_file_number, f->oldest_ancester_time,
             f->file_creation_time, f->file_checksum, f->file_checksum_func_name,
-            f->min_timestamp, f->max_timestamp);
+            f->min_timestamp, f->max_timestamp, f->unique_id);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

@@ -118,8 +118,8 @@ void WinLogger::Logv(const char* format, va_list ap) {
     char* p = base;
     char* limit = base + bufsize;
 
-    struct timeval now_tv;
-    gettimeofday(&now_tv, nullptr);
+    port::TimeVal now_tv;
+    port::GetTimeOfDay(&now_tv, nullptr);
     const time_t seconds = now_tv.tv_sec;
     struct tm t;
     localtime_s(&t, &seconds);

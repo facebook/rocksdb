@@ -187,9 +187,15 @@ DEFINE_int32(open_files, ROCKSDB_NAMESPACE::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
-DEFINE_int64(compressed_cache_size, -1,
+DEFINE_int64(compressed_cache_size, 0,
              "Number of bytes to use as a cache of compressed data."
-             " Negative means use default settings.");
+             " 0 means use default settings.");
+
+DEFINE_int32(
+    compressed_cache_numshardbits, -1,
+    "Number of shards for the compressed block cache is 2 ** "
+    "compressed_cache_numshardbits. Negative value means default settings. "
+    "This is applied only if compressed_cache_size is greater than 0.");
 
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
@@ -304,10 +310,20 @@ DEFINE_int32(cache_numshardbits, 6,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
-DEFINE_bool(reserve_table_reader_memory, false,
-            "A dynamically updating charge to block cache, loosely based on "
-            "the actual memory usage of table reader, will occur to account "
-            "the memory, if block cache available.");
+DEFINE_bool(charge_compression_dictionary_building_buffer, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kCompressionDictionaryBuildingBuffer");
+
+DEFINE_bool(charge_filter_construction, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kFilterConstruction");
+
+DEFINE_bool(charge_table_reader, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kBlockBasedTableReader");
 
 DEFINE_int32(
     top_level_index_pinning,
@@ -515,6 +531,15 @@ DEFINE_bool(statistics, false, "Create database statistics");
 DEFINE_bool(sync, false, "Sync all writes to disk");
 
 DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
+
+DEFINE_uint64(bytes_per_sync, ROCKSDB_NAMESPACE::Options().bytes_per_sync,
+              "If nonzero, sync SST file data incrementally after every "
+              "`bytes_per_sync` bytes are written");
+
+DEFINE_uint64(wal_bytes_per_sync,
+              ROCKSDB_NAMESPACE::Options().wal_bytes_per_sync,
+              "If nonzero, sync WAL file data incrementally after every "
+              "`bytes_per_sync` bytes are written");
 
 DEFINE_int32(kill_random_test, 0,
              "If non-zero, kill at various points in source code with "
@@ -727,6 +752,13 @@ DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
               "Buffering limit for SST file data to sample for dictionary "
               "compression.");
 
+DEFINE_bool(
+    compression_use_zstd_dict_trainer, true,
+    "Use zstd's trainer to generate dictionary. If the options is false, "
+    "zstd's finalizeDictionary() API is used to generate dictionary. "
+    "ZSTD 1.4.5+ is required. If ZSTD 1.4.5+ is not linked with the binary, "
+    "this flag will have the default value true.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
@@ -926,5 +958,11 @@ DEFINE_bool(
 
 DEFINE_string(wal_compression, "none",
               "Algorithm to use for WAL compression. none to disable.");
+
+DEFINE_bool(
+    verify_sst_unique_id_in_manifest, false,
+    "Enable DB options `verify_sst_unique_id_in_manifest`, if true, during "
+    "DB-open try verifying the SST unique id between MANIFEST and SST "
+    "properties.");
 
 #endif  // GFLAGS

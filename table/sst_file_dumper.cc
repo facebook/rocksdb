@@ -253,7 +253,7 @@ Status SstFileDumper::ShowAllCompressionSizes(
         compression_types,
     int32_t compress_level_from, int32_t compress_level_to,
     uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
-    uint64_t max_dict_buffer_bytes) {
+    uint64_t max_dict_buffer_bytes, bool use_zstd_dict_trainer) {
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
   for (auto& i : compression_types) {
     if (CompressionTypeSupported(i.first)) {
@@ -262,6 +262,7 @@ Status SstFileDumper::ShowAllCompressionSizes(
       compress_opt.max_dict_bytes = max_dict_bytes;
       compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
       compress_opt.max_dict_buffer_bytes = max_dict_buffer_bytes;
+      compress_opt.use_zstd_dict_trainer = use_zstd_dict_trainer;
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;

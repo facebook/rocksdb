@@ -53,15 +53,7 @@ class SharedState {
   // local variable updated via sync points to keep track of errors injected
   // while reading filter blocks in order to ignore the Get/MultiGet result
   // for those calls
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-#if defined(OS_SOLARIS)
-  static __thread bool ignore_read_error;
-#else
   static thread_local bool ignore_read_error;
-#endif // OS_SOLARIS
-#else
-  static bool ignore_read_error;
-#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
   SharedState(Env* /*env*/, StressTest* stress_test)
       : cv_(&mu_),
@@ -133,13 +125,21 @@ class SharedState {
     for (int i = 0; i < FLAGS_column_families; ++i) {
       key_locks_[i].reset(new port::Mutex[num_locks]);
     }
-#ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
+#ifdef NDEBUG
+      // Unsupported in release mode because it relies on
+      // `IGNORE_STATUS_IF_ERROR` to distinguish faults not expected to lead to
+      // failure.
+      fprintf(stderr,
+              "Cannot set nonzero value for --read_fault_one_in in "
+              "release mode.");
+      exit(1);
+#else   // NDEBUG
       SyncPoint::GetInstance()->SetCallBack("FaultInjectionIgnoreError",
                                             IgnoreReadErrorCallback);
       SyncPoint::GetInstance()->EnableProcessing();
+#endif  // NDEBUG
     }
-#endif // NDEBUG
   }
 
   ~SharedState() {
