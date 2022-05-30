@@ -184,6 +184,10 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 
+  void ContinuouslyVerifyDb(ThreadState* thread) const override {
+    (void)thread;
+  }
+
   void MaybeClearOneColumnFamily(ThreadState* thread) override {
     if (FLAGS_column_families > 1) {
       if (thread->rand.OneInOpt(FLAGS_clear_column_family_one_in)) {
