@@ -1823,6 +1823,18 @@ struct CompactRangeOptions {
   // Cancellation can be delayed waiting on automatic compactions when used
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
+
+  // If set to true, it will replace the option in the ColumnFamilyOptions for
+  // this compaction. The compaction will perform garbage collection (GC) of
+  // blobs that are no longer referenced by any live SST files. Also, valid
+  // blobs residing in blob files older than a cutoff get relocated to new files
+  // as they are encountered during compaction.
+  bool enable_blob_garbage_collection = false;
+
+  // The cutoff in terms of blob file age for garbage collection.
+  // Note that enable_blob_garbage_collection has to be set in order for this
+  // option to have any effect.
+  double blob_garbage_collection_age_cutoff = 0.25;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
