@@ -186,6 +186,14 @@ class NonBatchedOpsStressTest : public StressTest {
 
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
     (void)thread;
+    if (!cmp_db_) {
+      return;
+    }
+    assert(cmp_db_);
+    assert(!cmp_cfhs_.empty());
+    Status s = cmp_db_->TryCatchUpWithPrimary();
+    assert(s.ok());
+    (void)s;
   }
 
   void MaybeClearOneColumnFamily(ThreadState* thread) override {

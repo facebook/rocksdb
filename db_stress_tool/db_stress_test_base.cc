@@ -2660,8 +2660,8 @@ void StressTest::Open(SharedState* shared) {
       std::string secondary_path = FLAGS_secondaries_base + "/cmp_database";
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
                               cf_descriptors, &cmp_cfhs_, &cmp_db_);
-      assert(!s.ok() ||
-             cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+      assert(s.ok());
+      assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
     }
   } else {
 #ifndef ROCKSDB_LITE
