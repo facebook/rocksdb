@@ -74,12 +74,19 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   return s;
 }
 
-BatchResult TransactionLogIteratorImpl::GetBatch()  {
+BatchResult TransactionLogIteratorImpl::GetBatch() {
   assert(is_valid_);  //  cannot call in a non valid state.
+  assert(current_batch_);
   BatchResult result;
   result.sequence = current_batch_seq_;
   result.writeBatchPtr = std::move(current_batch_);
   return result;
+}
+
+void TransactionLogIteratorImpl::RecycleWriteBatch(
+    std::unique_ptr<WriteBatch> write_batch) {
+  assert(write_batch);
+  current_batch_ = std::move(write_batch);
 }
 
 Status TransactionLogIteratorImpl::status() { return current_status_; }
@@ -245,13 +252,23 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
 }
 
 void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
-  std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  Status s = WriteBatchInternal::SetContents(batch.get(), record);
+  // Check if a WriteBatch instance is still present.
+  if (current_batch_ == nullptr) {
+    // No WriteBatch present, so create a new instance.
+    current_batch_ = std::make_unique<WriteBatch>();
+  } else {
+    // Reset the previous instance to save repeated memory allocations.
+    current_batch_->Clear();
+  }
+
+  assert(current_batch_);
+
+  Status s = WriteBatchInternal::SetContents(current_batch_.get(), record);
   s.PermitUncheckedError();  // TODO: What should we do with this error?
 
   SequenceNumber expected_seq = current_last_seq_ + 1;
   // If the iterator has started, then confirm that we get continuous batches
-  if (started_ && !IsBatchExpected(batch.get(), expected_seq)) {
+  if (started_ && !IsBatchExpected(current_batch_.get(), expected_seq)) {
     // Seek to the batch having expected sequence number
     if (expected_seq < files_->at(current_file_index_)->StartSequence()) {
       // Expected batch must lie in the previous log file
@@ -270,14 +287,13 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     return SeekToStartSequence(current_file_index_, !seq_per_batch_);
   }
 
-  current_batch_seq_ = WriteBatchInternal::Sequence(batch.get());
+  current_batch_seq_ = WriteBatchInternal::Sequence(current_batch_.get());
   assert(!seq_per_batch_);
   current_last_seq_ =
-      current_batch_seq_ + WriteBatchInternal::Count(batch.get()) - 1;
+      current_batch_seq_ + WriteBatchInternal::Count(current_batch_.get()) - 1;
   // currentBatchSeq_ can only change here
   assert(current_last_seq_ <= versions_->LastSequence());
 
-  current_batch_ = std::move(batch);
   is_valid_ = true;
   current_status_ = Status::OK();
 }

@@ -74,6 +74,9 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
   virtual BatchResult GetBatch() override;
 
+  virtual void RecycleWriteBatch(
+      std::unique_ptr<WriteBatch> write_batch) override;
+
  private:
   const std::string& dir_;
   const ImmutableDBOptions* options_;

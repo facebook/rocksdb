@@ -105,6 +105,16 @@ class TransactionLogIterator {
   // ONLY use if Valid() is true and status() is OK.
   virtual BatchResult GetBatch() = 0;
 
+  // Return a WriteBatch returned by GetBatch() to the TransactionLogIterator.
+  // Embedders can optionally use this API to recycle already handed-out
+  // WriteBatches and avoid repeated allocations for retrieving WriteBatches
+  // via repeated calls to GetBatch().
+  // Using this API can have a positive impact on performance if GetBatch()
+  // is called subsequently on the same TransactionLogIterator instance.
+  // Usage of this API should not affect the correctness of the Iterator's
+  // behavior.
+  virtual void RecycleWriteBatch(std::unique_ptr<WriteBatch> write_batch) = 0;
+
   // The read options for TransactionLogIterator.
   struct ReadOptions {
     // If true, all data read from underlying storage will be
