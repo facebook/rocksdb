@@ -179,6 +179,7 @@ default_params = {
     "wal_compression": "none",
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": "",
+    "test_secondary": 1,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
