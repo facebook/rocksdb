@@ -61,8 +61,6 @@ Status DBImplSecondary::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
-    single_column_family_mode_ =
-        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
     std::unordered_set<ColumnFamilyData*> cfds_changed;
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);

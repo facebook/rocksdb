@@ -1207,9 +1207,6 @@ class DBImpl : public DB {
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
-  // If true, we have only one (default) column family. We use this to optimize
-  // some code-paths
-  bool single_column_family_mode_;
 
   // The options to access storage files
   const FileOptions file_options_;
