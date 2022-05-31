@@ -14,6 +14,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Class representing a wide column, which is defined as a pair of column name
+// and column value.
 class WideColumn {
  public:
   WideColumn() = default;
