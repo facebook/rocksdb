@@ -319,7 +319,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
+
   log::Writer* log_writer = logs_.back().writer;
+  LogFileNumberSize& log_file_number_size = alive_log_files_.back();
+
+  assert(log_writer->get_log_number() == log_file_number_size.number);
 
   mutex_.Unlock();
 
@@ -419,7 +423,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (status.ok() && !write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
         io_s = WriteToWAL(write_group, log_writer, log_used, need_log_sync,
-                          need_log_dir_sync, last_sequence + 1);
+                          need_log_dir_sync, last_sequence + 1,
+                          log_file_number_size);
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
@@ -586,6 +591,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     w.status = PreprocessWrite(write_options, &need_log_sync, &write_context);
     PERF_TIMER_START(write_pre_and_post_process_time);
     log::Writer* log_writer = logs_.back().writer;
+    LogFileNumberSize& log_file_number_size = alive_log_files_.back();
+
+    assert(log_writer->get_log_number() == log_file_number_size.number);
+
     mutex_.Unlock();
 
     // This can set non-OK status if callback fail.
@@ -649,8 +658,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                           wal_write_group.size - 1);
         RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
       }
-      io_s = WriteToWAL(wal_write_group, log_writer, log_used, need_log_sync,
-                        need_log_dir_sync, current_sequence);
+      io_s =
+          WriteToWAL(wal_write_group, log_writer, log_used, need_log_sync,
+                     need_log_dir_sync, current_sequence, log_file_number_size);
       w.status = io_s;
     }
 
@@ -1178,6 +1188,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             log::Writer* log_writer, uint64_t* log_used,
                             uint64_t* log_size,
                             Env::IOPriority rate_limiter_priority,
+                            LogFileNumberSize& log_file_number_size,
                             bool with_db_mutex, bool with_log_mutex) {
   assert(log_size != nullptr);
 
@@ -1211,12 +1222,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
     *log_used = logfile_number_;
   }
   total_log_size_ += log_entry.size();
-  if (with_db_mutex || with_log_mutex) {
-    assert(alive_log_files_tail_ == alive_log_files_.rbegin());
-    assert(alive_log_files_tail_ != alive_log_files_.rend());
-  }
-  LogFileNumberSize& last_alive_log = *alive_log_files_tail_;
-  last_alive_log.AddSize(*log_size);
+  log_file_number_size.AddSize(*log_size);
   log_empty_ = false;
   return io_s;
 }
@@ -1224,7 +1230,8 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
 IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
                             log::Writer* log_writer, uint64_t* log_used,
                             bool need_log_sync, bool need_log_dir_sync,
-                            SequenceNumber sequence) {
+                            SequenceNumber sequence,
+                            LogFileNumberSize& log_file_number_size) {
   IOStatus io_s;
   assert(!two_write_queues_);
   assert(!write_group.leader->disable_wal);
@@ -1245,7 +1252,8 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
 
   uint64_t log_size;
   io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size,
-                    write_group.leader->rate_limiter_priority);
+                    write_group.leader->rate_limiter_priority,
+                    log_file_number_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
@@ -1339,9 +1347,14 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
   log::Writer* log_writer = logs_.back().writer;
+  LogFileNumberSize& log_file_number_size = alive_log_files_.back();
+
+  assert(log_writer->get_log_number() == log_file_number_size.number);
+
   uint64_t log_size;
   io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size,
                     write_group.leader->rate_limiter_priority,
+                    log_file_number_size,
                     /*with_db_mutex=*/false, /*with_log_mutex=*/true);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
@@ -1998,7 +2011,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       log_dir_synced_ = false;
       logs_.emplace_back(logfile_number_, new_log);
       alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
-      alive_log_files_tail_ = alive_log_files_.rbegin();
     }
     log_write_mutex_.Unlock();
   }
