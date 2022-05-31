@@ -10,6 +10,7 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
+#include "cache/fast_lru_cache.h"  // Is this the right place for this include?
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
@@ -130,6 +131,10 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (capacity <= 0) {
     return nullptr;
   }
+  if (FLAGS_use_clock_cache && FLAGS_use_fast_lru_cache) {
+    fprintf(stderr, "Only one type of block cache can be chosen.");
+    exit(1);
+  }
   if (FLAGS_use_clock_cache) {
     auto cache = NewClockCache((size_t)capacity);
     if (!cache) {
@@ -137,6 +142,8 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
       exit(1);
     }
     return cache;
+  } else if (FLAGS_use_fast_lru_cache) {
+    return NewFastLRUCache((size_t)capacity, num_shard_bits);
   } else {
     LRUCacheOptions opts;
     opts.capacity = capacity;

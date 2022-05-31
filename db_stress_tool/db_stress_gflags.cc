@@ -346,6 +346,10 @@ DEFINE_int32(
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
+DEFINE_bool(
+    use_fast_lru_cache, false,
+    "Replace default LRU block cache with experimental LRU block cache.");
+
 DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");

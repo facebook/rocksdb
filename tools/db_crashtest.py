@@ -114,6 +114,7 @@ default_params = {
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "use_clock_cache": 0, # currently broken
+    "use_fast_lru_cache": lambda: random.randint(0, 1),
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
