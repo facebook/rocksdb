@@ -121,7 +121,7 @@ public class MutableColumnFamilyOptions
     enable_blob_garbage_collection(ValueType.BOOLEAN),
     blob_garbage_collection_age_cutoff(ValueType.DOUBLE),
     blob_garbage_collection_force_threshold(ValueType.DOUBLE),
-    blob_compaction_readahead_size(ValueType.LONG);
+    blob_compaction_readahead_size(ValueType.LONG),
     blob_file_starting_level(ValueType.INT);
 
     private final ValueType valueType;

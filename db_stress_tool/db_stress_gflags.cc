@@ -439,6 +439,11 @@ DEFINE_uint64(blob_compaction_readahead_size,
                   .blob_compaction_readahead_size,
               "[Integrated BlobDB] Compaction readahead for blob files.");
 
+DEFINE_uint32(
+    blob_file_starting_level,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
+    "[Integrated BlobDB] The starting level for blob files.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
