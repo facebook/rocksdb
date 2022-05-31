@@ -1941,9 +1941,8 @@ TEST_F(ExternalSSTFileBasicTest, StableSnapshotWhileLoggingToManifest) {
   const Snapshot* snapshot = nullptr;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void* /* arg */) {
-        // Prevent memory leak: this callback may be called multiple times
-        // and previous snapshot need to be freed
-        db_->ReleaseSnapshot(snapshot);
+        // prevent background compaction job to call this callback
+        ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
         snapshot = db_->GetSnapshot();
         ReadOptions read_opts;
         read_opts.snapshot = snapshot;
@@ -1965,10 +1964,8 @@ TEST_F(ExternalSSTFileBasicTest, StableSnapshotWhileLoggingToManifest) {
   std::string value;
   ASSERT_OK(db_->Get(read_opts, "k", &value));
   ASSERT_EQ(kPutVal, value);
-
   db_->ReleaseSnapshot(snapshot);
 
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   // After reopen, sequence number should be up current such that
   // ingested value is read
   Reopen(CurrentOptions());
