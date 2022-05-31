@@ -291,7 +291,7 @@ TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                               /*end=*/nullptr));
 
-  // No blob file should be created since blob_file_starting_level is 1.
+  // No blob file should be created since blob_file_starting_level is 5.
   ASSERT_EQ(0, GetBlobFileNumbers().size());
   ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/0));
   ASSERT_EQ(4, NumTableFilesAtLevel(/*level=*/1));
