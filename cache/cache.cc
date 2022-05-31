@@ -48,7 +48,39 @@ static int RegisterBuiltinCache(ObjectLibrary& library,
         guard->reset(clock.release());
         return guard->get();
       });
-  return 1;
+  //** Register AsIndividualId for the moment to pass the tests
+  // If the Cache is made to create as a ManagedObject, these factories
+  // may not be necessary as the ManagedObject code should handle it.
+  library.AddFactory<Cache>(
+      ObjectLibrary::PatternEntry::AsIndividualId(
+          lru_cache::LRUCache::kClassName()),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new lru_cache::LRUCache());
+        return guard->get();
+      });
+  library.AddFactory<Cache>(
+      ObjectLibrary::PatternEntry::AsIndividualId(
+          fast_lru_cache::LRUCache::kClassName()),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new fast_lru_cache::LRUCache());
+        return guard->get();
+      });
+  library.AddFactory<Cache>(
+      ObjectLibrary::PatternEntry::AsIndividualId(ClockCache::kClassName()),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* errmsg) {
+        std::unique_ptr<ClockCache> clock;
+        Status s = ClockCache::CreateClockCache(&clock);
+        if (!s.ok()) {
+          *errmsg = s.ToString();
+        }
+        guard->reset(clock.release());
+        return guard->get();
+      });
+  size_t num_types;
+  return static_cast<int>(library.GetFactoryCount(&num_types));
 }
 #endif  // ROCKSDB_LITE
 }  // namespace

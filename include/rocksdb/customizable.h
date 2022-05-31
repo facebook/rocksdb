@@ -204,6 +204,9 @@ class Customizable : public Configurable {
   virtual const Customizable* Inner() const { return nullptr; }
 
  protected:
+  // Returns true if that_id is equivalent to this_id
+  virtual bool IdsAreEquivalent(const std::string& that_id) const;
+
   // Generates a ID specific for this instance of the customizable.
   // The unique ID is of the form <name>:<addr>#pid, where:
   // - name is the Name() of this object;

@@ -936,34 +936,6 @@ TEST_F(CreateCacheTest, LRUFromBadOptions) {
       Cache::CreateFromString(config_options_, "num_shard_bits=21", &cache));
 }
 
-TEST_F(CreateCacheTest, ManagedCache) {
-  std::shared_ptr<Cache> cache1 = NewLRUCache(1024 * 1024);
-  std::shared_ptr<Cache> cache2 = NewLRUCache(1024 * 1024);
-  std::shared_ptr<Cache> cache3;
-  ASSERT_NE(cache1, nullptr);
-  ASSERT_NE(cache2, nullptr);
-  ASSERT_NE(cache1, cache2);
-
-  auto cache_id = cache1->GetId();
-  ASSERT_OK(Cache::CreateFromString(config_options_, cache_id, &cache3));
-  ASSERT_EQ(cache1, cache3);
-  cache1.reset();
-  cache2.reset();
-  cache3.reset();
-  ASSERT_NOK(Cache::CreateFromString(config_options_, cache_id, &cache3));
-
-  cache1 = NewClockCache(1024 * 1024);
-  if (cache1) {
-    cache_id = cache1->GetId();
-    ASSERT_OK(
-        Cache::CreateFromString(config_options_, cache1->GetId(), &cache3));
-    ASSERT_EQ(cache1, cache3);
-    cache1.reset();
-    cache3.reset();
-    ASSERT_NOK(Cache::CreateFromString(config_options_, cache_id, &cache3));
-  }
-}
-
 #ifdef SUPPORT_CLOCK_CACHE
 TEST_F(CreateCacheTest, ClockCacheFromBadOptions) {
   std::shared_ptr<Cache> cache;

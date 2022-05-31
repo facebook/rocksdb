@@ -70,6 +70,25 @@ std::string Customizable::SerializeOptions(const ConfigOptions& config_options,
 
 #endif  // ROCKSDB_LITE
 
+// Returns true if that_id is equivalent to this_id
+bool Customizable::IdsAreEquivalent(const std::string& that_id) const {
+  const auto& id = GetId();
+  if (that_id == id) {
+    return true;
+  } else {
+    auto ipos = id.find("@");
+    auto tpos = that_id.find("@");
+    if (ipos != std::string::npos && tpos != std::string::npos) {
+      return id.compare(0, ipos, that_id, 0, tpos) == 0;
+    } else if (tpos != std::string::npos) {
+      return that_id.compare(0, tpos, id) == 0;
+    } else if (ipos != std::string::npos) {
+      return id.compare(0, ipos, that_id) == 0;
+    }
+    return false;
+  }
+}
+
 bool Customizable::AreEquivalent(const ConfigOptions& config_options,
                                  const Configurable* other,
                                  std::string* mismatch) const {
@@ -78,7 +97,7 @@ bool Customizable::AreEquivalent(const ConfigOptions& config_options,
     const Customizable* custom = reinterpret_cast<const Customizable*>(other);
     if (custom == nullptr) {  // Cast failed
       return false;
-    } else if (GetId() != custom->GetId()) {
+    } else if (!IdsAreEquivalent(custom->GetId())) {
       *mismatch = OptionTypeInfo::kIdPropName();
       return false;
     } else if (config_options.sanity_level >
