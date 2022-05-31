@@ -175,7 +175,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 abc : y4 xyz")
 
         blob_files = self.getBlobFiles(dbPath)
-        self.assertTrue(len(blob_files) >= 1) 
+        self.assertTrue(len(blob_files) >= 1)
 
     def testBlobPut(self):
         print("Running testBlobPut...")
