@@ -25,6 +25,7 @@ The new BlobDB can be configured (on a per-column family basis if needed) simply
 * `blob_compression_type`: the compression type to use for blob files. All blobs in the same file are compressed using the same algorithm.
 * `enable_blob_garbage_collection`: set this to `true` to make BlobDB actively relocate valid blobs from the oldest blob files as they are encountered during compaction.
 * `blob_garbage_collection_age_cutoff`: the threshold that the GC logic uses to determine which blob files should be considered “old.” For example, the default value of 0.25 signals to RocksDB that blobs residing in the oldest 25% of blob files should be relocated by GC. This parameter can be tuned to adjust the trade-off between write amplification and space amplification.
+* `blob_file_starting_level`: enable blob files starting from a certain LSM tree level. For certain use cases that have a mix of short-lived and long-lived values, it might make sense to support extracting large values only during compactions whose output level is greater than or equal to a specified LSM tree level. This could reduce the space amplification caused by large values that are turned into garbage shortly after being written at the price of some write amplification incurred by long-lived values whose extraction to blob files is delayed.
 
 The above options are all dynamically adjustable via the `SetOptions` API; changing them will affect subsequent flushes and compactions but not ones that are already in progress.
 
