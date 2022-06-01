@@ -259,7 +259,8 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   for (auto& key_ctx : key_context) {
     sorted_keys.emplace_back(&key_ctx);
   }
-  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, ReadOptions());
+  MultiGetContext ctx(&sorted_keys, 0, sorted_keys.size(), 0, ReadOptions(),
+                      fs_.get(), nullptr);
 
   // Execute MultiGet.
   MultiGetContext::Range range = ctx.GetMultiGetRange();
@@ -283,46 +284,10 @@ TEST_P(BlockBasedTableReaderTest, MultiGet) {
   }
 }
 
-class BlockBasedTableReaderResOnlyCache : public CacheWrapper {
- public:
-  explicit BlockBasedTableReaderResOnlyCache(std::shared_ptr<Cache> target)
-      : CacheWrapper(std::move(target)) {}
-
-  using Cache::Insert;
-  Status Insert(const Slice& key, void* value, size_t charge,
-                void (*deleter)(const Slice& key, void* value),
-                Handle** handle = nullptr,
-                Priority priority = Priority::LOW) override {
-    if (deleter == kNoopDeleterForBlockBasedTableReader) {
-      return target_->Insert(key, value, charge, deleter, handle, priority);
-    } else {
-      return Status::OK();
-    }
-  }
-
-  using Cache::Release;
-  bool Release(Handle* handle, bool force_erase = false) override {
-    auto deleter = GetDeleter(handle);
-    if (deleter == kNoopDeleterForBlockBasedTableReader) {
-      return target_->Release(handle, force_erase);
-    } else {
-      return true;
-    }
-  }
-
- private:
-  static const Cache::DeleterFn kNoopDeleterForBlockBasedTableReader;
-};
-
-const Cache::DeleterFn
-    BlockBasedTableReaderResOnlyCache::kNoopDeleterForBlockBasedTableReader =
-        CacheReservationManagerImpl<CacheEntryRole::kBlockBasedTableReader>::
-            TEST_GetNoopDeleterForRole();
-
-class BlockBasedTableReaderCapMemoryTest
+class ChargeTableReaderTest
     : public BlockBasedTableReaderBaseTest,
       public testing::WithParamInterface<
-          bool /* reserve_table_builder_memory */> {
+          CacheEntryRoleOptions::Decision /* charge_table_reader_mem */> {
  protected:
   static std::size_t CalculateMaxTableReaderNumBeforeCacheFull(
       std::size_t cache_capacity, std::size_t approx_table_reader_mem) {
@@ -361,28 +326,30 @@ class BlockBasedTableReaderCapMemoryTest
     kv_ = BlockBasedTableReaderBaseTest::GenerateKVMap();
     compression_type_ = CompressionType::kNoCompression;
 
-    table_reader_res_only_cache_.reset(new BlockBasedTableReaderResOnlyCache(
-        NewLRUCache(4 * CacheReservationManagerImpl<
-                            CacheEntryRole::kBlockBasedTableReader>::
-                            GetDummyEntrySize(),
-                    0 /* num_shard_bits */, true /* strict_capacity_limit */)));
+    table_reader_charge_tracking_cache_ = std::make_shared<
+        TargetCacheChargeTrackingCache<
+            CacheEntryRole::kBlockBasedTableReader>>((NewLRUCache(
+        4 * CacheReservationManagerImpl<
+                CacheEntryRole::kBlockBasedTableReader>::GetDummyEntrySize(),
+        0 /* num_shard_bits */, true /* strict_capacity_limit */)));
 
-    // To ApproximateTableReaderMem() without encountering any potential errors
-    // caused by BlocBasedTableReader::reserve_table_reader_memory == true, we
-    // first turn off the feature to test
-    reserve_table_reader_memory_ = false;
+    // To ApproximateTableReaderMem() without being affected by
+    // the feature of charging its memory, we turn off the feature
+    charge_table_reader_ = CacheEntryRoleOptions::Decision::kDisabled;
     BlockBasedTableReaderBaseTest::SetUp();
     approx_table_reader_mem_ = ApproximateTableReaderMem();
 
     // Now we condtionally turn on the feature to test
-    reserve_table_reader_memory_ = GetParam();
+    charge_table_reader_ = GetParam();
     ConfigureTableFactory();
   }
 
   void ConfigureTableFactory() override {
     BlockBasedTableOptions table_options;
-    table_options.reserve_table_reader_memory = reserve_table_reader_memory_;
-    table_options.block_cache = table_reader_res_only_cache_;
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kBlockBasedTableReader,
+         {/*.charged = */ charge_table_reader_}});
+    table_options.block_cache = table_reader_charge_tracking_cache_;
 
     table_options.cache_index_and_filter_blocks = false;
     table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
@@ -392,9 +359,10 @@ class BlockBasedTableReaderCapMemoryTest
     options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
-  bool reserve_table_reader_memory_;
-  std::shared_ptr<BlockBasedTableReaderResOnlyCache>
-      table_reader_res_only_cache_;
+  CacheEntryRoleOptions::Decision charge_table_reader_;
+  std::shared_ptr<
+      TargetCacheChargeTrackingCache<CacheEntryRole::kBlockBasedTableReader>>
+      table_reader_charge_tracking_cache_;
   std::size_t approx_table_reader_mem_;
   std::map<std::string, std::string> kv_;
   CompressionType compression_type_;
@@ -420,16 +388,16 @@ class BlockBasedTableReaderCapMemoryTest
   }
 };
 
-INSTANTIATE_TEST_CASE_P(CapMemoryUsageUnderCacheCapacity,
-                        BlockBasedTableReaderCapMemoryTest,
-                        ::testing::Values(true, false));
+INSTANTIATE_TEST_CASE_P(
+    ChargeTableReaderTest, ChargeTableReaderTest,
+    ::testing::Values(CacheEntryRoleOptions::Decision::kEnabled,
+                      CacheEntryRoleOptions::Decision::kDisabled));
 
-TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
+TEST_P(ChargeTableReaderTest, Basic) {
   const std::size_t max_table_reader_num_capped =
-      BlockBasedTableReaderCapMemoryTest::
-          CalculateMaxTableReaderNumBeforeCacheFull(
-              table_reader_res_only_cache_->GetCapacity(),
-              approx_table_reader_mem_);
+      ChargeTableReaderTest::CalculateMaxTableReaderNumBeforeCacheFull(
+          table_reader_charge_tracking_cache_->GetCapacity(),
+          approx_table_reader_mem_);
 
   // Acceptable estimtation errors coming from
   // 1. overstimate max_table_reader_num_capped due to # dummy entries is high
@@ -448,16 +416,16 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
       << "We need `max_table_reader_num_uncapped` > "
          "`max_table_reader_num_capped_upper_bound` to differentiate cases "
          "between "
-         "reserve_table_reader_memory_ == false and == true)";
+         "charge_table_reader_ == kDisabled and == kEnabled)";
 
   Status s = Status::OK();
   std::size_t opened_table_reader_num = 0;
   std::string table_name;
   std::vector<std::unique_ptr<BlockBasedTable>> tables;
   // Keep creating BlockBasedTableReader till hiting the memory limit based on
-  // cache capacity and creation fails (when reserve_table_reader_memory_ ==
-  // true) or reaching a specfied big number of table readers (when
-  // reserve_table_reader_memory_ == false)
+  // cache capacity and creation fails (when charge_table_reader_ ==
+  // kEnabled) or reaching a specfied big number of table readers (when
+  // charge_table_reader_ == kDisabled)
   while (s.ok() && opened_table_reader_num < max_table_reader_num_uncapped) {
     table_name = "table_" + std::to_string(opened_table_reader_num);
     CreateTable(table_name, compression_type_, kv_);
@@ -471,8 +439,12 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
     }
   }
 
-  if (reserve_table_reader_memory_) {
+  if (charge_table_reader_ == CacheEntryRoleOptions::Decision::kEnabled) {
     EXPECT_TRUE(s.IsMemoryLimit()) << "s: " << s.ToString();
+    EXPECT_TRUE(s.ToString().find(
+                    kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+                        CacheEntryRole::kBlockBasedTableReader)]) !=
+                std::string::npos);
     EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
                 std::string::npos);
 
@@ -480,10 +452,9 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
     EXPECT_LE(opened_table_reader_num, max_table_reader_num_capped_upper_bound);
 
     std::size_t updated_max_table_reader_num_capped =
-        BlockBasedTableReaderCapMemoryTest::
-            CalculateMaxTableReaderNumBeforeCacheFull(
-                table_reader_res_only_cache_->GetCapacity() / 2,
-                approx_table_reader_mem_);
+        ChargeTableReaderTest::CalculateMaxTableReaderNumBeforeCacheFull(
+            table_reader_charge_tracking_cache_->GetCapacity() / 2,
+            approx_table_reader_mem_);
 
     // Keep deleting BlockBasedTableReader to lower down memory usage from the
     // memory limit to make the next creation succeeds
@@ -501,13 +472,13 @@ TEST_P(BlockBasedTableReaderCapMemoryTest, CapMemoryUsageUnderCacheCapacity) {
     EXPECT_TRUE(s.ok()) << s.ToString();
 
     tables.clear();
-    EXPECT_EQ(table_reader_res_only_cache_->GetPinnedUsage(), 0);
+    EXPECT_EQ(table_reader_charge_tracking_cache_->GetCacheCharge(), 0);
   } else {
     EXPECT_TRUE(s.ok() &&
                 opened_table_reader_num == max_table_reader_num_uncapped)
         << "s: " << s.ToString() << " opened_table_reader_num: "
         << std::to_string(opened_table_reader_num);
-    EXPECT_EQ(table_reader_res_only_cache_->GetPinnedUsage(), 0);
+    EXPECT_EQ(table_reader_charge_tracking_cache_->GetCacheCharge(), 0);
   }
 }
 

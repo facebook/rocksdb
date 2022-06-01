@@ -745,10 +745,10 @@ Status CheckColumnFamilyTimestampSize(ColumnFamilyHandle* column_family,
 
 Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
-  if (key.size() > size_t{port::kMaxUint32}) {
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("key is too large");
   }
-  if (value.size() > size_t{port::kMaxUint32}) {
+  if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("value is too large");
   }
 
@@ -825,7 +825,7 @@ Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
   for (int i = 0; i < key.num_parts; ++i) {
     total_key_bytes += key.parts[i].size();
   }
-  if (total_key_bytes >= size_t{port::kMaxUint32}) {
+  if (total_key_bytes >= size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("key is too large");
   }
 
@@ -833,7 +833,7 @@ Status WriteBatchInternal::CheckSlicePartsLength(const SliceParts& key,
   for (int i = 0; i < value.num_parts; ++i) {
     total_value_bytes += value.parts[i].size();
   }
-  if (total_value_bytes >= size_t{port::kMaxUint32}) {
+  if (total_value_bytes >= size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("value is too large");
   }
   return Status::OK();
@@ -1292,10 +1292,10 @@ Status WriteBatch::DeleteRange(ColumnFamilyHandle* column_family,
 
 Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
                                  const Slice& key, const Slice& value) {
-  if (key.size() > size_t{port::kMaxUint32}) {
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("key is too large");
   }
-  if (value.size() > size_t{port::kMaxUint32}) {
+  if (value.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
     return Status::InvalidArgument("value is too large");
   }
 

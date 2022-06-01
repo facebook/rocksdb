@@ -187,8 +187,7 @@ class PosixSequentialFile : public FSSequentialFile {
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* file, int fd,
-                      size_t logical_block_size,
-                      const EnvOptions& options);
+                      size_t logical_block_size, const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
   virtual IOStatus Read(size_t n, const IOOptions& opts, Slice* result,

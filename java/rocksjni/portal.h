@@ -5593,6 +5593,8 @@ class HistogramTypeJni {
         return 0x34;
       case ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED:
         return 0x35;
+      case ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE:
+        return 0x36;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5716,6 +5718,8 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::POLL_WAIT_MICROS;
       case 0x35:
         return ROCKSDB_NAMESPACE::Histograms::PREFETCHED_BYTES_DISCARDED;
+      case 0x36:
+        return ROCKSDB_NAMESPACE::Histograms::MULTIGET_IO_BATCH_SIZE;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;

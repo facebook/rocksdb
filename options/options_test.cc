@@ -68,7 +68,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
        "kZSTDNotFinalCompression"},
       {"bottommost_compression", "kLZ4Compression"},
       {"bottommost_compression_opts", "5:6:7:8:10:true"},
-      {"compression_opts", "4:5:6:7:8:true"},
+      {"compression_opts", "4:5:6:7:8:2:true:100:false"},
       {"num_levels", "8"},
       {"level0_file_num_compaction_trigger", "8"},
       {"level0_slowdown_writes_trigger", "9"},
@@ -118,6 +118,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -190,9 +191,10 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
   ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 7u);
   ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 8u);
-  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads,
-            CompressionOptions().parallel_threads);
+  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads, 2u);
   ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_buffer_bytes, 100u);
+  ASSERT_EQ(new_cf_opt.compression_opts.use_zstd_dict_trainer, false);
   ASSERT_EQ(new_cf_opt.bottommost_compression, kLZ4Compression);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
@@ -202,6 +204,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads,
             CompressionOptions().parallel_threads);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer,
+            CompressionOptions().use_zstd_dict_trainer);
   ASSERT_EQ(new_cf_opt.num_levels, 8);
   ASSERT_EQ(new_cf_opt.level0_file_num_compaction_trigger, 8);
   ASSERT_EQ(new_cf_opt.level0_slowdown_writes_trigger, 9);
@@ -278,6 +282,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
+  ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);
@@ -602,6 +607,8 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(base_cf_opt.compression_opts.parallel_threads,
             dflt.parallel_threads);
   ASSERT_EQ(base_cf_opt.compression_opts.enabled, dflt.enabled);
+  ASSERT_EQ(base_cf_opt.compression_opts.use_zstd_dict_trainer,
+            dflt.use_zstd_dict_trainer);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.window_bits, 4);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.level, 5);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.strategy, 6);
@@ -611,10 +618,12 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.parallel_threads,
             dflt.parallel_threads);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.enabled, dflt.enabled);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer,
+            dflt.use_zstd_dict_trainer);
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, ColumnFamilyOptions(),
-      "compression_opts=4:5:6:7:8:9:true; "
+      "compression_opts=4:5:6:7:8:9:true:10:false; "
       "bottommost_compression_opts=5:6:7:8:9:false",
       &base_cf_opt));
   ASSERT_EQ(base_cf_opt.compression_opts.window_bits, 4);
@@ -624,6 +633,8 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(base_cf_opt.compression_opts.zstd_max_train_bytes, 8u);
   ASSERT_EQ(base_cf_opt.compression_opts.parallel_threads, 9u);
   ASSERT_EQ(base_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(base_cf_opt.compression_opts.max_dict_buffer_bytes, 10u);
+  ASSERT_EQ(base_cf_opt.compression_opts.use_zstd_dict_trainer, false);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.level, 6);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.strategy, 7);
@@ -632,6 +643,8 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.parallel_threads,
             dflt.parallel_threads);
   ASSERT_EQ(base_cf_opt.bottommost_compression_opts.enabled, false);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer,
+            dflt.use_zstd_dict_trainer);
 
   ASSERT_OK(
       GetStringFromColumnFamilyOptions(config_options, base_cf_opt, &opts_str));
@@ -644,6 +657,8 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 8u);
   ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads, 9u);
   ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(base_cf_opt.compression_opts.max_dict_buffer_bytes, 10u);
+  ASSERT_EQ(base_cf_opt.compression_opts.use_zstd_dict_trainer, false);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 7);
@@ -652,15 +667,18 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads,
             dflt.parallel_threads);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, false);
+  ASSERT_EQ(base_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer,
+            dflt.use_zstd_dict_trainer);
 
   // Test as struct values
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, ColumnFamilyOptions(),
       "compression_opts={window_bits=5; level=6; strategy=7; max_dict_bytes=8;"
-      "zstd_max_train_bytes=9;parallel_threads=10;enabled=true}; "
+      "zstd_max_train_bytes=9;parallel_threads=10;enabled=true;use_zstd_dict_"
+      "trainer=false}; "
       "bottommost_compression_opts={window_bits=4; level=5; strategy=6;"
       " max_dict_bytes=7;zstd_max_train_bytes=8;parallel_threads=9;"
-      "enabled=false}; ",
+      "enabled=false;use_zstd_dict_trainer=true}; ",
       &new_cf_opt));
   ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 5);
   ASSERT_EQ(new_cf_opt.compression_opts.level, 6);
@@ -669,6 +687,7 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 9u);
   ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads, 10u);
   ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.compression_opts.use_zstd_dict_trainer, false);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 4);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 5);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.strategy, 6);
@@ -676,6 +695,7 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.zstd_max_train_bytes, 8u);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads, 9u);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, false);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer, true);
 
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, base_cf_opt,
@@ -707,6 +727,8 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
             base_cf_opt.bottommost_compression_opts.parallel_threads);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled,
             base_cf_opt.bottommost_compression_opts.enabled);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer,
+            base_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer);
 
   // Test a few individual struct values
   ASSERT_OK(GetColumnFamilyOptionsFromString(
@@ -799,6 +821,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
   };
   ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
@@ -807,6 +830,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
+  ASSERT_EQ(new_db_opt.verify_sst_unique_id_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
   Status s = GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt);
@@ -854,8 +878,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
-      "reserve_table_builder_memory=true;"
-      "reserve_table_reader_memory=true;"
       "filter_policy=bloomfilter:4.567:false;detect_filter_construct_"
       "corruption=true;"
       // A bug caused read_amp_bytes_per_bit to be a large integer in OPTIONS
@@ -877,8 +899,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.format_version, 5U);
   ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_EQ(new_opt.detect_filter_construct_corruption, true);
-  ASSERT_EQ(new_opt.reserve_table_builder_memory, true);
-  ASSERT_EQ(new_opt.reserve_table_reader_memory, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   auto bfp = new_opt.filter_policy->CheckedCast<BloomFilterPolicy>();
   ASSERT_NE(bfp, nullptr);
@@ -1351,6 +1371,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.compression_opts.zstd_max_train_bytes, 0u);
   ASSERT_EQ(new_options.compression_opts.parallel_threads, 1u);
   ASSERT_EQ(new_options.compression_opts.enabled, false);
+  ASSERT_EQ(new_options.compression_opts.use_zstd_dict_trainer, true);
   ASSERT_EQ(new_options.bottommost_compression, kDisableCompressionOption);
   ASSERT_EQ(new_options.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(new_options.bottommost_compression_opts.level, 6);
@@ -1359,6 +1380,8 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.bottommost_compression_opts.zstd_max_train_bytes, 0u);
   ASSERT_EQ(new_options.bottommost_compression_opts.parallel_threads, 1u);
   ASSERT_EQ(new_options.bottommost_compression_opts.enabled, false);
+  ASSERT_EQ(new_options.bottommost_compression_opts.use_zstd_dict_trainer,
+            true);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
   const auto new_bbto =
@@ -2263,7 +2286,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
        "kZSTDNotFinalCompression"},
       {"bottommost_compression", "kLZ4Compression"},
       {"bottommost_compression_opts", "5:6:7:8:9:true"},
-      {"compression_opts", "4:5:6:7:8:true"},
+      {"compression_opts", "4:5:6:7:8:9:true:10:false"},
       {"num_levels", "8"},
       {"level0_file_num_compaction_trigger", "8"},
       {"level0_slowdown_writes_trigger", "9"},
@@ -2316,6 +2339,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
       {"track_and_verify_wals_in_manifest", "true"},
+      {"verify_sst_unique_id_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -2380,9 +2404,10 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
   ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 7u);
   ASSERT_EQ(new_cf_opt.compression_opts.zstd_max_train_bytes, 8u);
-  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads,
-            CompressionOptions().parallel_threads);
+  ASSERT_EQ(new_cf_opt.compression_opts.parallel_threads, 9u);
   ASSERT_EQ(new_cf_opt.compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_buffer_bytes, 10u);
+  ASSERT_EQ(new_cf_opt.compression_opts.use_zstd_dict_trainer, false);
   ASSERT_EQ(new_cf_opt.bottommost_compression, kLZ4Compression);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.level, 6);
@@ -2392,6 +2417,10 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.parallel_threads,
             CompressionOptions().parallel_threads);
   ASSERT_EQ(new_cf_opt.bottommost_compression_opts.enabled, true);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.max_dict_buffer_bytes,
+            CompressionOptions().max_dict_buffer_bytes);
+  ASSERT_EQ(new_cf_opt.bottommost_compression_opts.use_zstd_dict_trainer,
+            CompressionOptions().use_zstd_dict_trainer);
   ASSERT_EQ(new_cf_opt.num_levels, 8);
   ASSERT_EQ(new_cf_opt.level0_file_num_compaction_trigger, 8);
   ASSERT_EQ(new_cf_opt.level0_slowdown_writes_trigger, 9);
@@ -3054,6 +3083,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.compression_opts.zstd_max_train_bytes, 0u);
   ASSERT_EQ(new_options.compression_opts.parallel_threads, 1u);
   ASSERT_EQ(new_options.compression_opts.enabled, false);
+  ASSERT_EQ(new_options.compression_opts.use_zstd_dict_trainer, true);
   ASSERT_EQ(new_options.bottommost_compression, kDisableCompressionOption);
   ASSERT_EQ(new_options.bottommost_compression_opts.window_bits, 5);
   ASSERT_EQ(new_options.bottommost_compression_opts.level, 6);
@@ -3062,6 +3092,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.bottommost_compression_opts.zstd_max_train_bytes, 0u);
   ASSERT_EQ(new_options.bottommost_compression_opts.parallel_threads, 1u);
   ASSERT_EQ(new_options.bottommost_compression_opts.enabled, false);
+  ASSERT_EQ(new_options.bottommost_compression_opts.use_zstd_dict_trainer,
+            true);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
 
@@ -3346,31 +3378,31 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
     if (case_id == 0) {
       // same version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     } else if (case_id == 1) {
       // higher minor version
       should_ignore = true;
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR + 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR + 1) + ".0";
     } else if (case_id == 2) {
       // higher major version.
       should_ignore = true;
-      version_string = ToString(ROCKSDB_MAJOR + 1) + ".0.0";
+      version_string = std::to_string(ROCKSDB_MAJOR + 1) + ".0.0";
     } else if (case_id == 3) {
       // lower minor version
 #if ROCKSDB_MINOR == 0
       continue;
 #else
-      version_string =
-          ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR - 1) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR) + "." +
+                       std::to_string(ROCKSDB_MINOR - 1) + ".0";
       should_ignore = false;
 #endif
     } else {
       // lower major version
       should_ignore = false;
-      version_string =
-          ToString(ROCKSDB_MAJOR - 1) + "." + ToString(ROCKSDB_MINOR) + ".0";
+      version_string = std::to_string(ROCKSDB_MAJOR - 1) + "." +
+                       std::to_string(ROCKSDB_MINOR) + ".0";
     }
 
     std::string options_file_content =
@@ -4082,9 +4114,10 @@ TEST_F(OptionsParserTest, IntegerParsing) {
   ASSERT_EQ(ParseUint32("4294967295"), 4294967295U);
   ASSERT_EQ(ParseSizeT("18446744073709551615"), 18446744073709551615U);
   ASSERT_EQ(ParseInt64("9223372036854775807"), 9223372036854775807);
-  ASSERT_EQ(ParseInt64("-9223372036854775808"), port::kMinInt64);
+  ASSERT_EQ(ParseInt64("-9223372036854775808"),
+            std::numeric_limits<int64_t>::min());
   ASSERT_EQ(ParseInt32("2147483647"), 2147483647);
-  ASSERT_EQ(ParseInt32("-2147483648"), port::kMinInt32);
+  ASSERT_EQ(ParseInt32("-2147483648"), std::numeric_limits<int32_t>::min());
   ASSERT_EQ(ParseInt("-32767"), -32767);
   ASSERT_EQ(ParseDouble("-1.234567"), -1.234567);
 }
@@ -4265,19 +4298,20 @@ TEST_F(OptionTypeInfoTest, TestInvalidArgs) {
 }
 
 TEST_F(OptionTypeInfoTest, TestParseFunc) {
-  OptionTypeInfo opt_info(
-      0, OptionType::kUnknown, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone,
-      [](const ConfigOptions& /*opts*/, const std::string& name,
-         const std::string& value, void* addr) {
-        auto ptr = static_cast<std::string*>(addr);
-        if (name == "Oops") {
-          return Status::InvalidArgument(value);
-        } else {
-          *ptr = value + " " + name;
-          return Status::OK();
-        }
-      });
+  OptionTypeInfo opt_info(0, OptionType::kUnknown,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetParseFunc([](const ConfigOptions& /*opts*/,
+                           const std::string& name, const std::string& value,
+                           void* addr) {
+    auto ptr = static_cast<std::string*>(addr);
+    if (name == "Oops") {
+      return Status::InvalidArgument(value);
+    } else {
+      *ptr = value + " " + name;
+      return Status::OK();
+    }
+  });
   ConfigOptions config_options;
   std::string base;
   ASSERT_OK(opt_info.Parse(config_options, "World", "Hello", &base));
@@ -4286,19 +4320,19 @@ TEST_F(OptionTypeInfoTest, TestParseFunc) {
 }
 
 TEST_F(OptionTypeInfoTest, TestSerializeFunc) {
-  OptionTypeInfo opt_info(
-      0, OptionType::kString, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone, nullptr,
-      [](const ConfigOptions& /*opts*/, const std::string& name,
-         const void* /*addr*/, std::string* value) {
-        if (name == "Oops") {
-          return Status::InvalidArgument(name);
-        } else {
-          *value = name;
-          return Status::OK();
-        }
-      },
-      nullptr);
+  OptionTypeInfo opt_info(0, OptionType::kString,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetSerializeFunc([](const ConfigOptions& /*opts*/,
+                               const std::string& name, const void* /*addr*/,
+                               std::string* value) {
+    if (name == "Oops") {
+      return Status::InvalidArgument(name);
+    } else {
+      *value = name;
+      return Status::OK();
+    }
+  });
   ConfigOptions config_options;
   std::string base;
   std::string value;
@@ -4308,24 +4342,24 @@ TEST_F(OptionTypeInfoTest, TestSerializeFunc) {
 }
 
 TEST_F(OptionTypeInfoTest, TestEqualsFunc) {
-  OptionTypeInfo opt_info(
-      0, OptionType::kInt, OptionVerificationType::kNormal,
-      OptionTypeFlags::kNone, nullptr, nullptr,
-      [](const ConfigOptions& /*opts*/, const std::string& name,
-         const void* addr1, const void* addr2, std::string* mismatch) {
-        auto i1 = *(static_cast<const int*>(addr1));
-        auto i2 = *(static_cast<const int*>(addr2));
-        if (name == "LT") {
-          return i1 < i2;
-        } else if (name == "GT") {
-          return i1 > i2;
-        } else if (name == "EQ") {
-          return i1 == i2;
-        } else {
-          *mismatch = name + "???";
-          return false;
-        }
-      });
+  OptionTypeInfo opt_info(0, OptionType::kInt, OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetEqualsFunc([](const ConfigOptions& /*opts*/,
+                            const std::string& name, const void* addr1,
+                            const void* addr2, std::string* mismatch) {
+    auto i1 = *(static_cast<const int*>(addr1));
+    auto i2 = *(static_cast<const int*>(addr2));
+    if (name == "LT") {
+      return i1 < i2;
+    } else if (name == "GT") {
+      return i1 > i2;
+    } else if (name == "EQ") {
+      return i1 == i2;
+    } else {
+      *mismatch = name + "???";
+      return false;
+    }
+  });
 
   ConfigOptions config_options;
   int int1 = 100;
@@ -4339,6 +4373,64 @@ TEST_F(OptionTypeInfoTest, TestEqualsFunc) {
   ASSERT_FALSE(
       opt_info.AreEqual(config_options, "NO", &int1, &int2, &mismatch));
   ASSERT_EQ(mismatch, "NO???");
+}
+
+TEST_F(OptionTypeInfoTest, TestPrepareFunc) {
+  OptionTypeInfo opt_info(0, OptionType::kInt, OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetPrepareFunc(
+      [](const ConfigOptions& /*opts*/, const std::string& name, void* addr) {
+        auto i1 = static_cast<int*>(addr);
+        if (name == "x2") {
+          *i1 *= 2;
+        } else if (name == "/2") {
+          *i1 /= 2;
+        } else {
+          return Status::InvalidArgument("Bad Argument", name);
+        }
+        return Status::OK();
+      });
+  ConfigOptions config_options;
+  int int1 = 100;
+  ASSERT_OK(opt_info.Prepare(config_options, "x2", &int1));
+  ASSERT_EQ(int1, 200);
+  ASSERT_OK(opt_info.Prepare(config_options, "/2", &int1));
+  ASSERT_EQ(int1, 100);
+  ASSERT_NOK(opt_info.Prepare(config_options, "??", &int1));
+  ASSERT_EQ(int1, 100);
+}
+TEST_F(OptionTypeInfoTest, TestValidateFunc) {
+  OptionTypeInfo opt_info(0, OptionType::kSizeT,
+                          OptionVerificationType::kNormal,
+                          OptionTypeFlags::kNone);
+  opt_info.SetValidateFunc([](const DBOptions& db_opts,
+                              const ColumnFamilyOptions& cf_opts,
+                              const std::string& name, const void* addr) {
+    const auto sz = static_cast<const size_t*>(addr);
+    bool is_valid = false;
+    if (name == "keep_log_file_num") {
+      is_valid = (*sz == db_opts.keep_log_file_num);
+    } else if (name == "write_buffer_size") {
+      is_valid = (*sz == cf_opts.write_buffer_size);
+    }
+    if (is_valid) {
+      return Status::OK();
+    } else {
+      return Status::InvalidArgument("Mismatched value", name);
+    }
+  });
+  ConfigOptions config_options;
+  DBOptions db_options;
+  ColumnFamilyOptions cf_options;
+
+  ASSERT_OK(opt_info.Validate(db_options, cf_options, "keep_log_file_num",
+                              &db_options.keep_log_file_num));
+  ASSERT_OK(opt_info.Validate(db_options, cf_options, "write_buffer_size",
+                              &cf_options.write_buffer_size));
+  ASSERT_NOK(opt_info.Validate(db_options, cf_options, "keep_log_file_num",
+                               &cf_options.write_buffer_size));
+  ASSERT_NOK(opt_info.Validate(db_options, cf_options, "write_buffer_size",
+                               &db_options.keep_log_file_num));
 }
 
 TEST_F(OptionTypeInfoTest, TestOptionFlags) {
@@ -4541,6 +4633,68 @@ TEST_F(OptionTypeInfoTest, TestStruct) {
   ASSERT_EQ(e1.b.i, 77);
   ASSERT_EQ(e1.j, 22);
   ASSERT_EQ(e1.b.s, "66");
+}
+
+TEST_F(OptionTypeInfoTest, TestArrayType) {
+  OptionTypeInfo array_info = OptionTypeInfo::Array<std::string, 4>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+      {0, OptionType::kString});
+  std::array<std::string, 4> array1, array2;
+  std::string mismatch;
+
+  ConfigOptions config_options;
+  TestParseAndCompareOption(config_options, array_info, "v", "a:b:c:d", &array1,
+                            &array2);
+
+  ASSERT_EQ(array1.size(), 4);
+  ASSERT_EQ(array1[0], "a");
+  ASSERT_EQ(array1[1], "b");
+  ASSERT_EQ(array1[2], "c");
+  ASSERT_EQ(array1[3], "d");
+  array1[3] = "e";
+  ASSERT_FALSE(
+      array_info.AreEqual(config_options, "v", &array1, &array2, &mismatch));
+  ASSERT_EQ(mismatch, "v");
+
+  // Test vectors with inner brackets
+  TestParseAndCompareOption(config_options, array_info, "v", "a:{b}:c:d",
+                            &array1, &array2);
+  ASSERT_EQ(array1.size(), 4);
+  ASSERT_EQ(array1[0], "a");
+  ASSERT_EQ(array1[1], "b");
+  ASSERT_EQ(array1[2], "c");
+  ASSERT_EQ(array1[3], "d");
+
+  std::array<std::string, 3> array3, array4;
+  OptionTypeInfo bar_info = OptionTypeInfo::Array<std::string, 3>(
+      0, OptionVerificationType::kNormal, OptionTypeFlags::kNone,
+      {0, OptionType::kString}, '|');
+  TestParseAndCompareOption(config_options, bar_info, "v", "x|y|z", &array3,
+                            &array4);
+
+  // Test arrays with inner array
+  TestParseAndCompareOption(config_options, bar_info, "v",
+                            "a|{b1|b2}|{c1|c2|{d1|d2}}", &array3, &array4,
+                            false);
+  ASSERT_EQ(array3.size(), 3);
+  ASSERT_EQ(array3[0], "a");
+  ASSERT_EQ(array3[1], "b1|b2");
+  ASSERT_EQ(array3[2], "c1|c2|{d1|d2}");
+
+  TestParseAndCompareOption(config_options, bar_info, "v",
+                            "{a1|a2}|{b1|{c1|c2}}|d1", &array3, &array4, true);
+  ASSERT_EQ(array3.size(), 3);
+  ASSERT_EQ(array3[0], "a1|a2");
+  ASSERT_EQ(array3[1], "b1|{c1|c2}");
+  ASSERT_EQ(array3[2], "d1");
+
+  // Test invalid input: less element than requested
+  auto s = bar_info.Parse(config_options, "opt_name1", "a1|a2", &array3);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  // Test invalid input: more element than requested
+  s = bar_info.Parse(config_options, "opt_name2", "a1|b|c1|d3", &array3);
+  ASSERT_TRUE(s.IsInvalidArgument());
 }
 
 TEST_F(OptionTypeInfoTest, TestVectorType) {

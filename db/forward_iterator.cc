@@ -604,7 +604,7 @@ bool ForwardIterator::PrepareValue() {
 Status ForwardIterator::GetProperty(std::string prop_name, std::string* prop) {
   assert(prop != nullptr);
   if (prop_name == "rocksdb.iterator.super-version-number") {
-    *prop = ToString(sv_->version_number);
+    *prop = std::to_string(sv_->version_number);
     return Status::OK();
   }
   return Status::InvalidArgument();

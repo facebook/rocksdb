@@ -116,6 +116,15 @@ static Status ParseCompressionOptions(const std::string& value,
     compression_opts.max_dict_buffer_bytes = ParseUint64(field);
   }
 
+  // use_zstd_dict_trainer is optional for backwards compatibility
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.use_zstd_dict_trainer = ParseBoolean("", field);
+  }
+
   if (!field_stream.eof()) {
     return Status::InvalidArgument("unable to parse the specified CF option " +
                                    name);
@@ -155,6 +164,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"max_dict_buffer_bytes",
          {offsetof(struct CompressionOptions, max_dict_buffer_bytes),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"use_zstd_dict_trainer",
+         {offsetof(struct CompressionOptions, use_zstd_dict_trainer),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
 
@@ -364,9 +377,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          OptionTypeInfo::Struct(
              "compaction_options_fifo", &fifo_compaction_options_type_info,
              offsetof(struct MutableCFOptions, compaction_options_fifo),
-             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
-             [](const ConfigOptions& opts, const std::string& name,
-                const std::string& value, void* addr) {
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable)
+             .SetParseFunc([](const ConfigOptions& opts,
+                              const std::string& name, const std::string& value,
+                              void* addr) {
                // This is to handle backward compatibility, where
                // compaction_options_fifo could be assigned a single scalar
                // value, say, like "23", which would be assigned to
@@ -556,30 +570,30 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"comparator",
          OptionTypeInfo::AsCustomRawPtr<const Comparator>(
              offsetof(struct ImmutableCFOptions, user_comparator),
-             OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose,
-             // Serializes a Comparator
-             [](const ConfigOptions& opts, const std::string&, const void* addr,
-                std::string* value) {
-               // it's a const pointer of const Comparator*
-               const auto* ptr = static_cast<const Comparator* const*>(addr);
-
-               // Since the user-specified comparator will be wrapped by
-               // InternalKeyComparator, we should persist the user-specified
-               // one instead of InternalKeyComparator.
-               if (*ptr == nullptr) {
-                 *value = kNullptrString;
-               } else if (opts.mutable_options_only) {
-                 *value = "";
-               } else {
-                 const Comparator* root_comp = (*ptr)->GetRootComparator();
-                 if (root_comp == nullptr) {
-                   root_comp = (*ptr);
-                 }
-                 *value = root_comp->ToString(opts);
-               }
-               return Status::OK();
-             },
-             /* Use the default match function*/ nullptr)},
+             OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose)
+             .SetSerializeFunc(
+                 // Serializes a Comparator
+                 [](const ConfigOptions& opts, const std::string&,
+                    const void* addr, std::string* value) {
+                   // it's a const pointer of const Comparator*
+                   const auto* ptr =
+                       static_cast<const Comparator* const*>(addr);
+                   // Since the user-specified comparator will be wrapped by
+                   // InternalKeyComparator, we should persist the
+                   // user-specified one instead of InternalKeyComparator.
+                   if (*ptr == nullptr) {
+                     *value = kNullptrString;
+                   } else if (opts.mutable_options_only) {
+                     *value = "";
+                   } else {
+                     const Comparator* root_comp = (*ptr)->GetRootComparator();
+                     if (root_comp == nullptr) {
+                       root_comp = (*ptr);
+                     }
+                     *value = root_comp->ToString(opts);
+                   }
+                   return Status::OK();
+                 })},
         {"memtable_insert_with_hint_prefix_extractor",
          OptionTypeInfo::AsCustomSharedPtr<const SliceTransform>(
              offsetof(struct ImmutableCFOptions,
@@ -595,10 +609,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* shared =
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
-                MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (factory && s.ok()) {
-              shared->reset(factory.release());
-            }
+                MemTableRepFactory::CreateFromString(opts, value, shared);
             return s;
           }}},
         {"memtable",
@@ -611,10 +622,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* shared =
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
-                MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (factory && s.ok()) {
-              shared->reset(factory.release());
-            }
+                MemTableRepFactory::CreateFromString(opts, value, shared);
             return s;
           }}},
         {"table_factory",
@@ -886,7 +894,7 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
   if (op1 == 0 || op2 <= 0) {
     return 0;
   }
-  if (port::kMaxUint64 / op1 < op2) {
+  if (std::numeric_limits<uint64_t>::max() / op1 < op2) {
     return op1;
   }
   return static_cast<uint64_t>(op1 * op2);
@@ -915,8 +923,9 @@ size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options) {
   // or a former larger `write_buffer_size` value to avoid surprising users with
   // pinned memory usage. We use a factor of 1.5 to account for overhead
   // introduced during flush in most cases.
-  if (port::kMaxSizet / 3 < cf_options.write_buffer_size / 2) {
-    return port::kMaxSizet;
+  if (std::numeric_limits<size_t>::max() / 3 <
+      cf_options.write_buffer_size / 2) {
+    return std::numeric_limits<size_t>::max();
   }
   return cf_options.write_buffer_size / 2 * 3;
 }

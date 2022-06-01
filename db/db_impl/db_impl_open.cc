@@ -518,6 +518,12 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
+  if (immutable_db_options_.verify_sst_unique_id_in_manifest) {
+    s = VerifySstUniqueIdInManifest();
+    if (!s.ok()) {
+      return s;
+    }
+  }
   s = SetDBId(read_only);
   if (s.ok() && !read_only) {
     s = DeleteUnreferencedSstFiles();
@@ -555,10 +561,6 @@ Status DBImpl::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
-    // TODO(Zhongyi): handle single_column_family_mode_ when
-    // persistent_stats is enabled
-    single_column_family_mode_ =
-        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
     // Recover from all newer log files than the ones named in the
     // descriptor (new log files may have been added by the previous
@@ -698,6 +700,25 @@ Status DBImpl::Recover(
   return s;
 }
 
+Status DBImpl::VerifySstUniqueIdInManifest() {
+  mutex_.AssertHeld();
+  ROCKS_LOG_INFO(
+      immutable_db_options_.info_log,
+      "Verifying SST unique id between MANIFEST and SST file table properties");
+  Status status;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (!cfd->IsDropped()) {
+      auto version = cfd->current();
+      version->Ref();
+      mutex_.Unlock();
+      status = version->VerifySstUniqueIds();
+      mutex_.Lock();
+      version->Unref();
+    }
+  }
+  return status;
+}
+
 Status DBImpl::PersistentStatsProcessFormatVersion() {
   mutex_.AssertHeld();
   Status s;
@@ -760,11 +781,11 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
     WriteBatch batch;
     if (s.ok()) {
       s = batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
-                    ToString(kStatsCFCurrentFormatVersion));
+                    std::to_string(kStatsCFCurrentFormatVersion));
     }
     if (s.ok()) {
       s = batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
-                    ToString(kStatsCFCompatibleFormatVersion));
+                    std::to_string(kStatsCFCompatibleFormatVersion));
     }
     if (s.ok()) {
       WriteOptions wo;
@@ -1326,6 +1347,7 @@ Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
   Status s;
   // This gets the appear size of the wals, not including preallocated space.
   s = env_->GetFileSize(fname, &log.size);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::GetLogSizeAndMaybeTruncate:0", /*arg=*/&s);
   if (s.ok() && truncate) {
     std::unique_ptr<FSWritableFile> last_log;
     Status truncate_status = fs_->ReopenWritableFile(
@@ -1497,13 +1519,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   constexpr int level = 0;
 
   if (s.ok() && has_output) {
-    edit->AddFile(
-        level, meta.fd.GetNumber(), meta.fd.GetPathId(), meta.fd.GetFileSize(),
-        meta.smallest, meta.largest, meta.fd.smallest_seqno,
-        meta.fd.largest_seqno, meta.marked_for_compaction, meta.temperature,
-        meta.oldest_blob_file_number, meta.oldest_ancester_time,
-        meta.file_creation_time, meta.file_checksum,
-        meta.file_checksum_func_name, meta.min_timestamp, meta.max_timestamp);
+    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
+                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
+                  meta.fd.smallest_seqno, meta.fd.largest_seqno,
+                  meta.marked_for_compaction, meta.temperature,
+                  meta.oldest_blob_file_number, meta.oldest_ancester_time,
+                  meta.file_creation_time, meta.file_checksum,
+                  meta.file_checksum_func_name, meta.min_timestamp,
+                  meta.max_timestamp, meta.unique_id);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
@@ -1706,6 +1729,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
+  if (!impl->immutable_db_options_.info_log) {
+    s = Status::Aborted("Failed to create logger");
+    delete impl;
+    return s;
+  }
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {
     std::vector<std::string> paths;
@@ -1825,6 +1853,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         if (s.ok()) {
           // Need to fsync, otherwise it might get lost after a power reset.
           s = impl->FlushWAL(false);
+          TEST_SYNC_POINT_CALLBACK("DBImpl::Open::BeforeSyncWAL", /*arg=*/&s);
           if (s.ok()) {
             s = log_writer->file()->Sync(impl->immutable_db_options_.use_fsync);
           }
@@ -1902,21 +1931,24 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     // vast majority of all files), we'll pass the size to SstFileManager.
     // For all other files SstFileManager will query the size from filesystem.
 
-    std::vector<LiveFileMetaData> metadata;
-
-    // TODO: Once GetLiveFilesMetaData supports blob files, update the logic
-    // below to get known_file_sizes for blob files.
-    impl->mutex_.Lock();
-    impl->versions_->GetLiveFilesMetaData(&metadata);
-    impl->mutex_.Unlock();
+    std::vector<ColumnFamilyMetaData> metadata;
+    impl->GetAllColumnFamilyMetaData(&metadata);
 
     std::unordered_map<std::string, uint64_t> known_file_sizes;
     for (const auto& md : metadata) {
-      std::string name = md.name;
-      if (!name.empty() && name[0] == '/') {
-        name = name.substr(1);
+      for (const auto& lmd : md.levels) {
+        for (const auto& fmd : lmd.files) {
+          known_file_sizes[fmd.relative_filename] = fmd.size;
+        }
       }
-      known_file_sizes[name] = md.size;
+      for (const auto& bmd : md.blob_files) {
+        std::string name = bmd.blob_file_name;
+        // The BlobMetaData.blob_file_name may start with "/".
+        if (!name.empty() && name[0] == '/') {
+          name = name.substr(1);
+        }
+        known_file_sizes[name] = bmd.blob_file_size;
+      }
     }
 
     std::vector<std::string> paths;

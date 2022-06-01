@@ -5,6 +5,7 @@ LIB_SOURCES =                                                   \
   cache/cache_key.cc                                            \
   cache/cache_reservation_manager.cc                            \
   cache/clock_cache.cc                                          \
+  cache/fast_lru_cache.cc                                       \
   cache/lru_cache.cc                                            \
   cache/compressed_secondary_cache.cc                           \
   cache/sharded_cache.cc                                        \
@@ -210,6 +211,7 @@ LIB_SOURCES =                                                   \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
+  util/async_file_reader.cc					\
   util/build_version.cc                                         \
   util/cleanable.cc                                             \
   util/coding.cc                                                \
@@ -363,6 +365,7 @@ STRESS_LIB_SOURCES =                                            \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
+  db/db_with_timestamp_test_util.cc                             \
   test_util/mock_time_env.cc                                    \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
@@ -428,7 +431,6 @@ TEST_MAIN_SOURCES =                                                     \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/db_basic_test.cc                                                   \
-  db/db_with_timestamp_basic_test.cc                                    \
   db/db_block_cache_test.cc                                             \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
@@ -436,6 +438,8 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
   db/db_flush_test.cc                                                   \
+  db/db_readonly_with_timestamp_test.cc                                 \
+  db/db_with_timestamp_basic_test.cc                                    \
   db/import_column_family_test.cc                                       \
   db/db_inplace_update_test.cc                                          \
   db/db_io_failure_test.cc                                              \

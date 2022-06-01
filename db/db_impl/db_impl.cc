@@ -567,7 +567,7 @@ Status DBImpl::CloseHelper() {
   // flushing by first checking if there is a need for
   // flushing (but need to implement something
   // else than imm()->IsFlushPending() because the output
-  // memtables added to imm() dont trigger flushes).
+  // memtables added to imm() don't trigger flushes).
   if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
     Status flush_ret;
     mutex_.Unlock();
@@ -849,7 +849,8 @@ void DBImpl::PersistStats() {
           if (stats_slice_.find(stat.first) != stats_slice_.end()) {
             uint64_t delta = stat.second - stats_slice_[stat.first];
             s = batch.Put(persist_stats_cf_handle_,
-                          Slice(key, std::min(100, length)), ToString(delta));
+                          Slice(key, std::min(100, length)),
+                          std::to_string(delta));
           }
         }
       }
@@ -1722,17 +1723,6 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
-namespace {
-class GetWithTimestampReadCallback : public ReadCallback {
- public:
-  explicit GetWithTimestampReadCallback(SequenceNumber seq)
-      : ReadCallback(seq) {}
-  bool IsVisibleFullCheck(SequenceNumber seq) override {
-    return seq <= max_visible_seq_;
-  }
-};
-}  // namespace
-
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
@@ -2589,7 +2579,8 @@ Status DBImpl::MultiGetImpl(
                             ? MultiGetContext::MAX_BATCH_SIZE
                             : keys_left;
     MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
-                        batch_size, snapshot, read_options);
+                        batch_size, snapshot, read_options, GetFileSystem(),
+                        stats_);
     MultiGetRange range = ctx.GetMultiGetRange();
     range.AddValueSize(curr_value_size);
     bool lookup_current = false;
@@ -2781,7 +2772,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
-      single_column_family_mode_ = false;
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
@@ -3355,7 +3345,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     bool ret_value =
         GetIntPropertyInternal(cfd, *property_info, false, &int_value);
     if (ret_value) {
-      *value = ToString(int_value);
+      *value = std::to_string(int_value);
     }
     return ret_value;
   } else if (property_info->handle_string) {
@@ -3990,8 +3980,8 @@ Status DBImpl::CheckConsistency() {
       } else if (fsize != md.size) {
         corruption_messages += "Sst file size mismatch: " + file_path +
                                ". Size recorded in manifest " +
-                               ToString(md.size) + ", actual size " +
-                               ToString(fsize) + "\n";
+                               std::to_string(md.size) + ", actual size " +
+                               std::to_string(fsize) + "\n";
       }
     }
   }
@@ -4818,19 +4808,6 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-      int consumed_seqno_count =
-          ingestion_jobs[0].ConsumedSequenceNumbersCount();
-      for (size_t i = 1; i != num_cfs; ++i) {
-        consumed_seqno_count =
-            std::max(consumed_seqno_count,
-                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
-      }
-      if (consumed_seqno_count > 0) {
-        const SequenceNumber last_seqno = versions_->LastSequence();
-        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
-      }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -4860,6 +4837,27 @@ Status DBImpl::IngestExternalFiles(
       status =
           versions_->LogAndApply(cfds_to_commit, mutable_cf_options_list,
                                  edit_lists, &mutex_, directories_.GetDbDir());
+      // It is safe to update VersionSet last seqno here after LogAndApply since
+      // LogAndApply persists last sequence number from VersionEdits,
+      // which are from file's largest seqno and not from VersionSet.
+      //
+      // It is necessary to update last seqno here since LogAndApply releases
+      // mutex when persisting MANIFEST file, and the snapshots taken during
+      // that period will not be stable if VersionSet last seqno is updated
+      // before LogAndApply.
+      int consumed_seqno_count =
+          ingestion_jobs[0].ConsumedSequenceNumbersCount();
+      for (size_t i = 1; i != num_cfs; ++i) {
+        consumed_seqno_count =
+            std::max(consumed_seqno_count,
+                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
+      }
+      if (consumed_seqno_count > 0) {
+        const SequenceNumber last_seqno = versions_->LastSequence();
+        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
+      }
     }
 
     if (status.ok()) {
@@ -5123,8 +5121,8 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
                                      fmeta->file_checksum_func_name, fname,
                                      read_options);
         } else {
-          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
-                                                       read_options, fname);
+          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(
+              opts, file_options_, read_options, fname, fd.largest_seqno);
         }
         RecordTick(stats_, VERIFY_CHECKSUM_READ_BYTES,
                    IOSTATS(bytes_read) - prev_bytes_read);
@@ -5338,7 +5336,7 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
 
 Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
-    uint64_t oldest_time = port::kMaxUint64;
+    uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped()) {
         uint64_t ctime;

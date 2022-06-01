@@ -65,7 +65,7 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   size_t compact_bytes = static_cast<size_t>(level_files[start]->fd.file_size);
   uint64_t compensated_compact_bytes =
       level_files[start]->compensated_file_size;
-  size_t compact_bytes_per_del_file = port::kMaxSizet;
+  size_t compact_bytes_per_del_file = std::numeric_limits<size_t>::max();
   // Compaction range will be [start, limit).
   size_t limit;
   // Pull in files until the amount of compaction work per deleted file begins
@@ -401,7 +401,7 @@ Status CompactionPicker::GetCompactionInputsFromFileNumbers(
         "Cannot find matched SST files for the following file numbers:");
     for (auto fn : *input_set) {
       message += " ";
-      message += ToString(fn);
+      message += std::to_string(fn);
     }
     return Status::InvalidArgument(message);
   }
@@ -717,7 +717,7 @@ Compaction* CompactionPicker::CompactRange(
   // files that are created during the current compaction.
   if (compact_range_options.bottommost_level_compaction ==
           BottommostLevelCompaction::kForceOptimized &&
-      max_file_num_to_ignore != port::kMaxUint64) {
+      max_file_num_to_ignore != std::numeric_limits<uint64_t>::max()) {
     assert(input_level == output_level);
     // inputs_shrunk holds a continuous subset of input files which were all
     // created before the current manual compaction
@@ -1004,14 +1004,14 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
     return Status::InvalidArgument(
         "Output level for column family " + cf_meta.name +
         " must between [0, " +
-        ToString(cf_meta.levels[cf_meta.levels.size() - 1].level) + "].");
+        std::to_string(cf_meta.levels[cf_meta.levels.size() - 1].level) + "].");
   }
 
   if (output_level > MaxOutputLevel()) {
     return Status::InvalidArgument(
         "Exceed the maximum output level defined by "
         "the current compaction algorithm --- " +
-        ToString(MaxOutputLevel()));
+        std::to_string(MaxOutputLevel()));
   }
 
   if (output_level < 0) {
@@ -1061,8 +1061,8 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
       return Status::InvalidArgument(
           "Cannot compact file to up level, input file: " +
           MakeTableFileName("", file_num) + " level " +
-          ToString(input_file_level) + " > output level " +
-          ToString(output_level));
+          std::to_string(input_file_level) + " > output level " +
+          std::to_string(output_level));
     }
   }
 

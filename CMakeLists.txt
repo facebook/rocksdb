@@ -40,6 +40,8 @@ include(GoogleTest)
 get_rocksdb_version(rocksdb_VERSION)
 project(rocksdb
   VERSION ${rocksdb_VERSION}
+  DESCRIPTION "An embeddable persistent key-value store for fast storage"
+  HOMEPAGE_URL https://rocksdb.org/
   LANGUAGES CXX C ASM)
 
 if(POLICY CMP0042)
@@ -335,9 +337,6 @@ endif()
 # Reset the required flags
 set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
-# thread_local is part of C++11 and later (TODO: clean up this define)
-add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
-
 option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
 if (NOT WITH_IOSTATS_CONTEXT)
   add_definitions(-DNIOSTATS_CONTEXT)
@@ -596,6 +595,7 @@ set(SOURCES
         cache/cache_reservation_manager.cc
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
+        cache/fast_lru_cache.cc
         cache/lru_cache.cc
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
@@ -796,6 +796,7 @@ set(SOURCES
         trace_replay/trace_record_result.cc
         trace_replay/trace_record.cc
         trace_replay/trace_replay.cc
+        util/async_file_reader.cc
         util/cleanable.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
@@ -1120,7 +1121,19 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     COMPATIBILITY SameMajorVersion
   )
 
+  configure_file(
+    ${PROJECT_NAME}.pc.in
+    ${PROJECT_NAME}.pc
+    @ONLY
+  )
+
   install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+  foreach (plugin ${PLUGINS})
+    foreach (header ${${plugin}_HEADERS})
+      install(FILES plugin/${plugin}/${header} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/rocksdb/plugin/${plugin})
+    endforeach()
+  endforeach()
 
   install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/modules" COMPONENT devel DESTINATION ${package_config_destination})
 
@@ -1157,6 +1170,13 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
     ${CMAKE_CURRENT_BINARY_DIR}/RocksDBConfigVersion.cmake
     COMPONENT devel
     DESTINATION ${package_config_destination}
+  )
+
+  install(
+    FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc
+    COMPONENT devel
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
   )
 endif()
 
@@ -1203,6 +1223,7 @@ if(WITH_TESTS)
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
+        db/db_readonly_with_timestamp_test.cc
         db/db_with_timestamp_basic_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
@@ -1371,6 +1392,7 @@ if(WITH_TESTS)
 
   set(TESTUTIL_SOURCE
       db/db_test_util.cc
+      db/db_with_timestamp_test_util.cc
       monitoring/thread_status_updater_debug.cc
       table/mock_table.cc
       utilities/agg_merge/test_agg_merge.cc

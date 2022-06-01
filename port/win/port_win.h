@@ -60,11 +60,6 @@ using ssize_t = SSIZE_T;
 #ifdef _MSC_VER
 #define __attribute__(A)
 
-// thread_local is part of C++11 and later (TODO: clean up this define)
-#ifndef __thread
-#define __thread thread_local
-#endif
-
 #endif
 
 namespace ROCKSDB_NAMESPACE {
@@ -74,46 +69,6 @@ namespace ROCKSDB_NAMESPACE {
 extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
-
-// VS < 2015
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-
-// VS 15 has snprintf
-#define snprintf _snprintf
-
-#define ROCKSDB_NOEXCEPT
-// std::numeric_limits<size_t>::max() is not constexpr just yet
-// therefore, use the same limits
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const uint32_t kMaxUint32 = UINT32_MAX;
-const int kMaxInt32 = INT32_MAX;
-const int kMinInt32 = INT32_MIN;
-const int64_t kMaxInt64 = INT64_MAX;
-const int64_t kMinInt64 = INT64_MIN;
-const uint64_t kMaxUint64 = UINT64_MAX;
-
-#ifdef _WIN64
-const size_t kMaxSizet = UINT64_MAX;
-#else
-const size_t kMaxSizet = UINT_MAX;
-#endif
-
-#else // VS >= 2015 or MinGW
-
-#define ROCKSDB_NOEXCEPT noexcept
-
-// For use at db/file_indexer.h kLevelMaxIndex
-const uint32_t kMaxUint32 = std::numeric_limits<uint32_t>::max();
-const int kMaxInt32 = std::numeric_limits<int>::max();
-const int kMinInt32 = std::numeric_limits<int>::min();
-const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
-const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
-const int64_t kMinInt64 = std::numeric_limits<int64_t>::min();
-
-const size_t kMaxSizet = std::numeric_limits<size_t>::max();
-
-#endif //_MSC_VER
 
 // "Windows is designed to run on little-endian computer architectures."
 // https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
@@ -261,8 +216,8 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifdef ROCKSDB_JEMALLOC
 // Separate inlines so they can be replaced if needed
-void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT;
-void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT;
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) noexcept;
+void jemalloc_aligned_free(void* p) noexcept;
 #endif
 
 inline void *cacheline_aligned_alloc(size_t size) {

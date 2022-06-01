@@ -214,6 +214,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == DeleteCommand::Name()) {
     return new DeleteCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
+  } else if (parsed_params.cmd == SingleDeleteCommand::Name()) {
+    return new SingleDeleteCommand(parsed_params.cmd_params,
+                                   parsed_params.option_map,
+                                   parsed_params.flags);
   } else if (parsed_params.cmd == DeleteRangeCommand::Name()) {
     return new DeleteRangeCommand(parsed_params.cmd_params,
                                   parsed_params.option_map,
@@ -408,7 +412,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_value_hex_ = IsValueHex(options, flags);
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
-  try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
+  try_load_options_ = IsTryLoadOptions(options, flags);
   force_consistency_checks_ =
       !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
   enable_blob_files_ = IsFlagPresent(flags, ARG_ENABLE_BLOB_FILES);
@@ -1062,6 +1066,24 @@ bool LDBCommand::IsValueHex(const std::map<std::string, std::string>& options,
           IsFlagPresent(flags, ARG_VALUE_HEX) ||
           ParseBooleanOption(options, ARG_HEX, false) ||
           ParseBooleanOption(options, ARG_VALUE_HEX, false));
+}
+
+bool LDBCommand::IsTryLoadOptions(
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags) {
+  if (IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS)) {
+    return true;
+  }
+  // if `DB` is specified and not explicitly to create a new db, default
+  // `try_load_options` to true. The user could still disable that by set
+  // `try_load_options=false`.
+  // Note: Opening as TTL DB doesn't support `try_load_options`, so it's default
+  // to false. TODO: TTL_DB may need to fix that, otherwise it's unable to open
+  // DB which has incompatible setting with default options.
+  bool default_val = (options.find(ARG_DB) != options.end()) &&
+                     !IsFlagPresent(flags, ARG_CREATE_IF_MISSING) &&
+                     !IsFlagPresent(flags, ARG_TTL);
+  return ParseBooleanOption(options, ARG_TRY_LOAD_OPTIONS, default_val);
 }
 
 bool LDBCommand::ParseBooleanOption(
@@ -2180,8 +2202,7 @@ std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
   std::vector<std::string> ret;
   ret.push_back("reduce_levels");
   ret.push_back("--" + ARG_DB + "=" + db_path);
-  ret.push_back("--" + ARG_NEW_LEVELS + "=" +
-                ROCKSDB_NAMESPACE::ToString(new_levels));
+  ret.push_back("--" + ARG_NEW_LEVELS + "=" + std::to_string(new_levels));
   if(print_old_level) {
     ret.push_back("--" + ARG_PRINT_OLD_LEVELS);
   }
@@ -2375,7 +2396,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string property;
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
+    db_->GetProperty(GetCfHandle(),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2403,7 +2425,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
   files_per_level = "";
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
-    db_->GetProperty(GetCfHandle(), "rocksdb.num-files-at-level" + ToString(i),
+    db_->GetProperty(GetCfHandle(),
+                     "rocksdb.num-files-at-level" + std::to_string(i),
                      &property);
 
     // format print string
@@ -2418,7 +2441,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level 0 after compaction is " +
-          ToString(num_files) + ", not 1.\n");
+          std::to_string(num_files) + ", not 1.\n");
       return;
     }
     // other levels should have no file
@@ -2426,8 +2449,8 @@ void ChangeCompactionStyleCommand::DoCommand() {
       exec_state_ = LDBCommandExecuteResult::Failed(
           "Number of db files at "
           "level " +
-          ToString(i) + " after compaction is " + ToString(num_files) +
-          ", not 0.\n");
+          std::to_string(i) + " after compaction is " +
+          std::to_string(num_files) + ", not 0.\n");
       return;
     }
   }
@@ -2555,8 +2578,9 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
   const auto& fs = options.env->GetFileSystem();
   FileOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
-  Status status = SequentialFileReader::Create(fs, wal_file, soptions,
-                                               &wal_file_reader, nullptr);
+  Status status = SequentialFileReader::Create(
+      fs, wal_file, soptions, &wal_file_reader, nullptr /* dbg */,
+      nullptr /* rate_limiter */);
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +
@@ -3037,6 +3061,42 @@ void DeleteCommand::DoCommand() {
     return;
   }
   Status st = db_->Delete(WriteOptions(), GetCfHandle(), key_);
+  if (st.ok()) {
+    fprintf(stdout, "OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
+}
+
+SingleDeleteCommand::SingleDeleteCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "KEY must be specified for the single delete command");
+  } else {
+    key_ = params.at(0);
+    if (is_key_hex_) {
+      key_ = HexToString(key_);
+    }
+  }
+}
+
+void SingleDeleteCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(SingleDeleteCommand::Name() + " <key>");
+  ret.append("\n");
+}
+
+void SingleDeleteCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  Status st = db_->SingleDelete(WriteOptions(), GetCfHandle(), key_);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {

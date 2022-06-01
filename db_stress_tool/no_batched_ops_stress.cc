@@ -9,9 +9,8 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif // NDEBUG
+#include "rocksdb/utilities/transaction_db.h"
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
@@ -190,7 +189,8 @@ class NonBatchedOpsStressTest : public StressTest {
       if (thread->rand.OneInOpt(FLAGS_clear_column_family_one_in)) {
         // drop column family and then create it again (can't drop default)
         int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;
-        std::string new_name = ToString(new_column_family_name_.fetch_add(1));
+        std::string new_name =
+            std::to_string(new_column_family_name_.fetch_add(1));
         {
           MutexLock l(thread->shared->GetMutex());
           fprintf(
@@ -233,20 +233,15 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string from_db;
     int error_count = 0;
 
-#ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->EnableErrorInjection();
       SharedState::ignore_read_error = false;
     }
-#endif // NDEBUG
     Status s = db_->Get(read_opts, cfh, key, &from_db);
-#ifndef NDEBUG
     if (fault_fs_guard) {
       error_count = fault_fs_guard->GetAndResetErrorCount();
     }
-#endif // NDEBUG
     if (s.ok()) {
-#ifndef NDEBUG
       if (fault_fs_guard) {
         if (error_count && !SharedState::ignore_read_error) {
           // Grab mutex so multiple thread don't try to print the
@@ -258,7 +253,6 @@ class NonBatchedOpsStressTest : public StressTest {
           std::terminate();
         }
       }
-#endif // NDEBUG
       // found case
       thread->stats.AddGets(1, 1);
     } else if (s.IsNotFound()) {
@@ -272,11 +266,9 @@ class NonBatchedOpsStressTest : public StressTest {
         thread->stats.AddVerifiedErrors(1);
       }
     }
-#ifndef NDEBUG
     if (fault_fs_guard) {
       fault_fs_guard->DisableErrorInjection();
     }
-#endif // NDEBUG
     return s;
   }
 
@@ -364,19 +356,15 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     if (!use_txn) {
-#ifndef NDEBUG
       if (fault_fs_guard) {
         fault_fs_guard->EnableErrorInjection();
         SharedState::ignore_read_error = false;
       }
-#endif // NDEBUG
       db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                     statuses.data());
-#ifndef NDEBUG
       if (fault_fs_guard) {
         error_count = fault_fs_guard->GetAndResetErrorCount();
       }
-#endif // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       txn->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
@@ -384,7 +372,6 @@ class NonBatchedOpsStressTest : public StressTest {
 #endif
     }
 
-#ifndef NDEBUG
     if (fault_fs_guard && error_count && !SharedState::ignore_read_error) {
       int stat_nok = 0;
       for (const auto& s : statuses) {
@@ -408,7 +395,6 @@ class NonBatchedOpsStressTest : public StressTest {
     if (fault_fs_guard) {
       fault_fs_guard->DisableErrorInjection();
     }
-#endif // NDEBUG
 
     for (size_t i = 0; i < statuses.size(); ++i) {
       Status s = statuses[i];
@@ -631,33 +617,14 @@ class NonBatchedOpsStressTest : public StressTest {
   Status TestDelete(ThreadState* thread, WriteOptions& write_opts,
                     const std::vector<int>& rand_column_families,
                     const std::vector<int64_t>& rand_keys,
-                    std::unique_ptr<MutexLock>& lock) override {
+                    std::unique_ptr<MutexLock>& /* lock */) override {
     int64_t rand_key = rand_keys[0];
     int rand_column_family = rand_column_families[0];
     auto shared = thread->shared;
-    int64_t max_key = shared->GetMaxKey();
 
     // OPERATION delete
-    // If the chosen key does not allow overwrite and it does not exist,
-    // choose another key.
-    std::string write_ts_str;
-    Slice write_ts;
-    while (!shared->AllowsOverwrite(rand_key) &&
-           !shared->Exists(rand_column_family, rand_key)) {
-      lock.reset();
-      rand_key = thread->rand.Next() % max_key;
-      rand_column_family = thread->rand.Next() % FLAGS_column_families;
-      lock.reset(
-          new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
-      if (FLAGS_user_timestamp_size > 0) {
-        write_ts_str = NowNanosStr();
-        write_ts = write_ts_str;
-      }
-    }
-    if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
-      write_ts_str = NowNanosStr();
-      write_ts = write_ts_str;
-    }
+    std::string write_ts_str = NowNanosStr();
+    Slice write_ts = write_ts_str;
 
     std::string key_str = Key(rand_key);
     Slice key = key_str;
@@ -823,7 +790,7 @@ class NonBatchedOpsStressTest : public StressTest {
                               const std::vector<int64_t>& rand_keys,
                               std::unique_ptr<MutexLock>& lock) override {
     const std::string sst_filename =
-        FLAGS_db + "/." + ToString(thread->tid) + ".sst";
+        FLAGS_db + "/." + std::to_string(thread->tid) + ".sst";
     Status s;
     if (db_stress_env->FileExists(sst_filename).ok()) {
       // Maybe we terminated abnormally before, so cleanup to give this file
@@ -838,13 +805,18 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t key_base = rand_keys[0];
     int column_family = rand_column_families[0];
     std::vector<std::unique_ptr<MutexLock>> range_locks;
+    range_locks.reserve(FLAGS_ingest_external_file_width);
+    std::vector<int64_t> keys;
+    keys.reserve(FLAGS_ingest_external_file_width);
     std::vector<uint32_t> values;
+    values.reserve(FLAGS_ingest_external_file_width);
     SharedState* shared = thread->shared;
 
+    assert(FLAGS_nooverwritepercent < 100);
     // Grab locks, set pending state on expected values, and add keys
     for (int64_t key = key_base;
-         s.ok() && key < std::min(key_base + FLAGS_ingest_external_file_width,
-                                  shared->GetMaxKey());
+         s.ok() && key < shared->GetMaxKey() &&
+         static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
          ++key) {
       if (key == key_base) {
         range_locks.emplace_back(std::move(lock));
@@ -852,6 +824,12 @@ class NonBatchedOpsStressTest : public StressTest {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
+      if (!shared->AllowsOverwrite(key)) {
+        // We could alternatively include `key` on the condition its current
+        // value is `DELETION_SENTINEL`.
+        continue;
+      }
+      keys.push_back(key);
 
       uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
       values.push_back(value_base);
@@ -874,10 +852,8 @@ class NonBatchedOpsStressTest : public StressTest {
       fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
       std::terminate();
     }
-    int64_t key = key_base;
-    for (int32_t value : values) {
-      shared->Put(column_family, key, value, false /* pending */);
-      ++key;
+    for (size_t i = 0; i < keys.size(); ++i) {
+      shared->Put(column_family, keys[i], values[i], false /* pending */);
     }
   }
 #endif  // ROCKSDB_LITE
@@ -930,6 +906,21 @@ class NonBatchedOpsStressTest : public StressTest {
     }
     return true;
   }
+
+#ifndef ROCKSDB_LITE
+  void PrepareTxnDbOptions(SharedState* shared,
+                           TransactionDBOptions& txn_db_opts) override {
+    txn_db_opts.rollback_deletion_type_callback =
+        [shared](TransactionDB*, ColumnFamilyHandle*, const Slice& key) {
+          assert(shared);
+          uint64_t key_num = 0;
+          bool ok = GetIntVal(key.ToString(), &key_num);
+          assert(ok);
+          (void)ok;
+          return !shared->AllowsOverwrite(key_num);
+        };
+  }
+#endif  // ROCKSDB_LITE
 };
 
 StressTest* CreateNonBatchedOpsStressTest() {

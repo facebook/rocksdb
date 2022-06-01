@@ -19,6 +19,7 @@
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace lru_cache {
 
 LRUHandleTable::LRUHandleTable(int max_upper_hash_bits)
     : length_bits_(/* historical starting size*/ 4),
@@ -142,9 +143,8 @@ void LRUCacheShard::EraseUnRefEntries() {
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
       old->SetInCache(false);
-      size_t total_charge = old->CalcTotalCharge(metadata_charge_policy_);
-      assert(usage_ >= total_charge);
-      usage_ -= total_charge;
+      assert(usage_ >= old->total_charge);
+      usage_ -= old->total_charge;
       last_reference_list.push_back(old);
     }
   }
@@ -181,11 +181,13 @@ void LRUCacheShard::ApplyToSomeEntries(
   }
 
   table_.ApplyToEntriesRange(
-      [callback](LRUHandle* h) {
+      [callback,
+       metadata_charge_policy = metadata_charge_policy_](LRUHandle* h) {
         DeleterFn deleter = h->IsSecondaryCacheCompatible()
                                 ? h->info_.helper->del_cb
                                 : h->info_.deleter;
-        callback(h->key(), h->value, h->charge, deleter);
+        callback(h->key(), h->value, h->GetCharge(metadata_charge_policy),
+                 deleter);
       },
       index_begin, index_end);
 }
@@ -221,19 +223,17 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
-  size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
-  assert(lru_usage_ >= total_charge);
-  lru_usage_ -= total_charge;
+  assert(lru_usage_ >= e->total_charge);
+  lru_usage_ -= e->total_charge;
   if (e->InHighPriPool()) {
-    assert(high_pri_pool_usage_ >= total_charge);
-    high_pri_pool_usage_ -= total_charge;
+    assert(high_pri_pool_usage_ >= e->total_charge);
+    high_pri_pool_usage_ -= e->total_charge;
   }
 }
 
 void LRUCacheShard::LRU_Insert(LRUHandle* e) {
   assert(e->next == nullptr);
   assert(e->prev == nullptr);
-  size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
   if (high_pri_pool_ratio_ > 0 && (e->IsHighPri() || e->HasHit())) {
     // Inset "e" to head of LRU list.
     e->next = &lru_;
@@ -241,7 +241,7 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(true);
-    high_pri_pool_usage_ += total_charge;
+    high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
   } else {
     // Insert "e" to the head of low-pri pool. Note that when
@@ -253,7 +253,7 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInHighPriPool(false);
     lru_low_pri_ = e;
   }
-  lru_usage_ += total_charge;
+  lru_usage_ += e->total_charge;
 }
 
 void LRUCacheShard::MaintainPoolSize() {
@@ -262,10 +262,8 @@ void LRUCacheShard::MaintainPoolSize() {
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
     lru_low_pri_->SetInHighPriPool(false);
-    size_t total_charge =
-        lru_low_pri_->CalcTotalCharge(metadata_charge_policy_);
-    assert(high_pri_pool_usage_ >= total_charge);
-    high_pri_pool_usage_ -= total_charge;
+    assert(high_pri_pool_usage_ >= lru_low_pri_->total_charge);
+    high_pri_pool_usage_ -= lru_low_pri_->total_charge;
   }
 }
 
@@ -278,9 +276,8 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     LRU_Remove(old);
     table_.Remove(old->key(), old->hash);
     old->SetInCache(false);
-    size_t old_total_charge = old->CalcTotalCharge(metadata_charge_policy_);
-    assert(usage_ >= old_total_charge);
-    usage_ -= old_total_charge;
+    assert(usage_ >= old->total_charge);
+    usage_ -= old->total_charge;
     deleted->push_back(old);
   }
 }
@@ -315,16 +312,15 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
                                  bool free_handle_on_fail) {
   Status s = Status::OK();
   autovector<LRUHandle*> last_reference_list;
-  size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
 
   {
     MutexLock l(&mutex_);
 
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty.
-    EvictFromLRU(total_charge, &last_reference_list);
+    EvictFromLRU(e->total_charge, &last_reference_list);
 
-    if ((usage_ + total_charge) > capacity_ &&
+    if ((usage_ + e->total_charge) > capacity_ &&
         (strict_capacity_limit_ || handle == nullptr)) {
       e->SetInCache(false);
       if (handle == nullptr) {
@@ -342,7 +338,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
       LRUHandle* old = table_.Insert(e);
-      usage_ += total_charge;
+      usage_ += e->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
         assert(old->InCache());
@@ -350,10 +346,8 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
         if (!old->HasRefs()) {
           // old is on LRU because it's in cache and its reference count is 0.
           LRU_Remove(old);
-          size_t old_total_charge =
-              old->CalcTotalCharge(metadata_charge_policy_);
-          assert(usage_ >= old_total_charge);
-          usage_ -= old_total_charge;
+          assert(usage_ >= old->total_charge);
+          usage_ -= old->total_charge;
           last_reference_list.push_back(old);
         }
       }
@@ -390,7 +384,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   e->SetIncomplete(false);
   e->SetInCache(true);
   e->value = secondary_handle->Value();
-  e->charge = secondary_handle->Size();
+  e->CalcTotalCharge(secondary_handle->Size(), metadata_charge_policy_);
   delete secondary_handle;
 
   // This call could fail if the cache is over capacity and
@@ -409,7 +403,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
     // Since the secondary cache lookup failed, mark the item as not in cache
     // Don't charge the cache as its only metadata that'll shortly be released
     MutexLock l(&mutex_);
-    e->charge = 0;
+    // TODO
+    e->CalcTotalCharge(0, metadata_charge_policy_);
     e->SetInCache(false);
   }
 }
@@ -537,9 +532,8 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // usage. If value is null in the latter case, taht means the lookup
     // failed and we didn't charge the cache.
     if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value)) {
-      size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
-      assert(usage_ >= total_charge);
-      usage_ -= total_charge;
+      assert(usage_ >= e->total_charge);
+      usage_ -= e->total_charge;
     }
   }
 
@@ -572,7 +566,6 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 #endif  // __SANITIZE_THREAD__
     e->info_.deleter = deleter;
   }
-  e->charge = charge;
   e->key_length = key.size();
   e->hash = hash;
   e->refs = 0;
@@ -580,6 +573,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->SetInCache(true);
   e->SetPriority(priority);
   memcpy(e->key_data, key.data(), key.size());
+  e->CalcTotalCharge(charge, metadata_charge_policy_);
 
   return InsertItem(e, handle, /* free_handle_on_fail */ true);
 }
@@ -596,9 +590,8 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
-        size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
-        assert(usage_ >= total_charge);
-        usage_ -= total_charge;
+        assert(usage_ >= e->total_charge);
+        usage_ -= e->total_charge;
         last_reference = true;
       }
     }
@@ -689,7 +682,12 @@ void* LRUCache::Value(Handle* handle) {
 }
 
 size_t LRUCache::GetCharge(Handle* handle) const {
-  return reinterpret_cast<const LRUHandle*>(handle)->charge;
+  CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
+  if (num_shards_ > 0) {
+    metadata_charge_policy = shards_[0].metadata_charge_policy_;
+  }
+  return reinterpret_cast<const LRUHandle*>(handle)->GetCharge(
+      metadata_charge_policy);
 }
 
 Cache::DeleterFn LRUCache::GetDeleter(Handle* handle) const {
@@ -758,6 +756,8 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
     }
   }
 }
+
+}  // namespace lru_cache
 
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,

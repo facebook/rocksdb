@@ -53,6 +53,7 @@ struct ConfigOptions;
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
 
+// DEPRECATED
 // Priority of an IO request. This is a hint and does not guarantee any
 // particular QoS.
 // IO_LOW - Typically background reads/writes such as compaction/flush
@@ -86,6 +87,7 @@ struct IOOptions {
   // Timeout for the operation in microseconds
   std::chrono::microseconds timeout;
 
+  // DEPRECATED
   // Priority - high or low
   IOPriority prio;
 

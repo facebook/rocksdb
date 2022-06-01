@@ -13,6 +13,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
@@ -75,7 +76,7 @@ class DBBlockCacheTest : public DBTestBase {
   void InitTable(const Options& /*options*/) {
     std::string value(kValueSize, 'a');
     for (size_t i = 0; i < kNumBlocks; i++) {
-      ASSERT_OK(Put(ToString(i), value.c_str()));
+      ASSERT_OK(Put(std::to_string(i), value.c_str()));
     }
   }
 
@@ -204,7 +205,7 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
 
   ASSERT_EQ(0, cache->GetUsage());
   iter = db_->NewIterator(read_options);
-  iter->Seek(ToString(0));
+  iter->Seek(std::to_string(0));
   ASSERT_LT(0, cache->GetUsage());
   delete iter;
   iter = nullptr;
@@ -235,7 +236,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   // Load blocks into cache.
   for (size_t i = 0; i + 1 < kNumBlocks; i++) {
     iter = db_->NewIterator(read_options);
-    iter->Seek(ToString(i));
+    iter->Seek(std::to_string(i));
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 1, 0, 1, 0);
     iterators[i].reset(iter);
@@ -248,7 +249,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   // Test with strict capacity limit.
   cache->SetStrictCapacityLimit(true);
   iter = db_->NewIterator(read_options);
-  iter->Seek(ToString(kNumBlocks - 1));
+  iter->Seek(std::to_string(kNumBlocks - 1));
   ASSERT_TRUE(iter->status().IsIncomplete());
   CheckCacheCounters(options, 1, 0, 0, 1);
   delete iter;
@@ -262,7 +263,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   ASSERT_EQ(0, cache->GetPinnedUsage());
   for (size_t i = 0; i + 1 < kNumBlocks; i++) {
     iter = db_->NewIterator(read_options);
-    iter->Seek(ToString(i));
+    iter->Seek(std::to_string(i));
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 0, 1, 0, 0);
     iterators[i].reset(iter);
@@ -288,7 +289,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
 
   std::string value(kValueSize, 'a');
   for (size_t i = 0; i < kNumBlocks; i++) {
-    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Put(std::to_string(i), value));
     ASSERT_OK(Flush());
   }
 
@@ -312,7 +313,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
 
   // Load blocks into cache.
   for (size_t i = 0; i < kNumBlocks - 1; i++) {
-    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(value, Get(std::to_string(i)));
     CheckCacheCounters(options, 1, 0, 1, 0);
     CheckCompressedCacheCounters(options, 1, 0, 1, 0);
   }
@@ -333,7 +334,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
 
   // Load last key block.
   ASSERT_EQ("Result incomplete: Insert failed due to LRU cache being full.",
-            Get(ToString(kNumBlocks - 1)));
+            Get(std::to_string(kNumBlocks - 1)));
   // Failure will also record the miss counter.
   CheckCacheCounters(options, 1, 0, 0, 1);
   CheckCompressedCacheCounters(options, 1, 0, 1, 0);
@@ -342,7 +343,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   // cache and load into block cache.
   cache->SetStrictCapacityLimit(false);
   // Load last key block.
-  ASSERT_EQ(value, Get(ToString(kNumBlocks - 1)));
+  ASSERT_EQ(value, Get(std::to_string(kNumBlocks - 1)));
   CheckCacheCounters(options, 1, 0, 1, 0);
   CheckCompressedCacheCounters(options, 0, 1, 0, 0);
 }
@@ -567,7 +568,7 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   Iterator* iter = nullptr;
 
   iter = db_->NewIterator(read_options);
-  iter->Seek(ToString(0));
+  iter->Seek(std::to_string(0));
   while (iter->Valid()) {
     iter->Next();
   }
@@ -645,10 +646,10 @@ TEST_F(DBBlockCacheTest, WarmCacheWithDataBlocksDuringFlush) {
 
   std::string value(kValueSize, 'a');
   for (size_t i = 1; i <= kNumBlocks; i++) {
-    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Put(std::to_string(i), value));
     ASSERT_OK(Flush());
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
-    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(value, Get(std::to_string(i)));
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_HIT));
   }
@@ -705,7 +706,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
 
   std::string value(kValueSize, 'a');
   for (size_t i = 1; i <= kNumBlocks; i++) {
-    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Put(std::to_string(i), value));
     ASSERT_OK(Flush());
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
     if (filter_type == 1) {
@@ -717,7 +718,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
       ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_INDEX_ADD));
       ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_FILTER_ADD));
     }
-    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(value, Get(std::to_string(i)));
 
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_DATA_MISS));
     ASSERT_EQ(i, options.statistics->getTickerCount(BLOCK_CACHE_DATA_HIT));
@@ -772,12 +773,12 @@ TEST_F(DBBlockCacheTest, DynamicallyWarmCacheDuringFlush) {
   std::string value(kValueSize, 'a');
 
   for (size_t i = 1; i <= 5; i++) {
-    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Put(std::to_string(i), value));
     ASSERT_OK(Flush());
     ASSERT_EQ(1,
               options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
 
-    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(value, Get(std::to_string(i)));
     ASSERT_EQ(0,
               options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
     ASSERT_EQ(
@@ -790,12 +791,12 @@ TEST_F(DBBlockCacheTest, DynamicallyWarmCacheDuringFlush) {
       {{"block_based_table_factory", "{prepopulate_block_cache=kDisable;}"}}));
 
   for (size_t i = 6; i <= kNumBlocks; i++) {
-    ASSERT_OK(Put(ToString(i), value));
+    ASSERT_OK(Put(std::to_string(i), value));
     ASSERT_OK(Flush());
     ASSERT_EQ(0,
               options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
 
-    ASSERT_EQ(value, Get(ToString(i)));
+    ASSERT_EQ(value, Get(std::to_string(i)));
     ASSERT_EQ(1,
               options.statistics->getAndResetTickerCount(BLOCK_CACHE_DATA_ADD));
     ASSERT_EQ(
@@ -934,7 +935,8 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        NewClockCache(capacity, num_shard_bits)}) {
+        NewClockCache(capacity, num_shard_bits),
+        NewFastLRUCache(capacity, num_shard_bits)}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;
@@ -1288,7 +1290,8 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
-         {NewLRUCache(capacity), NewClockCache(capacity)}) {
+         {NewLRUCache(capacity), NewClockCache(capacity),
+          NewFastLRUCache(capacity)}) {
       if (!cache) {
         // Skip clock cache when not supported
         continue;
@@ -1406,7 +1409,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
 
       for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
         auto role = static_cast<CacheEntryRole>(i);
-        EXPECT_EQ(ToString(expected[i]),
+        EXPECT_EQ(std::to_string(expected[i]),
                   values[BlockCacheEntryStatsMapKeys::EntryCount(role)]);
       }
 
@@ -1419,7 +1422,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         // re-scanning stats, but not totally aggressive.
         // Within some time window, we will get cached entry stats
         env_->MockSleepForSeconds(1);
-        EXPECT_EQ(ToString(prev_expected[static_cast<size_t>(
+        EXPECT_EQ(std::to_string(prev_expected[static_cast<size_t>(
                       CacheEntryRole::kWriteBuffer)]),
                   values[BlockCacheEntryStatsMapKeys::EntryCount(
                       CacheEntryRole::kWriteBuffer)]);
@@ -1429,7 +1432,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
         ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats,
                                         &values));
         EXPECT_EQ(
-            ToString(
+            std::to_string(
                 expected[static_cast<size_t>(CacheEntryRole::kWriteBuffer)]),
             values[BlockCacheEntryStatsMapKeys::EntryCount(
                 CacheEntryRole::kWriteBuffer)]);
@@ -1637,7 +1640,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   SstFileWriter sst_file_writer(EnvOptions(), options);
   std::vector<std::string> external;
   for (int i = 0; i < 2; ++i) {
-    std::string f = dbname_ + "/external" + ToString(i) + ".sst";
+    std::string f = dbname_ + "/external" + std::to_string(i) + ".sst";
     external.push_back(f);
     ASSERT_OK(sst_file_writer.Open(f));
     ASSERT_OK(sst_file_writer.Put(Key(key_count), "abc"));
@@ -1721,7 +1724,7 @@ class CacheKeyTest : public testing::Test {
     // Like SemiStructuredUniqueIdGen::GenerateNext
     tp_.db_session_id = EncodeSessionId(base_session_upper_,
                                         base_session_lower_ ^ session_counter_);
-    tp_.db_id = ToString(db_id_);
+    tp_.db_id = std::to_string(db_id_);
     tp_.orig_file_number = file_number_;
     bool is_stable;
     std::string cur_session_id = "";  // ignored

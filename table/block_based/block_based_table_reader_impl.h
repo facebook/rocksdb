@@ -25,8 +25,9 @@ template <typename TBlockIter>
 TBlockIter* BlockBasedTable::NewDataBlockIterator(
     const ReadOptions& ro, const BlockHandle& handle, TBlockIter* input_iter,
     BlockType block_type, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context, Status s,
-    FilePrefetchBuffer* prefetch_buffer, bool for_compaction) const {
+    BlockCacheLookupContext* lookup_context,
+    FilePrefetchBuffer* prefetch_buffer, bool for_compaction, bool async_read,
+    Status& s) const {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   TBlockIter* iter = input_iter != nullptr ? input_iter : new TBlockIter;
@@ -54,7 +55,12 @@ TBlockIter* BlockBasedTable::NewDataBlockIterator(
   CachableEntry<Block> block;
   s = RetrieveBlock(prefetch_buffer, ro, handle, dict, &block, block_type,
                     get_context, lookup_context, for_compaction,
-                    /* use_cache */ true, /* wait_for_cache */ true);
+                    /* use_cache */ true, /* wait_for_cache */ true,
+                    async_read);
+
+  if (s.IsTryAgain() && async_read) {
+    return iter;
+  }
 
   if (!s.ok()) {
     assert(block.IsEmpty());

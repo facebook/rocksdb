@@ -543,6 +543,9 @@ enum Histograms : uint32_t {
   // Number of prefetched bytes discarded by RocksDB.
   PREFETCHED_BYTES_DISCARDED,
 
+  // Number of IOs issued in parallel in a MultiGet batch
+  MULTIGET_IO_BATCH_SIZE,
+
   HISTOGRAM_ENUM_MAX,
 };
 

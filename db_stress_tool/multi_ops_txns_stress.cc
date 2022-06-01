@@ -12,9 +12,7 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/defer.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif  // NDEBUG
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -533,7 +531,7 @@ void MultiOpsTxnsStressTest::RegisterAdditionalListeners() {
 
 #ifndef ROCKSDB_LITE
 void MultiOpsTxnsStressTest::PrepareTxnDbOptions(
-    TransactionDBOptions& txn_db_opts) {
+    SharedState* /*shared*/, TransactionDBOptions& txn_db_opts) {
   // MultiOpsTxnStressTest uses SingleDelete to delete secondary keys, thus we
   // register this callback to let TxnDb know that when rolling back
   // a transaction, use only SingleDelete to cancel prior Put from the same
