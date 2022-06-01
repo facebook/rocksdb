@@ -1188,17 +1188,8 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             log::Writer* log_writer, uint64_t* log_used,
                             uint64_t* log_size,
                             Env::IOPriority rate_limiter_priority,
-                            LogFileNumberSize& log_file_number_size,
-                            bool with_db_mutex, bool with_log_mutex) {
+                            LogFileNumberSize& log_file_number_size) {
   assert(log_size != nullptr);
-
-  // Assert mutex explicitly.
-  if (with_db_mutex) {
-    mutex_.AssertHeld();
-  } else if (two_write_queues_) {
-    log_write_mutex_.AssertHeld();
-    assert(with_log_mutex);
-  }
 
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   *log_size = log_entry.size();
@@ -1354,8 +1345,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
   uint64_t log_size;
   io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size,
                     write_group.leader->rate_limiter_priority,
-                    log_file_number_size,
-                    /*with_db_mutex=*/false, /*with_log_mutex=*/true);
+                    log_file_number_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
