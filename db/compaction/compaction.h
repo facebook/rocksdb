@@ -82,8 +82,9 @@ class Compaction {
              bool manual_compaction = false, const std::string& trim_ts = "",
              double score = -1, bool deletion_compaction = false,
              CompactionReason compaction_reason = CompactionReason::kUnknown,
-             bool enable_blob_garbage_collection = false,
-             double blob_garbage_collection_age_cutoff = 0.25);
+             BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+                 BlobGarbageCollectionPolicy::kUserDefault,
+             double blob_garbage_collection_age_cutoff = -1);
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -309,10 +310,19 @@ class Compaction {
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
   bool enable_blob_garbage_collection() const {
-    return enable_blob_garbage_collection_;
+    if (blob_garbage_collection_policy_ ==
+        BlobGarbageCollectionPolicy::kDisable) {
+      return false;
+    }
+    return blob_garbage_collection_policy_ ==
+               BlobGarbageCollectionPolicy::kForce ||
+           mutable_cf_options()->enable_blob_garbage_collection;
   }
 
   double blob_garbage_collection_age_cutoff() const {
+    if (blob_garbage_collection_age_cutoff_ < 0) {
+      return mutable_cf_options()->blob_garbage_collection_age_cutoff;
+    }
     return blob_garbage_collection_age_cutoff_;
   }
 
@@ -424,10 +434,12 @@ class Compaction {
   // begin.
   bool notify_on_compaction_completion_;
 
-  // Enable/disable garbage collection for blobs during compaction.
-  bool enable_blob_garbage_collection_;
+  // Force-enable/force-disable GC collection for blobs during compaction.
+  BlobGarbageCollectionPolicy blob_garbage_collection_policy_;
 
-  // Blob garbage collection age threshold.
+  // Blob garbage collection age cutoff.
+  // Note that it will not override the age cutoff in the DB options if it is
+  // a negative value.
   double blob_garbage_collection_age_cutoff_;
 };
 

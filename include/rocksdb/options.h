@@ -1791,6 +1791,17 @@ enum class BottommostLevelCompaction {
   kForceOptimized,
 };
 
+// For manual compaction, we can configure if we want to skip/force garbage
+// collection of blob files.
+enum class BlobGarbageCollectionPolicy {
+  // Force blob file garbage collection.
+  kForce,
+  // Skip blob file garbage collection.
+  kDisable,
+  // Inherit blob file garbage collection policy from DBOptions.
+  kUserDefault,
+};
+
 // CompactRangeOptions is used by CompactRange() call.
 struct CompactRangeOptions {
   // If true, no other compaction will run at the same time as this
@@ -1824,17 +1835,20 @@ struct CompactRangeOptions {
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
 
-  // If set to true, it will replace the option in the ColumnFamilyOptions for
-  // this compaction. The compaction will perform garbage collection (GC) of
-  // blobs that are no longer referenced by any live SST files. Also, valid
-  // blobs residing in blob files older than a cutoff get relocated to new files
-  // as they are encountered during compaction.
-  bool enable_blob_garbage_collection = false;
+  // If set to kForce, it will perform garbage collection (GC) of blobs that are
+  // no longer referenced by any live SST files. If set to kDisable, it will not
+  // perform GC. Both kForce and kDisable will override user-provided setting in
+  // DBOptions.enable_blob_garbage_collection. This enables customers to both
+  // force-enable and force-disable GC when calling CompactRange as well as
+  // selectively override the age cutoff.
+  BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kUserDefault;
 
-  // The cutoff in terms of blob file age for garbage collection.
-  // Note that enable_blob_garbage_collection has to be set in order for this
-  // option to have any effect.
-  double blob_garbage_collection_age_cutoff = 0.25;
+  // If set to a negative value, it will use the user-provided value from
+  // DBOptions.blob_garbage_collection_age_cutoff. Otherwise, it will override
+  // the user-provided setting. This enables customers to selectively override
+  // the age cutoff.
+  double blob_garbage_collection_age_cutoff = -1;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()

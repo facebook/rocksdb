@@ -215,7 +215,7 @@ Compaction::Compaction(
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
     bool _manual_compaction, const std::string& _trim_ts, double _score,
     bool _deletion_compaction, CompactionReason _compaction_reason,
-    bool _enable_blob_garbage_collection,
+    BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
     double _blob_garbage_collection_age_cutoff)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
@@ -243,7 +243,7 @@ Compaction::Compaction(
       is_trivial_move_(false),
       compaction_reason_(_compaction_reason),
       notify_on_compaction_completion_(false),
-      enable_blob_garbage_collection_(_enable_blob_garbage_collection),
+      blob_garbage_collection_policy_(_blob_garbage_collection_policy),
       blob_garbage_collection_age_cutoff_(_blob_garbage_collection_age_cutoff) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {

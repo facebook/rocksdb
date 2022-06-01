@@ -2112,14 +2112,15 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                           static_cast<uint32_t>(bottom_level_styles.size())];
   cro.allow_write_stall = static_cast<bool>(thread->rand.Next() % 2);
   cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
-  cro.enable_blob_garbage_collection =
-      static_cast<bool>(thread->rand.Next() % 2);
-
-  if (FLAGS_enable_blob_files && FLAGS_enable_blob_garbage_collection) {
-    cro.enable_blob_garbage_collection = true;
-    cro.blob_garbage_collection_age_cutoff =
-        static_cast<double>(thread->rand.Next() % 100) / 100.0;
-  }
+  std::vector<BlobGarbageCollectionPolicy> blob_gc_policies = {
+      BlobGarbageCollectionPolicy::kForce,
+      BlobGarbageCollectionPolicy::kDisable,
+      BlobGarbageCollectionPolicy::kUserDefault};
+  cro.blob_garbage_collection_policy =
+      blob_gc_policies[thread->rand.Next() %
+                       static_cast<uint32_t>(blob_gc_policies.size())];
+  cro.blob_garbage_collection_age_cutoff =
+      static_cast<double>(thread->rand.Next() % 100) / 100.0;
 
   const Snapshot* pre_snapshot = nullptr;
   uint32_t pre_hash = 0;
