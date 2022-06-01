@@ -2772,7 +2772,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
-      single_column_family_mode_ = false;
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
