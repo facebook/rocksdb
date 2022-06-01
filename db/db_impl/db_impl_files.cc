@@ -954,7 +954,7 @@ Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
       if (type == kTableFile && number >= next_file_number &&
           recovery_ctx->files_to_delete_.find(normalized_fpath) ==
               recovery_ctx->files_to_delete_.end()) {
-        recovery_ctx->files_to_delete_.insert(normalized_fpath);
+        recovery_ctx->files_to_delete_.emplace(normalized_fpath);
       }
     }
   }
