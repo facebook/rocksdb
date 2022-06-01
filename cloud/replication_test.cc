@@ -36,7 +36,7 @@ class Listener : public ReplicationLogListener {
     if (state_ == RECOVERY) {
       return "";
     }
-    assert(state_ = TAILING);
+    assert(state_ == TAILING);
     {
       MutexLock lock(log_records_mutex_);
       log_records_->push_back(std::move(record));
