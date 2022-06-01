@@ -91,6 +91,7 @@ void TransactionLogIteratorImpl::RecycleWriteBatch(
     // Reset the previous instance so it is ready for reuse.
     current_batch_->Clear();
   }
+  assert(current_batch_->Count() == 0);
 }
 
 Status TransactionLogIteratorImpl::status() { return current_status_; }
@@ -261,12 +262,12 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     // No WriteBatch present, so create a new instance.
     current_batch_ = std::make_unique<WriteBatch>();
   } else {
-    // Reset the previous instance. It may be empty already, but
-    // it is better to err on the side of caution here.
+    // If there is a WriteBatch present, we need to make sure
+    // it is completely empty before we reuse it.
     current_batch_->Clear();
   }
-
   assert(current_batch_);
+  assert(current_batch_->Count() == 0);
 
   Status s = WriteBatchInternal::SetContents(current_batch_.get(), record);
   s.PermitUncheckedError();  // TODO: What should we do with this error?
@@ -288,7 +289,10 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     // that allows gaps in the WAL since it will still skip over the gap.
     current_status_ = Status::NotFound("Gap in sequence numbers");
     // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
-    // should be disabled
+    // should be disabled.
+    // Note: If we exit here, we still have some data in the WriteBatch,
+    // so clear it first.
+    current_batch_->Clear();
     return SeekToStartSequence(current_file_index_, !seq_per_batch_);
   }
 
