@@ -11,6 +11,7 @@
 #pragma once
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_shared_state.h"
+#include "rocksdb/cache_type.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;

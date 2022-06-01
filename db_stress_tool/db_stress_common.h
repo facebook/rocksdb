@@ -365,24 +365,6 @@ inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
   return ret_compression_type;
 }
 
-inline enum ROCKSDB_NAMESPACE::CacheType StringToCacheType(const char* ctype) {
-  assert(ctype);
-
-  ROCKSDB_NAMESPACE::CacheType ret_cache_type;
-
-  if (!strcasecmp(ctype, "lru_cache")) {
-    ret_cache_type = ROCKSDB_NAMESPACE::kLRUCache;
-  } else if (!strcasecmp(ctype, "fast_lru_cache")) {
-    ret_cache_type = ROCKSDB_NAMESPACE::kFastLRUCache;
-  } else if (!strcasecmp(ctype, "clock_cache")) {
-    ret_cache_type = ROCKSDB_NAMESPACE::kClockCache;
-  } else {
-    fprintf(stderr, "Cannot parse cache type '%s'\n", ctype);
-    ret_cache_type = ROCKSDB_NAMESPACE::kLRUCache;  // default value
-  }
-  return ret_cache_type;
-}
-
 inline enum ROCKSDB_NAMESPACE::ChecksumType StringToChecksumType(
     const char* ctype) {
   assert(ctype);

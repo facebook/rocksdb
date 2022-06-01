@@ -131,8 +131,8 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (capacity <= 0) {
     return nullptr;
   }
-  ROCKSDB_NAMESPACE::CacheType ctype =
-      StringToCacheType(FLAGS_cache_type.c_str());
+
+  ROCKSDB_NAMESPACE::CacheType ctype = StringToCacheType(FLAGS_cache_type);
 
   if (ctype == ROCKSDB_NAMESPACE::CacheType::kClockCache) {
     auto cache = NewClockCache((size_t)capacity);
