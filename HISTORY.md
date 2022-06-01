@@ -19,7 +19,7 @@
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
 
 ### Performance Improvements
-* Embedders can use the new TransactionLogIterator::RecycleWriteBatch() method to optionally return a WriteBatch handed out by TransactionLogIterator::GetBatch() back to the TransactionLogIterator. This is an optional API that can be used to avoid repeated memory allocations for new WriteBatch objects when calling GetBatch() on the same TransactionLogIterator instance.
+* Embedders can use the new TransactionLogIterator::RecycleWriteBatch() method to optionally return a WriteBatch handed out by TransactionLogIterator::GetBatch() back to the TransactionLogIterator. This is an optional API that can be used to avoid repeated memory allocations for new WriteBatch objects.
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
