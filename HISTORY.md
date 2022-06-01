@@ -10,6 +10,7 @@
 
 ## New Features
 * Improved the SstDumpTool to read the comparator from table properties and use it to read the SST File.
+* Add an extra sanity check in `GetSortedWalFiles()` (also used by `GetLiveFilesStorageInfo()`, `BackupEngine`, and `Checkpoint`) to reduce risk of successfully created backup or checkpoint failing to open because of missing WAL file.
 
 ## 6.29.5 (03/29/2022)
 ### Bug Fixes
