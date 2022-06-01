@@ -345,7 +345,6 @@ DEFINE_int32(
 
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
-
 DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
