@@ -76,12 +76,7 @@ DEFINE_string(secondary_cache_uri, "",
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 #endif  // ROCKSDB_LITE
 
-DEFINE_bool(use_clock_cache, false,
-            "Replace default LRU block cache with clock cache.");
-
-DEFINE_bool(
-    use_fast_lru_cache, false,
-    "Replace default LRU block cache with experimental LRU block cache.");
+DEFINE_string(cache_type, "", "Type of block cache.");
 
 // ## BEGIN stress_cache_key sub-tool options ##
 // See class StressCacheKey below.
@@ -284,20 +279,18 @@ class CacheBench {
       if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
-    if (FLAGS_use_clock_cache && FLAGS_use_fast_lru_cache) {
-      fprintf(stderr, "Only one type of block cache can be chosen.");
-      exit(1);
-    }
+    ROCKSDB_NAMESPACE::CacheType ctype =
+      StringToCacheType(FLAGS_cache_type.c_str());
 
-    if (FLAGS_use_clock_cache) {
+    if (ctype == ROCKSDB_NAMESPACE::CacheType::kClockCache) {
       cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
       if (!cache_) {
         fprintf(stderr, "Clock cache not supported.\n");
         exit(1);
       }
-    } else if (FLAGS_use_fast_lru_cache) {
+    } else if (ctype == ROCKSDB_NAMESPACE::CacheType::kFastLRUCache) {
       cache_ = NewFastLRUCache((size_t)capacity, num_shard_bits);
-    } else {
+    } else if (ctype == ROCKSDB_NAMESPACE::CacheType::kLRUCache) {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
@@ -312,6 +305,10 @@ class CacheBench {
         }
         opts.secondary_cache = secondary_cache;
       }
+    } else {
+      fprintf(stderr, "Cache type not supported.");
+      exit(1);
+    }
 #endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);

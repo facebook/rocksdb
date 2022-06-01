@@ -7,6 +7,7 @@
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "rocksdb/cache_type.h"
 
 namespace ROCKSDB_NAMESPACE {
 
