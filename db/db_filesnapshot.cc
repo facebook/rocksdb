@@ -144,7 +144,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     // Record tracked WALs as a (minimum) cross-check for directory scan
     const auto& manifest_wals = versions_->GetWalSet().GetWals();
     required_by_manifest.reserve(manifest_wals.size());
-    for (const auto& wal : versions_->GetWalSet().GetWals()) {
+    for (const auto& wal : manifest_wals) {
       required_by_manifest.push_back(wal.first);
     }
   }
@@ -177,7 +177,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
         ++required;
         ++included;
       } else {
-        // *required > incl_num
+        assert(*required > (*included)->LogNumber());
         ++included;
       }
     }

@@ -2171,18 +2171,17 @@ TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
 
   // Build a way to make wal files selectively go missing
-  bool enable_missing_wal = false;
+  bool wals_go_missing = false;
   struct MissingWalFs : public FileSystemWrapper {
     MissingWalFs(const std::shared_ptr<FileSystem>& t,
-                 bool* _enable_missing_wal_flag)
-        : FileSystemWrapper(t),
-          enable_missing_wal_flag(_enable_missing_wal_flag) {}
-    bool* enable_missing_wal_flag;
+                 bool* _wals_go_missing_flag)
+        : FileSystemWrapper(t), wals_go_missing_flag(_wals_go_missing_flag) {}
+    bool* wals_go_missing_flag;
     IOStatus GetChildren(const std::string& dir, const IOOptions& io_opts,
                          std::vector<std::string>* r,
                          IODebugContext* dbg) override {
       IOStatus s = target_->GetChildren(dir, io_opts, r, dbg);
-      if (s.ok() && *enable_missing_wal_flag) {
+      if (s.ok() && *wals_go_missing_flag) {
         for (size_t i = 0; i < r->size();) {
           if (EndsWith(r->at(i), ".log")) {
             r->erase(r->begin() + i);
@@ -2195,8 +2194,8 @@ TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
     }
     const char* Name() const override { return "MissingWalFs"; }
   };
-  auto my_fs = std::make_shared<MissingWalFs>(env_->GetFileSystem(),
-                                              &enable_missing_wal);
+  auto my_fs =
+      std::make_shared<MissingWalFs>(env_->GetFileSystem(), &wals_go_missing);
   std::unique_ptr<Env> my_env(NewCompositeEnv(my_fs));
   options.env = my_env.get();
 
@@ -2213,9 +2212,9 @@ TEST_F(DBWALTest, WalInManifestButNotInSortedWals) {
   ASSERT_FALSE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
   std::vector<std::unique_ptr<LogFile>> wals;
   ASSERT_OK(db_->GetSortedWalFiles(wals));
-  enable_missing_wal = true;
+  wals_go_missing = true;
   ASSERT_NOK(db_->GetSortedWalFiles(wals));
-  enable_missing_wal = false;
+  wals_go_missing = false;
   Close();
 }
 
