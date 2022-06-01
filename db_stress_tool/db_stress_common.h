@@ -142,8 +142,7 @@ DECLARE_bool(charge_table_reader);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
-DECLARE_bool(use_clock_cache);
-DECLARE_bool(use_fast_lru_cache);
+DECLARE_string(cache_type);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
@@ -364,6 +363,24 @@ inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     ret_compression_type = ROCKSDB_NAMESPACE::kSnappyCompression;
   }
   return ret_compression_type;
+}
+
+inline enum ROCKSDB_NAMESPACE::CacheType StringToCacheType(const char* ctype) {
+  assert(ctype);
+
+  ROCKSDB_NAMESPACE::CacheType ret_cache_type;
+
+  if (!strcasecmp(ctype, "lru_cache")) {
+    ret_cache_type = ROCKSDB_NAMESPACE::kLRUCache;
+  } else if (!strcasecmp(ctype, "fast_lru_cache")) {
+    ret_cache_type = ROCKSDB_NAMESPACE::kFastLRUCache;
+  } else if (!strcasecmp(ctype, "clock_cache")) {
+    ret_cache_type = ROCKSDB_NAMESPACE::kClockCache;
+  } else {
+    fprintf(stderr, "Cannot parse cache type '%s'\n", ctype);
+    ret_cache_type = ROCKSDB_NAMESPACE::kLRUCache;  // default value
+  }
+  return ret_cache_type;
 }
 
 inline enum ROCKSDB_NAMESPACE::ChecksumType StringToChecksumType(

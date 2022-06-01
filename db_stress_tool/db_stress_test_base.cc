@@ -131,20 +131,19 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (capacity <= 0) {
     return nullptr;
   }
-  if (FLAGS_use_clock_cache && FLAGS_use_fast_lru_cache) {
-    fprintf(stderr, "Only one type of block cache can be chosen.");
-    exit(1);
-  }
-  if (FLAGS_use_clock_cache) {
+  ROCKSDB_NAMESPACE::CacheType ctype =
+      StringToCacheType(FLAGS_cache_type.c_str());
+
+  if (ctype == ROCKSDB_NAMESPACE::CacheType::kClockCache) {
     auto cache = NewClockCache((size_t)capacity);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);
     }
     return cache;
-  } else if (FLAGS_use_fast_lru_cache) {
+  } else if (ctype == ROCKSDB_NAMESPACE::CacheType::kFastLRUCache) {
     return NewFastLRUCache((size_t)capacity, num_shard_bits);
-  } else {
+  } else if (ctype == ROCKSDB_NAMESPACE::CacheType::kLRUCache) {
     LRUCacheOptions opts;
     opts.capacity = capacity;
     opts.num_shard_bits = num_shard_bits;
@@ -168,6 +167,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
 #endif
     return NewLRUCache(opts);
+  } else {
+    fprintf(stderr, "Cache type not supported.");
+    exit(1);
   }
 }
 

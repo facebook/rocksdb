@@ -41,6 +41,8 @@ class SecondaryCache;
 
 extern const bool kDefaultToAdaptiveMutex;
 
+enum CacheType : unsigned char { kLRUCache, kFastLRUCache, kClockCache };
+
 enum CacheMetadataChargePolicy {
   kDontChargeCacheMetadata,
   kFullChargeCacheMetadata
