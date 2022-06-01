@@ -3316,7 +3316,16 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         moved_bytes += f->fd.GetFileSize();
       }
     }
-
+    if (c->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
+        c->immutable_options()->compaction_pri == kRoundRobin) {
+      int input_base_level = c->GetInputBaseLevel();
+      if (input_base_level > 0) {
+        auto vstorage = c->column_family_data()->current()->storage_info();
+        const InternalKey new_cursor =
+            vstorage->AdvanceCompactCursor(input_base_level);
+        c->edit()->AddCompactCursor(input_base_level, new_cursor);
+      }
+    }
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());

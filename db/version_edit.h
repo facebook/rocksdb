@@ -36,7 +36,7 @@ enum Tag : uint32_t {
   kLogNumber = 2,
   kNextFileNumber = 3,
   kLastSequence = 4,
-  kCompactPointer = 5,
+  kCompactCursor = 5,
   kDeletedFile = 6,
   kNewFile = 7,
   // 8 was used for large value refs
@@ -414,6 +414,10 @@ class VersionEdit {
   bool HasLastSequence() const { return has_last_sequence_; }
   SequenceNumber GetLastSequence() const { return last_sequence_; }
 
+  void SetCompactCursor(int level, const InternalKey& key) {
+    compact_cursors_.push_back(std::make_pair(level, key));
+  }
+
   // Delete the specified table file from the specified level.
   void DeleteFile(int level, uint64_t file) {
     deleted_files_.emplace(level, file);
@@ -462,6 +466,24 @@ class VersionEdit {
   // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
+
+  // Retrieve all the compact cursors
+  using CompactCursors = std::vector<std::pair<int, InternalKey>>;
+  const CompactCursors& GetCompactCursors() const { return compact_cursors_; }
+  void AddCompactCursor(int level, const InternalKey& cursor) {
+    compact_cursors_.push_back(std::make_pair(level, cursor));
+  }
+  void SetCompactCursors(
+      const std::vector<InternalKey>& compact_cursors_by_level) {
+    compact_cursors_.clear();
+    compact_cursors_.reserve(compact_cursors_by_level.size());
+    for (int i = 0; i < (int)compact_cursors_by_level.size(); i++) {
+      if (compact_cursors_by_level[i].Valid()) {
+        compact_cursors_.push_back(
+            std::make_pair(i, compact_cursors_by_level[i]));
+      }
+    }
+  }
 
   // Add a new blob file.
   void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
@@ -634,6 +656,9 @@ class VersionEdit {
   bool has_max_column_family_ = false;
   bool has_min_log_number_to_keep_ = false;
   bool has_last_sequence_ = false;
+
+  // Compaction cursors for round-robin compaction policy
+  CompactCursors compact_cursors_;
 
   DeletedFiles deleted_files_;
   NewFiles new_files_;

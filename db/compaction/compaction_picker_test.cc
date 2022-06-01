@@ -1311,6 +1311,44 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping4) {
   ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
 }
 
+TEST_F(CompactionPickerTest, CompactionPriRoundRobin) {
+  std::vector<InternalKey> test_cursors = {InternalKey("249", 100, kTypeValue),
+                                           InternalKey("600", 100, kTypeValue),
+                                           InternalKey()};
+  std::vector<uint32_t> selected_files = {8U, 6U, 6U};
+
+  ioptions_.compaction_pri = kRoundRobin;
+  mutable_cf_options_.max_bytes_for_level_base = 10000000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  for (size_t i = 0; i < test_cursors.size(); i++) {
+    // start a brand new version in each test.
+    NewVersionStorage(6, kCompactionStyleLevel);
+    vstorage_->ResizeCompactCursors(6);
+    // Set the cursor
+    vstorage_->AddCursorForOneLevel(2, test_cursors[i]);
+    Add(2, 6U, "150", "199", 50000000U);  // Overlap with 26U, 27U
+    Add(2, 7U, "200", "249", 50000000U);  // File not overlapping
+    Add(2, 8U, "300", "600", 50000000U);  // Overlap with 28U, 29U
+
+    Add(3, 26U, "130", "165", 60000000U);
+    Add(3, 27U, "166", "170", 60000000U);
+    Add(3, 28U, "270", "340", 60000000U);
+    Add(3, 29U, "401", "500", 60000000U);
+    UpdateVersionStorageInfo();
+    LevelCompactionPicker local_level_compaction_picker =
+        LevelCompactionPicker(ioptions_, &icmp_);
+    std::unique_ptr<Compaction> compaction(
+        local_level_compaction_picker.PickCompaction(
+            cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+            &log_buffer_));
+    ASSERT_TRUE(compaction.get() != nullptr);
+    ASSERT_EQ(1U, compaction->num_input_files(0));
+    ASSERT_EQ(selected_files[i], compaction->input(0, 0)->fd.GetNumber());
+    // release the version storage
+    DeleteVersionStorage();
+  }
+}
+
 // This test exhibits the bug where we don't properly reset parent_index in
 // PickCompaction()
 TEST_F(CompactionPickerTest, ParentIndexResetBug) {

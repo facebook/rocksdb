@@ -2160,6 +2160,18 @@ Status CompactionJob::InstallCompactionResults(
                              stats.GetBytes());
   }
 
+  if (compaction->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
+      compaction->immutable_options()->compaction_pri == kRoundRobin) {
+    int input_base_level = compaction->GetInputBaseLevel();
+    if (input_base_level > 0) {
+      ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+      auto vstorage = cfd->current()->storage_info();
+      const InternalKey new_cursor =
+          vstorage->AdvanceCompactCursor(input_base_level);
+      edit->AddCompactCursor(input_base_level, new_cursor);
+    }
+  }
+
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, edit, db_mutex_,
                                 db_directory_);

@@ -809,6 +809,19 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  Status ApplyCompactCursors(int level,
+                             const InternalKey& smallest_uncompacted_key) {
+    if (level < 0 || level >= num_levels_) {
+      std::ostringstream oss;
+      oss << "Cannot add compact cursor (" << level << ","
+          << smallest_uncompacted_key.Encode().ToString()
+          << " due to invalid level (num_levels_ = " << num_levels_ << ")";
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+
+    return Status::OK();
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(const VersionEdit* edit) {
     {
@@ -860,6 +873,16 @@ class VersionBuilder::Rep {
       }
     }
 
+    // Populate compact cursors for round-robin compaction, leave
+    // the cursor to be empty to indicate it is invalid
+    for (const auto& cursor : edit->GetCompactCursors()) {
+      const int level = cursor.first;
+      const InternalKey smallest_uncompacted_key = cursor.second;
+      const Status s = ApplyCompactCursors(level, smallest_uncompacted_key);
+      if (!s.ok()) {
+        return s;
+      }
+    }
     return Status::OK();
   }
 
