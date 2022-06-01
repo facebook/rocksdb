@@ -87,6 +87,10 @@ void TransactionLogIteratorImpl::RecycleWriteBatch(
     std::unique_ptr<WriteBatch> write_batch) {
   assert(write_batch);
   current_batch_ = std::move(write_batch);
+  if (current_batch_) {
+    // Reset the previous instance so it is ready for reuse.
+    current_batch_->Clear();
+  }
 }
 
 Status TransactionLogIteratorImpl::status() { return current_status_; }
@@ -257,7 +261,8 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     // No WriteBatch present, so create a new instance.
     current_batch_ = std::make_unique<WriteBatch>();
   } else {
-    // Reset the previous instance to save repeated memory allocations.
+    // Reset the previous instance. It may be empty already, but
+    // it is better to err on the side of caution here.
     current_batch_->Clear();
   }
 
