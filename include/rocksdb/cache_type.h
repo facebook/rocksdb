@@ -9,7 +9,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-enum CacheType : unsigned char { kLRUCache, kFastLRUCache, kClockCache };
+enum CacheType : unsigned char {
+  kLRUCache,
+  kFastLRUCache,
+  kClockCache
+};
 
 // Public string representation of the cache types.
 // Command line options should use these values.
@@ -26,8 +30,8 @@ inline enum CacheType StringToCacheType(const std::string& ctype) {
   } else if (ctype == kClockCacheString) {
     ret_cache_type = CacheType::kClockCache;
   } else {
-    fprintf(stderr, "Cannot parse cache type '%s'\n", ctype.c_str());
-    ret_cache_type = CacheType::kLRUCache;  // Default value.
+      fprintf(stderr, "Cannot parse cache type '%s'\n", ctype.c_str());
+      ret_cache_type = CacheType::kLRUCache;  // Default value.
   }
   return ret_cache_type;
 }
