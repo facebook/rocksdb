@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a bug where a snapshot taken during SST file ingestion would be unstable.
 ### Public API changes
 * Add new API GetUnixTime in Snapshot class which returns the unix time at which Snapshot is taken.
 * Add transaction `get_pinned` and `multi_get` to C API.
