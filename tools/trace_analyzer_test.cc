@@ -160,7 +160,8 @@ class TraceAnalyzerTest : public testing::Test {
 
     std::vector<std::string> result;
     std::string line;
-    while (lf_reader.ReadLine(&line)) {
+    while (
+        lf_reader.ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       result.push_back(line);
     }
 

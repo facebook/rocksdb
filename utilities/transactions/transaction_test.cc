@@ -873,7 +873,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
 TEST_P(TransactionStressTest, DeadlockStress) {
   const uint32_t NUM_TXN_THREADS = 10;
   const uint32_t NUM_KEYS = 100;
-  const uint32_t NUM_ITERS = 10000;
+  const uint32_t NUM_ITERS = 1000;
 
   WriteOptions write_options;
   ReadOptions read_options;
@@ -5480,7 +5480,7 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   constexpr size_t num_checkers = 2;       // checker threads count
   constexpr size_t num_slow_checkers = 2;  // checker threads emulating backups
   constexpr size_t num_slow_workers = 1;   // slow worker threads count
-  constexpr size_t num_transactions_per_thread = 10000;
+  constexpr size_t num_transactions_per_thread = 1000;
   constexpr uint16_t num_sets = 3;
   constexpr size_t num_keys_per_set = 100;
   // Setting the key-space to be 100 keys should cause enough write-conflicts

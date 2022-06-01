@@ -304,6 +304,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "paranoid_checks=true;"
                              "flush_verify_memtable_count=true;"
                              "track_and_verify_wals_in_manifest=true;"
+                             "verify_sst_unique_id_in_manifest=true;"
                              "is_fd_close_on_exec=false;"
                              "bytes_per_sync=4295013613;"
                              "strict_bytes_per_sync=true;"
@@ -354,10 +355,11 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "write_dbid_to_manifest=false;"
                              "best_efforts_recovery=false;"
                              "max_bgerror_resume_count=2;"
-                             "bgerror_resume_retry_interval=1000000"
+                             "bgerror_resume_retry_interval=1000000;"
                              "db_host_id=hostname;"
                              "lowest_used_cache_tier=kNonVolatileBlockTier;"
-                             "allow_data_in_errors=false",
+                             "allow_data_in_errors=false;"
+                             "enforce_single_del_contracts=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -480,8 +482,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
-      "compression_opts=5:6:7:8:9:10:true:11;"
-      "bottommost_compression_opts=4:5:6:7:8:9:true:10;"
+      "compression_opts=5:6:7:8:9:10:true:11:false;"
+      "bottommost_compression_opts=4:5:6:7:8:9:true:10:true;"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"

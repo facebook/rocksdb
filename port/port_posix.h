@@ -23,13 +23,6 @@
 
 #define __declspec(S)
 
-#define ROCKSDB_NOEXCEPT noexcept
-
-// thread_local is part of C++11 and later (TODO: clean up this define)
-#ifndef __thread
-#define __thread thread_local
-#endif
-
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>

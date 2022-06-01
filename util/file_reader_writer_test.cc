@@ -597,7 +597,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   ReadaheadSequentialFileTest() {}
   std::string Read(size_t n) {
     Slice result;
-    Status s = test_read_holder_->Read(n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(
+        n, &result, scratch_.get(), Env::IO_TOTAL /* rate_limiter_priority*/);
     EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
@@ -724,10 +725,11 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
-    while (reader->ReadLine(&line)) {
+    while (reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -736,7 +738,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_EQ(count, nlines);
     ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
     // And still
-    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_FALSE(
+        reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
     ASSERT_OK(reader->GetStatus());
     ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
   }
@@ -745,12 +748,14 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
     // Read part way through the file
     while (count < nlines / 4) {
-      ASSERT_TRUE(reader->ReadLine(&line));
+      ASSERT_TRUE(
+          reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -767,7 +772,7 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
-    while (reader->ReadLine(&line)) {
+    while (reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -777,7 +782,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_EQ(callback_count, 1);
 
     // Still get error & no retry
-    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_FALSE(
+        reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
     ASSERT_TRUE(reader->GetStatus().IsCorruption());
     ASSERT_EQ(callback_count, 1);
 

@@ -66,7 +66,8 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
     return table_->get_rep()->table_options.cache_index_and_filter_blocks;
   }
 
-  Status GetOrReadIndexBlock(bool no_io, GetContext* get_context,
+  Status GetOrReadIndexBlock(bool no_io, Env::IOPriority rate_limiter_priority,
+                             GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
                              CachableEntry<Block>* index_block) const;
 

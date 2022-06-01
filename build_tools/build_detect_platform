@@ -662,13 +662,13 @@ else
   fi
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
-    # For portability compile for macOS 10.12 (2016) or newer
-    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
-    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
+    # For portability compile for macOS 10.13 (2017) or newer
+    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.13"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.13"
     # -mmacosx-version-min must come first here.
-    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.12 $PLATFORM_SHARED_LDFLAGS"
-    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.12"
-    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.12"
+    PLATFORM_SHARED_LDFLAGS="-mmacosx-version-min=10.13 $PLATFORM_SHARED_LDFLAGS"
+    PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.13"
+    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.13"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CCFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CXXFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
@@ -799,9 +799,6 @@ EOF
 if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_UINT128_EXTENSION"
 fi
-
-# thread_local is part of C++11 and later (TODO: clean up this define)
-COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
 
 if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
   $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF

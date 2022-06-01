@@ -16,6 +16,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/transaction_log.h"
+#include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -43,6 +44,23 @@ class RepairTest : public DBTestBase {
     }
     return s;
   }
+
+  void ReopenWithSstIdVerify() {
+    std::atomic_int verify_passed{0};
+    SyncPoint::GetInstance()->SetCallBack(
+        "Version::VerifySstUniqueIds::Passed", [&](void* arg) {
+          // override job status
+          auto id = static_cast<UniqueId64x2*>(arg);
+          assert(*id != kNullUniqueId64x2);
+          verify_passed++;
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto options = CurrentOptions();
+    options.verify_sst_unique_id_in_manifest = true;
+    Reopen(options);
+
+    ASSERT_GT(verify_passed, 0);
+  }
 };
 
 TEST_F(RepairTest, LostManifest) {
@@ -61,7 +79,7 @@ TEST_F(RepairTest, LostManifest) {
   ASSERT_OK(env_->FileExists(manifest_path));
   ASSERT_OK(env_->DeleteFile(manifest_path));
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
-  Reopen(CurrentOptions());
+  ReopenWithSstIdVerify();
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "val2");
@@ -88,7 +106,9 @@ TEST_F(RepairTest, LostManifestMoreDbFeatures) {
   ASSERT_OK(env_->FileExists(manifest_path));
   ASSERT_OK(env_->DeleteFile(manifest_path));
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
-  Reopen(CurrentOptions());
+
+  // repair from sst should work with unique_id verification
+  ReopenWithSstIdVerify();
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "NOT_FOUND");
@@ -113,7 +133,8 @@ TEST_F(RepairTest, CorruptManifest) {
   ASSERT_OK(CreateFile(env_->GetFileSystem(), manifest_path, "blah",
                        false /* use_fsync */));
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
-  Reopen(CurrentOptions());
+
+  ReopenWithSstIdVerify();
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "val2");
@@ -139,7 +160,8 @@ TEST_F(RepairTest, IncompleteManifest) {
   // Replace the manifest with one that is only aware of the first SST file.
   CopyFile(orig_manifest_path + ".tmp", new_manifest_path);
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
-  Reopen(CurrentOptions());
+
+  ReopenWithSstIdVerify();
 
   ASSERT_EQ(Get("key"), "val");
   ASSERT_EQ(Get("key2"), "val2");
@@ -157,7 +179,8 @@ TEST_F(RepairTest, PostRepairSstFileNumbering) {
 
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
 
-  Reopen(CurrentOptions());
+  ReopenWithSstIdVerify();
+
   uint64_t post_repair_file_num = dbfull()->TEST_Current_Next_FileNo();
   ASSERT_GE(post_repair_file_num, pre_repair_file_num);
 }
@@ -176,7 +199,7 @@ TEST_F(RepairTest, LostSst) {
 
   Close();
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
-  Reopen(CurrentOptions());
+  ReopenWithSstIdVerify();
 
   // Exactly one of the key-value pairs should be in the DB now.
   ASSERT_TRUE((Get("key") == "val") != (Get("key2") == "val2"));
@@ -198,7 +221,7 @@ TEST_F(RepairTest, CorruptSst) {
 
   Close();
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
-  Reopen(CurrentOptions());
+  ReopenWithSstIdVerify();
 
   // Exactly one of the key-value pairs should be in the DB now.
   ASSERT_TRUE((Get("key") == "val") != (Get("key2") == "val2"));
@@ -226,7 +249,7 @@ TEST_F(RepairTest, UnflushedSst) {
   ASSERT_OK(env_->FileExists(manifest_path));
   ASSERT_OK(env_->DeleteFile(manifest_path));
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
-  Reopen(CurrentOptions());
+  ReopenWithSstIdVerify();
 
   ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
   ASSERT_EQ(wal_files.size(), 0);
@@ -265,7 +288,7 @@ TEST_F(RepairTest, SeparateWalDir) {
     // make sure that all WALs are converted to SSTables.
     options.wal_dir = "";
 
-    Reopen(options);
+    ReopenWithSstIdVerify();
     ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
     ASSERT_EQ(wal_files.size(), 0);
     {
@@ -398,7 +421,7 @@ TEST_F(RepairTest, DbNameContainsTrailingSlash) {
   Close();
 
   ASSERT_OK(RepairDB(dbname_ + "/", CurrentOptions()));
-  Reopen(CurrentOptions());
+  ReopenWithSstIdVerify();
   ASSERT_EQ(Get("key"), "val");
 }
 #endif  // ROCKSDB_LITE

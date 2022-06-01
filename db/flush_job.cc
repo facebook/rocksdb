@@ -9,9 +9,8 @@
 
 #include "db/flush_job.h"
 
-#include <cinttypes>
-
 #include <algorithm>
+#include <cinttypes>
 #include <vector>
 
 #include "db/builder.h"
@@ -952,14 +951,14 @@ Status FlushJob::WriteLevel0Table() {
       }
       LogFlush(db_options_.info_log);
     }
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
-                   " bytes %s"
-                   "%s",
-                   cfd_->GetName().c_str(), job_context_->job_id,
-                   meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
-                   s.ToString().c_str(),
-                   meta_.marked_for_compaction ? " (needs compaction)" : "");
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
+                     " bytes %s"
+                     "%s",
+                     cfd_->GetName().c_str(), job_context_->job_id,
+                     meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
+                     s.ToString().c_str(),
+                     meta_.marked_for_compaction ? " (needs compaction)" : "");
 
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
       s = output_file_directory_->FsyncWithDirOptions(
@@ -989,7 +988,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
                    meta_.file_creation_time, meta_.file_checksum,
                    meta_.file_checksum_func_name, meta_.min_timestamp,
-                   meta_.max_timestamp);
+                   meta_.max_timestamp, meta_.unique_id);
 
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }

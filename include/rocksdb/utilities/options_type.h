@@ -56,6 +56,7 @@ enum class OptionType {
   kCustomizable,
   kEncodedString,
   kTemperature,
+  kArray,
   kUnknown,
 };
 
@@ -154,6 +155,24 @@ bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
   }
   return false;
 }
+
+template <typename T, size_t kSize>
+Status ParseArray(const ConfigOptions& config_options,
+                  const OptionTypeInfo& elem_info, char separator,
+                  const std::string& name, const std::string& value,
+                  std::array<T, kSize>* result);
+
+template <typename T, size_t kSize>
+Status SerializeArray(const ConfigOptions& config_options,
+                      const OptionTypeInfo& elem_info, char separator,
+                      const std::string& name, const std::array<T, kSize>& vec,
+                      std::string* value);
+
+template <typename T, size_t kSize>
+bool ArraysAreEqual(const ConfigOptions& config_options,
+                    const OptionTypeInfo& elem_info, const std::string& name,
+                    const std::array<T, kSize>& array1,
+                    const std::array<T, kSize>& array2, std::string* mismatch);
 
 template <typename T>
 Status ParseVector(const ConfigOptions& config_options,
@@ -386,6 +405,38 @@ class OptionTypeInfo {
     OptionTypeInfo info(
         Struct(struct_name, struct_map, offset, verification, flags));
     return info.SetParseFunc(parse_func);
+  }
+
+  template <typename T, size_t kSize>
+  static OptionTypeInfo Array(int _offset, OptionVerificationType _verification,
+                              OptionTypeFlags _flags,
+                              const OptionTypeInfo& elem_info,
+                              char separator = ':') {
+    OptionTypeInfo info(_offset, OptionType::kArray, _verification, _flags);
+    info.SetParseFunc([elem_info, separator](
+                          const ConfigOptions& opts, const std::string& name,
+                          const std::string& value, void* addr) {
+      auto result = static_cast<std::array<T, kSize>*>(addr);
+      return ParseArray<T, kSize>(opts, elem_info, separator, name, value,
+                                  result);
+    });
+    info.SetSerializeFunc([elem_info, separator](const ConfigOptions& opts,
+                                                 const std::string& name,
+                                                 const void* addr,
+                                                 std::string* value) {
+      const auto& array = *(static_cast<const std::array<T, kSize>*>(addr));
+      return SerializeArray<T, kSize>(opts, elem_info, separator, name, array,
+                                      value);
+    });
+    info.SetEqualsFunc([elem_info](const ConfigOptions& opts,
+                                   const std::string& name, const void* addr1,
+                                   const void* addr2, std::string* mismatch) {
+      const auto& array1 = *(static_cast<const std::array<T, kSize>*>(addr1));
+      const auto& array2 = *(static_cast<const std::array<T, kSize>*>(addr2));
+      return ArraysAreEqual<T, kSize>(opts, elem_info, name, array1, array2,
+                                      mismatch);
+    });
+    return info;
   }
 
   template <typename T>
@@ -892,6 +943,144 @@ class OptionTypeInfo {
   OptionVerificationType verification_;
   OptionTypeFlags flags_;
 };
+
+// Parses the input value into elements of the result array, which has fixed
+// array size. For example, if the value=1:2:3 and elem_info parses integers,
+// the result array will be {1,2,3}. Array size is defined in the OptionTypeInfo
+// the input value has to match with that.
+// @param config_options Controls how the option value is parsed.
+// @param elem_info Controls how individual tokens in value are parsed
+// @param separator Character separating tokens in values (':' in the above
+// example)
+// @param name      The name associated with this array option
+// @param value     The input string to parse into tokens
+// @param result    Returns the results of parsing value into its elements.
+// @return OK if the value was successfully parse
+// @return InvalidArgument if the value is improperly formed or element number
+//                          doesn't match array size defined in OptionTypeInfo
+//                          or if the token could not be parsed
+// @return NotFound         If the tokenized value contains unknown options for
+// its type
+template <typename T, size_t kSize>
+Status ParseArray(const ConfigOptions& config_options,
+                  const OptionTypeInfo& elem_info, char separator,
+                  const std::string& name, const std::string& value,
+                  std::array<T, kSize>* result) {
+  Status status;
+
+  ConfigOptions copy = config_options;
+  copy.ignore_unsupported_options = false;
+  size_t i = 0, start = 0, end = 0;
+  for (; status.ok() && i < kSize && start < value.size() &&
+         end != std::string::npos;
+       i++, start = end + 1) {
+    std::string token;
+    status = OptionTypeInfo::NextToken(value, separator, start, &end, &token);
+    if (status.ok()) {
+      status = elem_info.Parse(copy, name, token, &((*result)[i]));
+      if (config_options.ignore_unsupported_options &&
+          status.IsNotSupported()) {
+        // If we were ignoring unsupported options and this one should be
+        // ignored, ignore it by setting the status to OK
+        status = Status::OK();
+      }
+    }
+  }
+  if (!status.ok()) {
+    return status;
+  }
+  // make sure the element number matches the array size
+  if (i < kSize) {
+    return Status::InvalidArgument(
+        "Serialized value has less elements than array size", name);
+  }
+  if (start < value.size() && end != std::string::npos) {
+    return Status::InvalidArgument(
+        "Serialized value has more elements than array size", name);
+  }
+  return status;
+}
+
+// Serializes the fixed size input array into its output value.  Elements are
+// separated by the separator character.  This element will convert all of the
+// elements in array into their serialized form, using elem_info to perform the
+// serialization.
+// For example, if the array contains the integers 1,2,3 and elem_info
+// serializes the output would be 1:2:3 for separator ":".
+// @param config_options Controls how the option value is serialized.
+// @param elem_info Controls how individual tokens in value are serialized
+// @param separator Character separating tokens in value (':' in the above
+// example)
+// @param name      The name associated with this array option
+// @param array     The input array to serialize
+// @param value     The output string of serialized options
+// @return OK if the value was successfully parse
+// @return InvalidArgument if the value is improperly formed or if the token
+//                          could not be parsed
+// @return NotFound        If the tokenized value contains unknown options for
+//                          its type
+template <typename T, size_t kSize>
+Status SerializeArray(const ConfigOptions& config_options,
+                      const OptionTypeInfo& elem_info, char separator,
+                      const std::string& name,
+                      const std::array<T, kSize>& array, std::string* value) {
+  std::string result;
+  ConfigOptions embedded = config_options;
+  embedded.delimiter = ";";
+  int printed = 0;
+  for (const auto& elem : array) {
+    std::string elem_str;
+    Status s = elem_info.Serialize(embedded, name, &elem, &elem_str);
+    if (!s.ok()) {
+      return s;
+    } else if (!elem_str.empty()) {
+      if (printed++ > 0) {
+        result += separator;
+      }
+      // If the element contains embedded separators, put it inside of brackets
+      if (elem_str.find(separator) != std::string::npos) {
+        result += "{" + elem_str + "}";
+      } else {
+        result += elem_str;
+      }
+    }
+  }
+  if (result.find("=") != std::string::npos) {
+    *value = "{" + result + "}";
+  } else if (printed > 1 && result.at(0) == '{') {
+    *value = "{" + result + "}";
+  } else {
+    *value = result;
+  }
+  return Status::OK();
+}
+
+// Compares the input arrays array1 and array2 for equality
+// Elements of the array are compared one by one using elem_info to perform the
+// comparison.
+//
+// @param config_options Controls how the arrays are compared.
+// @param elem_info  Controls how individual elements in the arrays are compared
+// @param name          The name associated with this array option
+// @param array1,array2 The arrays to compare.
+// @param mismatch      If the arrays are not equivalent, mismatch will point to
+//                       the first element of the comparison that did not match.
+// @return true         If vec1 and vec2 are "equal", false otherwise
+template <typename T, size_t kSize>
+bool ArraysAreEqual(const ConfigOptions& config_options,
+                    const OptionTypeInfo& elem_info, const std::string& name,
+                    const std::array<T, kSize>& array1,
+                    const std::array<T, kSize>& array2, std::string* mismatch) {
+  assert(array1.size() == kSize);
+  assert(array2.size() == kSize);
+  for (size_t i = 0; i < kSize; ++i) {
+    if (!elem_info.AreEqual(config_options, name, &array1[i], &array2[i],
+                            mismatch)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 // Parses the input value into elements of the result vector.  This method
 // will break the input value into the individual tokens (based on the

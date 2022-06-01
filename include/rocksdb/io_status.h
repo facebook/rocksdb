@@ -42,16 +42,8 @@ class IOStatus : public Status {
   // Copy the specified status.
   IOStatus(const IOStatus& s);
   IOStatus& operator=(const IOStatus& s);
-  IOStatus(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
-  IOStatus& operator=(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
+  IOStatus(IOStatus&& s) noexcept;
+  IOStatus& operator=(IOStatus&& s) noexcept;
   bool operator==(const IOStatus& rhs) const;
   bool operator!=(const IOStatus& rhs) const;
 
@@ -194,19 +186,11 @@ inline IOStatus& IOStatus::operator=(const IOStatus& s) {
   return *this;
 }
 
-inline IOStatus::IOStatus(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-    : IOStatus() {
+inline IOStatus::IOStatus(IOStatus&& s) noexcept : IOStatus() {
   *this = std::move(s);
 }
 
-inline IOStatus& IOStatus::operator=(IOStatus&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-{
+inline IOStatus& IOStatus::operator=(IOStatus&& s) noexcept {
   if (this != &s) {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     s.checked_ = true;

@@ -112,7 +112,7 @@ Status UpdateManifestForFilesState(
                            lf->oldest_blob_file_number,
                            lf->oldest_ancester_time, lf->file_creation_time,
                            lf->file_checksum, lf->file_checksum_func_name,
-                           lf->min_timestamp, lf->max_timestamp);
+                           lf->min_timestamp, lf->max_timestamp, lf->unique_id);
             }
           }
         } else {

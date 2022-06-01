@@ -14,8 +14,10 @@
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
+#include "util/async_file_reader.h"
 #include "util/autovector.h"
 #include "util/math.h"
+#include "util/single_thread_executor.h"
 
 namespace ROCKSDB_NAMESPACE {
 class GetContext;
@@ -104,11 +106,20 @@ class MultiGetContext {
 
   MultiGetContext(autovector<KeyContext*, MAX_BATCH_SIZE>* sorted_keys,
                   size_t begin, size_t num_keys, SequenceNumber snapshot,
-                  const ReadOptions& read_opts)
+                  const ReadOptions& read_opts, FileSystem* fs,
+                  Statistics* stats)
       : num_keys_(num_keys),
         value_mask_(0),
         value_size_(0),
-        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf)) {
+        lookup_key_ptr_(reinterpret_cast<LookupKey*>(lookup_key_stack_buf))
+#if USE_COROUTINES
+        ,
+        reader_(fs, stats),
+        executor_(reader_)
+#endif  // USE_COROUTINES
+  {
+    (void)fs;
+    (void)stats;
     assert(num_keys <= MAX_BATCH_SIZE);
     if (num_keys > MAX_LOOKUP_KEYS_ON_STACK) {
       lookup_key_heap_buf.reset(new char[sizeof(LookupKey) * num_keys]);
@@ -135,6 +146,12 @@ class MultiGetContext {
     }
   }
 
+#if USE_COROUTINES
+  SingleThreadExecutor& executor() { return executor_; }
+
+  AsyncFileReader& reader() { return reader_; }
+#endif  // USE_COROUTINES
+
  private:
   static const int MAX_LOOKUP_KEYS_ON_STACK = 16;
   alignas(alignof(LookupKey))
@@ -145,6 +162,10 @@ class MultiGetContext {
   uint64_t value_size_;
   std::unique_ptr<char[]> lookup_key_heap_buf;
   LookupKey* lookup_key_ptr_;
+#if USE_COROUTINES
+  AsyncFileReader reader_;
+  SingleThreadExecutor executor_;
+#endif  // USE_COROUTINES
 
  public:
   // MultiGetContext::Range - Specifies a range of keys, by start and end index,
@@ -267,6 +288,20 @@ class MultiGetContext {
 
     void AddValueSize(uint64_t value_size) { ctx_->value_size_ += value_size; }
 
+    MultiGetContext* context() const { return ctx_; }
+
+    Range Suffix(const Range& other) const {
+      size_t other_last = other.FindLastRemaining();
+      size_t my_last = FindLastRemaining();
+
+      if (my_last > other_last) {
+        return Range(*this, Iterator(this, other_last),
+                     Iterator(this, my_last));
+      } else {
+        return Range(*this, begin(), begin());
+      }
+    }
+
    private:
     friend MultiGetContext;
     MultiGetContext* ctx_;
@@ -282,6 +317,15 @@ class MultiGetContext {
     Mask RemainingMask() const {
       return (((Mask{1} << end_) - 1) & ~((Mask{1} << start_) - 1) &
               ~(ctx_->value_mask_ | skip_mask_));
+    }
+
+    size_t FindLastRemaining() const {
+      Mask mask = RemainingMask();
+      size_t index = (mask >>= start_) ? start_ : 0;
+      while (mask >>= 1) {
+        index++;
+      }
+      return index;
     }
   };
 
