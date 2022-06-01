@@ -1834,12 +1834,13 @@ class DBImpl : public DB {
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                       uint64_t* log_used, uint64_t* log_size,
                       Env::IOPriority rate_limiter_priority,
-                      bool with_db_mutex = false, bool with_log_mutex = false);
+                      LogFileNumberSize& log_file_number_size);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
                       bool need_log_sync, bool need_log_dir_sync,
-                      SequenceNumber sequence);
+                      SequenceNumber sequence,
+                      LogFileNumberSize& log_file_number_size);
 
   IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                                 uint64_t* log_used,
@@ -2169,11 +2170,7 @@ class DBImpl : public DB {
   // are protected by locking both mutex_ and log_write_mutex_, and reads must
   // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
-  // Caching the result of `alive_log_files_.back()` so that we do not have to
-  // call `alive_log_files_.back()` in the write thread (WriteToWAL()) which
-  // requires locking db mutex if log_mutex_ is not already held in
-  // two-write-queues mode.
-  std::deque<LogFileNumberSize>::reverse_iterator alive_log_files_tail_;
+
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
   //  - push_back() is done from write_thread_ with locked mutex_ and

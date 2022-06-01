@@ -20,6 +20,9 @@
 ### Behavior changes
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
 
+### Bug Fixes
+* Fix a race condition in WAL size tracking which is caused by an unsafe iterator access after container is changed.
+
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
 * Fixed a bug where manual flush would block forever even though flush options had wait=false.
