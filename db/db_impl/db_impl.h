@@ -1240,6 +1240,39 @@ class DBImpl : public DB {
 
   std::atomic<bool> shutting_down_;
 
+  // RecoveryContext struct stores the context about version edits along
+  // with corresponding column_family_data and column_family_options.
+  class RecoveryContext {
+   public:
+    ~RecoveryContext() {
+      for (auto& edit_list : edit_lists_) {
+        for (auto* edit : edit_list) {
+          delete edit;
+        }
+      }
+    }
+
+    void UpdateVersionEdits(ColumnFamilyData* cfd, const VersionEdit& edit) {
+      assert(cfd != nullptr);
+      if (map_.find(cfd->GetID()) == map_.end()) {
+        uint32_t size = static_cast<uint32_t>(map_.size());
+        map_.emplace(cfd->GetID(), size);
+        cfds_.emplace_back(cfd);
+        mutable_cf_opts_.emplace_back(cfd->GetLatestMutableCFOptions());
+        edit_lists_.emplace_back(autovector<VersionEdit*>());
+      }
+      uint32_t i = map_[cfd->GetID()];
+      edit_lists_[i].emplace_back(new VersionEdit(edit));
+    }
+
+    std::unordered_map<uint32_t, uint32_t> map_;  // cf_id to index;
+    autovector<ColumnFamilyData*> cfds_;
+    autovector<const MutableCFOptions*> mutable_cf_opts_;
+    autovector<autovector<VersionEdit*>> edit_lists_;
+    // files_to_delete_ contains sst files
+    std::unordered_set<std::string> files_to_delete_;
+  };
+
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
   // If need_mutex_lock = false, the method will lock DB mutex.
@@ -1356,16 +1389,19 @@ class DBImpl : public DB {
   // be made to the descriptor are added to *edit.
   // recovered_seq is set to less than kMaxSequenceNumber if the log's tail is
   // skipped.
+  // recovery_ctx stores the context about version edits and all those
+  // edits are persisted to new Manifest after successfully syncing the new WAL.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_wal_file_exists = false,
       bool error_if_data_exists_in_wals = false,
-      uint64_t* recovered_seq = nullptr);
+      uint64_t* recovered_seq = nullptr,
+      RecoveryContext* recovery_ctx = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId(bool read_only);
+  Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1374,12 +1410,15 @@ class DBImpl : public DB {
   // not referenced in the MANIFEST (e.g.
   // 1. It's best effort recovery;
   // 2. The VersionEdits referencing the SST files are appended to
-  // MANIFEST, DB crashes when syncing the MANIFEST, the VersionEdits are
+  // RecoveryContext, DB crashes when syncing the MANIFEST, the VersionEdits are
   // still not synced to MANIFEST during recovery.)
-  // We delete these SST files. In the
+  // It stores the SST files to be deleted in RecoveryContext. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  Status DeleteUnreferencedSstFiles();
+  // recovery_ctx stores the context about version edits and files to be
+  // deleted. All those edits are persisted to new Manifest after successfully
+  // syncing the new WAL.
+  Status DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx);
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -1388,6 +1427,14 @@ class DBImpl : public DB {
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
                                const Slice& ts) const;
+
+  // recovery_ctx stores the context about version edits and
+  // LogAndApplyForRecovery persist all those edits to new Manifest after
+  // successfully syncing new WAL.
+  // LogAndApplyForRecovery should be called only once during recovery and it
+  // should be called when RocksDB writes to a first new MANIFEST since this
+  // recovery.
+  Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
 
  private:
   friend class DB;
@@ -1645,7 +1692,8 @@ class DBImpl : public DB {
   // corrupted_log_found is set to true if we recover from a corrupted log file.
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
-                         bool* corrupted_log_found);
+                         bool* corrupted_log_found,
+                         RecoveryContext* recovery_ctx);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the

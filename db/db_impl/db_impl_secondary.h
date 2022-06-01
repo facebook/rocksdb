@@ -81,8 +81,8 @@ class DBImplSecondary : public DBImpl {
   // and log_readers_ to facilitate future operations.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
-                 bool error_if_data_exists_in_wals,
-                 uint64_t* = nullptr) override;
+                 bool error_if_data_exists_in_wals, uint64_t* = nullptr,
+                 RecoveryContext* recovery_ctx = nullptr) override;
 
   // Implementations of the DB interface
   using DB::Get;
