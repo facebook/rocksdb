@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fix a race condition in WAL size tracking which is caused by an unsafe iterator access after container is changed.
+
 ### Public API changes
 * Remove ReadOptions::iter_start_seqnum which has been deprecated.
 * Remove DBOptions::preserved_deletes and DB::SetPreserveDeletesSequenceNumber().
