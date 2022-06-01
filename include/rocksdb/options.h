@@ -1798,8 +1798,8 @@ enum class BlobGarbageCollectionPolicy {
   kForce,
   // Skip blob file garbage collection.
   kDisable,
-  // Inherit blob file garbage collection policy from DBOptions.
-  kUserDefault,
+  // Inherit blob file garbage collection policy from ColumnFamilyOptions.
+  kUseDefault,
 };
 
 // CompactRangeOptions is used by CompactRange() call.
@@ -1835,19 +1835,17 @@ struct CompactRangeOptions {
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
 
-  // If set to kForce, it will perform garbage collection (GC) of blobs that are
-  // no longer referenced by any live SST files. If set to kDisable, it will not
-  // perform GC. Both kForce and kDisable will override user-provided setting in
-  // DBOptions.enable_blob_garbage_collection. This enables customers to both
-  // force-enable and force-disable GC when calling CompactRange as well as
-  // selectively override the age cutoff.
+  // If set to kForce, RocksDB will override enable_blob_file_garbage_collection
+  // to true; if set to kDisable, RocksDB will override it to false, and
+  // kUseDefault leaves the setting in effect. This enables customers to both
+  // force-enable and force-disable GC when calling CompactRange.
   BlobGarbageCollectionPolicy blob_garbage_collection_policy =
-      BlobGarbageCollectionPolicy::kUserDefault;
+      BlobGarbageCollectionPolicy::kUseDefault;
 
-  // If set to a negative value, it will use the user-provided value from
-  // DBOptions.blob_garbage_collection_age_cutoff. Otherwise, it will override
-  // the user-provided setting. This enables customers to selectively override
-  // the age cutoff.
+  // If set to < 0 or > 1, RocksDB leaves blob_garbage_collection_age_cutoff
+  // from ColumnFamilyOptions in effect. Otherwise, it will override the
+  // user-provided setting. This enables customers to selectively override the
+  // age cutoff.
   double blob_garbage_collection_age_cutoff = -1;
 };
 
