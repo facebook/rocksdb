@@ -220,7 +220,7 @@ class DBImpl : public DB {
   using DB::PutEntity;
   Status PutEntity(const WriteOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
-                   const WideColumnDescs& column_descs) override;
+                   const WideColumns& columns) override;
 
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,

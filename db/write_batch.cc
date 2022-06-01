@@ -930,7 +930,7 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
 
 Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
                                      const Slice& key,
-                                     const WideColumnDescs& column_descs) {
+                                     const WideColumns& columns) {
   assert(b);
 
   if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
@@ -938,7 +938,7 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
   }
 
   std::string entity;
-  const Status s = WideColumnSerialization::Serialize(column_descs, entity);
+  const Status s = WideColumnSerialization::Serialize(columns, entity);
   if (!s.ok()) {
     return s;
   }
@@ -976,8 +976,7 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
 }
 
 Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
-                             const Slice& key,
-                             const WideColumnDescs& column_descs) {
+                             const Slice& key, const WideColumns& columns) {
   Status s;
   uint32_t cf_id = 0;
   size_t ts_sz = 0;
@@ -995,7 +994,7 @@ Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
         "Cannot call this method on column family enabling timestamp");
   }
 
-  return WriteBatchInternal::PutEntity(this, cf_id, key, column_descs);
+  return WriteBatchInternal::PutEntity(this, cf_id, key, columns);
 }
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {

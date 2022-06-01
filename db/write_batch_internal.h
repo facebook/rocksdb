@@ -89,8 +89,7 @@ class WriteBatchInternal {
                     const SliceParts& key, const SliceParts& value);
 
   static Status PutEntity(WriteBatch* batch, uint32_t column_family_id,
-                          const Slice& key,
-                          const WideColumnDescs& column_descs);
+                          const Slice& key, const WideColumns& columns);
 
   static Status Delete(WriteBatch* batch, uint32_t column_family_id,
                        const SliceParts& key);

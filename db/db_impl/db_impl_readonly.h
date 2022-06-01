@@ -53,7 +53,7 @@ class DBImplReadOnly : public DBImpl {
   Status PutEntity(const WriteOptions& /* options */,
                    ColumnFamilyHandle* /* column_family */,
                    const Slice& /* key */,
-                   const WideColumnDescs& /* column_descs */) override {
+                   const WideColumns& /* columns */) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 

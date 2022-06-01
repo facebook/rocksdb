@@ -39,13 +39,13 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
 
 Status DBImpl::PutEntity(const WriteOptions& options,
                          ColumnFamilyHandle* column_family, const Slice& key,
-                         const WideColumnDescs& column_descs) {
+                         const WideColumns& columns) {
   const Status s = FailIfCfHasTs(column_family);
   if (!s.ok()) {
     return s;
   }
 
-  return DB::PutEntity(options, column_family, key, column_descs);
+  return DB::PutEntity(options, column_family, key, columns);
 }
 
 Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
@@ -2249,7 +2249,7 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::PutEntity(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     const WideColumnDescs& column_descs) {
+                     const WideColumns& columns) {
   const ColumnFamilyHandle* const default_cf = DefaultColumnFamily();
   assert(default_cf);
 
@@ -2260,7 +2260,7 @@ Status DB::PutEntity(const WriteOptions& options,
                    /* protection_bytes_per_key */ 0,
                    default_cf_ucmp->timestamp_size());
 
-  const Status s = batch.PutEntity(column_family, key, column_descs);
+  const Status s = batch.PutEntity(column_family, key, columns);
   if (!s.ok()) {
     return s;
   }

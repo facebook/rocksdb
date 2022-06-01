@@ -115,7 +115,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   Status PutEntity(ColumnFamilyHandle* /* column_family */,
                    const Slice& /* key */,
-                   const WideColumnDescs& /* column_descs */) override {
+                   const WideColumns& /* columns */) override {
     return Status::NotSupported(
         "PutEntity not supported by WriteBatchWithIndex");
   }

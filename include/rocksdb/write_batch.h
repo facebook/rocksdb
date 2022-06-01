@@ -102,7 +102,7 @@ class WriteBatch : public WriteBatchBase {
 
   using WriteBatchBase::PutEntity;
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
-                   const WideColumnDescs& column_descs) override;
+                   const WideColumns& columns) override;
 
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
