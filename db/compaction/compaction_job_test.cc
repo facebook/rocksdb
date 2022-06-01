@@ -392,28 +392,6 @@ class CompactionJobTestBase : public testing::Test {
     }
   }
 
-  void CheckGetRateLimiterPriority(CompactionJob& compaction_job) {
-    // When the state from WriteController is normal.
-    ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_LOW);
-
-    WriteController* write_controller =
-        compaction_job.versions_->GetColumnFamilySet()->write_controller();
-
-    {
-      // When the state from WriteController is Delayed.
-      std::unique_ptr<WriteControllerToken> delay_token =
-          write_controller->GetDelayToken(1000000);
-      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
-    }
-
-    {
-      // When the state from WriteController is Stopped.
-      std::unique_ptr<WriteControllerToken> stop_token =
-          write_controller->GetStopToken();
-      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
-    }
-  }
-
   std::shared_ptr<Env> env_guard_;
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
@@ -1528,22 +1506,61 @@ class MockTestWritableFile : public FSWritableFileWrapper {
   Env::IOPriority write_io_priority_;
 };
 
-class MockTestFS : public FileSystemWrapper {
+class MockTestRandomAccessFile : public FSRandomAccessFileWrapper {
  public:
-  explicit MockTestFS(const std::shared_ptr<FileSystem>& base,
-                      Env::IOPriority read_io_priority,
-                      Env::IOPriority write_io_priority)
-      : FileSystemWrapper(FileSystem::Default()),
+  MockTestRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
+                           Env::IOPriority io_priority)
+      : FSRandomAccessFileWrapper(file.get()), read_io_priority_(io_priority) {}
+
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override {
+    EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
+    return target()->Read(offset, n, options, result, scratch, dbg);
+  }
+  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
+                     const IOOptions& options, IODebugContext* dbg) override {
+    EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
+    return target()->MultiRead(reqs, num_reqs, options, dbg);
+  }
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
+                    IODebugContext* dbg) override {
+    EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
+    return target()->Prefetch(offset, n, options, dbg);
+  }
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override {
+    EXPECT_EQ(opts.rate_limiter_priority, read_io_priority_);
+    return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
+  }
+
+ private:
+  Env::IOPriority read_io_priority_;
+};
+
+class MockTestFileSystem : public FileSystemWrapper {
+ public:
+  explicit MockTestFileSystem(const std::shared_ptr<FileSystem>& base,
+                              Env::IOPriority read_io_priority,
+                              Env::IOPriority write_io_priority)
+      : FileSystemWrapper(base),
         read_io_priority_(read_io_priority),
         write_io_priority_(write_io_priority) {}
 
-  static const char* kClassName() { return "MockTestFS"; }
+  static const char* kClassName() { return "MockTestFileSystem"; }
   const char* Name() const override { return kClassName(); }
 
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& file_opts,
                                std::unique_ptr<FSRandomAccessFile>* result,
-                               IODebugContext* dbg) override;
+                               IODebugContext* dbg) override {
+    IOStatus s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+    result->reset(
+        new MockTestRandomAccessFile(std::move(*result), read_io_priority_));
+    return s;
+  }
   IOStatus NewWritableFile(const std::string& fname,
                            const FileOptions& file_opts,
                            std::unique_ptr<FSWritableFile>* result,
@@ -1551,6 +1568,7 @@ class MockTestFS : public FileSystemWrapper {
     IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
     result->reset(
         new MockTestWritableFile(std::move(*result), write_io_priority_));
+    return s;
   }
 
  private:
@@ -1558,41 +1576,280 @@ class MockTestFS : public FileSystemWrapper {
   Env::IOPriority write_io_priority_;
 };
 
-class CompactionJobTestTableFactory : public TableFactory {
- public:
-  CompactionJobTestTableFactory() {}
-  ~CompactionJobTestTableFactory() {}
+// class CompactionJobTestTableFactory : public TableFactory {
+//  public:
+//   CompactionJobTestTableFactory() {}
+//   ~CompactionJobTestTableFactory() {}
 
-  static const char* kClassName() { return "CompactionJobTestTableFactory"; }
-  const char* Name() const override { return kClassName(); }
-  Status NewTableReader(
-      const ReadOptions& ro, const TableReaderOptions& table_reader_options,
-      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-      std::unique_ptr<TableReader>* table_reader,
-      bool prefetch_index_and_filter_in_cache = true) const override;
-  TableBuilder* NewTableBuilder(
-      const TableBuilderOptions& table_builder_options,
-      WritableFileWriter* file) const override {}
+//   static const char* kClassName() { return "CompactionJobTestTableFactory"; }
+//   const char* Name() const override { return kClassName(); }
+//   Status NewTableReader(
+//       const ReadOptions& ro, const TableReaderOptions& table_reader_options,
+//       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+//       std::unique_ptr<TableReader>* table_reader,
+//       bool prefetch_index_and_filter_in_cache = true) const override;
+//   TableBuilder* NewTableBuilder(
+//       const TableBuilderOptions& table_builder_options,
+//       WritableFileWriter* file) const override {}
 
-  std::string GetPrintableOptions() const override { return std::string(); }
+//   std::string GetPrintableOptions() const override { return std::string(); }
 
- private:
-  mutable mock::MockTableFileSystem file_system_;
-  mutable std::atomic<uint32_t> next_id_;
-};
+//  private:
+//   mutable mock::MockTableFileSystem file_system_;
+//   mutable std::atomic<uint32_t> next_id_;
+// };
 }  // namespace
 
-class CompactionJobIOPriorityTest : public CompactionJobTestBase {
- public:
-  CompactionJobIOPriorityTest()
-      : CompactionJobTestBase(
-            test::PerThreadDBPath("compaction_job_io_priority_test"),
-            BytewiseComparator(), [](uint64_t /*ts*/) { return ""; }) {}
+class CompactionJobIOPriorityTestBase : public testing::Test {
+ protected:
+  CompactionJobIOPriorityTestBase(
+      std::string dbname, const Comparator* ucmp,
+      std::function<std::string(uint64_t)> encode_u64_ts)
+      : dbname_(std::move(dbname)),
+        ucmp_(ucmp),
+        db_options_(),
+        mutable_cf_options_(cf_options_),
+        mutable_db_options_(),
+        table_cache_(NewLRUCache(50000, 16)),
+        write_buffer_manager_(db_options_.db_write_buffer_size),
+        versions_(new VersionSet(dbname_, &db_options_, env_options_,
+                                 table_cache_.get(), &write_buffer_manager_,
+                                 &write_controller_,
+                                 /*block_cache_tracer=*/nullptr,
+                                 /*io_tracer=*/nullptr, /*db_session_id*/ "")),
+        shutting_down_(false),
+        mock_table_factory_(new mock::MockTableFactory()),  // ???
+        error_handler_(nullptr, db_options_, &mutex_),
+        encode_u64_ts_(std::move(encode_u64_ts)) {
+    Env* base_env = Env::Default();
+    EXPECT_OK(
+        test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
+    env_ = base_env;
+    env_fs_ = env_->GetFileSystem();
+  }
 
-  void RunCompactionWithIoPriority(
-      const std::vector<std::vector<FileMetaData*>>& input_files,
-      const mock::KVVector& /*expected_results*/,
-      bool check_get_priority = false) {
+  void SetUp() override {
+    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    db_options_.env = env_;
+    db_options_.db_paths.emplace_back(dbname_,
+                                      std::numeric_limits<uint64_t>::max());
+    cf_options_.comparator = ucmp_;
+    cf_options_.table_factory = mock_table_factory_;
+  }
+
+  std::string GenerateFileName(uint64_t file_number) {
+    FileMetaData meta;
+    std::vector<DbPath> db_paths;
+    db_paths.emplace_back(dbname_, std::numeric_limits<uint64_t>::max());
+    meta.fd = FileDescriptor(file_number, 0, 0);
+    return TableFileName(db_paths, meta.fd.GetNumber(), meta.fd.GetPathId());
+  }
+
+  std::string KeyStr(const std::string& user_key, const SequenceNumber seq_num,
+                     const ValueType t, uint64_t ts = 0) {
+    std::string user_key_with_ts = user_key + encode_u64_ts_(ts);
+    return InternalKey(user_key_with_ts, seq_num, t).Encode().ToString();
+  }
+
+  static std::string BlobStr(uint64_t blob_file_number, uint64_t offset,
+                             uint64_t size) {
+    std::string blob_index;
+    BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                          kNoCompression);
+    return blob_index;
+  }
+
+  static std::string BlobStrTTL(uint64_t blob_file_number, uint64_t offset,
+                                uint64_t size, uint64_t expiration) {
+    std::string blob_index;
+    BlobIndex::EncodeBlobTTL(&blob_index, expiration, blob_file_number, offset,
+                             size, kNoCompression);
+    return blob_index;
+  }
+
+  static std::string BlobStrInlinedTTL(const Slice& value,
+                                       uint64_t expiration) {
+    std::string blob_index;
+    BlobIndex::EncodeInlinedTTL(&blob_index, expiration, value);
+    return blob_index;
+  }
+
+  void AddMockFile(const mock::KVVector& contents, int level = 0) {
+    assert(contents.size() > 0);
+
+    bool first_key = true;
+    std::string smallest, largest;
+    InternalKey smallest_key, largest_key;
+    SequenceNumber smallest_seqno = kMaxSequenceNumber;
+    SequenceNumber largest_seqno = 0;
+    uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
+    for (auto kv : contents) {
+      ParsedInternalKey key;
+      std::string skey;
+      std::string value;
+      std::tie(skey, value) = kv;
+      const Status pik_status =
+          ParseInternalKey(skey, &key, true /* log_err_key */);
+
+      smallest_seqno = std::min(smallest_seqno, key.sequence);
+      largest_seqno = std::max(largest_seqno, key.sequence);
+
+      if (first_key ||
+          cfd_->user_comparator()->Compare(key.user_key, smallest) < 0) {
+        smallest.assign(key.user_key.data(), key.user_key.size());
+        smallest_key.DecodeFrom(skey);
+      }
+      if (first_key ||
+          cfd_->user_comparator()->Compare(key.user_key, largest) > 0) {
+        largest.assign(key.user_key.data(), key.user_key.size());
+        largest_key.DecodeFrom(skey);
+      }
+
+      first_key = false;
+
+      if (pik_status.ok() && key.type == kTypeBlobIndex) {
+        BlobIndex blob_index;
+        const Status s = blob_index.DecodeFrom(value);
+        if (!s.ok()) {
+          continue;
+        }
+
+        if (blob_index.IsInlined() || blob_index.HasTTL() ||
+            blob_index.file_number() == kInvalidBlobFileNumber) {
+          continue;
+        }
+
+        if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+            oldest_blob_file_number > blob_index.file_number()) {
+          oldest_blob_file_number = blob_index.file_number();
+        }
+      }
+    }
+
+    uint64_t file_number = versions_->NewFileNumber();
+    EXPECT_OK(mock_table_factory_->CreateMockTable(
+        env_, GenerateFileName(file_number), std::move(contents)));
+
+    VersionEdit edit;
+    edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
+                 smallest_seqno, largest_seqno, false, Temperature::kUnknown,
+                 oldest_blob_file_number, kUnknownOldestAncesterTime,
+                 kUnknownFileCreationTime, kUnknownFileChecksum,
+                 kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+                 kDisableUserTimestamp);
+
+    mutex_.Lock();
+    EXPECT_OK(
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_));
+    mutex_.Unlock();
+  }
+
+  void SetLastSequence(const SequenceNumber sequence_number) {
+    versions_->SetLastAllocatedSequence(sequence_number + 1);
+    versions_->SetLastPublishedSequence(sequence_number + 1);
+    versions_->SetLastSequence(sequence_number + 1);
+  }
+
+  // returns expected result after compaction
+  mock::KVVector CreateTwoFiles(bool gen_corrupted_keys) {
+    stl_wrappers::KVMap expected_results;
+    constexpr int kKeysPerFile = 10000;
+    constexpr int kCorruptKeysPerFile = 200;
+    constexpr int kMatchingKeys = kKeysPerFile / 2;
+    SequenceNumber sequence_number = 0;
+
+    auto corrupt_id = [&](int id) {
+      return gen_corrupted_keys && id > 0 && id <= kCorruptKeysPerFile;
+    };
+
+    for (int i = 0; i < 2; ++i) {
+      auto contents = mock::MakeMockFile();
+      for (int k = 0; k < kKeysPerFile; ++k) {
+        auto key = std::to_string(i * kMatchingKeys + k);
+        auto value = std::to_string(i * kKeysPerFile + k);
+        InternalKey internal_key(key, ++sequence_number, kTypeValue);
+
+        // This is how the key will look like once it's written in bottommost
+        // file
+        InternalKey bottommost_internal_key(key, 0, kTypeValue);
+
+        if (corrupt_id(k)) {
+          test::CorruptKeyType(&internal_key);
+          test::CorruptKeyType(&bottommost_internal_key);
+        }
+        contents.push_back({internal_key.Encode().ToString(), value});
+        if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
+          expected_results.insert(
+              {bottommost_internal_key.Encode().ToString(), value});
+        }
+      }
+      mock::SortKVVector(&contents, ucmp_);
+
+      AddMockFile(contents);
+    }
+
+    SetLastSequence(sequence_number);
+
+    mock::KVVector expected_results_kvvector;
+    for (auto& kv : expected_results) {
+      expected_results_kvvector.push_back({kv.first, kv.second});
+    }
+
+    return expected_results_kvvector;
+  }
+
+  void NewDB(Env::IOPriority read_io_priority,
+             Env::IOPriority write_io_priority) {
+    db_options_.fs.reset(
+        new MockTestFileSystem(env_fs_, read_io_priority, write_io_priority));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
+                       /*db_session_id*/ ""));
+    compaction_job_stats_.Reset();
+    ASSERT_OK(SetIdentityFile(env_, dbname_));
+
+    VersionEdit new_db;
+    new_db.SetLogNumber(0);
+    new_db.SetNextFile(2);
+    new_db.SetLastSequence(0);
+
+    const std::string manifest = DescriptorFileName(dbname_, 1);
+    std::unique_ptr<WritableFileWriter> file_writer;
+    // Here, we use the env filesystem rather than MockTestFileSystem.
+    Status s = WritableFileWriter::Create(
+        env_fs_, manifest, env_fs_->OptimizeForManifestWrite(env_options_),
+        &file_writer, nullptr);
+
+    ASSERT_OK(s);
+    {
+      log::Writer log(std::move(file_writer), 0, false);
+      std::string record;
+      new_db.EncodeTo(&record);
+      s = log.AddRecord(record);
+    }
+    ASSERT_OK(s);
+    // Make "CURRENT" file that points to the new manifest file.
+    s = SetCurrentFile(env_fs_.get(), dbname_, 1, nullptr);
+
+    ASSERT_OK(s);
+
+    cf_options_.merge_operator = merge_op_;
+    cf_options_.compaction_filter = compaction_filter_.get();
+    std::vector<ColumnFamilyDescriptor> column_families;
+    column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
+
+    ASSERT_OK(versions_->Recover(column_families, false));
+    cfd_ = versions_->GetColumnFamilySet()->GetDefault();
+  }
+
+  void RunCompaction(const std::vector<std::vector<FileMetaData*>>& input_files,
+                     const mock::KVVector& /*expected_results*/,
+                     bool check_get_priority = false) {
     int output_level = 1;
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
@@ -1648,63 +1905,111 @@ class CompactionJobIOPriorityTest : public CompactionJobTestBase {
     }
   }
 
-  // returns expected result after compaction
-  mock::KVVector CreateTwoFiles(bool gen_corrupted_keys) {
-    stl_wrappers::KVMap expected_results;
-    constexpr int kKeysPerFile = 10000;
-    constexpr int kCorruptKeysPerFile = 200;
-    constexpr int kMatchingKeys = kKeysPerFile / 2;
-    SequenceNumber sequence_number = 0;
+  void CheckGetRateLimiterPriority(CompactionJob& compaction_job) {
+    // When the state from WriteController is normal.
+    ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_LOW);
 
-    auto corrupt_id = [&](int id) {
-      return gen_corrupted_keys && id > 0 && id <= kCorruptKeysPerFile;
-    };
+    WriteController* write_controller =
+        compaction_job.versions_->GetColumnFamilySet()->write_controller();
 
-    for (int i = 0; i < 2; ++i) {
-      auto contents = mock::MakeMockFile();
-      for (int k = 0; k < kKeysPerFile; ++k) {
-        auto key = std::to_string(i * kMatchingKeys + k);
-        auto value = std::to_string(i * kKeysPerFile + k);
-        InternalKey internal_key(key, ++sequence_number, kTypeValue);
-
-        // This is how the key will look like once it's written in bottommost
-        // file
-        InternalKey bottommost_internal_key(key, 0, kTypeValue);
-
-        if (corrupt_id(k)) {
-          test::CorruptKeyType(&internal_key);
-          test::CorruptKeyType(&bottommost_internal_key);
-        }
-        contents.push_back({internal_key.Encode().ToString(), value});
-        if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
-          expected_results.insert(
-              {bottommost_internal_key.Encode().ToString(), value});
-        }
-      }
-      mock::SortKVVector(&contents, ucmp_);
-
-      AddMockFile(contents);
+    {
+      // When the state from WriteController is Delayed.
+      std::unique_ptr<WriteControllerToken> delay_token =
+          write_controller->GetDelayToken(1000000);
+      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
     }
 
-    SetLastSequence(sequence_number);
-
-    mock::KVVector expected_results_kvvector;
-    for (auto& kv : expected_results) {
-      expected_results_kvvector.push_back({kv.first, kv.second});
+    {
+      // When the state from WriteController is Stopped.
+      std::unique_ptr<WriteControllerToken> stop_token =
+          write_controller->GetStopToken();
+      ASSERT_EQ(compaction_job.GetRateLimiterPriority(), Env::IO_USER);
     }
-
-    return expected_results_kvvector;
   }
+
+  std::shared_ptr<Env> env_guard_;
+  Env* env_;
+  std::shared_ptr<FileSystem> env_fs_;
+  std::string dbname_;
+  const Comparator* const ucmp_;
+  EnvOptions env_options_;
+  ImmutableDBOptions db_options_;
+  ColumnFamilyOptions cf_options_;
+  MutableCFOptions mutable_cf_options_;
+  MutableDBOptions mutable_db_options_;
+  std::shared_ptr<Cache> table_cache_;
+  WriteController write_controller_;
+  WriteBufferManager write_buffer_manager_;
+  std::unique_ptr<VersionSet> versions_;
+  InstrumentedMutex mutex_;
+  std::atomic<bool> shutting_down_;
+  std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+  CompactionJobStats compaction_job_stats_;
+  ColumnFamilyData* cfd_;
+  std::unique_ptr<CompactionFilter> compaction_filter_;
+  std::shared_ptr<MergeOperator> merge_op_;
+  ErrorHandler error_handler_;
+  std::string full_history_ts_low_;
+  const std::function<std::string(uint64_t)> encode_u64_ts_;
 };
 
-TEST_F(CompactionJobIOPriorityTest, GetRateLimiterPriority) {
-  NewDB();
+class CompactionJobIOPriorityTest : public CompactionJobIOPriorityTestBase {
+ public:
+  CompactionJobIOPriorityTest()
+      : CompactionJobIOPriorityTestBase(
+            test::PerThreadDBPath("compaction_job_io_priority_test"),
+            BytewiseComparator(), [](uint64_t /*ts*/) { return ""; }) {}
+};
+
+TEST_F(CompactionJobIOPriorityTest, WriteControllerStateNormal) {
+  // When the state from WriteController is normal.
+  NewDB(Env::IO_LOW, Env::IO_LOW);
 
   auto expected_results = CreateTwoFiles(false);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto files = cfd->current()->storage_info()->LevelFiles(0);
   ASSERT_EQ(2U, files.size());
-  RunCompactionWithIoPriority({files}, expected_results, true);
+  RunCompaction({files}, expected_results);
+}
+
+TEST_F(CompactionJobIOPriorityTest, WriteControllerStateDelayed) {
+  // When the state from WriteController is Delayed.
+  NewDB(Env::IO_USER, Env::IO_USER);
+
+  auto expected_results = CreateTwoFiles(false);
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto files = cfd->current()->storage_info()->LevelFiles(0);
+  ASSERT_EQ(2U, files.size());
+  {
+    std::unique_ptr<WriteControllerToken> delay_token =
+        write_controller_.GetDelayToken(1000000);
+    RunCompaction({files}, expected_results);
+  }
+}
+
+TEST_F(CompactionJobIOPriorityTest, WriteControllerStateStalled) {
+  // When the state from WriteController is Stalled.
+  NewDB(Env::IO_USER, Env::IO_USER);
+
+  auto expected_results = CreateTwoFiles(false);
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto files = cfd->current()->storage_info()->LevelFiles(0);
+  ASSERT_EQ(2U, files.size());
+  {
+    std::unique_ptr<WriteControllerToken> stop_token =
+        write_controller_.GetStopToken();
+    RunCompaction({files}, expected_results);
+  }
+}
+
+TEST_F(CompactionJobIOPriorityTest, GetRateLimiterPriority) {
+  NewDB(Env::IO_LOW, Env::IO_LOW);
+
+  auto expected_results = CreateTwoFiles(false);
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto files = cfd->current()->storage_info()->LevelFiles(0);
+  ASSERT_EQ(2U, files.size());
+  RunCompaction({files}, expected_results, true);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
