@@ -681,7 +681,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in) {
     fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
-                                            FLAGS_read_fault_one_in);
+                                                   FLAGS_read_fault_one_in);
   }
 #endif  // NDEBUG
   if (FLAGS_write_fault_one_in) {
@@ -2119,6 +2119,15 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                           static_cast<uint32_t>(bottom_level_styles.size())];
   cro.allow_write_stall = static_cast<bool>(thread->rand.Next() % 2);
   cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
+  std::vector<BlobGarbageCollectionPolicy> blob_gc_policies = {
+      BlobGarbageCollectionPolicy::kForce,
+      BlobGarbageCollectionPolicy::kDisable,
+      BlobGarbageCollectionPolicy::kUseDefault};
+  cro.blob_garbage_collection_policy =
+      blob_gc_policies[thread->rand.Next() %
+                       static_cast<uint32_t>(blob_gc_policies.size())];
+  cro.blob_garbage_collection_age_cutoff =
+      static_cast<double>(thread->rand.Next() % 100) / 100.0;
 
   const Snapshot* pre_snapshot = nullptr;
   uint32_t pre_hash = 0;
@@ -2322,7 +2331,8 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Open metadata write fault one in:\n");
   fprintf(stdout, "                            %d\n",
           FLAGS_open_metadata_write_fault_one_in);
-  fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
+  fprintf(stdout, "Sync fault injection      : %d\n",
+          FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
   fprintf(stdout, "Fail if OPTIONS file error: %d\n",
@@ -2697,7 +2707,7 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   assert(!write_prepared || bg_canceled);
 #else
-  (void) thread;
+  (void)thread;
 #endif
 
   for (auto cf : column_families_) {
