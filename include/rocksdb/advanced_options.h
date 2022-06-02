@@ -223,6 +223,7 @@ enum class Temperature : uint8_t {
   kHot = 0x04,
   kWarm = 0x08,
   kCold = 0x0C,
+  kLastTemperature,
 };
 
 // The control option of how the cache tiers will be used. Currently rocksdb
