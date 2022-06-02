@@ -259,9 +259,9 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined) {
 #endif  // !ROCKSDB_LITE
 }
 
-class UnregisteredTableFactory : public TableFactory {
+class UnregisteredTableFactoryImpl : public TableFactory {
  public:
-  UnregisteredTableFactory() {}
+  UnregisteredTableFactoryImpl() {}
   const char* Name() const override { return "Unregistered"; }
   using TableFactory::NewTableReader;
   Status NewTableReader(const ReadOptions&, const TableReaderOptions&,
@@ -271,13 +271,12 @@ class UnregisteredTableFactory : public TableFactory {
   }
   TableBuilder* NewTableBuilder(const TableBuilderOptions&,
                                 WritableFileWriter*) const override {
-    return Status::NotSupported();
+    return nullptr;
   }
-}
+};
 
-TableFactory*
-UnregisteredTableFactory() {
-  return new UnregisteredTableFactory();
+TableFactory* UnregisteredTableFactory() {
+  return new UnregisteredTableFactoryImpl();
 }
 
 MergeOperator* RandomMergeOperator(Random* rnd) {
