@@ -1617,22 +1617,22 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
   CompactionJobIOPriorityTestBase(
       std::string dbname, const Comparator* ucmp,
       std::function<std::string(uint64_t)> encode_u64_ts)
-      : CompactionJobTestBase(dbname, ucmp, encode_u64_ts),
-        dbname_(std::move(dbname)),
-        ucmp_(ucmp),
-        db_options_(),
-        mutable_cf_options_(cf_options_),
-        mutable_db_options_(),
-        table_cache_(NewLRUCache(50000, 16)),
-        write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
-                                 /*block_cache_tracer=*/nullptr,
-                                 /*io_tracer=*/nullptr, /*db_session_id*/ "")),
-        shutting_down_(false),
-        error_handler_(nullptr, db_options_, &mutex_),
-        encode_u64_ts_(std::move(encode_u64_ts)) {
+      : CompactionJobTestBase(dbname, ucmp, encode_u64_ts) {
+    // dbname_(std::move(dbname)),
+    // ucmp_(ucmp),
+    // db_options_(),
+    // mutable_cf_options_(cf_options_),
+    // mutable_db_options_(),
+    // table_cache_(NewLRUCache(50000, 16)),
+    // write_buffer_manager_(db_options_.db_write_buffer_size),
+    // versions_(new VersionSet(dbname_, &db_options_, env_options_,
+    //                          table_cache_.get(), &write_buffer_manager_,
+    //                          &write_controller_,
+    //                          /*block_cache_tracer=*/nullptr,
+    //                          /*io_tracer=*/nullptr, /*db_session_id*/ "")),
+    // shutting_down_(false),
+    // error_handler_(nullptr, db_options_, &mutex_),
+    // encode_u64_ts_(std::move(encode_u64_ts)) {
     Env* base_env = Env::Default();
     EXPECT_OK(
         test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
@@ -1752,7 +1752,7 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
     int matching_keys = keys_per_file / 2;
     SequenceNumber sequence_number = 0;
 
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < num_files; ++i) {
       auto contents = mock::MakeMockFile();
       for (int k = 0; k < keys_per_file; ++k) {
         auto key = std::to_string(i * matching_keys + k);
@@ -1897,7 +1897,7 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
 
   // std::shared_ptr<Env> env_guard_;
   // Env* env_;
-  // std::shared_ptr<FileSystem> env_fs_;
+  std::shared_ptr<FileSystem> env_fs_;
   // std::string dbname_;
   // const Comparator* const ucmp_;
   // EnvOptions env_options_;
