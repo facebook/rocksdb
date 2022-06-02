@@ -827,6 +827,12 @@ fi
 
 rm -f test.o test_dl.o
 
+# Get the path for the folly installation dir
+if [ -z "$FOLLY_DIR" ]; then
+  FOLLY_DIR="./third-party/folly"
+fi
+FOLLY_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly`
+
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 
@@ -866,6 +872,8 @@ echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
 echo "FIND=$FIND" >> "$OUTPUT"
 echo "WATCH=$WATCH" >> "$OUTPUT"
+echo "FOLLY_PATH=$FOLLY_PATH" >> "$OUTPUT"
+
 # This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"

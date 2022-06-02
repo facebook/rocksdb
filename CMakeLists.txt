@@ -74,6 +74,7 @@ option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, 
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
+option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
 if ($ENV{CIRCLECI})
   message(STATUS "Build for CircieCI env, a few tests may be disabled")
@@ -584,10 +585,48 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
+if(USE_COROUTINES)
+  set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -Wno-maybe-uninitialized")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-redundant-move")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-invalid-memory-model")
+  add_compile_definitions(USE_COROUTINES)
+  set(USE_FOLLY 1)
+endif()
+
 if(USE_FOLLY)
-  include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
-  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
-  list(APPEND THIRDPARTY_LIBS glog)
+  if(ROCKSDB_BUILD_SHARED)
+    message(FATAL Cannot build RocksDB shared library with folly)
+  endif()
+  set(ROCKSDB_BUILD_SHARED OFF)
+  set(GFLAGS_SHARED FALSE)
+  exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+  build/fbcode_builder/getdeps.py show-inst-dir OUTPUT_VARIABLE
+  FOLLY_INST_PATH)
+  exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../boost* OUTPUT_VARIABLE
+  BOOST_INST_PATH)
+  exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../fmt* OUTPUT_VARIABLE
+  FMT_INST_PATH)
+  exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
+  GFLAGS_INST_PATH)
+  set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.78.0)
+  if(EXISTS ${FMT_INST_PATH}/lib64)
+    set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
+  else()
+    set(fmt_DIR ${FMT_INST_PATH}/lib/cmake/fmt)
+  endif()
+  set(gflags_DIR ${GFLAGS_INST_PATH}/lib/cmake/gflags)
+
+  exec_program(sed ARGS -i 's/gflags_shared//g'
+  ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
+
+  include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
+
+  add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
+  list(APPEND THIRDPARTY_LIBS Folly::folly)
+  set(FOLLY_LIBS Folly::folly)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--copy-dt-needed-entries")
 endif()
 find_package(Threads REQUIRED)
 
@@ -983,22 +1022,8 @@ else()
     env/io_posix.cc)
 endif()
 
-if(USE_FOLLY)
-  list(APPEND SOURCES
-    third-party/folly/folly/container/detail/F14Table.cpp
-    third-party/folly/folly/detail/Futex.cpp
-    third-party/folly/folly/lang/SafeAssert.cpp
-    third-party/folly/folly/lang/ToAscii.cpp
-    third-party/folly/folly/ScopeGuard.cpp
-    third-party/folly/folly/synchronization/AtomicNotification.cpp
-    third-party/folly/folly/synchronization/DistributedMutex.cpp
-    third-party/folly/folly/synchronization/ParkingLot.cpp)
-endif()
-
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
 set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
-
-option(ROCKSDB_BUILD_SHARED "Build shared versions of the RocksDB libraries" ON)
 
 
 if(WIN32)
@@ -1425,7 +1450,7 @@ if(WITH_TESTS)
   add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
   set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
   add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB})
+  target_link_libraries(${TESTUTILLIB} ${ROCKSDB_LIB} ${FOLLY_LIBS})
   if(MSVC)
     set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
   endif()
@@ -1483,32 +1508,32 @@ if(WITH_BENCHMARK_TOOLS)
     cache/cache_bench.cc
     cache/cache_bench_tool.cc)
   target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(memtablerep_bench${ARTIFACT_SUFFIX}
     memtable/memtablerep_bench.cc)
   target_link_libraries(memtablerep_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     db/range_del_aggregator_bench.cc)
   target_link_libraries(range_del_aggregator_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(table_reader_bench${ARTIFACT_SUFFIX}
     table/table_reader_bench.cc)
   target_link_libraries(table_reader_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} testharness ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(filter_bench${ARTIFACT_SUFFIX}
     util/filter_bench.cc)
   target_link_libraries(filter_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(hash_table_bench${ARTIFACT_SUFFIX}
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 endif()
 
 option(WITH_TRACE_TOOLS "build with trace tools" ON)

@@ -355,6 +355,7 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
+      - run: make build_folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
@@ -385,6 +386,7 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
+      - run: make build_folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
 
@@ -394,6 +396,18 @@ jobs:
     steps:
       - pre-steps
       - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
+      - post-steps
+
+  build-linux-cmake-with-folly-coroutines:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
+      - setup-folly
+      - run: CC=gcc-10 CXX=g++-10 make build_folly
+      - run: (mkdir build && cd build && CC=gcc-10 CXX=g++-10 cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && CC=gcc-10 CXX=g++-10 make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
@@ -427,6 +441,7 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
+      - run: make build_folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 
@@ -778,6 +793,7 @@ workflows:
       - build-linux
       - build-linux-cmake-with-folly
       - build-linux-gcc-7-with-folly
+      - build-linux-cmake-with-folly-coroutines
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
       - build-linux-lite
