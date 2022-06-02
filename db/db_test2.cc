@@ -6883,6 +6883,11 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(size, 0);
   size = GetSstSizeHelper(Temperature::kCold);
   ASSERT_GT(size, 0);
+
+  // kLastTemperature is an invalid temperature
+  options.bottommost_temperature = Temperature::kLastTemperature;
+  s = TryReopen(options);
+  ASSERT_TRUE(s.IsIOError());
 }
 
 TEST_F(DBTest2, LastLevelStatistics) {

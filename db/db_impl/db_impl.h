@@ -113,6 +113,39 @@ class Directories {
 
   FSDirectory* GetDbDir() { return db_dir_.get(); }
 
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) {
+    // close all directories for all database paths
+    IOStatus s = IOStatus::OK();
+    if (db_dir_) {
+      s = db_dir_->Close(options, dbg);
+    }
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (wal_dir_) {
+      s = wal_dir_->Close(options, dbg);
+    }
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (data_dirs_.size() > 0 && s.ok()) {
+      for (auto& data_dir_ptr : data_dirs_) {
+        if (data_dir_ptr) {
+          s = data_dir_ptr->Close(options, dbg);
+          if (!s.ok()) {
+            return s;
+          }
+        }
+      }
+    }
+
+    return s;
+  }
+
  private:
   std::unique_ptr<FSDirectory> db_dir_;
   std::vector<std::unique_ptr<FSDirectory>> data_dirs_;
@@ -1834,12 +1867,13 @@ class DBImpl : public DB {
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                       uint64_t* log_used, uint64_t* log_size,
                       Env::IOPriority rate_limiter_priority,
-                      bool with_db_mutex = false, bool with_log_mutex = false);
+                      LogFileNumberSize& log_file_number_size);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
                       bool need_log_sync, bool need_log_dir_sync,
-                      SequenceNumber sequence);
+                      SequenceNumber sequence,
+                      LogFileNumberSize& log_file_number_size);
 
   IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                                 uint64_t* log_used,
@@ -2169,11 +2203,7 @@ class DBImpl : public DB {
   // are protected by locking both mutex_ and log_write_mutex_, and reads must
   // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
-  // Caching the result of `alive_log_files_.back()` so that we do not have to
-  // call `alive_log_files_.back()` in the write thread (WriteToWAL()) which
-  // requires locking db mutex if log_mutex_ is not already held in
-  // two-write-queues mode.
-  std::deque<LogFileNumberSize>::reverse_iterator alive_log_files_tail_;
+
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
   //  - push_back() is done from write_thread_ with locked mutex_ and

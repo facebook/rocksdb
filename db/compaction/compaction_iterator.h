@@ -142,12 +142,11 @@ class CompactionIterator {
     }
 
     bool enable_blob_garbage_collection() const override {
-      return compaction_->mutable_cf_options()->enable_blob_garbage_collection;
+      return compaction_->enable_blob_garbage_collection();
     }
 
     double blob_garbage_collection_age_cutoff() const override {
-      return compaction_->mutable_cf_options()
-          ->blob_garbage_collection_age_cutoff;
+      return compaction_->blob_garbage_collection_age_cutoff();
     }
 
     uint64_t blob_compaction_readahead_size() const override {

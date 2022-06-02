@@ -214,7 +214,9 @@ Compaction::Compaction(
     CompressionOptions _compression_opts, Temperature _output_temperature,
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
     bool _manual_compaction, const std::string& _trim_ts, double _score,
-    bool _deletion_compaction, CompactionReason _compaction_reason)
+    bool _deletion_compaction, CompactionReason _compaction_reason,
+    BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
+    double _blob_garbage_collection_age_cutoff)
     : input_vstorage_(vstorage),
       start_level_(_inputs[0].level),
       output_level_(_output_level),
@@ -240,7 +242,19 @@ Compaction::Compaction(
       trim_ts_(_trim_ts),
       is_trivial_move_(false),
       compaction_reason_(_compaction_reason),
-      notify_on_compaction_completion_(false) {
+      notify_on_compaction_completion_(false),
+      enable_blob_garbage_collection_(
+          _blob_garbage_collection_policy == BlobGarbageCollectionPolicy::kForce
+              ? true
+              : (_blob_garbage_collection_policy ==
+                         BlobGarbageCollectionPolicy::kDisable
+                     ? false
+                     : mutable_cf_options()->enable_blob_garbage_collection)),
+      blob_garbage_collection_age_cutoff_(
+          _blob_garbage_collection_age_cutoff < 0 ||
+                  _blob_garbage_collection_age_cutoff > 1
+              ? mutable_cf_options()->blob_garbage_collection_age_cutoff
+              : _blob_garbage_collection_age_cutoff) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -325,8 +339,8 @@ bool Compaction::IsTrivialMove() const {
   }
 
   if (!(start_level_ != output_level_ && num_input_levels() == 1 &&
-          input(0, 0)->fd.GetPathId() == output_path_id() &&
-          InputCompressionMatchesOutput())) {
+        input(0, 0)->fd.GetPathId() == output_path_id() &&
+        InputCompressionMatchesOutput())) {
     return false;
   }
 

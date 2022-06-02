@@ -509,6 +509,8 @@ void LDBCommand::CloseDB() {
     for (auto& pair : cf_handles_) {
       delete pair.second;
     }
+    Status s = db_->Close();
+    s.PermitUncheckedError();
     delete db_;
     db_ = nullptr;
   }

@@ -343,8 +343,7 @@ DEFINE_int32(
     "Type of pinning for unpartitioned metadata blocks (see `enum PinningTier` "
     "in table.h)");
 
-DEFINE_bool(use_clock_cache, false,
-            "Replace default LRU block cache with clock cache.");
+DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
 DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
