@@ -248,8 +248,6 @@ TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
 
   options.enable_blob_files = true;
   options.min_blob_size = 1000;
-  options.use_direct_reads = true;
-  options.allow_ingest_behind = true;
   options.blob_file_starting_level = 5;
   options.create_if_missing = true;
 
@@ -297,7 +295,7 @@ TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
   ASSERT_EQ(4, NumTableFilesAtLevel(/*level=*/1));
 
   {
-    options.blob_file_starting_level = 0;
+    options.blob_file_starting_level = 1;
     DestroyAndReopen(options);
 
     ASSERT_OK(Put(first_key, first_blob));
@@ -307,14 +305,14 @@ TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
     ASSERT_OK(Put(fourth_key, fourth_blob));
     ASSERT_OK(Flush());
 
-    ASSERT_EQ(2, GetBlobFileNumbers().size());
+    ASSERT_EQ(0, GetBlobFileNumbers().size());
     ASSERT_EQ(2, NumTableFilesAtLevel(/*level=*/0));
     ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/1));
 
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                                 /*end=*/nullptr));
-
-    ASSERT_EQ(2, GetBlobFileNumbers().size());
+    // The compaction's output level equals to blob_file_starting_level.
+    ASSERT_EQ(1, GetBlobFileNumbers().size());
     ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/0));
     ASSERT_EQ(4, NumTableFilesAtLevel(/*level=*/1));
   }

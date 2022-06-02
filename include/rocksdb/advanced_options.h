@@ -951,7 +951,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0
   //
   // Dynamically changeable through the SetOptions() API
-  uint32_t blob_file_starting_level = 0;
+  int blob_file_starting_level = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

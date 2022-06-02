@@ -257,7 +257,7 @@ struct MutableCFOptions {
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
   uint64_t blob_compaction_readahead_size;
-  uint32_t blob_file_starting_level;
+  int blob_file_starting_level;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

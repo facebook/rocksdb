@@ -3044,7 +3044,7 @@ void rocksdb_options_set_blob_file_starting_level(rocksdb_options_t* opt,
   opt->rep.blob_file_starting_level = val;
 }
 
-uint32_t rocksdb_options_get_blob_file_starting_level(rocksdb_options_t* opt) {
+int rocksdb_options_get_blob_file_starting_level(rocksdb_options_t* opt) {
   return opt->rep.blob_file_starting_level;
 }
 
