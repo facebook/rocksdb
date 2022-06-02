@@ -10,6 +10,7 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
+#include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
@@ -130,14 +131,17 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (capacity <= 0) {
     return nullptr;
   }
-  if (FLAGS_use_clock_cache) {
+
+  if (FLAGS_cache_type == "clock_cache") {
     auto cache = NewClockCache((size_t)capacity);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);
     }
     return cache;
-  } else {
+  } else if (FLAGS_cache_type == "fast_lru_cache") {
+    return NewFastLRUCache((size_t)capacity, num_shard_bits);
+  } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
     opts.num_shard_bits = num_shard_bits;
@@ -161,6 +165,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
 #endif
     return NewLRUCache(opts);
+  } else {
+    fprintf(stderr, "Cache type not supported.");
+    exit(1);
   }
 }
 
