@@ -242,7 +242,19 @@ Compaction::Compaction(
       trim_ts_(_trim_ts),
       is_trivial_move_(false),
       compaction_reason_(_compaction_reason),
-      notify_on_compaction_completion_(false) {
+      notify_on_compaction_completion_(false),
+      enable_blob_garbage_collection_(
+          _blob_garbage_collection_policy == BlobGarbageCollectionPolicy::kForce
+              ? true
+              : (_blob_garbage_collection_policy ==
+                         BlobGarbageCollectionPolicy::kDisable
+                     ? false
+                     : mutable_cf_options()->enable_blob_garbage_collection)),
+      blob_garbage_collection_age_cutoff_(
+          _blob_garbage_collection_age_cutoff < 0 ||
+                  _blob_garbage_collection_age_cutoff > 1
+              ? mutable_cf_options()->blob_garbage_collection_age_cutoff
+              : _blob_garbage_collection_age_cutoff) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
@@ -267,26 +279,6 @@ Compaction::Compaction(
   }
 
   GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
-
-  // selectively force-enable/force-disable blob garbage collection
-  if (_blob_garbage_collection_policy ==
-      BlobGarbageCollectionPolicy::kDisable) {
-    enable_blob_garbage_collection_ = false;
-  } else {
-    enable_blob_garbage_collection_ =
-        _blob_garbage_collection_policy ==
-            BlobGarbageCollectionPolicy::kForce ||
-        mutable_cf_options()->enable_blob_garbage_collection;
-  }
-
-  // selectively override blob age cutoff
-  if (_blob_garbage_collection_age_cutoff < 0 ||
-      _blob_garbage_collection_age_cutoff > 1) {
-    blob_garbage_collection_age_cutoff_ =
-        mutable_cf_options()->blob_garbage_collection_age_cutoff;
-  } else {
-    blob_garbage_collection_age_cutoff_ = _blob_garbage_collection_age_cutoff;
-  }
 }
 
 Compaction::~Compaction() {
