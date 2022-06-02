@@ -967,7 +967,7 @@ function run_randomtransaction {
   echo "..."
   log_file_name=$output_dir/benchmark_randomtransaction.log
   time_cmd=$( get_cmd $log_file_name.time )
-  cmd="$time_cmd ./db_bench $params_r --benchmarks=randomtransaction \
+  cmd="$time_cmd ./db_bench $params_w --benchmarks=randomtransaction \
        --num=$num_keys \
        --transaction_db \
        --threads=5 \
