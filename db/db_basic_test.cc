@@ -4151,6 +4151,37 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   Reopen(options);
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
+
+TEST_F(DBBasicTest, GetCompressedWalsAfterSync) {
+  Options options = GetDefaultOptions();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.avoid_flush_during_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  // Enable WAL compression so that the newly-created WAL will be non-empty
+  // after DB open, even if point-in-time WAL recovery encounters no
+  // corruption.
+  options.wal_compression = kZSTD;
+  DestroyAndReopen(options);
+
+  // Write something to memtable and WAL so that log_empty_ will be false after
+  // next DB::Open().
+  ASSERT_OK(Put("a", "v"));
+
+  Reopen(options);
+
+  // New WAL is created, thanks to !log_empty_.
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
+
+  ASSERT_OK(Put("b", "v"));
+
+  ASSERT_OK(db_->SyncWAL());
+
+  VectorLogPtr wals;
+  Status s = dbfull()->GetSortedWalFiles(wals);
+  ASSERT_OK(s);
+}
 #endif  // !ROCKSDB_LITE
 
 // A test class for intercepting random reads and injecting artificial
