@@ -1467,7 +1467,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedSimpleUnsorted) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   do {
@@ -1521,7 +1521,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedSortedMultiFile) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   do {
@@ -1579,7 +1579,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedDuplicateKeys) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options opts = CurrentOptions();
@@ -1643,7 +1643,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevel) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options options = CurrentOptions();
@@ -1729,7 +1729,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedMultiLevelMerge) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options options = CurrentOptions();
@@ -1826,7 +1826,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeInMemory) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
@@ -1958,7 +1958,7 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
 #endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test is only for batched MultiGet");
+    ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
     return;
   }
   Options options = CurrentOptions();

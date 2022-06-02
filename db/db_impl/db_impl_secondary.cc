@@ -33,7 +33,8 @@ DBImplSecondary::~DBImplSecondary() {}
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool /*readonly*/, bool /*error_if_wal_file_exists*/,
-    bool /*error_if_data_exists_in_wals*/, uint64_t*) {
+    bool /*error_if_data_exists_in_wals*/, uint64_t*,
+    RecoveryContext* /*recovery_ctx*/) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -61,8 +62,6 @@ Status DBImplSecondary::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
-    single_column_family_mode_ =
-        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
     std::unordered_set<ColumnFamilyData*> cfds_changed;
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);

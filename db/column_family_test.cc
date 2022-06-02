@@ -1419,16 +1419,15 @@ TEST_P(ColumnFamilyTest, MultipleManualCompactions) {
     WaitForFlush(1);
     AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
+  std::atomic_bool cf_1_1{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::MultiManual:4", "ColumnFamilyTest::MultiManual:1"},
        {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:5"},
        {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:3");
         }
       });
@@ -1515,15 +1514,14 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   auto stop_token =
       dbfull()->TEST_write_controler().GetCompactionPressureToken();
 
-  bool cf_1_1 = true;
+  std::atomic_bool cf_1_1{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:1"},
        {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:5"},
        {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
-          cf_1_1 = false;
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");
         }
@@ -1618,21 +1616,19 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
     WaitForFlush(1);
     AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:1"},
        {"ColumnFamilyTest::ManualAuto:5", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:2", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1712,8 +1708,8 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
     WaitForFlush(1);
     AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualManual:4", "ColumnFamilyTest::ManualManual:2"},
        {"ColumnFamilyTest::ManualManual:4", "ColumnFamilyTest::ManualManual:5"},
@@ -1722,13 +1718,11 @@ TEST_P(ColumnFamilyTest, SameCFManualManualCompactions) {
         "ColumnFamilyTest::ManualManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualManual:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1814,8 +1808,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
     WaitForFlush(1);
     AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:5"},
@@ -1823,13 +1817,11 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1907,8 +1899,8 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
     WaitForFlush(1);
     AssertFilesPerLevel(std::to_string(i + 1), 1);
   }
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:5"},
@@ -1918,13 +1910,11 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
-          cf_1_2 = false;
         }
       });
 
@@ -1999,8 +1989,8 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   auto stop_token =
       dbfull()->TEST_write_controler().GetCompactionPressureToken();
 
-  bool cf_1_1 = true;
-  bool cf_1_2 = true;
+  std::atomic_bool cf_1_1{true};
+  std::atomic_bool cf_1_2{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:2"},
        {"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:5"},
@@ -2008,13 +1998,11 @@ TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
         "ColumnFamilyTest::AutoManual:3"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* /*arg*/) {
-        if (cf_1_1) {
+        if (cf_1_1.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
-          cf_1_1 = false;
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");
-        } else if (cf_1_2) {
+        } else if (cf_1_2.exchange(false)) {
           TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:2");
-          cf_1_2 = false;
         }
       });
 
