@@ -464,23 +464,31 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
-  LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-           double high_pri_pool_ratio,
-           std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
-           bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
-           CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata,
-           const std::shared_ptr<SecondaryCache>& secondary_cache = nullptr);
+  LRUCache();
+  explicit LRUCache(const LRUCacheOptions& options);
   virtual ~LRUCache();
-  virtual const char* Name() const override { return "LRUCache"; }
-  virtual CacheShard* GetShard(uint32_t shard) override;
-  virtual const CacheShard* GetShard(uint32_t shard) const override;
-  virtual void* Value(Handle* handle) override;
-  virtual size_t GetCharge(Handle* handle) const override;
-  virtual uint32_t GetHash(Handle* handle) const override;
-  virtual DeleterFn GetDeleter(Handle* handle) const override;
-  virtual void DisownData() override;
-  virtual void WaitAll(std::vector<Handle*>& handles) override;
+  static const char* kClassName() { return "LRUCache"; }
+  const char* Name() const override { return kClassName(); }
+  Status PrepareOptions(const ConfigOptions& config_options) override;
+  bool IsMutable() const override;
+  std::string GetPrintableOptions() const override;
+
+  void SetCapacity(size_t capacity) override;
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override;
+  size_t GetCapacity() const override;
+  bool HasStrictCapacityLimit() const override;
+
+  CacheShard* GetShard(uint32_t shard) override;
+  const CacheShard* GetShard(uint32_t shard) const override;
+  void* Value(Handle* handle) override;
+  size_t GetCharge(Handle* handle) const override;
+  uint32_t GetHash(Handle* handle) const override;
+  DeleterFn GetDeleter(Handle* handle) const override;
+  void DisownData() override;
+  void WaitAll(std::vector<Handle*>& handles) override;
+  MemoryAllocator* memory_allocator() const override {
+    return options_.memory_allocator.get();
+  }
 
   //  Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
@@ -489,8 +497,7 @@ class LRUCache
 
  private:
   LRUCacheShard* shards_ = nullptr;
-  int num_shards_ = 0;
-  std::shared_ptr<SecondaryCache> secondary_cache_;
+  LRUCacheOptions options_;
 };
 
 }  // namespace lru_cache

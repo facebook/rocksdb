@@ -27,17 +27,19 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 struct ConfigOptions;
+class MemoryAllocator;
 class SecondaryCache;
+class Statistics;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -49,6 +51,8 @@ const CacheMetadataChargePolicy kDefaultCacheMetadataChargePolicy =
     kFullChargeCacheMetadata;
 
 struct LRUCacheOptions {
+  static const char* kName() { return "LRUCacheOptions"; }
+
   // Capacity of the cache.
   size_t capacity = 0;
 
@@ -81,32 +85,33 @@ struct LRUCacheOptions {
   // internally (currently only XPRESS).
   std::shared_ptr<MemoryAllocator> memory_allocator;
 
+  CacheMetadataChargePolicy metadata_charge_policy =
+      kDefaultCacheMetadataChargePolicy;
+
   // Whether to use adaptive mutexes for cache shards. Note that adaptive
   // mutexes need to be supported by the platform in order for this to have any
   // effect. The default value is true if RocksDB is compiled with
   // -DROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX, false otherwise.
   bool use_adaptive_mutex = kDefaultToAdaptiveMutex;
 
-  CacheMetadataChargePolicy metadata_charge_policy =
-      kDefaultCacheMetadataChargePolicy;
-
-  // A SecondaryCache instance to use a the non-volatile tier.
+  // A SecondaryCache instance to use a the non-volatile tier
   std::shared_ptr<SecondaryCache> secondary_cache;
 
   LRUCacheOptions() {}
-  LRUCacheOptions(size_t _capacity, int _num_shard_bits,
-                  bool _strict_capacity_limit, double _high_pri_pool_ratio,
-                  std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
-                  bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
-                  CacheMetadataChargePolicy _metadata_charge_policy =
-                      kDefaultCacheMetadataChargePolicy)
+  LRUCacheOptions(
+      size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
+      double _high_pri_pool_ratio,
+      const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr,
+      bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
-        memory_allocator(std::move(_memory_allocator)),
-        use_adaptive_mutex(_use_adaptive_mutex),
-        metadata_charge_policy(_metadata_charge_policy) {}
+        memory_allocator(_memory_allocator),
+        metadata_charge_policy(_metadata_charge_policy),
+        use_adaptive_mutex(_use_adaptive_mutex) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -188,7 +193,7 @@ extern std::shared_ptr<Cache> NewClockCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
 
-class Cache {
+class Cache : public Customizable {
  public:
   // Depending on implementation, cache entries with high priority could be less
   // likely to get evicted than low priority entries.
@@ -256,12 +261,12 @@ class Cache {
   using CreateCallback = std::function<Status(const void* buf, size_t size,
                                               void** out_obj, size_t* charge)>;
 
-  Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
-      : memory_allocator_(std::move(allocator)) {}
+  Cache() {}
   // No copying allowed
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;
 
+  static const char* Type() { return "Cache"; }
   // Creates a new Cache based on the input value string and returns the result.
   // Currently, this method can be used to create LRUCaches only
   // @param config_options
@@ -286,8 +291,7 @@ class Cache {
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
-  // The type of the Cache
-  virtual const char* Name() const = 0;
+  std::string GetId() const override { return GenerateIndividualId(); }
 
   // Insert a mapping from key->value into the volatile cache only
   // and assign it // the specified charge against the total cache capacity.
@@ -430,9 +434,7 @@ class Cache {
   // Prerequisite: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
 
-  virtual std::string GetPrintableOptions() const { return ""; }
-
-  MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
+  virtual MemoryAllocator* memory_allocator() const { return nullptr; }
 
   // EXPERIMENTAL
   // The following APIs are experimental and might change in the future.
@@ -535,9 +537,6 @@ class Cache {
   // thread safe and should only be called by the caller holding a reference
   // to each of the handles.
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
-
- private:
-  std::shared_ptr<MemoryAllocator> memory_allocator_;
 };
 
 // Classifications of block cache entries.

@@ -652,10 +652,7 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   last_start_time_micros_ = start_time_micros;
   ++collection_count;
   role_map_ = CopyCacheDeleterRoleMap();
-  std::ostringstream str;
-  str << cache->Name() << "@" << static_cast<void*>(cache) << "#"
-      << port::GetProcessID();
-  cache_id = str.str();
+  cache_id = cache->GetId();
   cache_capacity = cache->GetCapacity();
 }
 

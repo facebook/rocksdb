@@ -20,6 +20,7 @@
 #include "db/db_test_util.h"
 #include "env/unique_id_gen.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
@@ -817,8 +818,10 @@ class MockCache : public LRUCache {
   static uint32_t low_pri_insert_count;
 
   MockCache()
-      : LRUCache((size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
-                 false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/) {
+      : LRUCache(LRUCacheOptions(
+            (size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
+            false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/)) {
+    PrepareOptions(ConfigOptions()).PermitUncheckedError();
   }
 
   using ShardedCache::Insert;

@@ -75,7 +75,7 @@ DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 #endif  // ROCKSDB_LITE
-
+DEFINE_string(cache_uri, "", "URI for creating a cache");
 DEFINE_bool(use_clock_cache, false, "");
 
 // ## BEGIN stress_cache_key sub-tool options ##
@@ -279,7 +279,19 @@ class CacheBench {
       if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
-    if (FLAGS_use_clock_cache) {
+    ConfigOptions config_options;
+    config_options.ignore_unknown_options = false;
+    config_options.ignore_unsupported_options = false;
+
+    if (!FLAGS_cache_uri.empty()) {
+      Status s =
+          Cache::CreateFromString(config_options, FLAGS_cache_uri, &cache_);
+      if (!s.ok() || !cache_) {
+        fprintf(stderr, "No cache registered matching string: %s status=%s\n",
+                FLAGS_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      }
+    } else if (FLAGS_use_clock_cache) {
       cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
       if (!cache_) {
         fprintf(stderr, "Clock cache not supported.\n");
@@ -290,7 +302,7 @@ class CacheBench {
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
-            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
+            config_options, FLAGS_secondary_cache_uri, &secondary_cache);
         if (secondary_cache == nullptr) {
           fprintf(
               stderr,
@@ -582,9 +594,12 @@ class CacheBench {
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
     printf("Number of threads   : %u\n", FLAGS_threads);
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
-    printf("Cache size          : %s\n",
-           BytesToHumanString(FLAGS_cache_size).c_str());
-    printf("Num shard bits      : %u\n", FLAGS_num_shard_bits);
+    printf("Cache               : %s\n", cache_->Name());
+    std::string cache_opts;
+    Status s = cache_->GetOptionString(ConfigOptions(), &cache_opts);
+    if (s.ok()) {
+      printf("Cache Options       : %s\n", cache_opts.c_str());
+    }
     printf("Max key             : %" PRIu64 "\n", max_key_);
     printf("Resident ratio      : %g\n", FLAGS_resident_ratio);
     printf("Skew degree         : %u\n", FLAGS_skew);

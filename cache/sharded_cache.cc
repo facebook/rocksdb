@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 
 #include "util/hash.h"
 #include "util/math.h"
@@ -19,40 +20,24 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
 inline uint32_t HashSlice(const Slice& s) {
   return Lower32of64(GetSliceNPHash64(s));
 }
 
-}  // namespace
+ShardedCache::ShardedCache() : Cache(), shard_mask_(0), last_id_(1) {}
 
-ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
-                           bool strict_capacity_limit,
-                           std::shared_ptr<MemoryAllocator> allocator)
-    : Cache(std::move(allocator)),
-      shard_mask_((uint32_t{1} << num_shard_bits) - 1),
-      capacity_(capacity),
-      strict_capacity_limit_(strict_capacity_limit),
-      last_id_(1) {}
-
-void ShardedCache::SetCapacity(size_t capacity) {
-  uint32_t num_shards = GetNumShards();
-  const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
-  MutexLock l(&capacity_mutex_);
-  for (uint32_t s = 0; s < num_shards; s++) {
-    GetShard(s)->SetCapacity(per_shard);
-  }
-  capacity_ = capacity;
+uint32_t ShardedCache::SetNumShards(int num_shard_bits) {
+  shard_mask_ = (uint32_t{1} << num_shard_bits) - 1;
+  return GetNumShards();
 }
 
-void ShardedCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
-  uint32_t num_shards = GetNumShards();
-  MutexLock l(&capacity_mutex_);
-  for (uint32_t s = 0; s < num_shards; s++) {
-    GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
+Status ShardedCache::ValidateOptions(const DBOptions& db_opts,
+                                     const ColumnFamilyOptions& cf_opts) const {
+  if (IsMutable()) {
+    return Status::InvalidArgument("Cache is not initialized");
+  } else {
+    return Cache::ValidateOptions(db_opts, cf_opts);
   }
-  strict_capacity_limit_ = strict_capacity_limit;
 }
 
 Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
@@ -124,16 +109,6 @@ uint64_t ShardedCache::NewId() {
   return last_id_.fetch_add(1, std::memory_order_relaxed);
 }
 
-size_t ShardedCache::GetCapacity() const {
-  MutexLock l(&capacity_mutex_);
-  return capacity_;
-}
-
-bool ShardedCache::HasStrictCapacityLimit() const {
-  MutexLock l(&capacity_mutex_);
-  return strict_capacity_limit_;
-}
-
 size_t ShardedCache::GetUsage() const {
   // We will not lock the cache when getting the usage from shards.
   uint32_t num_shards = GetNumShards();
@@ -190,29 +165,6 @@ void ShardedCache::EraseUnRefEntries() {
   }
 }
 
-std::string ShardedCache::GetPrintableOptions() const {
-  std::string ret;
-  ret.reserve(20000);
-  const int kBufferSize = 200;
-  char buffer[kBufferSize];
-  {
-    MutexLock l(&capacity_mutex_);
-    snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
-             capacity_);
-    ret.append(buffer);
-    snprintf(buffer, kBufferSize, "    num_shard_bits : %d\n",
-             GetNumShardBits());
-    ret.append(buffer);
-    snprintf(buffer, kBufferSize, "    strict_capacity_limit : %d\n",
-             strict_capacity_limit_);
-    ret.append(buffer);
-  }
-  snprintf(buffer, kBufferSize, "    memory_allocator : %s\n",
-           memory_allocator() ? memory_allocator()->Name() : "None");
-  ret.append(buffer);
-  ret.append(GetShard(0)->GetPrintableOptions());
-  return ret;
-}
 int GetDefaultCacheShardBits(size_t capacity) {
   int num_shard_bits = 0;
   size_t min_shard_size = 512L * 1024L;  // Every shard is at least 512KB.

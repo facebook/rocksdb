@@ -15,12 +15,14 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "cache/sharded_cache.h"
 #include "db/db_test_util.h"
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memkind_kmem_allocator.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/file_checksum.h"
@@ -1344,6 +1346,39 @@ class TestSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override { return ""; }
 };
 
+class TestCache : public Cache {
+ public:
+  TestCache() {}
+  static const char* kClassName() { return "Test"; }
+  const char* Name() const override { return kClassName(); }
+  using Cache::Insert;
+  Status Insert(const Slice&, void*, size_t, DeleterFn, Handle**,
+                Priority) override {
+    return Status::NotSupported();
+  }
+  using Cache::Lookup;
+  Handle* Lookup(const Slice&, Statistics*) override { return nullptr; }
+  bool Ref(Handle*) override { return false; }
+  using Cache::Release;
+  bool Release(Handle*, bool) override { return true; }
+  void* Value(Handle*) override { return nullptr; }
+  void Erase(const Slice&) override {}
+  uint64_t NewId() override { return 0; }
+  void SetCapacity(size_t) override {}
+  void SetStrictCapacityLimit(bool) override {}
+  bool HasStrictCapacityLimit() const override { return true; }
+  size_t GetCapacity() const override { return 0; }
+  size_t GetUsage() const override { return 0; }
+  size_t GetUsage(Handle*) const override { return 0; }
+  size_t GetPinnedUsage() const override { return 0; }
+  size_t GetCharge(Handle*) const override { return 0; }
+  DeleterFn GetDeleter(Handle*) const override { return nullptr; }
+  void ApplyToAllEntries(
+      const std::function<void(const Slice&, void*, size_t, DeleterFn)>&,
+      const ApplyToAllEntriesOptions&) override {}
+  void EraseUnRefEntries() override {}
+};
+
 class TestStatistics : public StatisticsImpl {
  public:
   TestStatistics() : StatisticsImpl(nullptr) {}
@@ -1575,6 +1610,13 @@ static int RegisterLocalObjects(ObjectLibrary& library,
         return guard->get();
       });
 
+  library.AddFactory<Cache>(
+      TestCache::kClassName(),
+      [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
+         std::string* /* errmsg */) {
+        guard->reset(new TestCache());
+        return guard->get();
+      });
   library.AddFactory<SecondaryCache>(
       TestSecondaryCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<SecondaryCache>* guard,
@@ -1871,6 +1913,18 @@ TEST_F(LoadCustomizableTest, LoadTableFactoryTest) {
     ASSERT_STREQ(cf_opts_.table_factory->Name(),
                  mock::MockTableFactory::kClassName());
 #endif  // ROCKSDB_LITE
+  }
+}
+
+TEST_F(LoadCustomizableTest, LoadCacheTest) {
+  std::shared_ptr<Cache> result;
+  ASSERT_NOK(Cache::CreateFromString(config_options_, TestCache::kClassName(),
+                                     &result));
+  if (RegisterTests("Test")) {
+    ASSERT_OK(Cache::CreateFromString(config_options_, TestCache::kClassName(),
+                                      &result));
+    ASSERT_NE(result, nullptr);
+    ASSERT_STREQ(result->Name(), TestCache::kClassName());
   }
 }
 
