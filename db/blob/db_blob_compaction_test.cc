@@ -259,7 +259,6 @@ TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
 
   ASSERT_OK(TryReopen(options));
 
-  constexpr size_t num_keys = 3;
   constexpr size_t blob_size = 3000;
 
   constexpr char first_key[] = "a";
