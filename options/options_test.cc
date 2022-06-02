@@ -3658,6 +3658,8 @@ TEST_F(OptionsParserTest, DumpAndParse) {
       cf_opt.table_factory.reset(test::RandomTableFactory(&rnd, c));
     } else if (c == 4) {
       cf_opt.table_factory.reset(NewBlockBasedTableFactory(special_bbto));
+    } else if (c == 5) {
+      cf_opt.table_factory.reset(test::UnregisteredTableFactory());
     }
     base_cf_opts.emplace_back(cf_opt);
   }
