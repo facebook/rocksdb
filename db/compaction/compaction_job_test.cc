@@ -1437,6 +1437,7 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
 }
 
 namespace {
+// Only override the essential functions for testing compaction io priority.
 class MockTestWritableFile : public FSWritableFileOwnerWrapper {
  public:
   MockTestWritableFile(std::unique_ptr<FSWritableFile>&& file,
@@ -1453,25 +1454,6 @@ class MockTestWritableFile : public FSWritableFileOwnerWrapper {
                   IODebugContext* dbg) override {
     EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
     return target()->Append(data, options, verification_info, dbg);
-  }
-  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
-                            const IOOptions& options,
-                            IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
-    return target()->PositionedAppend(data, offset, options, dbg);
-  }
-  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
-                            const IOOptions& options,
-                            const DataVerificationInfo& verification_info,
-                            IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
-    return target()->PositionedAppend(data, offset, options, verification_info,
-                                      dbg);
-  }
-  IOStatus Truncate(uint64_t size, const IOOptions& options,
-                    IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
-    return target()->Truncate(size, options, dbg);
   }
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
     EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
@@ -1515,6 +1497,7 @@ class MockTestWritableFile : public FSWritableFileOwnerWrapper {
   Env::IOPriority write_io_priority_;
 };
 
+// Only override the essential functions for testing compaction io priority.
 class MockTestRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
  public:
   MockTestRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
@@ -1528,22 +1511,10 @@ class MockTestRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
     EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
     return target()->Read(offset, n, options, result, scratch, dbg);
   }
-  IOStatus MultiRead(FSReadRequest* reqs, size_t num_reqs,
-                     const IOOptions& options, IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
-    return target()->MultiRead(reqs, num_reqs, options, dbg);
-  }
   IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
                     IODebugContext* dbg) override {
     EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
     return target()->Prefetch(offset, n, options, dbg);
-  }
-  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     std::function<void(const FSReadRequest&, void*)> cb,
-                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     IODebugContext* dbg) override {
-    EXPECT_EQ(opts.rate_limiter_priority, read_io_priority_);
-    return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
   }
 
  private:
@@ -1588,6 +1559,10 @@ class MockTestFileSystem : public FileSystemWrapper {
 };
 }  // namespace
 
+// The io priority of the compaction reads and writes are different from
+// other DB reads and writes. To prepare the compaction input files, use the
+// default filesystem from Env. To test the io priority of the compaction
+// reads and writes, db_options_.fs is set as MockTestFileSystem.
 class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
  protected:
   CompactionJobIOPriorityTestBase(
@@ -1611,14 +1586,12 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
     cf_options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
-  // Creates a table with the specificied key value pairs (kv).
+  // Creates a table with the specificied key value pairs.
   uint64_t CreateTable(const std::string& table_name,
                        const mock::KVVector& contents) {
     std::unique_ptr<WritableFileWriter> file_writer;
     Status s = WritableFileWriter::Create(env_fs_, table_name, FileOptions(),
                                           &file_writer, nullptr);
-
-    // Create table builder.
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
             TableBuilderOptions(*cfd_->ioptions(), mutable_cf_options_,
@@ -1628,7 +1601,6 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
                                 CompressionOptions(), 0 /* column_family_id */,
                                 kDefaultColumnFamilyName, -1 /* level */),
             file_writer.get()));
-
     // Build table.
     for (auto kv : contents) {
       std::string key;
@@ -1763,7 +1735,6 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(db_options_.fs.get(), dbname_, 1, nullptr);
-
     ASSERT_OK(s);
 
     cf_options_.merge_operator = merge_op_;
@@ -1873,7 +1844,6 @@ class CompactionJobIOPriorityTest : public CompactionJobIOPriorityTestBase {
 TEST_F(CompactionJobIOPriorityTest, WriteControllerStateNormal) {
   // When the state from WriteController is normal.
   NewDB();
-
   CreateFiles();
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto files = cfd->current()->storage_info()->LevelFiles(0);
@@ -1884,7 +1854,6 @@ TEST_F(CompactionJobIOPriorityTest, WriteControllerStateNormal) {
 TEST_F(CompactionJobIOPriorityTest, WriteControllerStateDelayed) {
   // When the state from WriteController is Delayed.
   NewDB();
-
   CreateFiles();
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto files = cfd->current()->storage_info()->LevelFiles(0);
@@ -1899,7 +1868,6 @@ TEST_F(CompactionJobIOPriorityTest, WriteControllerStateDelayed) {
 TEST_F(CompactionJobIOPriorityTest, WriteControllerStateStalled) {
   // When the state from WriteController is Stalled.
   NewDB();
-
   CreateFiles();
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto files = cfd->current()->storage_info()->LevelFiles(0);
@@ -1913,7 +1881,6 @@ TEST_F(CompactionJobIOPriorityTest, WriteControllerStateStalled) {
 
 TEST_F(CompactionJobIOPriorityTest, GetRateLimiterPriority) {
   NewDB();
-
   CreateFiles();
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto files = cfd->current()->storage_info()->LevelFiles(0);
