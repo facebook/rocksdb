@@ -4151,6 +4151,46 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   Reopen(options);
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
+
+TEST_F(DBBasicTest, GetTruncatedWals) {
+  Options options = GetDefaultOptions();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.avoid_flush_during_recovery = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(1));
+  // Enable WAL compression so that the newly-created WAL will be non-empty
+  // after DB open, even if point-in-time WAL recovery encounters no
+  // corruption.
+  options.wal_compression = kZSTD;
+  DestroyAndReopen(options);
+
+  // At this point, there is 4.log in the db.
+
+  ASSERT_OK(dbfull()->PauseBackgroundWork());
+
+  {
+    std::unique_ptr<LogFile> wal;
+    ASSERT_OK(db_->GetCurrentWalFile(&wal));
+    assert(wal);
+    std::string wal_file_name = LogFileName(dbname_, wal->LogNumber());
+    // Truncate 4.log to simulate DropRandomUnsyncedData() call in db_stress
+    ASSERT_OK(test::TruncateFile(env_, wal_file_name, 1));
+  }
+
+  ASSERT_OK(Put("b", "v"));
+  // New WAL is created
+  ASSERT_OK(Put("c", "v"));
+
+  ASSERT_OK(db_->SyncWAL());
+
+  VectorLogPtr wals;
+  Status s = dbfull()->GetSortedWalFiles(wals);
+  ASSERT_OK(s);
+
+  ASSERT_OK(dbfull()->ContinueBackgroundWork());
+}
 #endif  // !ROCKSDB_LITE
 
 // A test class for intercepting random reads and injecting artificial
