@@ -2940,7 +2940,8 @@ class Benchmark {
       }
       return cache;
     } else if (FLAGS_cache_type == "fast_lru_cache") {
-      return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_cache_numshardbits);
+      return NewFastLRUCache(static_cast<size_t>(capacity),
+                             FLAGS_cache_numshardbits);
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
