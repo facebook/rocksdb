@@ -302,13 +302,13 @@ class CacheBench {
           exit(1);
         }
         opts.secondary_cache = secondary_cache;
-      } else {
-        fprintf(stderr, "Cache type not supported.");
-        exit(1);
       }
 #endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);
+    } else {
+      fprintf(stderr, "Cache type not supported.");
+      exit(1);
     }
   }
 
