@@ -16,7 +16,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
     const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
     const ReadOptions& read_options, bool use_cache, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block) {
+    CachableEntry<TBlocklike>* filter_block, BlockType block_type) {
   PERF_TIMER_GUARD(read_filter_block_nanos);
 
   assert(table);
@@ -29,7 +29,7 @@ Status FilterBlockReaderCommon<TBlocklike>::ReadFilterBlock(
   const Status s =
       table->RetrieveBlock(prefetch_buffer, read_options, rep->filter_handle,
                            UncompressionDict::GetEmptyDict(), filter_block,
-                           BlockType::kFilter, get_context, lookup_context,
+                           block_type, get_context, lookup_context,
                            /* for_compaction */ false, use_cache,
                            /* wait_for_cache */ true, /* async_read */ false);
 
@@ -67,7 +67,7 @@ template <typename TBlocklike>
 Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block) const {
+    CachableEntry<TBlocklike>* filter_block, BlockType block_type) const {
   assert(filter_block);
 
   if (!filter_block_.IsEmpty()) {
@@ -82,7 +82,7 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
 
   return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, read_options,
                          cache_filter_blocks(), get_context, lookup_context,
-                         filter_block);
+                         filter_block, block_type);
 }
 
 template <typename TBlocklike>

@@ -195,6 +195,8 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+    case BlockType::kDeprecatedFilter:
       PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
 
       if (get_context) {
@@ -252,6 +254,8 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
   // TODO: introduce perf counters for misses per block type
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+    case BlockType::kDeprecatedFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_miss;
       } else {
@@ -307,6 +311,8 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
 
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+    case BlockType::kDeprecatedFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_add;
         if (redundant) {
@@ -1219,9 +1225,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   assert(block->IsEmpty());
   const Cache::Priority priority =
       rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
-              (block_type == BlockType::kFilter ||
-               block_type == BlockType::kCompressionDictionary ||
-               block_type == BlockType::kIndex)
+              block_type != BlockType::kData
           ? Cache::Priority::HIGH
           : Cache::Priority::LOW;
 
@@ -1348,9 +1352,7 @@ Status BlockBasedTable::PutDataBlockToCache(
           : 0;
   const Cache::Priority priority =
       rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
-              (block_type == BlockType::kFilter ||
-               block_type == BlockType::kCompressionDictionary ||
-               block_type == BlockType::kIndex)
+              block_type != BlockType::kData
           ? Cache::Priority::HIGH
           : Cache::Priority::LOW;
   assert(cached_block);
@@ -1603,6 +1605,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
               ++get_context->get_context_stats_.num_index_read;
               break;
             case BlockType::kFilter:
+            case BlockType::kFilterPartitionIndex:
+            case BlockType::kDeprecatedFilter:
               ++get_context->get_context_stats_.num_filter_read;
               break;
             case BlockType::kData:
@@ -1645,6 +1649,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         trace_block_type = TraceType::kBlockTraceDataBlock;
         break;
       case BlockType::kFilter:
+      case BlockType::kFilterPartitionIndex:
+      case BlockType::kDeprecatedFilter:
         trace_block_type = TraceType::kBlockTraceFilterBlock;
         break;
       case BlockType::kCompressionDictionary:
@@ -1759,6 +1765,8 @@ Status BlockBasedTable::RetrieveBlock(
           ++(get_context->get_context_stats_.num_index_read);
           break;
         case BlockType::kFilter:
+        case BlockType::kFilterPartitionIndex:
+        case BlockType::kDeprecatedFilter:
           ++(get_context->get_context_stats_.num_filter_read);
           break;
         case BlockType::kData:
@@ -2421,10 +2429,16 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
 
 BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     const Slice& meta_block_name) {
-  if (meta_block_name.starts_with(kFilterBlockPrefix) ||
-      meta_block_name.starts_with(kFullFilterBlockPrefix) ||
-      meta_block_name.starts_with(kPartitionedFilterBlockPrefix)) {
+  if (meta_block_name.starts_with(kFilterBlockPrefix)) {
+    return BlockType::kDeprecatedFilter;
+  }
+
+  if (meta_block_name.starts_with(kFullFilterBlockPrefix)) {
     return BlockType::kFilter;
+  }
+
+  if (meta_block_name.starts_with(kPartitionedFilterBlockPrefix)) {
+    return BlockType::kFilterPartitionIndex;
   }
 
   if (meta_block_name == kPropertiesBlockName) {

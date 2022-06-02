@@ -119,8 +119,7 @@ class BlockBasedTableBuilder : public TableBuilder {
                   BlockType block_type);
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
-                     BlockType block_type, const Slice* raw_data = nullptr,
-                     bool is_top_level_filter_block = false);
+                     BlockType block_type, const Slice* raw_data = nullptr);
 
   void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
 
@@ -130,8 +129,7 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   Status InsertBlockInCacheHelper(const Slice& block_contents,
                                   const BlockHandle* handle,
-                                  BlockType block_type,
-                                  bool is_top_level_filter_block);
+                                  BlockType block_type);
 
   Status InsertBlockInCompressedCache(const Slice& block_contents,
                                       const CompressionType type,
