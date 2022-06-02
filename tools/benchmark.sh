@@ -14,7 +14,7 @@ G=$((1024 * M))
 T=$((1024 * G))
 
 function display_usage() {
-  echo "useage: benchmark.sh [--help] <test>"
+  echo "usage: benchmark.sh [--help] <test>"
   echo ""
   echo "These are the available benchmark tests:"
   echo -e "\tbulkload"
@@ -38,8 +38,8 @@ function display_usage() {
   echo -e "\tuniversal_compaction"
   echo -e "\tdebug"
   echo ""
-  echo "Enviroment Variables:"
-  echo -e "\tJOB_ID\t\tAn identifier for the benchmark job, will appear in the results"
+  echo "Generic enviroment Variables:"
+  echo -e "\tJOB_ID\t\t\t\tAn identifier for the benchmark job, will appear in the results"
   echo -e "\tDB_DIR\t\t\t\tPath to write the database data directory"
   echo -e "\tWAL_DIR\t\t\t\tPath to write the database WAL directory"
   echo -e "\tOUTPUT_DIR\t\t\tPath to write the benchmark results to (default: /tmp)"
@@ -48,47 +48,47 @@ function display_usage() {
   echo -e "\tVALUE_SIZE\t\t\tThe size of the values to use in the benchmark (default: 400 bytes)"
   echo -e "\tBLOCK_SIZE\t\t\tThe size of the database blocks in the benchmark (default: 8 KB)"
   echo -e "\tDB_BENCH_NO_SYNC\t\tDisable fsync on the WAL"
-  echo -e "\tNUMACTL\t\tWhen defined use numactl --interleave=all"
+  echo -e "\tNUMACTL\t\t\t\tWhen defined use numactl --interleave=all"
   echo -e "\tNUM_THREADS\t\t\tThe number of threads to use (default: 64)"
-  echo -e "\tMB_WRITE_PER_SEC"
+  echo -e "\tMB_WRITE_PER_SEC\t\t\tRate limit for background writer"
   echo -e "\tNUM_NEXTS_PER_SEEK\t\t(default: 10)"
-  echo -e "\tCACHE_SIZE\t\t\t(default: 16GB)"
+  echo -e "\tCACHE_SIZE\t\t\tSize of the block cache(default: 16GB)"
   echo -e "\tCOMPRESSION_MAX_DICT_BYTES"
-  echo -e "\tCOMPRESSION_TYPE\t\t(default: zstd)"
+  echo -e "\tCOMPRESSION_TYPE\t\tDefault compression(default: zstd)"
   echo -e "\tBOTTOMMOST_COMPRESSION\t\t(default: none)"
   echo -e "\tMIN_LEVEL_TO_COMPRESS\t\tValue for min_level_to_compress for Leveled"
-  echo -e "\tCOMPRESSION_SIZE_PERCENT\t\tValue for compression_size_percent for Universal"
+  echo -e "\tCOMPRESSION_SIZE_PERCENT\tValue for compression_size_percent for Universal"
   echo -e "\tDURATION\t\t\tNumber of seconds for which the test runs"
-  echo -e "\tWRITES\t\t\tNumber of writes for which the test runs"
+  echo -e "\tWRITES\t\t\t\tNumber of writes for which the test runs"
   echo -e "\tWRITE_BUFFER_SIZE_MB\t\tThe size of the write buffer in MB (default: 128)"
-  echo -e "\tTARGET_FILE_SIZE_BASE_MB\t\tThe value for target_file_size_base in MB (default: 128)"
-  echo -e "\tMAX_BYTES_FOR_LEVEL_BASE_MB\t\tThe value for max_bytes_for_level_base in MB (default: 128)"
-  echo -e "\tMAX_BACKGROUND_JOBS\t\t\tThe value for max_background_jobs (default: 16)"
-  echo -e "\tCACHE_INDEX_AND_FILTER_BLOCKS\t\tThe value for cache_index_and_filter_blocks (default: 0)"
-  echo -e "\tUSE_O_DIRECT\t\tUse O_DIRECT for user reads and compaction"
+  echo -e "\tTARGET_FILE_SIZE_BASE_MB\tThe value for target_file_size_base in MB (default: 128)"
+  echo -e "\tMAX_BYTES_FOR_LEVEL_BASE_MB\tThe value for max_bytes_for_level_base in MB (default: 128)"
+  echo -e "\tMAX_BACKGROUND_JOBS\t\tThe value for max_background_jobs (default: 16)"
+  echo -e "\tCACHE_INDEX_AND_FILTER_BLOCKS\tThe value for cache_index_and_filter_blocks (default: 0)"
+  echo -e "\tUSE_O_DIRECT\t\t\tUse O_DIRECT for user reads and compaction"
+  echo -e "\tSTATS_INTERVAL_SECONDS\t\tValue for stats_interval_seconds"
+  echo -e "\tREPORT_INTERVAL_SECONDS\t\tValue for report_interval_seconds"
+  echo -e "\tSUBCOMPACTIONS\t\t\tValue for subcompactions"
+  echo -e "\tCOMPACTION_STYLE\t\tOne of leveled, universal, blob. Default is leveled."
+  echo -e "\nEnvironment variables (mostly) for leveled compaction:"
+  echo -e "\tLEVEL0_FILE_NUM_COMPACTION_TRIGGER\t\tValue for level0_file_num_compaction_trigger"
+  echo -e "\tLEVEL0_SLOWDOWN_WRITES_TRIGGER\t\t\tValue for level0_slowdown_writes_trigger"
+  echo -e "\tLEVEL0_STOP_WRITES_TRIGGER\t\t\tValue for level0_stop_writes_trigger"
+  echo -e "\tPER_LEVEL_FANOUT\t\t\t\tValue for max_bytes_for_level_multiplier"
   echo -e "\tSOFT_PENDING_COMPACTION_BYTES_LIMIT_IN_GB\tThe value for soft_pending_compaction_bytes_limit in GB"
   echo -e "\tHARD_PENDING_COMPACTION_BYTES_LIMIT_IN_GB\tThe value for hard_pending_compaction_bytes_limit in GB"
-  echo -e "\tSTATS_INTERVAL_SECONDS\tValue for stats_interval_seconds"
-  echo -e "\tREPORT_INTERVAL_SECONDS\tValue for report_interval_seconds"
-  echo -e "\tSUBCOMPACTIONS\t\tValue for subcompactions"
-  echo -e "\tLEVEL0_FILE_NUM_COMPACTION_TRIGGER\tValue for level0_file_num_compaction_trigger"
-  echo -e "\tLEVEL0_SLOWDOWN_WRITES_TRIGGER\tValue for level0_slowdown_writes_trigger"
-  echo -e "\tLEVEL0_STOP_WRITES_TRIGGER\tValue for level0_stop_writes_trigger"
-  echo -e "\tPER_LEVEL_FANOUT\tValue for max_bytes_for_level_multiplier"
-  echo -e "\tOptions for universal compaction:"
-  echo -e "\tUNIVERSAL\t\tUse universal compaction when set to anything, otherwise use leveled"
+  echo -e "\nEnvironment variables for universal compaction:"
   echo -e "\tUNIVERSAL_MIN_MERGE_WIDTH\tValue of min_merge_width option for universal"
   echo -e "\tUNIVERSAL_MAX_MERGE_WIDTH\tValue of min_merge_width option for universal"
-  echo -e "\tUNIVERSAL_SIZE_RATIO\tValue of size_ratio option for universal"
-  echo -e "\tUNIVERSAL_MAX_SIZE_AMP\tmax_size_amplification_percent for universal"
+  echo -e "\tUNIVERSAL_SIZE_RATIO\t\tValue of size_ratio option for universal"
+  echo -e "\tUNIVERSAL_MAX_SIZE_AMP\t\tmax_size_amplification_percent for universal"
   echo -e "\tUNIVERSAL_ALLOW_TRIVIAL_MOVE\tSet allow_trivial_move to true for universal, default is false"
-  echo -e "\tOptions for integrated BlobDB"
+  echo -e "\nOptions for integrated BlobDB"
   echo -e "\tMIN_BLOB_SIZE\tValue for min_blob_size"
   echo -e "\tBLOB_FILE_SIZE\tValue for blob_file_size"
   echo -e "\tBLOB_COMPRESSION_TYPE\tValue for blob_compression_type"
   echo -e "\tBLOB_GC_AGE_CUTOFF\tValue for blob_garbage_collection_age_cutoff"
   echo -e "\tBLOB_GC_FORCE_THRESHOLD\tValue for blob_garbage_collection_force_threshold"
-  echo -e "\tCOMPACTION_STYLE\tOne of leveled, universal, blob. Default is leveled."
 }
 
 if [ $# -lt 1 ]; then
@@ -338,7 +338,6 @@ fi
 params_w="$l0_config \
           --max_background_jobs=$max_background_jobs \
           --max_write_buffer_number=8 \
-          $compact_bytes_limit \
           $const_params"
 
 params_bulkload="--max_background_jobs=$max_background_jobs \
@@ -370,6 +369,8 @@ params_univ_compact="$const_params \
                 --level0_file_num_compaction_trigger=8 \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
+
+tsv_header="ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
 
 function get_cmd() {
   output=$1
@@ -524,8 +525,7 @@ function summarize_result {
     echo -e "# date - Date/time of test" >> $report
     echo -e "# version - RocksDB version" >> $report
     echo -e "# job_id - User-provided job ID" >> $report
-    echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id" \
-      >> $report
+    echo -e $tsv_header >> $report
   fi
 
   echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_wsecs\t$c_csecs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
@@ -1062,7 +1062,7 @@ for job in ${jobs[@]}; do
     echo "Completed $job (ID: $job_id) in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
+  echo -e $tsv_header
   tail -1 $report
 
 done
