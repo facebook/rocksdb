@@ -449,7 +449,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"blob_file_starting_level",
          {offsetof(struct MutableCFOptions, blob_file_starting_level),
-          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
