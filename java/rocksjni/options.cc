@@ -3848,8 +3848,7 @@ jlong Java_org_rocksdb_Options_blobCompactionReadaheadSize(JNIEnv*, jobject,
 void Java_org_rocksdb_Options_setBlobFileStartingLevel(
     JNIEnv*, jobject, jlong jhandle, jint jblob_file_starting_level) {
   auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  opts->blob_file_starting_level =
-      static_cast<uint32_t>(jblob_file_starting_level);
+  opts->blob_file_starting_level = jblob_file_starting_level;
 }
 
 /*
