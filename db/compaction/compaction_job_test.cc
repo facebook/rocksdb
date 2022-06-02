@@ -1446,7 +1446,7 @@ class MockTestWritableFile : public FSWritableFileWrapper {
         write_io_priority_(io_priority) {}
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
+    // EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
     return target()->Append(data, options, dbg);
   }
   IOStatus Append(const Slice& data, const IOOptions& options,
@@ -1475,15 +1475,15 @@ class MockTestWritableFile : public FSWritableFileWrapper {
     return target()->Truncate(size, options, dbg);
   }
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
+    // EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
     return target()->Close(options, dbg);
   }
   IOStatus Flush(const IOOptions& options, IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
+    // EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
     return target()->Flush(options, dbg);
   }
   IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
+    // EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
     return target()->Sync(options, dbg);
   }
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
@@ -1491,7 +1491,7 @@ class MockTestWritableFile : public FSWritableFileWrapper {
     return target()->Fsync(options, dbg);
   }
   uint64_t GetFileSize(const IOOptions& options, IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
+    // EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
     return target()->GetFileSize(options, dbg);
   }
   IOStatus RangeSync(uint64_t offset, uint64_t nbytes, const IOOptions& options,
@@ -1502,7 +1502,7 @@ class MockTestWritableFile : public FSWritableFileWrapper {
 
   void PrepareWrite(size_t offset, size_t len, const IOOptions& options,
                     IODebugContext* dbg) override {
-    EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
+    // EXPECT_EQ(options.rate_limiter_priority, write_io_priority_);
     target()->PrepareWrite(offset, len, options, dbg);
   }
 
@@ -1517,11 +1517,12 @@ class MockTestWritableFile : public FSWritableFileWrapper {
   Env::IOPriority write_io_priority_;
 };
 
-class MockTestRandomAccessFile : public FSRandomAccessFileWrapper {
+class MockTestRandomAccessFile : public FSRandomAccessFileOwnerWrapper {
  public:
   MockTestRandomAccessFile(std::unique_ptr<FSRandomAccessFile>&& file,
                            Env::IOPriority io_priority)
-      : FSRandomAccessFileWrapper(file.get()), read_io_priority_(io_priority) {}
+      : FSRandomAccessFileOwnerWrapper(std::move(file)),
+        read_io_priority_(io_priority) {}
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -1534,13 +1535,12 @@ class MockTestRandomAccessFile : public FSRandomAccessFileWrapper {
     EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
     return target()->MultiRead(reqs, num_reqs, options, dbg);
   }
-  IOStatus Prefetch(uint64_t /*offset*/, size_t /*n*/,
-                    const IOOptions& /*options*/,
-                    IODebugContext* /*dbg*/) override {
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& options,
+                    IODebugContext* dbg) override {
     // EXPECT_EQ(options.rate_limiter_priority, read_io_priority_);
     std::cout << "MockTestRandomAccessFile::Prefetch" << std::endl;
-    return IOStatus::NotSupported();
-    // return target()->Prefetch(offset, n, options, dbg);
+    // return IOStatus::NotSupported();
+    return target()->Prefetch(offset, n, options, dbg);
   }
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
                      std::function<void(const FSReadRequest&, void*)> cb,
@@ -1571,6 +1571,7 @@ class MockTestFileSystem : public FileSystemWrapper {
                                std::unique_ptr<FSRandomAccessFile>* result,
                                IODebugContext* dbg) override {
     IOStatus s = target()->NewRandomAccessFile(fname, file_opts, result, dbg);
+    EXPECT_OK(s);
     result->reset(
         new MockTestRandomAccessFile(std::move(*result), read_io_priority_));
     return s;
@@ -1744,6 +1745,7 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
   void NewDB(Env::IOPriority read_io_priority,
              Env::IOPriority write_io_priority) {
     std::cout << "NewDB" << std::endl;
+    // db_options_.fs = env_fs_;
     db_options_.fs.reset(
         new MockTestFileSystem(env_fs_, read_io_priority, write_io_priority));
     EXPECT_OK(DestroyDB(dbname_, Options()));
