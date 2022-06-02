@@ -147,6 +147,13 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
 
+  install-streaming-compress-libs:
+    steps:
+      - run:
+          name: Install streaming compression libs
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y libzstd-dev
+
   install-libprotobuf-mutator:
     steps:
       - run:
@@ -225,6 +232,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-streaming-compress-libs
       - run: make V=1 J=32 -j32 check
       - post-steps
 
