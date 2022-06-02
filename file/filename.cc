@@ -443,6 +443,9 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
     s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                      DirFsyncOptions(identify_file_name));
   }
+  if (s.ok()) {
+    s = dir_obj->Close(IOOptions(), nullptr);
+  }
   if (!s.ok()) {
     env->DeleteFile(tmp).PermitUncheckedError();
   }

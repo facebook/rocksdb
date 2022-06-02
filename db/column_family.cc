@@ -675,6 +675,19 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
+
+  if (data_dirs_.size()) {  // Explicitly close data directories
+    Status s = Status::OK();
+    for (auto& data_dir_ptr : data_dirs_) {
+      if (data_dir_ptr) {
+        s = data_dir_ptr->Close(IOOptions(), nullptr);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(ioptions_.logger, "Ignoring error %s",
+                         s.ToString().c_str());
+        }
+      }
+    }
+  }
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {

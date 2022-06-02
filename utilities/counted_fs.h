@@ -46,6 +46,8 @@ struct FileOpCounters {
   std::atomic<int> syncs;
   std::atomic<int> dsyncs;
   std::atomic<int> fsyncs;
+  std::atomic<int> dir_opens;
+  std::atomic<int> dir_closes;
   OpCounter reads;
   OpCounter writes;
 
@@ -57,7 +59,9 @@ struct FileOpCounters {
         flushes(0),
         syncs(0),
         dsyncs(0),
-        fsyncs(0) {}
+        fsyncs(0),
+        dir_opens(0),
+        dir_closes(0) {}
 
   void Reset() {
     opens = 0;
@@ -68,6 +72,8 @@ struct FileOpCounters {
     syncs = 0;
     dsyncs = 0;
     fsyncs = 0;
+    dir_opens = 0;
+    dir_closes = 0;
     reads.Reset();
     writes.Reset();
   }
