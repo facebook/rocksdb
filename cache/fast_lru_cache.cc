@@ -546,7 +546,8 @@ void* LRUCache::Value(Handle* handle) {
 
 size_t LRUCache::GetCharge(Handle* handle) const {
   CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
-  if (num_shards_ > 0) {
+  auto num_shards = GetNumShards();
+  if (num_shards > 0) {
     metadata_charge_policy = shards_[0].metadata_charge_policy_;
   }
   return reinterpret_cast<const LRUHandle*>(handle)->GetCharge(
