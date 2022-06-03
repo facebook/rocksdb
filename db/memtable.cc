@@ -738,7 +738,8 @@ static bool SaveValue(void* arg, const char* entry) {
 
     s->seq = seq;
 
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
+         type == kTypeWideColumnEntity) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
@@ -800,6 +801,30 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         return false;
       }
+      case kTypeWideColumnEntity:
+        if (*(s->merge_in_progress)) {
+          *(s->status) = Status::NotSupported(
+              "Merge currently not supported for wide-column entities");
+          *(s->found_final_value) = true;
+          return false;
+        }
+
+        if (!s->do_merge) {
+          *(s->status) = Status::NotSupported(
+              "GetMergeOperands currently not supported for wide-column "
+              "entities");
+          *(s->found_final_value) = true;
+          return false;
+        }
+
+        if (s->value) {
+          const Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          s->value->assign(v.data(), v.size());
+        }
+
+        *(s->status) = Status::OK();
+        *(s->found_final_value) = true;
+        return false;
       case kTypeDeletion:
       case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
