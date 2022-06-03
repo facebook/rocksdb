@@ -1246,7 +1246,7 @@ public class ColumnFamilyOptions extends RocksObject
    * Dynamically changeable through
    * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
    *
-   * @param setBlobFileStartingLevel the starting level to enable blob files
+   * @param blobFileStartingLevel the starting level to enable blob files
    *
    * @return the reference to the current options.
    */

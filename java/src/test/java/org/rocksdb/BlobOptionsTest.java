@@ -196,7 +196,7 @@ public class BlobOptionsTest {
             "blob_compaction_readahead_size", "blob_file_starting_level"});
     assertThat(options.getValues())
         .isEqualTo(new String[] {
-            "false", "4096", "2048", "LZ4_COMPRESSION", "false", "0.91", "0.96", "1024"});
+            "false", "4096", "2048", "LZ4_COMPRESSION", "false", "0.91", "0.96", "1024", "0"});
   }
 
   /**
