@@ -1491,6 +1491,62 @@ Status WriteBatch::UpdateTimestamps(
   return s;
 }
 
+Status WriteBatch::VerifyChecksum() const {
+  if (prot_info_ == nullptr) {
+    return Status::OK();
+  }
+  Slice input(rep_.data() + WriteBatchInternal::kHeader, rep_.size());
+  Slice key, value, blob, xid;
+  char tag = 0;
+  uint32_t column_family = 0;  // default
+  Status s;
+  size_t prot_info_idx = 0;
+  while (!input.empty() && prot_info_idx < prot_info_->entries_.size()) {
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
+                                 &blob, &xid);
+    if (!s.ok()) {
+      return s;
+    }
+    // Write batch checksum uses op_type without ColumnFamily (e.g., if op_type
+    // in the write batch is kTypeColumnFamilyValue, kTypeValue is used to
+    // compute the checksum), and encodes column family id separately. See
+    // comment in first `WriteBatchInternal::Put()` for more detail.
+    switch (tag) {
+      case kTypeColumnFamilyValue:
+        tag = kTypeValue;
+        break;
+      case kTypeColumnFamilyDeletion:
+        tag = kTypeDeletion;
+        break;
+      case kTypeColumnFamilySingleDeletion:
+        tag = kTypeSingleDeletion;
+        break;
+      case kTypeColumnFamilyRangeDeletion:
+        tag = kTypeRangeDeletion;
+        break;
+      case kTypeColumnFamilyMerge:
+        tag = kTypeMerge;
+        break;
+      case kTypeColumnFamilyBlobIndex:
+        tag = kTypeBlobIndex;
+        break;
+    }
+    s = prot_info_->entries_[prot_info_idx++]
+            .StripC(column_family)
+            .StripKVO(key, value, static_cast<ValueType>(tag))
+            .GetStatus();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (prot_info_idx != WriteBatchInternal::Count(this)) {
+    return Status::Corruption("WriteBatch has wrong count");
+  }
+  assert(WriteBatchInternal::Count(this) == prot_info_->entries_.size());
+  return Status::OK();
+}
+
 namespace {
 
 class MemTableInserter : public WriteBatch::Handler {

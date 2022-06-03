@@ -533,15 +533,18 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
+  if (!io_s.ok()) {
+    // Check WriteToWAL status
+    IOStatusCheck(io_s);
+  }
   if (!w.CallbackFailed()) {
     if (!io_s.ok()) {
       assert(pre_release_cb_status.ok());
-      IOStatusCheck(io_s);
     } else {
       WriteStatusCheck(pre_release_cb_status);
     }
   } else {
-    assert(io_s.ok() && pre_release_cb_status.ok());
+    assert(pre_release_cb_status.ok());
   }
 
   if (need_log_sync) {
@@ -695,12 +698,11 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       w.status = io_s;
     }
 
-    if (!w.CallbackFailed()) {
-      if (!io_s.ok()) {
-        IOStatusCheck(io_s);
-      } else {
-        WriteStatusCheck(w.status);
-      }
+    if (!io_s.ok()) {
+      // Check WriteToWAL status
+      IOStatusCheck(io_s);
+    } else if (!w.CallbackFailed()) {
+      WriteStatusCheck(w.status);
     }
 
     if (need_log_sync) {
@@ -974,12 +976,11 @@ Status DBImpl::WriteImplWALOnly(
   }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
-  if (!w.CallbackFailed()) {
-    if (!io_s.ok()) {
-      IOStatusCheck(io_s);
-    } else {
-      WriteStatusCheck(status);
-    }
+  if (!io_s.ok()) {
+    // Check WriteToWAL status
+    IOStatusCheck(io_s);
+  } else if (!w.CallbackFailed()) {
+    WriteStatusCheck(status);
   }
   if (status.ok()) {
     size_t index = 0;
@@ -1223,6 +1224,11 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   assert(log_size != nullptr);
 
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::WriteToWAL:log_entry", &log_entry);
+  auto s = merged_batch.VerifyChecksum();
+  if (!s.ok()) {
+    return status_to_io_status(std::move(s));
+  }
   *log_size = log_entry.size();
   // When two_write_queues_ WriteToWAL has to be protected from concurretn calls
   // from the two queues anyway and log_write_mutex_ is already held. Otherwise

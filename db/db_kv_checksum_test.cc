@@ -162,6 +162,11 @@ TEST_P(DbKvChecksumTest, MemTableAddCorrupted) {
     ASSERT_TRUE(
         db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());
     SyncPoint::GetInstance()->DisableProcessing();
+
+    // In case the above callback is not invoked, this test will run
+    // numeric_limits<size_t>::max() times until it reports an error (or will
+    // exhaust disk space). Added this assert to report error early.
+    ASSERT_TRUE(entry_len_ < std::numeric_limits<size_t>::max());
   }
 }
 
@@ -193,6 +198,99 @@ TEST_P(DbKvChecksumTest, MemTableAddWithColumnFamilyCorrupted) {
     ASSERT_TRUE(
         db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());
     SyncPoint::GetInstance()->DisableProcessing();
+
+    // In case the above callback is not invoked, this test will run
+    // numeric_limits<size_t>::max() times until it reports an error (or will
+    // exhaust disk space). Added this assert to report error early.
+    ASSERT_TRUE(entry_len_ < std::numeric_limits<size_t>::max());
+  }
+}
+
+TEST_P(DbKvChecksumTest, NoCorruptionCase) {
+  // If this test fails, we may have found a piece of malfunctioned hardware
+  auto batch_and_status = GetWriteBatch(nullptr);
+  ASSERT_OK(batch_and_status.second);
+  ASSERT_OK(batch_and_status.first.VerifyChecksum());
+}
+
+TEST_P(DbKvChecksumTest, WriteToWALCorrupted) {
+  // This test repeatedly attempts to write `WriteBatch`es containing a single
+  // entry of type `op_type_`. Each attempt has one byte corrupted by adding
+  // `corrupt_byte_addend_` to its original value. The test repeats until an
+  // attempt has been made on each byte in the encoded write batch. All attempts
+  // are expected to fail with `Status::Corruption`
+  Options options = CurrentOptions();
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:log_entry",
+      std::bind(&DbKvChecksumTest::CorruptNextByteCallBack, this,
+                std::placeholders::_1));
+  // First 8 bytes are for sequence number which is not protected in write batch
+  corrupt_byte_offset_ = 8;
+
+  while (MoreBytesToCorrupt()) {
+    // Corrupted write batch leads to read-only mode, so we have to
+    // reopen for every attempt.
+    Reopen(options);
+    auto log_size_pre_write = dbfull()->TEST_total_log_size();
+
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto batch_and_status = GetWriteBatch(nullptr /* cf_handle */);
+    ASSERT_OK(batch_and_status.second);
+    ASSERT_TRUE(
+        db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());
+    // Confirm that nothing was written to WAL
+    ASSERT_EQ(log_size_pre_write, dbfull()->TEST_total_log_size());
+    ASSERT_TRUE(dbfull()->TEST_GetBGError().IsCorruption());
+    SyncPoint::GetInstance()->DisableProcessing();
+
+    // In case the above callback is not invoked, this test will run
+    // numeric_limits<size_t>::max() times until it reports an error (or will
+    // exhaust disk space). Added this assert to report error early.
+    ASSERT_TRUE(entry_len_ < std::numeric_limits<size_t>::max());
+  }
+}
+
+TEST_P(DbKvChecksumTest, WriteToWALWithColumnFamilyCorrupted) {
+  // This test repeatedly attempts to write `WriteBatch`es containing a single
+  // entry of type `op_type_`. Each attempt has one byte corrupted by adding
+  // `corrupt_byte_addend_` to its original value. The test repeats until an
+  // attempt has been made on each byte in the encoded write batch. All attempts
+  // are expected to fail with `Status::Corruption`
+  Options options = CurrentOptions();
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+  CreateAndReopenWithCF({"pikachu"}, options);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::WriteToWAL:log_entry",
+      std::bind(&DbKvChecksumTest::CorruptNextByteCallBack, this,
+                std::placeholders::_1));
+  // First 8 bytes are for sequence number which is not protected in write batch
+  corrupt_byte_offset_ = 8;
+
+  while (MoreBytesToCorrupt()) {
+    // Corrupted write batch leads to read-only mode, so we have to
+    // reopen for every attempt.
+    ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+    auto log_size_pre_write = dbfull()->TEST_total_log_size();
+
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto batch_and_status = GetWriteBatch(handles_[1]);
+    ASSERT_OK(batch_and_status.second);
+    ASSERT_TRUE(
+        db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());
+    // Confirm that nothing was written to WAL
+    ASSERT_EQ(log_size_pre_write, dbfull()->TEST_total_log_size());
+    ASSERT_TRUE(dbfull()->TEST_GetBGError().IsCorruption());
+    SyncPoint::GetInstance()->DisableProcessing();
+
+    // In case the above callback is not invoked, this test will run
+    // numeric_limits<size_t>::max() times until it reports an error (or will
+    // exhaust disk space). Added this assert to report error early.
+    ASSERT_TRUE(entry_len_ < std::numeric_limits<size_t>::max());
   }
 }
 

@@ -391,6 +391,12 @@ class WriteBatch : public WriteBatchBase {
   Status UpdateTimestamps(const Slice& ts,
                           std::function<size_t(uint32_t /*cf*/)> ts_sz_func);
 
+  // Verify the per-key-value checksums of this write batch.
+  // Corruption status will be returned if the verification fails.
+  // If this write batch does not have per-key-value checksum,
+  // OK status will be returned.
+  Status VerifyChecksum() const;
+
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
 
