@@ -1587,11 +1587,12 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
   }
 
   // Creates a table with the specificied key value pairs.
-  uint64_t CreateTable(const std::string& table_name,
-                       const mock::KVVector& contents) {
+  void CreateTable(const std::string& table_name,
+                   const mock::KVVector& contents, uint64_t& file_size) {
     std::unique_ptr<WritableFileWriter> file_writer;
     Status s = WritableFileWriter::Create(env_fs_, table_name, FileOptions(),
                                           &file_writer, nullptr);
+    ASSERT_OK(s);
     std::unique_ptr<TableBuilder> table_builder(
         cf_options_.table_factory->NewTableBuilder(
             TableBuilderOptions(*cfd_->ioptions(), mutable_cf_options_,
@@ -1608,8 +1609,8 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
       std::tie(key, value) = kv;
       table_builder->Add(key, value);
     }
-    table_builder->Finish();
-    return table_builder->FileSize();
+    ASSERT_OK(table_builder->Finish());
+    file_size = table_builder->FileSize();
   }
 
   void AddMockFile(const mock::KVVector& contents, int level = 0) {
@@ -1665,7 +1666,8 @@ class CompactionJobIOPriorityTestBase : public CompactionJobTestBase {
     }
 
     uint64_t file_number = versions_->NewFileNumber();
-    uint64_t file_size = CreateTable(GenerateFileName(file_number), contents);
+    uint64_t file_size;
+    CreateTable(GenerateFileName(file_number), contents, file_size);
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, file_size, smallest_key, largest_key,
                  smallest_seqno, largest_seqno, false, Temperature::kUnknown,
