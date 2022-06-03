@@ -27,8 +27,8 @@
 #include <memory>
 #include <string>
 
-#include "rocksdb/customizable.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"

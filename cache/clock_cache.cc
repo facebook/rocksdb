@@ -896,7 +896,7 @@ Status ClockCache::PrepareOptions(const ConfigOptions& config_options) {
   }
   return s;
 }
-  
+
 void ClockCache::DisownData() {
   // Leak data only if that won't generate an ASAN/valgrind warning
   if (!kMustFreeHeapAllocations) {
