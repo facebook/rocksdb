@@ -255,6 +255,17 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // logs_ is empty when called during recovery, in which case there can't yet
   // be any tracked obsolete logs
   log_write_mutex_.Lock();
+
+  if (alive_log_files_.empty() || logs_.empty()) {
+    mutex_.AssertHeld();
+    // We may reach here if the db is DBImplSecondary
+    if (job_context->HaveSomethingToDelete()) {
+      ++pending_purge_obsolete_files_;
+    }
+    log_write_mutex_.Unlock();
+    return;
+  }
+
   if (!alive_log_files_.empty() && !logs_.empty()) {
     uint64_t min_log_number = job_context->log_number;
     size_t num_alive_log_files = alive_log_files_.size();

@@ -415,9 +415,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         LogFileNumberSize& log_file_number_size =
             *(log_context.log_file_number_size);
         PERF_TIMER_GUARD(write_wal_time);
-        io_s = WriteToWAL(write_group, log_context.writer, log_used,
-                          log_context.need_log_sync,
-                          log_context.need_log_dir_sync, last_sequence + 1, log_file_number_size);
+        io_s =
+            WriteToWAL(write_group, log_context.writer, log_used,
+                       log_context.need_log_sync, log_context.need_log_dir_sync,
+                       last_sequence + 1, log_file_number_size);
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
@@ -653,9 +654,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       assert(log_context.log_file_number_size);
       LogFileNumberSize& log_file_number_size =
           *(log_context.log_file_number_size);
-      io_s = WriteToWAL(wal_write_group, log_context.writer, log_used,
-                        log_context.need_log_sync,
-                        log_context.need_log_dir_sync, current_sequence, log_file_number_size);
+      io_s =
+          WriteToWAL(wal_write_group, log_context.writer, log_used,
+                     log_context.need_log_sync, log_context.need_log_dir_sync,
+                     current_sequence, log_file_number_size);
       w.status = io_s;
     }
 
