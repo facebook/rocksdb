@@ -2904,6 +2904,11 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
     return UpdateProtInfo(cf, key, val, kTypeValue);
   }
 
+  Status PutEntityCF(uint32_t cf, const Slice& key,
+                     const Slice& entity) override {
+    return UpdateProtInfo(cf, key, entity, kTypeWideColumnEntity);
+  }
+
   Status DeleteCF(uint32_t cf, const Slice& key) override {
     return UpdateProtInfo(cf, key, "", kTypeDeletion);
   }
