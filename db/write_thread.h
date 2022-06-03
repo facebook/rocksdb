@@ -36,7 +36,7 @@ class WriteThread {
     // non-parallel informs a follower that its writes have been committed
     // (-> STATE_COMPLETED), or when a leader that has chosen to perform
     // updates in parallel and needs this Writer to apply its batch (->
-    // STATE_PARALLEL_FOLLOWER).
+    // STATE_PARALLEL_MEMTABLE_WRITER).
     STATE_INIT = 1,
 
     // The state used to inform a waiting Writer that it has become the
@@ -117,6 +117,7 @@ class WriteThread {
     bool sync;
     bool no_slowdown;
     bool disable_wal;
+    Env::IOPriority rate_limiter_priority;
     bool disable_memtable;
     size_t batch_cnt;  // if non-zero, number of sub-batches in the write batch
     size_t protection_bytes_per_key;
@@ -129,7 +130,7 @@ class WriteThread {
     WriteGroup* write_group;
     SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;
-    Status callback_status;   // status returned by callback->Callback()
+    Status callback_status;  // status returned by callback->Callback()
 
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
     std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
@@ -141,6 +142,7 @@ class WriteThread {
           sync(false),
           no_slowdown(false),
           disable_wal(false),
+          rate_limiter_priority(Env::IOPriority::IO_TOTAL),
           disable_memtable(false),
           batch_cnt(0),
           protection_bytes_per_key(0),
@@ -163,6 +165,7 @@ class WriteThread {
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
           disable_wal(write_options.disableWAL),
+          rate_limiter_priority(write_options.rate_limiter_priority),
           disable_memtable(_disable_memtable),
           batch_cnt(_batch_cnt),
           protection_bytes_per_key(_batch->GetProtectionBytesPerKey()),
@@ -246,7 +249,7 @@ class WriteThread {
     std::condition_variable& StateCV() {
       assert(made_waitable);
       return *static_cast<std::condition_variable*>(
-                 static_cast<void*>(&state_cv_bytes));
+          static_cast<void*>(&state_cv_bytes));
     }
   };
 
@@ -273,7 +276,7 @@ class WriteThread {
   // STATE_GROUP_LEADER.  If w has been made part of a sequential batch
   // group and the leader has performed the write, returns STATE_DONE.
   // If w has been made part of a parallel batch group and is responsible
-  // for updating the memtable, returns STATE_PARALLEL_FOLLOWER.
+  // for updating the memtable, returns STATE_PARALLEL_MEMTABLE_WRITER.
   //
   // The db mutex SHOULD NOT be held when calling this function, because
   // it will block.
@@ -310,8 +313,8 @@ class WriteThread {
   // the next leader if needed.
   void ExitAsMemTableWriter(Writer* self, WriteGroup& write_group);
 
-  // Causes JoinBatchGroup to return STATE_PARALLEL_FOLLOWER for all of the
-  // non-leader members of this write batch group.  Sets Writer::sequence
+  // Causes JoinBatchGroup to return STATE_PARALLEL_MEMTABLE_WRITER for all of
+  // the non-leader members of this write batch group.  Sets Writer::sequence
   // before waking them up.
   //
   // WriteGroup* write_group: Extra state used to coordinate the parallel add

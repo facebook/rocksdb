@@ -45,7 +45,8 @@ class WalManager {
         fs_(db_options.fs, io_tracer),
         purge_wal_files_last_run_(0),
         seq_per_batch_(seq_per_batch),
-        wal_in_db_path_(IsWalDirSameAsDBPath(&db_options)),
+        wal_dir_(db_options_.GetWalDir()),
+        wal_in_db_path_(db_options_.IsWalDirSameAsDBPath()),
         io_tracer_(io_tracer) {}
 
   Status GetSortedWalFiles(VectorLogPtr& files);
@@ -106,11 +107,13 @@ class WalManager {
 
   bool seq_per_batch_;
 
+  const std::string& wal_dir_;
+
   bool wal_in_db_path_;
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.
-  static const uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
+  static constexpr uint64_t kDefaultIntervalToDeleteObsoleteWAL = 600;
 
   std::shared_ptr<IOTracer> io_tracer_;
 };

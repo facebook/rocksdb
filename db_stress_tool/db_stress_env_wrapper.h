@@ -15,6 +15,8 @@ namespace ROCKSDB_NAMESPACE {
 class DbStressEnvWrapper : public EnvWrapper {
  public:
   explicit DbStressEnvWrapper(Env* t) : EnvWrapper(t) {}
+  static const char* kClassName() { return "DbStressEnv"; }
+  const char* Name() const override { return kClassName(); }
 
   Status DeleteFile(const std::string& f) override {
     // We determine whether it is a manifest file by searching a strong,
@@ -28,7 +30,9 @@ class DbStressEnvWrapper : public EnvWrapper {
         f.find(".restore") != std::string::npos) {
       return target()->DeleteFile(f);
     }
-    return Status::OK();
+    // Rename the file instead of deletion to keep the history, and
+    // at the same time it is not visible to RocksDB.
+    return target()->RenameFile(f, f + "_renamed_");
   }
 
   // If true, all manifest files will not be delted in DeleteFile().

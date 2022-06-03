@@ -8,11 +8,13 @@
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include <cinttypes>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
+#include "logging/logging.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -69,7 +71,24 @@ PessimisticTransactionDB::~PessimisticTransactionDB() {
   }
 }
 
-Status PessimisticTransactionDB::VerifyCFOptions(const ColumnFamilyOptions&) {
+Status PessimisticTransactionDB::VerifyCFOptions(
+    const ColumnFamilyOptions& cf_options) {
+  const Comparator* const ucmp = cf_options.comparator;
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  if (0 == ts_sz) {
+    return Status::OK();
+  }
+  if (ts_sz != sizeof(TxnTimestamp)) {
+    std::ostringstream oss;
+    oss << "Timestamp of transaction must have " << sizeof(TxnTimestamp)
+        << " bytes. CF comparator " << std::string(ucmp->Name())
+        << " timestamp size is " << ts_sz << " bytes";
+    return Status::InvalidArgument(oss.str());
+  }
+  if (txn_db_options_.write_policy != WRITE_COMMITTED) {
+    return Status::NotSupported("Only WriteCommittedTxn supports timestamp");
+  }
   return Status::OK();
 }
 
@@ -242,12 +261,10 @@ Status TransactionDB::Open(
     ROCKS_LOG_WARN(db->GetDBOptions().info_log,
                    "Transaction write_policy is %" PRId32,
                    static_cast<int>(txn_db_options.write_policy));
+    // if WrapDB return non-ok, db will be deleted in WrapDB() via
+    // ~StackableDB().
     s = WrapDB(db, txn_db_options, compaction_enabled_cf_indices, *handles,
                dbptr);
-  }
-  if (!s.ok()) {
-    // just in case it was not deleted (and not set to nullptr).
-    delete db;
   }
   return s;
 }
@@ -286,6 +303,7 @@ Status WrapAnotherDBInternal(
   assert(dbptr != nullptr);
   *dbptr = nullptr;
   std::unique_ptr<PessimisticTransactionDB> txn_db;
+  // txn_db owns object pointed to by the raw db pointer.
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
       txn_db.reset(new WriteUnpreparedTxnDB(
@@ -306,6 +324,14 @@ Status WrapAnotherDBInternal(
   // and set to nullptr.
   if (s.ok()) {
     *dbptr = txn_db.release();
+  } else {
+    for (auto* h : handles) {
+      delete h;
+    }
+    // txn_db still owns db, and ~StackableDB() will be called when txn_db goes
+    // out of scope, deleting the input db pointer.
+    ROCKS_LOG_FATAL(db->GetDBOptions().info_log,
+                    "Failed to initialize txn_db: %s", s.ToString().c_str());
   }
   return s;
 }
@@ -418,7 +444,10 @@ Transaction* PessimisticTransactionDB::BeginInternalTransaction(
 Status PessimisticTransactionDB::Put(const WriteOptions& options,
                                      ColumnFamilyHandle* column_family,
                                      const Slice& key, const Slice& val) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(options);
   txn->DisableIndexing();
@@ -439,7 +468,10 @@ Status PessimisticTransactionDB::Put(const WriteOptions& options,
 Status PessimisticTransactionDB::Delete(const WriteOptions& wopts,
                                         ColumnFamilyHandle* column_family,
                                         const Slice& key) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(wopts);
   txn->DisableIndexing();
@@ -461,7 +493,10 @@ Status PessimisticTransactionDB::Delete(const WriteOptions& wopts,
 Status PessimisticTransactionDB::SingleDelete(const WriteOptions& wopts,
                                               ColumnFamilyHandle* column_family,
                                               const Slice& key) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(wopts);
   txn->DisableIndexing();
@@ -483,7 +518,10 @@ Status PessimisticTransactionDB::SingleDelete(const WriteOptions& wopts,
 Status PessimisticTransactionDB::Merge(const WriteOptions& options,
                                        ColumnFamilyHandle* column_family,
                                        const Slice& key, const Slice& value) {
-  Status s;
+  Status s = FailIfCfEnablesTs(this, column_family);
+  if (!s.ok()) {
+    return s;
+  }
 
   Transaction* txn = BeginInternalTransaction(options);
   txn->DisableIndexing();
@@ -509,6 +547,10 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
 
 Status WriteCommittedTxnDB::Write(const WriteOptions& opts,
                                   WriteBatch* updates) {
+  Status s = FailIfBatchHasTs(updates);
+  if (!s.ok()) {
+    return s;
+  }
   if (txn_db_options_.skip_concurrency_control) {
     return db_impl_->Write(opts, updates);
   } else {
@@ -519,6 +561,10 @@ Status WriteCommittedTxnDB::Write(const WriteOptions& opts,
 Status WriteCommittedTxnDB::Write(
     const WriteOptions& opts,
     const TransactionDBWriteOptimizations& optimizations, WriteBatch* updates) {
+  Status s = FailIfBatchHasTs(updates);
+  if (!s.ok()) {
+    return s;
+  }
   if (optimizations.skip_concurrency_control) {
     return db_impl_->Write(opts, updates);
   } else {

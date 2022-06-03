@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBMemTableTest : public DBTestBase {
  public:
-  DBMemTableTest() : DBTestBase("/db_memtable_test", /*env_do_fsync=*/true) {}
+  DBMemTableTest() : DBTestBase("db_memtable_test", /*env_do_fsync=*/true) {}
 };
 
 class MockMemTableRep : public MemTableRep {
@@ -97,7 +97,7 @@ class MockMemTableRepFactory : public MemTableRepFactory {
 
  private:
   MockMemTableRep* mock_rep_;
-  // workaround since there's no port::kMaxUint32 yet.
+  // workaround since there's no std::numeric_limits<uint32_t>::max() yet.
   uint32_t last_column_family_id_ = static_cast<uint32_t>(-1);
 };
 
@@ -139,7 +139,7 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                                kMaxSequenceNumber, 0 /* column_family_id */);
@@ -171,7 +171,7 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
     if (!insert_dup) {
       seq++;
     }
-    Status s = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq),
+    Status s = mem->Add(seq, kTypeValue, "foo", "value" + std::to_string(seq),
                         nullptr /* kv_prot_info */);
     if (insert_dup) {
       ASSERT_TRUE(s.IsTryAgain());
@@ -184,7 +184,7 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   // Test with InsertWithHint
   options.memtable_insert_with_hint_prefix_extractor.reset(
       new TestPrefixExtractor());  // which uses _ to extract the prefix
-  ioptions = ImmutableCFOptions(options);
+  ioptions = ImmutableOptions(options);
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                      kMaxSequenceNumber, 0 /* column_family_id */);
   // Insert a duplicate key with _ in it
@@ -197,7 +197,7 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
 
   // Test when InsertConcurrently will be invoked
   options.allow_concurrent_memtable_write = true;
-  ioptions = ImmutableCFOptions(options);
+  ioptions = ImmutableOptions(options);
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                      kMaxSequenceNumber, 0 /* column_family_id */);
   MemTablePostProcessInfo post_process_info;
@@ -224,7 +224,7 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   auto factory = std::make_shared<SkipListFactory>();
   options.memtable_factory = factory;
   options.allow_concurrent_memtable_write = true;
-  ImmutableCFOptions ioptions(options);
+  ImmutableOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                                kMaxSequenceNumber, 0 /* column_family_id */);

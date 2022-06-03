@@ -68,7 +68,7 @@ class MergeContext {
   }
 
   // Get the operand at the index.
-  Slice GetOperand(int index) {
+  Slice GetOperand(int index) const {
     assert(operand_list_);
 
     SetDirectionForward();
@@ -76,13 +76,21 @@ class MergeContext {
   }
 
   // Same as GetOperandsDirectionForward
-  const std::vector<Slice>& GetOperands() {
+  //
+  // Note that the returned reference is only good until another call
+  // to this MergeContext.  If the returned value is needed for longer,
+  // a copy must be made.
+  const std::vector<Slice>& GetOperands() const {
     return GetOperandsDirectionForward();
   }
 
   // Return all the operands in the order as they were merged (passed to
   // FullMerge or FullMergeV2)
-  const std::vector<Slice>& GetOperandsDirectionForward() {
+  //
+  // Note that the returned reference is only good until another call
+  // to this MergeContext.  If the returned value is needed for longer,
+  // a copy must be made.
+  const std::vector<Slice>& GetOperandsDirectionForward() const {
     if (!operand_list_) {
       return empty_operand_list;
     }
@@ -93,7 +101,11 @@ class MergeContext {
 
   // Return all the operands in the reversed order relative to how they were
   // merged (passed to FullMerge or FullMergeV2)
-  const std::vector<Slice>& GetOperandsDirectionBackward() {
+  //
+  // Note that the returned reference is only good until another call
+  // to this MergeContext.  If the returned value is needed for longer,
+  // a copy must be made.
+  const std::vector<Slice>& GetOperandsDirectionBackward() const {
     if (!operand_list_) {
       return empty_operand_list;
     }
@@ -110,14 +122,14 @@ class MergeContext {
     }
   }
 
-  void SetDirectionForward() {
+  void SetDirectionForward() const {
     if (operands_reversed_ == true) {
       std::reverse(operand_list_->begin(), operand_list_->end());
       operands_reversed_ = false;
     }
   }
 
-  void SetDirectionBackward() {
+  void SetDirectionBackward() const {
     if (operands_reversed_ == false) {
       std::reverse(operand_list_->begin(), operand_list_->end());
       operands_reversed_ = true;
@@ -125,10 +137,10 @@ class MergeContext {
   }
 
   // List of operands
-  std::unique_ptr<std::vector<Slice>> operand_list_;
+  mutable std::unique_ptr<std::vector<Slice>> operand_list_;
   // Copy of operands that are not pinned.
   std::unique_ptr<std::vector<std::unique_ptr<std::string>>> copied_operands_;
-  bool operands_reversed_ = true;
+  mutable bool operands_reversed_ = true;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

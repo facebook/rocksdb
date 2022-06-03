@@ -112,12 +112,6 @@ void AppendEscapedStringTo(std::string* str, const Slice& value) {
   }
 }
 
-std::string NumberToString(uint64_t num) {
-  std::string r;
-  AppendNumberTo(&r, num);
-  return r;
-}
-
 std::string NumberToHumanString(int64_t num) {
   char buf[19];
   int64_t absnum = num < 0 ? -num : num;
@@ -156,7 +150,7 @@ std::string TimeToHumanString(int unixtime) {
   char time_buffer[80];
   time_t rawtime = unixtime;
   struct tm tInfo;
-  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+  struct tm* timeinfo = port::LocalTimeR(&rawtime, &tInfo);
   assert(timeinfo == &tInfo);
   strftime(time_buffer, 80, "%c", timeinfo);
   return std::string(time_buffer);
@@ -301,6 +295,15 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
   throw std::invalid_argument(type);
 }
 
+uint8_t ParseUint8(const std::string& value) {
+  uint64_t num = ParseUint64(value);
+  if ((num >> 8LL) == 0) {
+    return static_cast<uint8_t>(num);
+  } else {
+    throw std::out_of_range(value);
+  }
+}
+
 uint32_t ParseUint32(const std::string& value) {
   uint64_t num = ParseUint64(value);
   if ((num >> 32LL) == 0) {
@@ -312,7 +315,8 @@ uint32_t ParseUint32(const std::string& value) {
 
 int32_t ParseInt32(const std::string& value) {
   int64_t num = ParseInt64(value);
-  if (num <= port::kMaxInt32 && num >= port::kMinInt32) {
+  if (num <= std::numeric_limits<int32_t>::max() &&
+      num >= std::numeric_limits<int32_t>::min()) {
     return static_cast<int32_t>(num);
   } else {
     throw std::out_of_range(value);
@@ -428,7 +432,7 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
     if (i > 0) {
       *value += ":";
     }
-    *value += ToString(vec[i]);
+    *value += std::to_string(vec[i]);
   }
   return true;
 }

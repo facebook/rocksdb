@@ -1,0 +1,1594 @@
+[
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 510.387506
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 497.077261
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 696.590699
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:1/iterations:51200/threads:8": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 271.438709
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:0/iterations:51200/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 377.905737
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:2/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.194392
+          }
+        ],
+        "FilterBuild/filter_impl:3/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 6.614245
+          }
+        ],
+        "FilterBuild/filter_impl:3/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 9.184089
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.737477
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.49311
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 14.576404
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.35537
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 47.662364
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2438,
+    "name": "rocksdb_microbench_suite_0",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 510.88842
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 497.546918
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 694.715237
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:0/iterations:409600/threads:1": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 378.072129
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:1/iterations:51200/threads:8": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 271.474125
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:2/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.536606
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 7.097205
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.389287
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.26261
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 11.512964
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 6.387351
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 54.977852
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_1",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 479.941992
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 513.865636
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 694.658916
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:0/iterations:409600/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 379.060989
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:0/iterations:409600/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 377.799421
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2446,
+    "name": "rocksdb_microbench_suite_2",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 434.616062
+          }
+        ],
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:0/enable_filter:1/iterations:1280/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 694.642444
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 471.459789
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 514.201628
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:1/iterations:51200/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 271.397936
+          }
+        ],
+        "DataBlockSeek/iterations:1000000": [
+          "real_time",
+          "cpu_time",
+          "seek_ns",
+          "threads",
+          {
+            "est_runtime": 16.815497
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.311687
+          }
+        ],
+        "FilterBuild/filter_impl:0/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.453843
+          }
+        ],
+        "FilterBuild/filter_impl:3/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 7.809054
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 6.421361
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.57804
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 14.556778
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_3",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 451.741737
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 458.336347
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 694.628355
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 517.245591
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:1/iterations:51200/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 270.221479
+          }
+        ],
+        "RandomAccessFileReaderRead/enable_statistics:1/iterations:1000000": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 5.370559
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:0/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.397602
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 10.971779
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 7.789373
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.54233
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 15.718081
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.309645
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_4",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 454.919549
+          }
+        ],
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 403.095413
+          }
+        ],
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:1/enable_filter:0/iterations:1280/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 694.578514
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 532.66627
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:1/iterations:51200/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 271.417422
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:2/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.335641
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.672049
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 15.548585
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 2.799623
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 10.709789
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 7.024791
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 39.015621
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.453854
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_5",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 658.890773
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 532.687188
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 498.522549
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:1/iterations:409600/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 360.355195
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:0/iterations:51200/threads:8": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 378.808772
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:2/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.439296
+          }
+        ],
+        "FilterBuild/filter_impl:2/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 2.60738
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.638573
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.320525
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_6",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 505.270116
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 651.121374
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 532.702176
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:0/iterations:51200/threads:8": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 378.81272
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:1/iterations:409600/threads:1": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 360.424861
+          }
+        ],
+        "RandomAccessFileReaderRead/enable_statistics:0/iterations:1000000": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 2.984478
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:2/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.238302
+          }
+        ],
+        "FilterBuild/filter_impl:3/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.38186
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.821543
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.501483
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2438,
+    "name": "rocksdb_microbench_suite_7",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 549.901612
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 651.103057
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 498.06214
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:0/iterations:409600/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 378.432186
+          }
+        ],
+        "DBPut/comp_style:2/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:1/iterations:409600/threads:1": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 271.523747
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:0/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.52447
+          }
+        ],
+        "FilterBuild/filter_impl:2/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.381091
+          }
+        ],
+        "FilterBuild/filter_impl:3/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 7.89775
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.855877
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 67.68153
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 6.667228
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_8",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 551.801692
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 649.806897
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 497.710941
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:0/iterations:51200/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 378.198303
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:1/iterations:409600/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 271.500867
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:3/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.364915
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.467467
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 82.415772
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.761922
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_9",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 624.132525
+          }
+        ],
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 510.156004
+          }
+        ],
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 551.935026
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 387.072927
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:1/iterations:409600/threads:1": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 360.304737
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:3/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.288164
+          }
+        ],
+        "FilterQueryPositive/filter_impl:2/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.395642
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_10",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 507.805668
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 557.749335
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 623.018994
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:0/iterations:409600/threads:1": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 377.714354
+          }
+        ],
+        "DBPut/comp_style:1/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:0/iterations:51200/threads:8": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 379.059546
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2446,
+    "name": "rocksdb_microbench_suite_11",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:0/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 446.597044
+          }
+        ],
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 609.749844
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 510.357826
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 557.886298
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:0/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.478298
+          }
+        ],
+        "FilterBuild/filter_impl:0/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 2.169285
+          }
+        ],
+        "FilterBuild/filter_impl:3/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.348746
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 15.272086
+          }
+        ],
+        "FilterQueryNegative/filter_impl:2/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 8.032293
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:20/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 102.227551
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 129.266223
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 6.708367
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 44.929381
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_12",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 607.525698
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 504.228523
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:256/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 578.538571
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:1/iterations:409600/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 360.402539
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:0/iterations:409600/threads:1": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 378.530036
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:2/bits_per_key:20/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 2.653086
+          }
+        ],
+        "FilterQueryNegative/filter_impl:3/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.621375
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.325264
+          }
+        ],
+        "FilterQueryPositive/filter_impl:3/bits_per_key:20/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.448994
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_13",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  },
+  {
+    "benchmarks": {
+      "db_basic_bench": {
+        "DBGet/comp_style:0/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:1/enable_filter:1/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 583.226959
+          }
+        ],
+        "DBGet/comp_style:1/max_data:134217728/per_key_size:256/enable_statistics:0/negative_query:1/enable_filter:0/iterations:10240/threads:1": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "neg_qu_pct",
+          "threads",
+          {
+            "est_runtime": 605.701828
+          }
+        ],
+        "DBGet/comp_style:2/max_data:134217728/per_key_size:1024/enable_statistics:1/negative_query:0/enable_filter:0/iterations:10240/threads:1": [
+          "db_size",
+          "get_mean",
+          "threads",
+          "real_time",
+          "cpu_time",
+          "neg_qu_pct",
+          {
+            "est_runtime": 501.900122
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:0/wal:0/iterations:51200/threads:8": [
+          "real_time",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 378.529031
+          }
+        ],
+        "DBPut/comp_style:0/max_data:107374182400/per_key_size:256/enable_statistics:1/wal:1/iterations:51200/threads:8": [
+          "real_time",
+          "put_mean",
+          "cpu_time",
+          "db_size",
+          "threads",
+          {
+            "est_runtime": 360.330841
+          }
+        ]
+      },
+      "ribbon_bench": {
+        "FilterBuild/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 1.654238
+          }
+        ],
+        "FilterBuild/filter_impl:0/bits_per_key:10/key_len_avg:100/entry_num:1048576": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "size",
+          {
+            "est_runtime": 2.171919
+          }
+        ],
+        "FilterQueryNegative/filter_impl:0/bits_per_key:10/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          "fp_pct",
+          {
+            "est_runtime": 1.331795
+          }
+        ],
+        "FilterQueryPositive/filter_impl:0/bits_per_key:20/key_len_avg:100/entry_num:1024": [
+          "real_time",
+          "cpu_time",
+          "threads",
+          {
+            "est_runtime": 1.399281
+          }
+        ]
+      }
+    },
+    "do_not_reflow": false,
+    "expected_runtime_one_iter": 2437,
+    "name": "rocksdb_microbench_suite_14",
+    "regression_threshold": 10,
+    "sl_iterations": 3
+  }
+]

@@ -24,7 +24,7 @@ class MemoryTest : public testing::Test {
     assert(Env::Default()->CreateDirIfMissing(kDbDir).ok());
   }
 
-  std::string GetDBName(int id) { return kDbDir + "db_" + ToString(id); }
+  std::string GetDBName(int id) { return kDbDir + "db_" + std::to_string(id); }
 
   void UpdateUsagesHistory(const std::vector<DB*>& dbs) {
     std::map<MemoryUtil::UsageType, uint64_t> usage_by_type;
@@ -68,7 +68,8 @@ class MemoryTest : public testing::Test {
         ASSERT_OK(db_impl->TEST_GetAllImmutableCFOptions(&iopts_map));
       }
       for (auto pair : iopts_map) {
-        GetCachePointersFromTableFactory(pair.second->table_factory, cache_set);
+        GetCachePointersFromTableFactory(pair.second->table_factory.get(),
+                                         cache_set);
       }
     }
   }
@@ -145,8 +146,10 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   std::vector<uint64_t> usage_by_type;
   std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;
   const int kNumDBs = 10;
+  // These key/value sizes ensure each KV has its own memtable. Note that the
+  // minimum write_buffer_size allowed is 64 KB.
   const int kKeySize = 100;
-  const int kValueSize = 500;
+  const int kValueSize = 1 << 16;
   Options opt;
   opt.create_if_missing = true;
   opt.create_missing_column_families = true;

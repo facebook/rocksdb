@@ -37,8 +37,8 @@
 #       ./tools/regression_test.sh
 #
 # = Regression test environmental parameters =
-#   DEBUG: If true, then the script will not checkout master and build db_bench
-#       if db_bench already exists
+#   DEBUG: If true, then the script will not build db_bench if db_bench already
+#       exists
 #       Default: 0
 #   TEST_MODE: If 1, run fillseqdeterminstic and benchmarks both
 #       if 0, only run fillseqdeterministc
@@ -158,7 +158,7 @@ function init_arguments {
 
   current_time=$(date +"%F-%H:%M:%S")
   RESULT_PATH=${RESULT_PATH:-"$1/results/$current_time"}
-  COMMIT_ID=`hg id -i`
+  COMMIT_ID=`hg id -i 2>/dev/null || git rev-parse HEAD 2>/dev/null || echo 'unknown'`
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
   DB_PATH=${3:-"$1/db"}
@@ -195,6 +195,7 @@ function init_arguments {
   SEED=${SEED:-$( date +%s )}
   MULTIREAD_BATCH_SIZE=${MULTIREAD_BATCH_SIZE:-128}
   MULTIREAD_STRIDE=${MULTIREAD_STRIDE:-12}
+  PERF_LEVEL=${PERF_LEVEL:-1}
 }
 
 # $1 --- benchmark name
@@ -222,6 +223,7 @@ function run_db_bench {
   db_bench_cmd="("'\$(which time)'" -p $DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
+      --perf_level=$PERF_LEVEL \
       --disable_auto_compactions \
       --threads=$threads \
       --num=$NUM_KEYS \
@@ -295,6 +297,7 @@ function build_checkpoint {
             echo "Building checkpoints: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
             $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
                         --db=$ORIGIN_PATH/$db_index --try_load_options 2>&1
+            exit_on_error $?
         done
     else
         # checkpoint cannot build in directory already exists
@@ -302,6 +305,7 @@ function build_checkpoint {
         echo "Building checkpoint: $ORIGIN_PATH -> $DB_PATH ..."
         $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH \
                     --db=$ORIGIN_PATH --try_load_options 2>&1
+        exit_on_error $?
     fi
 }
 

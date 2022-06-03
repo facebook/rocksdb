@@ -6,6 +6,7 @@
 package org.rocksdb;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -41,47 +42,28 @@ public class MutableDBOptions extends AbstractMutableOptions {
    *
    * For int[] values, each int should be separated by a comma, e.g.
    *
-   * key1=value1;intArrayKey1=1,2,3
+   * key1=value1;intArrayKey1=1:2:3
    *
    * @param str The string representation of the mutable db options
+   * @param ignoreUnknown what to do if the key is not one of the keys we expect
    *
    * @return A builder for the mutable db options
    */
-  public static MutableDBOptionsBuilder parse(final String str) {
+  public static MutableDBOptionsBuilder parse(final String str, boolean ignoreUnknown) {
     Objects.requireNonNull(str);
 
-    final MutableDBOptionsBuilder builder =
-        new MutableDBOptionsBuilder();
+    final List<OptionString.Entry> parsedOptions = OptionString.Parser.parse(str);
+    return new MutableDBOptions.MutableDBOptionsBuilder().fromParsed(parsedOptions, ignoreUnknown);
+  }
 
-    final String[] options = str.trim().split(KEY_VALUE_PAIR_SEPARATOR);
-    for(final String option : options) {
-      final int equalsOffset = option.indexOf(KEY_VALUE_SEPARATOR);
-      if(equalsOffset <= 0) {
-        throw new IllegalArgumentException(
-            "options string has an invalid key=value pair");
-      }
-
-      final String key = option.substring(0, equalsOffset);
-      if(key.isEmpty()) {
-        throw new IllegalArgumentException("options string is invalid");
-      }
-
-      final String value = option.substring(equalsOffset + 1);
-      if(value.isEmpty()) {
-        throw new IllegalArgumentException("options string is invalid");
-      }
-
-      builder.fromString(key, value);
-    }
-
-    return builder;
+  public static MutableDBOptionsBuilder parse(final String str) {
+    return parse(str, false);
   }
 
   private interface MutableDBOptionKey extends MutableOptionKey {}
 
   public enum DBOption implements MutableDBOptionKey {
     max_background_jobs(ValueType.INT),
-    base_background_compactions(ValueType.INT),
     max_background_compactions(ValueType.INT),
     avoid_flush_during_shutdown(ValueType.BOOLEAN),
     writable_file_max_buffer_size(ValueType.LONG),
@@ -148,19 +130,6 @@ public class MutableDBOptions extends AbstractMutableOptions {
     @Override
     public int maxBackgroundJobs() {
       return getInt(DBOption.max_background_jobs);
-    }
-
-    @Override
-    @Deprecated
-    public void setBaseBackgroundCompactions(
-        final int baseBackgroundCompactions) {
-      setInt(DBOption.base_background_compactions,
-          baseBackgroundCompactions);
-    }
-
-    @Override
-    public int baseBackgroundCompactions() {
-      return getInt(DBOption.base_background_compactions);
     }
 
     @Override

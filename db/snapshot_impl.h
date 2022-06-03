@@ -10,6 +10,7 @@
 #pragma once
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/db.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -26,7 +27,9 @@ class SnapshotImpl : public Snapshot {
   // scope of queries to IsInSnapshot.
   SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
-  virtual SequenceNumber GetSequenceNumber() const override { return number_; }
+  SequenceNumber GetSequenceNumber() const override { return number_; }
+
+  int64_t GetUnixTime() const override { return unix_time_; }
 
  private:
   friend class SnapshotList;

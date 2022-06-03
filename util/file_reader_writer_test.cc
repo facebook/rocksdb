@@ -6,22 +6,26 @@
 #include <algorithm>
 #include <vector>
 
+#include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "file/line_file_reader.h"
 #include "file/random_access_file_reader.h"
+#include "file/read_write_util.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/file_system.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/crc32c.h"
 #include "util/random.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriterTest : public testing::Test {};
 
-const uint32_t kMb = 1 << 20;
+constexpr uint32_t kMb = static_cast<uint32_t>(1) << 20;
 
 TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public FSWritableFile {
@@ -230,6 +234,193 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
   }
 }
 
+TEST_F(WritableFileWriterTest, BufferWithZeroCapacityDirectIO) {
+  EnvOptions env_opts;
+  env_opts.use_direct_writes = true;
+  env_opts.writable_file_max_buffer_size = 0;
+  {
+    std::unique_ptr<WritableFileWriter> writer;
+    const Status s =
+        WritableFileWriter::Create(FileSystem::Default(), /*fname=*/"dont_care",
+                                   FileOptions(env_opts), &writer,
+                                   /*dbg=*/nullptr);
+    ASSERT_TRUE(s.IsInvalidArgument());
+  }
+}
+
+class DBWritableFileWriterTest : public DBTestBase {
+ public:
+  DBWritableFileWriterTest()
+      : DBTestBase("db_secondary_cache_test", /*env_do_fsync=*/true) {
+    fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
+    fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
+  }
+
+  std::shared_ptr<FaultInjectionTestFS> fault_fs_;
+  std::unique_ptr<Env> fault_env_;
+};
+
+TEST_F(DBWritableFileWriterTest, AppendWithChecksum) {
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::string fname = dbname_ + "/test_file";
+  std::unique_ptr<FSWritableFile> writable_file_ptr;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
+                                       /*dbg*/ nullptr));
+  std::unique_ptr<TestFSWritableFile> file;
+  file.reset(new TestFSWritableFile(
+      fname, file_options, std::move(writable_file_ptr), fault_fs_.get()));
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ImmutableOptions ioptions(options);
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  Random rnd(301);
+  std::string data = rnd.RandomString(1000);
+  uint32_t data_crc32c = crc32c::Value(data.c_str(), data.size());
+  fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+  ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+  ASSERT_OK(file_writer->Flush());
+  Random size_r(47);
+  for (int i = 0; i < 2000; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+  }
+  ASSERT_OK(file_writer->Close());
+  Destroy(options);
+}
+
+TEST_F(DBWritableFileWriterTest, AppendVerifyNoChecksum) {
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::string fname = dbname_ + "/test_file";
+  std::unique_ptr<FSWritableFile> writable_file_ptr;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
+                                       /*dbg*/ nullptr));
+  std::unique_ptr<TestFSWritableFile> file;
+  file.reset(new TestFSWritableFile(
+      fname, file_options, std::move(writable_file_ptr), fault_fs_.get()));
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ImmutableOptions ioptions(options);
+  // Enable checksum handoff for this file, but do not enable buffer checksum.
+  // So Append with checksum logic will not be triggered
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, false));
+
+  Random rnd(301);
+  std::string data = rnd.RandomString(1000);
+  uint32_t data_crc32c = crc32c::Value(data.c_str(), data.size());
+  fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+  ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+  ASSERT_OK(file_writer->Flush());
+  Random size_r(47);
+  for (int i = 0; i < 1000; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+  }
+  ASSERT_OK(file_writer->Close());
+  Destroy(options);
+}
+
+TEST_F(DBWritableFileWriterTest, AppendWithChecksumRateLimiter) {
+  FileOptions file_options = FileOptions();
+  file_options.rate_limiter = nullptr;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  std::string fname = dbname_ + "/test_file";
+  std::unique_ptr<FSWritableFile> writable_file_ptr;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options, &writable_file_ptr,
+                                       /*dbg*/ nullptr));
+  std::unique_ptr<TestFSWritableFile> file;
+  file.reset(new TestFSWritableFile(
+      fname, file_options, std::move(writable_file_ptr), fault_fs_.get()));
+  std::unique_ptr<WritableFileWriter> file_writer;
+  ImmutableOptions ioptions(options);
+  // Enable checksum handoff for this file, but do not enable buffer checksum.
+  // So Append with checksum logic will not be triggered
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+  fault_fs_->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+  Random rnd(301);
+  std::string data;
+  uint32_t data_crc32c;
+  uint64_t start = fault_env_->NowMicros();
+  Random size_r(47);
+  uint64_t bytes_written = 0;
+  for (int i = 0; i < 100; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+    bytes_written += static_cast<uint64_t>(data.size());
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+    bytes_written += static_cast<uint64_t>(data.size());
+  }
+  uint64_t elapsed = fault_env_->NowMicros() - start;
+  double raw_rate = bytes_written * 1000000.0 / elapsed;
+  ASSERT_OK(file_writer->Close());
+
+  // Set the rate-limiter
+  FileOptions file_options1 = FileOptions();
+  file_options1.rate_limiter =
+      NewGenericRateLimiter(static_cast<int64_t>(0.5 * raw_rate));
+  fname = dbname_ + "/test_file_1";
+  std::unique_ptr<FSWritableFile> writable_file_ptr1;
+  ASSERT_OK(fault_fs_->NewWritableFile(fname, file_options1,
+                                       &writable_file_ptr1,
+                                       /*dbg*/ nullptr));
+  file.reset(new TestFSWritableFile(
+      fname, file_options1, std::move(writable_file_ptr1), fault_fs_.get()));
+  // Enable checksum handoff for this file, but do not enable buffer checksum.
+  // So Append with checksum logic will not be triggered
+  file_writer.reset(new WritableFileWriter(
+      std::move(file), fname, file_options1, SystemClock::Default().get(),
+      nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  for (int i = 0; i < 1000; i++) {
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 10000));
+    data_crc32c = crc32c::Value(data.c_str(), data.size());
+    ASSERT_OK(file_writer->Append(Slice(data.c_str()), data_crc32c));
+
+    data = rnd.RandomString((static_cast<int>(size_r.Next()) % 97));
+    ASSERT_OK(file_writer->Append(Slice(data.c_str())));
+    ASSERT_OK(file_writer->Flush());
+  }
+  ASSERT_OK(file_writer->Close());
+  if (file_options1.rate_limiter != nullptr) {
+    delete file_options1.rate_limiter;
+  }
+
+  Destroy(options);
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public FSWritableFile {
@@ -406,7 +597,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   ReadaheadSequentialFileTest() {}
   std::string Read(size_t n) {
     Slice result;
-    Status s = test_read_holder_->Read(n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(
+        n, &result, scratch_.get(), Env::IO_TOTAL /* rate_limiter_priority*/);
     EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
@@ -514,7 +706,7 @@ std::string GenerateLine(int n) {
 TEST(LineFileReaderTest, LineFileReaderTest) {
   const int nlines = 1000;
 
-  std::unique_ptr<MockEnv> mem_env(new MockEnv(Env::Default()));
+  std::unique_ptr<Env> mem_env(MockEnv::Create(Env::Default()));
   std::shared_ptr<FileSystem> fs = mem_env->GetFileSystem();
   // Create an input file
   {
@@ -533,10 +725,11 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
-    while (reader->ReadLine(&line)) {
+    while (reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -545,7 +738,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_EQ(count, nlines);
     ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
     // And still
-    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_FALSE(
+        reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
     ASSERT_OK(reader->GetStatus());
     ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
   }
@@ -554,12 +748,14 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   {
     std::unique_ptr<LineFileReader> reader;
     ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
-                                     nullptr));
+                                     nullptr /* dbg */,
+                                     nullptr /* rate_limiter */));
     std::string line;
     int count = 0;
     // Read part way through the file
     while (count < nlines / 4) {
-      ASSERT_TRUE(reader->ReadLine(&line));
+      ASSERT_TRUE(
+          reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -576,7 +772,7 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
-    while (reader->ReadLine(&line)) {
+    while (reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
       ASSERT_EQ(line, GenerateLine(count));
       ++count;
       ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
@@ -586,7 +782,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_EQ(callback_count, 1);
 
     // Still get error & no retry
-    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_FALSE(
+        reader->ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */));
     ASSERT_TRUE(reader->GetStatus().IsCorruption());
     ASSERT_EQ(callback_count, 1);
 
@@ -595,6 +792,269 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   }
 }
 
+#ifndef ROCKSDB_LITE
+class IOErrorEventListener : public EventListener {
+ public:
+  IOErrorEventListener() { notify_error_.store(0); }
+
+  void OnIOError(const IOErrorInfo& io_error_info) override {
+    notify_error_++;
+    EXPECT_FALSE(io_error_info.file_path.empty());
+    EXPECT_FALSE(io_error_info.io_status.ok());
+  }
+
+  size_t NotifyErrorCount() { return notify_error_; }
+
+  bool ShouldBeNotifiedOnFileIO() override { return true; }
+
+ private:
+  std::atomic<size_t> notify_error_;
+};
+
+TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
+  class FakeWF : public FSWritableFile {
+   public:
+    explicit FakeWF() : io_error_(false) {
+      file_append_errors_.store(0);
+      file_flush_errors_.store(0);
+    }
+
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& /*data*/, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        file_append_errors_++;
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+
+    using FSWritableFile::PositionedAppend;
+    IOStatus PositionedAppend(const Slice& /*data*/, uint64_t,
+                              const IOOptions& /*options*/,
+                              IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      if (io_error_) {
+        file_flush_errors_++;
+        return IOStatus::IOError("Fake IO error");
+      }
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+
+    void SetIOError(bool val) { io_error_ = val; }
+
+    void CheckCounters(int file_append_errors, int file_flush_errors) {
+      ASSERT_EQ(file_append_errors, file_append_errors_);
+      ASSERT_EQ(file_flush_errors_, file_flush_errors);
+    }
+
+   protected:
+    bool io_error_;
+    std::atomic<size_t> file_append_errors_;
+    std::atomic<size_t> file_flush_errors_;
+  };
+
+  FileOptions file_options = FileOptions();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  IOErrorEventListener* listener = new IOErrorEventListener();
+  options.listeners.emplace_back(listener);
+
+  DestroyAndReopen(options);
+  ImmutableOptions ioptions(options);
+
+  std::string fname = dbname_ + "/test_file";
+  std::unique_ptr<FakeWF> writable_file_ptr(new FakeWF);
+
+  std::unique_ptr<WritableFileWriter> file_writer;
+  writable_file_ptr->SetIOError(true);
+
+  file_writer.reset(new WritableFileWriter(
+      std::move(writable_file_ptr), fname, file_options,
+      SystemClock::Default().get(), nullptr, ioptions.stats, ioptions.listeners,
+      ioptions.file_checksum_gen_factory.get(), true, true));
+
+  FakeWF* fwf = static_cast<FakeWF*>(file_writer->writable_file());
+
+  fwf->SetIOError(true);
+  ASSERT_NOK(file_writer->Append(std::string(2 * kMb, 'a')));
+  fwf->CheckCounters(1, 0);
+  ASSERT_EQ(listener->NotifyErrorCount(), 1);
+
+  fwf->SetIOError(true);
+  ASSERT_NOK(file_writer->Flush());
+  fwf->CheckCounters(1, 1);
+  ASSERT_EQ(listener->NotifyErrorCount(), 2);
+
+  /* No error generation */
+  fwf->SetIOError(false);
+  ASSERT_OK(file_writer->Append(std::string(2 * kMb, 'b')));
+  ASSERT_EQ(listener->NotifyErrorCount(), 2);
+  fwf->CheckCounters(1, 1);
+}
+#endif  // ROCKSDB_LITE
+
+class WritableFileWriterIOPriorityTest : public testing::Test {
+ protected:
+  // This test is to check whether the rate limiter priority can be passed
+  // correctly from WritableFileWriter functions to FSWritableFile functions.
+
+  void SetUp() override {
+    // When op_rate_limiter_priority parameter in WritableFileWriter functions
+    // is the default (Env::IO_TOTAL).
+    std::unique_ptr<FakeWF> wf{new FakeWF(Env::IO_HIGH)};
+    FileOptions file_options;
+    writer_.reset(new WritableFileWriter(std::move(wf), "" /* don't care */,
+                                         file_options));
+  }
+
+  class FakeWF : public FSWritableFile {
+   public:
+    explicit FakeWF(Env::IOPriority io_priority) { SetIOPriority(io_priority); }
+    ~FakeWF() override {}
+
+    IOStatus Append(const Slice& /*data*/, const IOOptions& options,
+                    IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus Append(const Slice& data, const IOOptions& options,
+                    const DataVerificationInfo& /* verification_info */,
+                    IODebugContext* dbg) override {
+      return Append(data, options, dbg);
+    }
+    IOStatus PositionedAppend(const Slice& /*data*/, uint64_t /*offset*/,
+                              const IOOptions& options,
+                              IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus PositionedAppend(
+        const Slice& /* data */, uint64_t /* offset */,
+        const IOOptions& options,
+        const DataVerificationInfo& /* verification_info */,
+        IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus Truncate(uint64_t /*size*/, const IOOptions& options,
+                      IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus Close(const IOOptions& options, IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& options, IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& options, IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus Fsync(const IOOptions& options, IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    uint64_t GetFileSize(const IOOptions& options,
+                         IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return 0;
+    }
+    void GetPreallocationStatus(size_t* /*block_size*/,
+                                size_t* /*last_allocated_block*/) override {}
+    size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
+      return 0;
+    }
+    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+      return IOStatus::OK();
+    }
+
+    IOStatus Allocate(uint64_t /*offset*/, uint64_t /*len*/,
+                      const IOOptions& options,
+                      IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+    IOStatus RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/,
+                       const IOOptions& options,
+                       IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+      return IOStatus::OK();
+    }
+
+    void PrepareWrite(size_t /*offset*/, size_t /*len*/,
+                      const IOOptions& options,
+                      IODebugContext* /*dbg*/) override {
+      EXPECT_EQ(options.rate_limiter_priority, io_priority_);
+    }
+
+    bool IsSyncThreadSafe() const override { return true; }
+  };
+
+  std::unique_ptr<WritableFileWriter> writer_;
+};
+
+TEST_F(WritableFileWriterIOPriorityTest, Append) {
+  ASSERT_OK(writer_->Append(Slice("abc")));
+}
+
+TEST_F(WritableFileWriterIOPriorityTest, Pad) { ASSERT_OK(writer_->Pad(500)); }
+
+TEST_F(WritableFileWriterIOPriorityTest, Flush) { ASSERT_OK(writer_->Flush()); }
+
+TEST_F(WritableFileWriterIOPriorityTest, Close) { ASSERT_OK(writer_->Close()); }
+
+TEST_F(WritableFileWriterIOPriorityTest, Sync) {
+  ASSERT_OK(writer_->Sync(false));
+  ASSERT_OK(writer_->Sync(true));
+}
+
+TEST_F(WritableFileWriterIOPriorityTest, SyncWithoutFlush) {
+  ASSERT_OK(writer_->SyncWithoutFlush(false));
+  ASSERT_OK(writer_->SyncWithoutFlush(true));
+}
+
+TEST_F(WritableFileWriterIOPriorityTest, BasicOp) {
+  EnvOptions env_options;
+  env_options.bytes_per_sync = kMb;
+  std::unique_ptr<FakeWF> wf(new FakeWF(Env::IO_HIGH));
+  std::unique_ptr<WritableFileWriter> writer(
+      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
+  Random r(301);
+  Status s;
+  std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
+  for (int i = 0; i < 1000; i++) {
+    int skew_limit = (i < 700) ? 10 : 15;
+    uint32_t num = r.Skewed(skew_limit) * 100 + r.Uniform(100);
+    s = writer->Append(Slice(large_buf.get(), num));
+    ASSERT_OK(s);
+
+    // Flush in a chance of 1/10.
+    if (r.Uniform(10) == 0) {
+      s = writer->Flush();
+      ASSERT_OK(s);
+    }
+  }
+  s = writer->Close();
+  ASSERT_OK(s);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

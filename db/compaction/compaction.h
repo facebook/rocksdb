@@ -70,17 +70,21 @@ class CompactionFilter;
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
-             const ImmutableCFOptions& immutable_cf_options,
+             const ImmutableOptions& immutable_options,
              const MutableCFOptions& mutable_cf_options,
              const MutableDBOptions& mutable_db_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
-             CompressionOptions compression_opts, uint32_t max_subcompactions,
+             CompressionOptions compression_opts,
+             Temperature output_temperature, uint32_t max_subcompactions,
              std::vector<FileMetaData*> grandparents,
-             bool manual_compaction = false, double score = -1,
-             bool deletion_compaction = false,
-             CompactionReason compaction_reason = CompactionReason::kUnknown);
+             bool manual_compaction = false, const std::string& trim_ts = "",
+             double score = -1, bool deletion_compaction = false,
+             CompactionReason compaction_reason = CompactionReason::kUnknown,
+             BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+                 BlobGarbageCollectionPolicy::kUseDefault,
+             double blob_garbage_collection_age_cutoff = -1);
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -162,7 +166,7 @@ class Compaction {
   CompressionType output_compression() const { return output_compression_; }
 
   // What compression options for output
-  CompressionOptions output_compression_opts() const {
+  const CompressionOptions& output_compression_opts() const {
     return output_compression_opts_;
   }
 
@@ -207,6 +211,8 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool is_manual_compaction() const { return is_manual_compaction_; }
 
+  std::string trim_ts() const { return trim_ts_; }
+
   // Used when allow_trivial_move option is set in
   // Universal compaction. If all the input files are
   // non overlapping, then is_trivial_move_ variable
@@ -223,10 +229,10 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
-  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // Return the ImmutableOptions that should be used throughout the compaction
   // procedure
-  const ImmutableCFOptions* immutable_cf_options() const {
-    return &immutable_cf_options_;
+  const ImmutableOptions* immutable_options() const {
+    return &immutable_options_;
   }
 
   // Return the MutableCFOptions that should be used throughout the compaction
@@ -266,6 +272,11 @@ class Compaction {
   // Should this compaction be broken up into smaller ones run in parallel?
   bool ShouldFormSubcompactions() const;
 
+  // Returns true iff at least one input file references a blob file.
+  //
+  // PRE: input version has been set.
+  bool DoesInputReferenceBlobFiles() const;
+
   // test function to validate the functionality of IsBottommostLevel()
   // function -- determines if compaction with inputs and storage is bottommost
   static bool TEST_IsBottommostLevel(
@@ -286,7 +297,7 @@ class Compaction {
 
   int GetInputBaseLevel() const;
 
-  CompactionReason compaction_reason() { return compaction_reason_; }
+  CompactionReason compaction_reason() const { return compaction_reason_; }
 
   const std::vector<FileMetaData*>& grandparents() const {
     return grandparents_;
@@ -294,9 +305,32 @@ class Compaction {
 
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
+  Temperature output_temperature() const { return output_temperature_; }
+
   uint32_t max_subcompactions() const { return max_subcompactions_; }
 
-  uint64_t MinInputFileOldestAncesterTime() const;
+  bool enable_blob_garbage_collection() const {
+    return enable_blob_garbage_collection_;
+  }
+
+  double blob_garbage_collection_age_cutoff() const {
+    return blob_garbage_collection_age_cutoff_;
+  }
+
+  // start and end are sub compact range. Null if no boundary.
+  // This is used to filter out some input files' ancester's time range.
+  uint64_t MinInputFileOldestAncesterTime(const InternalKey* start,
+                                          const InternalKey* end) const;
+
+  // Called by DBImpl::NotifyOnCompactionCompleted to make sure number of
+  // compaction begin and compaction completion callbacks match.
+  void SetNotifyOnCompactionCompleted() {
+    notify_on_compaction_completion_ = true;
+  }
+
+  bool ShouldNotifyOnCompactionCompleted() const {
+    return notify_on_compaction_completion_;
+  }
 
  private:
   // mark (or clear) all files that are being compacted
@@ -309,8 +343,9 @@ class Compaction {
 
   // Get the atomic file boundaries for all files in the compaction. Necessary
   // in order to avoid the scenario described in
-  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and plumb
-  // down appropriate key boundaries to RangeDelAggregator during compaction.
+  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and
+  // plumb down appropriate key boundaries to RangeDelAggregator during
+  // compaction.
   static std::vector<CompactionInputFiles> PopulateWithAtomicBoundaries(
       VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs);
 
@@ -325,22 +360,23 @@ class Compaction {
 
   VersionStorageInfo* input_vstorage_;
 
-  const int start_level_;    // the lowest level to be compacted
+  const int start_level_;   // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
   uint32_t max_subcompactions_;
-  const ImmutableCFOptions immutable_cf_options_;
+  const ImmutableOptions immutable_options_;
   const MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit edit_;
   const int number_levels_;
   ColumnFamilyData* cfd_;
-  Arena arena_;          // Arena used to allocate space for file_levels_
+  Arena arena_;  // Arena used to allocate space for file_levels_
 
   const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
+  Temperature output_temperature_;
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
 
@@ -353,7 +389,7 @@ class Compaction {
   // State used to check for number of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
-  const double score_;         // score that was used to pick this compaction.
+  const double score_;  // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?
   const bool bottommost_level_;
@@ -362,6 +398,9 @@ class Compaction {
 
   // Is this compaction requested by the client?
   const bool is_manual_compaction_;
+
+  // The data with timestamp > trim_ts_ will be removed
+  const std::string trim_ts_;
 
   // True if we can do trivial move in Universal multi level
   // compaction
@@ -381,6 +420,16 @@ class Compaction {
 
   // Reason for compaction
   CompactionReason compaction_reason_;
+
+  // Notify on compaction completion only if listener was notified on compaction
+  // begin.
+  bool notify_on_compaction_completion_;
+
+  // Enable/disable GC collection for blobs during compaction.
+  bool enable_blob_garbage_collection_;
+
+  // Blob garbage collection age cutoff.
+  double blob_garbage_collection_age_cutoff_;
 };
 
 // Return sum of sizes of all files in `files`.

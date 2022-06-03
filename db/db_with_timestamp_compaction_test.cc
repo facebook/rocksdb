@@ -10,6 +10,7 @@
 #include "db/compaction/compaction.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -31,7 +32,7 @@ std::string Timestamp(uint64_t ts) {
 class TimestampCompatibleCompactionTest : public DBTestBase {
  public:
   TimestampCompatibleCompactionTest()
-      : DBTestBase("/ts_compatible_compaction_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("ts_compatible_compaction_test", /*env_do_fsync=*/true) {}
 
   std::string Get(const std::string& key, uint64_t ts) {
     ReadOptions read_opts;
@@ -53,10 +54,11 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   Options options = CurrentOptions();
   options.env = env_;
   options.compaction_style = kCompactionStyleLevel;
-  options.comparator = test::ComparatorWithU64Ts();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.level0_file_num_compaction_trigger = 3;
   constexpr size_t kNumKeysPerFile = 101;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -76,9 +78,8 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   WriteOptions write_opts;
   for (; key < kNumKeysPerFile - 1; ++key, ++ts) {
     std::string ts_str = Timestamp(ts);
-    Slice ts_slice = ts_str;
-    write_opts.timestamp = &ts_slice;
-    ASSERT_OK(db_->Put(write_opts, Key1(key), "foo_" + std::to_string(key)));
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(key), ts_str, "foo_" + std::to_string(key)));
   }
   // Write another L0 with keys 99 with newer ts.
   ASSERT_OK(Flush());
@@ -86,18 +87,16 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   key = 99;
   for (int i = 0; i < 4; ++i, ++ts) {
     std::string ts_str = Timestamp(ts);
-    Slice ts_slice = ts_str;
-    write_opts.timestamp = &ts_slice;
-    ASSERT_OK(db_->Put(write_opts, Key1(key), "bar_" + std::to_string(key)));
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(key), ts_str, "bar_" + std::to_string(key)));
   }
   ASSERT_OK(Flush());
   uint64_t saved_read_ts2 = ts++;
   // Write another L0 with keys 99, 100, 101, ..., 150
   for (; key <= 150; ++key, ++ts) {
     std::string ts_str = Timestamp(ts);
-    Slice ts_slice = ts_str;
-    write_opts.timestamp = &ts_slice;
-    ASSERT_OK(db_->Put(write_opts, Key1(key), "foo1_" + std::to_string(key)));
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(key), ts_str, "foo1_" + std::to_string(key)));
   }
   ASSERT_OK(Flush());
   // Wait for compaction to finish

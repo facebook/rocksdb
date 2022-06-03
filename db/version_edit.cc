@@ -13,6 +13,7 @@
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -28,9 +29,28 @@ uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   return number | (path_id * (kFileNumberMask + 1));
 }
 
-void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
-                                    SequenceNumber seqno,
-                                    ValueType value_type) {
+Status FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
+                                      SequenceNumber seqno,
+                                      ValueType value_type) {
+  if (value_type == kTypeBlobIndex) {
+    BlobIndex blob_index;
+    const Status s = blob_index.DecodeFrom(value);
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (!blob_index.IsInlined() && !blob_index.HasTTL()) {
+      if (blob_index.file_number() == kInvalidBlobFileNumber) {
+        return Status::Corruption("Invalid blob file number");
+      }
+
+      if (oldest_blob_file_number == kInvalidBlobFileNumber ||
+          oldest_blob_file_number > blob_index.file_number()) {
+        oldest_blob_file_number = blob_index.file_number();
+      }
+    }
+  }
+
   if (smallest.size() == 0) {
     smallest.DecodeFrom(key);
   }
@@ -38,32 +58,7 @@ void FileMetaData::UpdateBoundaries(const Slice& key, const Slice& value,
   fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);
   fd.largest_seqno = std::max(fd.largest_seqno, seqno);
 
-  if (value_type == kTypeBlobIndex) {
-    BlobIndex blob_index;
-    const Status s = blob_index.DecodeFrom(value);
-    if (!s.ok()) {
-      return;
-    }
-
-    if (blob_index.IsInlined()) {
-      return;
-    }
-
-    if (blob_index.HasTTL()) {
-      return;
-    }
-
-    // Paranoid check: this should not happen because BlobDB numbers the blob
-    // files starting from 1.
-    if (blob_index.file_number() == kInvalidBlobFileNumber) {
-      return;
-    }
-
-    if (oldest_blob_file_number == kInvalidBlobFileNumber ||
-        oldest_blob_file_number > blob_index.file_number()) {
-      oldest_blob_file_number = blob_index.file_number();
-    }
-  }
+  return Status::OK();
 }
 
 void VersionEdit::Clear() {
@@ -119,6 +114,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
   if (has_max_column_family_) {
     PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
+  }
+  if (has_min_log_number_to_keep_) {
+    PutVarint32Varint64(dst, kMinLogNumberToKeep, min_log_number_to_keep_);
   }
   if (has_last_sequence_) {
     PutVarint32Varint64(dst, kLastSequence, last_sequence_);
@@ -186,9 +184,24 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, NewFileCustomTag::kFileChecksumFuncName);
     PutLengthPrefixedSlice(dst, Slice(f.file_checksum_func_name));
 
+    if (f.max_timestamp != kDisableUserTimestamp) {
+      if (f.min_timestamp.size() != f.max_timestamp.size()) {
+        assert(false);
+        return false;
+      }
+      PutVarint32(dst, NewFileCustomTag::kMinTimestamp);
+      PutLengthPrefixedSlice(dst, Slice(f.min_timestamp));
+      PutVarint32(dst, NewFileCustomTag::kMaxTimestamp);
+      PutLengthPrefixedSlice(dst, Slice(f.max_timestamp));
+    }
     if (f.fd.GetPathId() != 0) {
       PutVarint32(dst, NewFileCustomTag::kPathId);
       char p = static_cast<char>(f.fd.GetPathId());
+      PutLengthPrefixedSlice(dst, Slice(&p, 1));
+    }
+    if (f.temperature != Temperature::kUnknown) {
+      PutVarint32(dst, NewFileCustomTag::kTemperature);
+      char p = static_cast<char>(f.temperature);
       PutLengthPrefixedSlice(dst, Slice(&p, 1));
     }
     if (f.marked_for_compaction) {
@@ -209,6 +222,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
       PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
     }
+    UniqueId64x2 unique_id = f.unique_id;
+    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:UniqueId", &unique_id);
+    if (unique_id != kNullUniqueId64x2) {
+      PutVarint32(dst, NewFileCustomTag::kUniqueId);
+      std::string unique_id_str = EncodeUniqueIdBytes(&unique_id);
+      PutLengthPrefixedSlice(dst, Slice(unique_id_str));
+    }
+
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
 
@@ -310,6 +331,10 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         return "new-file4 custom field";
       }
       if (custom_tag == kTerminate) {
+        if (f.min_timestamp.size() != f.max_timestamp.size()) {
+          assert(false);
+          return "new-file4 custom field timestamp size mismatch error";
+        }
         break;
       }
       if (!GetLengthPrefixedSlice(input, &field)) {
@@ -358,6 +383,28 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
         case kOldestBlobFileNumber:
           if (!GetVarint64(&field, &f.oldest_blob_file_number)) {
             return "invalid oldest blob file number";
+          }
+          break;
+        case kTemperature:
+          if (field.size() != 1) {
+            return "temperature field wrong size";
+          } else {
+            Temperature casted_field = static_cast<Temperature>(field[0]);
+            if (casted_field <= Temperature::kCold) {
+              f.temperature = casted_field;
+            }
+          }
+          break;
+        case kMinTimestamp:
+          f.min_timestamp = field.ToString();
+          break;
+        case kMaxTimestamp:
+          f.max_timestamp = field.ToString();
+          break;
+        case kUniqueId:
+          if (!DecodeUniqueIdBytes(field.ToString(), &f.unique_id).ok()) {
+            f.unique_id = kNullUniqueId64x2;
+            return "invalid unique id";
           }
           break;
         default:
@@ -766,14 +813,32 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" blob_file:");
       AppendNumberTo(&r, f.oldest_blob_file_number);
     }
+    if (f.min_timestamp != kDisableUserTimestamp) {
+      assert(f.max_timestamp != kDisableUserTimestamp);
+      r.append(" min_timestamp:");
+      r.append(Slice(f.min_timestamp).ToString(true));
+      r.append(" max_timestamp:");
+      r.append(Slice(f.max_timestamp).ToString(true));
+    }
     r.append(" oldest_ancester_time:");
     AppendNumberTo(&r, f.oldest_ancester_time);
     r.append(" file_creation_time:");
     AppendNumberTo(&r, f.file_creation_time);
     r.append(" file_checksum:");
-    r.append(f.file_checksum);
+    r.append(Slice(f.file_checksum).ToString(true));
     r.append(" file_checksum_func_name: ");
     r.append(f.file_checksum_func_name);
+    if (f.temperature != Temperature::kUnknown) {
+      r.append(" temperature: ");
+      // Maybe change to human readable format whenthe feature becomes
+      // permanent
+      r.append(std::to_string(static_cast<int>(f.temperature)));
+    }
+    if (f.unique_id != kNullUniqueId64x2) {
+      r.append(" unique_id(internal): ");
+      UniqueId64x2 id = f.unique_id;
+      r.append(InternalUniqueIdToHumanString(&id));
+    }
   }
 
   for (const auto& blob_file_addition : blob_file_additions_) {
@@ -873,8 +938,25 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
       jw << "FileSize" << f.fd.GetFileSize();
       jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
       jw << "LargestIKey" << f.largest.DebugString(hex_key);
+      if (f.min_timestamp != kDisableUserTimestamp) {
+        assert(f.max_timestamp != kDisableUserTimestamp);
+        jw << "MinTimestamp" << Slice(f.min_timestamp).ToString(true);
+        jw << "MaxTimestamp" << Slice(f.max_timestamp).ToString(true);
+      }
+      jw << "OldestAncesterTime" << f.oldest_ancester_time;
+      jw << "FileCreationTime" << f.file_creation_time;
+      jw << "FileChecksum" << Slice(f.file_checksum).ToString(true);
+      jw << "FileChecksumFuncName" << f.file_checksum_func_name;
+      if (f.temperature != Temperature::kUnknown) {
+        jw << "temperature" << std::to_string(static_cast<int>(f.temperature));
+      }
       if (f.oldest_blob_file_number != kInvalidBlobFileNumber) {
         jw << "OldestBlobFile" << f.oldest_blob_file_number;
+      }
+      if (f.temperature != Temperature::kUnknown) {
+        // Maybe change to human readable format whenthe feature becomes
+        // permanent
+        jw << "Temperature" << static_cast<int>(f.temperature);
       }
       jw.EndArrayedObject();
     }

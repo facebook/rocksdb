@@ -20,6 +20,7 @@
 
 #include "monitoring/histogram.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/trace_record.h"
 #include "util/gflags_compat.h"
 #include "util/string_util.h"
 
@@ -411,7 +412,7 @@ void BlockCacheTraceAnalyzer::WriteMissRatioTimeline(uint64_t time_unit) const {
   }
   std::map<uint64_t, std::map<std::string, std::map<uint64_t, double>>>
       cs_name_timeline;
-  uint64_t start_time = port::kMaxUint64;
+  uint64_t start_time = std::numeric_limits<uint64_t>::max();
   uint64_t end_time = 0;
   const std::map<uint64_t, uint64_t>& trace_num_misses =
       adjust_time_unit(miss_ratio_stats_.num_misses_timeline(), time_unit);
@@ -426,7 +427,8 @@ void BlockCacheTraceAnalyzer::WriteMissRatioTimeline(uint64_t time_unit) const {
     auto it = trace_num_accesses.find(time);
     assert(it != trace_num_accesses.end());
     uint64_t access = it->second;
-    cs_name_timeline[port::kMaxUint64]["trace"][time] = percent(miss, access);
+    cs_name_timeline[std::numeric_limits<uint64_t>::max()]["trace"][time] =
+        percent(miss, access);
   }
   for (auto const& config_caches : cache_simulator_->sim_caches()) {
     const CacheConfiguration& config = config_caches.first;
@@ -491,7 +493,7 @@ void BlockCacheTraceAnalyzer::WriteMissTimeline(uint64_t time_unit) const {
   }
   std::map<uint64_t, std::map<std::string, std::map<uint64_t, uint64_t>>>
       cs_name_timeline;
-  uint64_t start_time = port::kMaxUint64;
+  uint64_t start_time = std::numeric_limits<uint64_t>::max();
   uint64_t end_time = 0;
   const std::map<uint64_t, uint64_t>& trace_num_misses =
       adjust_time_unit(miss_ratio_stats_.num_misses_timeline(), time_unit);
@@ -500,7 +502,8 @@ void BlockCacheTraceAnalyzer::WriteMissTimeline(uint64_t time_unit) const {
     start_time = std::min(start_time, time);
     end_time = std::max(end_time, time);
     uint64_t miss = num_miss.second;
-    cs_name_timeline[port::kMaxUint64]["trace"][time] = miss;
+    cs_name_timeline[std::numeric_limits<uint64_t>::max()]["trace"][time] =
+        miss;
   }
   for (auto const& config_caches : cache_simulator_->sim_caches()) {
     const CacheConfiguration& config = config_caches.first;
@@ -588,7 +591,7 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
   for (auto const& percent : percent_buckets) {
     label_bucket_naccesses[label_str][percent] = 0;
     size_t end_index = 0;
-    if (percent == port::kMaxUint64) {
+    if (percent == std::numeric_limits<uint64_t>::max()) {
       end_index = label_naccesses.size();
     } else {
       end_index = percent * label_naccesses.size() / 100;
@@ -855,7 +858,7 @@ void BlockCacheTraceAnalyzer::WriteAccessTimeline(const std::string& label_str,
                                                   uint64_t time_unit,
                                                   bool user_access_only) const {
   std::set<std::string> labels = ParseLabelStr(label_str);
-  uint64_t start_time = port::kMaxUint64;
+  uint64_t start_time = std::numeric_limits<uint64_t>::max();
   uint64_t end_time = 0;
   std::map<std::string, std::map<uint64_t, uint64_t>> label_access_timeline;
   std::map<uint64_t, std::vector<std::string>> access_count_block_id_map;
@@ -1090,7 +1093,7 @@ void BlockCacheTraceAnalyzer::WriteReuseInterval(
                             kMicrosInSecond) /
                            block.num_accesses;
     } else {
-      avg_reuse_interval = port::kMaxUint64 - 1;
+      avg_reuse_interval = std::numeric_limits<uint64_t>::max() - 1;
     }
     if (labels.find(kGroupbyCaller) != labels.end()) {
       for (auto const& timeline : block.caller_num_accesses_timeline) {
@@ -1151,7 +1154,7 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
       lifetime =
           (block.last_access_time - block.first_access_time) / kMicrosInSecond;
     } else {
-      lifetime = port::kMaxUint64 - 1;
+      lifetime = std::numeric_limits<uint64_t>::max() - 1;
     }
     const std::string label = BuildLabel(
         labels, cf_name, fd, level, type,
@@ -2102,7 +2105,7 @@ std::vector<uint64_t> parse_buckets(const std::string& bucket_str) {
     getline(ss, bucket, ',');
     buckets.push_back(ParseUint64(bucket));
   }
-  buckets.push_back(port::kMaxUint64);
+  buckets.push_back(std::numeric_limits<uint64_t>::max());
   return buckets;
 }
 

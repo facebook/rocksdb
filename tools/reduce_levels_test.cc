@@ -71,7 +71,7 @@ public:
   int FilesOnLevel(int level) {
     std::string property;
     EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(level), &property));
+        "rocksdb.num-files-at-level" + std::to_string(level), &property));
     return atoi(property.c_str());
   }
 

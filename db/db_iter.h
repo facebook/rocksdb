@@ -12,7 +12,6 @@
 #include <string>
 
 #include "db/db_impl/db_impl.h"
-#include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
@@ -114,7 +113,7 @@ class DBIter final : public Iterator {
   };
 
   DBIter(Env* _env, const ReadOptions& read_options,
-         const ImmutableCFOptions& cf_options,
+         const ImmutableOptions& ioptions,
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
@@ -152,7 +151,7 @@ class DBIter final : public Iterator {
   }
   Slice key() const override {
     assert(valid_);
-    if (start_seqnum_ > 0 || timestamp_lb_) {
+    if (timestamp_lb_) {
       return saved_key_.GetInternalKey();
     } else {
       const Slice ukey_and_ts = saved_key_.GetUserKey();
@@ -299,6 +298,8 @@ class DBIter final : public Iterator {
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
 
+  Status Merge(const Slice* val, const Slice& user_key);
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   SystemClock* clock_;
@@ -370,9 +371,6 @@ class DBIter final : public Iterator {
   ROCKSDB_FIELD_UNUSED
 #endif
   ColumnFamilyData* cfd_;
-  // for diff snapshots we want the lower bound on the seqnum;
-  // if this value > 0 iterator will return internal keys
-  SequenceNumber start_seqnum_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
@@ -383,8 +381,7 @@ class DBIter final : public Iterator {
 // "*internal_iter") that were live at the specified `sequence` number
 // into appropriate user keys.
 extern Iterator* NewDBIterator(
-    Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options,
+    Env* env, const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options,
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const Version* version, const SequenceNumber& sequence,

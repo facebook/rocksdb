@@ -31,7 +31,7 @@ class TransactionBaseImpl : public Transaction {
   TransactionBaseImpl(DB* db, const WriteOptions& write_options,
                       const LockTrackerFactory& lock_tracker_factory);
 
-  virtual ~TransactionBaseImpl();
+  ~TransactionBaseImpl() override;
 
   // Remove pending operations queued in this transaction.
   virtual void Clear();
@@ -202,7 +202,8 @@ class TransactionBaseImpl : public Transaction {
   }
 
   const Snapshot* GetSnapshot() const override {
-    return snapshot_ ? snapshot_.get() : nullptr;
+    // will return nullptr when there is no snapshot
+    return snapshot_.get();
   }
 
   virtual void SetSnapshot() override;
@@ -218,6 +219,8 @@ class TransactionBaseImpl : public Transaction {
   void DisableIndexing() override { indexing_enabled_ = false; }
 
   void EnableIndexing() override { indexing_enabled_ = true; }
+
+  bool IndexingEnabled() const { return indexing_enabled_; }
 
   uint64_t GetElapsedTime() const override;
 
@@ -276,6 +279,8 @@ class TransactionBaseImpl : public Transaction {
     auto s = WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
     assert(s.ok());
   }
+
+  WriteBatchBase* GetBatchForWrite();
 
   DB* db_;
   DBImpl* dbimpl_;
@@ -364,7 +369,6 @@ class TransactionBaseImpl : public Transaction {
                  bool read_only, bool exclusive, const bool do_validate = true,
                  const bool assume_tracked = false);
 
-  WriteBatchBase* GetBatchForWrite();
   void SetSnapshotInternal(const Snapshot* snapshot);
 };
 

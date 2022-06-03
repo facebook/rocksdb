@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBTestInPlaceUpdate : public DBTestBase {
  public:
   DBTestInPlaceUpdate()
-      : DBTestBase("/db_inplace_update_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_inplace_update_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdate) {
@@ -169,6 +169,36 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackNoAction) {
     ASSERT_EQ(Get(1, "key"), "NOT_FOUND");
   } while (ChangeCompactOptions());
 }
+
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateAndSnapshot) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // Update key with values of smaller size, and
+    // run GetSnapshot and ReleaseSnapshot
+    int numValues = 2;
+    for (int i = numValues; i > 0; i--) {
+      const Snapshot* s = db_->GetSnapshot();
+      ASSERT_EQ(nullptr, s);
+      std::string value = DummyString(i, 'a');
+      ASSERT_OK(Put(1, "key", value));
+      ASSERT_EQ(value, Get(1, "key"));
+      // release s (nullptr)
+      db_->ReleaseSnapshot(s);
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1, 1);
+  } while (ChangeCompactOptions());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

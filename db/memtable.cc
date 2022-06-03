@@ -21,6 +21,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
+#include "logging/logging.h"
 #include "memory/arena.h"
 #include "memory/memory_usage.h"
 #include "monitoring/perf_context_imp.h"
@@ -32,6 +33,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/types.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
@@ -43,7 +45,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 ImmutableMemTableOptions::ImmutableMemTableOptions(
-    const ImmutableCFOptions& ioptions,
+    const ImmutableOptions& ioptions,
     const MutableCFOptions& mutable_cf_options)
     : arena_block_size(mutable_cf_options.arena_block_size),
       memtable_prefix_bloom_bits(
@@ -58,13 +60,13 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
       inplace_callback(ioptions.inplace_callback),
       max_successive_merges(mutable_cf_options.max_successive_merges),
-      statistics(ioptions.statistics),
-      merge_operator(ioptions.merge_operator),
-      info_log(ioptions.info_log),
+      statistics(ioptions.stats),
+      merge_operator(ioptions.merge_operator.get()),
+      info_log(ioptions.logger),
       allow_data_in_errors(ioptions.allow_data_in_errors) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
-                   const ImmutableCFOptions& ioptions,
+                   const ImmutableOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
                    SequenceNumber latest_seq, uint32_t column_family_id)
@@ -82,9 +84,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
              mutable_cf_options.memtable_huge_page_size),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &arena_, mutable_cf_options.prefix_extractor.get(),
-          ioptions.info_log, column_family_id)),
+          ioptions.logger, column_family_id)),
       range_del_table_(SkipListFactory().CreateMemTableRep(
-          comparator_, &arena_, nullptr /* transform */, ioptions.info_log,
+          comparator_, &arena_, nullptr /* transform */, ioptions.logger,
           column_family_id)),
       is_range_del_table_empty_(true),
       data_size_(0),
@@ -106,7 +108,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       flush_state_(FLUSH_NOT_REQUESTED),
       clock_(ioptions.clock),
       insert_with_hint_prefix_extractor_(
-          ioptions.memtable_insert_with_hint_prefix_extractor),
+          ioptions.memtable_insert_with_hint_prefix_extractor.get()),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
       approximate_memory_usage_(0) {
@@ -120,7 +122,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
     bloom_filter_.reset(
         new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
                          6 /* hard coded 6 probes */,
-                         moptions_.memtable_huge_page_size, ioptions.info_log));
+                         moptions_.memtable_huge_page_size, ioptions.logger));
   }
 }
 
@@ -138,8 +140,8 @@ size_t MemTable::ApproximateMemoryUsage() {
   for (size_t usage : usages) {
     // If usage + total_usage >= kMaxSizet, return kMaxSizet.
     // the following variation is to avoid numeric overflow.
-    if (usage >= port::kMaxSizet - total_usage) {
-      return port::kMaxSizet;
+    if (usage >= std::numeric_limits<size_t>::max() - total_usage) {
+      return std::numeric_limits<size_t>::max();
     }
     total_usage += usage;
   }
@@ -446,11 +448,13 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
       is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     return nullptr;
   }
+  return NewRangeTombstoneIteratorInternal(read_options, read_seq);
+}
+
+FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
+    const ReadOptions& read_options, SequenceNumber read_seq) {
   auto* unfragmented_iter = new MemTableIterator(
       *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
-  if (unfragmented_iter == nullptr) {
-    return nullptr;
-  }
   auto fragmented_tombstone_list =
       std::make_shared<FragmentedRangeTombstoneList>(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
@@ -487,7 +491,7 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
 }
 
 Status MemTable::VerifyEncodedEntry(Slice encoded,
-                                    const ProtectionInfoKVOTS64& kv_prot_info) {
+                                    const ProtectionInfoKVOS64& kv_prot_info) {
   uint32_t ikey_len = 0;
   if (!GetVarint32(&encoded, &ikey_len)) {
     return Status::Corruption("Unable to parse internal key length");
@@ -500,12 +504,9 @@ Status MemTable::VerifyEncodedEntry(Slice encoded,
     return Status::Corruption("Internal key length too long");
   }
   uint32_t value_len = 0;
-  const size_t key_without_ts_len = ikey_len - ts_sz - 8;
-  Slice key(encoded.data(), key_without_ts_len);
-  encoded.remove_prefix(key_without_ts_len);
-
-  Slice timestamp(encoded.data(), ts_sz);
-  encoded.remove_prefix(ts_sz);
+  const size_t user_key_len = ikey_len - 8;
+  Slice key(encoded.data(), user_key_len);
+  encoded.remove_prefix(user_key_len);
 
   uint64_t packed = DecodeFixed64(encoded.data());
   ValueType value_type = kMaxValue;
@@ -525,14 +526,14 @@ Status MemTable::VerifyEncodedEntry(Slice encoded,
   Slice value(encoded.data(), value_len);
 
   return kv_prot_info.StripS(sequence_number)
-      .StripKVOT(key, value, value_type, timestamp)
+      .StripKVO(key, value, value_type)
       .GetStatus();
 }
 
 Status MemTable::Add(SequenceNumber s, ValueType type,
                      const Slice& key, /* user key */
                      const Slice& value,
-                     const ProtectionInfoKVOTS64* kv_prot_info,
+                     const ProtectionInfoKVOS64* kv_prot_info,
                      bool allow_concurrent,
                      MemTablePostProcessInfo* post_process_info, void** hint) {
   // Format of an entry is concatenation of:
@@ -962,53 +963,58 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
+  // For now, memtable Bloom filter is effectively disabled if there are any
+  // range tombstones. This is the simplest way to ensure range tombstones are
+  // handled. TODO: allow Bloom checks where max_covering_tombstone_seq==0
+  bool no_range_del = read_options.ignore_range_deletions ||
+                      is_range_del_table_empty_.load(std::memory_order_relaxed);
   MultiGetRange temp_range(*range, range->begin(), range->end());
-  if (bloom_filter_) {
-    std::array<Slice*, MultiGetContext::MAX_BATCH_SIZE> keys;
-    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {{true}};
-    autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
+  if (bloom_filter_ && no_range_del) {
+    bool whole_key =
+        !prefix_extractor_ || moptions_.memtable_whole_key_filtering;
+    std::array<Slice, MultiGetContext::MAX_BATCH_SIZE> bloom_keys;
+    std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match;
+    std::array<size_t, MultiGetContext::MAX_BATCH_SIZE> range_indexes;
     int num_keys = 0;
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-      if (!prefix_extractor_) {
-        keys[num_keys++] = &iter->ukey_without_ts;
+      if (whole_key) {
+        bloom_keys[num_keys] = iter->ukey_without_ts;
+        range_indexes[num_keys++] = iter.index();
       } else if (prefix_extractor_->InDomain(iter->ukey_without_ts)) {
-        prefixes.emplace_back(
-            prefix_extractor_->Transform(iter->ukey_without_ts));
-        keys[num_keys++] = &prefixes.back();
+        bloom_keys[num_keys] =
+            prefix_extractor_->Transform(iter->ukey_without_ts);
+        range_indexes[num_keys++] = iter.index();
+      } else {
+        // TODO: consider not counting these as Bloom hits to more closely
+        // match bloom_sst_hit_count
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
-    bloom_filter_->MayContain(num_keys, &keys[0], &may_match[0]);
-    int idx = 0;
-    for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-      if (prefix_extractor_ &&
-          !prefix_extractor_->InDomain(iter->ukey_without_ts)) {
-        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-        continue;
-      }
-      if (!may_match[idx]) {
-        temp_range.SkipKey(iter);
+    bloom_filter_->MayContain(num_keys, &bloom_keys[0], &may_match[0]);
+    for (int i = 0; i < num_keys; ++i) {
+      if (!may_match[i]) {
+        temp_range.SkipIndex(range_indexes[i]);
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
       } else {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
-      idx++;
     }
   }
   for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-    SequenceNumber seq = kMaxSequenceNumber;
     bool found_final_value{false};
     bool merge_in_progress = iter->s->IsMergeInProgress();
-    std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-        NewRangeTombstoneIterator(
-            read_options, GetInternalKeySeqno(iter->lkey->internal_key())));
-    if (range_del_iter != nullptr) {
+    if (!no_range_del) {
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          NewRangeTombstoneIteratorInternal(
+              read_options, GetInternalKeySeqno(iter->lkey->internal_key())));
       iter->max_covering_tombstone_seq = std::max(
           iter->max_covering_tombstone_seq,
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
     }
+    SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
                  callback, &iter->is_blob_index, iter->value->GetSelf(),
-                 iter->timestamp, iter->s, &(iter->merge_context), &seq,
+                 iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
                  &found_final_value, &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
@@ -1036,7 +1042,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
 Status MemTable::Update(SequenceNumber seq, const Slice& key,
                         const Slice& value,
-                        const ProtectionInfoKVOTS64* kv_prot_info) {
+                        const ProtectionInfoKVOS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
 
@@ -1081,7 +1087,7 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
                             VarintLength(value.size()) + value.size()));
           RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
           if (kv_prot_info != nullptr) {
-            ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
+            ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
             // `seq` is swallowed and `existing_seq` prevails.
             updated_kv_prot_info.UpdateS(seq, existing_seq);
             Slice encoded(entry, p + value.size() - entry);
@@ -1099,7 +1105,7 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
 
 Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
                                 const Slice& delta,
-                                const ProtectionInfoKVOTS64* kv_prot_info) {
+                                const ProtectionInfoKVOS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
@@ -1154,7 +1160,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
             UpdateFlushState();
             if (kv_prot_info != nullptr) {
-              ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
+              ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
               // `seq` is swallowed and `existing_seq` prevails.
               updated_kv_prot_info.UpdateS(seq, existing_seq);
               updated_kv_prot_info.UpdateV(delta,
@@ -1166,7 +1172,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
           } else if (status == UpdateStatus::UPDATED) {
             Status s;
             if (kv_prot_info != nullptr) {
-              ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
+              ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
               updated_kv_prot_info.UpdateV(delta, str_value);
               s = Add(seq, kTypeValue, key, Slice(str_value),
                       &updated_kv_prot_info);

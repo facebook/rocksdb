@@ -44,7 +44,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   PessimisticTransaction(const PessimisticTransaction&) = delete;
   void operator=(const PessimisticTransaction&) = delete;
 
-  virtual ~PessimisticTransaction();
+  ~PessimisticTransaction() override;
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
@@ -158,6 +158,14 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // microseconds according to Env->NowMicros())
   uint64_t expiration_time_;
 
+  // Timestamp used by the transaction to perform all GetForUpdate.
+  // Use this timestamp for conflict checking.
+  // read_timestamp_ == kMaxTxnTimestamp means this transaction has not
+  // performed any GetForUpdate. It is possible that the transaction has
+  // performed blind writes or Get, though.
+  TxnTimestamp read_timestamp_{kMaxTxnTimestamp};
+  TxnTimestamp commit_timestamp_{kMaxTxnTimestamp};
+
  private:
   friend class TransactionTest_ValidateSnapshotTest_Test;
   // Used to create unique ids for transactions.
@@ -213,9 +221,75 @@ class WriteCommittedTxn : public PessimisticTransaction {
   WriteCommittedTxn(const WriteCommittedTxn&) = delete;
   void operator=(const WriteCommittedTxn&) = delete;
 
-  virtual ~WriteCommittedTxn() {}
+  ~WriteCommittedTxn() override {}
+
+  using TransactionBaseImpl::GetForUpdate;
+  Status GetForUpdate(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      std::string* value, bool exclusive,
+                      const bool do_validate) override;
+  Status GetForUpdate(const ReadOptions& read_options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      PinnableSlice* pinnable_val, bool exclusive,
+                      const bool do_validate) override;
+
+  using TransactionBaseImpl::Put;
+  // `key` does NOT include timestamp even when it's enabled.
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& value, const bool assume_tracked = false) override;
+  Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
+             const SliceParts& value,
+             const bool assume_tracked = false) override;
+
+  using TransactionBaseImpl::PutUntracked;
+  Status PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& value) override;
+  Status PutUntracked(ColumnFamilyHandle* column_family, const SliceParts& key,
+                      const SliceParts& value) override;
+
+  using TransactionBaseImpl::Delete;
+  // `key` does NOT include timestamp even when it's enabled.
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key,
+                const bool assume_tracked = false) override;
+  Status Delete(ColumnFamilyHandle* column_family, const SliceParts& key,
+                const bool assume_tracked = false) override;
+
+  using TransactionBaseImpl::DeleteUntracked;
+  Status DeleteUntracked(ColumnFamilyHandle* column_family,
+                         const Slice& key) override;
+  Status DeleteUntracked(ColumnFamilyHandle* column_family,
+                         const SliceParts& key) override;
+
+  using TransactionBaseImpl::SingleDelete;
+  // `key` does NOT include timestamp even when it's enabled.
+  Status SingleDelete(ColumnFamilyHandle* column_family, const Slice& key,
+                      const bool assume_tracked = false) override;
+  Status SingleDelete(ColumnFamilyHandle* column_family, const SliceParts& key,
+                      const bool assume_tracked = false) override;
+
+  using TransactionBaseImpl::SingleDeleteUntracked;
+  Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
+                               const Slice& key) override;
+
+  using TransactionBaseImpl::Merge;
+  Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
+               const Slice& value, const bool assume_tracked = false) override;
+
+  Status SetReadTimestampForValidation(TxnTimestamp ts) override;
+  Status SetCommitTimestamp(TxnTimestamp ts) override;
 
  private:
+  template <typename TValue>
+  Status GetForUpdateImpl(const ReadOptions& read_options,
+                          ColumnFamilyHandle* column_family, const Slice& key,
+                          TValue* value, bool exclusive,
+                          const bool do_validate);
+
+  template <typename TKey, typename TOperation>
+  Status Operate(ColumnFamilyHandle* column_family, const TKey& key,
+                 const bool do_validate, const bool assume_tracked,
+                 TOperation&& operation);
+
   Status PrepareInternal() override;
 
   Status CommitWithoutPrepareInternal() override;
@@ -225,6 +299,12 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status CommitInternal() override;
 
   Status RollbackInternal() override;
+
+  // Column families that enable timestamps and whose data are written when
+  // indexing_enabled_ is false. If a key is written when indexing_enabled_ is
+  // true, then the corresponding column family is not added to cfs_with_ts
+  // even if it enables timestamp.
+  std::unordered_set<uint32_t> cfs_with_ts_tracked_when_indexing_disabled_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

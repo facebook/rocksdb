@@ -29,7 +29,8 @@ class CuckooTableBuilder: public TableBuilder {
       bool use_module_hash, bool identity_as_first_hash,
       uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t),
       uint32_t column_family_id, const std::string& column_family_name,
-      const std::string& db_id = "", const std::string& db_session_id = "");
+      const std::string& db_id = "", const std::string& db_session_id = "",
+      uint64_t file_number = 0);
   // No copying allowed
   CuckooTableBuilder(const CuckooTableBuilder&) = delete;
   void operator=(const CuckooTableBuilder&) = delete;
@@ -84,7 +85,7 @@ class CuckooTableBuilder: public TableBuilder {
     // We assume number of items is <= 2^32.
     uint32_t make_space_for_key_call_id;
   };
-  static const uint32_t kMaxVectorIdx = port::kMaxInt32;
+  static const uint32_t kMaxVectorIdx = std::numeric_limits<int32_t>::max();
 
   bool MakeSpaceForKey(const autovector<uint64_t>& hash_vals,
                        const uint32_t call_id,

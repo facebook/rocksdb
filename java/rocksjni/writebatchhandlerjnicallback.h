@@ -48,6 +48,7 @@ class WriteBatchHandlerJniCallback : public JniCallback, public WriteBatch::Hand
     Status MarkNoop(bool empty_batch);
     Status MarkRollback(const Slice& xid);
     Status MarkCommit(const Slice& xid);
+    Status MarkCommitWithTimestamp(const Slice& xid, const Slice& commit_ts);
     bool Continue();
 
  private:
@@ -69,6 +70,7 @@ class WriteBatchHandlerJniCallback : public JniCallback, public WriteBatch::Hand
     jmethodID m_jMarkNoopMethodId;
     jmethodID m_jMarkRollbackMethodId;
     jmethodID m_jMarkCommitMethodId;
+    jmethodID m_jMarkCommitWithTimestampMethodId;
     jmethodID m_jContinueMethodId;
     /**
      * @return A pointer to a ROCKSDB_NAMESPACE::Status or nullptr if an

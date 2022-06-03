@@ -21,38 +21,48 @@ LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 GLIBC_INCLUDE="$GLIBC_BASE/include"
 GLIBC_LIBS=" -L $GLIBC_BASE/lib"
 
-# snappy
-SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
-if test -z $PIC_BUILD; then
-  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy.a"
-else
-  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy_pic.a"
-fi
-CFLAGS+=" -DSNAPPY"
-
-if test -z $PIC_BUILD; then
-  # location of zlib headers and libraries
-  ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
-  ZLIB_LIBS=" $ZLIB_BASE/lib/libz.a"
-  CFLAGS+=" -DZLIB"
-
-  # location of bzip headers and libraries
-  BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
-  BZIP_LIBS=" $BZIP2_BASE/lib/libbz2.a"
-  CFLAGS+=" -DBZIP2"
-
-  LZ4_INCLUDE=" -I $LZ4_BASE/include/"
-  LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
-  CFLAGS+=" -DLZ4"
+if ! test $ROCKSDB_DISABLE_SNAPPY; then
+  # snappy
+  SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
+  if test -z $PIC_BUILD; then
+    SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy.a"
+  else
+    SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy_pic.a"
+  fi
+  CFLAGS+=" -DSNAPPY"
 fi
 
-ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
 if test -z $PIC_BUILD; then
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
-else
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd_pic.a"
+  if ! test $ROCKSDB_DISABLE_ZLIB; then
+    # location of zlib headers and libraries
+    ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
+    ZLIB_LIBS=" $ZLIB_BASE/lib/libz.a"
+    CFLAGS+=" -DZLIB"
+  fi
+
+  if ! test $ROCKSDB_DISABLE_BZIP; then
+    # location of bzip headers and libraries
+    BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
+    BZIP_LIBS=" $BZIP2_BASE/lib/libbz2.a"
+    CFLAGS+=" -DBZIP2"
+  fi
+
+  if ! test $ROCKSDB_DISABLE_LZ4; then
+    LZ4_INCLUDE=" -I $LZ4_BASE/include/"
+    LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
+    CFLAGS+=" -DLZ4"
+  fi
 fi
-CFLAGS+=" -DZSTD -DZSTD_STATIC_LINKING_ONLY"
+
+if ! test $ROCKSDB_DISABLE_ZSTD; then
+  ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
+  if test -z $PIC_BUILD; then
+    ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
+  else
+    ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd_pic.a"
+  fi
+  CFLAGS+=" -DZSTD -DZSTD_STATIC_LINKING_ONLY"
+fi
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
@@ -137,7 +147,7 @@ else
 fi
 
 CFLAGS+=" $DEPS_INCLUDE"
-CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DROCKSDB_SUPPORT_THREAD_LOCAL -DHAVE_SSE42"
+CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DHAVE_SSE42"
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS"
@@ -161,7 +171,5 @@ if test -z $PIC_BUILD; then
 else
   LUA_LIB=" $LUA_PATH/lib/liblua_pic.a"
 fi
-
-USE_FOLLY_DISTRIBUTED_MUTEX=1
 
 export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB

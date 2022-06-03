@@ -13,12 +13,18 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "options/cf_options.h"
 #include "port/stack_trace.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/perf_level.h"
 #include "rocksdb/table.h"
+#include "table/block_based/block.h"
+#include "table/format.h"
+#include "table/meta_blocks.h"
+#include "table/table_builder.h"
+#include "test_util/mock_time_env.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -27,7 +33,26 @@ namespace ROCKSDB_NAMESPACE {
 class DBPropertiesTest : public DBTestBase {
  public:
   DBPropertiesTest()
-      : DBTestBase("/db_properties_test", /*env_do_fsync=*/false) {}
+      : DBTestBase("db_properties_test", /*env_do_fsync=*/false) {}
+
+  void AssertDbStats(const std::map<std::string, std::string>& db_stats,
+                     double expected_uptime, int expected_user_bytes_written,
+                     int expected_wal_bytes_written,
+                     int expected_user_writes_by_self,
+                     int expected_user_writes_with_wal) {
+    ASSERT_EQ(std::to_string(expected_uptime), db_stats.at("db.uptime"));
+    ASSERT_EQ(std::to_string(expected_wal_bytes_written),
+              db_stats.at("db.wal_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.wal_syncs"));
+    ASSERT_EQ(std::to_string(expected_user_bytes_written),
+              db_stats.at("db.user_bytes_written"));
+    ASSERT_EQ("0", db_stats.at("db.user_writes_by_other"));
+    ASSERT_EQ(std::to_string(expected_user_writes_by_self),
+              db_stats.at("db.user_writes_by_self"));
+    ASSERT_EQ(std::to_string(expected_user_writes_with_wal),
+              db_stats.at("db.user_writes_with_wal"));
+    ASSERT_EQ("0", db_stats.at("db.user_write_stall_micros"));
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -213,7 +238,7 @@ void VerifySimilar(uint64_t a, uint64_t b, double bias) {
 
 void VerifyTableProperties(
     const TableProperties& base_tp, const TableProperties& new_tp,
-    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.15 : 0.1,
+    double filter_size_bias = CACHE_LINE_SIZE >= 256 ? 0.18 : 0.1,
     double index_size_bias = 0.1, double data_size_bias = 0.1,
     double num_data_blocks_bias = 0.05) {
   VerifySimilar(base_tp.data_size, new_tp.data_size, data_size_bias);
@@ -317,7 +342,7 @@ TEST_F(DBPropertiesTest, ValidateSampleNumber) {
 
 TEST_F(DBPropertiesTest, AggregatedTableProperties) {
   for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
-    const int kDeletionsPerTable = 5;
+    const int kDeletionsPerTable = 0;
     const int kMergeOperandsPerTable = 15;
     const int kRangeDeletionsPerTable = 5;
     const int kPutsPerTable = 100;
@@ -329,7 +354,6 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     options.level0_file_num_compaction_trigger = 8;
     options.compression = kNoCompression;
     options.create_if_missing = true;
-    options.preserve_deletes = true;
     options.merge_operator.reset(new TestPutOperator());
 
     BlockBasedTableOptions table_options;
@@ -510,7 +534,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
 TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   const int kTableCount = 100;
-  const int kDeletionsPerTable = 2;
+  const int kDeletionsPerTable = 0;
   const int kMergeOperandsPerTable = 2;
   const int kRangeDeletionsPerTable = 2;
   const int kPutsPerTable = 10;
@@ -529,7 +553,6 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   options.max_bytes_for_level_multiplier = 2;
   // This ensures there no compaction happening when we call GetProperty().
   options.disable_auto_compactions = true;
-  options.preserve_deletes = true;
   options.merge_operator.reset(new TestPutOperator());
 
   BlockBasedTableOptions table_options;
@@ -570,9 +593,9 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     ResetTableProperties(&sum_tp);
     for (int level = 0; level < kMaxLevel; ++level) {
-      db_->GetProperty(
-          DB::Properties::kAggregatedTablePropertiesAtLevel + ToString(level),
-          &level_tp_strings[level]);
+      db_->GetProperty(DB::Properties::kAggregatedTablePropertiesAtLevel +
+                           std::to_string(level),
+                       &level_tp_strings[level]);
       ParseTablePropertiesString(level_tp_strings[level], &level_tps[level]);
       sum_tp.data_size += level_tps[level].data_size;
       sum_tp.index_size += level_tps[level].index_size;
@@ -607,7 +630,8 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
           value_is_delta_encoded);
       // Gives larger bias here as index block size, filter block size,
       // and data block size become much harder to estimate in this test.
-      VerifyTableProperties(expected_tp, tp, 0.5, 0.4, 0.4, 0.25);
+      VerifyTableProperties(expected_tp, tp, CACHE_LINE_SIZE >= 256 ? 0.6 : 0.5,
+                            0.5, 0.5, 0.25);
     }
   }
 }
@@ -1048,10 +1072,16 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   const int kNumEntriesPerFile = 1000;
 
   Options options = CurrentOptions();
-  options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
-  options.num_levels = 2;
+  options.num_levels = 3;
   Reopen(options);
+
+  ASSERT_OK(db_->SetOptions(
+      {{"compression_per_level", "kNoCompression:kSnappyCompression"}}));
+  auto opts = db_->GetOptions();
+  ASSERT_EQ(opts.compression_per_level.size(), 2);
+  ASSERT_EQ(opts.compression_per_level[0], kNoCompression);
+  ASSERT_EQ(opts.compression_per_level[1], kSnappyCompression);
 
   // compression ratio is -1.0 when no open files at level
   ASSERT_EQ(CompressionRatioAtLevel(0), -1.0);
@@ -1061,7 +1091,7 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
     for (int j = 0; j < kNumEntriesPerFile; ++j) {
       // Put common data ("key") at end to prevent delta encoding from
       // compressing the key effectively
-      std::string key = ToString(i) + ToString(j) + "key";
+      std::string key = std::to_string(i) + std::to_string(j) + "key";
       ASSERT_OK(dbfull()->Put(WriteOptions(), key, kVal));
     }
     ASSERT_OK(Flush());
@@ -1155,7 +1185,7 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
 
   Status Finish(UserCollectedProperties* properties) override {
     *properties =
-        UserCollectedProperties{{"num_delete", ToString(num_deletes_)}};
+        UserCollectedProperties{{"num_delete", std::to_string(num_deletes_)}};
     return Status::OK();
   }
 
@@ -1185,7 +1215,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
 
   Status Finish(UserCollectedProperties* properties) override {
     (*properties)[kNumSampledBlocksPropertyName] =
-        ToString(num_sampled_blocks_);
+        std::to_string(num_sampled_blocks_);
     return Status::OK();
   }
 
@@ -1205,7 +1235,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
 
   UserCollectedProperties GetReadableProperties() const override {
     return UserCollectedProperties{
-        {kNumSampledBlocksPropertyName, ToString(num_sampled_blocks_)},
+        {kNumSampledBlocksPropertyName, std::to_string(num_sampled_blocks_)},
     };
   }
 
@@ -1242,7 +1272,8 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), ToString(table * 100 + i), "val"));
+      ASSERT_OK(
+          db_->Put(WriteOptions(), std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
@@ -1282,7 +1313,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Create 2 files
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(1, ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(1, std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush(1));
   }
@@ -1292,7 +1323,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Trigger automatic compactions.
   for (int table = 0; table < 3; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(1, ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(1, std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush(1));
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -1309,7 +1340,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Create 4 tables in default column family
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
   }
@@ -1319,7 +1350,7 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Trigger automatic compactions.
   for (int table = 0; table < 3; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
+      ASSERT_OK(Put(std::to_string(table * 100 + i), "val"));
     }
     ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -1515,7 +1546,7 @@ TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
                   user_props.end());
       ASSERT_EQ(user_props.at(BlockCountingTablePropertiesCollector::
                                   kNumSampledBlocksPropertyName),
-                ToString(sample_for_compression ? 1 : 0));
+                std::to_string(sample_for_compression ? 1 : 0));
     }
   }
 }
@@ -1626,6 +1657,7 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
 
   options.compaction_style = kCompactionStyleFIFO;
   options.ttl = 300;
+  options.max_open_files = -1;
   options.compaction_options_fifo.allow_compaction = false;
   DestroyAndReopen(options);
 
@@ -1711,11 +1743,11 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   Reopen(options);
 
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put("key" + ToString(i), std::string(1000, 'v')));
+    ASSERT_OK(Put("key" + std::to_string(i), std::string(1000, 'v')));
   }
   ASSERT_OK(Flush());
   for (int i = 0; i < 5; i++) {
-    ASSERT_OK(Delete("key" + ToString(i)));
+    ASSERT_OK(Delete("key" + std::to_string(i)));
   }
   ASSERT_OK(Flush());
   uint64_t sst_size;
@@ -1894,7 +1926,195 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   ASSERT_EQ(0, value);
 }
 
+TEST_F(DBPropertiesTest, GetMapPropertyDbStats) {
+  auto mock_clock = std::make_shared<MockSystemClock>(env_->GetSystemClock());
+  CompositeEnvWrapper env(env_, mock_clock);
+
+  Options opts = CurrentOptions();
+  opts.env = &env;
+  Reopen(opts);
+
+  {
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 0.0 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  {
+    mock_clock->SleepForMicroseconds(1500000);
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  0 /* expected_user_bytes_written */,
+                  0 /* expected_wal_bytes_written */,
+                  0 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  int expected_user_bytes_written = 0;
+  {
+    // Write with WAL disabled.
+    WriteOptions write_opts;
+    write_opts.disableWAL = true;
+
+    WriteBatch batch;
+    ASSERT_OK(batch.Put("key", "val"));
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
+
+    ASSERT_OK(db_->Write(write_opts, &batch));
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written,
+                  0 /* expected_wal_bytes_written */,
+                  1 /* expected_user_writes_by_self */,
+                  0 /* expected_user_writes_with_wal */);
+  }
+
+  int expected_wal_bytes_written = 0;
+  {
+    // Write with WAL enabled.
+    WriteBatch batch;
+    ASSERT_OK(batch.Delete("key"));
+    expected_user_bytes_written += static_cast<int>(batch.GetDataSize());
+    expected_wal_bytes_written += static_cast<int>(batch.GetDataSize());
+
+    ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+    std::map<std::string, std::string> db_stats;
+    ASSERT_TRUE(db_->GetMapProperty(DB::Properties::kDBStats, &db_stats));
+    AssertDbStats(db_stats, 1.5 /* expected_uptime */,
+                  expected_user_bytes_written, expected_wal_bytes_written,
+                  2 /* expected_user_writes_by_self */,
+                  1 /* expected_user_writes_with_wal */);
+  }
+
+  Close();
+}
+
+TEST_F(DBPropertiesTest, GetMapPropertyBlockCacheEntryStats) {
+  // Currently only verifies the expected properties are present
+  std::map<std::string, std::string> values;
+  ASSERT_TRUE(
+      db_->GetMapProperty(DB::Properties::kBlockCacheEntryStats, &values));
+
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheId()) !=
+              values.end());
+  ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::CacheCapacityBytes()) !=
+              values.end());
+  ASSERT_TRUE(
+      values.find(
+          BlockCacheEntryStatsMapKeys::LastCollectionDurationSeconds()) !=
+      values.end());
+  ASSERT_TRUE(
+      values.find(BlockCacheEntryStatsMapKeys::LastCollectionAgeSeconds()) !=
+      values.end());
+  for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
+    CacheEntryRole role = static_cast<CacheEntryRole>(i);
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::EntryCount(role)) !=
+                values.end());
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::UsedBytes(role)) !=
+                values.end());
+    ASSERT_TRUE(values.find(BlockCacheEntryStatsMapKeys::UsedPercent(role)) !=
+                values.end());
+  }
+
+  // There should be no extra values in the map.
+  ASSERT_EQ(3 * kNumCacheEntryRoles + 4, values.size());
+}
+
+namespace {
+std::string PopMetaIndexKey(InternalIterator* meta_iter) {
+  Status s = meta_iter->status();
+  if (!s.ok()) {
+    return s.ToString();
+  } else if (meta_iter->Valid()) {
+    std::string rv = meta_iter->key().ToString();
+    meta_iter->Next();
+    return rv;
+  } else {
+    return "NOT_FOUND";
+  }
+}
+
+}  // namespace
+
+TEST_F(DBPropertiesTest, TableMetaIndexKeys) {
+  // This is to detect unexpected churn in metaindex block keys. This is more
+  // of a "table test" but table_test.cc doesn't depend on db_test_util.h and
+  // we need ChangeOptions() for broad coverage.
+  constexpr int kKeyCount = 100;
+  do {
+    Options options;
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    // Create an SST file
+    for (int key = 0; key < kKeyCount; key++) {
+      ASSERT_OK(Put(Key(key), "val"));
+    }
+    ASSERT_OK(Flush());
+
+    // Find its file number
+    std::vector<LiveFileMetaData> files;
+    db_->GetLiveFilesMetaData(&files);
+    // 1 SST file
+    ASSERT_EQ(1, files.size());
+
+    // Open it for inspection
+    std::string sst_file =
+        files[0].directory + "/" + files[0].relative_filename;
+    std::unique_ptr<FSRandomAccessFile> f;
+    ASSERT_OK(env_->GetFileSystem()->NewRandomAccessFile(
+        sst_file, FileOptions(), &f, nullptr));
+    std::unique_ptr<RandomAccessFileReader> r;
+    r.reset(new RandomAccessFileReader(std::move(f), sst_file));
+    uint64_t file_size = 0;
+    ASSERT_OK(env_->GetFileSize(sst_file, &file_size));
+
+    // Read metaindex
+    BlockContents bc;
+    ASSERT_OK(ReadMetaIndexBlockInFile(r.get(), file_size, 0U,
+                                       ImmutableOptions(options), &bc));
+    Block metaindex_block(std::move(bc));
+    std::unique_ptr<InternalIterator> meta_iter;
+    meta_iter.reset(metaindex_block.NewMetaIterator());
+    meta_iter->SeekToFirst();
+
+    if (strcmp(options.table_factory->Name(),
+               TableFactory::kBlockBasedTableName()) == 0) {
+      auto bbto = options.table_factory->GetOptions<BlockBasedTableOptions>();
+      if (bbto->filter_policy) {
+        if (bbto->partition_filters) {
+          // The key names are intentionally hard-coded here to detect
+          // accidental regression on compatibility.
+          EXPECT_EQ("partitionedfilter.rocksdb.BuiltinBloomFilter",
+                    PopMetaIndexKey(meta_iter.get()));
+        } else {
+          EXPECT_EQ("fullfilter.rocksdb.BuiltinBloomFilter",
+                    PopMetaIndexKey(meta_iter.get()));
+        }
+      }
+      if (bbto->index_type == BlockBasedTableOptions::kHashSearch) {
+        EXPECT_EQ("rocksdb.hashindex.metadata",
+                  PopMetaIndexKey(meta_iter.get()));
+        EXPECT_EQ("rocksdb.hashindex.prefixes",
+                  PopMetaIndexKey(meta_iter.get()));
+      }
+    }
+    EXPECT_EQ("rocksdb.properties", PopMetaIndexKey(meta_iter.get()));
+    EXPECT_EQ("NOT_FOUND", PopMetaIndexKey(meta_iter.get()));
+  } while (ChangeOptions());
+}
+
 #endif  // ROCKSDB_LITE
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
