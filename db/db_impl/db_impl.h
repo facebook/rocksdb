@@ -1456,7 +1456,7 @@ class DBImpl : public DB {
 
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family, const Slice& ts,
-                            bool ts_for_read = true) const;
+                            bool ts_for_read) const;
 
   // recovery_ctx stores the context about version edits and
   // LogAndApplyForRecovery persist all those edits to new Manifest after
@@ -2582,8 +2582,10 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
     std::string current_ts_low = cfd->GetFullHistoryTsLow();
     if (!current_ts_low.empty() &&
         ucmp->CompareTimestamp(ts, current_ts_low) < 0) {
-      return Status::InvalidArgument(
-          "Read timestamp is smaller than full_history_ts_low");
+      std::stringstream oss;
+      oss << "Read timestamp: " << ts.ToString()
+          << " is smaller than full_history_ts_low: " << current_ts_low;
+      return Status::InvalidArgument(oss.str());
     }
   }
   return Status::OK();
