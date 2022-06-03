@@ -3843,7 +3843,7 @@ jlong Java_org_rocksdb_Options_blobCompactionReadaheadSize(JNIEnv*, jobject,
 /*
  * Class:     org_rocksdb_Options
  * Method:    setBlobFileStartingLevel
- * Signature: (JJ)V
+ * Signature: (JI)V
  */
 void Java_org_rocksdb_Options_setBlobFileStartingLevel(
     JNIEnv*, jobject, jlong jhandle, jint jblob_file_starting_level) {
@@ -3854,7 +3854,7 @@ void Java_org_rocksdb_Options_setBlobFileStartingLevel(
 /*
  * Class:     org_rocksdb_Options
  * Method:    blobFileStartingLevel
- * Signature: (J)J
+ * Signature: (J)I
  */
 jint Java_org_rocksdb_Options_blobFileStartingLevel(JNIEnv*, jobject,
                                                     jlong jhandle) {
