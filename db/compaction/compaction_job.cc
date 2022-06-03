@@ -1454,7 +1454,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::vector<std::string> blob_file_paths;
 
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
-      mutable_cf_options->enable_blob_files
+      (mutable_cf_options->enable_blob_files &&
+       sub_compact->compaction->output_level() >=
+           mutable_cf_options->blob_file_starting_level)
           ? new BlobFileBuilder(
                 versions_, fs_.get(),
                 sub_compact->compaction->immutable_options(),

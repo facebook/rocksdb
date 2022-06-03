@@ -1857,6 +1857,9 @@ int main(int argc, char** argv) {
     CheckCondition(262144 ==
                    rocksdb_options_get_blob_compaction_readahead_size(o));
 
+    rocksdb_options_set_blob_file_starting_level(o, 5);
+    CheckCondition(5 == rocksdb_options_get_blob_file_starting_level(o));
+
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
     copy = rocksdb_options_create_copy(o);

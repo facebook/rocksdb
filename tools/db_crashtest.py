@@ -174,7 +174,9 @@ default_params = {
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
-    "wal_compression": lambda: random.choice(["none", "zstd"]),
+    # Temporarily disable wal compression because it causes backup/checkpoint to miss
+    # compressed WAL files.
+    "wal_compression": "none",
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": "",
 }
@@ -339,6 +341,7 @@ blob_params = {
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
+    "blob_file_starting_level": lambda: random.choice([0] * 4 + [1] * 3 + [2] * 2 + [3]),
 }
 
 ts_params = {

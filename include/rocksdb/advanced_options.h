@@ -938,6 +938,21 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   uint64_t blob_compaction_readahead_size = 0;
 
+  // Enable blob files starting from a certain LSM tree level.
+  //
+  // For certain use cases that have a mix of short-lived and long-lived values,
+  // it might make sense to support extracting large values only during
+  // compactions whose output level is greater than or equal to a specified LSM
+  // tree level (e.g. compactions into L1/L2/... or above). This could reduce
+  // the space amplification caused by large values that are turned into garbage
+  // shortly after being written at the price of some write amplification
+  // incurred by long-lived values whose extraction to blob files is delayed.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  int blob_file_starting_level = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

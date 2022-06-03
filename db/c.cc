@@ -3039,6 +3039,15 @@ uint64_t rocksdb_options_get_blob_compaction_readahead_size(
   return opt->rep.blob_compaction_readahead_size;
 }
 
+void rocksdb_options_set_blob_file_starting_level(rocksdb_options_t* opt,
+                                                  int val) {
+  opt->rep.blob_file_starting_level = val;
+}
+
+int rocksdb_options_get_blob_file_starting_level(rocksdb_options_t* opt) {
+  return opt->rep.blob_file_starting_level;
+}
+
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
   opt->rep.num_levels = n;
 }

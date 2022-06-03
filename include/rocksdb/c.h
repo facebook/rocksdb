@@ -1259,6 +1259,11 @@ rocksdb_options_set_blob_compaction_readahead_size(rocksdb_options_t* opt,
 extern ROCKSDB_LIBRARY_API uint64_t
 rocksdb_options_get_blob_compaction_readahead_size(rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_file_starting_level(
+    rocksdb_options_t* opt, int val);
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_blob_file_starting_level(
+    rocksdb_options_t* opt);
+
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);

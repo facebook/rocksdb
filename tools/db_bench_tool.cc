@@ -37,6 +37,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
@@ -567,8 +568,7 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
-DEFINE_bool(use_clock_cache, false,
-            "Replace default LRU block cache with clock cache.");
+DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
@@ -1068,6 +1068,11 @@ DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_compaction_readahead_size,
               "[Integrated BlobDB] Compaction readahead for blob files.");
+
+DEFINE_int32(
+    blob_file_starting_level,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
+    "[Integrated BlobDB] The starting level for blob files.");
 
 #ifndef ROCKSDB_LITE
 
@@ -2931,7 +2936,7 @@ class Benchmark {
     if (capacity <= 0) {
       return nullptr;
     }
-    if (FLAGS_use_clock_cache) {
+    if (FLAGS_cache_type == "clock_cache") {
       auto cache = NewClockCache(static_cast<size_t>(capacity),
                                  FLAGS_cache_numshardbits);
       if (!cache) {
@@ -2939,7 +2944,10 @@ class Benchmark {
         exit(1);
       }
       return cache;
-    } else {
+    } else if (FLAGS_cache_type == "fast_lru_cache") {
+      return NewFastLRUCache(static_cast<size_t>(capacity),
+                             FLAGS_cache_numshardbits);
+    } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
@@ -2988,6 +2996,9 @@ class Benchmark {
       }
 
       return NewLRUCache(opts);
+    } else {
+      fprintf(stderr, "Cache type not supported.");
+      exit(1);
     }
   }
 
@@ -4441,6 +4452,7 @@ class Benchmark {
         FLAGS_blob_garbage_collection_force_threshold;
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
+    options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {

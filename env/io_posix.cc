@@ -1661,6 +1661,8 @@ IOStatus PosixDirectory::Fsync(const IOOptions& opts, IODebugContext* dbg) {
   return FsyncWithDirOptions(opts, dbg, DirFsyncOptions());
 }
 
+// Users who want the file entries synced in Directory project must call a
+// Fsync or FsyncWithDirOptions function before Close
 IOStatus PosixDirectory::Close(const IOOptions& /*opts*/,
                                IODebugContext* /*dbg*/) {
   IOStatus s = IOStatus::OK();
