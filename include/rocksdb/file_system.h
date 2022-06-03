@@ -53,6 +53,7 @@ struct ConfigOptions;
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
 
+// DEPRECATED
 // Priority of an IO request. This is a hint and does not guarantee any
 // particular QoS.
 // IO_LOW - Typically background reads/writes such as compaction/flush
@@ -86,8 +87,15 @@ struct IOOptions {
   // Timeout for the operation in microseconds
   std::chrono::microseconds timeout;
 
+  // DEPRECATED
   // Priority - high or low
   IOPriority prio;
+
+  // Priority used to charge rate limiter configured in file system level (if
+  // any)
+  // Limitation: right now RocksDB internal does not consider this
+  // rate_limiter_priority
+  Env::IOPriority rate_limiter_priority;
 
   // Type of data being read/written
   IOType type;
@@ -109,6 +117,7 @@ struct IOOptions {
   explicit IOOptions(bool force_dir_fsync_)
       : timeout(std::chrono::microseconds::zero()),
         prio(IOPriority::kIOLow),
+        rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
         force_dir_fsync(force_dir_fsync_) {}
 };
@@ -220,6 +229,11 @@ struct IODebugContext {
     return ss.str();
   }
 };
+
+// A function pointer type for custom destruction of void pointer passed to
+// ReadAsync API. RocksDB/caller is responsible for deleting the void pointer
+// allocated by FS in ReadAsync API.
+using IOHandleDeleter = std::function<void(void*)>;
 
 // The FileSystem, FSSequentialFile, FSRandomAccessFile, FSWritableFile,
 // FSRandomRWFileclass, and FSDIrectory classes define the interface between
@@ -640,6 +654,33 @@ class FileSystem : public Customizable {
                                const IOOptions& options, bool* is_dir,
                                IODebugContext* /*dgb*/) = 0;
 
+  // EXPERIMENTAL
+  // Poll for completion of read IO requests. The Poll() method should call the
+  // callback functions to indicate completion of read requests.
+  // Underlying FS is required to support Poll API. Poll implementation should
+  // ensure that the callback gets called at IO completion, and return only
+  // after the callback has been called.
+  // If Poll returns partial results for any reads, its caller reponsibility to
+  // call Read or ReadAsync in order to get the remaining bytes.
+  //
+  // Default implementation is to return IOStatus::OK.
+
+  virtual IOStatus Poll(std::vector<void*>& /*io_handles*/,
+                        size_t /*min_completions*/) {
+    return IOStatus::OK();
+  }
+
+  // EXPERIMENTAL
+  // Abort the read IO requests submitted asynchronously. Underlying FS is
+  // required to support AbortIO API. AbortIO implementation should ensure that
+  // the all the read requests related to io_handles should be aborted and
+  // it shouldn't call the callback for these io_handles.
+  //
+  // Default implementation is to return IOStatus::OK.
+  virtual IOStatus AbortIO(std::vector<void*>& /*io_handles*/) {
+    return IOStatus::OK();
+  }
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  private:
@@ -712,24 +753,36 @@ class FSSequentialFile {
   // SequentialFileWrapper too.
 };
 
-// A read IO request structure for use in MultiRead
+// A read IO request structure for use in MultiRead and asynchronous Read APIs.
 struct FSReadRequest {
-  // File offset in bytes
+  // Input parameter that represents the file offset in bytes.
   uint64_t offset;
 
-  // Length to read in bytes. `result` only returns fewer bytes if end of file
-  // is hit (or `status` is not OK).
+  // Input parameter that represents the length to read in bytes. `result` only
+  // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
   // A buffer that MultiRead()  can optionally place data in. It can
-  // ignore this and allocate its own buffer
+  // ignore this and allocate its own buffer.
+  // The lifecycle of scratch will be until IO is completed.
+  //
+  // In case of asynchronous reads, its an output parameter and it will be
+  // maintained until callback has been called. Scratch is allocated by RocksDB
+  // and will be passed to underlying FileSystem.
   char* scratch;
 
   // Output parameter set by MultiRead() to point to the data buffer, and
   // the number of valid bytes
+  //
+  // In case of asynchronous reads, this output parameter is set by Async Read
+  // APIs to point to the data buffer, and
+  // the number of valid bytes.
+  // Slice result should point to scratch i.e the data should
+  // always be read into scratch.
   Slice result;
 
-  // Status of read
+  // Output parameter set by underlying FileSystem that represents status of
+  // read request.
   IOStatus status;
 };
 
@@ -823,6 +876,39 @@ class FSRandomAccessFile {
   // If the system is not caching the file contents, then this is a noop.
   virtual IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) {
     return IOStatus::NotSupported("InvalidateCache not supported.");
+  }
+
+  // EXPERIMENTAL
+  // This API reads the requested data in FSReadRequest asynchronously. This is
+  // a asynchronous call, i.e it should return after submitting the request.
+  //
+  // When the read request is completed, callback function specified in cb
+  // should be called with arguments cb_arg and the result populated in
+  // FSReadRequest with result and status fileds updated by FileSystem.
+  // cb_arg should be used by the callback to track the original request
+  // submitted.
+  //
+  // This API should also populate io_handle which should be used by
+  // underlying FileSystem to store the context in order to distinguish the read
+  // requests at their side and provide the custom deletion function in del_fn.
+  // RocksDB guarantees that the del_fn for io_handle will be called after
+  // receiving the callback. Furthermore, RocksDB guarantees that if it calls
+  // the Poll API for this io_handle, del_fn will be called after the Poll
+  // returns. RocksDB is responsible for managing the lifetime of io_handle.
+  //
+  // req contains the request offset and size passed as input parameter of read
+  // request and result and status fields are output parameter set by underlying
+  // FileSystem. The data should always be read into scratch field.
+  //
+  // Default implementation is to read the data synchronously.
+  virtual IOStatus ReadAsync(
+      FSReadRequest& req, const IOOptions& opts,
+      std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
+      void** /*io_handle*/, IOHandleDeleter* /*del_fn*/, IODebugContext* dbg) {
+    req.status =
+        Read(req.offset, req.len, opts, &(req.result), req.scratch, dbg);
+    cb(req, cb_arg);
+    return IOStatus::OK();
   }
 
   // EXPERIMENTAL
@@ -966,6 +1052,17 @@ class FSWritableFile {
     write_hint_ = hint;
   }
 
+  /*
+   * If rate limiting is enabled, change the file-granularity priority used in
+   * rate-limiting writes.
+   *
+   * In the presence of finer-granularity priority such as
+   * `WriteOptions::rate_limiter_priority`, this file-granularity priority may
+   * be overridden by a non-Env::IO_TOTAL finer-granularity priority and used as
+   * a fallback for Env::IO_TOTAL finer-granularity priority.
+   *
+   * If rate limiting is not enabled, this call has no effect.
+   */
   virtual void SetIOPriority(Env::IOPriority pri) { io_priority_ = pri; }
 
   virtual Env::IOPriority GetIOPriority() { return io_priority_; }
@@ -1169,6 +1266,9 @@ class FSDirectory {
       const DirFsyncOptions& /*dir_fsync_options*/) {
     return Fsync(options, dbg);
   }
+
+  // Close directory
+  virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
@@ -1410,6 +1510,16 @@ class FileSystemWrapper : public FileSystem {
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
 #endif  // ROCKSDB_LITE
+
+  virtual IOStatus Poll(std::vector<void*>& io_handles,
+                        size_t min_completions) override {
+    return target_->Poll(io_handles, min_completions);
+  }
+
+  virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
+    return target_->AbortIO(io_handles);
+  }
+
  protected:
   std::shared_ptr<FileSystem> target_;
 };
@@ -1489,6 +1599,12 @@ class FSRandomAccessFileWrapper : public FSRandomAccessFile {
   }
   IOStatus InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
+  }
+  IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     std::function<void(const FSReadRequest&, void*)> cb,
+                     void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
+                     IODebugContext* dbg) override {
+    return target()->ReadAsync(req, opts, cb, cb_arg, io_handle, del_fn, dbg);
   }
   Temperature GetTemperature() const override {
     return target_->GetTemperature();
@@ -1696,6 +1812,10 @@ class FSDirectoryWrapper : public FSDirectory {
       const IOOptions& options, IODebugContext* dbg,
       const DirFsyncOptions& dir_fsync_options) override {
     return target_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
+  }
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    return target_->Close(options, dbg);
   }
 
   size_t GetUniqueId(char* id, size_t max_size) const override {

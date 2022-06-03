@@ -97,54 +97,6 @@ public interface WriteBatchInterface {
      * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
      *
      * @param key Key to delete within database
-     *
-     * @deprecated Use {@link #delete(byte[])}
-     * @throws RocksDBException thrown if error happens in underlying native library.
-     */
-    @Deprecated
-    void remove(byte[] key) throws RocksDBException;
-
-    /**
-     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
-     *
-     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-     * @param key Key to delete within database
-     *
-     * @deprecated Use {@link #delete(ColumnFamilyHandle, byte[])}
-     * @throws RocksDBException thrown if error happens in underlying native library.
-     */
-    @Deprecated
-    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws RocksDBException;
-
-    /**
-     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
-     *
-     * @param key Key to delete within database. It is using position and limit.
-     *     Supports direct buffer only.
-     *
-     * @deprecated Use {@link #delete(ByteBuffer)}
-     * @throws RocksDBException thrown if error happens in underlying native library.
-     */
-    @Deprecated void remove(final ByteBuffer key) throws RocksDBException;
-
-    /**
-     * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
-     *
-     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-     * @param key Key to delete within database. It is using position and limit.
-     *     Supports direct buffer only.
-     *
-     * @deprecated Use {@link #delete(ColumnFamilyHandle, ByteBuffer)}
-     * @throws RocksDBException thrown if error happens in underlying native library.
-     */
-    @Deprecated
-    void remove(ColumnFamilyHandle columnFamilyHandle, final ByteBuffer key)
-        throws RocksDBException;
-
-    /**
-     * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
-     *
-     * @param key Key to delete within database
      * @throws RocksDBException thrown if error happens in underlying native library.
      */
     void delete(byte[] key) throws RocksDBException;

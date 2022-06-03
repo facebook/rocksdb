@@ -323,7 +323,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
                              UncompressionDict::GetEmptyDict(), filter_block,
                              BlockType::kFilter, get_context, lookup_context,
                              /* for_compaction */ false, /* use_cache */ true,
-                             /* wait_for_cache */ true);
+                             /* wait_for_cache */ true, /* async_read */ false);
 
   return s;
 }
@@ -497,13 +497,15 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
-                                false /* Implicit autoreadahead */);
+                                false /* Implicit autoreadahead */,
+                                false /*async_io*/);
 
   IOOptions opts;
   s = rep->file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
-                                  static_cast<size_t>(prefetch_len));
+                                  static_cast<size_t>(prefetch_len),
+                                  ro.rate_limiter_priority);
   }
   if (!s.ok()) {
     return s;
@@ -518,8 +520,9 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     // filter blocks
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
-        /* wait */ true, &block, BlockType::kFilter, nullptr /* get_context */,
-        &lookup_context, nullptr /* contents */);
+        /* wait */ true, /* for_compaction */ false, &block, BlockType::kFilter,
+        nullptr /* get_context */, &lookup_context, nullptr /* contents */,
+        false);
     if (!s.ok()) {
       return s;
     }

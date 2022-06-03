@@ -67,6 +67,7 @@
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db.h"
+#include "utilities/fault_injection_fs.h"
 #include "utilities/merge_operators.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -107,6 +108,7 @@ DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
 DECLARE_int64(compressed_cache_size);
+DECLARE_int32(compressed_cache_numshardbits);
 DECLARE_int32(compaction_style);
 DECLARE_int32(num_levels);
 DECLARE_int32(level0_file_num_compaction_trigger);
@@ -115,6 +117,7 @@ DECLARE_int32(level0_stop_writes_trigger);
 DECLARE_int32(block_size);
 DECLARE_int32(format_version);
 DECLARE_int32(index_block_restart_interval);
+DECLARE_bool(disable_auto_compactions);
 DECLARE_int32(max_background_compactions);
 DECLARE_int32(num_bottom_pri_threads);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
@@ -133,10 +136,13 @@ DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
 DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
+DECLARE_bool(charge_compression_dictionary_building_buffer);
+DECLARE_bool(charge_filter_construction);
+DECLARE_bool(charge_table_reader);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
-DECLARE_bool(use_clock_cache);
+DECLARE_string(cache_type);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
@@ -164,6 +170,8 @@ DECLARE_bool(mock_direct_io);
 DECLARE_bool(statistics);
 DECLARE_bool(sync);
 DECLARE_bool(use_fsync);
+DECLARE_uint64(bytes_per_sync);
+DECLARE_uint64(wal_bytes_per_sync);
 DECLARE_int32(kill_random_test);
 DECLARE_string(kill_exclude_prefixes);
 DECLARE_bool(disable_wal);
@@ -175,6 +183,8 @@ DECLARE_double(max_bytes_for_level_multiplier);
 DECLARE_int32(range_deletion_width);
 DECLARE_uint64(rate_limiter_bytes_per_sec);
 DECLARE_bool(rate_limit_bg_reads);
+DECLARE_bool(rate_limit_user_ops);
+DECLARE_bool(rate_limit_auto_wal_flush);
 DECLARE_uint64(sst_file_manager_bytes_per_sec);
 DECLARE_uint64(sst_file_manager_bytes_per_truncate);
 DECLARE_bool(use_txn);
@@ -211,6 +221,7 @@ DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
+DECLARE_bool(compression_use_zstd_dict_trainer);
 DECLARE_string(checksum_type);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
@@ -255,6 +266,7 @@ DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);
 DECLARE_double(blob_garbage_collection_force_threshold);
 DECLARE_uint64(blob_compaction_readahead_size);
+DECLARE_int32(blob_file_starting_level);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -272,6 +284,18 @@ DECLARE_int32(secondary_cache_fault_one_in);
 
 DECLARE_int32(prepopulate_block_cache);
 
+DECLARE_bool(two_write_queues);
+#ifndef ROCKSDB_LITE
+DECLARE_bool(use_only_the_last_commit_time_batch_for_recovery);
+DECLARE_uint64(wp_snapshot_cache_bits);
+DECLARE_uint64(wp_commit_cache_bits);
+#endif  // !ROCKSDB_LITE
+
+DECLARE_bool(adaptive_readahead);
+DECLARE_bool(async_io);
+DECLARE_string(wal_compression);
+DECLARE_bool(verify_sst_unique_id_in_manifest);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
@@ -279,12 +303,7 @@ constexpr int kValueMaxLen = 100;
 // wrapped posix environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
-#ifndef NDEBUG
-namespace ROCKSDB_NAMESPACE {
-class FaultInjectionTestFS;
-}  // namespace ROCKSDB_NAMESPACE
 extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
-#endif
 
 extern enum ROCKSDB_NAMESPACE::CompressionType compression_type_e;
 extern enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e;

@@ -151,7 +151,7 @@ class DBIter final : public Iterator {
   }
   Slice key() const override {
     assert(valid_);
-    if (start_seqnum_ > 0 || timestamp_lb_) {
+    if (timestamp_lb_) {
       return saved_key_.GetInternalKey();
     } else {
       const Slice ukey_and_ts = saved_key_.GetUserKey();
@@ -371,9 +371,6 @@ class DBIter final : public Iterator {
   ROCKSDB_FIELD_UNUSED
 #endif
   ColumnFamilyData* cfd_;
-  // for diff snapshots we want the lower bound on the seqnum;
-  // if this value > 0 iterator will return internal keys
-  SequenceNumber start_seqnum_;
   const Slice* const timestamp_ub_;
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;

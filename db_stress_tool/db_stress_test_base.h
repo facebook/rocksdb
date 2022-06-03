@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+struct TransactionDBOptions;
 
 class StressTest {
  public:
@@ -29,7 +30,7 @@ class StressTest {
 
   bool BuildOptionsTable();
 
-  void InitDb();
+  void InitDb(SharedState*);
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
@@ -218,11 +219,16 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open();
+  void Open(SharedState* shared);
 
   void Reopen(ThreadState* thread);
 
-  void CheckAndSetOptionsForUserTimestamp();
+  virtual void RegisterAdditionalListeners() {}
+
+#ifndef ROCKSDB_LITE
+  virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
+                                   TransactionDBOptions& /*txn_db_opts*/) {}
+#endif
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
@@ -250,6 +256,50 @@ class StressTest {
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
   bool is_db_stopped_;
 };
+
+// Load options from OPTIONS file and populate `options`.
+extern bool InitializeOptionsFromFile(Options& options);
+
+// Initialize `options` using command line arguments.
+// When this function is called, `cache`, `block_cache_compressed`,
+// `filter_policy` have all been initialized. Therefore, we just pass them as
+// input arguments.
+extern void InitializeOptionsFromFlags(
+    const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<Cache>& block_cache_compressed,
+    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+
+// Initialize `options` on which `InitializeOptionsFromFile()` and
+// `InitializeOptionsFromFlags()` have both been called already.
+// There are two cases.
+// Case 1: OPTIONS file is not specified. Command line arguments have been used
+//         to initialize `options`. InitializeOptionsGeneral() will use
+//         `cache`, `block_cache_compressed` and `filter_policy` to initialize
+//         corresponding fields of `options`. InitializeOptionsGeneral() will
+//         also set up other fields of `options` so that stress test can run.
+//         Examples include `create_if_missing` and
+//         `create_missing_column_families`, etc.
+// Case 2: OPTIONS file is specified. It is possible that, after loading from
+//         the given OPTIONS files, some shared object fields are still not
+//         initialized because they are not set in the OPTIONS file. In this
+//         case, if command line arguments indicate that the user wants to set
+//         up such shared objects, e.g. block cache, compressed block cache,
+//         row cache, filter policy, then InitializeOptionsGeneral() will honor
+//         the user's choice, thus passing `cache`, `block_cache_compressed`,
+//         `filter_policy` as input arguments.
+//
+// InitializeOptionsGeneral() must not overwrite fields of `options` loaded
+// from OPTIONS file.
+extern void InitializeOptionsGeneral(
+    const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<Cache>& block_cache_compressed,
+    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+
+// If no OPTIONS file is specified, set up `options` so that we can test
+// user-defined timestamp which requires `-user_timestamp_size=8`.
+// This function also checks for known (currently) incompatible features with
+// user-defined timestamp.
+extern void CheckAndSetOptionsForUserTimestamp(Options& options);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

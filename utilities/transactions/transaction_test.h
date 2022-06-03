@@ -170,15 +170,14 @@ class TransactionTestBase : public ::testing::Test {
         txn_db_options.write_policy == WRITE_PREPARED;
     Status s = DBImpl::Open(options_copy, dbname, cfs, handles, &root_db,
                             use_seq_per_batch, use_batch_per_txn);
-    StackableDB* stackable_db = new StackableDB(root_db);
+    auto stackable_db = std::make_unique<StackableDB>(root_db);
     if (s.ok()) {
       assert(root_db != nullptr);
-      s = TransactionDB::WrapStackableDB(stackable_db, txn_db_options,
+      // If WrapStackableDB() returns non-ok, then stackable_db is already
+      // deleted within WrapStackableDB().
+      s = TransactionDB::WrapStackableDB(stackable_db.release(), txn_db_options,
                                          compaction_enabled_cf_indices,
                                          *handles, &db);
-    }
-    if (!s.ok()) {
-      delete stackable_db;
     }
     return s;
   }
@@ -521,6 +520,46 @@ class MySQLStyleTransactionTest
  protected:
   // Also emulate slow threads by addin artiftial delays
   const bool with_slow_threads_;
+};
+
+class WriteCommittedTxnWithTsTest
+    : public TransactionTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool, bool>> {
+ public:
+  WriteCommittedTxnWithTsTest()
+      : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            WRITE_COMMITTED, kOrderedWrite) {}
+  ~WriteCommittedTxnWithTsTest() override {
+    for (auto* h : handles_) {
+      delete h;
+    }
+  }
+
+  Status GetFromDb(ReadOptions read_opts, ColumnFamilyHandle* column_family,
+                   const Slice& key, TxnTimestamp ts, std::string* value) {
+    std::string ts_buf;
+    PutFixed64(&ts_buf, ts);
+    Slice ts_slc = ts_buf;
+    read_opts.timestamp = &ts_slc;
+    assert(db);
+    return db->Get(read_opts, column_family, key, value);
+  }
+
+  Transaction* NewTxn(WriteOptions write_opts, TransactionOptions txn_opts) {
+    assert(db);
+    auto* txn = db->BeginTransaction(write_opts, txn_opts);
+    assert(txn);
+    const bool enable_indexing = std::get<2>(GetParam());
+    if (enable_indexing) {
+      txn->EnableIndexing();
+    } else {
+      txn->DisableIndexing();
+    }
+    return txn;
+  }
+
+ protected:
+  std::vector<ColumnFamilyHandle*> handles_{};
 };
 
 }  // namespace ROCKSDB_NAMESPACE

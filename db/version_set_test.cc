@@ -18,6 +18,7 @@
 #include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
+#include "table/unique_id_impl.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -49,7 +50,7 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-        kDisableUserTimestamp);
+        kDisableUserTimestamp, kNullUniqueId64x2);
     files_.push_back(f);
   }
 
@@ -158,7 +159,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp);
+        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }
@@ -540,7 +541,131 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCEmpty) {
   ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
 }
 
-TEST_F(VersionStorageInfoTest, ForcedBlobGC) {
+TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
+  // Test the edge case when all blob files are part of the oldest batch.
+  // We have one L0 SST file #1, and four blob files #10, #11, #12, and #13.
+  // The oldest blob file used by SST #1 is blob file #10.
+
+  constexpr int level = 0;
+
+  constexpr uint64_t sst = 1;
+
+  constexpr uint64_t first_blob = 10;
+  constexpr uint64_t second_blob = 11;
+  constexpr uint64_t third_blob = 12;
+  constexpr uint64_t fourth_blob = 13;
+
+  {
+    constexpr char smallest[] = "bar1";
+    constexpr char largest[] = "foo1";
+    constexpr uint64_t file_size = 1000;
+
+    Add(level, sst, smallest, largest, file_size, first_blob);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 10;
+    constexpr uint64_t total_blob_bytes = 100000;
+    constexpr uint64_t garbage_blob_count = 2;
+    constexpr uint64_t garbage_blob_bytes = 15000;
+
+    AddBlob(first_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{sst}, garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 4;
+    constexpr uint64_t total_blob_bytes = 400000;
+    constexpr uint64_t garbage_blob_count = 3;
+    constexpr uint64_t garbage_blob_bytes = 235000;
+
+    AddBlob(second_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{}, garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 20;
+    constexpr uint64_t total_blob_bytes = 1000000;
+    constexpr uint64_t garbage_blob_count = 8;
+    constexpr uint64_t garbage_blob_bytes = 400000;
+
+    AddBlob(third_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{}, garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  {
+    constexpr uint64_t total_blob_count = 128;
+    constexpr uint64_t total_blob_bytes = 1000000;
+    constexpr uint64_t garbage_blob_count = 67;
+    constexpr uint64_t garbage_blob_bytes = 600000;
+
+    AddBlob(fourth_blob, total_blob_count, total_blob_bytes,
+            BlobFileMetaData::LinkedSsts{}, garbage_blob_count,
+            garbage_blob_bytes);
+  }
+
+  UpdateVersionStorageInfo();
+
+  assert(vstorage_.num_levels() > 0);
+  const auto& level_files = vstorage_.LevelFiles(level);
+
+  assert(level_files.size() == 1);
+  assert(level_files[0] && level_files[0]->fd.GetNumber() == sst);
+
+  // No blob files eligible for GC due to the age cutoff
+
+  {
+    constexpr double age_cutoff = 0.1;
+    constexpr double force_threshold = 0.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Part of the oldest batch of blob files (specifically, #12 and #13) is
+  // ineligible for GC due to the age cutoff
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
+  // is below threshold
+
+  {
+    constexpr double age_cutoff = 1.0;
+    constexpr double force_threshold = 0.6;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
+  // meets threshold
+
+  {
+    constexpr double age_cutoff = 1.0;
+    constexpr double force_threshold = 0.5;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
+    ASSERT_EQ(ssts_to_be_compacted.size(), 1);
+
+    const autovector<std::pair<int, FileMetaData*>>
+        expected_ssts_to_be_compacted{{level, level_files[0]}};
+
+    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
+  }
+}
+
+TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
   // Add three L0 SSTs (1, 2, and 3) and four blob files (10, 11, 12, and 13).
   // The first two SSTs have the same oldest blob file, namely, the very oldest
   // one (10), while the third SST's oldest blob file reference points to the
@@ -674,6 +799,46 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGC) {
 
   {
     constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.5;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
+    ASSERT_EQ(ssts_to_be_compacted.size(), 2);
+
+    std::sort(ssts_to_be_compacted.begin(), ssts_to_be_compacted.end(),
+              [](const std::pair<int, FileMetaData*>& lhs,
+                 const std::pair<int, FileMetaData*>& rhs) {
+                assert(lhs.second);
+                assert(rhs.second);
+                return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
+              });
+
+    const autovector<std::pair<int, FileMetaData*>>
+        expected_ssts_to_be_compacted{{level, level_files[0]},
+                                      {level, level_files[1]}};
+
+    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
+    ASSERT_EQ(ssts_to_be_compacted[1], expected_ssts_to_be_compacted[1]);
+  }
+
+  // Now try the last two cases again with a greater than necessary age cutoff
+
+  // Oldest batch is eligible based on age cutoff but its overall garbage ratio
+  // is below threshold
+
+  {
+    constexpr double age_cutoff = 0.75;
+    constexpr double force_threshold = 0.6;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Oldest batch is eligible based on age cutoff and its overall garbage ratio
+  // meets threshold
+
+  {
+    constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.5;
     vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold);
 
@@ -3058,11 +3223,11 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
-      file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
-                               ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
-                               0, kUnknownFileChecksum,
-                               kUnknownFileChecksumFuncName,
-                               kDisableUserTimestamp, kDisableUserTimestamp);
+      file_metas->emplace_back(
+          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
+          Temperature::kUnknown, 0, 0, 0, kUnknownFileChecksum,
+          kUnknownFileChecksumFuncName, kDisableUserTimestamp,
+          kDisableUserTimestamp, kNullUniqueId64x2);
     }
   }
 
@@ -3118,7 +3283,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp);
+        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3174,7 +3339,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp);
+        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3260,6 +3425,7 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
 }
 
 TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
+  db_options_.allow_2pc = true;
   NewDB();
 
   SstInfo sst(100, kDefaultColumnFamilyName, "a");
@@ -3271,12 +3437,12 @@ TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
   edit.AddFile(0, file_metas[0]);
   edit.SetMinLogNumberToKeep(kMinWalNumberToKeep2PC);
   ASSERT_OK(LogAndApplyToDefaultCF(edit));
-  ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
+  ASSERT_EQ(versions_->min_log_number_to_keep(), kMinWalNumberToKeep2PC);
 
   for (int i = 0; i < 3; i++) {
     CreateNewManifest();
     ReopenDB();
-    ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
+    ASSERT_EQ(versions_->min_log_number_to_keep(), kMinWalNumberToKeep2PC);
   }
 }
 

@@ -165,6 +165,50 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("batchput k1")
         self.assertRunFAIL("batchput k1 v1 k2")
 
+    def testBlobBatchPut(self):
+        print("Running testBlobBatchPut...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("batchput x1 y1 --create_if_missing --enable_blob_files", "OK")
+        self.assertRunOK("scan", "x1 : y1")
+        self.assertRunOK("batchput --enable_blob_files x2 y2 x3 y3 \"x4 abc\" \"y4 xyz\"", "OK")
+        self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 abc : y4 xyz")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
+    def testBlobPut(self):
+        print("Running testBlobPut...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put --create_if_missing --enable_blob_files x1 y1", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("put --enable_blob_files x2 y2", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("get x2", "y2")
+        self.assertRunFAIL("get x3")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
+    def testBlobStartingLevel(self):
+        print("Running testBlobStartingLevel...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put --create_if_missing --enable_blob_files --blob_file_starting_level=10 x1 y1", "OK")
+        self.assertRunOK("get x1", "y1")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) == 0)
+
+        self.assertRunOK("put --enable_blob_files --blob_file_starting_level=0 x2 y2", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("get x2", "y2")
+        self.assertRunFAIL("get x3")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
     def testCountDelimDump(self):
         print("Running testCountDelimDump...")
         self.assertRunOK("batchput x.1 x1 --create_if_missing", "OK")
@@ -340,6 +384,21 @@ class LDBTestCase(unittest.TestCase):
         self.assertFalse(self.dumpDb(
             "--db=%s --create_if_missing" % origDbPath, dumpFilePath))
 
+        # Dump and load with BlobDB enabled
+        blobParams = " ".join(["--enable_blob_files", "--min_blob_size=1",
+                                "--blob_file_size=2097152"])
+        dumpFilePath = os.path.join(self.TMP_DIR, "dump9")
+        loadedDbPath = os.path.join(self.TMP_DIR, "loaded_from_dump9")
+        self.assertTrue(self.dumpDb(
+            "--db=%s" % (origDbPath), dumpFilePath))
+        self.assertTrue(self.loadDb(
+            "--db=%s %s --create_if_missing --disable_wal" % (loadedDbPath, blobParams),
+            dumpFilePath))
+        self.assertRunOKFull("scan --db=%s" % loadedDbPath,
+                "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
+        blob_files = self.getBlobFiles(loadedDbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
     def testIDumpBasics(self):
         print("Running testIDumpBasics...")
         self.assertRunOK("put a val --create_if_missing", "OK")
@@ -351,6 +410,20 @@ class LDBTestCase(unittest.TestCase):
                 "idump --input_key_hex --from=%s --to=%s" % (hex(ord('a')),
                                                              hex(ord('b'))),
                 "'a' seq:1, type:1 => val\nInternal keys in range: 1")
+
+    def testIDumpDecodeBlobIndex(self):
+        print("Running testIDumpDecodeBlobIndex...")
+        self.assertRunOK("put a val --create_if_missing", "OK")
+        self.assertRunOK("put b val --enable_blob_files", "OK")
+
+        # Pattern to expect from dump with decode_blob_index flag enabled.
+        regex = ".*\[blob ref\].*"
+        expected_pattern = re.compile(regex)
+        cmd = "idump %s --decode_blob_index"
+        self.assertRunOKFull((cmd)
+                             % (self.dbParam(self.DB_NAME)),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
 
     def testMiscAdminTask(self):
         print("Running testMiscAdminTask...")
@@ -417,7 +490,7 @@ class LDBTestCase(unittest.TestCase):
 
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put x1 y1 --create_if_missing", "OK")
-        self.assertRunOK("put x2 y2", "OK")
+        self.assertRunOK("put x2 y2 --enable_blob_files", "OK")
         dumpFilePath = os.path.join(self.TMP_DIR, "dump1")
         self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
         self.assertRunOK("delete x1", "OK")
@@ -433,7 +506,7 @@ class LDBTestCase(unittest.TestCase):
             dbPath += "/"
 
         # Call the dump_live_files function with the edited dbPath name.
-        self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index --dump_uncompressed_blobs" % dbPath, dumpFilePath))
 
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:
@@ -441,16 +514,29 @@ class LDBTestCase(unittest.TestCase):
 
         # Check that all the SST filenames have a correct full path (no multiple '/').
         sstFileList = re.findall(r"%s.*\d+.sst" % dbPath, data)
+        self.assertTrue(len(sstFileList) >= 1)
         for sstFilename in sstFileList:
             filenumber = re.findall(r"\d+.sst", sstFilename)[0]
             self.assertEqual(sstFilename, dbPath+filenumber)
 
+        # Check that all the Blob filenames have a correct full path (no multiple '/').
+        blobFileList = re.findall(r"%s.*\d+.blob" % dbPath, data)
+        self.assertTrue(len(blobFileList) >= 1)
+        for blobFilename in blobFileList:
+            filenumber = re.findall(r"\d+.blob", blobFilename)[0]
+            self.assertEqual(blobFilename, dbPath+filenumber)
+
         # Check that all the manifest filenames
         # have a correct full path (no multiple '/').
         manifestFileList = re.findall(r"%s.*MANIFEST-\d+" % dbPath, data)
+        self.assertTrue(len(manifestFileList) >= 1)
         for manifestFilename in manifestFileList:
             filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
             self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)
+
+        # Check that the blob file index is decoded.
+        decodedBlobIndex = re.findall(r"\[blob ref\]", data)
+        self.assertTrue(len(decodedBlobIndex) >= 1)
 
     def listLiveFilesMetadata(self, params, dumpFile):
         return 0 == run_err_null("./ldb list_live_files_metadata %s > %s" % (
@@ -549,6 +635,9 @@ class LDBTestCase(unittest.TestCase):
     def getWALFiles(self, directory):
         return glob.glob(directory + "/*.log")
 
+    def getBlobFiles(self, directory):
+        return glob.glob(directory + "/*.blob")
+
     def copyManifests(self, src, dest):
         return 0 == run_err_null("cp " + src + " " + dest)
 
@@ -639,18 +728,35 @@ class LDBTestCase(unittest.TestCase):
 
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put sst1 sst1_val --create_if_missing", "OK")
-        self.assertRunOK("put sst2 sst2_val", "OK")
+        self.assertRunOK("put sst2 sst2_val --enable_blob_files", "OK")
         self.assertRunOK("get sst1", "sst1_val")
 
         # Pattern to expect from SST dump.
-        regex = ".*Sst file format:.*"
+        regex = ".*Sst file format:.*\n.*\[blob ref\].*"
         expected_pattern = re.compile(regex)
 
         sst_files = self.getSSTFiles(dbPath)
         self.assertTrue(len(sst_files) >= 1)
-        cmd = "dump --path=%s"
+        cmd = "dump --path=%s --decode_blob_index"
         self.assertRunOKFull((cmd)
                              % (sst_files[0]),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
+    def testBlobDump(self):
+        print("Running testBlobDump")
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("batchput x1 y1 --create_if_missing --enable_blob_files", "OK")
+        self.assertRunOK("batchput --enable_blob_files x2 y2 x3 y3 \"x4 abc\" \"y4 xyz\"", "OK")
+
+        # Pattern to expect from blob file dump.
+        regex = ".*Blob log header[\s\S]*Blob log footer[\s\S]*Read record[\s\S]*Summary"
+        expected_pattern = re.compile(regex)
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+        cmd = "dump --path=%s --dump_uncompressed_blobs"
+        self.assertRunOKFull((cmd)
+                             % (blob_files[0]),
                              expected_pattern, unexpected=False,
                              isPattern=True)
 

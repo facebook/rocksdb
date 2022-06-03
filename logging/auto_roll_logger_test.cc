@@ -50,18 +50,28 @@ void LogMessage(const InfoLogLevel log_level, Logger* logger,
 class AutoRollLoggerTest : public testing::Test {
  public:
   static void InitTestDb() {
+    // TODO replace the `system` calls with Env/FileSystem APIs.
 #ifdef OS_WIN
     // Replace all slashes in the path so windows CompSpec does not
     // become confused
+    std::string testDbDir(kTestDbDir);
+    std::replace_if(
+        testDbDir.begin(), testDbDir.end(), [](char ch) { return ch == '/'; },
+        '\\');
+    std::string deleteDbDirCmd =
+        "if exist " + testDbDir + " rd /s /q " + testDbDir;
+    ASSERT_TRUE(system(deleteDbDirCmd.c_str()) == 0);
+
     std::string testDir(kTestDir);
     std::replace_if(testDir.begin(), testDir.end(),
                     [](char ch) { return ch == '/'; }, '\\');
     std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
 #else
-    std::string deleteCmd = "rm -rf " + kTestDir;
+    std::string deleteCmd = "rm -rf " + kTestDir + " " + kTestDbDir;
 #endif
     ASSERT_TRUE(system(deleteCmd.c_str()) == 0);
     ASSERT_OK(Env::Default()->CreateDir(kTestDir));
+    ASSERT_OK(Env::Default()->CreateDir(kTestDbDir));
   }
 
   void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
@@ -108,6 +118,7 @@ class AutoRollLoggerTest : public testing::Test {
 
   static const std::string kSampleMessage;
   static const std::string kTestDir;
+  static const std::string kTestDbDir;
   static const std::string kLogFile;
   static Env* default_env;
 };
@@ -116,6 +127,8 @@ const std::string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
 const std::string AutoRollLoggerTest::kTestDir(
     test::PerThreadDBPath("db_log_test"));
+const std::string AutoRollLoggerTest::kTestDbDir(
+    test::PerThreadDBPath("db_log_test_db"));
 const std::string AutoRollLoggerTest::kLogFile(
     test::PerThreadDBPath("db_log_test") + "/LOG");
 Env* AutoRollLoggerTest::default_env = Env::Default();
@@ -371,7 +384,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     options.log_file_time_to_roll = 2;
     options.keep_log_file_num = kFileNum;
     options.db_log_dir = kTestDir;
-    ASSERT_OK(CreateLoggerFromOptions("/dummy/db/name", options, &logger));
+    ASSERT_OK(CreateLoggerFromOptions(kTestDbDir, options, &logger));
     auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
 
     // Roll the log 4 times, and it will trim to 3 files.
@@ -387,7 +400,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     std::vector<std::string> files = GetLogFiles();
     ASSERT_EQ(kFileNum, files.size());
     for (const auto& f : files) {
-      ASSERT_TRUE(f.find("dummy") != std::string::npos);
+      ASSERT_TRUE(f.find("db_log_test_db") != std::string::npos);
     }
 
     // Cleaning up those files.

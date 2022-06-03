@@ -45,23 +45,15 @@ class SharedState {
  public:
   // indicates a key may have any value (or not be present) as an operation on
   // it is incomplete.
-  static const uint32_t UNKNOWN_SENTINEL;
+  static constexpr uint32_t UNKNOWN_SENTINEL = 0xfffffffe;
   // indicates a key should definitely be deleted
-  static const uint32_t DELETION_SENTINEL;
+  static constexpr uint32_t DELETION_SENTINEL = 0xffffffff;
 
   // Errors when reading filter blocks are ignored, so we use a thread
   // local variable updated via sync points to keep track of errors injected
   // while reading filter blocks in order to ignore the Get/MultiGet result
   // for those calls
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-#if defined(OS_SOLARIS)
-  static __thread bool ignore_read_error;
-#else
   static thread_local bool ignore_read_error;
-#endif // OS_SOLARIS
-#else
-  static bool ignore_read_error;
-#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
   SharedState(Env* /*env*/, StressTest* stress_test)
       : cv_(&mu_),
@@ -81,36 +73,9 @@ class SharedState {
         stress_test_(stress_test),
         verification_failure_(false),
         should_stop_test_(false),
-        no_overwrite_ids_(FLAGS_column_families),
+        no_overwrite_ids_(GenerateNoOverwriteIds()),
         expected_state_manager_(nullptr),
         printing_verification_results_(false) {
-    // Pick random keys in each column family that will not experience
-    // overwrite
-
-    fprintf(stdout, "Choosing random keys with no overwrite\n");
-    Random64 rnd(seed_);
-    // Start with the identity permutation. Subsequent iterations of
-    // for loop below will start with perm of previous for loop
-    int64_t* permutation = new int64_t[max_key_];
-    for (int64_t i = 0; i < max_key_; i++) {
-      permutation[i] = i;
-    }
-    // Now do the Knuth shuffle
-    int64_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
-    // Only need to figure out first num_no_overwrite_keys of permutation
-    no_overwrite_ids_.reserve(num_no_overwrite_keys);
-    for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
-      int64_t rand_index = i + rnd.Next() % (max_key_ - i);
-      // Swap i and rand_index;
-      int64_t temp = permutation[i];
-      permutation[i] = permutation[rand_index];
-      permutation[rand_index] = temp;
-      // Fill no_overwrite_ids_ with the first num_no_overwrite_keys of
-      // permutation
-      no_overwrite_ids_.insert(permutation[i]);
-    }
-    delete[] permutation;
-
     Status status;
     // TODO: We should introduce a way to explicitly disable verification
     // during shutdown. When that is disabled and FLAGS_expected_values_dir
@@ -160,13 +125,21 @@ class SharedState {
     for (int i = 0; i < FLAGS_column_families; ++i) {
       key_locks_[i].reset(new port::Mutex[num_locks]);
     }
-#ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
+#ifdef NDEBUG
+      // Unsupported in release mode because it relies on
+      // `IGNORE_STATUS_IF_ERROR` to distinguish faults not expected to lead to
+      // failure.
+      fprintf(stderr,
+              "Cannot set nonzero value for --read_fault_one_in in "
+              "release mode.");
+      exit(1);
+#else   // NDEBUG
       SyncPoint::GetInstance()->SetCallBack("FaultInjectionIgnoreError",
                                             IgnoreReadErrorCallback);
       SyncPoint::GetInstance()->EnableProcessing();
+#endif  // NDEBUG
     }
-#endif // NDEBUG
   }
 
   ~SharedState() {
@@ -293,7 +266,7 @@ class SharedState {
                                                 pending);
   }
 
-  bool AllowsOverwrite(int64_t key) {
+  bool AllowsOverwrite(int64_t key) const {
     return no_overwrite_ids_.find(key) == no_overwrite_ids_.end();
   }
 
@@ -335,6 +308,36 @@ class SharedState {
     ignore_read_error = true;
   }
 
+  // Pick random keys in each column family that will not experience overwrite.
+  std::unordered_set<int64_t> GenerateNoOverwriteIds() const {
+    fprintf(stdout, "Choosing random keys with no overwrite\n");
+    // Start with the identity permutation. Subsequent iterations of
+    // for loop below will start with perm of previous for loop
+    std::vector<int64_t> permutation(max_key_);
+    for (int64_t i = 0; i < max_key_; ++i) {
+      permutation[i] = i;
+    }
+    // Now do the Knuth shuffle
+    const int64_t num_no_overwrite_keys =
+        (max_key_ * FLAGS_nooverwritepercent) / 100;
+    // Only need to figure out first num_no_overwrite_keys of permutation
+    std::unordered_set<int64_t> ret;
+    ret.reserve(num_no_overwrite_keys);
+    Random64 rnd(seed_);
+    for (int64_t i = 0; i < num_no_overwrite_keys; i++) {
+      assert(i < max_key_);
+      int64_t rand_index = i + rnd.Next() % (max_key_ - i);
+      // Swap i and rand_index;
+      int64_t temp = permutation[i];
+      permutation[i] = permutation[rand_index];
+      permutation[rand_index] = temp;
+      // Fill no_overwrite_ids_ with the first num_no_overwrite_keys of
+      // permutation
+      ret.insert(permutation[i]);
+    }
+    return ret;
+  }
+
   port::Mutex mu_;
   port::CondVar cv_;
   const uint32_t seed_;
@@ -355,7 +358,7 @@ class SharedState {
   std::atomic<bool> should_stop_test_;
 
   // Keys that should not be overwritten
-  std::unordered_set<size_t> no_overwrite_ids_;
+  const std::unordered_set<int64_t> no_overwrite_ids_;
 
   std::unique_ptr<ExpectedStateManager> expected_state_manager_;
   // Cannot store `port::Mutex` directly in vector since it is not copyable

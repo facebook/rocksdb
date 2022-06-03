@@ -15,6 +15,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -50,7 +51,7 @@ void AppendItem(std::string* props, const std::string& key,
 
 template <class TKey>
 void AppendItem(std::string* props, const TKey& key, const std::string& value) {
-  std::string key_str = ROCKSDB_NAMESPACE::ToString(key);
+  std::string key_str = std::to_string(key);
   AppendItem(props, key_str, value);
 }
 }  // namespace
@@ -157,9 +158,9 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 
   // Generate filter for current set of keys and append to result_.
   filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
-  BloomFilterPolicy::CreateFilter(tmp_entries_.data(),
-                                  static_cast<int>(num_entries), bits_per_key_,
-                                  &result_);
+  DeprecatedBlockBasedBloomFilterPolicy::CreateFilter(
+      tmp_entries_.data(), static_cast<int>(num_entries), bits_per_key_,
+      &result_);
 
   tmp_entries_.clear();
   entries_.clear();
@@ -283,7 +284,8 @@ bool BlockBasedFilterBlockReader::MayMatch(
       assert(table());
       assert(table()->get_rep());
 
-      const bool may_match = BloomFilterPolicy::KeyMayMatch(entry, filter);
+      const bool may_match =
+          DeprecatedBlockBasedBloomFilterPolicy::KeyMayMatch(entry, filter);
       if (may_match) {
         PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
         return true;
@@ -335,7 +337,7 @@ std::string BlockBasedFilterBlockReader::ToString() const {
   result.reserve(1024);
 
   std::string s_bo("Block offset"), s_hd("Hex dump"), s_fb("# filter blocks");
-  AppendItem(&result, s_fb, ROCKSDB_NAMESPACE::ToString(num));
+  AppendItem(&result, s_fb, std::to_string(num));
   AppendItem(&result, s_bo, s_hd);
 
   for (size_t index = 0; index < num; index++) {
@@ -343,8 +345,7 @@ std::string BlockBasedFilterBlockReader::ToString() const {
     uint32_t limit = DecodeFixed32(offset + index * 4 + 4);
 
     if (start != limit) {
-      result.append(" filter block # " +
-                    ROCKSDB_NAMESPACE::ToString(index + 1) + "\n");
+      result.append(" filter block # " + std::to_string(index + 1) + "\n");
       Slice filter = Slice(data + start, limit - start);
       AppendItem(&result, start, filter.ToString(true));
     }

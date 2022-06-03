@@ -14,92 +14,94 @@ source "$BASEDIR/dependencies_platform009.sh"
 CFLAGS=""
 
 # libgcc
-LIBGCC_INCLUDE="$LIBGCC_BASE/include/c++/9.3.0"
+LIBGCC_INCLUDE="$LIBGCC_BASE/include/c++/9.3.0 -I $LIBGCC_BASE/include/c++/9.3.0/backward"
 LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 
 # glibc
 GLIBC_INCLUDE="$GLIBC_BASE/include"
 GLIBC_LIBS=" -L $GLIBC_BASE/lib"
 
-# snappy
-SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
 if test -z $PIC_BUILD; then
-  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy.a"
+  MAYBE_PIC=
 else
-  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy_pic.a"
+  MAYBE_PIC=_pic
 fi
-CFLAGS+=" -DSNAPPY"
 
-if test -z $PIC_BUILD; then
+if ! test $ROCKSDB_DISABLE_SNAPPY; then
+  # snappy
+  SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
+  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy${MAYBE_PIC}.a"
+  CFLAGS+=" -DSNAPPY"
+fi
+
+if ! test $ROCKSDB_DISABLE_ZLIB; then
   # location of zlib headers and libraries
   ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
-  ZLIB_LIBS=" $ZLIB_BASE/lib/libz.a"
+  ZLIB_LIBS=" $ZLIB_BASE/lib/libz${MAYBE_PIC}.a"
   CFLAGS+=" -DZLIB"
+fi
 
+if ! test $ROCKSDB_DISABLE_BZIP; then
   # location of bzip headers and libraries
   BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
-  BZIP_LIBS=" $BZIP2_BASE/lib/libbz2.a"
+  BZIP_LIBS=" $BZIP2_BASE/lib/libbz2${MAYBE_PIC}.a"
   CFLAGS+=" -DBZIP2"
+fi
 
+if ! test $ROCKSDB_DISABLE_LZ4; then
   LZ4_INCLUDE=" -I $LZ4_BASE/include/"
-  LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
+  LZ4_LIBS=" $LZ4_BASE/lib/liblz4${MAYBE_PIC}.a"
   CFLAGS+=" -DLZ4"
 fi
 
-ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
-if test -z $PIC_BUILD; then
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
-else
-  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd_pic.a"
+if ! test $ROCKSDB_DISABLE_ZSTD; then
+  ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
+  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd${MAYBE_PIC}.a"
+  CFLAGS+=" -DZSTD"
 fi
-CFLAGS+=" -DZSTD"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
-if test -z $PIC_BUILD; then
-  GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags.a"
-else
-  GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags_pic.a"
-fi
+GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags${MAYBE_PIC}.a"
 CFLAGS+=" -DGFLAGS=gflags"
 
 BENCHMARK_INCLUDE=" -I $BENCHMARK_BASE/include/"
-if test -z $PIC_BUILD; then
-  BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark.a"
-else
-  BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark_pic.a"
-fi
+BENCHMARK_LIBS=" $BENCHMARK_BASE/lib/libbenchmark${MAYBE_PIC}.a"
+
+BOOST_INCLUDE=" -I $BOOST_BASE/include/"
+
+GLOG_INCLUDE=" -I $GLOG_BASE/include/"
+GLOG_LIBS=" $GLOG_BASE/lib/libglog${MAYBE_PIC}.a"
+
+FMT_INCLUDE=" -I $FMT_BASE/include/"
+FMT_LIBS=" $FMT_BASE/lib/libfmt${MAYBE_PIC}.a"
+
+DBL_CONV_INCLUDE=" -I $DBL_CONV_BASE/include/"
+DBL_CONV_LIBS=" $DBL_CONV_BASE/lib/libdouble-conversion${MAYBE_PIC}.a"
+
+LIBEVENT_INCLUDE=" -I $LIBEVENT_BASE/include/"
+LIBEVENT_LIBS=" $LIBEVENT_BASE/lib/libevent${MAYBE_PIC}.a"
 
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
-JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc.a"
+JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc${MAYBE_PIC}.a"
 
-if test -z $PIC_BUILD; then
-  # location of numa
-  NUMA_INCLUDE=" -I $NUMA_BASE/include/"
-  NUMA_LIB=" $NUMA_BASE/lib/libnuma.a"
-  CFLAGS+=" -DNUMA"
+# location of numa
+NUMA_INCLUDE=" -I $NUMA_BASE/include/"
+NUMA_LIB=" $NUMA_BASE/lib/libnuma${MAYBE_PIC}.a"
+CFLAGS+=" -DNUMA"
 
-  # location of libunwind
-  LIBUNWIND="$LIBUNWIND_BASE/lib/libunwind.a"
-fi
+# location of libunwind
+LIBUNWIND="$LIBUNWIND_BASE/lib/libunwind${MAYBE_PIC}.a"
 
 # location of TBB
 TBB_INCLUDE=" -isystem $TBB_BASE/include/"
-if test -z $PIC_BUILD; then
-  TBB_LIBS="$TBB_BASE/lib/libtbb.a"
-else
-  TBB_LIBS="$TBB_BASE/lib/libtbb_pic.a"
-fi
+TBB_LIBS="$TBB_BASE/lib/libtbb${MAYBE_PIC}.a"
 CFLAGS+=" -DTBB"
 
 # location of LIBURING
 LIBURING_INCLUDE=" -isystem $LIBURING_BASE/include/"
-if test -z $PIC_BUILD; then
-  LIBURING_LIBS="$LIBURING_BASE/lib/liburing.a"
-else
-  LIBURING_LIBS="$LIBURING_BASE/lib/liburing_pic.a"
-fi
+LIBURING_LIBS="$LIBURING_BASE/lib/liburing${MAYBE_PIC}.a"
 CFLAGS+=" -DLIBURING"
 
 test "$USE_SSE" || USE_SSE=1
@@ -111,7 +113,7 @@ BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
 AS="$BINUTILS/as"
 
-DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE $TBB_INCLUDE $LIBURING_INCLUDE $BENCHMARK_INCLUDE"
+DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE $TBB_INCLUDE $LIBURING_INCLUDE $BENCHMARK_INCLUDE $BOOST_INCLUDE $GLOG_INCLUDE $FMT_INCLUDE $DBL_CONV_INCLUDE $LIBEVENT_INCLUDE"
 
 STDLIBS="-L $GCC_BASE/lib64"
 
@@ -154,7 +156,7 @@ else
 fi
 
 CFLAGS+=" $DEPS_INCLUDE"
-CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DROCKSDB_SUPPORT_THREAD_LOCAL -DHAVE_SSE42 -DROCKSDB_IOURING_PRESENT"
+CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DHAVE_SSE42 -DROCKSDB_IOURING_PRESENT"
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS $LIBURING_LIBS $BENCHMARK_LIBS"

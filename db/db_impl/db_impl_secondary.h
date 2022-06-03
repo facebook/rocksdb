@@ -81,16 +81,21 @@ class DBImplSecondary : public DBImpl {
   // and log_readers_ to facilitate future operations.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  bool read_only, bool error_if_wal_file_exists,
-                 bool error_if_data_exists_in_wals,
-                 uint64_t* = nullptr) override;
+                 bool error_if_data_exists_in_wals, uint64_t* = nullptr,
+                 RecoveryContext* recovery_ctx = nullptr) override;
 
   // Implementations of the DB interface
   using DB::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
+
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value);
+                 const Slice& key, PinnableSlice* value,
+                 std::string* timestamp);
 
   using DBImpl::NewIterator;
   Iterator* NewIterator(const ReadOptions&,
@@ -228,10 +233,11 @@ class DBImplSecondary : public DBImpl {
   Status CheckConsistency() override;
 
 #ifndef NDEBUG
-  Status TEST_CompactWithoutInstallation(ColumnFamilyHandle* cfh,
+  Status TEST_CompactWithoutInstallation(const OpenAndCompactOptions& options,
+                                         ColumnFamilyHandle* cfh,
                                          const CompactionServiceInput& input,
                                          CompactionServiceResult* result) {
-    return CompactWithoutInstallation(cfh, input, result);
+    return CompactWithoutInstallation(options, cfh, input, result);
   }
 #endif  // NDEBUG
 
@@ -346,7 +352,8 @@ class DBImplSecondary : public DBImpl {
   // Run compaction without installation, the output files will be placed in the
   // secondary DB path. The LSM tree won't be changed, the secondary DB is still
   // in read-only mode.
-  Status CompactWithoutInstallation(ColumnFamilyHandle* cfh,
+  Status CompactWithoutInstallation(const OpenAndCompactOptions& options,
+                                    ColumnFamilyHandle* cfh,
                                     const CompactionServiceInput& input,
                                     CompactionServiceResult* result);
 

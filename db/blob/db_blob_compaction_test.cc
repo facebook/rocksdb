@@ -243,6 +243,84 @@ TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
+  Options options = GetDefaultOptions();
+
+  options.enable_blob_files = true;
+  options.min_blob_size = 1000;
+  options.blob_file_starting_level = 5;
+  options.create_if_missing = true;
+
+  // Open DB with fixed-prefix sst-partitioner so that compaction will cut
+  // new table file when encountering a new key whose 1-byte prefix changes.
+  constexpr size_t key_len = 1;
+  options.sst_partitioner_factory =
+      NewSstPartitionerFixedPrefixFactory(key_len);
+
+  ASSERT_OK(TryReopen(options));
+
+  constexpr size_t blob_size = 3000;
+
+  constexpr char first_key[] = "a";
+  const std::string first_blob(blob_size, 'a');
+  ASSERT_OK(Put(first_key, first_blob));
+
+  constexpr char second_key[] = "b";
+  const std::string second_blob(2 * blob_size, 'b');
+  ASSERT_OK(Put(second_key, second_blob));
+
+  constexpr char third_key[] = "d";
+  const std::string third_blob(blob_size, 'd');
+  ASSERT_OK(Put(third_key, third_blob));
+
+  ASSERT_OK(Flush());
+
+  constexpr char fourth_key[] = "c";
+  const std::string fourth_blob(blob_size, 'c');
+  ASSERT_OK(Put(fourth_key, fourth_blob));
+
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(0, GetBlobFileNumbers().size());
+  ASSERT_EQ(2, NumTableFilesAtLevel(/*level=*/0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/1));
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+
+  // No blob file should be created since blob_file_starting_level is 5.
+  ASSERT_EQ(0, GetBlobFileNumbers().size());
+  ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/0));
+  ASSERT_EQ(4, NumTableFilesAtLevel(/*level=*/1));
+
+  {
+    options.blob_file_starting_level = 1;
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put(first_key, first_blob));
+    ASSERT_OK(Put(second_key, second_blob));
+    ASSERT_OK(Put(third_key, third_blob));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put(fourth_key, fourth_blob));
+    ASSERT_OK(Flush());
+
+    ASSERT_EQ(0, GetBlobFileNumbers().size());
+    ASSERT_EQ(2, NumTableFilesAtLevel(/*level=*/0));
+    ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/1));
+
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                                /*end=*/nullptr));
+    // The compaction's output level equals to blob_file_starting_level.
+    ASSERT_EQ(1, GetBlobFileNumbers().size());
+    ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/0));
+    ASSERT_EQ(4, NumTableFilesAtLevel(/*level=*/1));
+  }
+
+  Close();
+}
+#endif
+
 TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -415,16 +493,30 @@ TEST_F(DBBlobCompactionTest, CorruptedBlobIndex) {
       new ValueMutationFilter(""));
   options.compaction_filter = compaction_filter_guard.get();
   DestroyAndReopen(options);
-  // Mock a corrupted blob index
+
   constexpr char key[] = "key";
-  std::string blob_idx("blob_idx");
-  WriteBatch write_batch;
-  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&write_batch, 0, key, blob_idx));
-  ASSERT_OK(db_->Write(WriteOptions(), &write_batch));
+  constexpr char blob[] = "blob";
+
+  ASSERT_OK(Put(key, blob));
   ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::InvokeFilterIfNeeded::TamperWithBlobIndex",
+      [](void* arg) {
+        Slice* const blob_index = static_cast<Slice*>(arg);
+        assert(blob_index);
+        assert(!blob_index->empty());
+        blob_index->remove_prefix(1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                                 /*end=*/nullptr)
                   .IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
   Close();
 }
 

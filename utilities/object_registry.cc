@@ -8,12 +8,52 @@
 #include <ctype.h>
 
 #include "logging/logging.h"
+#include "port/lang.h"
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
+namespace {
+bool MatchesInteger(const std::string &target, size_t start, size_t pos) {
+  // If it is numeric, everything up to the match must be a number
+  int digits = 0;
+  if (target[start] == '-') {
+    start++;  // Allow negative numbers
+  }
+  while (start < pos) {
+    if (!isdigit(target[start++])) {
+      return false;
+    } else {
+      digits++;
+    }
+  }
+  return (digits > 0);
+}
+
+bool MatchesDecimal(const std::string &target, size_t start, size_t pos) {
+  int digits = 0;
+  if (target[start] == '-') {
+    start++;  // Allow negative numbers
+  }
+  for (bool point = false; start < pos; start++) {
+    if (target[start] == '.') {
+      if (point) {
+        return false;
+      } else {
+        point = true;
+      }
+    } else if (!isdigit(target[start])) {
+      return false;
+    } else {
+      digits++;
+    }
+  }
+  return (digits > 0);
+}
+}  // namespace
+
 size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     size_t start, Quantifier mode, const std::string &target, size_t tlen,
     const std::string &separator) const {
@@ -35,12 +75,13 @@ size_t ObjectLibrary::PatternEntry::MatchSeparatorAt(
     }
     if (pos == std::string::npos) {
       return pos;
-    } else if (mode == kMatchNumeric) {
-      // If it is numeric, everything up to the match must be a number
-      while (start < pos) {
-        if (!isdigit(target[start++])) {
-          return std::string::npos;
-        }
+    } else if (mode == kMatchInteger) {
+      if (!MatchesInteger(target, start, pos)) {
+        return std::string::npos;
+      }
+    } else if (mode == kMatchDecimal) {
+      if (!MatchesDecimal(target, start, pos)) {
+        return std::string::npos;
       }
     }
     return pos + slen;
@@ -83,12 +124,10 @@ bool ObjectLibrary::PatternEntry::MatchesTarget(const std::string &name,
       return (start == tlen);
     } else if (start > tlen || (start == tlen && mode != kMatchZeroOrMore)) {
       return false;
-    } else if (mode == kMatchNumeric) {
-      while (start < tlen) {
-        if (!isdigit(target[start++])) {
-          return false;
-        }
-      }
+    } else if (mode == kMatchInteger) {
+      return MatchesInteger(target, start, tlen);
+    } else if (mode == kMatchDecimal) {
+      return MatchesDecimal(target, start, tlen);
     }
   }
   return true;
@@ -118,31 +157,75 @@ size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
   return factories;
 }
 
-void ObjectLibrary::Dump(Logger *logger) const {
+size_t ObjectLibrary::GetFactoryCount(const std::string &type) const {
   std::unique_lock<std::mutex> lock(mu_);
-  for (const auto &iter : factories_) {
-    ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
-                     iter.first.c_str());
-    bool printed_one = false;
-    for (const auto &e : iter.second) {
-      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':', e->Name());
-      printed_one = true;
+  auto iter = factories_.find(type);
+  if (iter != factories_.end()) {
+    return iter->second.size();
+  } else {
+    return 0;
+  }
+}
+
+void ObjectLibrary::GetFactoryNames(const std::string &type,
+                                    std::vector<std::string> *names) const {
+  assert(names);
+  std::unique_lock<std::mutex> lock(mu_);
+  auto iter = factories_.find(type);
+  if (iter != factories_.end()) {
+    for (const auto &f : iter->second) {
+      names->push_back(f->Name());
     }
   }
-  ROCKS_LOG_HEADER(logger, "\n");
+}
+
+void ObjectLibrary::GetFactoryTypes(
+    std::unordered_set<std::string> *types) const {
+  assert(types);
+  std::unique_lock<std::mutex> lock(mu_);
+  for (const auto &iter : factories_) {
+    types->insert(iter.first);
+  }
+}
+
+void ObjectLibrary::Dump(Logger *logger) const {
+  std::unique_lock<std::mutex> lock(mu_);
+  if (logger != nullptr && !factories_.empty()) {
+    ROCKS_LOG_HEADER(logger, "    Registered Library: %s\n", id_.c_str());
+    for (const auto &iter : factories_) {
+      ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
+                       iter.first.c_str());
+      bool printed_one = false;
+      for (const auto &e : iter.second) {
+        ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':', e->Name());
+        printed_one = true;
+      }
+    }
+  }
 }
 
 // Returns the Default singleton instance of the ObjectLibrary
 // This instance will contain most of the "standard" registered objects
 std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
-  static std::shared_ptr<ObjectLibrary> instance =
-      std::make_shared<ObjectLibrary>("default");
+  // Use avoid destruction here so the default ObjectLibrary will not be
+  // statically destroyed and long-lived.
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<ObjectLibrary>, instance)
+  (std::make_shared<ObjectLibrary>("default"));
   return instance;
 }
 
+ObjectRegistry::ObjectRegistry(const std::shared_ptr<ObjectLibrary> &library) {
+  libraries_.push_back(library);
+  for (const auto &b : builtins_) {
+    RegisterPlugin(b.first, b.second);
+  }
+}
+
 std::shared_ptr<ObjectRegistry> ObjectRegistry::Default() {
-  static std::shared_ptr<ObjectRegistry> instance(
-      new ObjectRegistry(ObjectLibrary::Default()));
+  // Use avoid destruction here so the default ObjectRegistry will not be
+  // statically destroyed and long-lived.
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<ObjectRegistry>, instance)
+  (std::make_shared<ObjectRegistry>(ObjectLibrary::Default()));
   return instance;
 }
 
@@ -224,15 +307,75 @@ Status ObjectRegistry::ListManagedObjects(
   }
 }
 
+// Returns the number of registered types for this registry.
+// If specified (not-null), types is updated to include the names of the
+// registered types.
+size_t ObjectRegistry::GetFactoryCount(const std::string &type) const {
+  size_t count = 0;
+  if (parent_ != nullptr) {
+    count = parent_->GetFactoryCount(type);
+  }
+  std::unique_lock<std::mutex> lock(library_mutex_);
+  for (const auto &library : libraries_) {
+    count += library->GetFactoryCount(type);
+  }
+  return count;
+}
+
+void ObjectRegistry::GetFactoryNames(const std::string &type,
+                                     std::vector<std::string> *names) const {
+  assert(names);
+  names->clear();
+  if (parent_ != nullptr) {
+    parent_->GetFactoryNames(type, names);
+  }
+  std::unique_lock<std::mutex> lock(library_mutex_);
+  for (const auto &library : libraries_) {
+    library->GetFactoryNames(type, names);
+  }
+}
+
+void ObjectRegistry::GetFactoryTypes(
+    std::unordered_set<std::string> *types) const {
+  assert(types);
+  if (parent_ != nullptr) {
+    parent_->GetFactoryTypes(types);
+  }
+  std::unique_lock<std::mutex> lock(library_mutex_);
+  for (const auto &library : libraries_) {
+    library->GetFactoryTypes(types);
+  }
+}
+
 void ObjectRegistry::Dump(Logger *logger) const {
-  {
+  if (logger != nullptr) {
     std::unique_lock<std::mutex> lock(library_mutex_);
+    if (!plugins_.empty()) {
+      ROCKS_LOG_HEADER(logger, "    Registered Plugins:");
+      bool printed_one = false;
+      for (const auto &plugin : plugins_) {
+        ROCKS_LOG_HEADER(logger, "%s%s", (printed_one) ? ", " : " ",
+                         plugin.c_str());
+        printed_one = true;
+      }
+      ROCKS_LOG_HEADER(logger, "\n");
+    }
     for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
       iter->get()->Dump(logger);
     }
   }
   if (parent_ != nullptr) {
     parent_->Dump(logger);
+  }
+}
+
+int ObjectRegistry::RegisterPlugin(const std::string &name,
+                                   const RegistrarFunc &func) {
+  if (!name.empty() && func != nullptr) {
+    plugins_.push_back(name);
+    return AddLibrary(name)->Register(func, name);
+  } else {
+    return -1;
   }
 }
 

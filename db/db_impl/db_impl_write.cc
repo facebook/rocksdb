@@ -129,9 +129,32 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          PreReleaseCallback* pre_release_callback) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   if (my_batch == nullptr) {
-    return Status::Corruption("Batch is nullptr!");
-  } else if (WriteBatchInternal::TimestampsUpdateNeeded(*my_batch)) {
+    return Status::InvalidArgument("Batch is nullptr!");
+  } else if (!disable_memtable &&
+             WriteBatchInternal::TimestampsUpdateNeeded(*my_batch)) {
+    // If writing to memtable, then we require the caller to set/update the
+    // timestamps for the keys in the write batch.
+    // Otherwise, it means we are just writing to the WAL, and we allow
+    // timestamps unset for the keys in the write batch. This can happen if we
+    // use TransactionDB with write-committed policy, and we currently do not
+    // support user-defined timestamp with other policies.
+    // In the prepare phase, a transaction can write the batch to the WAL
+    // without inserting to memtable. The keys in the batch do not have to be
+    // assigned timestamps because they will be used only during recovery if
+    // there is a commit marker which includes their commit timestamp.
     return Status::InvalidArgument("write batch must have timestamp(s) set");
+  } else if (write_options.rate_limiter_priority != Env::IO_TOTAL &&
+             write_options.rate_limiter_priority != Env::IO_USER) {
+    return Status::InvalidArgument(
+        "WriteOptions::rate_limiter_priority only allows "
+        "Env::IO_TOTAL and Env::IO_USER due to implementation constraints");
+  } else if (write_options.rate_limiter_priority != Env::IO_TOTAL &&
+             (write_options.disableWAL || manual_wal_flush_)) {
+    return Status::InvalidArgument(
+        "WriteOptions::rate_limiter_priority currently only supports "
+        "rate-limiting automatic WAL flush, which requires "
+        "`WriteOptions::disableWAL` and "
+        "`DBOptions::manual_wal_flush` both set to false");
   }
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
@@ -391,7 +414,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         PERF_TIMER_GUARD(write_wal_time);
         io_s = WriteToWAL(write_group, log_context.writer, log_used,
                           log_context.need_log_sync,
-                          log_context.need_log_dir_sync, last_sequence + 1);
+                          log_context.need_log_dir_sync, last_sequence + 1, log_file_number_size);
       }
     } else {
       if (status.ok() && !write_options.disableWAL) {
@@ -626,7 +649,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       }
       io_s = WriteToWAL(wal_write_group, log_context.writer, log_used,
                         log_context.need_log_sync,
-                        log_context.need_log_dir_sync, current_sequence);
+                        log_context.need_log_dir_sync, current_sequence, log_file_number_size);
       w.status = io_s;
     }
 
@@ -1019,12 +1042,18 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
 
   PERF_TIMER_GUARD(write_scheduling_flushes_compactions_time);
 
-  if (UNLIKELY(status.ok() &&
-               !single_column_family_mode_.load(std::memory_order_acquire) &&
-               total_log_size_ > GetMaxTotalWalSize())) {
+  if (UNLIKELY(status.ok() && total_log_size_ > GetMaxTotalWalSize())) {
+    assert(versions_);
     InstrumentedMutexLock l(&mutex_);
-    WaitForPendingWrites();
-    status = SwitchWAL(write_context);
+    const ColumnFamilySet* const column_families =
+        versions_->GetColumnFamilySet();
+    assert(column_families);
+    size_t num_cfs = column_families->NumberOfColumnFamilies();
+    assert(num_cfs >= 1);
+    if (num_cfs > 1) {
+      WaitForPendingWrites();
+      status = SwitchWAL(write_context);
+    }
   }
 
   if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
@@ -1156,8 +1185,11 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
 // write thread. Otherwise this must be called holding log_write_mutex_.
 IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                             log::Writer* log_writer, uint64_t* log_used,
-                            uint64_t* log_size) {
+                            uint64_t* log_size,
+                            Env::IOPriority rate_limiter_priority,
+                            LogFileNumberSize& log_file_number_size) {
   assert(log_size != nullptr);
+
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   *log_size = log_entry.size();
   // When two_write_queues_ WriteToWAL has to be protected from concurretn calls
@@ -1171,7 +1203,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Lock();
   }
-  IOStatus io_s = log_writer->AddRecord(log_entry);
+  IOStatus io_s = log_writer->AddRecord(log_entry, rate_limiter_priority);
 
   if (UNLIKELY(needs_locking)) {
     log_write_mutex_.Unlock();
@@ -1180,9 +1212,7 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
     *log_used = logfile_number_;
   }
   total_log_size_ += log_entry.size();
-  // TODO(myabandeh): it might be unsafe to access alive_log_files_.back() here
-  // since alive_log_files_ might be modified concurrently
-  alive_log_files_.back().AddSize(log_entry.size());
+  log_file_number_size.AddSize(*log_size);
   log_empty_ = false;
   return io_s;
 }
@@ -1190,8 +1220,10 @@ IOStatus DBImpl::WriteToWAL(const WriteBatch& merged_batch,
 IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
                             log::Writer* log_writer, uint64_t* log_used,
                             bool need_log_sync, bool need_log_dir_sync,
-                            SequenceNumber sequence) {
+                            SequenceNumber sequence,
+                            LogFileNumberSize& log_file_number_size) {
   IOStatus io_s;
+  assert(!two_write_queues_);
   assert(!write_group.leader->disable_wal);
   // Same holds for all in the batch group
   size_t write_with_wal = 0;
@@ -1209,7 +1241,9 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
   uint64_t log_size;
-  io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
+  io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size,
+                    write_group.leader->rate_limiter_priority,
+                    log_file_number_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
@@ -1279,6 +1313,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
     SequenceNumber* last_sequence, size_t seq_inc) {
   IOStatus io_s;
 
+  assert(two_write_queues_ || immutable_db_options_.unordered_write);
   assert(!write_group.leader->disable_wal);
   // Same holds for all in the batch group
   WriteBatch tmp_batch;
@@ -1302,8 +1337,14 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
   log::Writer* log_writer = logs_.back().writer;
+  LogFileNumberSize& log_file_number_size = alive_log_files_.back();
+
+  assert(log_writer->get_log_number() == log_file_number_size.number);
+
   uint64_t log_size;
-  io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
+  io_s = WriteToWAL(*merged_batch, log_writer, log_used, &log_size,
+                    write_group.leader->rate_limiter_priority,
+                    log_file_number_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
     cached_recoverable_state_empty_ = false;
@@ -1850,9 +1891,11 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
     return;
   }
 
+  mutex_.Unlock();
   for (auto listener : immutable_db_options_.listeners) {
     listener->OnMemTableSealed(mem_table_info);
   }
+  mutex_.Lock();
 }
 #endif  // ROCKSDB_LITE
 
@@ -2051,11 +2094,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                                      mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
-  mutex_.Unlock();
   // Notify client that memtable is sealed, now that we have successfully
   // installed a new memtable
   NotifyOnMemTableSealed(cfd, memtable_info);
-  mutex_.Lock();
 #endif  // ROCKSDB_LITE
   // It is possible that we got here without checking the value of i_os, but
   // that is okay.  If we did, it most likely means that s was already an error.

@@ -52,7 +52,7 @@ std::wstring utf8_to_utf16(const std::string& utf8) {
 }
 #endif
 
-void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
+void GetTimeOfDay(TimeVal* tv, struct timezone* /* tz */) {
   std::chrono::microseconds usNow(
       std::chrono::duration_cast<std::chrono::microseconds>(
           std::chrono::system_clock::now().time_since_epoch()));

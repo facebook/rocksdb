@@ -62,8 +62,6 @@ struct ImmutableCFOptions {
   // to PlainTableOptions just like bloom_bits_per_key
   uint32_t bloom_locality;
 
-  std::vector<CompressionType> compression_per_level;
-
   bool level_compaction_dynamic_level_bytes;
 
   int num_levels;
@@ -142,6 +140,7 @@ struct MutableCFOptions {
         blob_garbage_collection_force_threshold(
             options.blob_garbage_collection_force_threshold),
         blob_compaction_readahead_size(options.blob_compaction_readahead_size),
+        blob_file_starting_level(options.blob_file_starting_level),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         check_flush_compaction_key_order(
@@ -154,7 +153,8 @@ struct MutableCFOptions {
         bottommost_compression_opts(options.bottommost_compression_opts),
         bottommost_temperature(options.bottommost_temperature),
         sample_for_compression(
-            options.sample_for_compression) {  // TODO: is 0 fine here?
+            options.sample_for_compression),  // TODO: is 0 fine here?
+        compression_per_level(options.compression_per_level) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -190,6 +190,7 @@ struct MutableCFOptions {
         blob_garbage_collection_age_cutoff(0.0),
         blob_garbage_collection_force_threshold(0.0),
         blob_compaction_readahead_size(0),
+        blob_file_starting_level(0),
         max_sequential_skip_in_iterations(0),
         check_flush_compaction_key_order(true),
         paranoid_file_checks(false),
@@ -256,6 +257,7 @@ struct MutableCFOptions {
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
   uint64_t blob_compaction_readahead_size;
+  int blob_file_starting_level;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
@@ -271,6 +273,7 @@ struct MutableCFOptions {
   Temperature bottommost_temperature;
 
   uint64_t sample_for_compression;
+  std::vector<CompressionType> compression_per_level;
 
   // Derived options
   // Per-level target file size.

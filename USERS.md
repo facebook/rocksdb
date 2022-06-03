@@ -121,6 +121,8 @@ LzLabs is using RocksDB as a storage engine in their multi-database distributed 
 ## Kafka
 [Kafka](https://kafka.apache.org/) is an open-source distributed event streaming platform, it uses RocksDB to store state in Kafka Streams: https://www.confluent.io/blog/how-to-tune-rocksdb-kafka-streams-state-stores-performance/.
 
+## Solana Labs
+[Solana](https://github.com/solana-labs/solana) is a fast, secure, scalable, and decentralized blockchain.  It uses RocksDB as the underlying storage for its ledger store.
+
 ## Others
 More databases using RocksDB can be found at [dbdb.io](https://dbdb.io/browse?embeds=rocksdb).
-

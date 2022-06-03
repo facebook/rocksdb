@@ -95,8 +95,9 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
             << "table_file_creation"
             << "file_number" << fd.GetNumber() << "file_size"
-            << fd.GetFileSize() << "file_checksum" << file_checksum
-            << "file_checksum_func_name" << file_checksum_func_name;
+            << fd.GetFileSize() << "file_checksum"
+            << Slice(file_checksum).ToString(true) << "file_checksum_func_name"
+            << file_checksum_func_name;
 
     // table_properties
     {

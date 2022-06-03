@@ -82,6 +82,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -147,7 +148,7 @@ class Repairer {
     const auto* cf_opts = GetColumnFamilyOptions(cf_name);
     if (cf_opts == nullptr) {
       return Status::Corruption("Encountered unknown column family with name=" +
-                                cf_name + ", id=" + ToString(cf_id));
+                                cf_name + ", id=" + std::to_string(cf_id));
     }
     Options opts(db_options_, *cf_opts);
     MutableCFOptions mut_cf_opts(opts);
@@ -357,7 +358,7 @@ class Repairer {
     std::unique_ptr<SequentialFileReader> lfile_reader;
     Status status = SequentialFileReader::Create(
         fs, logname, fs->OptimizeForLogRead(file_options_), &lfile_reader,
-        nullptr);
+        nullptr /* dbg */, nullptr /* rate limiter */);
     if (!status.ok()) {
       return status;
     }
@@ -450,7 +451,7 @@ class Repairer {
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
-          {}, kMaxSequenceNumber, snapshot_checker,
+          {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
           nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
           nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
@@ -505,6 +506,15 @@ class Repairer {
                                                 t->meta.fd, &props);
     }
     if (status.ok()) {
+      auto s =
+          GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                 props->orig_file_number, &t->meta.unique_id);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Table #%" PRIu64
+                       ": unable to get unique id, default to Unknown.",
+                       t->meta.fd.GetNumber());
+      }
       t->column_family_id = static_cast<uint32_t>(props->column_family_id);
       if (t->column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) {
@@ -565,10 +575,13 @@ class Repairer {
 
         counter++;
 
-        t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
-                                 parsed.type);
+        status = t->meta.UpdateBoundaries(key, iter->value(), parsed.sequence,
+                                          parsed.type);
+        if (!status.ok()) {
+          break;
+        }
       }
-      if (!iter->status().ok()) {
+      if (status.ok() && !iter->status().ok()) {
         status = iter->status();
       }
       delete iter;
@@ -636,7 +649,8 @@ class Repairer {
             table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.file_checksum, table->meta.file_checksum_func_name,
-            table->meta.min_timestamp, table->meta.max_timestamp);
+            table->meta.min_timestamp, table->meta.max_timestamp,
+            table->meta.unique_id);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);

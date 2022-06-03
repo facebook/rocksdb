@@ -19,6 +19,7 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace lru_cache {
 
 // LRU cache implementation. This class is not thread-safe.
 
@@ -65,7 +66,7 @@ struct LRUHandle {
   };
   LRUHandle* next;
   LRUHandle* prev;
-  size_t charge;  // TODO(opt): Only allow uint32_t?
+  size_t total_charge;  // TODO(opt): Only allow uint32_t?
   size_t key_length;
   // The hash of key(). Used for fast sharding and comparisons.
   uint32_t hash;
@@ -81,12 +82,12 @@ struct LRUHandle {
     IN_HIGH_PRI_POOL = (1 << 2),
     // Whether this entry has had any lookups (hits).
     HAS_HIT = (1 << 3),
-    // Can this be inserted into the secondary cache
+    // Can this be inserted into the secondary cache.
     IS_SECONDARY_CACHE_COMPATIBLE = (1 << 4),
-    // Is the handle still being read from a lower tier
+    // Is the handle still being read from a lower tier.
     IS_PENDING = (1 << 5),
-    // Has the item been promoted from a lower tier
-    IS_PROMOTED = (1 << 6),
+    // Whether this handle is still in a lower tier
+    IS_IN_SECONDARY_CACHE = (1 << 6),
   };
 
   uint8_t flags;
@@ -129,7 +130,7 @@ struct LRUHandle {
 #endif  // __SANITIZE_THREAD__
   }
   bool IsPending() const { return flags & IS_PENDING; }
-  bool IsPromoted() const { return flags & IS_PROMOTED; }
+  bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -176,11 +177,11 @@ struct LRUHandle {
     }
   }
 
-  void SetPromoted(bool promoted) {
-    if (promoted) {
-      flags |= IS_PROMOTED;
+  void SetIsInSecondaryCache(bool is_in_secondary_cache) {
+    if (is_in_secondary_cache) {
+      flags |= IS_IN_SECONDARY_CACHE;
     } else {
-      flags &= ~IS_PROMOTED;
+      flags &= ~IS_IN_SECONDARY_CACHE;
     }
   }
 
@@ -208,19 +209,32 @@ struct LRUHandle {
     delete[] reinterpret_cast<char*>(this);
   }
 
-  // Calculate the memory usage by metadata
-  inline size_t CalcTotalCharge(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    size_t meta_charge = 0;
-    if (metadata_charge_policy == kFullChargeCacheMetadata) {
+  inline size_t CalcuMetaCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) const {
+    if (metadata_charge_policy != kFullChargeCacheMetadata) {
+      return 0;
+    } else {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-      meta_charge += malloc_usable_size(static_cast<void*>(this));
+      return malloc_usable_size(
+          const_cast<void*>(static_cast<const void*>(this)));
 #else
-      // This is the size that is used when a new handle is created
-      meta_charge += sizeof(LRUHandle) - 1 + key_length;
+      // This is the size that is used when a new handle is created.
+      return sizeof(LRUHandle) - 1 + key_length;
 #endif
     }
-    return charge + meta_charge;
+  }
+
+  // Calculate the memory usage by metadata.
+  inline void CalcTotalCharge(
+      size_t charge, CacheMetadataChargePolicy metadata_charge_policy) {
+    total_charge = charge + CalcuMetaCharge(metadata_charge_policy);
+  }
+
+  inline size_t GetCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) const {
+    size_t meta_charge = CalcuMetaCharge(metadata_charge_policy);
+    assert(total_charge >= meta_charge);
+    return total_charge - meta_charge;
   }
 };
 
@@ -272,10 +286,10 @@ class LRUHandleTable {
   // a linked list of cache entries that hash into the bucket.
   std::unique_ptr<LRUHandle*[]> list_;
 
-  // Number of elements currently in the table
+  // Number of elements currently in the table.
   uint32_t elems_;
 
-  // Set from max_upper_hash_bits (see constructor)
+  // Set from max_upper_hash_bits (see constructor).
   const int max_length_bits_;
 };
 
@@ -291,7 +305,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Separate from constructor so caller can easily make an array of LRUCache
   // if current usage is more than new capacity, the function will attempt to
-  // free the needed space
+  // free the needed space.
   virtual void SetCapacity(size_t capacity) override;
 
   // Set the flag to reject insertion if cache if full.
@@ -314,8 +328,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
     assert(helper);
     return Insert(key, hash, value, charge, nullptr, helper, handle, priority);
   }
-  // If helper_cb is null, the values of the following arguments don't
-  // matter
+  // If helper_cb is null, the values of the following arguments don't matter.
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
                                 const ShardedCache::CacheItemHelper* helper,
                                 const ShardedCache::CreateCallback& create_cb,
@@ -326,14 +339,14 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                   nullptr);
   }
   virtual bool Release(Cache::Handle* handle, bool /*useful*/,
-                       bool force_erase) override {
-    return Release(handle, force_erase);
+                       bool erase_if_last_ref) override {
+    return Release(handle, erase_if_last_ref);
   }
   virtual bool IsReady(Cache::Handle* /*handle*/) override;
   virtual void Wait(Cache::Handle* /*handle*/) override {}
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,
-                       bool force_erase = false) override;
+                       bool erase_if_last_ref = false) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
 
   // Although in some platforms the update of size_t is atomic, to make sure
@@ -354,8 +367,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
 
-  //  Retrieves number of elements in LRU, for unit test purpose only
-  //  not threadsafe
+  //  Retrieves number of elements in LRU, for unit test purpose only.
+  //  Not threadsafe.
   size_t TEST_GetLRUSize();
 
   //  Retrieves high pri pool ratio
@@ -365,14 +378,16 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   friend class LRUCache;
   // Insert an item into the hash table and, if handle is null, insert into
   // the LRU list. Older items are evicted as necessary. If the cache is full
-  // and free_handle_on_fail is true, the item is deleted and handle is set to.
+  // and free_handle_on_fail is true, the item is deleted and handle is set to
+  // nullptr.
   Status InsertItem(LRUHandle* item, Cache::Handle** handle,
                     bool free_handle_on_fail);
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 DeleterFn deleter, const Cache::CacheItemHelper* helper,
                 Cache::Handle** handle, Cache::Priority priority);
-  // Promote an item looked up from the secondary cache to the LRU cache. The
-  // item is only inserted into the hash table and not the LRU list, and only
+  // Promote an item looked up from the secondary cache to the LRU cache.
+  // The item may be still in the secondary cache.
+  // It is only inserted into the hash table and not the LRU list, and only
   // if the cache is not at full capacity, as is the case during Insert.  The
   // caller should hold a reference on the LRUHandle. When the caller releases
   // the last reference, the item is added to the LRU list.
@@ -389,7 +404,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Free some space following strict LRU policy until enough space
   // to hold (usage_ + charge) is freed or the lru list is empty
   // This function is not thread safe - it needs to be executed while
-  // holding the mutex_
+  // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
   // Initialized before use.
@@ -429,10 +444,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // ------------vvvvvvvvvvvvv-----------
   LRUHandleTable table_;
 
-  // Memory size for entries residing in the cache
+  // Memory size for entries residing in the cache.
   size_t usage_;
 
-  // Memory size for entries residing only in the LRU list
+  // Memory size for entries residing only in the LRU list.
   size_t lru_usage_;
 
   // mutex_ protects the following state.
@@ -467,9 +482,9 @@ class LRUCache
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& handles) override;
 
-  //  Retrieves number of elements in LRU, for unit test purpose only
+  //  Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
-  //  Retrieves high pri pool ratio
+  //  Retrieves high pri pool ratio.
   double GetHighPriPoolRatio();
 
  private:
@@ -477,5 +492,11 @@ class LRUCache
   int num_shards_ = 0;
   std::shared_ptr<SecondaryCache> secondary_cache_;
 };
+
+}  // namespace lru_cache
+
+using LRUCache = lru_cache::LRUCache;
+using LRUHandle = lru_cache::LRUHandle;
+using LRUCacheShard = lru_cache::LRUCacheShard;
 
 }  // namespace ROCKSDB_NAMESPACE

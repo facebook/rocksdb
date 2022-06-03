@@ -253,7 +253,8 @@ class MemTableList {
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
   void PickMemtablesToFlush(uint64_t max_memtable_id,
-                            autovector<MemTable*>* mems);
+                            autovector<MemTable*>* mems,
+                            uint64_t* max_next_log_number = nullptr);
 
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.
@@ -269,7 +270,7 @@ class MemTableList {
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
       std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
-      IOStatus* io_s, bool write_edits = true);
+      bool write_edits = true);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
@@ -314,7 +315,7 @@ class MemTableList {
   // PickMemtablesToFlush() is called.
   void FlushRequested() {
     flush_requested_ = true;
-    // If there are some memtables stored in imm() that dont trigger
+    // If there are some memtables stored in imm() that don't trigger
     // flush (eg: mempurge output memtable), then update imm_flush_needed.
     // Note: if race condition and imm_flush_needed is set to true
     // when there is num_flush_not_started_==0, then there is no

@@ -90,7 +90,8 @@ inline bool IsExtendedValueType(ValueType t) {
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
-static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
+static const SequenceNumber kDisableGlobalSequenceNumber =
+    std::numeric_limits<uint64_t>::max();
 
 constexpr uint64_t kNumInternalBytes = 8;
 
@@ -205,6 +206,13 @@ inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
 inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
   assert(user_key.size() >= ts_sz);
   return Slice(user_key.data() + user_key.size() - ts_sz, ts_sz);
+}
+
+inline Slice ExtractTimestampFromKey(const Slice& internal_key, size_t ts_sz) {
+  const size_t key_size = internal_key.size();
+  assert(key_size >= kNumInternalBytes + ts_sz);
+  return Slice(internal_key.data() + key_size - ts_sz - kNumInternalBytes,
+               ts_sz);
 }
 
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {

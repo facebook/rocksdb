@@ -443,6 +443,9 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
     s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                      DirFsyncOptions(identify_file_name));
   }
+  if (s.ok()) {
+    s = dir_obj->Close(IOOptions(), nullptr);
+  }
   if (!s.ok()) {
     env->DeleteFile(tmp).PermitUncheckedError();
   }
@@ -491,6 +494,12 @@ Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
 
 std::string NormalizePath(const std::string& path) {
   std::string dst;
+
+  if (path.length() > 2 && path[0] == kFilePathSeparator &&
+      path[1] == kFilePathSeparator) {  // Handle UNC names
+    dst.append(2, kFilePathSeparator);
+  }
+
   for (auto c : path) {
     if (!dst.empty() && (c == kFilePathSeparator || c == '/') &&
         (dst.back() == kFilePathSeparator || dst.back() == '/')) {

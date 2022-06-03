@@ -26,7 +26,6 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
 #include "util/autovector.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -350,6 +349,10 @@ class LegacyDirectoryWrapper : public FSDirectory {
   IOStatus Fsync(const IOOptions& /*options*/,
                  IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Fsync());
+  }
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Close());
   }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
@@ -687,12 +690,8 @@ Status Env::CreateFromString(const ConfigOptions& config_options,
   } else {
     RegisterSystemEnvs();
 #ifndef ROCKSDB_LITE
-    std::string errmsg;
-    env = config_options.registry->NewObject<Env>(id, &uniq, &errmsg);
-    if (!env) {
-      status = Status::NotSupported(
-          std::string("Cannot load environment[") + id + "]: ", errmsg);
-    }
+    // First, try to load the Env as a unique object.
+    status = config_options.registry->NewObject<Env>(id, &env, &uniq);
 #else
     status =
         Status::NotSupported("Cannot load environment in LITE mode", value);
@@ -1087,65 +1086,6 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   const auto& fs = env->GetFileSystem();
   return ReadFileToString(fs.get(), fname, data);
 }
-
-namespace {
-static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
-#ifndef ROCKSDB_LITE
-    {"target",
-     {0, OptionType::kCustomizable, OptionVerificationType::kByName,
-      OptionTypeFlags::kDontSerialize | OptionTypeFlags::kRawPointer,
-      [](const ConfigOptions& opts, const std::string& /*name*/,
-         const std::string& value, void* addr) {
-        EnvWrapper::Target* target = static_cast<EnvWrapper::Target*>(addr);
-        return Env::CreateFromString(opts, value, &(target->env),
-                                     &(target->guard));
-      },
-      nullptr, nullptr}},
-#endif  // ROCKSDB_LITE
-};
-}  // namespace
-
-EnvWrapper::EnvWrapper(Env* t) : target_(t) {
-  RegisterOptions("", &target_, &env_wrapper_type_info);
-}
-
-EnvWrapper::EnvWrapper(std::unique_ptr<Env>&& t) : target_(std::move(t)) {
-  RegisterOptions("", &target_, &env_wrapper_type_info);
-}
-
-EnvWrapper::EnvWrapper(const std::shared_ptr<Env>& t) : target_(t) {
-  RegisterOptions("", &target_, &env_wrapper_type_info);
-}
-
-EnvWrapper::~EnvWrapper() {
-}
-
-Status EnvWrapper::PrepareOptions(const ConfigOptions& options) {
-  target_.Prepare();
-  return Env::PrepareOptions(options);
-}
-
-#ifndef ROCKSDB_LITE
-std::string EnvWrapper::SerializeOptions(const ConfigOptions& config_options,
-                                         const std::string& header) const {
-  auto parent = Env::SerializeOptions(config_options, "");
-  if (config_options.IsShallow() || target_.env == nullptr ||
-      target_.env == Env::Default()) {
-    return parent;
-  } else {
-    std::string result = header;
-    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
-      result.append(OptionTypeInfo::kIdPropName()).append("=");
-    }
-    result.append(parent);
-    if (!EndsWith(result, config_options.delimiter)) {
-      result.append(config_options.delimiter);
-    }
-    result.append("target=").append(target_.env->ToString(config_options));
-    return result;
-  }
-}
-#endif  // ROCKSDB_LITE
 
 namespace {  // anonymous namespace
 

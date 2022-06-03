@@ -796,7 +796,7 @@ class RandomAccessFile {
   // should return after all reads have completed. The reads will be
   // non-overlapping. If the function return Status is not ok, status of
   // individual requests will be ignored and return status will be assumed
-  // for all read requests. The function return status is only meant for any
+  // for all read requests. The function return status is only meant for
   // any errors that occur before even processing specific read requests
   virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) {
     assert(reqs != nullptr);
@@ -959,8 +959,16 @@ class WritableFile {
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
   /*
-   * Change the priority in rate limiter if rate limiting is enabled.
+   * If rate limiting is enabled, change the file-granularity priority used in
+   * rate-limiting writes.
+   *
+   * In the presence of finer-granularity priority such as
+   * `WriteOptions::rate_limiter_priority`, this file-granularity priority may
+   * be overridden by a non-Env::IO_TOTAL finer-granularity priority and used as
+   * a fallback for Env::IO_TOTAL finer-granularity priority.
+   *
    * If rate limiting is not enabled, this call has no effect.
    */
   virtual void SetIOPriority(Env::IOPriority pri) { io_priority_ = pri; }
@@ -1140,6 +1148,8 @@ class Directory {
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
+  // Close directory.
+  virtual Status Close() = 0;
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
@@ -1802,6 +1812,7 @@ class DirectoryWrapper : public Directory {
   explicit DirectoryWrapper(Directory* target) : target_(target) {}
 
   Status Fsync() override { return target_->Fsync(); }
+  Status Close() override { return target_->Close(); }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }

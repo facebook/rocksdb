@@ -118,9 +118,11 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
        cfd->ioptions()->compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
-  return RunManualCompaction(cfd, level, output_level, CompactRangeOptions(),
-                             begin, end, true, disallow_trivial_move,
-                             port::kMaxUint64 /*max_file_num_to_ignore*/);
+  return RunManualCompaction(
+      cfd, level, output_level, CompactRangeOptions(), begin, end, true,
+      disallow_trivial_move,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/);
 }
 
 Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
@@ -263,8 +265,7 @@ size_t DBImpl::TEST_LogsWithPrepSize() {
 
 uint64_t DBImpl::TEST_FindMinPrepLogReferencedByMemTable() {
   autovector<MemTable*> empty_list;
-  return FindMinPrepLogReferencedByMemTable(versions_.get(), nullptr,
-                                            empty_list);
+  return FindMinPrepLogReferencedByMemTable(versions_.get(), empty_list);
 }
 
 Status DBImpl::TEST_GetLatestMutableCFOptions(

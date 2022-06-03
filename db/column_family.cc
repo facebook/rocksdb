@@ -136,9 +136,15 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
     }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
-    if (!ZSTD_TrainDictionarySupported()) {
+    if (cf_options.compression_opts.use_zstd_dict_trainer) {
+      if (!ZSTD_TrainDictionarySupported()) {
+        return Status::InvalidArgument(
+            "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+            "is not linked with the binary.");
+      }
+    } else if (!ZSTD_FinalizeDictionarySupported()) {
       return Status::InvalidArgument(
-          "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+          "zstd finalizeDictionary cannot be used because ZSTD 1.4.5+ "
           "is not linked with the binary.");
     }
     if (cf_options.compression_opts.max_dict_bytes == 0) {
@@ -501,7 +507,8 @@ std::vector<std::string> ColumnFamilyData::GetDbPaths() const {
   return paths;
 }
 
-const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId = port::kMaxUint32;
+const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId =
+    std::numeric_limits<uint32_t>::max();
 
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
@@ -668,6 +675,21 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
+
+  if (data_dirs_.size()) {  // Explicitly close data directories
+    Status s = Status::OK();
+    for (auto& data_dir_ptr : data_dirs_) {
+      if (data_dir_ptr) {
+        s = data_dir_ptr->Close(IOOptions(), nullptr);
+        if (!s.ok()) {
+          // TODO(zichen): add `Status Close()` and `CloseDirectories()
+          ROCKS_LOG_WARN(ioptions_.logger, "Ignoring error %s",
+                         s.ToString().c_str());
+          s.PermitUncheckedError();
+        }
+      }
+    }
+  }
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {
@@ -826,8 +848,8 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
   // condition.
   // Or twice as compaction trigger, if it is smaller.
   int64_t res = std::min(twice_level0_trigger, one_fourth_trigger_slowdown);
-  if (res >= port::kMaxInt32) {
-    return port::kMaxInt32;
+  if (res >= std::numeric_limits<int32_t>::max()) {
+    return std::numeric_limits<int32_t>::max();
   } else {
     // res fits in int
     return static_cast<int>(res);
@@ -1164,12 +1186,12 @@ Compaction* ColumnFamilyData::CompactRange(
     int output_level, const CompactRangeOptions& compact_range_options,
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end, bool* conflict,
-    uint64_t max_file_num_to_ignore) {
+    uint64_t max_file_num_to_ignore, const std::string& trim_ts) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, mutable_db_options,
       current_->storage_info(), input_level, output_level,
       compact_range_options, begin, end, compaction_end, conflict,
-      max_file_num_to_ignore);
+      max_file_num_to_ignore, trim_ts);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -1560,20 +1582,6 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     default_cfd_cache_ = new_cfd;
   }
   return new_cfd;
-}
-
-// REQUIRES: DB mutex held
-void ColumnFamilySet::FreeDeadColumnFamilies() {
-  autovector<ColumnFamilyData*> to_delete;
-  for (auto cfd = dummy_cfd_->next_; cfd != dummy_cfd_; cfd = cfd->next_) {
-    if (cfd->refs_.load(std::memory_order_relaxed) == 0) {
-      to_delete.push_back(cfd);
-    }
-  }
-  for (auto cfd : to_delete) {
-    // this is very rare, so it's not a problem that we do it under a mutex
-    delete cfd;
-  }
 }
 
 // under a DB mutex AND from a write thread

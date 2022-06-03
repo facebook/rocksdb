@@ -275,13 +275,13 @@ const std::string options_file_content = R"OPTIONS_FILE(
   blob_garbage_collection_age_cutoff=0.5
   blob_garbage_collection_force_threshold=0.75
   blob_compaction_readahead_size=262144
+  blob_file_starting_level=0
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0
   skip_table_builder_flush=false
   cache_index_and_filter_blocks=false
   flush_block_policy_factory=FlushBlockBySizePolicyFactory
-  hash_index_allow_collision=true
   index_type=kBinarySearch
   whole_key_filtering=true
   checksum=kCRC32c

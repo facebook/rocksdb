@@ -75,21 +75,21 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
   ReadOptions read_options;
 
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string key = "k" + std::to_string(i);
+    std::string value = "v" + std::to_string(i);
 
     ASSERT_OK(db->Put(write_options, key, value));
   }
 
   for (int i = 0; i < FLAGS_total_keys -1 ; ++i) {
-    std::string key = "k" + ToString(i);
+    std::string key = "k" + std::to_string(i);
     ASSERT_OK(db->Delete(write_options, key));
   }
 
   HistogramImpl hist_get;
   HistogramImpl hist_get_time;
   for (int i = 0; i < FLAGS_total_keys - 1; ++i) {
-    std::string key = "k" + ToString(i);
+    std::string key = "k" + std::to_string(i);
     std::string value;
 
     get_perf_context()->Reset();
@@ -130,7 +130,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
   HistogramImpl hist_seek;
   for (int i = 0; i < FLAGS_total_keys; ++i) {
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
-    std::string key = "k" + ToString(i);
+    std::string key = "k" + std::to_string(i);
 
     get_perf_context()->Reset();
     StopWatchNano timer(SystemClock::Default().get(), true);
@@ -265,8 +265,8 @@ void ProfileQueries(bool enabled_time = false) {
       continue;
     }
 
-    std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string key = "k" + std::to_string(i);
+    std::string value = "v" + std::to_string(i);
 
     std::vector<std::string> values;
 
@@ -297,8 +297,8 @@ void ProfileQueries(bool enabled_time = false) {
     if (i == kFlushFlag) {
       continue;
     }
-    std::string key = "k" + ToString(i);
-    std::string expected_value = "v" + ToString(i);
+    std::string key = "k" + std::to_string(i);
+    std::string expected_value = "v" + std::to_string(i);
     std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
@@ -415,8 +415,8 @@ void ProfileQueries(bool enabled_time = false) {
     if (i == kFlushFlag) {
       continue;
     }
-    std::string key = "k" + ToString(i);
-    std::string expected_value = "v" + ToString(i);
+    std::string key = "k" + std::to_string(i);
+    std::string expected_value = "v" + std::to_string(i);
     std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
@@ -543,8 +543,8 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   SetPerfLevel(kEnableTime);
   StopWatchNano timer(SystemClock::Default().get());
   for (const int i : keys) {
-    std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string key = "k" + std::to_string(i);
+    std::string value = "v" + std::to_string(i);
 
     get_perf_context()->Reset();
     timer.Start();
@@ -565,8 +565,8 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   HistogramImpl hist_next;
 
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string key = "k" + std::to_string(i);
+    std::string value = "v" + std::to_string(i);
 
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     get_perf_context()->Reset();
@@ -841,7 +841,7 @@ TEST_F(PerfContextTest, CPUTimer) {
 
   std::string max_str = "0";
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string i_str = ToString(i);
+    std::string i_str = std::to_string(i);
     std::string key = "k" + i_str;
     std::string value = "v" + i_str;
     max_str = max_str > i_str ? max_str : i_str;
@@ -935,9 +935,9 @@ TEST_F(PerfContextTest, CPUTimer) {
     get_perf_context()->Reset();
     auto count = get_perf_context()->iter_seek_cpu_nanos;
     for (int i = 0; i < FLAGS_total_keys; ++i) {
-      iter->Seek("k" + ToString(i));
+      iter->Seek("k" + std::to_string(i));
       ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("v" + ToString(i), iter->value().ToString());
+      ASSERT_EQ("v" + std::to_string(i), iter->value().ToString());
       auto next_count = get_perf_context()->iter_seek_cpu_nanos;
       ASSERT_GT(next_count, count);
       count = next_count;

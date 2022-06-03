@@ -733,6 +733,50 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    */
   double blobGarbageCollectionForceThreshold();
 
+  /**
+   * Set compaction readahead for blob files.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobCompactionReadaheadSize the compaction readahead for blob files
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobCompactionReadaheadSize(final long blobCompactionReadaheadSize);
+
+  /**
+   * Get compaction readahead for blob files.
+   *
+   * @return the current compaction readahead for blob files
+   */
+  long blobCompactionReadaheadSize();
+
+  /**
+   * Set a certain LSM tree level to enable blob files.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param blobFileStartingLevel the starting level to enable blob files
+   *
+   * @return the reference to the current options.
+   */
+  T setBlobFileStartingLevel(final int blobFileStartingLevel);
+
+  /**
+   * Get the starting LSM tree level to enable blob files.
+   *
+   * Default: 0
+   *
+   * @return the current LSM tree level to enable blob files.
+   */
+  int blobFileStartingLevel();
+
   //
   // END options for blobs (integrated BlobDB)
   //

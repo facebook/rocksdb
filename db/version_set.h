@@ -24,6 +24,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -53,6 +54,8 @@
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/coro_utils.h"
+#include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -578,7 +581,7 @@ class VersionStorageInfo {
 
   // Map of all table files in version. Maps file number to (level, position on
   // level).
-  using FileLocations = std::unordered_map<uint64_t, FileLocation>;
+  using FileLocations = UnorderedMap<uint64_t, FileLocation>;
   FileLocations file_locations_;
 
   // Vector of blob files in version sorted by blob file number.
@@ -685,6 +688,53 @@ class VersionStorageInfo {
   friend class VersionSet;
 };
 
+struct ObsoleteFileInfo {
+  FileMetaData* metadata;
+  std::string path;
+  // If true, the FileMataData should be destroyed but the file should
+  // not be deleted. This is because another FileMetaData still references
+  // the file, usually because the file is trivial moved so two FileMetadata
+  // is managing the file.
+  bool only_delete_metadata = false;
+
+  ObsoleteFileInfo() noexcept
+      : metadata(nullptr), only_delete_metadata(false) {}
+  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
+      : metadata(f), path(file_path), only_delete_metadata(false) {}
+
+  ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
+  ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
+
+  ObsoleteFileInfo(ObsoleteFileInfo&& rhs) noexcept : ObsoleteFileInfo() {
+    *this = std::move(rhs);
+  }
+
+  ObsoleteFileInfo& operator=(ObsoleteFileInfo&& rhs) noexcept {
+    path = std::move(rhs.path);
+    metadata = rhs.metadata;
+    rhs.metadata = nullptr;
+
+    return *this;
+  }
+  void DeleteMetadata() {
+    delete metadata;
+    metadata = nullptr;
+  }
+};
+
+class ObsoleteBlobFileInfo {
+ public:
+  ObsoleteBlobFileInfo(uint64_t blob_file_number, std::string path)
+      : blob_file_number_(blob_file_number), path_(std::move(path)) {}
+
+  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
+  const std::string& GetPath() const { return path_; }
+
+ private:
+  uint64_t blob_file_number_;
+  std::string path_;
+};
+
 using MultiGetRange = MultiGetContext::Range;
 // A column family's version consists of the table and blob files owned by
 // the column family at a certain point in time.
@@ -734,9 +784,11 @@ class Version {
   //    If the key has any merge operands then store them in
   //    merge_context.operands_list and don't merge the operands
   // REQUIRES: lock is not held
+  // REQUIRES: pinned_iters_mgr != nullptr
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            std::string* timestamp, Status* status, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
+           PinnedIteratorsManager* pinned_iters_mgr,
            bool* value_found = nullptr, bool* key_exists = nullptr,
            SequenceNumber* seq = nullptr, ReadCallback* callback = nullptr,
            bool* is_blob = nullptr, bool do_merge = true);
@@ -783,6 +835,11 @@ class Version {
   // *live_blob_files.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;
+
+  // Remove live files that are in the delete candidate lists.
+  void RemoveLiveFiles(
+      std::vector<ObsoleteFileInfo>& sst_delete_candidates,
+      std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const;
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false, bool print_stats = false) const;
@@ -847,6 +904,8 @@ class Version {
 
   const MutableCFOptions& GetMutableCFOptions() { return mutable_cf_options_; }
 
+  Status VerifySstUniqueIds() const;
+
  private:
   Env* env_;
   SystemClock* clock_;
@@ -877,6 +936,14 @@ class Version {
   // Update the accumulated stats associated with the current version.
   // This accumulated stats will be used in compaction.
   void UpdateAccumulatedStats();
+
+  DECLARE_SYNC_AND_ASYNC(
+      /* ret_type */ Status, /* func_name */ MultiGetFromSST,
+      const ReadOptions& read_options, MultiGetRange file_range,
+      int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
+      std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs,
+      uint64_t& num_filter_read, uint64_t& num_index_read,
+      uint64_t& num_data_read, uint64_t& num_sst_read);
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
@@ -910,49 +977,6 @@ class Version {
   // No copying allowed
   Version(const Version&) = delete;
   void operator=(const Version&) = delete;
-};
-
-struct ObsoleteFileInfo {
-  FileMetaData* metadata;
-  std::string   path;
-
-  ObsoleteFileInfo() noexcept : metadata(nullptr) {}
-  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
-      : metadata(f), path(file_path) {}
-
-  ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
-  ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
-
-  ObsoleteFileInfo(ObsoleteFileInfo&& rhs) noexcept :
-    ObsoleteFileInfo() {
-      *this = std::move(rhs);
-  }
-
-  ObsoleteFileInfo& operator=(ObsoleteFileInfo&& rhs) noexcept {
-    path = std::move(rhs.path);
-    metadata = rhs.metadata;
-    rhs.metadata = nullptr;
-
-    return *this;
-  }
-
-  void DeleteMetadata() {
-    delete metadata;
-    metadata = nullptr;
-  }
-};
-
-class ObsoleteBlobFileInfo {
- public:
-  ObsoleteBlobFileInfo(uint64_t blob_file_number, std::string path)
-      : blob_file_number_(blob_file_number), path_(std::move(path)) {}
-
-  uint64_t GetBlobFileNumber() const { return blob_file_number_; }
-  const std::string& GetPath() const { return path_; }
-
- private:
-  uint64_t blob_file_number_;
-  std::string path_;
 };
 
 class BaseReferencedVersionBuilder;
@@ -1088,6 +1112,9 @@ class VersionSet {
   // column_families.
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
                                    const std::string& dbname, FileSystem* fs);
+  static Status ListColumnFamiliesFromManifest(
+      const std::string& manifest_path, FileSystem* fs,
+      std::vector<std::string>* column_families);
 
 #ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
@@ -1126,8 +1153,8 @@ class VersionSet {
 
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
-  uint64_t min_log_number_to_keep_2pc() const {
-    return min_log_number_to_keep_2pc_.load();
+  uint64_t min_log_number_to_keep() const {
+    return min_log_number_to_keep_.load();
   }
 
   // Allocate and return a new file number
@@ -1185,7 +1212,7 @@ class VersionSet {
   // Mark the specified log number as deleted
   // REQUIRED: this is only called during single-threaded recovery or repair, or
   // from ::LogAndApply where the global mutex is held.
-  void MarkMinLogNumberToKeep2PC(uint64_t number);
+  void MarkMinLogNumberToKeep(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
@@ -1194,17 +1221,19 @@ class VersionSet {
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // In non-2PC mode, all the log numbers smaller than this number can be safely
-  // deleted.
+  // deleted, although we still use `min_log_number_to_keep_` to determine when
+  // to delete a WAL file.
   uint64_t MinLogNumberWithUnflushedData() const {
     return PreComputeMinLogNumberWithUnflushedData(nullptr);
   }
+
   // Returns the minimum log number which still has data not flushed to any SST
   // file.
   // Empty column families' log number is considered to be
   // new_log_number_for_empty_cf.
   uint64_t PreComputeMinLogNumberWithUnflushedData(
       uint64_t new_log_number_for_empty_cf) const {
-    uint64_t min_log_num = port::kMaxUint64;
+    uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
       // It's safe to ignore dropped column families here:
       // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
@@ -1220,7 +1249,7 @@ class VersionSet {
   // file, except data from `cfd_to_skip`.
   uint64_t PreComputeMinLogNumberWithUnflushedData(
       const ColumnFamilyData* cfd_to_skip) const {
-    uint64_t min_log_num = port::kMaxUint64;
+    uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
       if (cfd == cfd_to_skip) {
         continue;
@@ -1237,7 +1266,7 @@ class VersionSet {
   // file, except data from `cfds_to_skip`.
   uint64_t PreComputeMinLogNumberWithUnflushedData(
       const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
-    uint64_t min_log_num = port::kMaxUint64;
+    uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
       if (cfds_to_skip.count(cfd)) {
         continue;
@@ -1254,15 +1283,23 @@ class VersionSet {
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   // @param read_options Must outlive the returned iterator.
+  // @param start, end indicates compaction range
   InternalIterator* MakeInputIterator(
       const ReadOptions& read_options, const Compaction* c,
       RangeDelAggregator* range_del_agg,
-      const FileOptions& file_options_compactions);
+      const FileOptions& file_options_compactions,
+      const std::optional<const Slice>& start,
+      const std::optional<const Slice>& end);
 
   // Add all files listed in any live version to *live_table_files and
   // *live_blob_files. Note that these lists may contain duplicates.
   void AddLiveFiles(std::vector<uint64_t>* live_table_files,
                     std::vector<uint64_t>* live_blob_files) const;
+
+  // Remove live files that are in the delete candidate lists.
+  void RemoveLiveFiles(
+      std::vector<ObsoleteFileInfo>& sst_delete_candidates,
+      std::vector<ObsoleteBlobFileInfo>& blob_delete_candidates) const;
 
   // Return the approximate size of data to be scanned for range [start, end)
   // in levels [start_level, end_level). If end_level == -1 it will search
@@ -1295,6 +1332,10 @@ class VersionSet {
                         uint64_t min_pending_output);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
+  RefedColumnFamilySet GetRefedColumnFamilySet() {
+    return RefedColumnFamilySet(GetColumnFamilySet());
+  }
+
   const FileOptions& file_options() { return file_options_; }
   void ChangeFileOptions(const MutableDBOptions& new_options) {
     file_options_.writable_file_max_buffer_size =
@@ -1329,8 +1370,7 @@ class VersionSet {
 
  protected:
   using VersionBuilderMap =
-      std::unordered_map<uint32_t,
-                         std::unique_ptr<BaseReferencedVersionBuilder>>;
+      UnorderedMap<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>;
 
   struct ManifestWriter;
 
@@ -1397,9 +1437,8 @@ class VersionSet {
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   // Any WAL number smaller than this should be ignored during recovery,
-  // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
-  // number is ignored.
-  std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
+  // and is qualified for being deleted.
+  std::atomic<uint64_t> min_log_number_to_keep_ = {0};
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t options_file_size_;

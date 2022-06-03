@@ -35,7 +35,14 @@ namespace ROCKSDB_NAMESPACE {
 class Status {
  public:
   // Create a success status.
-  Status() : code_(kOk), subcode_(kNone), sev_(kNoError), state_(nullptr) {}
+  Status()
+      : code_(kOk),
+        subcode_(kNone),
+        sev_(kNoError),
+        retryable_(false),
+        data_loss_(false),
+        scope_(0),
+        state_(nullptr) {}
   ~Status() {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     if (!checked_) {
@@ -49,16 +56,8 @@ class Status {
   // Copy the specified status.
   Status(const Status& s);
   Status& operator=(const Status& s);
-  Status(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
-  Status& operator=(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-      noexcept
-#endif
-      ;
+  Status(Status&& s) noexcept;
+  Status& operator=(Status&& s) noexcept;
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
@@ -454,6 +453,9 @@ class Status {
   Code code_;
   SubCode subcode_;
   Severity sev_;
+  bool retryable_;
+  bool data_loss_;
+  unsigned char scope_;
   // A nullptr state_ (which is at least the case for OK) means the extra
   // message is empty.
   std::unique_ptr<const char[]> state_;
@@ -462,7 +464,21 @@ class Status {
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 
   explicit Status(Code _code, SubCode _subcode = kNone)
-      : code_(_code), subcode_(_subcode), sev_(kNoError) {}
+      : code_(_code),
+        subcode_(_subcode),
+        sev_(kNoError),
+        retryable_(false),
+        data_loss_(false),
+        scope_(0) {}
+
+  explicit Status(Code _code, SubCode _subcode, bool retryable, bool data_loss,
+                  unsigned char scope)
+      : code_(_code),
+        subcode_(_subcode),
+        sev_(kNoError),
+        retryable_(retryable),
+        data_loss_(data_loss),
+        scope_(scope) {}
 
   Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2,
          Severity sev = kNoError);
@@ -479,12 +495,22 @@ class Status {
 };
 
 inline Status::Status(const Status& s)
-    : code_(s.code_), subcode_(s.subcode_), sev_(s.sev_) {
+    : code_(s.code_),
+      subcode_(s.subcode_),
+      sev_(s.sev_),
+      retryable_(s.retryable_),
+      data_loss_(s.data_loss_),
+      scope_(s.scope_) {
   s.MarkChecked();
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
 }
 inline Status::Status(const Status& s, Severity sev)
-    : code_(s.code_), subcode_(s.subcode_), sev_(sev) {
+    : code_(s.code_),
+      subcode_(s.subcode_),
+      sev_(sev),
+      retryable_(s.retryable_),
+      data_loss_(s.data_loss_),
+      scope_(s.scope_) {
   s.MarkChecked();
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
 }
@@ -495,25 +521,20 @@ inline Status& Status::operator=(const Status& s) {
     code_ = s.code_;
     subcode_ = s.subcode_;
     sev_ = s.sev_;
+    retryable_ = s.retryable_;
+    data_loss_ = s.data_loss_;
+    scope_ = s.scope_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_.get());
   }
   return *this;
 }
 
-inline Status::Status(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-    : Status() {
+inline Status::Status(Status&& s) noexcept : Status() {
   s.MarkChecked();
   *this = std::move(s);
 }
 
-inline Status& Status::operator=(Status&& s)
-#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
-#endif
-{
+inline Status& Status::operator=(Status&& s) noexcept {
   if (this != &s) {
     s.MarkChecked();
     MustCheck();
@@ -523,6 +544,12 @@ inline Status& Status::operator=(Status&& s)
     s.subcode_ = kNone;
     sev_ = std::move(s.sev_);
     s.sev_ = kNoError;
+    retryable_ = std::move(s.retryable_);
+    s.retryable_ = false;
+    data_loss_ = std::move(s.data_loss_);
+    s.data_loss_ = false;
+    scope_ = std::move(s.scope_);
+    s.scope_ = 0;
     state_ = std::move(s.state_);
   }
   return *this;
