@@ -243,6 +243,7 @@ TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
   Options options = GetDefaultOptions();
 
@@ -318,6 +319,7 @@ TEST_F(DBBlobCompactionTest, BlobCompactWithStartingLevel) {
 
   Close();
 }
+#endif
 
 TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   Options options = GetDefaultOptions();
