@@ -174,6 +174,8 @@ default_params = {
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
+    # Temporarily disable wal compression because it causes backup/checkpoint to miss
+    # compressed WAL files.
     "wal_compression": "none",
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": "",
