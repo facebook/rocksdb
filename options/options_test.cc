@@ -109,7 +109,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
-      {"blob_file_starting_file", "1"},
+      {"blob_file_starting_level", "1"},
       {"bottommost_temperature", "kWarm"},
   };
 
