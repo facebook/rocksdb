@@ -48,7 +48,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   assert(column_family);
   if (read_options.timestamp) {
     const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return s;
     }
@@ -108,7 +108,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   assert(column_family);
   if (read_options.timestamp) {
     const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+        FailIfTsMismatchCf(column_family, *(read_options.timestamp));
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -148,7 +148,7 @@ Status DBImplReadOnly::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp));
       if (!s.ok()) {
         return s;
       }

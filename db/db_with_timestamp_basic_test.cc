@@ -268,7 +268,6 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   }
   ASSERT_OK(Flush());
 
-  // TODO return a non-ok for read ts < current_ts_low and test it.
   for (int i = 0; i < 10; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
@@ -276,8 +275,9 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
     read_opts.timestamp = &ts;
     std::string value;
     Status status = db_->Get(read_opts, kKey, &value);
-    if (i < current_ts_low - 1) {
-      ASSERT_TRUE(status.IsNotFound());
+    // TODO(yuzhangyu): DO NOT SUBMIT, remove this, just to test CircleCI.
+    if (i < current_ts_low) {
+      ASSERT_TRUE(status.IsInvalidArgument());
     } else {
       ASSERT_OK(status);
       ASSERT_TRUE(value.compare(Key(i)) == 0);
@@ -301,7 +301,6 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   result_ts_low = cfd->GetFullHistoryTsLow();
   ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low, result_ts_low) == 0);
 
-  // TODO return a non-ok for read ts < current_ts_low and test it.
   for (int i = current_ts_low; i < 20; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
