@@ -447,6 +447,11 @@ class MockEnvDirectory : public FSDirectory {
                  IODebugContext* /*dbg*/) override {
     return IOStatus::OK();
   }
+
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return IOStatus::OK();
+  }
 };
 
 class MockEnvFileLock : public FileLock {

@@ -714,12 +714,17 @@ Status DBImpl::CloseHelper() {
     write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
   }
 
+  IOStatus io_s = directories_.Close(IOOptions(), nullptr /* dbg */);
+  if (!io_s.ok()) {
+    ret = io_s;
+  }
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
     // retry. In this case, we wrap this exception to something else.
     return Status::Incomplete(ret.ToString());
   }
+
   return ret;
 }
 
@@ -4381,6 +4386,9 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
     if (s.ok()) {
       s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                        DirFsyncOptions(options_file_name));
+    }
+    if (s.ok()) {
+      s = dir_obj->Close(IOOptions(), nullptr);
     }
   }
   if (s.ok()) {

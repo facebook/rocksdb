@@ -12,6 +12,7 @@
 #include <set>
 #include <sstream>
 
+#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
@@ -76,7 +77,7 @@ DEFINE_string(secondary_cache_uri, "",
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 #endif  // ROCKSDB_LITE
 
-DEFINE_bool(use_clock_cache, false, "");
+DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
 // ## BEGIN stress_cache_key sub-tool options ##
 // See class StressCacheKey below.
@@ -279,13 +280,15 @@ class CacheBench {
       if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
-    if (FLAGS_use_clock_cache) {
+    if (FLAGS_cache_type == "clock_cache") {
       cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
       if (!cache_) {
         fprintf(stderr, "Clock cache not supported.\n");
         exit(1);
       }
-    } else {
+    } else if (FLAGS_cache_type == "fast_lru_cache") {
+      cache_ = NewFastLRUCache(FLAGS_cache_size, FLAGS_num_shard_bits);
+    } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
@@ -303,6 +306,9 @@ class CacheBench {
 #endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);
+    } else {
+      fprintf(stderr, "Cache type not supported.");
+      exit(1);
     }
   }
 

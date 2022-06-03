@@ -10,6 +10,7 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
+#include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
@@ -130,14 +131,17 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   if (capacity <= 0) {
     return nullptr;
   }
-  if (FLAGS_use_clock_cache) {
+
+  if (FLAGS_cache_type == "clock_cache") {
     auto cache = NewClockCache((size_t)capacity);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);
     }
     return cache;
-  } else {
+  } else if (FLAGS_cache_type == "fast_lru_cache") {
+    return NewFastLRUCache((size_t)capacity, num_shard_bits);
+  } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
     opts.num_shard_bits = num_shard_bits;
@@ -161,6 +165,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
 #endif
     return NewLRUCache(opts);
+  } else {
+    fprintf(stderr, "Cache type not supported.");
+    exit(1);
   }
 }
 
@@ -273,6 +280,8 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"0.5", "0.75", "1.0"});
     options_tbl.emplace("blob_compaction_readahead_size",
                         std::vector<std::string>{"0", "1M", "4M"});
+    options_tbl.emplace("blob_file_starting_level",
+                        std::vector<std::string>{"0", "1", "2"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -674,7 +683,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in) {
     fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
-                                            FLAGS_read_fault_one_in);
+                                                   FLAGS_read_fault_one_in);
   }
 #endif  // NDEBUG
   if (FLAGS_write_fault_one_in) {
@@ -2112,6 +2121,15 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
                           static_cast<uint32_t>(bottom_level_styles.size())];
   cro.allow_write_stall = static_cast<bool>(thread->rand.Next() % 2);
   cro.max_subcompactions = static_cast<uint32_t>(thread->rand.Next() % 4);
+  std::vector<BlobGarbageCollectionPolicy> blob_gc_policies = {
+      BlobGarbageCollectionPolicy::kForce,
+      BlobGarbageCollectionPolicy::kDisable,
+      BlobGarbageCollectionPolicy::kUseDefault};
+  cro.blob_garbage_collection_policy =
+      blob_gc_policies[thread->rand.Next() %
+                       static_cast<uint32_t>(blob_gc_policies.size())];
+  cro.blob_garbage_collection_age_cutoff =
+      static_cast<double>(thread->rand.Next() % 100) / 100.0;
 
   const Snapshot* pre_snapshot = nullptr;
   uint32_t pre_hash = 0;
@@ -2315,7 +2333,8 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Open metadata write fault one in:\n");
   fprintf(stdout, "                            %d\n",
           FLAGS_open_metadata_write_fault_one_in);
-  fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
+  fprintf(stdout, "Sync fault injection      : %d\n",
+          FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
   fprintf(stdout, "Fail if OPTIONS file error: %d\n",
@@ -2367,14 +2386,16 @@ void StressTest::Open(SharedState* shared) {
           "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
           ", blob file size %" PRIu64
           ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
-          "threshold %f, blob compaction readahead size %" PRIu64 "\n",
+          "threshold %f, blob compaction readahead size %" PRIu64
+          ", blob file starting level %d\n",
           options_.enable_blob_files, options_.min_blob_size,
           options_.blob_file_size,
           CompressionTypeToString(options_.blob_compression_type).c_str(),
           options_.enable_blob_garbage_collection,
           options_.blob_garbage_collection_age_cutoff,
           options_.blob_garbage_collection_force_threshold,
-          options_.blob_compaction_readahead_size);
+          options_.blob_compaction_readahead_size,
+          options_.blob_file_starting_level);
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
@@ -2690,7 +2711,7 @@ void StressTest::Reopen(ThreadState* thread) {
   }
   assert(!write_prepared || bg_canceled);
 #else
-  (void) thread;
+  (void)thread;
 #endif
 
   for (auto cf : column_families_) {
@@ -2970,6 +2991,7 @@ void InitializeOptionsFromFlags(
   options.blob_garbage_collection_force_threshold =
       FLAGS_blob_garbage_collection_force_threshold;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
+  options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());

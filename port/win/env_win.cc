@@ -601,7 +601,7 @@ IOStatus WinFileSystem::NewDirectory(const std::string& name,
     return s;
   }
 
-  result->reset(new WinDirectory(handle));
+  result->reset(new WinDirectory(name, handle));
 
   return s;
 }

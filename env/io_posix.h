@@ -450,9 +450,11 @@ struct PosixMemoryMappedFileBuffer : public MemoryMappedFileBuffer {
 
 class PosixDirectory : public FSDirectory {
  public:
-  explicit PosixDirectory(int fd);
+  explicit PosixDirectory(int fd, const std::string& directory_name);
   ~PosixDirectory();
   virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
+
+  virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
 
   virtual IOStatus FsyncWithDirOptions(
       const IOOptions&, IODebugContext*,
@@ -461,6 +463,7 @@ class PosixDirectory : public FSDirectory {
  private:
   int fd_;
   bool is_btrfs_;
+  const std::string directory_name_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
