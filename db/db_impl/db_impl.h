@@ -1518,13 +1518,7 @@ class DBImpl : public DB {
       }
     }
   };
-  struct LogContext {
-    explicit LogContext(bool need_sync = false)
-        : need_log_sync(need_sync), need_log_dir_sync(need_sync) {}
-    bool need_log_sync;
-    bool need_log_dir_sync;
-    log::Writer* writer;
-  };
+
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number) : number(_number) {}
     LogFileNumberSize() {}
@@ -1557,6 +1551,15 @@ class DBImpl : public DB {
     log::Writer* writer;  // own
     // true for some prefix of logs_
     bool getting_synced = false;
+  };
+
+  struct LogContext {
+    explicit LogContext(bool need_sync = false)
+        : need_log_sync(need_sync), need_log_dir_sync(need_sync) {}
+    bool need_log_sync = false;
+    bool need_log_dir_sync = false;
+    log::Writer* writer = nullptr;
+    LogFileNumberSize* log_file_number_size = nullptr;
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in

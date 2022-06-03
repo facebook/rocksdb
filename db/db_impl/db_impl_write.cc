@@ -411,6 +411,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (!two_write_queues_) {
       if (status.ok() && !write_options.disableWAL) {
+        assert(log_context.log_file_number_size);
+        LogFileNumberSize& log_file_number_size =
+            *(log_context.log_file_number_size);
         PERF_TIMER_GUARD(write_wal_time);
         io_s = WriteToWAL(write_group, log_context.writer, log_used,
                           log_context.need_log_sync,
@@ -647,6 +650,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                           wal_write_group.size - 1);
         RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
       }
+      assert(log_context.log_file_number_size);
+      LogFileNumberSize& log_file_number_size =
+          *(log_context.log_file_number_size);
       io_s = WriteToWAL(wal_write_group, log_context.writer, log_used,
                         log_context.need_log_sync,
                         log_context.need_log_dir_sync, current_sequence, log_file_number_size);
@@ -1135,6 +1141,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   log_context->writer = logs_.back().writer;
   log_context->need_log_dir_sync =
       log_context->need_log_dir_sync && !log_dir_synced_;
+  log_context->log_file_number_size = std::addressof(alive_log_files_.back());
 
   return status;
 }
