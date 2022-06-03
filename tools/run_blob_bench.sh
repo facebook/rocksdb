@@ -54,6 +54,7 @@ function display_usage() {
   echo -e "\tBLOB_GC_AGE_CUTOFF\t\tBlob garbage collection age cutoff (default: 0.25)"
   echo -e "\tBLOB_GC_FORCE_THRESHOLD\t\tThreshold for forcing garbage collection of the oldest blob files (default: 1.0)"
   echo -e "\tBLOB_COMPACTION_READAHEAD_SIZE\tBlob compaction readahead size (default: 0)"
+  echo -e "\tBLOB_FILE_STARTING_LEVEL\t\tBlob file starting level (default: 0)"
   echo -e "\tTARGET_FILE_SIZE_BASE\t\tTarget SST file size for compactions (default: write buffer size, scaled down if blob files are enabled)"
   echo -e "\tMAX_BYTES_FOR_LEVEL_BASE\tMaximum size for the base level (default: 8 * target SST file size)"
 }
@@ -113,6 +114,7 @@ enable_blob_garbage_collection=${ENABLE_BLOB_GC:-1}
 blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
 blob_garbage_collection_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1.0}
 blob_compaction_readahead_size=${BLOB_COMPACTION_READAHEAD_SIZE:-0}
+blob_file_starting_level=${BLOB_FILE_STARTING_LEVEL:-0}
 
 if [ "$enable_blob_files" == "1" ]; then
   target_file_size_base=${TARGET_FILE_SIZE_BASE:-$((32 * write_buffer_size / value_size))}
@@ -142,6 +144,7 @@ echo -e "Blob GC enabled:\t\t\t$enable_blob_garbage_collection"
 echo -e "Blob GC age cutoff:\t\t\t$blob_garbage_collection_age_cutoff"
 echo -e "Blob GC force threshold:\t\t$blob_garbage_collection_force_threshold"
 echo -e "Blob compaction readahead size:\t\t$blob_compaction_readahead_size"
+echo -e "Blob file starting level:\t\t$blob_file_starting_level"
 echo -e "Target SST file size:\t\t\t$target_file_size_base"
 echo -e "Maximum size of base level:\t\t$max_bytes_for_level_base"
 echo "================================================================="
@@ -167,6 +170,7 @@ PARAMS="\
   --min_blob_size=$min_blob_size \
   --blob_file_size=$blob_file_size \
   --blob_compression_type=$blob_compression_type \
+  --blob_file_starting_level=$blob_file_starting_level \
   --write_buffer_size=$write_buffer_size \
   --target_file_size_base=$target_file_size_base \
   --max_bytes_for_level_base=$max_bytes_for_level_base"

@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 
+#include "cache/cache_reservation_manager.h"
 #include "db/forward_iterator.h"
 #include "env/mock_env.h"
 #include "port/lang.h"
@@ -829,10 +830,12 @@ std::string DBTestBase::Get(int cf, const std::string& k,
 std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
                                               const std::vector<std::string>& k,
                                               const Snapshot* snapshot,
-                                              const bool batched) {
+                                              const bool batched,
+                                              const bool async) {
   ReadOptions options;
   options.verify_checksums = true;
   options.snapshot = snapshot;
+  options.async_io = async;
   std::vector<ColumnFamilyHandle*> handles;
   std::vector<Slice> keys;
   std::vector<std::string> result;
@@ -874,10 +877,12 @@ std::vector<std::string> DBTestBase::MultiGet(std::vector<int> cfs,
 }
 
 std::vector<std::string> DBTestBase::MultiGet(const std::vector<std::string>& k,
-                                              const Snapshot* snapshot) {
+                                              const Snapshot* snapshot,
+                                              const bool async) {
   ReadOptions options;
   options.verify_checksums = true;
   options.snapshot = snapshot;
+  options.async_io = async;
   std::vector<Slice> keys;
   std::vector<std::string> result(k.size());
   std::vector<Status> statuses(k.size());
@@ -1682,5 +1687,62 @@ void VerifySstUniqueIds(const TablePropertiesCollection& props) {
     ASSERT_TRUE(seen.insert(id).second);
   }
 }
+
+template <CacheEntryRole R>
+TargetCacheChargeTrackingCache<R>::TargetCacheChargeTrackingCache(
+    std::shared_ptr<Cache> target)
+    : CacheWrapper(std::move(target)),
+      cur_cache_charge_(0),
+      cache_charge_peak_(0),
+      cache_charge_increment_(0),
+      last_peak_tracked_(false),
+      cache_charge_increments_sum_(0) {}
+
+template <CacheEntryRole R>
+Status TargetCacheChargeTrackingCache<R>::Insert(
+    const Slice& key, void* value, size_t charge,
+    void (*deleter)(const Slice& key, void* value), Handle** handle,
+    Priority priority) {
+  Status s = target_->Insert(key, value, charge, deleter, handle, priority);
+  if (deleter == kNoopDeleter) {
+    if (last_peak_tracked_) {
+      cache_charge_peak_ = 0;
+      cache_charge_increment_ = 0;
+      last_peak_tracked_ = false;
+    }
+    if (s.ok()) {
+      cur_cache_charge_ += charge;
+    }
+    cache_charge_peak_ = std::max(cache_charge_peak_, cur_cache_charge_);
+    cache_charge_increment_ += charge;
+  }
+
+  return s;
+}
+
+template <CacheEntryRole R>
+bool TargetCacheChargeTrackingCache<R>::Release(Handle* handle,
+                                                bool erase_if_last_ref) {
+  auto deleter = GetDeleter(handle);
+  if (deleter == kNoopDeleter) {
+    if (!last_peak_tracked_) {
+      cache_charge_peaks_.push_back(cache_charge_peak_);
+      cache_charge_increments_sum_ += cache_charge_increment_;
+      last_peak_tracked_ = true;
+    }
+    cur_cache_charge_ -= GetCharge(handle);
+  }
+  bool is_successful = target_->Release(handle, erase_if_last_ref);
+  return is_successful;
+}
+
+template <CacheEntryRole R>
+const Cache::DeleterFn TargetCacheChargeTrackingCache<R>::kNoopDeleter =
+    CacheReservationManagerImpl<R>::TEST_GetNoopDeleterForRole();
+
+template class TargetCacheChargeTrackingCache<
+    CacheEntryRole::kFilterConstruction>;
+template class TargetCacheChargeTrackingCache<
+    CacheEntryRole::kBlockBasedTableReader>;
 
 }  // namespace ROCKSDB_NAMESPACE

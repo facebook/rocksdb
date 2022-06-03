@@ -70,6 +70,8 @@ struct IngestedFileInfo {
   std::string file_checksum_func_name;
   // The temperature of the file to be ingested
   Temperature file_temperature = Temperature::kUnknown;
+  // Unique id of the file to be ingested
+  UniqueId64x2 unique_id{};
 };
 
 class ExternalSstFileIngestionJob {

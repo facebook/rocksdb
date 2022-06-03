@@ -1604,9 +1604,9 @@ class TestLogger : public Logger {
 
       if (new_format[0] == '[') {
         // "[DEBUG] "
-        ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(struct timeval))));
+        ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(port::TimeVal))));
       } else {
-        ASSERT_TRUE(n <= 48 + (512 - static_cast<int>(sizeof(struct timeval))));
+        ASSERT_TRUE(n <= 48 + (512 - static_cast<int>(sizeof(port::TimeVal))));
       }
       va_end(backup_ap);
     }
@@ -1674,9 +1674,9 @@ class TestLogger2 : public Logger {
       va_copy(backup_ap, ap);
       int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
       // 48 bytes for extra information + bytes allocated
-      ASSERT_TRUE(
-          n <= 48 + static_cast<int>(max_log_size_ - sizeof(struct timeval)));
-      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(struct timeval)));
+      ASSERT_TRUE(n <=
+                  48 + static_cast<int>(max_log_size_ - sizeof(port::TimeVal)));
+      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(port::TimeVal)));
       va_end(backup_ap);
     }
   }

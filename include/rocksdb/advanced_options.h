@@ -100,8 +100,9 @@ struct CompressionOptions {
   //
   // The dictionary is created by sampling the SST file data. If
   // `zstd_max_train_bytes` is nonzero, the samples are passed through zstd's
-  // dictionary generator. Otherwise, the random samples are used directly as
-  // the dictionary.
+  // dictionary generator (see comments for option `use_zstd_dict_trainer` for
+  // detail on dictionary generator). If `zstd_max_train_bytes` is zero, the
+  // random samples are used directly as the dictionary.
   //
   // When compression dictionary is disabled, we compress and write each block
   // before buffering data for the next one. When compression dictionary is
@@ -173,6 +174,20 @@ struct CompressionOptions {
   // Default: 0 (unlimited)
   uint64_t max_dict_buffer_bytes;
 
+  // Use zstd trainer to generate dictionaries. When this option is set to true,
+  // zstd_max_train_bytes of training data sampled from max_dict_buffer_bytes
+  // buffered data will be passed to zstd dictionary trainer to generate a
+  // dictionary of size max_dict_bytes.
+  //
+  // When this option is false, zstd's API ZDICT_finalizeDictionary() will be
+  // called to generate dictionaries. zstd_max_train_bytes of training sampled
+  // data will be passed to this API. Using this API should save CPU time on
+  // dictionary training, but the compression ratio may not be as good as using
+  // a dictionary trainer.
+  //
+  // Default: true
+  bool use_zstd_dict_trainer;
+
   CompressionOptions()
       : window_bits(-14),
         level(kDefaultCompressionLevel),
@@ -181,11 +196,13 @@ struct CompressionOptions {
         zstd_max_train_bytes(0),
         parallel_threads(1),
         enabled(false),
-        max_dict_buffer_bytes(0) {}
+        max_dict_buffer_bytes(0),
+        use_zstd_dict_trainer(true) {}
   CompressionOptions(int wbits, int _lev, int _strategy,
                      uint32_t _max_dict_bytes, uint32_t _zstd_max_train_bytes,
                      uint32_t _parallel_threads, bool _enabled,
-                     uint64_t _max_dict_buffer_bytes)
+                     uint64_t _max_dict_buffer_bytes,
+                     bool _use_zstd_dict_trainer)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
@@ -193,7 +210,8 @@ struct CompressionOptions {
         zstd_max_train_bytes(_zstd_max_train_bytes),
         parallel_threads(_parallel_threads),
         enabled(_enabled),
-        max_dict_buffer_bytes(_max_dict_buffer_bytes) {}
+        max_dict_buffer_bytes(_max_dict_buffer_bytes),
+        use_zstd_dict_trainer(_use_zstd_dict_trainer) {}
 };
 
 // Temperature of a file. Used to pass to FileSystem for a different
@@ -205,6 +223,7 @@ enum class Temperature : uint8_t {
   kHot = 0x04,
   kWarm = 0x08,
   kCold = 0x0C,
+  kLastTemperature,
 };
 
 // The control option of how the cache tiers will be used. Currently rocksdb
@@ -918,6 +937,21 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   uint64_t blob_compaction_readahead_size = 0;
+
+  // Enable blob files starting from a certain LSM tree level.
+  //
+  // For certain use cases that have a mix of short-lived and long-lived values,
+  // it might make sense to support extracting large values only during
+  // compactions whose output level is greater than or equal to a specified LSM
+  // tree level (e.g. compactions into L1/L2/... or above). This could reduce
+  // the space amplification caused by large values that are turned into garbage
+  // shortly after being written at the price of some write amplification
+  // incurred by long-lived values whose extraction to blob files is delayed.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  int blob_file_starting_level = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

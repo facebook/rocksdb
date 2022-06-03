@@ -113,6 +113,39 @@ class Directories {
 
   FSDirectory* GetDbDir() { return db_dir_.get(); }
 
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) {
+    // close all directories for all database paths
+    IOStatus s = IOStatus::OK();
+    if (db_dir_) {
+      s = db_dir_->Close(options, dbg);
+    }
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (wal_dir_) {
+      s = wal_dir_->Close(options, dbg);
+    }
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (data_dirs_.size() > 0 && s.ok()) {
+      for (auto& data_dir_ptr : data_dirs_) {
+        if (data_dir_ptr) {
+          s = data_dir_ptr->Close(options, dbg);
+          if (!s.ok()) {
+            return s;
+          }
+        }
+      }
+    }
+
+    return s;
+  }
+
  private:
   std::unique_ptr<FSDirectory> db_dir_;
   std::vector<std::unique_ptr<FSDirectory>> data_dirs_;
@@ -1207,9 +1240,6 @@ class DBImpl : public DB {
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
-  // If true, we have only one (default) column family. We use this to optimize
-  // some code-paths
-  bool single_column_family_mode_;
 
   // The options to access storage files
   const FileOptions file_options_;
@@ -1239,6 +1269,39 @@ class DBImpl : public DB {
   std::atomic<int> next_job_id_;
 
   std::atomic<bool> shutting_down_;
+
+  // RecoveryContext struct stores the context about version edits along
+  // with corresponding column_family_data and column_family_options.
+  class RecoveryContext {
+   public:
+    ~RecoveryContext() {
+      for (auto& edit_list : edit_lists_) {
+        for (auto* edit : edit_list) {
+          delete edit;
+        }
+      }
+    }
+
+    void UpdateVersionEdits(ColumnFamilyData* cfd, const VersionEdit& edit) {
+      assert(cfd != nullptr);
+      if (map_.find(cfd->GetID()) == map_.end()) {
+        uint32_t size = static_cast<uint32_t>(map_.size());
+        map_.emplace(cfd->GetID(), size);
+        cfds_.emplace_back(cfd);
+        mutable_cf_opts_.emplace_back(cfd->GetLatestMutableCFOptions());
+        edit_lists_.emplace_back(autovector<VersionEdit*>());
+      }
+      uint32_t i = map_[cfd->GetID()];
+      edit_lists_[i].emplace_back(new VersionEdit(edit));
+    }
+
+    std::unordered_map<uint32_t, uint32_t> map_;  // cf_id to index;
+    autovector<ColumnFamilyData*> cfds_;
+    autovector<const MutableCFOptions*> mutable_cf_opts_;
+    autovector<autovector<VersionEdit*>> edit_lists_;
+    // files_to_delete_ contains sst files
+    std::unordered_set<std::string> files_to_delete_;
+  };
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
@@ -1356,16 +1419,19 @@ class DBImpl : public DB {
   // be made to the descriptor are added to *edit.
   // recovered_seq is set to less than kMaxSequenceNumber if the log's tail is
   // skipped.
+  // recovery_ctx stores the context about version edits and all those
+  // edits are persisted to new Manifest after successfully syncing the new WAL.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       bool read_only = false, bool error_if_wal_file_exists = false,
       bool error_if_data_exists_in_wals = false,
-      uint64_t* recovered_seq = nullptr);
+      uint64_t* recovered_seq = nullptr,
+      RecoveryContext* recovery_ctx = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId(bool read_only);
+  Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1374,12 +1440,15 @@ class DBImpl : public DB {
   // not referenced in the MANIFEST (e.g.
   // 1. It's best effort recovery;
   // 2. The VersionEdits referencing the SST files are appended to
-  // MANIFEST, DB crashes when syncing the MANIFEST, the VersionEdits are
+  // RecoveryContext, DB crashes when syncing the MANIFEST, the VersionEdits are
   // still not synced to MANIFEST during recovery.)
-  // We delete these SST files. In the
+  // It stores the SST files to be deleted in RecoveryContext. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  Status DeleteUnreferencedSstFiles();
+  // recovery_ctx stores the context about version edits and files to be
+  // deleted. All those edits are persisted to new Manifest after successfully
+  // syncing the new WAL.
+  Status DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx);
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -1388,6 +1457,14 @@ class DBImpl : public DB {
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
                                const Slice& ts) const;
+
+  // recovery_ctx stores the context about version edits and
+  // LogAndApplyForRecovery persist all those edits to new Manifest after
+  // successfully syncing new WAL.
+  // LogAndApplyForRecovery should be called only once during recovery and it
+  // should be called when RocksDB writes to a first new MANIFEST since this
+  // recovery.
+  Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
 
  private:
   friend class DB;
@@ -1645,7 +1722,8 @@ class DBImpl : public DB {
   // corrupted_log_found is set to true if we recover from a corrupted log file.
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                          SequenceNumber* next_sequence, bool read_only,
-                         bool* corrupted_log_found);
+                         bool* corrupted_log_found,
+                         RecoveryContext* recovery_ctx);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used at database RecoveryTime (when the
@@ -1789,12 +1867,13 @@ class DBImpl : public DB {
   IOStatus WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                       uint64_t* log_used, uint64_t* log_size,
                       Env::IOPriority rate_limiter_priority,
-                      bool with_db_mutex = false, bool with_log_mutex = false);
+                      LogFileNumberSize& log_file_number_size);
 
   IOStatus WriteToWAL(const WriteThread::WriteGroup& write_group,
                       log::Writer* log_writer, uint64_t* log_used,
                       bool need_log_sync, bool need_log_dir_sync,
-                      SequenceNumber sequence);
+                      SequenceNumber sequence,
+                      LogFileNumberSize& log_file_number_size);
 
   IOStatus ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                                 uint64_t* log_used,
@@ -1974,6 +2053,11 @@ class DBImpl : public DB {
   IOStatus CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                      size_t preallocate_block_size, log::Writer** new_log);
 
+  // Verify SST file unique id between Manifest and table properties to make
+  // sure they're the same. Currently only used during DB open when
+  // `verify_sst_unique_id_in_manifest = true`.
+  Status VerifySstUniqueIdInManifest();
+
   // Validate self-consistency of DB options
   static Status ValidateOptions(const DBOptions& db_options);
   // Validate self-consistency of DB options and its consistency with cf options
@@ -2119,11 +2203,7 @@ class DBImpl : public DB {
   // are protected by locking both mutex_ and log_write_mutex_, and reads must
   // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
-  // Caching the result of `alive_log_files_.back()` so that we do not have to
-  // call `alive_log_files_.back()` in the write thread (WriteToWAL()) which
-  // requires locking db mutex if log_mutex_ is not already held in
-  // two-write-queues mode.
-  std::deque<LogFileNumberSize>::reverse_iterator alive_log_files_tail_;
+
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
   //  - push_back() is done from write_thread_ with locked mutex_ and
@@ -2393,6 +2473,15 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+};
+
+class GetWithTimestampReadCallback : public ReadCallback {
+ public:
+  explicit GetWithTimestampReadCallback(SequenceNumber seq)
+      : ReadCallback(seq) {}
+  bool IsVisibleFullCheck(SequenceNumber seq) override {
+    return seq <= max_visible_seq_;
+  }
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

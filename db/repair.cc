@@ -82,6 +82,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "table/unique_id_impl.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -357,7 +358,7 @@ class Repairer {
     std::unique_ptr<SequentialFileReader> lfile_reader;
     Status status = SequentialFileReader::Create(
         fs, logname, fs->OptimizeForLogRead(file_options_), &lfile_reader,
-        nullptr);
+        nullptr /* dbg */, nullptr /* rate limiter */);
     if (!status.ok()) {
       return status;
     }
@@ -505,6 +506,15 @@ class Repairer {
                                                 t->meta.fd, &props);
     }
     if (status.ok()) {
+      auto s =
+          GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                 props->orig_file_number, &t->meta.unique_id);
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Table #%" PRIu64
+                       ": unable to get unique id, default to Unknown.",
+                       t->meta.fd.GetNumber());
+      }
       t->column_family_id = static_cast<uint32_t>(props->column_family_id);
       if (t->column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) {
@@ -639,7 +649,8 @@ class Repairer {
             table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.file_checksum, table->meta.file_checksum_func_name,
-            table->meta.min_timestamp, table->meta.max_timestamp);
+            table->meta.min_timestamp, table->meta.max_timestamp,
+            table->meta.unique_id);
       }
       assert(next_file_number_ > 0);
       vset_.MarkFileNumberUsed(next_file_number_ - 1);

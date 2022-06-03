@@ -714,12 +714,17 @@ Status DBImpl::CloseHelper() {
     write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
   }
 
+  IOStatus io_s = directories_.Close(IOOptions(), nullptr /* dbg */);
+  if (!io_s.ok()) {
+    ret = io_s;
+  }
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
     // retry. In this case, we wrap this exception to something else.
     return Status::Incomplete(ret.ToString());
   }
+
   return ret;
 }
 
@@ -1723,17 +1728,6 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
-namespace {
-class GetWithTimestampReadCallback : public ReadCallback {
- public:
-  explicit GetWithTimestampReadCallback(SequenceNumber seq)
-      : ReadCallback(seq) {}
-  bool IsVisibleFullCheck(SequenceNumber seq) override {
-    return seq <= max_visible_seq_;
-  }
-};
-}  // namespace
-
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
@@ -2590,7 +2584,8 @@ Status DBImpl::MultiGetImpl(
                             ? MultiGetContext::MAX_BATCH_SIZE
                             : keys_left;
     MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
-                        batch_size, snapshot, read_options);
+                        batch_size, snapshot, read_options, GetFileSystem(),
+                        stats_);
     MultiGetRange range = ctx.GetMultiGetRange();
     range.AddValueSize(curr_value_size);
     bool lookup_current = false;
@@ -2782,7 +2777,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
-      single_column_family_mode_ = false;
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
@@ -4393,6 +4387,9 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
       s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                        DirFsyncOptions(options_file_name));
     }
+    if (s.ok()) {
+      s = dir_obj->Close(IOOptions(), nullptr);
+    }
   }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);
@@ -4819,19 +4816,6 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-      int consumed_seqno_count =
-          ingestion_jobs[0].ConsumedSequenceNumbersCount();
-      for (size_t i = 1; i != num_cfs; ++i) {
-        consumed_seqno_count =
-            std::max(consumed_seqno_count,
-                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
-      }
-      if (consumed_seqno_count > 0) {
-        const SequenceNumber last_seqno = versions_->LastSequence();
-        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
-      }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -4861,6 +4845,27 @@ Status DBImpl::IngestExternalFiles(
       status =
           versions_->LogAndApply(cfds_to_commit, mutable_cf_options_list,
                                  edit_lists, &mutex_, directories_.GetDbDir());
+      // It is safe to update VersionSet last seqno here after LogAndApply since
+      // LogAndApply persists last sequence number from VersionEdits,
+      // which are from file's largest seqno and not from VersionSet.
+      //
+      // It is necessary to update last seqno here since LogAndApply releases
+      // mutex when persisting MANIFEST file, and the snapshots taken during
+      // that period will not be stable if VersionSet last seqno is updated
+      // before LogAndApply.
+      int consumed_seqno_count =
+          ingestion_jobs[0].ConsumedSequenceNumbersCount();
+      for (size_t i = 1; i != num_cfs; ++i) {
+        consumed_seqno_count =
+            std::max(consumed_seqno_count,
+                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
+      }
+      if (consumed_seqno_count > 0) {
+        const SequenceNumber last_seqno = versions_->LastSequence();
+        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
+      }
     }
 
     if (status.ok()) {

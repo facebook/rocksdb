@@ -13,6 +13,7 @@
 #include "db/version_set.h"
 #include "logging/event_logger.h"
 #include "rocksdb/slice.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -221,6 +222,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint64(&oldest_blob_file_number, f.oldest_blob_file_number);
       PutLengthPrefixedSlice(dst, Slice(oldest_blob_file_number));
     }
+    UniqueId64x2 unique_id = f.unique_id;
+    TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:UniqueId", &unique_id);
+    if (unique_id != kNullUniqueId64x2) {
+      PutVarint32(dst, NewFileCustomTag::kUniqueId);
+      std::string unique_id_str = EncodeUniqueIdBytes(&unique_id);
+      PutLengthPrefixedSlice(dst, Slice(unique_id_str));
+    }
+
     TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                              dst);
 
@@ -391,6 +400,12 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           break;
         case kMaxTimestamp:
           f.max_timestamp = field.ToString();
+          break;
+        case kUniqueId:
+          if (!DecodeUniqueIdBytes(field.ToString(), &f.unique_id).ok()) {
+            f.unique_id = kNullUniqueId64x2;
+            return "invalid unique id";
+          }
           break;
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
@@ -818,6 +833,11 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       // Maybe change to human readable format whenthe feature becomes
       // permanent
       r.append(std::to_string(static_cast<int>(f.temperature)));
+    }
+    if (f.unique_id != kNullUniqueId64x2) {
+      r.append(" unique_id(internal): ");
+      UniqueId64x2 id = f.unique_id;
+      r.append(InternalUniqueIdToHumanString(&id));
     }
   }
 

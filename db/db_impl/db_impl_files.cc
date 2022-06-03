@@ -166,8 +166,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->log_number = MinLogNumberToKeep();
   job_context->prev_log_number = versions_->prev_log_number();
 
-  versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
   if (doing_the_full_scan) {
+    versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
     std::set<std::string> paths;
@@ -242,6 +242,14 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.db_log_dir);
       }
     }
+  } else {
+    // Instead of filling ob_context->sst_live and job_context->blob_live,
+    // directly remove files that show up in any Version. This is because
+    // candidate files tend to be a small percentage of all files, so it is
+    // usually cheaper to check them against every version, compared to
+    // building a map for all files.
+    versions_->RemoveLiveFiles(job_context->sst_delete_files,
+                               job_context->blob_delete_files);
   }
 
   // logs_ is empty when called during recovery, in which case there can't yet
@@ -395,8 +403,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   for (auto& file : state.sst_delete_files) {
-    candidate_files.emplace_back(
-        MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
+    if (!file.only_delete_metadata) {
+      candidate_files.emplace_back(
+          MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
+    }
     if (file.metadata->table_reader_handle) {
       table_cache_->Release(file.metadata->table_reader_handle);
     }
@@ -863,7 +873,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId(bool read_only) {
+Status DBImpl::SetDBId(bool read_only, RecoveryContext* recovery_ctx) {
   Status s;
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
@@ -890,14 +900,14 @@ Status DBImpl::SetDBId(bool read_only) {
     }
     s = GetDbIdentityFromIdentityFile(&db_id_);
     if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
+      assert(!read_only);
+      assert(recovery_ctx != nullptr);
+      assert(versions_->GetColumnFamilySet() != nullptr);
       VersionEdit edit;
       edit.SetDBId(db_id_);
-      Options options;
-      MutableCFOptions mutable_cf_options(options);
       versions_->db_id_ = db_id_;
-      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                                 mutable_cf_options, &edit, &mutex_, nullptr,
-                                 /* new_descriptor_log */ false);
+      recovery_ctx->UpdateVersionEdits(
+          versions_->GetColumnFamilySet()->GetDefault(), edit);
     }
   } else if (!read_only) {
     s = SetIdentityFile(env_, dbname_, db_id_);
@@ -905,7 +915,7 @@ Status DBImpl::SetDBId(bool read_only) {
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFiles() {
+Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -925,7 +935,6 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
 
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
-  std::set<std::string> files_to_delete;
   Status s;
   for (const auto& path : paths) {
     std::vector<std::string> files;
@@ -943,8 +952,9 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
       const std::string normalized_fpath = path + fname;
       largest_file_number = std::max(largest_file_number, number);
       if (type == kTableFile && number >= next_file_number &&
-          files_to_delete.find(normalized_fpath) == files_to_delete.end()) {
-        files_to_delete.insert(normalized_fpath);
+          recovery_ctx->files_to_delete_.find(normalized_fpath) ==
+              recovery_ctx->files_to_delete_.end()) {
+        recovery_ctx->files_to_delete_.emplace(normalized_fpath);
       }
     }
   }
@@ -961,21 +971,7 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  s = versions_->LogAndApply(
-      default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-      directories_.GetDbDir(), /*new_descriptor_log*/ false);
-  if (!s.ok()) {
-    return s;
-  }
-
-  mutex_.Unlock();
-  for (const auto& fname : files_to_delete) {
-    s = env_->DeleteFile(fname);
-    if (!s.ok()) {
-      break;
-    }
-  }
-  mutex_.Lock();
+  recovery_ctx->UpdateVersionEdits(default_cfd, edit);
   return s;
 }
 

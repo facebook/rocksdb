@@ -136,9 +136,15 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
     }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
-    if (!ZSTD_TrainDictionarySupported()) {
+    if (cf_options.compression_opts.use_zstd_dict_trainer) {
+      if (!ZSTD_TrainDictionarySupported()) {
+        return Status::InvalidArgument(
+            "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+            "is not linked with the binary.");
+      }
+    } else if (!ZSTD_FinalizeDictionarySupported()) {
       return Status::InvalidArgument(
-          "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+          "zstd finalizeDictionary cannot be used because ZSTD 1.4.5+ "
           "is not linked with the binary.");
     }
     if (cf_options.compression_opts.max_dict_bytes == 0) {
@@ -667,6 +673,21 @@ ColumnFamilyData::~ColumnFamilyData() {
           ioptions_.logger,
           "Failed to unregister data paths of column family (id: %d, name: %s)",
           id_, name_.c_str());
+    }
+  }
+
+  if (data_dirs_.size()) {  // Explicitly close data directories
+    Status s = Status::OK();
+    for (auto& data_dir_ptr : data_dirs_) {
+      if (data_dir_ptr) {
+        s = data_dir_ptr->Close(IOOptions(), nullptr);
+        if (!s.ok()) {
+          // TODO(zichen): add `Status Close()` and `CloseDirectories()
+          ROCKS_LOG_WARN(ioptions_.logger, "Ignoring error %s",
+                         s.ToString().c_str());
+          s.PermitUncheckedError();
+        }
+      }
     }
   }
 }

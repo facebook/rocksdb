@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -961,7 +962,6 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "003.sst.trash"));
 }
 
-
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
 // deleted from first db_path were deleted using DeleteScheduler and
@@ -1233,7 +1233,9 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   ASSERT_GT(completed_compactions, 0);
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
-  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(COMPACTION_CANCELLED), 0);
+  ASSERT_GT(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
+                COMPACTION_CANCELLED),
+            0);
   ASSERT_EQ(0,
             dbfull()->immutable_db_options().statistics.get()->getTickerCount(
                 FILES_MARKED_TRASH));
@@ -1448,7 +1450,9 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
 }
 
 TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
-  for (bool reserve_table_builder_memory : {true, false}) {
+  for (CacheEntryRoleOptions::Decision charge_table_reader :
+       {CacheEntryRoleOptions::Decision::kEnabled,
+        CacheEntryRoleOptions::Decision::kDisabled}) {
     // Open DB with infinite max open files
     //  - First iteration use 1 thread to open files
     //  - Second iteration use 5 threads to open files
@@ -1488,7 +1492,9 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
       }
       Close();
 
-      table_options.reserve_table_reader_memory = reserve_table_builder_memory;
+      table_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kBlockBasedTableReader,
+           {/*.charged = */ charge_table_reader}});
       table_options.block_cache =
           NewLRUCache(1024 /* capacity */, 0 /* num_shard_bits */,
                       true /* strict_capacity_limit */);
@@ -1497,8 +1503,13 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFilesSubjectToMemoryLimit) {
       // Reopening the DB will try to load all existing files, conditionally
       // subject to memory limit
       Status s = TryReopen(options);
-      if (table_options.reserve_table_reader_memory) {
+
+      if (charge_table_reader == CacheEntryRoleOptions::Decision::kEnabled) {
         EXPECT_TRUE(s.IsMemoryLimit());
+        EXPECT_TRUE(s.ToString().find(
+                        kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+                            CacheEntryRole::kBlockBasedTableReader)]) !=
+                    std::string::npos);
         EXPECT_TRUE(s.ToString().find("memory limit based on cache capacity") !=
                     std::string::npos);
 
@@ -1618,6 +1629,45 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ASSERT_EQ(total_sst_files_size, 0);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBSSTTest, OpenDBWithoutGetFileSizeInvocations) {
+  Options options = CurrentOptions();
+  std::unique_ptr<MockEnv> env{MockEnv::Create(Env::Default())};
+  options.env = env.get();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // create one blob per file
+  options.skip_checking_sst_file_sizes_on_db_open = true;
+
+  DestroyAndReopen(options);
+  // Generate 5 files in L0
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 10; j++) {
+      std::string val = "val_file_" + std::to_string(i);
+      ASSERT_OK(Put(Key(j), val));
+    }
+    ASSERT_OK(Flush());
+  }
+  Close();
+
+  bool is_get_file_size_called = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "MockFileSystem::GetFileSize:CheckFileType", [&](void* arg) {
+        std::string* filename = reinterpret_cast<std::string*>(arg);
+        if (filename->find(".blob") != std::string::npos) {
+          is_get_file_size_called = true;
+        }
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_FALSE(is_get_file_size_called);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Destroy(options);
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {

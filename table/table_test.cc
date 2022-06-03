@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "cache/lru_cache.h"
+#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -1126,8 +1127,9 @@ class TableTest : public testing::Test {
 };
 
 class GeneralTableTest : public TableTest {};
+class BlockBasedTableTestBase : public TableTest {};
 class BlockBasedTableTest
-    : public TableTest,
+    : public BlockBasedTableTestBase,
       virtual public ::testing::WithParamInterface<uint32_t> {
  public:
   BlockBasedTableTest() : format_(GetParam()) {
@@ -1428,12 +1430,19 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
   tp->orig_file_number = file_number;
   TestIds t;
   {
+    std::string euid;
+    EXPECT_OK(GetExtendedUniqueIdFromTableProperties(*tp, &euid));
+    EXPECT_EQ(euid.size(), 24U);
+    t.external_id[0] = DecodeFixed64(&euid[0]);
+    t.external_id[1] = DecodeFixed64(&euid[8]);
+    t.external_id[2] = DecodeFixed64(&euid[16]);
+
     std::string uid;
     EXPECT_OK(GetUniqueIdFromTableProperties(*tp, &uid));
-    EXPECT_EQ(uid.size(), 24U);
-    t.external_id[0] = DecodeFixed64(&uid[0]);
-    t.external_id[1] = DecodeFixed64(&uid[8]);
-    t.external_id[2] = DecodeFixed64(&uid[16]);
+    EXPECT_EQ(uid.size(), 16U);
+    EXPECT_EQ(uid, euid.substr(0, 16));
+    EXPECT_EQ(t.external_id[0], DecodeFixed64(&uid[0]));
+    EXPECT_EQ(t.external_id[1], DecodeFixed64(&uid[8]));
   }
   // All these should be effectively random
   EXPECT_TRUE(seen->insert(t.external_id[0]).second);
@@ -1443,6 +1452,7 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
   // Get internal with internal API
   EXPECT_OK(GetSstInternalUniqueId(db_id, db_session_id, file_number,
                                    &t.internal_id));
+  EXPECT_NE(t.internal_id, kNullUniqueId64x3);
 
   // Verify relationship
   UniqueId64x3 tmp = t.internal_id;
@@ -1450,6 +1460,21 @@ TestIds GetUniqueId(TableProperties* tp, std::unordered_set<uint64_t>* seen,
   EXPECT_EQ(tmp, t.external_id);
   ExternalUniqueIdToInternal(&tmp);
   EXPECT_EQ(tmp, t.internal_id);
+
+  // And 128-bit internal version
+  UniqueId64x2 tmp2{};
+  EXPECT_OK(GetSstInternalUniqueId(db_id, db_session_id, file_number, &tmp2));
+  EXPECT_NE(tmp2, kNullUniqueId64x2);
+
+  EXPECT_EQ(tmp2[0], t.internal_id[0]);
+  EXPECT_EQ(tmp2[1], t.internal_id[1]);
+  InternalUniqueIdToExternal(&tmp2);
+  EXPECT_EQ(tmp2[0], t.external_id[0]);
+  EXPECT_EQ(tmp2[1], t.external_id[1]);
+  ExternalUniqueIdToInternal(&tmp2);
+  EXPECT_EQ(tmp2[0], t.internal_id[0]);
+  EXPECT_EQ(tmp2[1], t.internal_id[1]);
+
   return t;
 }
 }  // namespace
@@ -1590,7 +1615,7 @@ TEST_F(TablePropertyTest, UniqueIdHumanStrings) {
   SetGoodTableProperties(&tp);
 
   std::string tmp;
-  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+  EXPECT_OK(GetExtendedUniqueIdFromTableProperties(tp, &tmp));
   EXPECT_EQ(tmp,
             (std::string{{'\x64', '\x74', '\xdf', '\x65', '\x03', '\x23',
                           '\xbd', '\xf0', '\xb4', '\x8e', '\x64', '\xf3',
@@ -1598,6 +1623,9 @@ TEST_F(TablePropertyTest, UniqueIdHumanStrings) {
                           '\x4b', '\x32', '\xe7', '\xf7', '\x44', '\x4b'}}));
   EXPECT_EQ(UniqueIdToHumanString(tmp),
             "6474DF650323BDF0-B48E64F3039308CA-17284B32E7F7444B");
+
+  EXPECT_OK(GetUniqueIdFromTableProperties(tp, &tmp));
+  EXPECT_EQ(UniqueIdToHumanString(tmp), "6474DF650323BDF0-B48E64F3039308CA");
 
   // including zero padding
   tmp = std::string(24U, '\0');
@@ -1622,6 +1650,13 @@ TEST_F(TablePropertyTest, UniqueIdHumanStrings) {
 
   tmp.resize(6);
   EXPECT_EQ(UniqueIdToHumanString(tmp), "000000000012");
+
+  // Also internal IDs to human string
+  UniqueId64x3 euid = {12345, 678, 9};
+  EXPECT_EQ(InternalUniqueIdToHumanString(&euid), "{12345,678,9}");
+
+  UniqueId64x2 uid = {1234, 567890};
+  EXPECT_EQ(InternalUniqueIdToHumanString(&uid), "{1234,567890}");
 }
 
 TEST_F(TablePropertyTest, UniqueIdsFailure) {
@@ -1632,16 +1667,22 @@ TEST_F(TablePropertyTest, UniqueIdsFailure) {
   SetGoodTableProperties(&tp);
   tp.db_id = "";
   EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+  EXPECT_TRUE(
+      GetExtendedUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
 
   // Missing session id
   SetGoodTableProperties(&tp);
   tp.db_session_id = "";
   EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+  EXPECT_TRUE(
+      GetExtendedUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
 
   // Missing file number
   SetGoodTableProperties(&tp);
   tp.orig_file_number = 0;
   EXPECT_TRUE(GetUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
+  EXPECT_TRUE(
+      GetExtendedUniqueIdFromTableProperties(tp, &tmp).IsNotSupported());
 }
 
 // This test include all the basic checks except those for index size and block
@@ -3975,7 +4016,7 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, 0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), 2000, 3525));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), 2000, 3525));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7050));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 4000, 7075));
   c.ResetTableReader();
 }
 
@@ -5190,84 +5231,98 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnNext) {
   ASSERT_FALSE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
 }
 
-TEST_P(
-    BlockBasedTableTest,
-    IncreaseCacheReservationForCompressDictBuildingBufferOnBuilderAddAndDecreaseOnBuilderFinish) {
+class ChargeCompressionDictionaryBuildingBufferTest
+    : public BlockBasedTableTestBase {};
+TEST_F(ChargeCompressionDictionaryBuildingBufferTest, Basic) {
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
   constexpr std::size_t kMaxDictBytes = 1024;
   constexpr std::size_t kMaxDictBufferBytes = 1024;
 
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  LRUCacheOptions lo;
-  lo.capacity = kCacheCapacity;
-  lo.num_shard_bits = 0;  // 2^0 shard
-  lo.strict_capacity_limit = true;
-  std::shared_ptr<Cache> cache(NewLRUCache(lo));
-  table_options.block_cache = cache;
-  table_options.flush_block_policy_factory =
-      std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  for (CacheEntryRoleOptions::Decision
+           charge_compression_dictionary_building_buffer :
+       {CacheEntryRoleOptions::Decision::kEnabled,
+        CacheEntryRoleOptions::Decision::kDisabled}) {
+    BlockBasedTableOptions table_options;
+    LRUCacheOptions lo;
+    lo.capacity = kCacheCapacity;
+    lo.num_shard_bits = 0;  // 2^0 shard
+    lo.strict_capacity_limit = true;
+    std::shared_ptr<Cache> cache(NewLRUCache(lo));
+    table_options.block_cache = cache;
+    table_options.flush_block_policy_factory =
+        std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+    table_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kCompressionDictionaryBuildingBuffer,
+         {/*.charged = */ charge_compression_dictionary_building_buffer}});
+    Options options;
+    options.compression = kSnappyCompression;
+    options.compression_opts.max_dict_bytes = kMaxDictBytes;
+    options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  Options options;
-  options.compression = kSnappyCompression;
-  options.compression_opts.max_dict_bytes = kMaxDictBytes;
-  options.compression_opts.max_dict_buffer_bytes = kMaxDictBufferBytes;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    test::StringSink* sink = new test::StringSink();
+    std::unique_ptr<FSWritableFile> holder(sink);
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(holder), "test_file_name", FileOptions()));
 
-  test::StringSink* sink = new test::StringSink();
-  std::unique_ptr<FSWritableFile> holder(sink);
-  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(holder), "test_file_name", FileOptions()));
+    ImmutableOptions ioptions(options);
+    MutableCFOptions moptions(options);
+    InternalKeyComparator ikc(options.comparator);
+    IntTblPropCollectorFactories int_tbl_prop_collector_factories;
 
-  ImmutableOptions ioptions(options);
-  MutableCFOptions moptions(options);
-  InternalKeyComparator ikc(options.comparator);
-  IntTblPropCollectorFactories int_tbl_prop_collector_factories;
+    std::unique_ptr<TableBuilder> builder(
+        options.table_factory->NewTableBuilder(
+            TableBuilderOptions(
+                ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
+                kSnappyCompression, options.compression_opts,
+                kUnknownColumnFamily, "test_cf", -1 /* level */),
+            file_writer.get()));
 
-  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
-      TableBuilderOptions(ioptions, moptions, ikc,
-                          &int_tbl_prop_collector_factories, kSnappyCompression,
-                          options.compression_opts, kUnknownColumnFamily,
-                          "test_cf", -1 /* level */),
-      file_writer.get()));
+    std::string key1 = "key1";
+    std::string value1 = "val1";
+    InternalKey ik1(key1, 0 /* sequnce number */, kTypeValue);
+    // Adding the first key won't trigger a flush by FlushBlockEveryKeyPolicy
+    // therefore won't trigger any data block's buffering
+    builder->Add(ik1.Encode(), value1);
+    ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 
-  std::string key1 = "key1";
-  std::string value1 = "val1";
-  InternalKey ik1(key1, 0 /* sequnce number */, kTypeValue);
-  // Adding the first key won't trigger a flush by FlushBlockEveryKeyPolicy
-  // therefore won't trigger any data block's buffering
-  builder->Add(ik1.Encode(), value1);
-  ASSERT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+    std::string key2 = "key2";
+    std::string value2 = "val2";
+    InternalKey ik2(key2, 1 /* sequnce number */, kTypeValue);
+    // Adding the second key will trigger a flush of the last data block (the
+    // one containing key1 and value1) by FlushBlockEveryKeyPolicy and hence
+    // trigger buffering of that data block.
+    builder->Add(ik2.Encode(), value2);
+    // Cache charging will increase for last buffered data block (the one
+    // containing key1 and value1) since the buffer limit is not exceeded after
+    // that buffering and the cache will not be full after this reservation
+    if (charge_compression_dictionary_building_buffer ==
+        CacheEntryRoleOptions::Decision::kEnabled) {
+      EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
+      EXPECT_LT(cache->GetPinnedUsage(),
+                1 * kSizeDummyEntry + kMetaDataChargeOverhead);
+    } else {
+      EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+    }
 
-  std::string key2 = "key2";
-  std::string value2 = "val2";
-  InternalKey ik2(key2, 1 /* sequnce number */, kTypeValue);
-  // Adding the second key will trigger a flush of the last data block (the one
-  // containing key1 and value1) by FlushBlockEveryKeyPolicy and hence trigger
-  // buffering of that data block.
-  builder->Add(ik2.Encode(), value2);
-  // Cache reservation will increase for last buffered data block (the one
-  // containing key1 and value1) since the buffer limit is not exceeded after
-  // that buffering and the cache will not be full after this reservation
-  EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
-  EXPECT_LT(cache->GetPinnedUsage(),
-            1 * kSizeDummyEntry + kMetaDataChargeOverhead);
-
-  ASSERT_OK(builder->Finish());
-  EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+    ASSERT_OK(builder->Finish());
+    EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
+  }
 }
 
-TEST_P(
-    BlockBasedTableTest,
-    IncreaseCacheReservationForCompressDictBuildingBufferOnBuilderAddAndDecreaseOnBufferLimitExceed) {
+TEST_F(ChargeCompressionDictionaryBuildingBufferTest,
+       BasicWithBufferLimitExceed) {
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   constexpr std::size_t kCacheCapacity = 8 * 1024 * 1024;
   constexpr std::size_t kMaxDictBytes = 1024;
   constexpr std::size_t kMaxDictBufferBytes = 2 * kSizeDummyEntry;
 
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  // `CacheEntryRoleOptions::charged` is enabled by default for
+  // CacheEntryRole::kCompressionDictionaryBuildingBuffer
+  BlockBasedTableOptions table_options;
   LRUCacheOptions lo;
   lo.capacity = kCacheCapacity;
   lo.num_shard_bits = 0;  // 2^0 shard
@@ -5315,7 +5370,7 @@ TEST_P(
   // containing key1 and value1) by FlushBlockEveryKeyPolicy and hence trigger
   // buffering of the last data block.
   builder->Add(ik2.Encode(), value2);
-  // Cache reservation will increase for last buffered data block (the one
+  // Cache charging will increase for last buffered data block (the one
   // containing key1 and value1) since the buffer limit is not exceeded after
   // the buffering and the cache will not be full after this reservation
   EXPECT_GE(cache->GetPinnedUsage(), 2 * kSizeDummyEntry);
@@ -5329,7 +5384,7 @@ TEST_P(
   // containing key2 and value2) by FlushBlockEveryKeyPolicy and hence trigger
   // buffering of the last data block.
   builder->Add(ik3.Encode(), value3);
-  // Cache reservation will decrease since the buffer limit is now exceeded
+  // Cache charging will decrease since the buffer limit is now exceeded
   // after the last buffering and EnterUnbuffered() is triggered
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 
@@ -5337,12 +5392,10 @@ TEST_P(
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 }
 
-TEST_P(
-    BlockBasedTableTest,
-    IncreaseCacheReservationForCompressDictBuildingBufferOnBuilderAddAndDecreaseOnCacheFull) {
+TEST_F(ChargeCompressionDictionaryBuildingBufferTest, BasicWithCacheFull) {
   constexpr std::size_t kSizeDummyEntry = 256 * 1024;
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
-  // A small kCacheCapacity is chosen so that increase cache reservation for
+  // A small kCacheCapacity is chosen so that increase cache charging for
   // buffering two data blocks, each containing key1/value1, key2/a big
   // value2, will cause cache full
   constexpr std::size_t kCacheCapacity =
@@ -5352,7 +5405,9 @@ TEST_P(
   // (key2, value2) won't exceed the buffer limit
   constexpr std::size_t kMaxDictBufferBytes = 1024 * 1024 * 1024;
 
-  BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+  // `CacheEntryRoleOptions::charged` is enabled by default for
+  // CacheEntryRole::kCompressionDictionaryBuildingBuffer
+  BlockBasedTableOptions table_options;
   LRUCacheOptions lo;
   lo.capacity = kCacheCapacity;
   lo.num_shard_bits = 0;  // 2^0 shard
@@ -5400,7 +5455,7 @@ TEST_P(
   // containing key1 and value1) by FlushBlockEveryKeyPolicy and hence trigger
   // buffering of the last data block.
   builder->Add(ik2.Encode(), value2);
-  // Cache reservation will increase for the last buffered data block (the one
+  // Cache charging will increase for the last buffered data block (the one
   // containing key1 and value1) since the buffer limit is not exceeded after
   // the buffering and the cache will not be full after this reservation
   EXPECT_GE(cache->GetPinnedUsage(), 1 * kSizeDummyEntry);
@@ -5414,7 +5469,7 @@ TEST_P(
   // containing key2 and value2) by FlushBlockEveryKeyPolicy and hence trigger
   // buffering of the last data block.
   builder->Add(ik3.Encode(), value3);
-  // Cache reservation will decrease since the cache is now full after
+  // Cache charging will decrease since the cache is now full after
   // increasing reservation for the last buffered block and EnterUnbuffered() is
   // triggered
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
@@ -5423,6 +5478,75 @@ TEST_P(
   EXPECT_EQ(cache->GetPinnedUsage(), 0 * kSizeDummyEntry);
 }
 
+class CacheUsageOptionsOverridesTest : public DBTestBase {
+ public:
+  CacheUsageOptionsOverridesTest()
+      : DBTestBase("cache_usage_options_overrides_test",
+                   /*env_do_fsync=*/false) {}
+};
+
+TEST_F(CacheUsageOptionsOverridesTest, SanitizeAndValidateOptions) {
+  // To test `cache_usage_options.options_overrides` is sanitized
+  // where `cache_usage_options.options` is used when there is no entry in
+  // `cache_usage_options.options_overrides`
+  Options options;
+  options.create_if_missing = true;
+  BlockBasedTableOptions table_options = BlockBasedTableOptions();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Destroy(options);
+  Status s = TryReopen(options);
+  EXPECT_TRUE(s.ok());
+  const auto* sanitized_table_options =
+      options.table_factory->GetOptions<BlockBasedTableOptions>();
+  const auto sanitized_options_overrides =
+      sanitized_table_options->cache_usage_options.options_overrides;
+  EXPECT_EQ(sanitized_options_overrides.size(), kNumCacheEntryRoles);
+  for (auto options_overrides_iter = sanitized_options_overrides.cbegin();
+       options_overrides_iter != sanitized_options_overrides.cend();
+       ++options_overrides_iter) {
+    CacheEntryRoleOptions role_options = options_overrides_iter->second;
+    CacheEntryRoleOptions default_options =
+        sanitized_table_options->cache_usage_options.options;
+    EXPECT_TRUE(role_options == default_options);
+  }
+  Destroy(options);
+
+  // To test option validation on unsupported CacheEntryRole
+  table_options = BlockBasedTableOptions();
+  table_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kDataBlock,
+       {/*.charged = */ CacheEntryRoleOptions::Decision::kDisabled}});
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Destroy(options);
+  s = TryReopen(options);
+  EXPECT_TRUE(s.IsNotSupported());
+  EXPECT_TRUE(
+      s.ToString().find("Enable/Disable CacheEntryRoleOptions::charged") !=
+      std::string::npos);
+  EXPECT_TRUE(
+      s.ToString().find(kCacheEntryRoleToCamelString[static_cast<uint32_t>(
+          CacheEntryRole::kDataBlock)]) != std::string::npos);
+  Destroy(options);
+
+  // To test option validation on existence of block cache
+  table_options = BlockBasedTableOptions();
+  table_options.no_block_cache = true;
+  table_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kFilterConstruction,
+       {/*.charged = */ CacheEntryRoleOptions::Decision::kEnabled}});
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Destroy(options);
+  s = TryReopen(options);
+  EXPECT_TRUE(s.IsInvalidArgument());
+  EXPECT_TRUE(s.ToString().find("Enable CacheEntryRoleOptions::charged") !=
+              std::string::npos);
+  EXPECT_TRUE(
+      s.ToString().find(kCacheEntryRoleToCamelString[static_cast<std::size_t>(
+          CacheEntryRole::kFilterConstruction)]) != std::string::npos);
+  EXPECT_TRUE(s.ToString().find("block cache is disabled") !=
+              std::string::npos);
+  Destroy(options);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -95,6 +95,22 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   ASSERT_FALSE(s.ok());
 }
 
+TEST_F(DBOptionsTest, ImmutableVerifySstUniqueIdInManifest) {
+  Options options;
+  options.env = env_;
+  options.verify_sst_unique_id_in_manifest = true;
+
+  ImmutableDBOptions db_options(options);
+  ASSERT_TRUE(db_options.verify_sst_unique_id_in_manifest);
+
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetDBOptions().verify_sst_unique_id_in_manifest);
+
+  Status s =
+      dbfull()->SetDBOptions({{"verify_sst_unique_id_in_manifest", "false"}});
+  ASSERT_FALSE(s.ok());
+}
+
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
 

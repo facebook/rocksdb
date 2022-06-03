@@ -33,7 +33,8 @@ DBImplSecondary::~DBImplSecondary() {}
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     bool /*readonly*/, bool /*error_if_wal_file_exists*/,
-    bool /*error_if_data_exists_in_wals*/, uint64_t*) {
+    bool /*error_if_data_exists_in_wals*/, uint64_t*,
+    RecoveryContext* /*recovery_ctx*/) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -61,8 +62,6 @@ Status DBImplSecondary::Recover(
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
-    single_column_family_mode_ =
-        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
     std::unordered_set<ColumnFamilyData*> cfds_changed;
     s = FindAndRecoverLogFiles(&cfds_changed, &job_context);
@@ -329,23 +328,37 @@ Status DBImplSecondary::RecoverLogFiles(
 Status DBImplSecondary::Get(const ReadOptions& read_options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value,
+                 /*timestamp*/ nullptr);
+}
+
+Status DBImplSecondary::Get(const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableSlice* value, std::string* timestamp) {
+  return GetImpl(read_options, column_family, key, value, timestamp);
 }
 
 Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
-                                const Slice& key, PinnableSlice* pinnable_val) {
+                                const Slice& key, PinnableSlice* pinnable_val,
+                                std::string* timestamp) {
   assert(pinnable_val != nullptr);
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   assert(column_family);
-  const Comparator* ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() || read_options.timestamp) {
-    // TODO: support timestamp
-    return Status::NotSupported();
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    const Status s = FailIfCfHasTs(column_family);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -359,23 +372,27 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   // Acquire SuperVersion
   SuperVersion* super_version = GetAndRefSuperVersion(cfd);
   SequenceNumber snapshot = versions_->LastSequence();
+  GetWithTimestampReadCallback read_cb(snapshot);
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq = 0;
   Status s;
-  LookupKey lkey(key, snapshot);
+  LookupKey lkey(key, snapshot, read_options.timestamp);
   PERF_TIMER_STOP(get_snapshot_time);
 
   bool done = false;
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
-                              /*timestamp=*/nullptr, &s, &merge_context,
-                              &max_covering_tombstone_seq, read_options)) {
+  const Comparator* ucmp = column_family->GetComparator();
+  assert(ucmp);
+  std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), ts, &s,
+                              &merge_context, &max_covering_tombstone_seq,
+                              read_options, &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
-                 lkey, pinnable_val->GetSelf(), /*timestamp=*/nullptr, &s,
-                 &merge_context, &max_covering_tombstone_seq, read_options)) {
+                 lkey, pinnable_val->GetSelf(), ts, &s, &merge_context,
+                 &max_covering_tombstone_seq, read_options, &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
@@ -387,9 +404,11 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
-    super_version->current->Get(read_options, lkey, pinnable_val,
-                                /*timestamp=*/nullptr, &s, &merge_context,
-                                &max_covering_tombstone_seq, &pinned_iters_mgr);
+    super_version->current->Get(
+        read_options, lkey, pinnable_val, ts, &s, &merge_context,
+        &max_covering_tombstone_seq, &pinned_iters_mgr, /*value_found*/ nullptr,
+        /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb, /*is_blob*/ nullptr,
+        /*do_merge*/ true);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
@@ -416,11 +435,17 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
   }
 
   assert(column_family);
-  const Comparator* ucmp = column_family->GetComparator();
-  assert(ucmp);
-  if (ucmp->timestamp_size() || read_options.timestamp) {
-    // TODO: support timestamp
-    return NewErrorIterator(Status::NotSupported());
+  if (read_options.timestamp) {
+    const Status s =
+        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
+  } else {
+    const Status s = FailIfCfHasTs(column_family);
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
   }
 
   Iterator* result = nullptr;
@@ -479,17 +504,21 @@ Status DBImplSecondary::NewIterators(
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
   }
+
   if (read_options.timestamp) {
-    // TODO: support timestamp
-    return Status::NotSupported();
+    for (auto* cf : column_families) {
+      assert(cf);
+      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      if (!s.ok()) {
+        return s;
+      }
+    }
   } else {
     for (auto* cf : column_families) {
       assert(cf);
-      const Comparator* ucmp = cf->GetComparator();
-      assert(ucmp);
-      if (ucmp->timestamp_size()) {
-        // TODO: support timestamp
-        return Status::NotSupported();
+      const Status s = FailIfCfHasTs(cf);
+      if (!s.ok()) {
+        return s;
       }
     }
   }
@@ -502,7 +531,7 @@ Status DBImplSecondary::NewIterators(
     // TODO (yanqin) support snapshot.
     return Status::NotSupported("snapshot not supported in secondary mode");
   } else {
-    SequenceNumber read_seq = versions_->LastSequence();
+    SequenceNumber read_seq(kMaxSequenceNumber);
     for (auto cfh : column_families) {
       ColumnFamilyData* cfd = static_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       iterators->push_back(
@@ -659,6 +688,7 @@ Status DB::OpenAsSecondary(
     s = CreateLoggerFromOptions(secondary_path, tmp_opts, &tmp_opts.info_log);
     if (!s.ok()) {
       tmp_opts.info_log = nullptr;
+      return s;
     }
   }
 
@@ -772,12 +802,19 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   const int job_id = next_job_id_.fetch_add(1);
 
+  // use primary host's db_id for running the compaction, but db_session_id is
+  // using the local one, which is to make sure the unique id is unique from
+  // the remote compactors. Because the id is generated from db_id,
+  // db_session_id and orig_file_number, unlike the local compaction, remote
+  // compaction cannot guarantee the uniqueness of orig_file_number, the file
+  // number is only assigned when compaction is done.
   CompactionServiceCompactionJob compaction_job(
       job_id, c.get(), immutable_db_options_, mutable_db_options_,
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       &log_buffer, output_dir.get(), stats_, &mutex_, &error_handler_,
       input.snapshots, table_cache_, &event_logger_, dbname_, io_tracer_,
-      options.canceled, db_id_, db_session_id_, secondary_path_, input, result);
+      options.canceled, input.db_id, db_session_id_, secondary_path_, input,
+      result);
 
   mutex_.Unlock();
   s = compaction_job.Run();
@@ -832,6 +869,8 @@ Status DB::OpenAndCompact(
       override_options.table_factory;
   compaction_input.column_family.options.sst_partitioner_factory =
       override_options.sst_partitioner_factory;
+  compaction_input.column_family.options.table_properties_collector_factories =
+      override_options.table_properties_collector_factories;
   compaction_input.db_options.listeners = override_options.listeners;
 
   std::vector<ColumnFamilyDescriptor> column_families;

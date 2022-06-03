@@ -350,6 +350,10 @@ class LegacyDirectoryWrapper : public FSDirectory {
                  IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Fsync());
   }
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Close());
+  }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }

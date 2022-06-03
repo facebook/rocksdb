@@ -51,6 +51,7 @@
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -146,6 +147,13 @@ class PosixFileSystem : public FileSystem {
   const char* NickName() const override { return kDefaultName(); }
 
   ~PosixFileSystem() override {}
+  bool IsInstanceOf(const std::string& name) const override {
+    if (name == "posix") {
+      return true;
+    } else {
+      return FileSystem::IsInstanceOf(name);
+    }
+  }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
     if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
@@ -542,7 +550,7 @@ class PosixFileSystem : public FileSystem {
     if (fd < 0) {
       return IOError("While open directory", name, errno);
     } else {
-      result->reset(new PosixDirectory(fd));
+      result->reset(new PosixDirectory(fd, name));
     }
     return IOStatus::OK();
   }
@@ -1203,10 +1211,9 @@ PosixFileSystem::PosixFileSystem()
 // Default Posix FileSystem
 //
 std::shared_ptr<FileSystem> FileSystem::Default() {
-  static PosixFileSystem default_fs;
-  static std::shared_ptr<PosixFileSystem> default_fs_ptr(
-      &default_fs, [](PosixFileSystem*) {});
-  return default_fs_ptr;
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<FileSystem>, instance)
+  (std::make_shared<PosixFileSystem>());
+  return instance;
 }
 
 #ifndef ROCKSDB_LITE
