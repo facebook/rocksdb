@@ -36,8 +36,7 @@ struct SstFileWriter::Rep {
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
       ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters,
       std::string _db_session_id)
-      : options(options),
-        env_options(_env_options),
+      : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
         io_priority(_io_priority),
@@ -46,8 +45,7 @@ struct SstFileWriter::Rep {
         invalidate_page_cache(_invalidate_page_cache),
         skip_filters(_skip_filters),
         db_session_id(_db_session_id) {}
-
-  Options options;
+        
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
@@ -373,14 +371,37 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
         r->file_writer->GetFileChecksumFuncName();
   }
 
-  if(s.ok() && r->options.paranoid_checks) {
-    SstFileReader sst_file_reader(r->options);
-    ReadOptions ropts;
-    s = sst_file_reader.Open(r->file_info.file_path);
+  if(s.ok() && r->mutable_cf_options.paranoid_file_checks) {
+
+    std::unique_ptr<TableReader> table_reader;
+    std::unique_ptr<FSRandomAccessFile> sst_file;
+    std::unique_ptr<RandomAccessFileReader> sst_file_reader;
+
+    s = r->ioptions.fs->NewRandomAccessFile(r->file_info.file_path, r->env_options,
+                                    &sst_file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+
+    sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), r->file_info.file_path, nullptr, nullptr));
+
+    s = r->ioptions.table_factory->NewTableReader(
+      TableReaderOptions(r->ioptions, r->mutable_cf_options.prefix_extractor, r->env_options, 
+        r->internal_comparator, /*skip_filters*/ false, /*immortal*/ false,
+          /*force_direct_prefetch*/ false, /*level*/ -1,
+          /*block_cache_tracer*/ nullptr,
+          /*max_file_size_for_l0_meta_pin*/ 0), 
+        std::move(sst_file_reader), r->file_info.file_size, &table_reader);
+
     if(!s.ok()){
       return s;
     }
-    std::unique_ptr<Iterator> itr(sst_file_reader.NewIterator(ropts));
+
+    ReadOptions ro;
+    std::unique_ptr<InternalIterator> itr(table_reader->NewIterator(
+      ro, r->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+      /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
 
     s = itr->status();
     if(!s.ok()){
