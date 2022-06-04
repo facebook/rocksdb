@@ -1749,6 +1749,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     }
   }
 
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (get_impl_options.timestamp) {
+    get_impl_options.timestamp->clear();
+  }
+
   GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
 
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
@@ -2565,6 +2571,16 @@ Status DBImpl::MultiGetImpl(
     ReadCallback* callback) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
+
+  assert(sorted_keys);
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  for (auto* kctx : *sorted_keys) {
+    assert(kctx);
+    if (kctx->timestamp) {
+      kctx->timestamp->clear();
+    }
+  }
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
@@ -4517,6 +4533,8 @@ Status DBImpl::GetLatestSequenceForKey(
           *timestamp != std::string(ts_sz, '\xff')) ||
          (*seq == kMaxSequenceNumber && timestamp->empty()));
 
+  TEST_SYNC_POINT_CALLBACK("DBImpl::GetLatestSequenceForKey:mem", timestamp);
+
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check immutable memtables
     *found_record_for_key = true;
@@ -4581,6 +4599,7 @@ Status DBImpl::GetLatestSequenceForKey(
          (*seq != kMaxSequenceNumber &&
           *timestamp != std::string(ts_sz, '\xff')) ||
          (*seq == kMaxSequenceNumber && timestamp->empty()));
+
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check SST files
     assert(0 == ts_sz || *timestamp != std::string(ts_sz, '\xff'));
