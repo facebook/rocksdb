@@ -184,9 +184,11 @@ int db_stress_tool(int argc, char** argv) {
         "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
-  if (FLAGS_ingest_external_file_one_in > 0 && FLAGS_nooverwritepercent > 0) {
-    fprintf(stderr,
-            "Error: nooverwritepercent must be 0 when using file ingestion\n");
+  if (FLAGS_ingest_external_file_one_in > 0 &&
+      FLAGS_nooverwritepercent == 100) {
+    fprintf(
+        stderr,
+        "Error: nooverwritepercent must not be 100 when using file ingestion");
     exit(1);
   }
   if (FLAGS_clear_column_family_one_in > 0 && FLAGS_backup_one_in > 0) {

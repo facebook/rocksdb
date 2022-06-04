@@ -1454,7 +1454,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::vector<std::string> blob_file_paths;
 
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
-      mutable_cf_options->enable_blob_files
+      (mutable_cf_options->enable_blob_files &&
+       sub_compact->compaction->output_level() >=
+           mutable_cf_options->blob_file_starting_level)
           ? new BlobFileBuilder(
                 versions_, fs_.get(),
                 sub_compact->compaction->immutable_options(),
@@ -2115,11 +2117,11 @@ Status CompactionJob::InstallCompactionResults(
 
   {
     Compaction::InputLevelSummaryBuffer inputs_summary;
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
-                   compaction->column_family_data()->GetName().c_str(), job_id_,
-                   compaction->InputLevelSummary(&inputs_summary),
-                   compact_->total_bytes + compact_->total_blob_bytes);
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
+                     compaction->column_family_data()->GetName().c_str(),
+                     job_id_, compaction->InputLevelSummary(&inputs_summary),
+                     compact_->total_bytes + compact_->total_blob_bytes);
   }
 
   VersionEdit* const edit = compaction->edit();

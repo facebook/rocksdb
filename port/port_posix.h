@@ -23,8 +23,6 @@
 
 #define __declspec(S)
 
-#define ROCKSDB_NOEXCEPT noexcept
-
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>

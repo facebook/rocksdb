@@ -3066,7 +3066,7 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   db = nullptr;
 
   // Now try opening read-write and make sure it fails, for safety.
-  ASSERT_TRUE(DB::Open(opts, name, &db).IsIOError());
+  ASSERT_TRUE(DB::Open(opts, name, &db).IsAborted());
 }
 
 TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {

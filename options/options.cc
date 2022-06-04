@@ -100,7 +100,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.blob_garbage_collection_age_cutoff),
       blob_garbage_collection_force_threshold(
           options.blob_garbage_collection_force_threshold),
-      blob_compaction_readahead_size(options.blob_compaction_readahead_size) {
+      blob_compaction_readahead_size(options.blob_compaction_readahead_size),
+      blob_file_starting_level(options.blob_file_starting_level) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -414,6 +415,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "         Options.blob_compaction_readahead_size: %" PRIu64,
         blob_compaction_readahead_size);
+    ROCKS_LOG_HEADER(log, "               Options.blob_file_starting_level: %d",
+                     blob_file_starting_level);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

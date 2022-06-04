@@ -358,7 +358,7 @@ class Repairer {
     std::unique_ptr<SequentialFileReader> lfile_reader;
     Status status = SequentialFileReader::Create(
         fs, logname, fs->OptimizeForLogRead(file_options_), &lfile_reader,
-        nullptr);
+        nullptr /* dbg */, nullptr /* rate limiter */);
     if (!status.ok()) {
       return status;
     }

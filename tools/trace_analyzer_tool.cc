@@ -1054,7 +1054,8 @@ Status TraceAnalyzer::ReProcessing() {
         LineFileReader lf_reader(
             std::move(file), whole_key_path,
             kTraceFileReadaheadSize /* filereadahead_size */);
-        for (cfs_[cf_id].w_count = 0; lf_reader.ReadLine(&get_key);
+        for (cfs_[cf_id].w_count = 0; lf_reader.ReadLine(
+                 &get_key, Env::IO_TOTAL /* rate_limiter_priority */);
              ++cfs_[cf_id].w_count) {
           input_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(get_key);
           for (int type = 0; type < kTaTypeNum; type++) {

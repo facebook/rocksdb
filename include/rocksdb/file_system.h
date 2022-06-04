@@ -1021,7 +1021,10 @@ class FSWritableFile {
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();
   }
-  virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
+  virtual IOStatus Close(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported("Close");
+  }
   virtual IOStatus Flush(const IOOptions& options, IODebugContext* dbg) = 0;
   virtual IOStatus Sync(const IOOptions& options,
                         IODebugContext* dbg) = 0;  // sync data
@@ -1266,6 +1269,9 @@ class FSDirectory {
       const DirFsyncOptions& /*dir_fsync_options*/) {
     return Fsync(options, dbg);
   }
+
+  // Close directory
+  virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
@@ -1809,6 +1815,10 @@ class FSDirectoryWrapper : public FSDirectory {
       const IOOptions& options, IODebugContext* dbg,
       const DirFsyncOptions& dir_fsync_options) override {
     return target_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
+  }
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    return target_->Close(options, dbg);
   }
 
   size_t GetUniqueId(char* id, size_t max_size) const override {

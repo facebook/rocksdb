@@ -283,7 +283,7 @@ IOStatus RandomAccessFileReader::MultiRead(
 #endif  // !NDEBUG
 
   // To be paranoid modify scratch a little bit, so in case underlying
-  // FileSystem doesn't fill the buffer but return succee and `scratch` returns
+  // FileSystem doesn't fill the buffer but return success and `scratch` returns
   // contains a previous block, returned value will not pass checksum.
   // This byte might not change anything for direct I/O case, but it's OK.
   for (size_t i = 0; i < num_reqs; i++) {
@@ -457,9 +457,16 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
   IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                                 io_handle, del_fn, nullptr /*dbg*/);
+// Suppress false positive clang analyzer warnings.
+// Memory is not released if file_->ReadAsync returns !s.ok(), because
+// ReadAsyncCallback is never called in that case. If ReadAsyncCallback is
+// called then ReadAsync should always return IOStatus::OK().
+#ifndef __clang_analyzer__
   if (!s.ok()) {
     delete read_async_info;
   }
+#endif  // __clang_analyzer__
+
   return s;
 }
 
