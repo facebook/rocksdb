@@ -366,45 +366,6 @@ TEST_F(ExternalSSTFileBasicTest, KeyValueOrdering) {
   ASSERT_OK(sst_file_writer.Finish());
 }
 
-// TODO: Delete after issue resolution #9588
-TEST_F(ExternalSSTFileBasicTest, TestWriteAndReader) {
-  std::vector<Slice> keys = {"key1", "key2", "key3"};
-
-  Options options = CurrentOptions();
-  SstFileWriter sst_file_writer(EnvOptions(), options);
-
-  std::string file1 = sst_files_dir_ + "file01.sst";
-  ASSERT_OK(sst_file_writer.Open(file1));
-
-  InternalKeyComparator icomp(options.comparator);
-  OutputValidator oV1(icomp, true, true);
-
-  for (auto& key : keys) {
-    sst_file_writer.Put(key, key);
-    oV1.Add(key, key);
-  }
-  ASSERT_OK(sst_file_writer.Finish());
-
-  ReadOptions ropts;
-  SstFileReader reader(options);
-  ASSERT_OK(reader.Open(file1));
-  ASSERT_OK(reader.VerifyChecksum());
-  std::unique_ptr<Iterator> iter(reader.NewIterator(ropts));
-  OutputValidator oV2(icomp, true, true);
-
-  iter->SeekToFirst();
-  for (auto& key : keys) {
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(iter->key().compare(key), 0);
-    ASSERT_EQ(iter->value().compare(key), 0);
-    oV2.Add(iter->key(), iter->value());
-    iter->Next();
-  }
-
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_TRUE(oV1.CompareValidator(oV2));
-}
-
 TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
   Options old_options = CurrentOptions();
   Options options = CurrentOptions();
