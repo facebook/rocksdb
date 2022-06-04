@@ -32,8 +32,6 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
 
   PutVarint32(&output, static_cast<uint32_t>(columns.size()));
 
-  size_t total_column_value_size = 0;
-
   for (const auto& column : columns) {
     const Slice& name = column.name();
     if (name.size() >
@@ -49,11 +47,7 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
 
     PutLengthPrefixedSlice(&output, name);
     PutVarint32(&output, static_cast<uint32_t>(value.size()));
-
-    total_column_value_size += value.size();
   }
-
-  output.reserve(output.size() + total_column_value_size);
 
   for (const auto& column : columns) {
     const Slice& value = column.value();
