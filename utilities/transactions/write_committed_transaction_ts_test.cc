@@ -514,6 +514,9 @@ TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
   ASSERT_OK(txn2->Commit());
   txn2.reset();
 
+  // txn1 takes a snapshot after txn2 commits. The writes of txn2 have
+  // a smaller seqno than txn1's snapshot, thus should not affect conflict
+  // checking.
   txn1->SetSnapshot();
 
   std::unique_ptr<Transaction> txn3(
@@ -526,6 +529,8 @@ TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
   ASSERT_OK(txn3->SetName("txn3"));
   ASSERT_OK(txn3->Prepare());
   ASSERT_OK(txn3->SetCommitTimestamp(30));
+  // txn3 reads at ts=20 > txn2's commit timestamp, and commits at ts=30.
+  // txn3 can commit successfully, leaving a tombstone with ts=30.
   ASSERT_OK(txn3->Commit());
   txn3.reset();
 
@@ -544,6 +549,8 @@ TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
+  // txn1's read timestamp is 25 < 30 (commit timestamp of txn3). Therefore,
+  // the tombstone written by txn3 causes the conflict checking to fail.
   ASSERT_OK(txn1->SetReadTimestampForValidation(25));
   ASSERT_TRUE(txn1->GetForUpdate(ReadOptions(), "foo", &dontcare).IsBusy());
   ASSERT_TRUE(called);
