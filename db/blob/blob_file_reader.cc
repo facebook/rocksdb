@@ -404,12 +404,14 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   if (read_options.fill_cache) {
     // If filling cache is allowed and a cache is configured, try to put the
-    // block to the cache.
-    // Slice key = base_cache_key_.WithOffset(offset).AsSlice();
-    // s = PutDataBlockToCache(
-    //     key, blob_cache, nullptr /* blob_cache_compressed */, block_entry,
-    //     contents, GetMemoryAllocator(rep_->table_options), block_type,
-    //     get_context);
+    // blob to the cache.
+    Slice key = base_cache_key_.WithOffset(offset).AsSlice();
+    const Status s = PutDataBlobToCache(
+        key, blob_cache, nullptr /* blob_cache_compressed */, value,
+        blob_cache ? blob_cache->memory_allocator() : nullptr);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   return Status::OK();
@@ -688,6 +690,26 @@ Cache::Handle* BlobFileReader::GetEntryFromCache(
   return cache_handle;
 }
 
+Status BlobFileReader::InsertEntryToCache(
+    const CacheTier& cache_tier, Cache* blob_cache, const Slice& key,
+    const Cache::CacheItemHelper* cache_helper, const Slice* record_slice,
+    size_t charge, Cache::Handle** cache_handle,
+    Cache::Priority priority) const {
+  Status s;
+
+  if (cache_tier == CacheTier::kNonVolatileBlockTier) {
+    s = blob_cache->Insert(
+        key, const_cast<void*>(static_cast<const void*>(record_slice->data())),
+        cache_helper, charge, cache_handle, priority);
+  } else {
+    s = blob_cache->Insert(
+        key, const_cast<void*>(static_cast<const void*>(record_slice->data())),
+        charge, cache_helper->del_cb, cache_handle, priority);
+  }
+
+  return s;
+}
+
 Status BlobFileReader::GetDataBlobFromCache(
     const Slice& cache_key, Cache* blob_cache, Cache* blob_cache_compressed,
     const ReadOptions& read_options, Slice* record_slice, bool wait) const {
@@ -711,6 +733,31 @@ Status BlobFileReader::GetDataBlobFromCache(
   assert(record_slice == nullptr);
 
   return Status::NotFound("Blob record not found in cache");
+}
+
+Status BlobFileReader::PutDataBlobToCache(
+    const Slice& cache_key, Cache* blob_cache, Cache* blob_cache_compressed,
+    Slice* record_slice, MemoryAllocator* memory_allocator) const {
+  assert(record_slice);
+
+  const Cache::Priority priority = Cache::Priority::LOW;
+
+  Status s;
+  Statistics* statistics = ioptions_.stats;
+
+  // TODO: Insert compressed blob into compressed blob cache.
+  // Release the hold on the compressed cache entry immediately.
+
+  // insert into uncompressed blob cache
+  if (blob_cache != nullptr) {
+    size_t charge = record_slice->size();
+    Cache::Handle* cache_handle = nullptr;
+    s = InsertEntryToCache(ioptions_.lowest_used_cache_tier, blob_cache,
+                           cache_key, nullptr /* cache_helper */, record_slice,
+                           charge, &cache_handle, priority);
+  }
+
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

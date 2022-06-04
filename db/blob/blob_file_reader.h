@@ -103,7 +103,7 @@ class BlobFileReader {
                                      const ReadOptions& read_options,
                                      uint64_t offset, const bool wait,
                                      const bool for_compaction,
-                                     Slice* record) const;
+                                     Slice* record_slice) const;
 
   Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
                                    Cache* blob_cache, const Slice& key,
@@ -112,10 +112,21 @@ class BlobFileReader {
                                    const Cache::CreateCallback& create_cb,
                                    Cache::Priority priority) const;
 
-  Status GetDataBlobFromCache(const Slice& cache_key, Cache* block_cache,
-                              Cache* block_cache_compressed,
+  Status InsertEntryToCache(const CacheTier& cache_tier, Cache* blob_cache,
+                            const Slice& key,
+                            const Cache::CacheItemHelper* cache_helper,
+                            const Slice* record_slice, size_t charge,
+                            Cache::Handle** cache_handle,
+                            Cache::Priority priority) const;
+
+  Status GetDataBlobFromCache(const Slice& cache_key, Cache* blob_cache,
+                              Cache* blob_cache_compressed,
                               const ReadOptions& read_options,
                               Slice* record_slice, bool wait) const;
+
+  Status PutDataBlobToCache(const Slice& cache_key, Cache* blob_cache,
+                            Cache* blob_cache_compressed, Slice* record_slice,
+                            MemoryAllocator* memory_allocator) const;
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
