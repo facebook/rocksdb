@@ -2540,7 +2540,8 @@ void StressTest::Open(SharedState* shared) {
 #endif
     }
     assert(s.ok());
-    assert(column_families_.size() == static_cast<size_t>(FLAGS_column_families));
+    assert(column_families_.size() ==
+           static_cast<size_t>(FLAGS_column_families));
 
     // Secondary instance does not support write-prepared/write-unprepared
     // transactions, thus just disable secondary instance if we use
