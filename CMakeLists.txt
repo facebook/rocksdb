@@ -89,7 +89,11 @@ include(CMakeDependentOption)
 if(MSVC)
   option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
-  include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
+  option(ROCKSDB_SKIP_THIRDPARTY "skip thirdparty.inc" OFF)
+
+  if(NOT ROCKSDB_SKIP_THIRDPARTY)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
+  endif()
 else()
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD" AND NOT CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
     # FreeBSD has jemalloc as default malloc
