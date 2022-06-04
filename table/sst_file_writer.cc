@@ -5,9 +5,9 @@
 
 #include "rocksdb/sst_file_writer.h"
 
+#include <iostream>
 #include <memory>
 #include <vector>
-#include <iostream>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -45,7 +45,11 @@ struct SstFileWriter::Rep {
         invalidate_page_cache(_invalidate_page_cache),
         skip_filters(_skip_filters),
         db_session_id(_db_session_id) {}
+<<<<<<< HEAD
         
+=======
+
+>>>>>>> 1edddd722 (Using TableReader instead of SSTFileReader to read back the written data for paranoid checksum verification)
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
@@ -86,7 +90,7 @@ struct SstFileWriter::Rep {
     ikey.Set(user_key, sequence_number, value_type);
 
     Status s = kv_validator->Add(ikey.Encode(), value);
-    if(!s.ok()){
+    if (!s.ok()) {
       return s;
     }
 
@@ -371,12 +375,17 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
         r->file_writer->GetFileChecksumFuncName();
   }
 
+<<<<<<< HEAD
   if(s.ok() && r->mutable_cf_options.paranoid_file_checks) {
 
+=======
+  if (s.ok() && r->mutable_cf_options.paranoid_file_checks) {
+>>>>>>> 1edddd722 (Using TableReader instead of SSTFileReader to read back the written data for paranoid checksum verification)
     std::unique_ptr<TableReader> table_reader;
     std::unique_ptr<FSRandomAccessFile> sst_file;
     std::unique_ptr<RandomAccessFileReader> sst_file_reader;
 
+<<<<<<< HEAD
     s = r->ioptions.fs->NewRandomAccessFile(r->file_info.file_path, r->env_options,
                                     &sst_file, nullptr);
     if (!s.ok()) {
@@ -402,15 +411,43 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     std::unique_ptr<InternalIterator> itr(table_reader->NewIterator(
       ro, r->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
+=======
+    s = r->ioptions.fs->NewRandomAccessFile(r->file_info.file_path,
+                                            r->env_options, &sst_file, nullptr);
+    if (!s.ok()) {
+      return s;
+    }
+
+    sst_file_reader.reset(new RandomAccessFileReader(
+        std::move(sst_file), r->file_info.file_path, nullptr, nullptr));
+
+    s = r->ioptions.table_factory->NewTableReader(
+        TableReaderOptions(r->ioptions, r->mutable_cf_options.prefix_extractor,
+                           r->env_options, r->internal_comparator,
+                           /*skip_filters*/ false, /*immortal*/ false,
+                           /*force_direct_prefetch*/ false, /*level*/ -1,
+                           /*block_cache_tracer*/ nullptr,
+                           /*max_file_size_for_l0_meta_pin*/ 0),
+        std::move(sst_file_reader), r->file_info.file_size, &table_reader);
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    ReadOptions ro;
+    std::unique_ptr<InternalIterator> itr(table_reader->NewIterator(
+        ro, r->mutable_cf_options.prefix_extractor.get(), /*arena=*/nullptr,
+        /*skip_filters=*/false, TableReaderCaller::kExternalSSTIngestion));
+>>>>>>> 1edddd722 (Using TableReader instead of SSTFileReader to read back the written data for paranoid checksum verification)
 
     s = itr->status();
-    if(!s.ok()){
+    if (!s.ok()) {
       return s;
     }
 
     OutputValidator file_validator(r->internal_comparator, true, true);
 
-    for(itr->SeekToFirst(); itr->Valid(); itr->Next()){
+    for (itr->SeekToFirst(); itr->Valid(); itr->Next()) {
       file_validator.Add(itr->key(), itr->value());
     }
 
