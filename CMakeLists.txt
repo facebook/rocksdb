@@ -675,6 +675,7 @@ set(SOURCES
         db/version_set.cc
         db/wal_edit.cc
         db/wal_manager.cc
+        db/wide/wide_column_serialization.cc
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
@@ -1294,6 +1295,7 @@ if(WITH_TESTS)
         db/version_set_test.cc
         db/wal_manager_test.cc
         db/wal_edit_test.cc
+        db/wide/wide_column_serialization_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
