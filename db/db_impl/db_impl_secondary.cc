@@ -361,6 +361,12 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     }
   }
 
+  // Clear the timestamp for returning results so that we can distinguish
+  // between tombstone or key that has never been written later.
+  if (timestamp) {
+    timestamp->clear();
+  }
+
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   if (tracer_) {

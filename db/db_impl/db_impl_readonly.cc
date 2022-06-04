@@ -58,6 +58,13 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
       return s;
     }
   }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (timestamp) {
+    timestamp->clear();
+  }
+
   const Comparator* ucmp = column_family->GetComparator();
   assert(ucmp);
   std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
