@@ -82,7 +82,7 @@ Status WideColumnSerialization::Deserialize(Slice& input,
 
   columns.reserve(num_columns);
 
-  autovector<uint32_t, 64> column_value_sizes;
+  autovector<uint32_t, 16> column_value_sizes;
   column_value_sizes.reserve(num_columns);
 
   for (uint32_t i = 0; i < num_columns; ++i) {
