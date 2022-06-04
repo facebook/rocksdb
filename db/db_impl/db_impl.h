@@ -2583,8 +2583,9 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
     if (!current_ts_low.empty() &&
         ucmp->CompareTimestamp(ts, current_ts_low) < 0) {
       std::stringstream oss;
-      oss << "Read timestamp: " << ts.ToString()
-          << " is smaller than full_history_ts_low: " << current_ts_low;
+      oss << "Read timestamp: " << ts.ToString(true)
+          << " is smaller than full_history_ts_low: "
+          << Slice(current_ts_low).ToString(true) << std::endl;
       return Status::InvalidArgument(oss.str());
     }
   }
