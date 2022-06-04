@@ -78,6 +78,10 @@ struct ImmutableCFOptions {
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
+
+  bool no_blob_cache;
+
+  std::shared_ptr<Cache> blob_cache;
 };
 
 struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {

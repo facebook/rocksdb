@@ -1412,7 +1412,6 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   Options* DisableExtraChecks();
 };
 
-//
 // An application can issue a read request (via Get/Iterators) and specify
 // if that read should process data that ALREADY resides on a specified cache
 // level. For example, if an application specifies kBlockCacheTier then the

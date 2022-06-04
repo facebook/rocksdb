@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <memory>
 
+#include "cache/cache_key.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -60,8 +61,9 @@ class BlobFileReader {
 
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
-                 uint64_t file_size, CompressionType compression_type,
-                 SystemClock* clock, Statistics* statistics);
+                 uint64_t file_size, uint64_t file_number,
+                 CompressionType compression_type,
+                 const ImmutableOptions& immutable_options);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -97,11 +99,30 @@ class BlobFileReader {
 
   static void SaveValue(const Slice& src, PinnableSlice* dst);
 
+  Status MaybeReadBlobAndLoadToCache(FilePrefetchBuffer* prefetch_buffer,
+                                     const ReadOptions& read_options,
+                                     uint64_t offset, const bool wait,
+                                     const bool for_compaction,
+                                     Slice* record) const;
+
+  Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
+                                   Cache* blob_cache, const Slice& key,
+                                   const bool wait,
+                                   const Cache::CacheItemHelper* cache_helper,
+                                   const Cache::CreateCallback& create_cb,
+                                   Cache::Priority priority) const;
+
+  Status GetDataBlobFromCache(const Slice& cache_key, Cache* block_cache,
+                              Cache* block_cache_compressed,
+                              const ReadOptions& read_options,
+                              Slice* record_slice, bool wait) const;
+
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
   CompressionType compression_type_;
-  SystemClock* clock_;
-  Statistics* statistics_;
+
+  const ImmutableOptions& ioptions_;
+  OffsetableCacheKey base_cache_key_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
