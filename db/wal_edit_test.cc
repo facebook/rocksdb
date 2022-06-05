@@ -49,6 +49,18 @@ TEST(WalSet, Overwrite) {
   ASSERT_EQ(wals.GetWals().at(kNumber).GetSyncedSizeInBytes(), kBytes);
 }
 
+TEST(WalSet, SmallerSyncedSize) {
+  constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 100;
+  WalSet wals;
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes))));
+  const auto wals1 = wals.GetWals();
+  Status s = wals.AddWal(WalAddition(kNumber, WalMetadata(0)));
+  const auto wals2 = wals.GetWals();
+  ASSERT_OK(s);
+  ASSERT_EQ(wals1, wals2);
+}
+
 TEST(WalSet, CreateTwice) {
   constexpr WalNumber kNumber = 100;
   WalSet wals;
