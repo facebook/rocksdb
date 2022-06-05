@@ -570,8 +570,8 @@ enum class CacheEntryRole {
   // BlockBasedTableReader's charge to account for
   // its memory usage
   kBlockBasedTableReader,
-  // Integrated BlobDB data blob
-  kDataBlob,
+  // Integrated BlobDB data blob record
+  kBlobLogRecord,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,

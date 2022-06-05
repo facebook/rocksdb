@@ -165,7 +165,7 @@ class BlobFileReader {
   static Cache::CacheItemHelper* GetCacheItemHelper() {
     static Cache::CacheItemHelper cache_helper(
         SizeCallback, SaveToCallback,
-        GetCacheEntryDeleterForRole<char[], CacheEntryRole::kDataBlob>());
+        GetCacheEntryDeleterForRole<char[], CacheEntryRole::kBlobLogRecord>());
     return &cache_helper;
   }
 
