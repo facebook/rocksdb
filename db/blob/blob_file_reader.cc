@@ -424,7 +424,7 @@ void BlobFileReader::MultiGetBlob(
     const autovector<uint64_t>& offsets,
     const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
     autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
-  const size_t num_blobs = user_keys.size();
+  size_t num_blobs = user_keys.size();
   assert(num_blobs > 0);
   assert(num_blobs == offsets.size());
   assert(num_blobs == value_sizes.size());
@@ -438,6 +438,7 @@ void BlobFileReader::MultiGetBlob(
 #endif  // !NDEBUG
 
   std::vector<FSReadRequest> read_reqs(num_blobs);
+  std::unordered_map<uint64_t, size_t> offset_to_blob_index;
   autovector<uint64_t> adjustments;
   uint64_t total_len = 0;
   for (size_t i = 0; i < num_blobs; ++i) {
@@ -451,6 +452,7 @@ void BlobFileReader::MultiGetBlob(
     adjustments.push_back(adjustment);
     read_reqs[i].offset = offsets[i] - adjustment;
     read_reqs[i].len = value_sizes[i] + adjustment;
+    offset_to_blob_index[read_reqs[i].offset] = i;
     total_len += read_reqs[i].len;
   }
 
@@ -462,9 +464,10 @@ void BlobFileReader::MultiGetBlob(
 
   RecordTick(statistics, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
 
+  uint64_t total_bytes = 0;
   if (use_cache) {
     Slice record_slice;
-    uint64_t total_bytes = 0;
+    size_t cached_blob_count = 0;
 
     for (size_t i = 0; i < num_blobs; ++i) {
       auto& req = read_reqs[i];
@@ -477,11 +480,6 @@ void BlobFileReader::MultiGetBlob(
           *statuses[j] = s;
         }
         return;
-      }
-
-      if (bytes_read) {
-        total_bytes += record_slice.size();
-        *bytes_read = total_bytes;
       }
 
       if (record_slice.size() != req.len) {
@@ -508,8 +506,24 @@ void BlobFileReader::MultiGetBlob(
         if (!s.ok()) {
           assert(statuses[i]);
           *statuses[i] = s;
+          continue;
         }
+
+        if (bytes_read) {
+          total_bytes += record_slice.size();
+          *bytes_read = total_bytes;
+        }
+
+        // Update the counter for the number of valid blobs read from the cache.
+        assert(statuses[i]);
+        *statuses[i] = Status::OK();
+        ++cached_blob_count;
       }
+    }
+
+    if (cached_blob_count == num_blobs) {
+      // All blobs were read from the cache.
+      return;
     }
   }
 
@@ -517,9 +531,21 @@ void BlobFileReader::MultiGetBlob(
   if (no_io) {
     for (size_t i = 0; i < num_blobs; ++i) {
       assert(statuses[i]);
-      *statuses[i] = Status::Incomplete("no blocking io");
+      if (!statuses[i]->ok()) {
+        *statuses[i] = Status::Incomplete("No blocking io");
+      }
     }
     return;
+  }
+
+  // Erase the read requests that were read from the cache.
+  for (size_t i = 0; i < num_blobs; ++i) {
+    if (statuses[i]->ok()) {
+      total_len -= read_reqs[i].len;
+      read_reqs.erase(read_reqs.begin() + i);
+      --i;
+      --num_blobs;
+    }
   }
 
   // Can't find blobs from the cache. Since I/O is allowed, read from the
@@ -550,8 +576,9 @@ void BlobFileReader::MultiGetBlob(
       req.status.PermitUncheckedError();
     }
     for (size_t i = 0; i < num_blobs; ++i) {
-      assert(statuses[i]);
-      *statuses[i] = s;
+      size_t idx = offset_to_blob_index[read_reqs[i].offset];
+      assert(statuses[idx]);
+      *statuses[idx] = s;
     }
     return;
   }
@@ -559,46 +586,62 @@ void BlobFileReader::MultiGetBlob(
   assert(s.ok());
   for (size_t i = 0; i < num_blobs; ++i) {
     auto& req = read_reqs[i];
-    assert(statuses[i]);
+    size_t idx = offset_to_blob_index[req.offset];
+    assert(statuses[idx]);
     if (req.status.ok() && req.result.size() != req.len) {
       req.status = IOStatus::Corruption("Failed to read data from blob file");
     }
-    *statuses[i] = req.status;
+    *statuses[idx] = req.status;
   }
 
   if (read_options.verify_checksums) {
     for (size_t i = 0; i < num_blobs; ++i) {
-      assert(statuses[i]);
-      if (!statuses[i]->ok()) {
+      size_t idx = offset_to_blob_index[read_reqs[i].offset];
+      assert(statuses[idx]);
+      if (!statuses[idx]->ok()) {
         continue;
       }
       const Slice& record_slice = read_reqs[i].result;
-      s = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
+      s = VerifyBlob(record_slice, user_keys[idx], value_sizes[idx]);
       if (!s.ok()) {
-        assert(statuses[i]);
-        *statuses[i] = s;
+        assert(statuses[idx]);
+        *statuses[idx] = s;
       }
     }
   }
 
   for (size_t i = 0; i < num_blobs; ++i) {
-    assert(statuses[i]);
-    if (!statuses[i]->ok()) {
+    size_t idx = offset_to_blob_index[read_reqs[i].offset];
+    assert(statuses[idx]);
+    if (!statuses[idx]->ok()) {
       continue;
     }
     const Slice& record_slice = read_reqs[i].result;
-    const Slice value_slice(record_slice.data() + adjustments[i],
-                            value_sizes[i]);
+    const Slice value_slice(record_slice.data() + adjustments[idx],
+                            value_sizes[idx]);
     s = UncompressBlobIfNeeded(
-        value_slice, compression_type_, clock, statistics, values[i],
+        value_slice, compression_type_, clock, statistics, values[idx],
         blob_cache ? blob_cache->memory_allocator() : nullptr);
+
     if (!s.ok()) {
-      *statuses[i] = s;
+      *statuses[idx] = s;
+    }
+
+    if (read_options.fill_cache) {
+      // If filling cache is allowed and a cache is configured, try to put
+      // the blob to the cache.
+      Slice key = base_cache_key_.WithOffset(read_reqs[i].offset).AsSlice();
+      s = PutDataBlobToCache(
+          key, blob_cache, nullptr /* blob_cache_compressed */, values[idx],
+          compression_type_ == kNoCompression ? nullptr : &value_slice);
+
+      if (!s.ok()) {
+        *statuses[idx] = s;
+      }
     }
   }
 
   if (bytes_read) {
-    uint64_t total_bytes = 0;
     for (const auto& req : read_reqs) {
       total_bytes += req.result.size();
     }
