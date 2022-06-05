@@ -49,19 +49,6 @@ TEST(WalSet, Overwrite) {
   ASSERT_EQ(wals.GetWals().at(kNumber).GetSyncedSizeInBytes(), kBytes);
 }
 
-TEST(WalSet, SmallerSyncedSize) {
-  constexpr WalNumber kNumber = 100;
-  constexpr uint64_t kBytes = 100;
-  WalSet wals;
-  ASSERT_OK(wals.AddWal(WalAddition(kNumber, WalMetadata(kBytes))));
-  Status s = wals.AddWal(WalAddition(kNumber, WalMetadata(0)));
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(
-      s.ToString().find(
-          "WAL 100 must not have smaller synced size than previous one") !=
-      std::string::npos);
-}
-
 TEST(WalSet, CreateTwice) {
   constexpr WalNumber kNumber = 100;
   WalSet wals;
