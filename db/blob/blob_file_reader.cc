@@ -327,9 +327,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   Slice* record_slice = nullptr;
 
   if (use_cache) {
-    const Status s = MaybeReadBlobAndLoadToCache(
-        prefetch_buffer, read_options, offset, false /* wait_for_cache */,
-        true /* for_compaction */, record_slice);
+    const Status s =
+        MaybeReadBlobAndLoadToCache(prefetch_buffer, read_options, offset,
+                                    false /* wait_for_cache */, record_slice);
 
     if (!s.ok()) {
       return s;
@@ -635,8 +635,7 @@ void BlobFileReader::SaveValue(const Slice& src, PinnableSlice* dst) {
 
 Status BlobFileReader::MaybeReadBlobAndLoadToCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& read_options,
-    uint64_t offset, const bool wait, const bool for_compaction,
-    Slice* record_slice) const {
+    uint64_t offset, const bool wait, Slice* record_slice) const {
   assert(record_slice == nullptr);
 
   Cache* blob_cache = ioptions_.blob_cache.get();
@@ -661,9 +660,12 @@ Status BlobFileReader::MaybeReadBlobAndLoadToCache(
     if (record_slice != nullptr) {
       is_cache_hit = true;
       if (prefetch_buffer) {
-        // TODO: Update the blob details so that PrefetchBuffer can use the
-        // read pattern to determine if reads are sequential or not for
-        // prefetching. It should also take in account blob read from cache.
+        // Update the blob details so that PrefetchBuffer can use the read
+        // pattern to determine if reads are sequential or not for prefetching.
+        // It should also take in account blob read from cache.
+        prefetch_buffer->UpdateReadPattern(
+            offset, record_slice->size(),
+            read_options.adaptive_readahead /* decrease_readahead_size */);
       }
     }
   }
@@ -737,7 +739,7 @@ Status BlobFileReader::GetDataBlobFromCache(
 
 Status BlobFileReader::PutDataBlobToCache(
     const Slice& cache_key, Cache* blob_cache, Cache* blob_cache_compressed,
-    Slice* record_slice, MemoryAllocator* memory_allocator) const {
+    const Slice* record_slice, MemoryAllocator* memory_allocator) const {
   assert(record_slice);
 
   const Cache::Priority priority = Cache::Priority::LOW;
@@ -753,7 +755,7 @@ Status BlobFileReader::PutDataBlobToCache(
     size_t charge = record_slice->size();
     Cache::Handle* cache_handle = nullptr;
     s = InsertEntryToCache(ioptions_.lowest_used_cache_tier, blob_cache,
-                           cache_key, nullptr /* cache_helper */, record_slice,
+                           cache_key, GetCacheItemHelper(), record_slice,
                            charge, &cache_handle, priority);
   }
 

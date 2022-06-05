@@ -8,7 +8,9 @@
 #include <cinttypes>
 #include <memory>
 
+#include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "db/blob/blob_log_format.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -102,7 +104,6 @@ class BlobFileReader {
   Status MaybeReadBlobAndLoadToCache(FilePrefetchBuffer* prefetch_buffer,
                                      const ReadOptions& read_options,
                                      uint64_t offset, const bool wait,
-                                     const bool for_compaction,
                                      Slice* record_slice) const;
 
   Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
@@ -125,8 +126,42 @@ class BlobFileReader {
                               Slice* record_slice, bool wait) const;
 
   Status PutDataBlobToCache(const Slice& cache_key, Cache* blob_cache,
-                            Cache* blob_cache_compressed, Slice* record_slice,
+                            Cache* blob_cache_compressed,
+                            const Slice* record_slice,
                             MemoryAllocator* memory_allocator) const;
+
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+
+    const Slice header_slice(static_cast<const char*>(obj),
+                             BlobLogRecord::kHeaderSize);
+
+    BlobLogRecord record;
+    assert(record.DecodeHeaderFrom(header_slice) == Status::OK());
+    return record.record_size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+
+    const char* buf = static_cast<const char*>(from_obj);
+    const Slice header_slice(buf, BlobLogRecord::kHeaderSize);
+
+    BlobLogRecord record;
+    assert(record.DecodeHeaderFrom(header_slice) == Status::OK());
+    assert(length == record.record_size());
+    (void)from_offset;
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper() {
+    static Cache::CacheItemHelper cache_helper(
+        SizeCallback, SaveToCallback,
+        GetCacheEntryDeleterForRole<char[], CacheEntryRole::kDataBlob>());
+    return &cache_helper;
+  }
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
