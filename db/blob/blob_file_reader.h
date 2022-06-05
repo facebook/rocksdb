@@ -97,7 +97,8 @@ class BlobFileReader {
                                        CompressionType compression_type,
                                        SystemClock* clock,
                                        Statistics* statistics,
-                                       PinnableSlice* value);
+                                       PinnableSlice* value,
+                                       MemoryAllocator* memory_allocator);
 
   static void SaveValue(const Slice& src, PinnableSlice* dst);
 
@@ -128,7 +129,7 @@ class BlobFileReader {
   Status PutDataBlobToCache(const Slice& cache_key, Cache* blob_cache,
                             Cache* blob_cache_compressed,
                             const Slice* record_slice,
-                            MemoryAllocator* memory_allocator) const;
+                            const Slice* record_slice_compressed) const;
 
   static size_t SizeCallback(void* obj) {
     assert(obj != nullptr);
