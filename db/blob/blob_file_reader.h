@@ -138,7 +138,9 @@ class BlobFileReader {
                              BlobLogRecord::kHeaderSize);
 
     BlobLogRecord record;
-    assert(record.DecodeHeaderFrom(header_slice) == Status::OK());
+    const Status s = record.DecodeHeaderFrom(header_slice);
+    assert(s == Status::OK());
+
     return record.record_size();
   }
 
@@ -150,10 +152,13 @@ class BlobFileReader {
     const Slice header_slice(buf, BlobLogRecord::kHeaderSize);
 
     BlobLogRecord record;
-    assert(record.DecodeHeaderFrom(header_slice) == Status::OK());
+    const Status s = record.DecodeHeaderFrom(header_slice);
+    assert(s == Status::OK());
+
     assert(length == record.record_size());
     (void)from_offset;
     memcpy(out, buf, length);
+
     return Status::OK();
   }
 
