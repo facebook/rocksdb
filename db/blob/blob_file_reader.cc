@@ -717,6 +717,7 @@ Status BlobFileReader::InsertEntryToCache(
 Status BlobFileReader::GetDataBlobFromCache(
     const Slice& cache_key, Cache* blob_cache, Cache* blob_cache_compressed,
     const ReadOptions& read_options, Slice* record_slice, bool wait) const {
+  (void)record_slice;
   const Cache::Priority priority = Cache::Priority::LOW;
 
   // Lookup uncompressed cache first
