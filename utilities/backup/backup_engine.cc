@@ -1508,6 +1508,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
     }
   }
   ROCKS_LOG_INFO(options_.info_log, "add files for backup done, wait finish.");
+  printf("add files for backup done [%d], wait finish.\n", io_s.ok());
   IOStatus item_io_status;
   for (auto& item : backup_items_to_finish) {
     item.result.wait();
@@ -1533,6 +1534,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
     }
   }
 
+  printf("finished all item with status: %d.\n", io_s.code());
   // we copied all the files, enable file deletions
   if (disabled.ok()) {  // If we successfully disabled file deletions
     db->EnableFileDeletions(false).PermitUncheckedError();

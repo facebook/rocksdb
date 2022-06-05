@@ -1115,7 +1115,8 @@ TEST_P(BackupEngineTestWithParam, OfflineIntegrationTest) {
       destroy_data = false;
       // kAutoFlushOnly to preserve legacy test behavior (consider updating)
       FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
-      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0));
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0))
+          << "iter: " << iter << ", idx: " << i;
       CloseDBAndBackupEngine();
       DestroyDB(dbname_, options_);
 
