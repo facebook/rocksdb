@@ -366,6 +366,43 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLowWithPublicAPI) {
   s = db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
                                     ts_low_str_null);
   ASSERT_EQ(s, Status::InvalidArgument());
+  // test IncreaseFullHistoryTsLow concurrently. When actual ts_low is higher
+  // than requested ts_low, a try again error is returned.
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->LoadDependency({
+      {"DBBasicTestWithTimestamp::UpdateFullHistoryTsLowWithPublicAPI:"
+       "BeforeWriteHigher",
+       "DBBasicTestWithTimestamp::UpdateFullHistoryTsLowWithPublicAPI:"
+       "BeforeWriteLower"},
+      {"VersionSet::LogAndApply:BeforeWriterWaiting",
+       "DBBasicTestWithTimestamp::UpdateFullHistoryTsLowWithPublicAPI:"
+       "BeforeWriteLower"},
+      {"DBBasicTestWithTimestamp::UpdateFullHistoryTsLowWithPublicAPI:"
+       "BeforeWriteLower",
+       "VersionSet::LogAndApply:WakeUpAndDone"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  port::Thread writer_thread_one([this]() {
+    std::string higher_ts_low = Timestamp(25, 0);
+    TEST_SYNC_POINT(
+        "DBBasicTestWithTimestamp::UpdateFullHistoryTsLowWithPublicAPI:"
+        "BeforeWriteHigher");
+    ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
+                                            higher_ts_low));
+  });
+  port::Thread writer_thread_two([this]() {
+    std::string lower_ts_low = Timestamp(10, 0);
+    TEST_SYNC_POINT(
+        "DBBasicTestWithTimestamp::UpdateFullHistoryTsLowWithPublicAPI:"
+        "BeforeWriteLower");
+    ASSERT_TRUE(
+        db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), lower_ts_low)
+            .IsTryAgain());
+  });
+
+  writer_thread_one.join();
+  writer_thread_two.join();
+
   // test IncreaseFullHistoryTsLow for a column family that does not enable
   // timestamp
   options.comparator = BytewiseComparator();

@@ -950,21 +950,31 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
 Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                             std::string ts_low) {
   VersionEdit edit;
+  std::string current_ts_low;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
 
   InstrumentedMutexLock l(&mutex_);
-  std::string current_ts_low = cfd->GetFullHistoryTsLow();
+  current_ts_low = cfd->GetFullHistoryTsLow();
   const Comparator* ucmp = cfd->user_comparator();
   assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
-    return Status::InvalidArgument(
-        "Cannot decrease full_history_timestamp_low");
+    return Status::InvalidArgument("Cannot decrease full_history_ts_low");
   }
 
-  return versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
-                                &mutex_);
+  Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                    &edit, &mutex_);
+  if (!s.ok()) {
+    return s;
+  }
+  current_ts_low = cfd->GetFullHistoryTsLow();
+  if (ucmp->CompareTimestamp(current_ts_low, ts_low) > 0) {
+    return Status::TryAgain(
+        "full_history_ts_low is set to be higher than the requested "
+        "timestamp.");
+  }
+  return Status::OK();
 }
 
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
