@@ -955,15 +955,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   int blob_file_starting_level = 0;
 
-  // Disable blob cache. If this is set to true,
-  // then no blob cache should be used, and the blob_cache should
-  // point to a nullptr object.
-  //
-  // Default: false (enabled)
-  //
-  // Dynamically changeable through the SetOptions() API
-  bool no_blob_cache = false;
-
   // If non-NULL use the specified cache for blobs.
   // If NULL, rocksdb will assign the exising block cache to be used for blobs.
   // Rocksdb will automatically create and use an 64MB internal cache if the

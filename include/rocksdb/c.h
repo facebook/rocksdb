@@ -1264,11 +1264,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_file_starting_level(
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_blob_file_starting_level(
     rocksdb_options_t* opt);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_no_blob_cache(
-    rocksdb_options_t* opt, unsigned char val);
-extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_no_blob_cache(
-    rocksdb_options_t* opt);
-
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_cache(
     rocksdb_options_t* opt, rocksdb_cache_t* blob_cache);
 

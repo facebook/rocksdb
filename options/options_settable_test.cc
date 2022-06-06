@@ -377,7 +377,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 // test is not updated accordingly.
 // After adding an option, we need to make sure it is settable by
 // GetColumnFamilyOptionsFromString() and add the option to the input
-// string passed to GetColumnFamilyOptionsFromString()in this test.
+// string passed to GetColumnFamilyOptionsFromString() in this test.
 // If it is a complicated type, you also need to add the field to
 // kColumnFamilyOptionsExcluded, and maybe add customized verification
 // for it.
@@ -525,8 +525,11 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_file_starting_level=1;"
       "bottommost_temperature=kWarm;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;age_for_warm=1;no_blob_cache=true;};",
+      "compaction=false;age_for_warm=1;};"
+      "blob_cache=1M;",
       new_options));
+
+  ASSERT_TRUE(new_options->blob_cache.get() != nullptr);
 
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),

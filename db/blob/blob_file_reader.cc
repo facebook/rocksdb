@@ -277,36 +277,11 @@ BlobFileReader::BlobFileReader(
       compression_type_(compression_type),
       statistics_(ioptions.statistics.get()),
       clock_(ioptions.clock),
-      use_cache_(!ioptions.no_blob_cache),
-      base_cache_key_(ioptions.no_blob_cache
-                          ? OffsetableCacheKey()
-                          : OffsetableCacheKey(ioptions.db_host_id,
-                                               "" /* db session id */,
-                                               file_number, file_size)),
+      blob_cache_(ioptions.blob_cache),
+      base_cache_key_(OffsetableCacheKey(
+          ioptions.db_host_id, "" /* db session id */, file_number, file_size)),
       lowest_used_cache_tier_(ioptions.lowest_used_cache_tier) {
   assert(file_reader_);
-  if (use_cache_) {
-    if (ioptions.blob_cache) {
-      blob_cache_ = ioptions.blob_cache;
-    } else {
-      if (strcmp(ioptions.table_factory->Name(),
-                 TableFactory::kBlockBasedTableName()) == 0) {
-        const auto* bbto =
-            ioptions.table_factory->GetOptions<BlockBasedTableOptions>();
-        if (!bbto->no_block_cache) {
-          assert(bbto->block_cache);
-          blob_cache_ = bbto->block_cache;
-        }
-      }
-      if (!blob_cache_) {
-        LRUCacheOptions co;
-        // create and use an 64MB internal cache if the block cache is disabled.
-        co.capacity = 64 << 20;
-        co.high_pri_pool_ratio = 0.0;
-        blob_cache_ = NewLRUCache(co);
-      }
-    }
-  }
 }
 
 BlobFileReader::~BlobFileReader() = default;
@@ -346,7 +321,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   Slice record_slice;
 
   // TODO: skip cache tiering, as we don't support it for blob files yet.
-  if (use_cache_ &&
+  if (blob_cache_ &&
       lowest_used_cache_tier_ != CacheTier::kNonVolatileBlockTier) {
     const Status s =
         MaybeReadBlobAndLoadToCache(prefetch_buffer, read_options, offset,
@@ -480,7 +455,7 @@ void BlobFileReader::MultiGetBlob(
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
 
   uint64_t total_bytes = 0;
-  if (use_cache_ &&
+  if (blob_cache_ &&
       lowest_used_cache_tier_ != CacheTier::kNonVolatileBlockTier) {
     Slice record_slice;
     size_t cached_blob_count = 0;

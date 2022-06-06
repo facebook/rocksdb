@@ -176,7 +176,6 @@ class BlobFileReader {
   Statistics* statistics_;
   SystemClock* clock_;
 
-  bool use_cache_;
   std::shared_ptr<Cache> blob_cache_;
 
   // A file-specific generator of cache keys, sometimes referred to as the

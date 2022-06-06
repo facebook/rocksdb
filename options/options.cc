@@ -102,7 +102,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.blob_garbage_collection_force_threshold),
       blob_compaction_readahead_size(options.blob_compaction_readahead_size),
       blob_file_starting_level(options.blob_file_starting_level),
-      no_blob_cache(options.no_blob_cache),
       blob_cache(options.blob_cache) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
@@ -419,8 +418,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         blob_compaction_readahead_size);
     ROCKS_LOG_HEADER(log, "               Options.blob_file_starting_level: %d",
                      blob_file_starting_level);
-    ROCKS_LOG_HEADER(log, "                          Options.no_blob_cache: %s",
-                     no_blob_cache ? "true" : "false");
     if (blob_cache) {
       ROCKS_LOG_HEADER(log, "                          Options.blob_cache: %s",
                        blob_cache->Name());

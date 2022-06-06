@@ -732,10 +732,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          OptionTypeInfo::AsCustomSharedPtr<SstPartitionerFactory>(
              offsetof(struct ImmutableCFOptions, sst_partitioner_factory),
              OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
-        {"no_blob_cache",
-         {offsetof(struct ImmutableCFOptions, no_blob_cache),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
-          OptionTypeFlags::kNone}},
         {"blob_cache",
          {offsetof(struct ImmutableCFOptions, blob_cache), OptionType::kUnknown,
           OptionVerificationType::kNormal,
@@ -886,7 +882,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
-      no_blob_cache(cf_options.no_blob_cache),
       blob_cache(cf_options.blob_cache) {}
 
 ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
