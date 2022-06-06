@@ -1737,8 +1737,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   assert(get_impl_options.column_family);
 
   if (read_options.timestamp) {
-    const Status s = FailIfTsSizesMismatch(get_impl_options.column_family,
-                                           *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
+                                        *(read_options.timestamp),
+                                        /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -1968,8 +1969,8 @@ std::vector<Status> DBImpl::MultiGet(
   for (size_t i = 0; i < num_keys; ++i) {
     assert(column_family[i]);
     if (read_options.timestamp) {
-      stat_list[i] =
-          FailIfTsSizesMismatch(column_family[i], *(read_options.timestamp));
+      stat_list[i] = FailIfTsMismatchCf(
+          column_family[i], *(read_options.timestamp), /*ts_for_read=*/true);
       if (!stat_list[i].ok()) {
         should_fail = true;
       }
@@ -2303,7 +2304,8 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     ColumnFamilyHandle* cfh = column_families[i];
     assert(cfh);
     if (read_options.timestamp) {
-      statuses[i] = FailIfTsSizesMismatch(cfh, *(read_options.timestamp));
+      statuses[i] = FailIfTsMismatchCf(cfh, *(read_options.timestamp),
+                                       /*ts_for_read=*/true);
       if (!statuses[i].ok()) {
         should_fail = true;
       }
@@ -2963,8 +2965,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   assert(column_family);
 
   if (read_options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -3105,7 +3107,8 @@ Status DBImpl::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
+                                          /*ts_for_read=*/true);
       if (!s.ok()) {
         return s;
       }
