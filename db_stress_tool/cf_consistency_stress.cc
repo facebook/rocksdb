@@ -448,21 +448,23 @@ class CfConsistencyStressTest : public StressTest {
 
     DB* db_ptr = cmp_db_ ? cmp_db_ : db_;
     const auto& cfhs = cmp_db_ ? cmp_cfhs_ : column_families_;
-    const auto ss_deleter = [&](const Snapshot* ss) {
-      db_ptr->ReleaseSnapshot(ss);
-    };
-    std::unique_ptr<const Snapshot, decltype(ss_deleter)> snapshot_guard(
-        db_ptr->GetSnapshot(), ss_deleter);
-    if (cmp_db_) {
-      status = cmp_db_->TryCatchUpWithPrimary();
-    }
+
+    // Take a snapshot to preserve the state of primary db.
+    [[maybe_unused]] ManagedSnapshot snapshot_guard(db_);
+
     SharedState* shared = thread->shared;
     assert(shared);
-    if (!status.ok()) {
-      shared->SetShouldStopTest();
-      return;
+
+    if (cmp_db_) {
+      status = cmp_db_->TryCatchUpWithPrimary();
+      if (!status.ok()) {
+        fprintf(stderr, "TryCatchUpWithPrimary: %s\n",
+                status.ToString().c_str());
+        shared->SetShouldStopTest();
+        return;
+      }
     }
-    assert(cmp_db_ || snapshot_guard.get());
+
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
       assert(nullptr != checksum);
@@ -478,7 +480,6 @@ class CfConsistencyStressTest : public StressTest {
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts;
     ropts.total_order_seek = true;
-    ropts.snapshot = snapshot_guard.get();
     uint32_t crc = 0;
     {
       // Compute crc for all key-values of default column family.
@@ -499,6 +500,8 @@ class CfConsistencyStressTest : public StressTest {
       }
     }
     if (!status.ok() || tmp_crc != crc) {
+      fprintf(stderr, "status: %s, tmp_crc=%" PRIu32 " crc=%" PRIu32 "\n",
+              status.ToString().c_str(), tmp_crc, crc);
       shared->SetShouldStopTest();
     }
   }
