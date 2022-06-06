@@ -344,7 +344,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   Slice record_slice;
 
-  if (use_cache_) {
+  // TODO: skip cache tiering, as we don't support it for blob files yet.
+  if (use_cache_ &&
+      lowest_used_cache_tier_ != CacheTier::kNonVolatileBlockTier) {
     const Status s =
         MaybeReadBlobAndLoadToCache(prefetch_buffer, read_options, offset,
                                     false /* wait_for_cache */, &record_slice);
@@ -477,7 +479,8 @@ void BlobFileReader::MultiGetBlob(
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
 
   uint64_t total_bytes = 0;
-  if (use_cache_) {
+  if (use_cache_ &&
+      lowest_used_cache_tier_ != CacheTier::kNonVolatileBlockTier) {
     Slice record_slice;
     size_t cached_blob_count = 0;
 
@@ -798,7 +801,6 @@ Cache::Handle* BlobFileReader::GetEntryFromCache(
     const bool wait, const Cache::CacheItemHelper* cache_helper,
     const Cache::CreateCallback& create_cb, Cache::Priority priority) const {
   assert(blob_cache);
-  assert(cache_tier != CacheTier::kNonVolatileBlockTier);
 
   Cache::Handle* cache_handle = nullptr;
 
