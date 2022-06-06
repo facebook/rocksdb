@@ -468,7 +468,8 @@ function summarize_result {
   # V1: overwrite    :       7.939 micros/op 125963 ops/sec;   50.5 MB/s
   # V2: overwrite    :       7.854 micros/op 127320 ops/sec 1800.001 seconds 229176999 operations;   51.0 MB/s
 
-  format_version=$( grep ^${bench_name} $test_out | awk '{ if (NF >= 10 && $8 == "seconds") { print "V2" } else { print "V1" } }' )
+  format_version=$( grep ^${bench_name} $test_out \
+    | awk '{ if (NF >= 10 && $8 == "seconds") { print "V2" } else { print "V1" } }' )
   if [ $format_version == "V1" ]; then
     ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
     usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
