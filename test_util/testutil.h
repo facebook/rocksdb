@@ -817,8 +817,6 @@ const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined = -1);
 
 TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
-TableFactory* UnregisteredTableFactory();
-
 std::string RandomName(Random* rnd, const size_t len);
 
 bool IsDirectIOSupported(Env* env, const std::string& dir);
