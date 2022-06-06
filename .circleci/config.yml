@@ -169,6 +169,35 @@ commands:
             echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
             echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
 
+  build-for-benchmarks:
+    steps:
+      - pre-steps
+      - run:
+          name: "Linux build for benchmarks"
+          command: #sized for the resource-class rocksdb-benchmark-sys1
+            make V=1 J=8 -j8 release
+
+  perform-benchmarks:
+    steps:
+      - run:
+          name: "Run basic benchmark, 5 min"
+          command: ./tools/benchmark.sh fillseq_enable_wal
+          environment:
+            LD_LIBRARY_PATH: /usr/local/lib
+            DB_DIR: /tmp/rocksdb-benchmark-datadir
+            WAL_DIR: /tmp/rocksdb-benchmark-waldir
+            OUTPUT_DIR: /tmp/benchmark-results
+            NUM_KEYS: 10000000
+
+  post-benchmarks:
+    steps:
+      - store_artifacts: # store the benchmark output
+          path: /tmp/benchmark-results
+          destination: test_logs
+      - run:
+          name: Send benchmark report to visualisation
+          command: ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
+
 executors:
   windows-2xlarge:
     machine:
@@ -391,6 +420,18 @@ jobs:
       - install-clang-10
       - run: sudo apt-get update -y && sudo apt-get install -y clang-tools-10
       - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
+      - post-steps
+
+  build-linux-runner:
+    machine: true
+    resource_class: facebook/rocksdb-benchmark-sys1
+    steps:
+      - pre-steps
+      - run:
+          name: "Checked Linux build (Runner)"
+          command: make V=1 J=8 -j8 check
+          environment:
+            LD_LIBRARY_PATH: /usr/local/lib
       - post-steps
 
   build-linux-cmake-with-folly:
@@ -834,6 +875,14 @@ jobs:
           command: cd fuzz && make sst_file_writer_fuzzer db_fuzzer db_map_fuzzer
       - post-steps
 
+  benchmark-linux: #use a private Circle CI runner (resource_class) to run the job
+    machine: true
+    resource_class: facebook/rocksdb-benchmark-sys1
+    steps:
+      - build-for-benchmarks
+      - perform-benchmarks
+      - post-benchmarks
+
 workflows:
   version: 2
   jobs-linux-run-tests:
@@ -902,6 +951,22 @@ workflows:
   jobs-linux-arm:
     jobs:
       - build-linux-arm
+  build-fuzzers:
+    jobs:
+      - build-fuzzers
+  benchmark-linux:
+    triggers:
+      - schedule:
+          cron: "0 * * * *"
+          filters:
+            branches:
+              only:
+                - main
+    jobs:
+      - benchmark-linux
+  benchmark-linux-dev:
+    jobs:
+      - benchmark-linux
   nightly:
     triggers:
       - schedule:
