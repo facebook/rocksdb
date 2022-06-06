@@ -300,6 +300,7 @@ BlobFileReader::BlobFileReader(
       }
       if (!blob_cache_) {
         LRUCacheOptions co;
+        // create and use an 64MB internal cache if the block cache is disabled.
         co.capacity = 64 << 20;
         co.high_pri_pool_ratio = 0.0;
         blob_cache_ = NewLRUCache(co);
