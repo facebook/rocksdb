@@ -218,7 +218,6 @@ class NonBatchedOpsStressTest : public StressTest {
         std::string key_ts;
         s = cmp_db_->Get(read_opts, handle, key_str, &value,
                          FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
-        assert(!s.IsIOError());
         s.PermitUncheckedError();
       } else {
         // Use range scan
@@ -229,14 +228,12 @@ class NonBatchedOpsStressTest : public StressTest {
           read_opts.total_order_seek = true;
           iter->SeekToFirst();
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
-            assert(iter->status().ok());
           }
         } else if (1 == rnd) {
           // SeekToLast() + Prev()*5
           read_opts.total_order_seek = true;
           iter->SeekToLast();
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
-            assert(iter->status().ok());
           }
         } else if (2 == rnd) {
           // Seek() +Next()*5
@@ -244,7 +241,6 @@ class NonBatchedOpsStressTest : public StressTest {
           std::string key_str = Key(key);
           iter->Seek(key_str);
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
-            assert(iter->status().ok());
           }
         } else {
           // SeekForPrev() + Prev()*5
@@ -252,10 +248,8 @@ class NonBatchedOpsStressTest : public StressTest {
           std::string key_str = Key(key);
           iter->SeekForPrev(key_str);
           for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
-            assert(iter->status().ok());
           }
         }
-        assert(!iter->status().IsIOError());
       }
     }
   }
