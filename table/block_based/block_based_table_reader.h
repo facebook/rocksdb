@@ -641,7 +641,7 @@ struct BlockBasedTable::Rep {
       table_reader_cache_res_handle = nullptr;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
-    return (block_type == BlockType::kFilter ||
+    return (block_type == BlockType::kFilterPartitionIndex ||
             block_type == BlockType::kCompressionDictionary)
                ? kDisableGlobalSequenceNumber
                : global_seqno;

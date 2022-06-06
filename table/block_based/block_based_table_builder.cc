@@ -1250,8 +1250,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle,
                                            BlockType block_type,
-                                           const Slice* raw_block_contents,
-                                           bool is_top_level_filter_block) {
+                                           const Slice* raw_block_contents) {
   Rep* r = rep_;
   bool is_data_block = block_type == BlockType::kData;
   StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
@@ -1311,11 +1310,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     }
     if (warm_cache) {
       if (type == kNoCompression) {
-        s = InsertBlockInCacheHelper(block_contents, handle, block_type,
-                                     is_top_level_filter_block);
+        s = InsertBlockInCacheHelper(block_contents, handle, block_type);
       } else if (raw_block_contents != nullptr) {
-        s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type,
-                                     is_top_level_filter_block);
+        s = InsertBlockInCacheHelper(*raw_block_contents, handle, block_type);
       }
       if (!s.ok()) {
         r->SetStatus(s);
@@ -1491,25 +1488,28 @@ Status BlockBasedTableBuilder::InsertBlockInCompressedCache(
 
 Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     const Slice& block_contents, const BlockHandle* handle,
-    BlockType block_type, bool is_top_level_filter_block) {
+    BlockType block_type) {
   Status s;
-  if (block_type == BlockType::kData || block_type == BlockType::kIndex) {
-    s = InsertBlockInCache<Block>(block_contents, handle, block_type);
-  } else if (block_type == BlockType::kFilter) {
-    if (rep_->filter_builder->IsBlockBased()) {
-      // for block-based filter which is deprecated.
-      s = InsertBlockInCache<BlockContents>(block_contents, handle, block_type);
-    } else if (is_top_level_filter_block) {
-      // for top level filter block in partitioned filter.
+  switch (block_type) {
+    case BlockType::kData:
+    case BlockType::kIndex:
+    case BlockType::kFilterPartitionIndex:
       s = InsertBlockInCache<Block>(block_contents, handle, block_type);
-    } else {
-      // for second level partitioned filters and full filters.
+      break;
+    case BlockType::kDeprecatedFilter:
+      s = InsertBlockInCache<BlockContents>(block_contents, handle, block_type);
+      break;
+    case BlockType::kFilter:
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
                                                     block_type);
-    }
-  } else if (block_type == BlockType::kCompressionDictionary) {
-    s = InsertBlockInCache<UncompressionDict>(block_contents, handle,
-                                              block_type);
+      break;
+    case BlockType::kCompressionDictionary:
+      s = InsertBlockInCache<UncompressionDict>(block_contents, handle,
+                                                block_type);
+      break;
+    default:
+      // no-op / not cached
+      break;
   }
   return s;
 }
@@ -1563,10 +1563,14 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
 void BlockBasedTableBuilder::WriteFilterBlock(
     MetaIndexBuilder* meta_index_builder) {
+  if (rep_->filter_builder == nullptr || rep_->filter_builder->IsEmpty()) {
+    // No filter block needed
+    return;
+  }
   BlockHandle filter_block_handle;
-  bool empty_filter_block =
-      (rep_->filter_builder == nullptr || rep_->filter_builder->IsEmpty());
-  if (ok() && !empty_filter_block) {
+  bool is_block_based_filter = rep_->filter_builder->IsBlockBased();
+  bool is_partitioned_filter = rep_->table_options.partition_filters;
+  if (ok()) {
     rep_->props.num_filter_entries +=
         rep_->filter_builder->EstimateEntriesAdded();
     Status s = Status::Incomplete();
@@ -1591,31 +1595,23 @@ void BlockBasedTableBuilder::WriteFilterBlock(
 
       rep_->props.filter_size += filter_content.size();
 
-      // TODO: Refactor code so that BlockType can determine both the C++ type
-      // of a block cache entry (TBlocklike) and the CacheEntryRole while
-      // inserting blocks in cache.
-      bool top_level_filter_block = false;
-      if (s.ok() && rep_->table_options.partition_filters &&
-          !rep_->filter_builder->IsBlockBased()) {
-        top_level_filter_block = true;
-      }
-      WriteRawBlock(filter_content, kNoCompression, &filter_block_handle,
-                    BlockType::kFilter, nullptr /*raw_contents*/,
-                    top_level_filter_block);
+      BlockType btype = is_block_based_filter ? BlockType::kDeprecatedFilter
+                        : is_partitioned_filter && /* last */ s.ok()
+                            ? BlockType::kFilterPartitionIndex
+                            : BlockType::kFilter;
+      WriteRawBlock(filter_content, kNoCompression, &filter_block_handle, btype,
+                    nullptr /*raw_contents*/);
     }
     rep_->filter_builder->ResetFilterBitsBuilder();
   }
-  if (ok() && !empty_filter_block) {
+  if (ok()) {
     // Add mapping from "<filter_block_prefix>.Name" to location
     // of filter data.
     std::string key;
-    if (rep_->filter_builder->IsBlockBased()) {
-      key = BlockBasedTable::kFilterBlockPrefix;
-    } else {
-      key = rep_->table_options.partition_filters
-                ? BlockBasedTable::kPartitionedFilterBlockPrefix
-                : BlockBasedTable::kFullFilterBlockPrefix;
-    }
+    key = is_block_based_filter ? BlockBasedTable::kFilterBlockPrefix
+          : is_partitioned_filter
+              ? BlockBasedTable::kPartitionedFilterBlockPrefix
+              : BlockBasedTable::kFullFilterBlockPrefix;
     key.append(rep_->table_options.filter_policy->CompatibilityName());
     meta_index_builder->Add(key, filter_block_handle);
   }

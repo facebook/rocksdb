@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include "block_type.h"
 #include "file/random_access_file_reader.h"
 #include "logging/logging.h"
 #include "monitoring/perf_context_imp.h"
@@ -197,9 +198,9 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
 
   CachableEntry<Block> filter_block;
   if (prefetch || !use_cache) {
-    const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
-                                     nullptr /* get_context */, lookup_context,
-                                     &filter_block);
+    const Status s = ReadFilterBlock(
+        table, prefetch_buffer, ro, use_cache, nullptr /* get_context */,
+        lookup_context, &filter_block, BlockType::kFilterPartitionIndex);
     if (!s.ok()) {
       IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
@@ -277,9 +278,10 @@ BlockHandle PartitionedFilterBlockReader::GetFilterPartitionHandle(
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
       comparator->user_comparator(),
-      table()->get_rep()->get_global_seqno(BlockType::kFilter), &iter,
-      kNullStats, true /* total_order_seek */, false /* have_first_key */,
-      index_key_includes_seq(), index_value_is_full());
+      table()->get_rep()->get_global_seqno(BlockType::kFilterPartitionIndex),
+      &iter, kNullStats, true /* total_order_seek */,
+      false /* have_first_key */, index_key_includes_seq(),
+      index_value_is_full());
   iter.Seek(entry);
   if (UNLIKELY(!iter.Valid())) {
     // entry is larger than all the keys. However its prefix might still be
@@ -335,7 +337,8 @@ bool PartitionedFilterBlockReader::MayMatch(
     FilterFunction filter_function) const {
   CachableEntry<Block> filter_block;
   Status s =
-      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
+      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block,
+                           BlockType::kFilterPartitionIndex);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -371,8 +374,9 @@ void PartitionedFilterBlockReader::MayMatch(
     uint64_t block_offset, bool no_io, BlockCacheLookupContext* lookup_context,
     FilterManyFunction filter_function) const {
   CachableEntry<Block> filter_block;
-  Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
-                                  lookup_context, &filter_block);
+  Status s =
+      GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
+                           &filter_block, BlockType::kFilterPartitionIndex);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
@@ -463,7 +467,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   CachableEntry<Block> filter_block;
 
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
-                                  &lookup_context, &filter_block);
+                                  &lookup_context, &filter_block,
+                                  BlockType::kFilterPartitionIndex);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep->ioptions.logger,
                     "Error retrieving top-level filter block while trying to "
@@ -479,10 +484,10 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   const InternalKeyComparator* const comparator = internal_comparator();
   Statistics* kNullStats = nullptr;
   filter_block.GetValue()->NewIndexIterator(
-      comparator->user_comparator(), rep->get_global_seqno(BlockType::kFilter),
-      &biter, kNullStats, true /* total_order_seek */,
-      false /* have_first_key */, index_key_includes_seq(),
-      index_value_is_full());
+      comparator->user_comparator(),
+      rep->get_global_seqno(BlockType::kFilterPartitionIndex), &biter,
+      kNullStats, true /* total_order_seek */, false /* have_first_key */,
+      index_key_includes_seq(), index_value_is_full());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
   // Read the first block offset
   biter.SeekToFirst();
