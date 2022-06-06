@@ -1223,9 +1223,16 @@ Status BlockBasedTable::GetDataBlockFromCache(
           : 0;
   assert(block);
   assert(block->IsEmpty());
+  // Here we treat the legacy name "...index_and_filter_blocks..." to mean all
+  // metadata blocks that might go into block cache, EXCEPT only those needed
+  // for the read path (Get, etc.). TableProperties should not be needed on the
+  // read path (prefix extractor setting is an O(1) size special case that we
+  // are working not to require from TableProperties), so it is not given
+  // high-priority treatment if it should go into BlockCache.
   const Cache::Priority priority =
       rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
-              block_type != BlockType::kData
+              block_type != BlockType::kData &&
+              block_type != BlockType::kProperties
           ? Cache::Priority::HIGH
           : Cache::Priority::LOW;
 
