@@ -275,13 +275,37 @@ BlobFileReader::BlobFileReader(
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
       compression_type_(compression_type),
-      ioptions_(ioptions),
-      base_cache_key_(ioptions_.no_blob_cache
+      statistics_(ioptions.statistics.get()),
+      clock_(ioptions.clock),
+      use_cache_(!ioptions.no_blob_cache),
+      base_cache_key_(ioptions.no_blob_cache
                           ? OffsetableCacheKey()
-                          : OffsetableCacheKey(ioptions_.db_host_id,
+                          : OffsetableCacheKey(ioptions.db_host_id,
                                                "" /* db session id */,
-                                               file_number, file_size)) {
+                                               file_number, file_size)),
+      lowest_used_cache_tier_(ioptions.lowest_used_cache_tier) {
   assert(file_reader_);
+  if (use_cache_) {
+    if (ioptions.blob_cache) {
+      blob_cache_ = ioptions.blob_cache;
+    } else {
+      if (strcmp(ioptions.table_factory->Name(),
+                 TableFactory::kBlockBasedTableName()) == 0) {
+        const auto* bbto =
+            ioptions.table_factory->GetOptions<BlockBasedTableOptions>();
+        if (!bbto->no_block_cache) {
+          assert(bbto->block_cache);
+          blob_cache_ = bbto->block_cache;
+        }
+      }
+      if (!blob_cache_) {
+        LRUCacheOptions co;
+        co.capacity = 64 << 20;
+        co.high_pri_pool_ratio = 0.0;
+        blob_cache_ = NewLRUCache(co);
+      }
+    }
+  }
 }
 
 BlobFileReader::~BlobFileReader() = default;
@@ -318,15 +342,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   const uint64_t record_offset = offset - adjustment;
   const uint64_t record_size = value_size + adjustment;
 
-  Cache* blob_cache = ioptions_.blob_cache.get();
-  bool use_cache = !ioptions_.no_blob_cache;
-
-  Statistics* statistics = ioptions_.statistics.get();
-  SystemClock* clock = ioptions_.clock;
-
   Slice record_slice;
 
-  if (use_cache) {
+  if (use_cache_) {
     const Status s =
         MaybeReadBlobAndLoadToCache(prefetch_buffer, read_options, offset,
                                     false /* wait_for_cache */, &record_slice);
@@ -370,7 +388,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
 
     const Status s = ReadFromFile(file_reader_.get(), record_offset,
-                                  static_cast<size_t>(record_size), statistics,
+                                  static_cast<size_t>(record_size), statistics_,
                                   &record_slice, &buf, &aligned_buf,
                                   read_options.rate_limiter_priority);
     if (!s.ok()) {
@@ -392,8 +410,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   {
     const Status s = UncompressBlobIfNeeded(
-        value_slice, compression_type, clock, statistics, value,
-        blob_cache ? blob_cache->memory_allocator() : nullptr);
+        value_slice, compression_type, clock_, statistics_, value,
+        blob_cache_ ? blob_cache_->memory_allocator() : nullptr);
     if (!s.ok()) {
       return s;
     }
@@ -408,7 +426,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     // blob to the cache.
     Slice key = base_cache_key_.WithOffset(offset).AsSlice();
     const Status s = PutDataBlobToCache(
-        key, blob_cache, nullptr /* blob_cache_compressed */, value,
+        key, blob_cache_.get(), nullptr /* blob_cache_compressed */, value,
         compression_type == kNoCompression ? nullptr : &value_slice);
     if (!s.ok()) {
       return s;
@@ -456,16 +474,10 @@ void BlobFileReader::MultiGetBlob(
     total_len += read_reqs[i].len;
   }
 
-  Cache* blob_cache = ioptions_.blob_cache.get();
-  bool use_cache = !ioptions_.no_blob_cache;
-
-  Statistics* statistics = ioptions_.statistics.get();
-  SystemClock* clock = ioptions_.clock;
-
-  RecordTick(statistics, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
+  RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
 
   uint64_t total_bytes = 0;
-  if (use_cache) {
+  if (use_cache_) {
     Slice record_slice;
     size_t cached_blob_count = 0;
 
@@ -501,8 +513,8 @@ void BlobFileReader::MultiGetBlob(
         const Slice value_slice(record_slice.data() + adjustments[i],
                                 value_sizes[i]);
         s = UncompressBlobIfNeeded(
-            value_slice, compression_type_, clock, statistics, values[i],
-            blob_cache ? blob_cache->memory_allocator() : nullptr);
+            value_slice, compression_type_, clock_, statistics_, values[i],
+            blob_cache_ ? blob_cache_->memory_allocator() : nullptr);
         if (!s.ok()) {
           assert(statuses[i]);
           *statuses[i] = s;
@@ -620,8 +632,8 @@ void BlobFileReader::MultiGetBlob(
     const Slice value_slice(record_slice.data() + adjustments[idx],
                             value_sizes[idx]);
     s = UncompressBlobIfNeeded(
-        value_slice, compression_type_, clock, statistics, values[idx],
-        blob_cache ? blob_cache->memory_allocator() : nullptr);
+        value_slice, compression_type_, clock_, statistics_, values[idx],
+        blob_cache_ ? blob_cache_->memory_allocator() : nullptr);
 
     if (!s.ok()) {
       *statuses[idx] = s;
@@ -632,7 +644,8 @@ void BlobFileReader::MultiGetBlob(
       // the blob to the cache.
       Slice key = base_cache_key_.WithOffset(read_reqs[i].offset).AsSlice();
       s = PutDataBlobToCache(
-          key, blob_cache, nullptr /* blob_cache_compressed */, values[idx],
+          key, blob_cache_.get(), nullptr /* blob_cache_compressed */,
+          values[idx],
           compression_type_ == kNoCompression ? nullptr : &value_slice);
 
       if (!s.ok()) {
@@ -747,17 +760,15 @@ Status BlobFileReader::MaybeReadBlobAndLoadToCache(
   assert(record_slice);
   assert(record_slice->size() == 0);
 
-  Cache* blob_cache = ioptions_.blob_cache.get();
-
   // First, try to get the blo bfrom the cache
   //
   // If either blob cache is enabled, we'll try to read from it.
   Status s;
   Slice key;
-  if (blob_cache != nullptr) {
+  if (blob_cache_ != nullptr) {
     // create key for blob cache
     key = base_cache_key_.WithOffset(offset).AsSlice();
-    s = GetDataBlobFromCache(key, blob_cache,
+    s = GetDataBlobFromCache(key, blob_cache_.get(),
                              nullptr /* blob_cache_compressed */, read_options,
                              record_slice, wait);
 
@@ -793,9 +804,9 @@ Cache::Handle* BlobFileReader::GetEntryFromCache(
 
   if (cache_tier == CacheTier::kNonVolatileBlockTier) {
     cache_handle = blob_cache->Lookup(key, cache_helper, create_cb, priority,
-                                      wait, ioptions_.statistics.get());
+                                      wait, statistics_);
   } else {
-    cache_handle = blob_cache->Lookup(key, ioptions_.statistics.get());
+    cache_handle = blob_cache->Lookup(key, statistics_);
   }
 
   return cache_handle;
@@ -832,7 +843,7 @@ Status BlobFileReader::GetDataBlobFromCache(
     assert(!cache_key.empty());
     Cache::Handle* cache_handle = nullptr;
     cache_handle = GetEntryFromCache(
-        ioptions_.lowest_used_cache_tier, blob_cache, cache_key, wait,
+        lowest_used_cache_tier_, blob_cache, cache_key, wait,
         nullptr /* cache_helper */, nullptr /* create_db */, priority);
     if (cache_handle != nullptr) {
       record_slice = reinterpret_cast<Slice*>(blob_cache->Value(cache_handle));
@@ -869,7 +880,7 @@ Status BlobFileReader::PutDataBlobToCache(
   if (blob_cache_compressed != nullptr && record_slice_compressed != nullptr) {
     Cache::Handle* cache_handle = nullptr;
     s = InsertEntryToCache(
-        ioptions_.lowest_used_cache_tier, blob_cache_compressed, cache_key,
+        lowest_used_cache_tier_, blob_cache_compressed, cache_key,
         GetCacheItemHelper(), record_slice_compressed,
         record_slice_compressed->size(), &cache_handle, priority);
     if (s.ok()) {
@@ -882,8 +893,8 @@ Status BlobFileReader::PutDataBlobToCache(
   // insert into uncompressed blob cache
   if (blob_cache != nullptr) {
     Cache::Handle* cache_handle = nullptr;
-    s = InsertEntryToCache(ioptions_.lowest_used_cache_tier, blob_cache,
-                           cache_key, GetCacheItemHelper(), record_slice,
+    s = InsertEntryToCache(lowest_used_cache_tier_, blob_cache, cache_key,
+                           GetCacheItemHelper(), record_slice,
                            record_slice->size(), &cache_handle, priority);
   }
 

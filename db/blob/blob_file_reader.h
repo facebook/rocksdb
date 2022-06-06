@@ -173,8 +173,20 @@ class BlobFileReader {
   uint64_t file_size_;
   CompressionType compression_type_;
 
-  const ImmutableOptions& ioptions_;
+  Statistics* statistics_;
+  SystemClock* clock_;
+
+  bool use_cache_;
+  std::shared_ptr<Cache> blob_cache_;
+
+  // A file-specific generator of cache keys, sometimes referred to as the
+  // "base" cache key for a file because all the cache keys for various offsets
+  // within the file are computed using simple arithmetic.
   OffsetableCacheKey base_cache_key_;
+
+  // The control option of how the cache tiers will be used. Currently rocksdb
+  // support block cache (volatile tier), secondary cache (non-volatile tier).
+  CacheTier lowest_used_cache_tier_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
