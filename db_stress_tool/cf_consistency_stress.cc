@@ -461,6 +461,7 @@ class CfConsistencyStressTest : public StressTest {
         fprintf(stderr, "TryCatchUpWithPrimary: %s\n",
                 status.ToString().c_str());
         shared->SetShouldStopTest();
+        assert(false);
         return;
       }
     }
@@ -485,9 +486,19 @@ class CfConsistencyStressTest : public StressTest {
       // Compute crc for all key-values of default column family.
       std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts));
       status = checksum_column_family(it.get(), &crc);
+      if (!status.ok()) {
+        fprintf(stderr, "Computing checksum of default cf: %s\n",
+                status.ToString().c_str());
+        assert(false);
+      }
     }
-    uint32_t tmp_crc = 0;
-    if (status.ok()) {
+    // Since we currently intentionally disallow reading from the secondary
+    // instance with snapshot, we cannot achieve cross-cf consistency if WAL is
+    // enabled because there is no guarantee that secondary instance replays
+    // the primary's WAL to a consistent point where all cfs have the same
+    // data.
+    if (status.ok() && FLAGS_disable_wal) {
+      uint32_t tmp_crc = 0;
       for (ColumnFamilyHandle* cfh : cfhs) {
         if (cfh == db_ptr->DefaultColumnFamily()) {
           continue;
@@ -498,13 +509,19 @@ class CfConsistencyStressTest : public StressTest {
           break;
         }
       }
-    }
-    if (!status.ok() || tmp_crc != crc) {
-      fprintf(stderr, "status: %s, tmp_crc=%" PRIu32 " crc=%" PRIu32 "\n",
-              status.ToString().c_str(), tmp_crc, crc);
-      shared->SetShouldStopTest();
+      if (!status.ok()) {
+        fprintf(stderr, "status: %s\n", status.ToString().c_str());
+        shared->SetShouldStopTest();
+        assert(false);
+      } else if (tmp_crc != crc) {
+        fprintf(stderr, "tmp_crc=%" PRIu32 " crc=%" PRIu32 "\n", tmp_crc, crc);
+        shared->SetShouldStopTest();
+        assert(false);
+      }
     }
   }
+#else   // ROCKSDB_LITE
+  void ContinuouslyVerifyDb(ThreadState* /*thread*/) const override {}
 #endif  // !ROCKSDB_LITE
 
   std::vector<int> GenerateColumnFamilies(

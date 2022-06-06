@@ -184,6 +184,7 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 
+#ifndef ROCKSDB_LITE
   void ContinuouslyVerifyDb(ThreadState* thread) const override {
     if (!cmp_db_) {
       return;
@@ -253,6 +254,9 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
   }
+#else
+  void ContinuouslyVerifyDb(ThreadState* /*thread*/) const override {}
+#endif  // ROCKSDB_LITE
 
   void MaybeClearOneColumnFamily(ThreadState* thread) override {
     if (FLAGS_column_families > 1) {
