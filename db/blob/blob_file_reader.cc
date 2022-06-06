@@ -531,7 +531,7 @@ void BlobFileReader::MultiGetBlob(
 
         // Update the counter for the number of valid blobs read from the cache.
         assert(statuses[i]);
-        *statuses[i] = Status::OK();
+        *statuses[i] = Status::OkOverwritten();
         ++cached_blob_count;
       }
     }
@@ -555,7 +555,7 @@ void BlobFileReader::MultiGetBlob(
 
   // Erase the read requests that were read from the cache.
   for (size_t i = 0; i < num_blobs; ++i) {
-    if (statuses[i]->ok()) {
+    if (statuses[i]->IsOkOverwritten()) {
       total_len -= read_reqs[i].len;
       read_reqs.erase(read_reqs.begin() + i);
       --i;
