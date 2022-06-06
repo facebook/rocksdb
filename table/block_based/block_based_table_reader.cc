@@ -689,12 +689,13 @@ Status BlockBasedTable::Open(
     return s;
   }
   bool force_null_table_prefix_extractor = false;
-  TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::ForceNullTablePrefixExtractor",
-                           &force_null_table_prefix_extractor);
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+      &force_null_table_prefix_extractor);
   if (force_null_table_prefix_extractor) {
     assert(!rep->table_prefix_extractor);
   } else if (!PrefixExtractorChangedHelper(rep->table_properties.get(),
-                                    prefix_extractor.get())) {
+                                           prefix_extractor.get())) {
     // Establish fast path for unchanged prefix_extractor
     rep->table_prefix_extractor = prefix_extractor;
   } else {

@@ -2826,9 +2826,8 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     }
     // Same if there's a problem initally loading prefix transform
     SyncPoint::GetInstance()->SetCallBack(
-      "BlockBasedTable::Open::ForceNullTablePrefixExtractor", [&](void* arg) {
-        *static_cast<bool*>(arg) = true;
-      });
+        "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+        [&](void* arg) { *static_cast<bool*>(arg) = true; });
     SyncPoint::GetInstance()->EnableProcessing();
     Reopen(options);
     {
