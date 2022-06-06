@@ -1300,6 +1300,9 @@ IOStatus BackupEngineImpl::Initialize() {
         result.db_session_id = work_item.db_session_id;
         result.expected_src_temperature = work_item.src_temperature;
         result.current_src_temperature = temp;
+        if (!result.io_status.ok()) {
+          printf("failed to copy or create file\n");
+        }
         if (result.io_status.ok() && !work_item.src_checksum_hex.empty()) {
           // unknown checksum function name implies no db table file checksum in
           // db manifest; work_item.src_checksum_hex not empty means
@@ -1445,6 +1448,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
             return IOStatus::OK();
           }
           Log(options_.info_log, "add file for backup %s", fname.c_str());
+          printf("copy file for backup %s.\n", fname.c_str());
           uint64_t size_bytes = 0;
           IOStatus io_st;
           if (type == kTableFile || type == kBlobFile) {
@@ -1493,6 +1497,7 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
         [&](const std::string& fname, const std::string& contents,
             FileType type) {
           Log(options_.info_log, "add file for backup %s", fname.c_str());
+          printf("add file for backup %s.\n", fname.c_str());
           return AddBackupFileWorkItem(
               live_dst_paths, backup_items_to_finish, new_backup_id,
               false /* shared */, "" /* src_dir */, fname,
@@ -1532,9 +1537,11 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
     if (!item_io_status.ok()) {
       io_s = item_io_status;
     }
+    if (!io_s.ok()) {
+      printf("finished item failed: %s.\n", io_s.ToString().c_str());
+    }
   }
 
-  printf("finished all item with status: %d.\n", io_s.code());
   // we copied all the files, enable file deletions
   if (disabled.ok()) {  // If we successfully disabled file deletions
     db->EnableFileDeletions(false).PermitUncheckedError();
@@ -2300,6 +2307,7 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
     } else if (exist.IsNotFound()) {
       file_exists = false;
     } else {
+      printf("final_dest_path exist failed");
       return exist;
     }
   }
@@ -2355,6 +2363,7 @@ IOStatus BackupEngineImpl::AddBackupFileWorkItem(
               src_path, db_fs_, src_env_options, size_limit, &checksum_hex,
               src_temperature);
           if (!io_s.ok()) {
+            printf("ReadFileAndComputeChecksum failed");
             return io_s;
           }
         }
