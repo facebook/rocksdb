@@ -419,6 +419,9 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<ConcurrentTaskLimiter>)},
       {offsetof(struct ColumnFamilyOptions, sst_partitioner_factory),
        sizeof(std::shared_ptr<SstPartitionerFactory>)},
+      {offsetof(struct ColumnFamilyOptions, no_blob_cache), sizeof(bool)},
+      {offsetof(struct ColumnFamilyOptions, blob_cache),
+       sizeof(std::shared_ptr<Cache>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -523,7 +526,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_file_starting_level=1;"
       "bottommost_temperature=kWarm;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;age_for_warm=1;};",
+      "compaction=false;age_for_warm=1;no_blob_cache=true;};",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,

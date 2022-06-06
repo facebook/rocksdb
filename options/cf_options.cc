@@ -737,9 +737,16 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"blob_cache",
-         OptionTypeInfo::AsCustomSharedPtr<Cache>(
-             offsetof(struct ImmutableCFOptions, blob_cache),
-             OptionVerificationType::kByName, OptionTypeFlags::kAllowNull)},
+         {offsetof(struct ImmutableCFOptions, blob_cache), OptionType::kUnknown,
+          OptionVerificationType::kNormal,
+          (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
+          // Parses the input vsalue as a Cache
+          [](const ConfigOptions& opts, const std::string&,
+             const std::string& value, void* addr) {
+            auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
+            return Cache::CreateFromString(opts, value, cache);
+          }}},
+
 };
 
 const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";

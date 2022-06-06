@@ -4454,6 +4454,11 @@ class Benchmark {
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
+    if (cache_ == nullptr) {
+      options.no_blob_cache = true;
+    }
+    options.blob_cache = cache_;
+
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
