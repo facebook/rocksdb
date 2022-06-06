@@ -283,14 +283,6 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.error.handler.autoresume.retry.count"},
 };
 
-template <uint32_t TICKER_MAX, uint32_t HISTOGRAM_MAX>
-std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<StatisticsImpl<TICKER_MAX, HISTOGRAM_MAX>>(nullptr);
-}
-
-template std::shared_ptr<Statistics>
-CreateDBStatistics<TICKER_ENUM_MAX, HISTOGRAM_ENUM_MAX>();
-
 #ifndef ROCKSDB_LITE
 static int RegisterBuiltinStatistics(ObjectLibrary& library,
                                      const std::string& /*arg*/) {

@@ -93,7 +93,9 @@ class BlobIndex {
 
   Status DecodeFrom(Slice slice) {
     static const std::string kErrorMessage = "Error while decoding blob index";
-    assert(slice.size() > 0);
+    if (slice.size() == 0) {
+      return Status::Corruption(kErrorMessage, "Empty slice");
+    }
     type_ = static_cast<Type>(*slice.data());
     if (type_ >= Type::kUnknown) {
       return Status::Corruption(

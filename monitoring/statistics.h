@@ -7,10 +7,16 @@
 #include <cinttypes>
 
 #include "monitoring/histogram.h"
+#include "monitoring/statistics_impl.h"
 #include "port/likely.h"
 #include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+template <uint32_t TICKER_MAX, uint32_t HISTOGRAM_MAX>
+std::shared_ptr<Statistics> CreateDBStatistics() {
+  return std::make_shared<StatisticsImpl<TICKER_MAX, HISTOGRAM_MAX>>(nullptr);
+}
 
 // Utility functions
 inline void RecordInHistogram(Statistics* statistics, uint32_t histogram_type,
