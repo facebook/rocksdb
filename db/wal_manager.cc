@@ -507,10 +507,18 @@ Status WalManager::ReadFirstLine(const std::string& fname,
     }
   }
 
-  // ReadRecord might have returned false on EOF, which means that the log file
-  // is empty. Or, a failure may have occurred while processing the first entry.
-  // In any case, return status and set sequence number to 0.
-  *sequence = 0;
+  if (status.ok() && reader.IsCompressedAndEmptyFile()) {
+    // In case of wal_compression, it writes a `kSetCompressionType` record
+    // which is not associated with any sequence number. As result for an empty
+    // file, GetSortedWalsOfType() will skip these WALs causing the operations
+    // to fail.
+    *sequence = 1;
+  } else {
+    // ReadRecord might have returned false on EOF, which means that the log
+    // file is empty. Or, a failure may have occurred while processing the first
+    // entry. In any case, return status and set sequence number to 0.
+    *sequence = 0;
+  }
   return status;
 }
 
