@@ -636,7 +636,7 @@ DEFINE_int32(ingest_external_file_one_in, 0,
              "every N operations on average.  0 indicates IngestExternalFile() "
              "is disabled.");
 
-DEFINE_int32(ingest_external_file_width, 1000,
+DEFINE_int32(ingest_external_file_width, 100,
              "The width of the ingested external files.");
 
 DEFINE_int32(compact_files_one_in, 0,
