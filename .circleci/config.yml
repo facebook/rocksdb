@@ -196,7 +196,11 @@ commands:
           destination: test_logs
       - run:
           name: Send benchmark report to visualisation
-          command: ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
+          command: |
+            set +e
+            set +o pipefail
+            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
+            true
 
 executors:
   windows-2xlarge:
