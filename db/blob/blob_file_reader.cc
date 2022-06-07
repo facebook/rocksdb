@@ -813,7 +813,6 @@ Status BlobFileReader::InsertEntryToCache(
 Status BlobFileReader::GetDataBlobFromCache(
     const Slice& cache_key, Cache* blob_cache, Cache* blob_cache_compressed,
     const ReadOptions& read_options, Slice* record_slice, bool wait) const {
-  (void)record_slice;
   const Cache::Priority priority = Cache::Priority::LOW;
 
   // Lookup uncompressed cache first
@@ -825,6 +824,7 @@ Status BlobFileReader::GetDataBlobFromCache(
         nullptr /* cache_helper */, nullptr /* create_db */, priority);
     if (cache_handle != nullptr) {
       record_slice = reinterpret_cast<Slice*>(blob_cache->Value(cache_handle));
+      (void)record_slice;
       return Status::OK();
     }
   }
@@ -836,6 +836,7 @@ Status BlobFileReader::GetDataBlobFromCache(
   // TODO: If found in the compressed cache and filling cache is enabled,
   // then uncompress and insert into uncompressed cache.
   (void)read_options;
+  (void)record_slice;
 
   return Status::NotFound("Blob record not found in cache");
 }
@@ -877,6 +878,26 @@ Status BlobFileReader::PutDataBlobToCache(
   }
 
   return s;
+}
+
+bool BlobFileReader::TEST_BlobInCache(uint64_t offset) const {
+  assert(blob_cache_ != nullptr);
+
+  Cache* const cache = blob_cache_.get();
+  if (cache == nullptr) {
+    return false;
+  }
+
+  Slice key = base_cache_key_.WithOffset(offset).AsSlice();
+
+  Cache::Handle* const cache_handle = cache->Lookup(key);
+  if (cache_handle == nullptr) {
+    return false;
+  }
+
+  cache->Release(cache_handle);
+
+  return true;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

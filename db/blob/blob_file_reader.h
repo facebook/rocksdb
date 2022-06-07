@@ -61,6 +61,8 @@ class BlobFileReader {
 
   uint64_t GetFileSize() const { return file_size_; }
 
+  bool TEST_BlobInCache(uint64_t offset) const;
+
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, uint64_t file_number,
