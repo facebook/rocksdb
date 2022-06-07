@@ -950,12 +950,11 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
 Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                             std::string ts_low) {
   VersionEdit edit;
-  std::string current_ts_low;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
 
   InstrumentedMutexLock l(&mutex_);
-  current_ts_low = cfd->GetFullHistoryTsLow();
+  std::string current_ts_low = cfd->GetFullHistoryTsLow();
   const Comparator* ucmp = cfd->user_comparator();
   assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
@@ -970,9 +969,12 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   }
   current_ts_low = cfd->GetFullHistoryTsLow();
   if (ucmp->CompareTimestamp(current_ts_low, ts_low) > 0) {
-    return Status::TryAgain(
-        "full_history_ts_low is set to be higher than the requested "
-        "timestamp.");
+    std::stringstream oss;
+    oss << "full_history_ts_low: " << Slice(current_ts_low).ToString(true)
+        << " is set to be higher than the requested "
+           "timestamp: "
+        << Slice(ts_low).ToString(true) << std::endl;
+    return Status::TryAgain(oss.str());
   }
   return Status::OK();
 }
