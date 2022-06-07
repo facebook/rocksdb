@@ -196,6 +196,19 @@ class NonBatchedOpsStressTest : public StressTest {
       assert(false);
       exit(1);
     }
+
+    const auto checksum_column_family = [](Iterator* iter,
+                                           uint32_t* checksum) -> Status {
+      assert(nullptr != checksum);
+      uint32_t ret = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ret = crc32c::Extend(ret, iter->key().data(), iter->key().size());
+        ret = crc32c::Extend(ret, iter->value().data(), iter->value().size());
+      }
+      *checksum = ret;
+      return iter->status();
+    };
+
     auto* shared = thread->shared;
     assert(shared);
     const int64_t max_key = shared->GetMaxKey();
@@ -209,6 +222,17 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     static Random64 rand64(shared->GetSeed());
+
+    {
+      uint32_t crc = 0;
+      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts));
+      s = checksum_column_family(it.get(), &crc);
+      if (!s.ok()) {
+        fprintf(stderr, "Computing checksum of default cf: %s\n",
+                s.ToString().c_str());
+        assert(false);
+      }
+    }
 
     for (auto* handle : cmp_cfhs_) {
       if (thread->rand.OneInOpt(3)) {
