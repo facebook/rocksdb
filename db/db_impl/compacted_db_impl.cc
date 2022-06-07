@@ -60,6 +60,13 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
       return s;
     }
   }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (timestamp) {
+    timestamp->clear();
+  }
+
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
@@ -111,6 +118,14 @@ std::vector<Status> CompactedDBImpl::MultiGet(
     Status s = FailIfCfHasTs(DefaultColumnFamily());
     if (!s.ok()) {
       return std::vector<Status>(num_keys, s);
+    }
+  }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (timestamps) {
+    for (auto& ts : *timestamps) {
+      ts.clear();
     }
   }
 

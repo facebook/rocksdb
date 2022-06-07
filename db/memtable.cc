@@ -813,6 +813,10 @@ static bool SaveValue(void* arg, const char* entry) {
           }
         } else {
           *(s->status) = Status::NotFound();
+          if (ts_sz > 0 && s->timestamp != nullptr) {
+            Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+            s->timestamp->assign(ts.data(), ts.size());
+          }
         }
         *(s->found_final_value) = true;
         return false;
