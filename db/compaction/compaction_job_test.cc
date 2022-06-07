@@ -430,10 +430,8 @@ class CompactionJobTestBase : public testing::Test {
     SetLastSequence(sequence_number);
 
     mock::KVVector expected_results_kvvector;
-    if (!test_io_priority_) {
-      for (auto& kv : expected_results) {
-        expected_results_kvvector.push_back({kv.first, kv.second});
-      }
+    for (auto& kv : expected_results) {
+      expected_results_kvvector.push_back({kv.first, kv.second});
     }
 
     return expected_results_kvvector;
