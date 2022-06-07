@@ -137,7 +137,7 @@ class CompactionJob {
   IOStatus io_status_;
 
  private:
-  friend class CompactionJobIOPriorityTestBase;
+  friend class CompactionJobTestBase;
 
   // Generates a histogram representing potential divisions of key ranges from
   // the input. It adds the starting and/or ending keys of certain input files
