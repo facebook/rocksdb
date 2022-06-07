@@ -450,7 +450,7 @@ class CfConsistencyStressTest : public StressTest {
     const auto& cfhs = cmp_db_ ? cmp_cfhs_ : column_families_;
 
     // Take a snapshot to preserve the state of primary db.
-    [[maybe_unused]] ManagedSnapshot snapshot_guard(db_);
+    ManagedSnapshot snapshot_guard(db_);
 
     SharedState* shared = thread->shared;
     assert(shared);
@@ -481,6 +481,9 @@ class CfConsistencyStressTest : public StressTest {
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions ropts(FLAGS_verify_checksum, true);
     ropts.total_order_seek = true;
+    if (nullptr == cmp_db_) {
+      ropts.snapshot = snapshot_guard.snapshot();
+    }
     uint32_t crc = 0;
     {
       // Compute crc for all key-values of default column family.
