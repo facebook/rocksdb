@@ -152,7 +152,7 @@ default_params = {
     "level_compaction_dynamic_level_bytes" : True,
     "verify_checksum_one_in": 1000000,
     "verify_db_one_in": 100000,
-    "continuous_verification_interval" : 1000,
+    "continuous_verification_interval" : 0,
     "max_key_len": 3,
     "key_len_percent_dist": "1,30,69",
     "read_fault_one_in": lambda: random.choice([0, 32, 1000]),
@@ -179,7 +179,6 @@ default_params = {
     "wal_compression": "none",
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": "",
-    "test_secondary": 1,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
