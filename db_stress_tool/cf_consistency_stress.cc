@@ -479,7 +479,7 @@ class CfConsistencyStressTest : public StressTest {
     };
     // This `ReadOptions` is for validation purposes. Ignore
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
-    ReadOptions ropts;
+    ReadOptions ropts(FLAGS_verify_checksum, true);
     ropts.total_order_seek = true;
     uint32_t crc = 0;
     {
