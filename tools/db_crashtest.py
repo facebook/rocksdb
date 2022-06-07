@@ -113,7 +113,7 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "use_clock_cache": 0, # currently broken
+    "cache_type": lambda: random.choice(["fast_lru_cache", "lru_cache"]),   # clock_cache is broken
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
@@ -174,8 +174,11 @@ default_params = {
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
-    "wal_compression": lambda: random.choice(["none", "zstd"]),
+    # Temporarily disable wal compression because it causes backup/checkpoint to miss
+    # compressed WAL files.
+    "wal_compression": "none",
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
+    "secondary_cache_uri": "",
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -338,6 +341,7 @@ blob_params = {
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
+    "blob_file_starting_level": lambda: random.choice([0] * 4 + [1] * 3 + [2] * 2 + [3]),
 }
 
 ts_params = {
@@ -525,11 +529,14 @@ def finalize_and_sanitize(src_params):
     if dest_params.get("two_write_queues") == 1:
         dest_params["enable_pipelined_write"] = 0
     if dest_params.get("best_efforts_recovery") == 1:
-      dest_params["disable_wal"] = 1
-      dest_params["atomic_flush"] = 0
-      dest_params["enable_compaction_filter"] = 0
-      dest_params["sync"] = 0
-      dest_params["write_fault_one_in"] = 0
+        dest_params["disable_wal"] = 1
+        dest_params["atomic_flush"] = 0
+        dest_params["enable_compaction_filter"] = 0
+        dest_params["sync"] = 0
+        dest_params["write_fault_one_in"] = 0
+    if dest_params["secondary_cache_uri"] != "":
+        # Currently the only cache type compatible with a secondary cache is LRUCache
+        dest_params["cache_type"] = "lru_cache"
 
     return dest_params
 

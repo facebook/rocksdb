@@ -4,8 +4,10 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/block_based/full_filter_block.h"
+
 #include <array>
 
+#include "block_type.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -149,7 +151,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
   if (prefetch || !use_cache) {
     const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
                                      nullptr /* get_context */, lookup_context,
-                                     &filter_block);
+                                     &filter_block, BlockType::kFilter);
     if (!s.ok()) {
       IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
@@ -181,8 +183,8 @@ bool FullFilterBlockReader::MayMatch(
     BlockCacheLookupContext* lookup_context) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s =
-      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
+  const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
+                                        &filter_block, BlockType::kFilter);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -237,8 +239,9 @@ void FullFilterBlockReader::MayMatch(
     BlockCacheLookupContext* lookup_context) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
-                                        lookup_context, &filter_block);
+  const Status s =
+      GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
+                           &filter_block, BlockType::kFilter);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return;

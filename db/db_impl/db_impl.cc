@@ -714,12 +714,17 @@ Status DBImpl::CloseHelper() {
     write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
   }
 
+  IOStatus io_s = directories_.Close(IOOptions(), nullptr /* dbg */);
+  if (!io_s.ok()) {
+    ret = io_s;
+  }
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
     // retry. In this case, we wrap this exception to something else.
     return Status::Incomplete(ret.ToString());
   }
+
   return ret;
 }
 
@@ -1441,12 +1446,13 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
     assert(wal.getting_synced);
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        wal.writer->file()->GetFileSize() > 0) {
+      synced_wals.AddWal(wal.number,
+                         WalMetadata(wal.writer->file()->GetFileSize()));
+    }
+
     if (logs_.size() > 1) {
-      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-          wal.writer->file()->GetFileSize() > 0) {
-        synced_wals.AddWal(wal.number,
-                           WalMetadata(wal.writer->file()->GetFileSize()));
-      }
       logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
@@ -1731,8 +1737,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   assert(get_impl_options.column_family);
 
   if (read_options.timestamp) {
-    const Status s = FailIfTsSizesMismatch(get_impl_options.column_family,
-                                           *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
+                                        *(read_options.timestamp),
+                                        /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -1741,6 +1748,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     if (!s.ok()) {
       return s;
     }
+  }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (get_impl_options.timestamp) {
+    get_impl_options.timestamp->clear();
   }
 
   GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
@@ -1956,8 +1969,8 @@ std::vector<Status> DBImpl::MultiGet(
   for (size_t i = 0; i < num_keys; ++i) {
     assert(column_family[i]);
     if (read_options.timestamp) {
-      stat_list[i] =
-          FailIfTsSizesMismatch(column_family[i], *(read_options.timestamp));
+      stat_list[i] = FailIfTsMismatchCf(
+          column_family[i], *(read_options.timestamp), /*ts_for_read=*/true);
       if (!stat_list[i].ok()) {
         should_fail = true;
       }
@@ -2291,7 +2304,8 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     ColumnFamilyHandle* cfh = column_families[i];
     assert(cfh);
     if (read_options.timestamp) {
-      statuses[i] = FailIfTsSizesMismatch(cfh, *(read_options.timestamp));
+      statuses[i] = FailIfTsMismatchCf(cfh, *(read_options.timestamp),
+                                       /*ts_for_read=*/true);
       if (!statuses[i].ok()) {
         should_fail = true;
       }
@@ -2559,6 +2573,16 @@ Status DBImpl::MultiGetImpl(
     ReadCallback* callback) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
+
+  assert(sorted_keys);
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  for (auto* kctx : *sorted_keys) {
+    assert(kctx);
+    if (kctx->timestamp) {
+      kctx->timestamp->clear();
+    }
+  }
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
@@ -2941,8 +2965,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   assert(column_family);
 
   if (read_options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -3083,7 +3107,8 @@ Status DBImpl::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
+                                          /*ts_for_read=*/true);
       if (!s.ok()) {
         return s;
       }
@@ -4382,6 +4407,9 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
       s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                        DirFsyncOptions(options_file_name));
     }
+    if (s.ok()) {
+      s = dir_obj->Close(IOOptions(), nullptr);
+    }
   }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);
@@ -4508,6 +4536,8 @@ Status DBImpl::GetLatestSequenceForKey(
           *timestamp != std::string(ts_sz, '\xff')) ||
          (*seq == kMaxSequenceNumber && timestamp->empty()));
 
+  TEST_SYNC_POINT_CALLBACK("DBImpl::GetLatestSequenceForKey:mem", timestamp);
+
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check immutable memtables
     *found_record_for_key = true;
@@ -4572,6 +4602,7 @@ Status DBImpl::GetLatestSequenceForKey(
          (*seq != kMaxSequenceNumber &&
           *timestamp != std::string(ts_sz, '\xff')) ||
          (*seq == kMaxSequenceNumber && timestamp->empty()));
+
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check SST files
     assert(0 == ts_sz || *timestamp != std::string(ts_sz, '\xff'));

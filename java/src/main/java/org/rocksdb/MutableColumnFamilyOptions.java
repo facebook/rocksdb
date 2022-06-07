@@ -121,7 +121,8 @@ public class MutableColumnFamilyOptions
     enable_blob_garbage_collection(ValueType.BOOLEAN),
     blob_garbage_collection_age_cutoff(ValueType.DOUBLE),
     blob_garbage_collection_force_threshold(ValueType.DOUBLE),
-    blob_compaction_readahead_size(ValueType.LONG);
+    blob_compaction_readahead_size(ValueType.LONG),
+    blob_file_starting_level(ValueType.INT);
 
     private final ValueType valueType;
     BlobOption(final ValueType valueType) {
@@ -581,6 +582,17 @@ public class MutableColumnFamilyOptions
     @Override
     public long blobCompactionReadaheadSize() {
       return getLong(BlobOption.blob_compaction_readahead_size);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setBlobFileStartingLevel(
+        final int blobFileStartingLevel) {
+      return setInt(BlobOption.blob_file_starting_level, blobFileStartingLevel);
+    }
+
+    @Override
+    public int blobFileStartingLevel() {
+      return getInt(BlobOption.blob_file_starting_level);
     }
   }
 }

@@ -324,7 +324,7 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     switch (dump_unit.type) {
       case CacheDumpUnitType::kDeprecatedFilterBlock: {
         helper = BlocklikeTraits<BlockContents>::GetCacheItemHelper(
-            BlockType::kFilter);
+            BlockType::kDeprecatedFilter);
         std::unique_ptr<BlockContents> block_holder;
         block_holder.reset(BlocklikeTraits<BlockContents>::Create(
             std::move(raw_block_contents), 0, statistics, false,
@@ -376,7 +376,8 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         break;
       }
       case CacheDumpUnitType::kFilterMetaBlock: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kFilter);
+        helper = BlocklikeTraits<Block>::GetCacheItemHelper(
+            BlockType::kFilterPartitionIndex);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
             std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,

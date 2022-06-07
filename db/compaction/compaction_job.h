@@ -78,8 +78,7 @@ class CompactionJob {
       bool paranoid_file_checks, bool measure_io_stats,
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
       Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-      const std::atomic<int>* manual_compaction_paused = nullptr,
-      const std::atomic<bool>* manual_compaction_canceled = nullptr,
+      const std::atomic<bool>& manual_compaction_canceled,
       const std::string& db_id = "", const std::string& db_session_id = "",
       std::string full_history_ts_low = "", std::string trim_ts = "",
       BlobFileCompletionCallback* blob_callback = nullptr);
@@ -195,8 +194,7 @@ class CompactionJob {
   FileOptions file_options_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
-  const std::atomic<int>* manual_compaction_paused_;
-  const std::atomic<bool>* manual_compaction_canceled_;
+  const std::atomic<bool>& manual_compaction_canceled_;
   FSDirectory* db_directory_;
   FSDirectory* blob_output_directory_;
   InstrumentedMutex* db_mutex_;
@@ -357,7 +355,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
       std::vector<SequenceNumber> existing_snapshots,
       std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
       const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
-      const std::atomic<bool>* manual_compaction_canceled,
+      const std::atomic<bool>& manual_compaction_canceled,
       const std::string& db_id, const std::string& db_session_id,
       const std::string& output_path,
       const CompactionServiceInput& compaction_service_input,
