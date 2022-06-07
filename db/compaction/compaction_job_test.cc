@@ -183,6 +183,7 @@ class MockTestFileSystem : public FileSystemWrapper {
                            std::unique_ptr<FSWritableFile>* result,
                            IODebugContext* dbg) override {
     IOStatus s = target()->NewWritableFile(fname, file_opts, result, dbg);
+    EXPECT_OK(s);
     result->reset(
         new MockTestWritableFile(std::move(*result), write_io_priority_));
     return s;
