@@ -3475,10 +3475,12 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 
+#ifndef ROCKSDB_LITE
   // Back to original
   ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:1"}}));
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
+#endif  // !ROCKSDB_LITE
 
   // Same if there's a problem initally loading prefix transform
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -3490,10 +3492,12 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 
+#ifndef ROCKSDB_LITE
   // Change again
   ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
+#endif  // !ROCKSDB_LITE
   SyncPoint::GetInstance()->DisableProcessing();
 
   // Reopen with no prefix extractor, make sure everything still works.
