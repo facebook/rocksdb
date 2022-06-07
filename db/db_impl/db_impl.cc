@@ -4408,7 +4408,17 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
                                        DirFsyncOptions(options_file_name));
     }
     if (s.ok()) {
-      s = dir_obj->Close(IOOptions(), nullptr);
+      Status temp_s = dir_obj->Close(IOOptions(), nullptr);
+      // The default Close() could return "NotSupproted" and we bypass it
+      // if it is not impelmented. Detailed explanations can be found in
+      // db/db_impl/db_impl.h
+      if (!temp_s.ok()) {
+        if (temp_s.IsNotSupported()) {
+          temp_s.PermitUncheckedError();
+        } else {
+          s = temp_s;
+        }
+      }
     }
   }
   if (s.ok()) {

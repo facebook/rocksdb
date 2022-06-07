@@ -683,8 +683,6 @@ ColumnFamilyData::~ColumnFamilyData() {
         s = data_dir_ptr->Close(IOOptions(), nullptr);
         if (!s.ok()) {
           // TODO(zichen): add `Status Close()` and `CloseDirectories()
-          ROCKS_LOG_WARN(ioptions_.logger, "Ignoring error %s",
-                         s.ToString().c_str());
           s.PermitUncheckedError();
         }
       }

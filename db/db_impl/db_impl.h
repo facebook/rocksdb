@@ -116,8 +116,23 @@ class Directories {
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) {
     // close all directories for all database paths
     IOStatus s = IOStatus::OK();
+    IOStatus temp_s = IOStatus::OK();
+
+    // The default implementation for Close() in Directory/FSDirectory class
+    // "NotSupported" status, the upper level interface should be able to
+    // handle this error so that Close() does not fail after upgrading when
+    // run on FileSystems that have not implemented `Directory::Close()` or
+    // `FSDirectory::Close()` yet
+
     if (db_dir_) {
-      s = db_dir_->Close(options, dbg);
+      temp_s = db_dir_->Close(options, dbg);
+      if (!temp_s.ok()) {
+        if (temp_s.IsNotSupported()) {
+          temp_s.PermitUncheckedError();
+        } else {
+          s = temp_s;
+        }
+      }
     }
 
     if (!s.ok()) {
@@ -126,6 +141,13 @@ class Directories {
 
     if (wal_dir_) {
       s = wal_dir_->Close(options, dbg);
+      if (!temp_s.ok()) {
+        if (temp_s.IsNotSupported()) {
+          temp_s.PermitUncheckedError();
+        } else {
+          s = temp_s;
+        }
+      }
     }
 
     if (!s.ok()) {
@@ -135,14 +157,21 @@ class Directories {
     if (data_dirs_.size() > 0 && s.ok()) {
       for (auto& data_dir_ptr : data_dirs_) {
         if (data_dir_ptr) {
-          s = data_dir_ptr->Close(options, dbg);
-          if (!s.ok()) {
-            return s;
+          temp_s = data_dir_ptr->Close(options, dbg);
+          if (!temp_s.ok()) {
+            if (temp_s.IsNotSupported()) {
+              temp_s.PermitUncheckedError();
+            } else {
+              return temp_s;
+            }
           }
         }
       }
     }
 
+    // Mark temp_s as checked when temp_s is still the initial status
+    // (IOStatus::OK(), not checked yet)
+    temp_s.PermitUncheckedError();
     return s;
   }
 
