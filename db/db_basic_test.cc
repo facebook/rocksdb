@@ -4361,6 +4361,7 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, GetCompressedWalsAfterSync) {
   Options options = GetDefaultOptions();
   options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
@@ -4391,6 +4392,7 @@ TEST_F(DBBasicTest, GetCompressedWalsAfterSync) {
   Status s = dbfull()->GetSortedWalFiles(wals);
   ASSERT_OK(s);
 }
+#endif  // ROCKSDB_LITE
 
 // Param 0: If true, set read_options.deadline
 // Param 1: If true, set read_options.io_timeout
