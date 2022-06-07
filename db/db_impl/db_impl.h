@@ -1216,6 +1216,9 @@ class DBImpl : public DB {
   InstrumentedMutex trace_mutex_;
   BlockCacheTracer block_cache_tracer_;
 
+  // constant false canceled flag, used when the compaction is not manual
+  const std::atomic<bool> kManualCompactionCanceledFalse_{false};
+
   // State below is protected by mutex_
   // With two_write_queues enabled, some of the variables that accessed during
   // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
@@ -1455,8 +1458,8 @@ class DBImpl : public DB {
   void SetDbSessionId();
 
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
-  Status FailIfTsSizesMismatch(const ColumnFamilyHandle* column_family,
-                               const Slice& ts) const;
+  Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family, const Slice& ts,
+                            bool ts_for_read) const;
 
   // recovery_ctx stores the context about version edits and
   // LogAndApplyForRecovery persist all those edits to new Manifest after
@@ -1603,7 +1606,11 @@ class DBImpl : public DB {
           output_path_id(_output_path_id),
           exclusive(_exclusive),
           disallow_trivial_move(_disallow_trivial_move),
-          canceled(_canceled) {}
+          canceled(_canceled ? *_canceled : canceled_internal_storage) {}
+    // When _canceled is not provided by ther user, we assign the reference of
+    // canceled_internal_storage to it to consolidate canceled and
+    // manual_compaction_paused since DisableManualCompaction() might be
+    // called
 
     ColumnFamilyData* cfd;
     int input_level;
@@ -1620,7 +1627,12 @@ class DBImpl : public DB {
     InternalKey* manual_end = nullptr;   // how far we are compacting
     InternalKey tmp_storage;      // Used to keep track of compaction progress
     InternalKey tmp_storage1;     // Used to keep track of compaction progress
-    std::atomic<bool>* canceled;  // Compaction canceled by the user?
+
+    // When the user provides a canceled pointer in CompactRangeOptions, the
+    // above varaibe is the reference of the user-provided
+    // `canceled`, otherwise, it is the reference of canceled_internal_storage
+    std::atomic<bool> canceled_internal_storage = false;
+    std::atomic<bool>& canceled;  // Compaction canceled pointer reference
   };
   struct PrepickedCompaction {
     // background compaction takes ownership of `compaction`.
@@ -2554,8 +2566,9 @@ inline Status DBImpl::FailIfCfHasTs(
   return Status::OK();
 }
 
-inline Status DBImpl::FailIfTsSizesMismatch(
-    const ColumnFamilyHandle* column_family, const Slice& ts) const {
+inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
+                                         const Slice& ts,
+                                         bool ts_for_read) const {
   if (!column_family) {
     return Status::InvalidArgument("column family handle cannot be null");
   }
@@ -2574,6 +2587,19 @@ inline Status DBImpl::FailIfTsSizesMismatch(
     oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
         << ts_sz << " given";
     return Status::InvalidArgument(oss.str());
+  }
+  if (ts_for_read) {
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
+    auto cfd = cfh->cfd();
+    std::string current_ts_low = cfd->GetFullHistoryTsLow();
+    if (!current_ts_low.empty() &&
+        ucmp->CompareTimestamp(ts, current_ts_low) < 0) {
+      std::stringstream oss;
+      oss << "Read timestamp: " << ts.ToString(true)
+          << " is smaller than full_history_ts_low: "
+          << Slice(current_ts_low).ToString(true) << std::endl;
+      return Status::InvalidArgument(oss.str());
+    }
   }
   return Status::OK();
 }

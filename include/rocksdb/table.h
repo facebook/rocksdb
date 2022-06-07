@@ -147,8 +147,8 @@ struct BlockBasedTableOptions {
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
   // blocks with high priority. If set to true, depending on implementation of
-  // block cache, index and filter blocks may be less likely to be evicted
-  // than data blocks.
+  // block cache, index, filter, and other metadata blocks may be less likely
+  // to be evicted than data blocks.
   bool cache_index_and_filter_blocks_with_high_priority = true;
 
   // DEPRECATED: This option will be removed in a future version. For now, this
