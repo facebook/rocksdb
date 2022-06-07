@@ -820,8 +820,8 @@ Status DBImplSecondary::CompactWithoutInstallation(
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       &log_buffer, output_dir.get(), stats_, &mutex_, &error_handler_,
       input.snapshots, table_cache_, &event_logger_, dbname_, io_tracer_,
-      options.canceled, input.db_id, db_session_id_, secondary_path_, input,
-      result);
+      options.canceled ? *options.canceled : kManualCompactionCanceledFalse_,
+      input.db_id, db_session_id_, secondary_path_, input, result);
 
   mutex_.Unlock();
   s = compaction_job.Run();
