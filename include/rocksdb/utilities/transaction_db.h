@@ -481,7 +481,7 @@ class TransactionDB : public StackableDB {
   // Get all timestamped snapshots which will be stored in
   // timestamped_snapshots.
   Status GetAllTimestampedSnapshots(
-      std::vector<std::shared_ptr<const Snapshot>>* timestamped_snapshots)
+      std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots)
       const {
     return GetTimestampedSnapshots(/*ts_lb=*/0, /*ts_ub=*/kMaxTxnTimestamp,
                                    timestamped_snapshots);
@@ -491,7 +491,7 @@ class TransactionDB : public StackableDB {
   // timestamped_snapshots will be cleared and contain returned snapshots.
   virtual Status GetTimestampedSnapshots(
       TxnTimestamp ts_lb, TxnTimestamp ts_ub,
-      std::vector<std::shared_ptr<const Snapshot>>* timestamped_snapshots)
+      std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots)
       const = 0;
 
  protected:

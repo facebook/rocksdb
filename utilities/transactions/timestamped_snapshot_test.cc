@@ -164,7 +164,7 @@ TEST_P(TransactionTest, CreateSnapshotWhenCommit) {
   }
   {
     std::vector<std::shared_ptr<const Snapshot> > snapshots;
-    s = db->GetAllTimestampedSnapshots(&snapshots);
+    s = db->GetAllTimestampedSnapshots(snapshots);
     ASSERT_OK(s);
     ASSERT_EQ(std::vector<std::shared_ptr<const Snapshot> >{snapshot},
               snapshots);
@@ -211,7 +211,7 @@ TEST_P(TransactionTest, CreateSnapshot) {
   }
   {
     std::vector<std::shared_ptr<const Snapshot> > snapshots;
-    const Status s = db->GetAllTimestampedSnapshots(&snapshots);
+    const Status s = db->GetAllTimestampedSnapshots(snapshots);
     ASSERT_OK(s);
     ASSERT_EQ(std::vector<std::shared_ptr<const Snapshot> >{ts_snap0},
               snapshots);
@@ -277,7 +277,7 @@ TEST_P(TransactionTest, MultipleTimestampedSnapshots) {
 
     std::vector<std::shared_ptr<const Snapshot> > tmp_snapshots;
     Status s = db->GetTimestampedSnapshots(max_ts, start_ts + i * ts_delta,
-                                           &tmp_snapshots);
+                                           tmp_snapshots);
     ASSERT_TRUE(s.IsInvalidArgument());
     ASSERT_TRUE(tmp_snapshots.empty());
 
@@ -286,7 +286,7 @@ TEST_P(TransactionTest, MultipleTimestampedSnapshots) {
           snapshots.begin() + i, snapshots.begin() + j);
       tmp_snapshots.clear();
       s = db->GetTimestampedSnapshots(start_ts + i * ts_delta,
-                                      start_ts + j * ts_delta, &tmp_snapshots);
+                                      start_ts + j * ts_delta, tmp_snapshots);
       if (i < j) {
         ASSERT_OK(s);
       } else {
@@ -298,7 +298,7 @@ TEST_P(TransactionTest, MultipleTimestampedSnapshots) {
 
   {
     std::vector<std::shared_ptr<const Snapshot> > tmp_snapshots;
-    const Status s = db->GetAllTimestampedSnapshots(&tmp_snapshots);
+    const Status s = db->GetAllTimestampedSnapshots(tmp_snapshots);
     ASSERT_OK(s);
     ASSERT_EQ(snapshots, tmp_snapshots);
 
@@ -326,7 +326,7 @@ TEST_P(TransactionTest, MultipleTimestampedSnapshots) {
     }
 
     std::vector<std::shared_ptr<const Snapshot> > tmp_snapshots;
-    const Status s = db->GetAllTimestampedSnapshots(&tmp_snapshots);
+    const Status s = db->GetAllTimestampedSnapshots(tmp_snapshots);
     ASSERT_OK(s);
     ASSERT_EQ(snapshots1, tmp_snapshots);
   }

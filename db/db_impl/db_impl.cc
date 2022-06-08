@@ -3210,15 +3210,12 @@ void DBImpl::ReleaseTimestampedSnapshotsOlderThan(uint64_t ts,
 
 Status DBImpl::GetTimestampedSnapshots(
     uint64_t ts_lb, uint64_t ts_ub,
-    std::vector<std::shared_ptr<const Snapshot>>* timestamped_snapshots) const {
-  if (!timestamped_snapshots) {
-    return Status::InvalidArgument("timestamped_snapshots must not be null");
-  } else if (ts_lb >= ts_ub) {
+    std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots) const {
+  if (ts_lb >= ts_ub) {
     return Status::InvalidArgument(
         "timestamp lower bound must be smaller than upper bound");
   }
-  assert(timestamped_snapshots);
-  timestamped_snapshots->clear();
+  timestamped_snapshots.clear();
   InstrumentedMutexLock lock_guard(&mutex_);
   timestamped_snapshots_.GetSnapshots(ts_lb, ts_ub, timestamped_snapshots);
   return Status::OK();

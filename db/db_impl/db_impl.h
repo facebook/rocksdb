@@ -356,7 +356,7 @@ class DBImpl : public DB {
   void ReleaseTimestampedSnapshotsOlderThan(
       uint64_t ts, size_t* remaining_total_ss = nullptr);
   Status GetTimestampedSnapshots(uint64_t ts_lb, uint64_t ts_ub,
-                                 std::vector<std::shared_ptr<const Snapshot>>*
+                                 std::vector<std::shared_ptr<const Snapshot>>&
                                      timestamped_snapshots) const;
 
   using DB::GetProperty;

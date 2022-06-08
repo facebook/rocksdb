@@ -198,13 +198,12 @@ class TimestampedSnapshotList {
 
   void GetSnapshots(
       uint64_t ts_lb, uint64_t ts_ub,
-      std::vector<std::shared_ptr<const Snapshot>>* snapshots) const {
+      std::vector<std::shared_ptr<const Snapshot>>& snapshots) const {
     assert(ts_lb < ts_ub);
-    assert(snapshots);
     auto it_low = snapshots_.lower_bound(ts_lb);
     auto it_high = snapshots_.lower_bound(ts_ub);
     for (auto it = it_low; it != it_high; ++it) {
-      snapshots->emplace_back(it->second);
+      snapshots.emplace_back(it->second);
     }
   }
 

@@ -159,7 +159,7 @@ class PessimisticTransactionDB : public TransactionDB {
   void ReleaseTimestampedSnapshotsOlderThan(TxnTimestamp ts) override;
 
   Status GetTimestampedSnapshots(TxnTimestamp ts_lb, TxnTimestamp ts_ub,
-                                 std::vector<std::shared_ptr<const Snapshot>>*
+                                 std::vector<std::shared_ptr<const Snapshot>>&
                                      timestamped_snapshots) const override;
 
  protected:

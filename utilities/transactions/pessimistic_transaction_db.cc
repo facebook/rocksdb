@@ -679,7 +679,7 @@ void PessimisticTransactionDB::ReleaseTimestampedSnapshotsOlderThan(
 
 Status PessimisticTransactionDB::GetTimestampedSnapshots(
     TxnTimestamp ts_lb, TxnTimestamp ts_ub,
-    std::vector<std::shared_ptr<const Snapshot>>* timestamped_snapshots) const {
+    std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots) const {
   assert(db_impl_);
   return db_impl_->GetTimestampedSnapshots(ts_lb, ts_ub, timestamped_snapshots);
 }
