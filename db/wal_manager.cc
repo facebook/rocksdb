@@ -512,6 +512,8 @@ Status WalManager::ReadFirstLine(const std::string& fname,
     // which is not associated with any sequence number. As result for an empty
     // file, GetSortedWalsOfType() will skip these WALs causing the operations
     // to fail.
+    // Therefore, in order to avoid that failure, it sets sequence_number to 1
+    // indicating those WALs should be included.
     *sequence = 1;
   } else {
     // ReadRecord might have returned false on EOF, which means that the log
