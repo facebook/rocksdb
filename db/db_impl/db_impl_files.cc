@@ -256,11 +256,12 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // be any tracked obsolete logs
   log_write_mutex_.Lock();
 
+  ++pending_purge_obsolete_files_;
   if (alive_log_files_.empty() || logs_.empty()) {
     mutex_.AssertHeld();
     // We may reach here if the db is DBImplSecondary
-    if (job_context->HaveSomethingToDelete()) {
-      ++pending_purge_obsolete_files_;
+    if (!job_context->HaveSomethingToDelete()) {
+      --pending_purge_obsolete_files_;
     }
     log_write_mutex_.Unlock();
     return;
@@ -313,8 +314,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // We're just cleaning up for DB::Write().
   assert(job_context->logs_to_free.empty());
   job_context->logs_to_free = logs_to_free_;
-  if (job_context->HaveSomethingToDelete()) {
-    ++pending_purge_obsolete_files_;
+  if (!job_context->HaveSomethingToDelete()) {
+    --pending_purge_obsolete_files_;
   }
   logs_to_free_.clear();
   log_write_mutex_.Unlock();
