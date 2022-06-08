@@ -12,6 +12,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/db.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -218,7 +219,7 @@ class TimestampedSnapshotList {
   // snapshots will be released by caller of ReleaseSnapshotsOlderThan().
   void ReleaseSnapshotsOlderThan(
       uint64_t ts,
-      std::vector<std::shared_ptr<const Snapshot>>& snapshots_to_release) {
+      autovector<std::shared_ptr<const Snapshot>>& snapshots_to_release) {
     auto ub = snapshots_.lower_bound(ts);
     for (auto it = snapshots_.begin(); it != ub; ++it) {
       snapshots_to_release.emplace_back(it->second);
