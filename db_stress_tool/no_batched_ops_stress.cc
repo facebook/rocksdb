@@ -184,6 +184,104 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 
+#ifndef ROCKSDB_LITE
+  void ContinuouslyVerifyDb(ThreadState* thread) const override {
+    if (!cmp_db_) {
+      return;
+    }
+    assert(cmp_db_);
+    assert(!cmp_cfhs_.empty());
+    Status s = cmp_db_->TryCatchUpWithPrimary();
+    if (!s.ok()) {
+      assert(false);
+      exit(1);
+    }
+
+    const auto checksum_column_family = [](Iterator* iter,
+                                           uint32_t* checksum) -> Status {
+      assert(nullptr != checksum);
+      uint32_t ret = 0;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ret = crc32c::Extend(ret, iter->key().data(), iter->key().size());
+        ret = crc32c::Extend(ret, iter->value().data(), iter->value().size());
+      }
+      *checksum = ret;
+      return iter->status();
+    };
+
+    auto* shared = thread->shared;
+    assert(shared);
+    const int64_t max_key = shared->GetMaxKey();
+    ReadOptions read_opts(FLAGS_verify_checksum, true);
+    std::string ts_str;
+    Slice ts;
+    if (FLAGS_user_timestamp_size > 0) {
+      ts_str = GenerateTimestampForRead();
+      ts = ts_str;
+      read_opts.timestamp = &ts;
+    }
+
+    static Random64 rand64(shared->GetSeed());
+
+    {
+      uint32_t crc = 0;
+      std::unique_ptr<Iterator> it(cmp_db_->NewIterator(read_opts));
+      s = checksum_column_family(it.get(), &crc);
+      if (!s.ok()) {
+        fprintf(stderr, "Computing checksum of default cf: %s\n",
+                s.ToString().c_str());
+        assert(false);
+      }
+    }
+
+    for (auto* handle : cmp_cfhs_) {
+      if (thread->rand.OneInOpt(3)) {
+        // Use Get()
+        uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
+        std::string key_str = Key(key);
+        std::string value;
+        std::string key_ts;
+        s = cmp_db_->Get(read_opts, handle, key_str, &value,
+                         FLAGS_user_timestamp_size > 0 ? &key_ts : nullptr);
+        s.PermitUncheckedError();
+      } else {
+        // Use range scan
+        std::unique_ptr<Iterator> iter(cmp_db_->NewIterator(read_opts, handle));
+        uint32_t rnd = (thread->rand.Next()) % 4;
+        if (0 == rnd) {
+          // SeekToFirst() + Next()*5
+          read_opts.total_order_seek = true;
+          iter->SeekToFirst();
+          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
+          }
+        } else if (1 == rnd) {
+          // SeekToLast() + Prev()*5
+          read_opts.total_order_seek = true;
+          iter->SeekToLast();
+          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
+          }
+        } else if (2 == rnd) {
+          // Seek() +Next()*5
+          uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
+          std::string key_str = Key(key);
+          iter->Seek(key_str);
+          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Next()) {
+          }
+        } else {
+          // SeekForPrev() + Prev()*5
+          uint64_t key = rand64.Uniform(static_cast<uint64_t>(max_key));
+          std::string key_str = Key(key);
+          iter->SeekForPrev(key_str);
+          for (int i = 0; i < 5 && iter->Valid(); ++i, iter->Prev()) {
+          }
+        }
+      }
+    }
+  }
+#else
+  void ContinuouslyVerifyDb(ThreadState* /*thread*/) const override {}
+#endif  // ROCKSDB_LITE
+
   void MaybeClearOneColumnFamily(ThreadState* thread) override {
     if (FLAGS_column_families > 1) {
       if (thread->rand.OneInOpt(FLAGS_clear_column_family_one_in)) {
@@ -805,13 +903,18 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t key_base = rand_keys[0];
     int column_family = rand_column_families[0];
     std::vector<std::unique_ptr<MutexLock>> range_locks;
+    range_locks.reserve(FLAGS_ingest_external_file_width);
+    std::vector<int64_t> keys;
+    keys.reserve(FLAGS_ingest_external_file_width);
     std::vector<uint32_t> values;
+    values.reserve(FLAGS_ingest_external_file_width);
     SharedState* shared = thread->shared;
 
+    assert(FLAGS_nooverwritepercent < 100);
     // Grab locks, set pending state on expected values, and add keys
     for (int64_t key = key_base;
-         s.ok() && key < std::min(key_base + FLAGS_ingest_external_file_width,
-                                  shared->GetMaxKey());
+         s.ok() && key < shared->GetMaxKey() &&
+         static_cast<int32_t>(keys.size()) < FLAGS_ingest_external_file_width;
          ++key) {
       if (key == key_base) {
         range_locks.emplace_back(std::move(lock));
@@ -819,6 +922,12 @@ class NonBatchedOpsStressTest : public StressTest {
         range_locks.emplace_back(
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
+      if (!shared->AllowsOverwrite(key)) {
+        // We could alternatively include `key` on the condition its current
+        // value is `DELETION_SENTINEL`.
+        continue;
+      }
+      keys.push_back(key);
 
       uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
       values.push_back(value_base);
@@ -841,10 +950,8 @@ class NonBatchedOpsStressTest : public StressTest {
       fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
       std::terminate();
     }
-    int64_t key = key_base;
-    for (int32_t value : values) {
-      shared->Put(column_family, key, value, false /* pending */);
-      ++key;
+    for (size_t i = 0; i < keys.size(); ++i) {
+      shared->Put(column_family, keys[i], values[i], false /* pending */);
     }
   }
 #endif  // ROCKSDB_LITE

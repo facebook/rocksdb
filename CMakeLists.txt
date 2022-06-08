@@ -89,7 +89,11 @@ include(CMakeDependentOption)
 if(MSVC)
   option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
-  include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
+  option(ROCKSDB_SKIP_THIRDPARTY "skip thirdparty.inc" OFF)
+
+  if(NOT ROCKSDB_SKIP_THIRDPARTY)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
+  endif()
 else()
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD" AND NOT CMAKE_SYSTEM_NAME MATCHES "kFreeBSD")
     # FreeBSD has jemalloc as default malloc
@@ -671,6 +675,7 @@ set(SOURCES
         db/version_set.cc
         db/wal_edit.cc
         db/wal_manager.cc
+        db/wide/wide_column_serialization.cc
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
@@ -1122,8 +1127,8 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   )
 
   configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}.pc.in
-    ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.pc
+    ${PROJECT_NAME}.pc.in
+    ${PROJECT_NAME}.pc
     @ONLY
   )
 
@@ -1290,6 +1295,7 @@ if(WITH_TESTS)
         db/version_set_test.cc
         db/wal_manager_test.cc
         db/wal_edit_test.cc
+        db/wide/wide_column_serialization_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc

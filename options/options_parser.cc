@@ -271,7 +271,7 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
   std::unordered_map<std::string, std::string> opt_map;
   std::string line;
   // we only support single-lined statement.
-  while (lf_reader.ReadLine(&line)) {
+  while (lf_reader.ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
     int line_num = static_cast<int>(lf_reader.GetLineNumber());
     line = TrimAndRemoveComment(line);
     if (line.empty()) {

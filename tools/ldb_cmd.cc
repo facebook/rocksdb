@@ -100,6 +100,8 @@ const std::string LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
     "blob_garbage_collection_force_threshold";
 const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
+const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
+    "blob_file_starting_level";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
@@ -509,6 +511,8 @@ void LDBCommand::CloseDB() {
     for (auto& pair : cf_handles_) {
       delete pair.second;
     }
+    Status s = db_->Close();
+    s.PermitUncheckedError();
     delete db_;
     db_ = nullptr;
   }
@@ -551,6 +555,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_GARBAGE_COLLECTION_AGE_CUTOFF,
                                   ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
                                   ARG_BLOB_COMPACTION_READAHEAD_SIZE,
+                                  ARG_BLOB_FILE_STARTING_LEVEL,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -814,6 +819,17 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_BLOB_COMPACTION_READAHEAD_SIZE + " must be > 0.");
+    }
+  }
+
+  int blob_file_starting_level;
+  if (ParseIntOption(option_map_, ARG_BLOB_FILE_STARTING_LEVEL,
+                     blob_file_starting_level, exec_state_)) {
+    if (blob_file_starting_level >= 0) {
+      cf_opts->blob_file_starting_level = blob_file_starting_level;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_BLOB_FILE_STARTING_LEVEL + " must be >= 0.");
     }
   }
 
@@ -2578,8 +2594,9 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
   const auto& fs = options.env->GetFileSystem();
   FileOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
-  Status status = SequentialFileReader::Create(fs, wal_file, soptions,
-                                               &wal_file_reader, nullptr);
+  Status status = SequentialFileReader::Create(
+      fs, wal_file, soptions, &wal_file_reader, nullptr /* dbg */,
+      nullptr /* rate_limiter */);
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +

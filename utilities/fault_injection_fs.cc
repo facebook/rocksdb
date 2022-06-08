@@ -109,6 +109,14 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
   return s;
 }
 
+IOStatus TestFSDirectory::Close(const IOOptions& options, IODebugContext* dbg) {
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  IOStatus s = dir_->Close(options, dbg);
+  return s;
+}
+
 IOStatus TestFSDirectory::FsyncWithDirOptions(
     const IOOptions& options, IODebugContext* dbg,
     const DirFsyncOptions& dir_fsync_options) {

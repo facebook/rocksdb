@@ -29,7 +29,7 @@ struct LRUHandle {
   LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;
-  size_t charge;  // TODO(opt): Only allow uint32_t?
+  size_t total_charge;  // TODO(opt): Only allow uint32_t?
   size_t key_length;
   // The hash of key(). Used for fast sharding and comparisons.
   uint32_t hash;
@@ -79,18 +79,31 @@ struct LRUHandle {
   }
 
   // Calculate the memory usage by metadata.
-  inline size_t CalcTotalCharge(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    size_t meta_charge = 0;
-    if (metadata_charge_policy == kFullChargeCacheMetadata) {
+  inline size_t CalcMetaCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) const {
+    if (metadata_charge_policy != kFullChargeCacheMetadata) {
+      return 0;
+    } else {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-      meta_charge += malloc_usable_size(static_cast<void*>(this));
+      return malloc_usable_size(
+          const_cast<void*>(static_cast<const void*>(this)));
 #else
       // This is the size that is used when a new handle is created.
-      meta_charge += sizeof(LRUHandle) - 1 + key_length;
+      return sizeof(LRUHandle) - 1 + key_length;
 #endif
     }
-    return charge + meta_charge;
+  }
+
+  inline void CalcTotalCharge(
+      size_t charge, CacheMetadataChargePolicy metadata_charge_policy) {
+    total_charge = charge + CalcMetaCharge(metadata_charge_policy);
+  }
+
+  inline size_t GetCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) const {
+    size_t meta_charge = CalcMetaCharge(metadata_charge_policy);
+    assert(total_charge >= meta_charge);
+    return total_charge - meta_charge;
   }
 };
 

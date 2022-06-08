@@ -73,7 +73,7 @@ class BlocklikeTraits<BlockContents> {
   }
 
   static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
-    if (block_type == BlockType::kFilter) {
+    if (block_type == BlockType::kDeprecatedFilter) {
       return GetCacheItemHelperForRole<
           BlockContents, CacheEntryRole::kDeprecatedFilterBlock>();
     } else {
@@ -160,7 +160,7 @@ class BlocklikeTraits<Block> {
         return GetCacheItemHelperForRole<Block, CacheEntryRole::kDataBlock>();
       case BlockType::kIndex:
         return GetCacheItemHelperForRole<Block, CacheEntryRole::kIndexBlock>();
-      case BlockType::kFilter:
+      case BlockType::kFilterPartitionIndex:
         return GetCacheItemHelperForRole<Block,
                                          CacheEntryRole::kFilterMetaBlock>();
       default:

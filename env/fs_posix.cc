@@ -550,7 +550,7 @@ class PosixFileSystem : public FileSystem {
     if (fd < 0) {
       return IOError("While open directory", name, errno);
     } else {
-      result->reset(new PosixDirectory(fd));
+      result->reset(new PosixDirectory(fd, name));
     }
     return IOStatus::OK();
   }

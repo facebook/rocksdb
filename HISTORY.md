@@ -1,7 +1,35 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a bug where a snapshot taken during SST file ingestion would be unstable.
+* Fixed a bug for non-TransactionDB with avoid_flush_during_recovery = true and TransactionDB where in case of crash, min_log_number_to_keep may not change on recovery and persisting a new MANIFEST with advanced log_numbers for some column families, results in "column family inconsistency" error on second recovery. As a solution, RocksDB will persist the new MANIFEST after successfully syncing the new WAL. If a future recovery starts from the new MANIFEST, then it means the new WAL is successfully synced. Due to the sentinel empty write batch at the beginning, kPointInTimeRecovery of WAL is guaranteed to go after this point. If future recovery starts from the old MANIFEST, it means the writing the new MANIFEST failed. We won't have the "SST ahead of WAL" error.
+* Fixed a bug where RocksDB DB::Open() may creates and writes to two new MANIFEST files even before recovery succeeds. Now writes to MANIFEST are persisted only after recovery is successful.
+* Fix a race condition in WAL size tracking which is caused by an unsafe iterator access after container is changed.
+* Fix unprotected concurrent accesses to `WritableFileWriter::filesize_` by `DB::SyncWAL()` and `DB::Put()` in two write queue mode.
+* Fix a bug in WAL tracking. Before this PR (#10087), calling `SyncWAL()` on the only WAL file of the db will not log the event in MANIFEST, thus allowing a subsequent `DB::Open` even if the WAL file is missing or corrupted.
+
+
 ### Public API changes
 * Add new API GetUnixTime in Snapshot class which returns the unix time at which Snapshot is taken.
+* Add transaction `get_pinned` and `multi_get` to C API.
+* Add two-phase commit support to C API.
+* Add `rocksdb_transaction_get_writebatch_wi` and `rocksdb_transaction_rebuild_from_writebatch` to C API.
+* Add `rocksdb_options_get_blob_file_starting_level` and `rocksdb_options_set_blob_file_starting_level` to C API.
+* Add `blobFileStartingLevel` and `setBlobFileStartingLevel` to Java API.
+* Add SingleDelete for DB in C API
+* Add User Defined Timestamp in C API.
+  * `rocksdb_comparator_with_ts_create` to create timestamp aware comparator
+  * Put, Get, Delete, SingleDelete, MultiGet APIs has corresponding timestamp aware APIs with suffix `with_ts`
+  * And Add C API's for Transaction, SstFileWriter, Compaction as mentioned [here](https://github.com/facebook/rocksdb/wiki/User-defined-Timestamp-(Experimental))
+
+### New Features
+* Add FileSystem::ReadAsync API in io_tracing
+* Add blob garbage collection parameters `blob_garbage_collection_policy` and `blob_garbage_collection_age_cutoff` to both force-enable and force-disable GC, as well as selectively override age cutoff when using CompactRange. 
+* Add an extra sanity check in `GetSortedWalFiles()` (also used by `GetLiveFilesStorageInfo()`, `BackupEngine`, and `Checkpoint`) to reduce risk of successfully created backup or checkpoint failing to open because of missing WAL file.
+* Add a new column family option `blob_file_starting_level` to enable writing blob files during flushes and compactions starting from the specified LSM tree level.
+
+### Behavior changes
+* DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
@@ -33,6 +61,7 @@
 * Add an option, `CompressionOptions::use_zstd_dict_trainer`, to indicate whether zstd dictionary trainer should be used for generating zstd compression dictionaries. The default value of this option is true for backward compatibility. When this option is set to false, zstd API `ZDICT_finalizeDictionary` is used to generate compression dictionaries.
 * Seek API which positions itself every LevelIterator on the correct data block in the correct SST file which can be parallelized if ReadOptions.async_io option is enabled.
 * Add new stat number_async_seek in PerfContext that indicates number of async calls made by seek to prefetch data.
+* Add support for user-defined timestamps to read only DB.
 
 ### Bug Fixes
 * RocksDB calls FileSystem::Poll API during FilePrefetchBuffer destruction which impacts performance as it waits for read requets completion which is not needed anymore. Calling FileSystem::AbortIO to abort those requests instead fixes that performance issue.
@@ -43,6 +72,9 @@
 * ldb `--try_load_options` default to true if `--db` is specified and not creating a new DB, the user can still explicitly disable that by `--try_load_options=false` (or explicitly enable that by `--try_load_options`).
 * During Flush write or Compaction write/read, the WriteController is used to determine whether DB writes are stalled or slowed down. The priority (Env::IOPriority) can then be determined accordingly and be passed in IOOptions to the file system.
 
+### Performance Improvements
+* Avoid calling malloc_usable_size() in LRU Cache's mutex.
+* Reduce DB mutex holding time when finding obsolete files to delete. When a file is trivial moved to another level, the internal files will be referenced twice internally and sometimes opened twice too. If a deletion candidate file is not the last reference, we need to destroy the reference and close the file but not deleting the file. Right now we determine it by building a set of all live files. With the improvement, we check the file against all live LSM-tree versions instead.
 
 ## 7.2.0 (04/15/2022)
 ### Bug Fixes

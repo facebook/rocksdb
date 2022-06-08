@@ -37,6 +37,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
@@ -60,6 +61,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/stats_history.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/backup_engine.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_type.h"
@@ -159,8 +161,10 @@ IF_ROCKSDB_LITE("",
     "randomtransaction,"
     "randomreplacekeys,"
     "timeseries,"
-    "getmergeoperands",
+    "getmergeoperands,",
     "readrandomoperands,"
+    "backup,"
+    "restore"
 
     "Comma-separated list of operations to run in the specified"
     " order. Available benchmarks:\n"
@@ -250,7 +254,10 @@ IF_ROCKSDB_LITE("",
     "\treadrandomoperands -- read random keys using `GetMergeOperands()`. An "
     "operation includes a rare but possible retry in case it got "
     "`Status::Incomplete()`. This happens upon encountering more keys than "
-    "have ever been seen by the thread (or eight initially)\n");
+    "have ever been seen by the thread (or eight initially)\n"
+    "\tbackup --  Create a backup of the current DB and verify that a new backup is corrected. "
+    "Rate limit can be specified through --backup_rate_limit\n"
+    "\trestore -- Restore the DB from the latest backup available, rate limit can be specified through --restore_rate_limit\n");
 
 DEFINE_int64(num, 1000000, "Number of key/values to place in database");
 
@@ -561,8 +568,7 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
-DEFINE_bool(use_clock_cache, false,
-            "Replace default LRU block cache with clock cache.");
+DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
@@ -1063,6 +1069,11 @@ DEFINE_uint64(blob_compaction_readahead_size,
                   .blob_compaction_readahead_size,
               "[Integrated BlobDB] Compaction readahead for blob files.");
 
+DEFINE_int32(
+    blob_file_starting_level,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
+    "[Integrated BlobDB] The starting level for blob files.");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -1145,6 +1156,22 @@ DEFINE_bool(charge_table_reader, false,
             "Setting for "
             "CacheEntryRoleOptions::charged of"
             "CacheEntryRole::kBlockBasedTableReader");
+
+DEFINE_uint64(backup_rate_limit, 0ull,
+              "If non-zero, db_bench will rate limit reads and writes for DB "
+              "backup. This "
+              "is the global rate in ops/second.");
+
+DEFINE_uint64(restore_rate_limit, 0ull,
+              "If non-zero, db_bench will rate limit reads and writes for DB "
+              "restore. This "
+              "is the global rate in ops/second.");
+
+DEFINE_string(backup_dir, "",
+              "If not empty string, use the given dir for backup.");
+
+DEFINE_string(restore_dir, "",
+              "If not empty string, use the given dir for restore.");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -2909,7 +2936,7 @@ class Benchmark {
     if (capacity <= 0) {
       return nullptr;
     }
-    if (FLAGS_use_clock_cache) {
+    if (FLAGS_cache_type == "clock_cache") {
       auto cache = NewClockCache(static_cast<size_t>(capacity),
                                  FLAGS_cache_numshardbits);
       if (!cache) {
@@ -2917,7 +2944,10 @@ class Benchmark {
         exit(1);
       }
       return cache;
-    } else {
+    } else if (FLAGS_cache_type == "fast_lru_cache") {
+      return NewFastLRUCache(static_cast<size_t>(capacity),
+                             FLAGS_cache_numshardbits);
+    } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
@@ -2966,6 +2996,9 @@ class Benchmark {
       }
 
       return NewLRUCache(opts);
+    } else {
+      fprintf(stderr, "Cache type not supported.");
+      exit(1);
     }
   }
 
@@ -3512,6 +3545,12 @@ class Benchmark {
       } else if (name == "readrandomoperands") {
         read_operands_ = true;
         method = &Benchmark::ReadRandom;
+#ifndef ROCKSDB_LITE
+      } else if (name == "backup") {
+        method = &Benchmark::Backup;
+      } else if (name == "restore") {
+        method = &Benchmark::Restore;
+#endif
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
         ErrorExit();
@@ -3544,6 +3583,13 @@ class Benchmark {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
 #ifndef ROCKSDB_LITE
+        if (name == "backup") {
+          std::cout << "Backup path: [" << FLAGS_backup_dir << "]" << std::endl;
+        } else if (name == "restore") {
+          std::cout << "Backup path: [" << FLAGS_backup_dir << "]" << std::endl;
+          std::cout << "Restore path: [" << FLAGS_restore_dir << "]"
+                    << std::endl;
+        }
         // A trace_file option can be provided both for trace and replay
         // operations. But db_bench does not support tracing and replaying at
         // the same time, for now. So, start tracing only when it is not a
@@ -4406,6 +4452,7 @@ class Benchmark {
         FLAGS_blob_garbage_collection_force_threshold;
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
+    options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
@@ -8224,6 +8271,47 @@ class Benchmark {
     }
   }
 
+  void Backup(ThreadState* thread) {
+    DB* db = SelectDB(thread);
+    std::unique_ptr<BackupEngineOptions> engine_options(
+        new BackupEngineOptions(FLAGS_backup_dir));
+    Status s;
+    BackupEngine* backup_engine;
+    if (FLAGS_backup_rate_limit > 0) {
+      engine_options->backup_rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_backup_rate_limit, 100000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo));
+    }
+    // Build new backup of the entire DB
+    engine_options->destroy_old_data = true;
+    s = BackupEngine::Open(FLAGS_env, *engine_options, &backup_engine);
+    assert(s.ok());
+    s = backup_engine->CreateNewBackup(db);
+    assert(s.ok());
+    std::vector<BackupInfo> backup_info;
+    backup_engine->GetBackupInfo(&backup_info);
+    // Verify that a new backup is created
+    assert(backup_info.size() == 1);
+  }
+
+  void Restore(ThreadState* /* thread */) {
+    std::unique_ptr<BackupEngineOptions> engine_options(
+        new BackupEngineOptions(FLAGS_backup_dir));
+    if (FLAGS_restore_rate_limit > 0) {
+      engine_options->restore_rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_restore_rate_limit, 100000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kAllIo));
+    }
+    BackupEngineReadOnly* backup_engine;
+    Status s =
+        BackupEngineReadOnly::Open(FLAGS_env, *engine_options, &backup_engine);
+    assert(s.ok());
+    s = backup_engine->RestoreDBFromLatestBackup(FLAGS_restore_dir,
+                                                 FLAGS_restore_dir);
+    assert(s.ok());
+    delete backup_engine;
+  }
+
 #endif  // ROCKSDB_LITE
 };
 
@@ -8367,6 +8455,14 @@ int db_bench_tool(int argc, char** argv) {
     FLAGS_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbbench";
     FLAGS_db = default_db_path;
+  }
+
+  if (FLAGS_backup_dir.empty()) {
+    FLAGS_backup_dir = FLAGS_db + "/backup";
+  }
+
+  if (FLAGS_restore_dir.empty()) {
+    FLAGS_restore_dir = FLAGS_db + "/restore";
   }
 
   if (FLAGS_stats_interval_seconds > 0) {
