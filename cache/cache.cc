@@ -57,7 +57,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
 };
 #endif  // ROCKSDB_LITE
 
-//
 Status SecondaryCache::CreateFromString(
     const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<SecondaryCache>* result) {
