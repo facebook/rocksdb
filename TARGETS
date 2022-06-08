@@ -5672,12 +5672,6 @@ cpp_unittest_wrapper(name="ribbon_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="shared_snapshot_ts_test",
-            srcs=["utilities/transactions/shared_snapshot_ts_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
 cpp_unittest_wrapper(name="sim_cache_test",
             srcs=["utilities/simulator_cache/sim_cache_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5770,6 +5764,12 @@ cpp_unittest_wrapper(name="timer_queue_test",
 
 cpp_unittest_wrapper(name="timer_test",
             srcs=["util/timer_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="timestamped_snapshot_test",
+            srcs=["utilities/transactions/timestamped_snapshot_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 
