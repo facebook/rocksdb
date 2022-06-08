@@ -511,7 +511,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   WaitForBackgroundWork();
 }
 
-Status DBImpl::CheckIfAllSnapshotsReleased() {
+Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
   size_t num_snapshots = 0;
   ReleaseTimestampedSnapshotsOlderThan(std::numeric_limits<uint64_t>::max(),
                                        &num_snapshots);
@@ -752,7 +752,7 @@ DBImpl::~DBImpl() {
   closed_ = true;
 
   {
-    const Status s = CheckIfAllSnapshotsReleased();
+    const Status s = MaybeReleaseTimestampedSnapshotsAndCheck();
     s.PermitUncheckedError();
   }
 
@@ -4225,7 +4225,7 @@ Status DBImpl::Close() {
   }
 
   {
-    const Status s = CheckIfAllSnapshotsReleased();
+    const Status s = MaybeReleaseTimestampedSnapshotsAndCheck();
     if (!s.ok()) {
       return s;
     }

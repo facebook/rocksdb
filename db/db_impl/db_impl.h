@@ -2071,7 +2071,7 @@ class DBImpl : public DB {
 
   FSDirectory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
 
-  Status CheckIfAllSnapshotsReleased();
+  Status MaybeReleaseTimestampedSnapshotsAndCheck();
 
   Status CloseHelper();
 
