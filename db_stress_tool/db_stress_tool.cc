@@ -235,12 +235,6 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (!FLAGS_test_secondary && FLAGS_secondary_catch_up_one_in > 0) {
-    fprintf(
-        stderr,
-        "Must set -test_secondary=true if secondary_catch_up_one_in > 0.\n");
-    exit(1);
-  }
   if (FLAGS_best_efforts_recovery && !FLAGS_skip_verifydb &&
       !FLAGS_disable_wal) {
     fprintf(stderr,

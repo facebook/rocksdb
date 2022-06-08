@@ -340,6 +340,8 @@ class BatchedOpsStressTest : public StressTest {
   }
 
   void VerifyDb(ThreadState* /* thread */) const override {}
+
+  void ContinuouslyVerifyDb(ThreadState* /* thread */) const override {}
 };
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }
