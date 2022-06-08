@@ -3081,10 +3081,21 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   int manual_compactions_paused = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
+        auto canceled = static_cast<std::atomic<bool>*>(arg);
+        // CompactRange triggers manual compaction and cancel the compaction
+        // by set *canceled as true
+        if (canceled != nullptr) {
+          canceled->store(true, std::memory_order_release);
+        }
+        manual_compactions_paused += 1;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
+        // CompactFiles() relies on manual_compactions_paused to
+        // determine if thie compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
-        manual_compactions_paused += 1;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3149,7 +3160,7 @@ TEST_F(DBTest2, PausingManualCompaction2) {
 
   Random rnd(301);
   for (int i = 0; i < 2; i++) {
-    // Generate a file containing 10 keys.
+    // Generate a file containing 100 keys.
     for (int j = 0; j < 100; j++) {
       ASSERT_OK(Put(Key(j), rnd.RandomString(50)));
     }
@@ -3248,10 +3259,21 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   int run_manual_compactions = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
+        auto canceled = static_cast<std::atomic<bool>*>(arg);
+        // CompactRange triggers manual compaction and cancel the compaction
+        // by set *canceled as true
+        if (canceled != nullptr) {
+          canceled->store(true, std::memory_order_release);
+        }
+        run_manual_compactions++;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
+        // CompactFiles() relies on manual_compactions_paused to
+        // determine if thie compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
-        run_manual_compactions++;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3266,7 +3288,6 @@ TEST_F(DBTest2, PausingManualCompaction4) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:2");
-  dbfull()->EnableManualCompaction();
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
@@ -3515,8 +3536,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
       "CompactionJob::FinishCompactionOutputFile1",
       [&](void* /*arg*/) { running_compaction++; });
 
-  // Case I: 1 Notify begin compaction, 2 DisableManualCompaction, 3 Compaction
-  // not run, 4 Notify compaction end.
+  // Case I: 1 Notify begin compaction, 2 Set *canceled as true to disable
+  // manual compaction in the callback function, 3 Compaction not run,
+  // 4 Notify compaction end.
   listener->code_ = Status::kIncomplete;
   listener->subcode_ = Status::SubCode::kManualCompactionPaused;
 
@@ -3533,8 +3555,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   listener->num_compaction_started_ = 0;
   listener->num_compaction_ended_ = 0;
 
-  // Case II: 1 DisableManualCompaction, 2 Notify begin compaction (return
-  // without notifying), 3 Notify compaction end (return without notifying).
+  // Case II: 1 Set *canceled as true in the callback function to disable manual
+  // compaction, 2 Notify begin compaction (return without notifying), 3 Notify
+  // compaction end (return without notifying).
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
@@ -3545,8 +3568,8 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   ASSERT_EQ(running_compaction, 0);
 
   // Case III: 1 Notify begin compaction, 2 Compaction in between
-  // 3. DisableManualCompaction, , 4 Notify compaction end.
-  // compact_options.canceled->store(false, std::memory_order_release);
+  // 3. Set *canceled as true in the callback function to disable manual
+  // compaction, 4 Notify compaction end.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionIterator:ProcessKV");
 
