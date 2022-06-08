@@ -656,32 +656,32 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   transactions_.erase(it);
 }
 
-std::shared_ptr<const Snapshot> PessimisticTransactionDB::CreateSharedSnapshot(
-    TxnTimestamp ts) {
+std::shared_ptr<const Snapshot>
+PessimisticTransactionDB::CreateTimestampedSnapshot(TxnTimestamp ts) {
   if (kMaxTxnTimestamp == ts) {
     return nullptr;
   }
   assert(db_impl_);
-  return db_impl_->CreateSharedSnapshot(kMaxSequenceNumber, ts);
+  return db_impl_->CreateTimestampedSnapshot(kMaxSequenceNumber, ts);
 }
 
-std::shared_ptr<const Snapshot> PessimisticTransactionDB::GetSharedSnapshot(
-    TxnTimestamp ts) const {
+std::shared_ptr<const Snapshot>
+PessimisticTransactionDB::GetTimestampedSnapshot(TxnTimestamp ts) const {
   assert(db_impl_);
-  return db_impl_->GetSharedSnapshot(ts);
+  return db_impl_->GetTimestampedSnapshot(ts);
 }
 
-void PessimisticTransactionDB::ReleaseSharedSnapshotsOlderThan(
+void PessimisticTransactionDB::ReleaseTimestampedSnapshotsOlderThan(
     TxnTimestamp ts) {
   assert(db_impl_);
-  db_impl_->ReleaseSharedSnapshotsOlderThan(ts);
+  db_impl_->ReleaseTimestampedSnapshotsOlderThan(ts);
 }
 
-Status PessimisticTransactionDB::GetSharedSnapshots(
+Status PessimisticTransactionDB::GetTimestampedSnapshots(
     TxnTimestamp ts_lb, TxnTimestamp ts_ub,
-    std::vector<std::shared_ptr<const Snapshot>>* shared_snapshots) const {
+    std::vector<std::shared_ptr<const Snapshot>>* timestamped_snapshots) const {
   assert(db_impl_);
-  return db_impl_->GetSharedSnapshots(ts_lb, ts_ub, shared_snapshots);
+  return db_impl_->GetTimestampedSnapshots(ts_lb, ts_ub, timestamped_snapshots);
 }
 
 Status SnapshotCreationCallback::operator()(SequenceNumber seq,
@@ -705,7 +705,7 @@ Status SnapshotCreationCallback::operator()(SequenceNumber seq,
   }
 
   // Create a snapshot which can also be used for write conflict checking.
-  snapshot_ = db_impl_->CreateSharedSnapshot(seq, commit_ts_);
+  snapshot_ = db_impl_->CreateTimestampedSnapshot(seq, commit_ts_);
   assert(snapshot_);
   if (snapshot_notifier_) {
     snapshot_notifier_->SnapshotCreated(snapshot_.get());

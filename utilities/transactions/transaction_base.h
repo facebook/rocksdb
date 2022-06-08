@@ -206,7 +206,7 @@ class TransactionBaseImpl : public Transaction {
     return snapshot_.get();
   }
 
-  std::shared_ptr<const Snapshot> GetSharedSnapshot() const override {
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot() const override {
     return snapshot_;
   }
 

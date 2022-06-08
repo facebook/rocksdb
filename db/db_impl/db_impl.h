@@ -346,18 +346,18 @@ class DBImpl : public DB {
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
-  // Create a shared snapshot. This snapshot can be shared by multiple readers.
-  // If any of them uses it for write conflict checking, then
+  // Create a timestamped snapshot. This snapshot can be shared by multiple
+  // readers. If any of them uses it for write conflict checking, then
   // is_write_conflict_boundary is true. For simplicity, set it to true by
   // default.
-  std::shared_ptr<const Snapshot> CreateSharedSnapshot(
+  std::shared_ptr<const Snapshot> CreateTimestampedSnapshot(
       SequenceNumber snapshot_seq, uint64_t ts);
-  std::shared_ptr<const Snapshot> GetSharedSnapshot(uint64_t ts) const;
-  void ReleaseSharedSnapshotsOlderThan(uint64_t ts,
-                                       size_t* remaining_total_ss = nullptr);
-  Status GetSharedSnapshots(
-      uint64_t ts_lb, uint64_t ts_ub,
-      std::vector<std::shared_ptr<const Snapshot>>* shared_snapshots) const;
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot(uint64_t ts) const;
+  void ReleaseTimestampedSnapshotsOlderThan(
+      uint64_t ts, size_t* remaining_total_ss = nullptr);
+  Status GetTimestampedSnapshots(uint64_t ts_lb, uint64_t ts_ub,
+                                 std::vector<std::shared_ptr<const Snapshot>>*
+                                     timestamped_snapshots) const;
 
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
@@ -2064,7 +2064,7 @@ class DBImpl : public DB {
   // the WAL.
   // If snapshot_seq == kMaxSequenceNumber, this function is called by a caller
   // ensuring no writes to the database.
-  std::shared_ptr<const SnapshotImpl> CreateSharedSnapshotImpl(
+  std::shared_ptr<const SnapshotImpl> CreateTimestampedSnapshotImpl(
       SequenceNumber snapshot_seq, uint64_t ts, bool lock = true);
 
   uint64_t GetMaxTotalWalSize() const;
@@ -2338,7 +2338,7 @@ class DBImpl : public DB {
 
   SnapshotList snapshots_;
 
-  SharedSnapshotList shared_snapshots_;
+  TimestampedSnapshotList timestamped_snapshots_;
 
   // For each background job, pending_outputs_ keeps the current file number at
   // the time that background job started.

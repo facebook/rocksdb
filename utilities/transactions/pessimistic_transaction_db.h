@@ -150,17 +150,17 @@ class PessimisticTransactionDB : public TransactionDB {
     return lock_manager_->GetLockTrackerFactory();
   }
 
-  std::shared_ptr<const Snapshot> CreateSharedSnapshot(
+  std::shared_ptr<const Snapshot> CreateTimestampedSnapshot(
       TxnTimestamp ts) override;
 
-  std::shared_ptr<const Snapshot> GetSharedSnapshot(
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot(
       TxnTimestamp ts) const override;
 
-  void ReleaseSharedSnapshotsOlderThan(TxnTimestamp ts) override;
+  void ReleaseTimestampedSnapshotsOlderThan(TxnTimestamp ts) override;
 
-  Status GetSharedSnapshots(TxnTimestamp ts_lb, TxnTimestamp ts_ub,
-                            std::vector<std::shared_ptr<const Snapshot>>*
-                                shared_snapshots) const override;
+  Status GetTimestampedSnapshots(TxnTimestamp ts_lb, TxnTimestamp ts_ub,
+                                 std::vector<std::shared_ptr<const Snapshot>>*
+                                     timestamped_snapshots) const override;
 
  protected:
   DBImpl* db_impl_;

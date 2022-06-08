@@ -201,7 +201,7 @@ class Transaction {
 
   // Returns the Snapshot created by the last call to SetSnapshot().
   // The returned snapshot can outlive the transaction.
-  virtual std::shared_ptr<const Snapshot> GetSharedSnapshot() const = 0;
+  virtual std::shared_ptr<const Snapshot> GetTimestampedSnapshot() const = 0;
 
   // Clears the current snapshot (i.e. no snapshot will be 'set')
   //
@@ -273,7 +273,7 @@ class Transaction {
     if (!s.ok()) {
       return s;
     }
-    std::shared_ptr<const Snapshot> new_snapshot = GetSharedSnapshot();
+    std::shared_ptr<const Snapshot> new_snapshot = GetTimestampedSnapshot();
     if (new_snapshot.get() == prev_snapshot) {
       return Status::NotSupported();
     }

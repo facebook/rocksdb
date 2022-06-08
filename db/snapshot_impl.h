@@ -177,10 +177,10 @@ class SnapshotList {
   uint64_t count_;
 };
 
-// All operations on SharedSnapshotList must be synchronized.
-class SharedSnapshotList {
+// All operations on TimestampedSnapshotList must be synchronized.
+class TimestampedSnapshotList {
  public:
-  explicit SharedSnapshotList() = default;
+  explicit TimestampedSnapshotList() = default;
 
   std::shared_ptr<const Snapshot> GetSnapshot(uint64_t ts) const {
     if (ts == std::numeric_limits<uint64_t>::max() && !snapshots_.empty()) {
@@ -212,8 +212,8 @@ class SharedSnapshotList {
     snapshots_.try_emplace(snapshot->GetTimestamp(), snapshot);
   }
 
-  // snapshots_to_release: the container to where the shared snapshots will be
-  // moved so that it retains the last reference to the snapshots and the
+  // snapshots_to_release: the container to where the timestamped snapshots will
+  // be moved so that it retains the last reference to the snapshots and the
   // snapshots won't be actually released which requires db mutex. The
   // snapshots will be released by caller of ReleaseSnapshotsOlderThan().
   void ReleaseSnapshotsOlderThan(

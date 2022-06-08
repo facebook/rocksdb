@@ -513,8 +513,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 
 Status DBImpl::CheckIfAllSnapshotsReleased() {
   size_t num_snapshots = 0;
-  ReleaseSharedSnapshotsOlderThan(std::numeric_limits<uint64_t>::max(),
-                                  &num_snapshots);
+  ReleaseTimestampedSnapshotsOlderThan(std::numeric_limits<uint64_t>::max(),
+                                       &num_snapshots);
 
   // If there is unreleased snapshot, fail the close call
   if (num_snapshots > 0) {
@@ -3179,25 +3179,26 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 }
 #endif  // ROCKSDB_LITE
 
-std::shared_ptr<const Snapshot> DBImpl::CreateSharedSnapshot(
+std::shared_ptr<const Snapshot> DBImpl::CreateTimestampedSnapshot(
     SequenceNumber snapshot_seq, uint64_t ts) {
   assert(ts != std::numeric_limits<uint64_t>::max());
 
-  auto ret = CreateSharedSnapshotImpl(snapshot_seq, ts, /*lock=*/true);
+  auto ret = CreateTimestampedSnapshotImpl(snapshot_seq, ts, /*lock=*/true);
   return ret;
 }
 
-std::shared_ptr<const Snapshot> DBImpl::GetSharedSnapshot(uint64_t ts) const {
+std::shared_ptr<const Snapshot> DBImpl::GetTimestampedSnapshot(
+    uint64_t ts) const {
   InstrumentedMutexLock lock_guard(&mutex_);
-  return shared_snapshots_.GetSnapshot(ts);
+  return timestamped_snapshots_.GetSnapshot(ts);
 }
 
-void DBImpl::ReleaseSharedSnapshotsOlderThan(uint64_t ts,
-                                             size_t* remaining_total_ss) {
+void DBImpl::ReleaseTimestampedSnapshotsOlderThan(uint64_t ts,
+                                                  size_t* remaining_total_ss) {
   std::vector<std::shared_ptr<const Snapshot>> snapshots_to_release;
   {
     InstrumentedMutexLock lock_guard(&mutex_);
-    shared_snapshots_.ReleaseSnapshotsOlderThan(ts, snapshots_to_release);
+    timestamped_snapshots_.ReleaseSnapshotsOlderThan(ts, snapshots_to_release);
   }
   snapshots_to_release.clear();
 
@@ -3207,19 +3208,19 @@ void DBImpl::ReleaseSharedSnapshotsOlderThan(uint64_t ts,
   }
 }
 
-Status DBImpl::GetSharedSnapshots(
+Status DBImpl::GetTimestampedSnapshots(
     uint64_t ts_lb, uint64_t ts_ub,
-    std::vector<std::shared_ptr<const Snapshot>>* shared_snapshots) const {
-  if (!shared_snapshots) {
-    return Status::InvalidArgument("shared_snapshots must not be null");
+    std::vector<std::shared_ptr<const Snapshot>>* timestamped_snapshots) const {
+  if (!timestamped_snapshots) {
+    return Status::InvalidArgument("timestamped_snapshots must not be null");
   } else if (ts_lb >= ts_ub) {
     return Status::InvalidArgument(
         "timestamp lower bound must be smaller than upper bound");
   }
-  assert(shared_snapshots);
-  shared_snapshots->clear();
+  assert(timestamped_snapshots);
+  timestamped_snapshots->clear();
   InstrumentedMutexLock lock_guard(&mutex_);
-  shared_snapshots_.GetSnapshots(ts_lb, ts_ub, shared_snapshots);
+  timestamped_snapshots_.GetSnapshots(ts_lb, ts_ub, timestamped_snapshots);
   return Status::OK();
 }
 
@@ -3252,7 +3253,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   return snapshot;
 }
 
-std::shared_ptr<const SnapshotImpl> DBImpl::CreateSharedSnapshotImpl(
+std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
     SequenceNumber snapshot_seq, uint64_t ts, bool lock) {
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
@@ -3288,7 +3289,7 @@ std::shared_ptr<const SnapshotImpl> DBImpl::CreateSharedSnapshotImpl(
   std::shared_ptr<const SnapshotImpl> ret(
       snapshot,
       std::bind(&DBImpl::ReleaseSnapshot, this, std::placeholders::_1));
-  shared_snapshots_.AddSnapshot(ret);
+  timestamped_snapshots_.AddSnapshot(ret);
 
   // Caller is from write thread, and we need to update database's sequence
   // number.
