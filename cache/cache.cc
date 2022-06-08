@@ -67,16 +67,12 @@ Status SecondaryCache::CreateFromString(
     std::shared_ptr<SecondaryCache> sec_cache;
 
 #ifndef ROCKSDB_LITE
-    if (args.find('=') == std::string::npos) {
-      sec_cache = NewCompressedSecondaryCache(ParseSizeT(args));
-    } else {
-      CompressedSecondaryCacheOptions sec_cache_opts;
-      status = OptionTypeInfo::ParseStruct(config_options, "",
-                                           &comp_sec_cache_options_type_info,
-                                           "", args, &sec_cache_opts);
-      if (status.ok()) {
-        sec_cache = NewCompressedSecondaryCache(sec_cache_opts);
-      }
+    CompressedSecondaryCacheOptions sec_cache_opts;
+    status = OptionTypeInfo::ParseStruct(config_options, "",
+                                         &comp_sec_cache_options_type_info, "",
+                                         args, &sec_cache_opts);
+    if (status.ok()) {
+      sec_cache = NewCompressedSecondaryCache(sec_cache_opts);
     }
 
 #else
