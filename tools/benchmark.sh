@@ -463,8 +463,22 @@ function summarize_result {
   uptime=$( grep ^Uptime\(secs $test_out | tail -1 | awk '{ printf "%.0f", $2 }' )
   stall_pct=$( grep "^Cumulative stall" $test_out| tail -1  | awk '{  print $5 }' )
   nstall=$( grep ^Stalls\(count\):  $test_out | tail -1 | awk '{ print $2 + $6 + $10 + $14 + $18 + $20 }' )
-  ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
-  mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $7 }' )
+
+  # Output formats
+  # V1: overwrite    :       7.939 micros/op 125963 ops/sec;   50.5 MB/s
+  # V2: overwrite    :       7.854 micros/op 127320 ops/sec 1800.001 seconds 229176999 operations;   51.0 MB/s
+
+  format_version=$( grep ^${bench_name} $test_out \
+    | awk '{ if (NF >= 10 && $8 == "seconds") { print "V2" } else { print "V1" } }' )
+  if [ $format_version == "V1" ]; then
+    ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
+    usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
+    mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $7 }' )
+  else
+    ops_sec=$( grep ^${bench_name} $test_out | awk '{ print $5 }' )
+    usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
+    mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $11 }' )
+  fi
 
   flush_wgb=$( grep "^Flush(GB)" $test_out | tail -1 | awk '{ print $3 }' | tr ',' ' ' | awk '{ print $1 }' )
   sum_wgb=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
@@ -483,7 +497,6 @@ function summarize_result {
   b_rgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $21 }' )
   b_wgb=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $22 }' )
 
-  usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
   p50=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
   p99=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $7 }' )
   p999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $9 }' )
