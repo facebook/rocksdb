@@ -239,6 +239,10 @@ class Transaction {
 
   // In addition to Commit(), also creates a snapshot of the db after all
   // writes by this txn are visible to other readers.
+  // Caller is responsible for ensuring that
+  // snapshot1.seq < snapshot2.seq iff. snapshot1.ts < snapshot2.ts
+  // in which snapshot1 and snapshot2 are created by this API.
+  //
   // Currently only supported by WriteCommittedTxn. Calling this method on
   // other types of transactions will return non-ok Status resulting from
   // Commit() or a `NotSupported` error.
