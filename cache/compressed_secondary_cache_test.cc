@@ -557,6 +557,7 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
   std::shared_ptr<SecondaryCache> sec_cache;
   Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
                                               &sec_cache);
+  EXPECT_OK(s);
   BasicTestHelper(sec_cache);
 }
 
@@ -568,7 +569,7 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
   std::shared_ptr<SecondaryCache> sec_cache;
   Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
                                               &sec_cache);
-
+  EXPECT_OK(s);
   BasicTestHelper(sec_cache);
 }
 
