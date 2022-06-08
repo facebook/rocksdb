@@ -36,7 +36,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
-    compressed_sec_cache_options_type_info = {
+    comp_sec_cache_options_type_info = {
         {"capacity",
          {offsetof(struct CompressedSecondaryCacheOptions, capacity),
           OptionType::kSizeT, OptionVerificationType::kNormal,
@@ -47,7 +47,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kMutable}},
         {"compression_type",
          {offsetof(struct CompressedSecondaryCacheOptions, compression_type),
-          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"compress_format_version",
          {offsetof(struct CompressedSecondaryCacheOptions,
@@ -72,8 +72,8 @@ Status SecondaryCache::CreateFromString(
     } else {
       CompressedSecondaryCacheOptions sec_cache_opts;
       status = OptionTypeInfo::ParseStruct(config_options, "",
-                                           &lru_cache_options_type_info, "",
-                                           args, &sec_cache_opts);
+                                           &comp_sec_cache_options_type_info,
+                                           "", args, &sec_cache_opts);
       if (status.ok()) {
         sec_cache = NewCompressedSecondaryCache(sec_cache_opts);
       }
