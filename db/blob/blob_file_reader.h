@@ -34,7 +34,8 @@ class BlobFileReader {
                        const FileOptions& file_options,
                        uint32_t column_family_id,
                        HistogramImpl* blob_file_read_hist,
-                       uint64_t blob_file_number,
+                       uint64_t blob_file_number, const std::string& db_id,
+                       const std::string& db_session_id,
                        const std::shared_ptr<IOTracer>& io_tracer,
                        std::unique_ptr<BlobFileReader>* reader);
 
@@ -66,7 +67,8 @@ class BlobFileReader {
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, uint64_t file_number,
-                 CompressionType compression_type,
+                 CompressionType compression_type, const std::string& db_id,
+                 const std::string& db_session_id,
                  const ImmutableOptions& immutable_options);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
@@ -104,10 +106,10 @@ class BlobFileReader {
 
   static void SaveValue(const Slice& src, PinnableSlice* dst);
 
-  Status MaybeReadBlobAndLoadToCache(FilePrefetchBuffer* prefetch_buffer,
-                                     const ReadOptions& read_options,
-                                     uint64_t offset, const bool wait,
-                                     Slice* record_slice) const;
+  Status MaybeReadBlobFromCache(FilePrefetchBuffer* prefetch_buffer,
+                                const ReadOptions& read_options,
+                                uint64_t offset, const bool wait,
+                                Slice* record_slice) const;
 
   Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
                                    Cache* blob_cache, const Slice& key,

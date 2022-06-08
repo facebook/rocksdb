@@ -565,7 +565,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
                                       const BlockHandle& handle) {
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
-  // from offet.
+  // from offset.
   return base_cache_key.WithOffset(handle.offset() >> 2);
 }
 
