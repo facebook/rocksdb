@@ -15,7 +15,6 @@ enum class WriteBatchOpType {
   kSingleDelete,
   kDeleteRange,
   kMerge,
-  kBlobIndex,
   kNum,
 };
 
@@ -46,22 +45,6 @@ std::pair<WriteBatch, Status> GetWriteBatch(ColumnFamilyHandle* cf_handle,
     case WriteBatchOpType::kMerge:
       s = wb.Merge(cf_handle, "key", "val");
       break;
-    case WriteBatchOpType::kBlobIndex: {
-      // TODO(ajkr): use public API once available.
-      uint32_t cf_id;
-      if (cf_handle == nullptr) {
-        cf_id = 0;
-      } else {
-        cf_id = cf_handle->GetID();
-      }
-
-      std::string blob_index;
-      BlobIndex::EncodeInlinedTTL(&blob_index, /* expiration */ 9876543210,
-                                  "val");
-
-      s = WriteBatchInternal::PutBlobIndex(&wb, cf_id, "key", blob_index);
-      break;
-    }
     case WriteBatchOpType::kNum:
       assert(false);
   }
@@ -113,9 +96,6 @@ std::string GetOpTypeString(const WriteBatchOpType& op_type) {
       break;
     case WriteBatchOpType::kMerge:
       return "Merge";
-      break;
-    case WriteBatchOpType::kBlobIndex:
-      return "BlobIndex";
       break;
     case WriteBatchOpType::kNum:
       assert(false);
