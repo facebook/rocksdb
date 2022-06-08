@@ -553,7 +553,8 @@ TEST_F(CompressedSecondaryCacheTest,
 
 TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
   std::string sec_cache_uri =
-      "compressed_secondary_cache://capacity=2048;num_shard_bits=0";
+      "compressed_secondary_cache://"
+      "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
   std::shared_ptr<SecondaryCache> sec_cache;
   Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
                                               &sec_cache);
