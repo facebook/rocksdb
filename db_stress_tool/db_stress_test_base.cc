@@ -107,17 +107,6 @@ StressTest::~StressTest() {
   column_families_.clear();
   delete db_;
 
-  assert(secondaries_.size() == secondary_cfh_lists_.size());
-  size_t n = secondaries_.size();
-  for (size_t i = 0; i != n; ++i) {
-    for (auto* cf : secondary_cfh_lists_[i]) {
-      delete cf;
-    }
-    secondary_cfh_lists_[i].clear();
-    delete secondaries_[i];
-  }
-  secondaries_.clear();
-
   for (auto* cf : cmp_cfhs_) {
     delete cf;
   }
@@ -345,63 +334,6 @@ void StressTest::TrackExpectedState(SharedState* shared) {
       exit(1);
     }
   }
-}
-
-bool StressTest::VerifySecondaries() {
-#ifndef ROCKSDB_LITE
-  if (FLAGS_test_secondary) {
-    uint64_t now = clock_->NowMicros();
-    fprintf(stdout, "%s Start to verify secondaries against primary\n",
-            clock_->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
-  }
-  for (size_t k = 0; k != secondaries_.size(); ++k) {
-    Status s = secondaries_[k]->TryCatchUpWithPrimary();
-    if (!s.ok()) {
-      fprintf(stderr, "Secondary failed to catch up with primary\n");
-      return false;
-    }
-    // This `ReadOptions` is for validation purposes. Ignore
-    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
-    ReadOptions ropts;
-    ropts.total_order_seek = true;
-    // Verify only the default column family since the primary may have
-    // dropped other column families after most recent reopen.
-    std::unique_ptr<Iterator> iter1(db_->NewIterator(ropts));
-    std::unique_ptr<Iterator> iter2(secondaries_[k]->NewIterator(ropts));
-    for (iter1->SeekToFirst(), iter2->SeekToFirst();
-         iter1->Valid() && iter2->Valid(); iter1->Next(), iter2->Next()) {
-      if (iter1->key().compare(iter2->key()) != 0 ||
-          iter1->value().compare(iter2->value())) {
-        fprintf(stderr,
-                "Secondary %d contains different data from "
-                "primary.\nPrimary: %s : %s\nSecondary: %s : %s\n",
-                static_cast<int>(k),
-                iter1->key().ToString(/*hex=*/true).c_str(),
-                iter1->value().ToString(/*hex=*/true).c_str(),
-                iter2->key().ToString(/*hex=*/true).c_str(),
-                iter2->value().ToString(/*hex=*/true).c_str());
-        return false;
-      }
-    }
-    if (iter1->Valid() && !iter2->Valid()) {
-      fprintf(stderr,
-              "Secondary %d record count is smaller than that of primary\n",
-              static_cast<int>(k));
-      return false;
-    } else if (!iter1->Valid() && iter2->Valid()) {
-      fprintf(stderr,
-              "Secondary %d record count is larger than that of primary\n",
-              static_cast<int>(k));
-      return false;
-    }
-  }
-  if (FLAGS_test_secondary) {
-    uint64_t now = clock_->NowMicros();
-    fprintf(stdout, "%s Verification of secondaries succeeded\n",
-            clock_->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
-  }
-#endif  // ROCKSDB_LITE
-  return true;
 }
 
 Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
@@ -968,18 +900,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         TestCustomOperations(thread, rand_column_families);
       }
       thread->stats.FinishedSingleOp();
-#ifndef ROCKSDB_LITE
-      uint32_t tid = thread->tid;
-      assert(secondaries_.empty() ||
-             static_cast<size_t>(tid) < secondaries_.size());
-      if (thread->rand.OneInOpt(FLAGS_secondary_catch_up_one_in)) {
-        Status s = secondaries_[tid]->TryCatchUpWithPrimary();
-        if (!s.ok()) {
-          VerificationAbort(shared, "Secondary instance failed to catch up", s);
-          break;
-        }
-      }
-#endif
     }
   }
   while (!thread->snapshot_queue.empty()) {
@@ -2619,72 +2539,34 @@ void StressTest::Open(SharedState* shared) {
       assert(trans.size() == 0);
 #endif
     }
-    assert(!s.ok() || column_families_.size() ==
-                          static_cast<size_t>(FLAGS_column_families));
+    assert(s.ok());
+    assert(column_families_.size() ==
+           static_cast<size_t>(FLAGS_column_families));
 
-    if (s.ok() && FLAGS_test_secondary) {
-#ifndef ROCKSDB_LITE
-      secondaries_.resize(FLAGS_threads);
-      std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
-      secondary_cfh_lists_.clear();
-      secondary_cfh_lists_.resize(FLAGS_threads);
-      Options tmp_opts;
-      // TODO(yanqin) support max_open_files != -1 for secondary instance.
-      tmp_opts.max_open_files = -1;
-      tmp_opts.statistics = dbstats_secondaries;
-      tmp_opts.env = db_stress_env;
-      for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
-        const std::string secondary_path =
-            FLAGS_secondaries_base + "/" + std::to_string(i);
-        s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                                cf_descriptors, &secondary_cfh_lists_[i],
-                                &secondaries_[i]);
-        if (!s.ok()) {
-          break;
-        }
-      }
-#else
-      fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
-      exit(1);
-#endif
-    }
     // Secondary instance does not support write-prepared/write-unprepared
     // transactions, thus just disable secondary instance if we use
     // transaction.
-    if (s.ok() && FLAGS_continuous_verification_interval > 0 &&
-        !FLAGS_use_txn && !cmp_db_) {
+    if (s.ok() && FLAGS_test_secondary && !FLAGS_use_txn) {
+#ifndef ROCKSDB_LITE
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
       tmp_opts.env = db_stress_env;
-      std::string secondary_path = FLAGS_secondaries_base + "/cmp_database";
+      const std::string& secondary_path = FLAGS_secondaries_base;
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
                               cf_descriptors, &cmp_cfhs_, &cmp_db_);
-      assert(!s.ok() ||
-             cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+      assert(s.ok());
+      assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+#else
+      fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
+      exit(1);
+#endif  // !ROCKSDB_LITE
     }
   } else {
 #ifndef ROCKSDB_LITE
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
     db_ = db_with_ttl;
-    if (FLAGS_test_secondary) {
-      secondaries_.resize(FLAGS_threads);
-      std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
-      Options tmp_opts;
-      tmp_opts.env = options_.env;
-      // TODO(yanqin) support max_open_files != -1 for secondary instance.
-      tmp_opts.max_open_files = -1;
-      for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
-        const std::string secondary_path =
-            FLAGS_secondaries_base + "/" + std::to_string(i);
-        s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                                &secondaries_[i]);
-        if (!s.ok()) {
-          break;
-        }
-      }
-    }
 #else
     fprintf(stderr, "TTL is not supported in RocksDBLite\n");
     exit(1);
@@ -2735,17 +2617,6 @@ void StressTest::Reopen(ThreadState* thread) {
   txn_db_ = nullptr;
 #endif
 
-  assert(secondaries_.size() == secondary_cfh_lists_.size());
-  size_t n = secondaries_.size();
-  for (size_t i = 0; i != n; ++i) {
-    for (auto* cf : secondary_cfh_lists_[i]) {
-      delete cf;
-    }
-    secondary_cfh_lists_[i].clear();
-    delete secondaries_[i];
-  }
-  secondaries_.clear();
-
   num_times_reopened_++;
   auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
@@ -2782,15 +2653,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
   }
   if (FLAGS_use_txn) {
     fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
-    exit(1);
-  }
-  if (FLAGS_read_only) {
-    fprintf(stderr, "When opened as read-only, timestamp not supported.\n");
-    exit(1);
-  }
-  if (FLAGS_test_secondary || FLAGS_secondary_catch_up_one_in > 0 ||
-      FLAGS_continuous_verification_interval > 0) {
-    fprintf(stderr, "Secondary instance does not support timestamp.\n");
     exit(1);
   }
 #ifndef ROCKSDB_LITE

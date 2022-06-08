@@ -229,7 +229,6 @@ DECLARE_uint64(ops_per_thread);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_uint64(max_manifest_file_size);
 DECLARE_bool(in_place_update);
-DECLARE_int32(secondary_catch_up_one_in);
 DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
