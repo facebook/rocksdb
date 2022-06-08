@@ -30,6 +30,7 @@ enum class WriteMode {
   // `Write()` a `WriteBatch` constructed with `protection_bytes_per_key == 0`.
   // Protection is enabled via `WriteOptions::protection_bytes_per_key > 0`.
   kWriteUnprotectedBatch,
+  // TODO(ajkr): add a mode that uses `Write()` wrappers, e.g., `Put()`.
   kNum,
 };
 
@@ -170,6 +171,9 @@ INSTANTIATE_TEST_CASE_P(
       }
       return oss.str();
     });
+
+// TODO(ajkr): add a test that corrupts the `WriteBatch` contents. Such
+// corruptions should only be detectable in `WriteMode::kWriteProtectedBatch`.
 
 TEST_P(DbKvChecksumTest, MemTableAddCorrupted) {
   // This test repeatedly attempts to write `WriteBatch`es containing a single
