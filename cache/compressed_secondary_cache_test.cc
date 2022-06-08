@@ -551,6 +551,8 @@ TEST_F(CompressedSecondaryCacheTest,
   BasicTest(true, true);
 }
 
+#ifndef ROCKSDB_LITE
+
 TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
   std::string sec_cache_uri =
       "compressed_secondary_cache://"
@@ -582,6 +584,8 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
   EXPECT_OK(s);
   BasicTestHelper(sec_cache);
 }
+
+#endif  // ROCKSDB_LITE
 
 TEST_F(CompressedSecondaryCacheTest, FailsTestWithNoCompression) {
   FailsTest(false);
