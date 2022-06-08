@@ -1502,6 +1502,11 @@ Status WriteBatch::VerifyChecksum() const {
   Status s;
   size_t prot_info_idx = 0;
   while (!input.empty() && prot_info_idx < prot_info_->entries_.size()) {
+    // In case key/value/column_family are not updated by
+    // ReadRecordFromWriteBatch
+    key.clear();
+    value.clear();
+    column_family = 0;
     s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
                                  &blob, &xid);
     if (!s.ok()) {
@@ -2829,6 +2834,14 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
                                   const bool wal_only) {
   assert(dst->Count() == 0 ||
          (dst->prot_info_ == nullptr) == (src->prot_info_ == nullptr));
+  if ((src->prot_info_ != nullptr and
+       src->prot_info_->entries_.size() != src->Count()) ||
+      (dst->prot_info_ != nullptr and
+       dst->prot_info_->entries_.size() != dst->Count())) {
+    return Status::Corruption(
+        "Write batch has inconsistent count and number of checksums");
+  }
+
   size_t src_len;
   int src_count;
   uint32_t src_flags;
