@@ -458,8 +458,9 @@ class TransactionDB : public StackableDB {
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
+  // Create a snapshot and assign ts to it. Return the snapshot to caller. The
+  // snapshot-timestamp mapping is also tracked by the database.
   // Caller must ensure there are no active writes when this API is called.
-  // Create a timestamped snapshot and assign ts to it.
   virtual std::shared_ptr<const Snapshot> CreateTimestampedSnapshot(
       TxnTimestamp ts) = 0;
 

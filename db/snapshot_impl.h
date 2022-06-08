@@ -178,7 +178,7 @@ class SnapshotList {
   uint64_t count_;
 };
 
-// All operations on TimestampedSnapshotList must be synchronized.
+// All operations on TimestampedSnapshotList must be protected by db mutex.
 class TimestampedSnapshotList {
  public:
   explicit TimestampedSnapshotList() = default;

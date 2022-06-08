@@ -10,6 +10,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Callback invoked after finishing writing to the memtable but before
+// publishing the sequence number to readers.
+// Note that with write-prepared/write-unprepared transactions with
+// two-write-queues, PreReleaseCallback is called before publishing the
+// sequence numbers to readers.
 class PostMemTableCallback {
  public:
   virtual ~PostMemTableCallback() {}
