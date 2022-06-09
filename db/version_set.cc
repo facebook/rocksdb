@@ -4108,11 +4108,12 @@ VersionSet::VersionSet(const std::string& dbname,
                        WriteController* write_controller,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
+                       const std::string& db_id,
                        const std::string& db_session_id)
-    : column_family_set_(
-          new ColumnFamilySet(dbname, _db_options, storage_options, table_cache,
-                              write_buffer_manager, write_controller,
-                              block_cache_tracer, io_tracer, db_session_id)),
+    : column_family_set_(new ColumnFamilySet(
+          dbname, _db_options, storage_options, table_cache,
+          write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
+          db_id, db_session_id)),
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
@@ -4156,9 +4157,8 @@ void VersionSet::Reset() {
     WriteController* wc = column_family_set_->write_controller();
     column_family_set_.reset(new ColumnFamilySet(
         dbname_, db_options_, file_options_, table_cache_, wbm, wc,
-        block_cache_tracer_, io_tracer_, db_session_id_));
+        block_cache_tracer_, io_tracer_, db_id_, db_session_id_));
   }
-  db_id_.clear();
   next_file_number_.store(2);
   min_log_number_to_keep_.store(0);
   manifest_file_number_ = 0;
@@ -5209,6 +5209,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   WriteBufferManager wb(options->db_write_buffer_size);
   VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
+                      /*db_id*/ "",
                       /*db_session_id*/ "");
   Status status;
 
@@ -6142,7 +6143,7 @@ ReactiveVersionSet::ReactiveVersionSet(
     const std::shared_ptr<IOTracer>& io_tracer)
     : VersionSet(dbname, _db_options, _file_options, table_cache,
                  write_buffer_manager, write_controller,
-                 /*block_cache_tracer=*/nullptr, io_tracer,
+                 /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "") {}
 
 ReactiveVersionSet::~ReactiveVersionSet() {}
