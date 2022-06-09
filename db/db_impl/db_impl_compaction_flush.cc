@@ -952,6 +952,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   VersionEdit edit;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
+                           &edit);
 
   InstrumentedMutexLock l(&mutex_);
   std::string current_ts_low = cfd->GetFullHistoryTsLow();
