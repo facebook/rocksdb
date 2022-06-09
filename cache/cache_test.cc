@@ -597,7 +597,7 @@ TEST_P(CacheTest, NewId) {
 
 class Value {
  public:
-  explicit Value(int v) : v_(v) { }
+  explicit Value(int v) : v_(v) {}
 
   int v_;
 };
