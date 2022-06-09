@@ -49,8 +49,8 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             std::string* timestamp) {
   assert(user_comparator_);
   if (options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(DefaultColumnFamily(), *(options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        DefaultColumnFamily(), *(options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -109,8 +109,8 @@ std::vector<Status> CompactedDBImpl::MultiGet(
   size_t num_keys = keys.size();
 
   if (options.timestamp) {
-    Status s =
-        FailIfTsSizesMismatch(DefaultColumnFamily(), *(options.timestamp));
+    Status s = FailIfTsMismatchCf(DefaultColumnFamily(), *(options.timestamp),
+                                  /*ts_for_read=*/true);
     if (!s.ok()) {
       return std::vector<Status>(num_keys, s);
     }

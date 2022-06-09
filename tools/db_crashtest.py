@@ -174,9 +174,7 @@ default_params = {
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
-    # Temporarily disable wal compression because it causes backup/checkpoint to miss
-    # compressed WAL files.
-    "wal_compression": "none",
+    "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": "",
 }
@@ -353,8 +351,6 @@ ts_params = {
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
-    "secondary_catch_up_one_in": 0,
-    "continuous_verification_interval": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "enable_compaction_filter": 0,

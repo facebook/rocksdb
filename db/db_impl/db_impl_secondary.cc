@@ -349,8 +349,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
 
   assert(column_family);
   if (read_options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -442,8 +442,8 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
 
   assert(column_family);
   if (read_options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -514,7 +514,8 @@ Status DBImplSecondary::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
+                                          /*ts_for_read=*/true);
       if (!s.ok()) {
         return s;
       }
@@ -819,8 +820,8 @@ Status DBImplSecondary::CompactWithoutInstallation(
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       &log_buffer, output_dir.get(), stats_, &mutex_, &error_handler_,
       input.snapshots, table_cache_, &event_logger_, dbname_, io_tracer_,
-      options.canceled, input.db_id, db_session_id_, secondary_path_, input,
-      result);
+      options.canceled ? *options.canceled : kManualCompactionCanceledFalse_,
+      input.db_id, db_session_id_, secondary_path_, input, result);
 
   mutex_.Unlock();
   s = compaction_job.Run();
