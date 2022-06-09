@@ -33,6 +33,8 @@ class BlockPrefixIndex {
   }
 
   // Create hash index by reading from the metadata blocks.
+  // Note: table reader (caller) is responsible for keeping shared_ptr to
+  // underlying prefix extractor
   // @params prefixes: a sequence of prefixes.
   // @params prefix_meta: contains the "metadata" to of the prefixes.
   static Status Create(const SliceTransform* hash_key_extractor,
@@ -57,8 +59,6 @@ class BlockPrefixIndex {
         buckets_(buckets),
         block_array_buffer_(block_array_buffer) {}
 
-  // TODO(kailiu) It is very ugly to use internal key in table, since table
-  // module should not be relying on db module.
   InternalKeySliceTransform internal_prefix_extractor_;
 
   uint32_t num_buckets_;
