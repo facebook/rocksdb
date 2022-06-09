@@ -3187,7 +3187,7 @@ std::shared_ptr<const Snapshot> DBImpl::CreateTimestampedSnapshot(
   return ret;
 }
 
-std::shared_ptr<const Snapshot> DBImpl::GetTimestampedSnapshot(
+std::shared_ptr<const SnapshotImpl> DBImpl::GetTimestampedSnapshot(
     uint64_t ts) const {
   InstrumentedMutexLock lock_guard(&mutex_);
   return timestamped_snapshots_.GetSnapshot(ts);
@@ -3195,7 +3195,7 @@ std::shared_ptr<const Snapshot> DBImpl::GetTimestampedSnapshot(
 
 void DBImpl::ReleaseTimestampedSnapshotsOlderThan(uint64_t ts,
                                                   size_t* remaining_total_ss) {
-  autovector<std::shared_ptr<const Snapshot>> snapshots_to_release;
+  autovector<std::shared_ptr<const SnapshotImpl>> snapshots_to_release;
   {
     InstrumentedMutexLock lock_guard(&mutex_);
     timestamped_snapshots_.ReleaseSnapshotsOlderThan(ts, snapshots_to_release);

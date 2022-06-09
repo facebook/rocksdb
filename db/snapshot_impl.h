@@ -183,7 +183,7 @@ class TimestampedSnapshotList {
  public:
   explicit TimestampedSnapshotList() = default;
 
-  std::shared_ptr<const Snapshot> GetSnapshot(uint64_t ts) const {
+  std::shared_ptr<const SnapshotImpl> GetSnapshot(uint64_t ts) const {
     if (ts == std::numeric_limits<uint64_t>::max() && !snapshots_.empty()) {
       auto it = snapshots_.rbegin();
       assert(it != snapshots_.rend());
@@ -191,7 +191,7 @@ class TimestampedSnapshotList {
     }
     auto it = snapshots_.find(ts);
     if (it == snapshots_.end()) {
-      return std::shared_ptr<const Snapshot>();
+      return std::shared_ptr<const SnapshotImpl>();
     }
     return it->second;
   }
@@ -207,7 +207,7 @@ class TimestampedSnapshotList {
     }
   }
 
-  void AddSnapshot(const std::shared_ptr<const Snapshot>& snapshot) {
+  void AddSnapshot(const std::shared_ptr<const SnapshotImpl>& snapshot) {
     assert(snapshot);
     snapshots_.try_emplace(snapshot->GetTimestamp(), snapshot);
   }
@@ -218,7 +218,7 @@ class TimestampedSnapshotList {
   // snapshots will be released by caller of ReleaseSnapshotsOlderThan().
   void ReleaseSnapshotsOlderThan(
       uint64_t ts,
-      autovector<std::shared_ptr<const Snapshot>>& snapshots_to_release) {
+      autovector<std::shared_ptr<const SnapshotImpl>>& snapshots_to_release) {
     auto ub = snapshots_.lower_bound(ts);
     for (auto it = snapshots_.begin(); it != ub; ++it) {
       snapshots_to_release.emplace_back(it->second);
@@ -227,7 +227,7 @@ class TimestampedSnapshotList {
   }
 
  private:
-  std::map<uint64_t, std::shared_ptr<const Snapshot>> snapshots_;
+  std::map<uint64_t, std::shared_ptr<const SnapshotImpl>> snapshots_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -352,7 +352,7 @@ class DBImpl : public DB {
   // default.
   std::shared_ptr<const Snapshot> CreateTimestampedSnapshot(
       SequenceNumber snapshot_seq, uint64_t ts);
-  std::shared_ptr<const Snapshot> GetTimestampedSnapshot(uint64_t ts) const;
+  std::shared_ptr<const SnapshotImpl> GetTimestampedSnapshot(uint64_t ts) const;
   void ReleaseTimestampedSnapshotsOlderThan(
       uint64_t ts, size_t* remaining_total_ss = nullptr);
   Status GetTimestampedSnapshots(uint64_t ts_lb, uint64_t ts_ub,
