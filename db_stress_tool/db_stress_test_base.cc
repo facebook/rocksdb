@@ -570,8 +570,8 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
     if (thread && FLAGS_create_timestamped_snapshot_one_in &&
         thread->rand.OneIn(FLAGS_create_timestamped_snapshot_one_in)) {
       uint64_t ts = db_stress_env->NowNanos();
-      s = txn->CommitAndCreateSnapshot(/*notifier=*/nullptr, ts,
-                                       &timestamped_snapshot);
+      s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
+                                          &timestamped_snapshot);
     } else {
       s = txn->Commit();
     }

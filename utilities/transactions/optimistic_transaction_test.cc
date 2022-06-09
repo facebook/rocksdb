@@ -1393,14 +1393,15 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
 TEST_P(OptimisticTransactionTest, TimestampedSnapshotMissingCommitTs) {
   std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
   ASSERT_OK(txn->Put("a", "v"));
-  Status s = txn->CommitAndCreateSnapshot();
+  Status s = txn->CommitAndTryCreateSnapshot();
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
 TEST_P(OptimisticTransactionTest, TimestampedSnapshotSetCommitTs) {
   std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
   ASSERT_OK(txn->Put("a", "v"));
-  Status s = txn->CommitAndCreateSnapshot(nullptr, /*ts=*/100);
+  std::shared_ptr<const Snapshot> snapshot;
+  Status s = txn->CommitAndTryCreateSnapshot(nullptr, /*ts=*/100, &snapshot);
   ASSERT_TRUE(s.IsNotSupported());
 }
 

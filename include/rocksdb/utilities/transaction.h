@@ -246,10 +246,14 @@ class Transaction {
   // Currently only supported by WriteCommittedTxn. Calling this method on
   // other types of transactions will return non-ok Status resulting from
   // Commit() or a `NotSupported` error.
+  // This method returns OK if and only if the transaction successfully
+  // commits. It is possible that transaction commits successfully but fails to
+  // create a timestamped snapshot. Therefore, the caller should check that the
+  // snapshot is created.
   // notifier will be notified upon next snapshot creation. Nullable.
   // ret non-null output argument storing a shared_ptr to the newly created
   // snapshot.
-  Status CommitAndCreateSnapshot(
+  Status CommitAndTryCreateSnapshot(
       std::shared_ptr<TransactionNotifier> notifier =
           std::shared_ptr<TransactionNotifier>(),
       TxnTimestamp ts = kMaxTxnTimestamp,

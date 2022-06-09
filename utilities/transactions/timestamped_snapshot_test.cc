@@ -64,7 +64,7 @@ TEST_P(TimestampedSnapshotWithTsSanityCheck, WithoutCommitTs) {
   ASSERT_OK(txn->SetName("txn0"));
   ASSERT_OK(txn->Put("a", "v"));
   ASSERT_OK(txn->Prepare());
-  Status s = txn->CommitAndCreateSnapshot();
+  Status s = txn->CommitAndTryCreateSnapshot();
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(txn->Rollback());
 
@@ -72,7 +72,7 @@ TEST_P(TimestampedSnapshotWithTsSanityCheck, WithoutCommitTs) {
   assert(txn);
   ASSERT_OK(txn->SetName("txn0"));
   ASSERT_OK(txn->Put("a", "v"));
-  s = txn->CommitAndCreateSnapshot();
+  s = txn->CommitAndTryCreateSnapshot();
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
@@ -83,7 +83,8 @@ TEST_P(TimestampedSnapshotWithTsSanityCheck, SetCommitTs) {
   ASSERT_OK(txn->SetName("txn0"));
   ASSERT_OK(txn->Put("a", "v"));
   ASSERT_OK(txn->Prepare());
-  Status s = txn->CommitAndCreateSnapshot(nullptr, 10);
+  std::shared_ptr<const Snapshot> snapshot;
+  Status s = txn->CommitAndTryCreateSnapshot(nullptr, 10, &snapshot);
   ASSERT_TRUE(s.IsNotSupported());
   ASSERT_OK(txn->Rollback());
 
@@ -91,7 +92,7 @@ TEST_P(TimestampedSnapshotWithTsSanityCheck, SetCommitTs) {
   assert(txn);
   ASSERT_OK(txn->SetName("txn0"));
   ASSERT_OK(txn->Put("a", "v"));
-  s = txn->CommitAndCreateSnapshot(nullptr, 10);
+  s = txn->CommitAndTryCreateSnapshot(nullptr, 10, &snapshot);
   ASSERT_TRUE(s.IsNotSupported());
 }
 
@@ -102,7 +103,7 @@ TEST_P(TransactionTest, WithoutCommitTs) {
   ASSERT_OK(txn->SetName("txn0"));
   ASSERT_OK(txn->Put("a", "v"));
   ASSERT_OK(txn->Prepare());
-  Status s = txn->CommitAndCreateSnapshot();
+  Status s = txn->CommitAndTryCreateSnapshot();
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(txn->Rollback());
 
@@ -110,7 +111,7 @@ TEST_P(TransactionTest, WithoutCommitTs) {
   assert(txn);
   ASSERT_OK(txn->SetName("txn0"));
   ASSERT_OK(txn->Put("a", "v"));
-  s = txn->CommitAndCreateSnapshot();
+  s = txn->CommitAndTryCreateSnapshot();
   ASSERT_TRUE(s.IsInvalidArgument());
 }
 
@@ -142,7 +143,7 @@ TEST_P(TransactionTest, CreateSnapshotWhenCommit) {
   std::shared_ptr<const Snapshot> snapshot;
   constexpr TxnTimestamp timestamp = 1;
   auto notifier = std::make_shared<TsCheckingTxnNotifier>();
-  Status s = txn->CommitAndCreateSnapshot(notifier, timestamp, &snapshot);
+  Status s = txn->CommitAndTryCreateSnapshot(notifier, timestamp, &snapshot);
   ASSERT_OK(s);
   ASSERT_LT(notifier->prev_snapshot_ts(), kMaxTxnTimestamp);
   assert(snapshot);
@@ -271,7 +272,7 @@ TEST_P(TransactionTest, SequenceAndTsOrder) {
         db->BeginTransaction(WriteOptions(), TransactionOptions()));
     ASSERT_OK(txn1->Put("bar", "v0"));
     std::shared_ptr<const Snapshot> ss;
-    ASSERT_OK(txn1->CommitAndCreateSnapshot(nullptr, 200, &ss));
+    ASSERT_OK(txn1->CommitAndTryCreateSnapshot(nullptr, 200, &ss));
     // Cannot create snapshot because requested timestamp is the same as the
     // latest timestamped snapshot while sequence number is strictly higher.
     ASSERT_EQ(nullptr, ss);
@@ -283,7 +284,7 @@ TEST_P(TransactionTest, SequenceAndTsOrder) {
     std::shared_ptr<const Snapshot> ss;
     // Application should never do this. This is just to demonstrate error
     // handling.
-    ASSERT_OK(txn2->CommitAndCreateSnapshot(nullptr, 100, &ss));
+    ASSERT_OK(txn2->CommitAndTryCreateSnapshot(nullptr, 100, &ss));
     // Cannot create snapshot because requested timestamp is smaller than
     // latest timestamped snapshot.
     ASSERT_EQ(nullptr, ss);
@@ -299,7 +300,7 @@ TEST_P(TransactionTest, CloseDbWithSnapshots) {
   std::shared_ptr<const Snapshot> snapshot;
   constexpr TxnTimestamp timestamp = 121;
   auto notifier = std::make_shared<TsCheckingTxnNotifier>();
-  ASSERT_OK(txn->CommitAndCreateSnapshot(notifier, timestamp, &snapshot));
+  ASSERT_OK(txn->CommitAndTryCreateSnapshot(notifier, timestamp, &snapshot));
   assert(snapshot);
   ASSERT_LT(notifier->prev_snapshot_ts(), kMaxTxnTimestamp);
   ASSERT_EQ(timestamp, snapshot->GetTimestamp());
@@ -330,8 +331,8 @@ TEST_P(TransactionTest, MultipleTimestampedSnapshots) {
     if (0 == (i % 2)) {
       ASSERT_OK(txn->Prepare());
     }
-    ASSERT_OK(txn->CommitAndCreateSnapshot(notifier, start_ts + i * ts_delta,
-                                           &snapshots[i]));
+    ASSERT_OK(txn->CommitAndTryCreateSnapshot(notifier, start_ts + i * ts_delta,
+                                              &snapshots[i]));
     assert(snapshots[i]);
     ASSERT_LT(notifier->prev_snapshot_ts(), kMaxTxnTimestamp);
     ASSERT_EQ(start_ts + i * ts_delta, snapshots[i]->GetTimestamp());
