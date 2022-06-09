@@ -28,7 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 static std::string EncodeKey(int k) {
   std::string result;
   PutFixed32(&result, k);
-  result += "aaaaaaaaaaaa"; // 12B of padding.
+  result += "aaaaaaaaaaaa";  // 12B of padding.
   return result;
 }
 static int DecodeKey(const Slice& k) {

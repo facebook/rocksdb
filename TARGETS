@@ -5342,6 +5342,12 @@ cpp_unittest_wrapper(name="external_sst_file_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="fast_lru_cache_test",
+            srcs=["cache/fast_lru_cache_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="fault_injection_test",
             srcs=["db/fault_injection_test.cc"],
             deps=[":rocksdb_test_lib"],

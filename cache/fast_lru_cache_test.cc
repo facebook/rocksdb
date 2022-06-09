@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "cache/fast_lru_cache.h"
+
 #include "db/db_test_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -36,16 +37,16 @@ class LRUCacheTest : public testing::Test {
 
   Status Insert(const std::string& key) {
     return cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
-                             nullptr /*deleter*/, nullptr /*handle*/,
-                             Cache::Priority::LOW);
+                          nullptr /*deleter*/, nullptr /*handle*/,
+                          Cache::Priority::LOW);
   }
 
   void Insert(char key, size_t len) {
     Status s = Insert(std::string(len, key));
     if (len == 16) {
-        EXPECT_OK(s);
+      EXPECT_OK(s);
     } else {
-        EXPECT_NOK(s);
+      EXPECT_NOK(s);
     }
   }
 
