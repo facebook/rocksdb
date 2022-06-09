@@ -3279,6 +3279,44 @@ std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
     snapshot_seq = GetLastPublishedSequence();
   }
 
+  std::shared_ptr<const SnapshotImpl> latest =
+      timestamped_snapshots_.GetSnapshot(std::numeric_limits<uint64_t>::max());
+
+  // If there is already a latest timestamped snapshot, then we need to do some
+  // checks.
+  if (latest) {
+    uint64_t latest_snap_ts = latest->GetTimestamp();
+    SequenceNumber latest_snap_seq = latest->GetSequenceNumber();
+    assert(latest_snap_seq <= snapshot_seq);
+    bool needs_create_snap = true;
+    std::shared_ptr<const SnapshotImpl> ret;
+    if (latest_snap_ts > ts) {
+      // A snapshot created later cannot have smaller timestamp than a previous
+      // timestamped snapshot.
+      needs_create_snap = false;
+    } else if (latest_snap_ts == ts) {
+      if (latest_snap_seq == snapshot_seq) {
+        // We are requesting the same sequence number and timestamp, thus can
+        // safely reuse (share) the current latest timestamped snapshot.
+        needs_create_snap = false;
+        ret = latest;
+      } else if (latest_snap_seq < snapshot_seq) {
+        // There may have been writes to the database since the latest
+        // timestamped snapshot, yet we are still requesting the same
+        // timestamp. In this case, we cannot create the new timestamped
+        // snapshot.
+        needs_create_snap = false;
+      }
+    }
+    if (!needs_create_snap) {
+      if (lock) {
+        mutex_.Unlock();
+      }
+      delete s;
+      return ret;
+    }
+  }
+
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time,
                      /*is_write_conflict_boundary=*/true, ts);

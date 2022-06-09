@@ -218,6 +218,38 @@ TEST_P(TransactionTest, CreateSnapshot) {
   }
 }
 
+TEST_P(TransactionTest, SequenceAndTsOrder) {
+  auto snapshot = db->CreateTimestampedSnapshot(100);
+  {
+    // Cannot request smaller timestamp for the new timestamped snapshot.
+    auto tmp_snapshot = db->CreateTimestampedSnapshot(50);
+    ASSERT_EQ(nullptr, tmp_snapshot.get());
+  }
+
+  // If requesting a new timestamped snapshot with the same timestamp and
+  // sequence number, we avoid creating new snapshot object but reuse
+  // exisisting one.
+  auto snapshot1 = db->CreateTimestampedSnapshot(100);
+  ASSERT_EQ(snapshot.get(), snapshot1.get());
+
+  // If there is no write, but we request a larger timestamp, we still create
+  // a new snapshot object.
+  auto snapshot2 = db->CreateTimestampedSnapshot(200);
+  assert(snapshot2);
+  ASSERT_NE(snapshot.get(), snapshot2.get());
+  ASSERT_EQ(snapshot2->GetSequenceNumber(), snapshot->GetSequenceNumber());
+  ASSERT_EQ(200, snapshot2->GetTimestamp());
+
+  // Increase sequence number.
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "v0"));
+  {
+    // We are requesting the same timestamp for a larger sequence number, thus
+    // we cannot create timestamped snapshot.
+    auto tmp_snapshot = db->CreateTimestampedSnapshot(200);
+    ASSERT_EQ(nullptr, tmp_snapshot.get());
+  }
+}
+
 TEST_P(TransactionTest, CloseDbWithSnapshots) {
   std::unique_ptr<Transaction> txn(
       db->BeginTransaction(WriteOptions(), TransactionOptions()));
