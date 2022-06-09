@@ -3326,6 +3326,8 @@ DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
       }
       delete s;
       return std::make_pair(status, ret);
+    } else {
+      status.PermitUncheckedError();
     }
   }
 
