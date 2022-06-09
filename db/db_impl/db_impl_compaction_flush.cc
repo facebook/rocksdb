@@ -970,7 +970,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
     return s;
   }
   current_ts_low = cfd->GetFullHistoryTsLow();
-  if (ucmp->CompareTimestamp(current_ts_low, ts_low) > 0) {
+  if (!current_ts_low.empty() &&
+      ucmp->CompareTimestamp(current_ts_low, ts_low) > 0) {
     std::stringstream oss;
     oss << "full_history_ts_low: " << Slice(current_ts_low).ToString(true)
         << " is set to be higher than the requested "
