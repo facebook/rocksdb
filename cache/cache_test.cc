@@ -28,11 +28,15 @@ namespace ROCKSDB_NAMESPACE {
 static std::string EncodeKey(int k) {
   std::string result;
   PutFixed32(&result, k);
+  result += "aaaaaaaaaaaa"; // 12B of padding.
   return result;
 }
 static int DecodeKey(const Slice& k) {
-  assert(k.size() == 4);
-  return DecodeFixed32(k.data());
+  assert(k.size() == 16);
+  Slice copy(k);
+
+  copy.remove_suffix(12);
+  return DecodeFixed32(copy.data());
 }
 static void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
 static int DecodeValue(void* v) {
@@ -47,7 +51,7 @@ void dumbDeleter(const Slice& /*key*/, void* /*value*/) {}
 
 void eraseDeleter(const Slice& /*key*/, void* value) {
   Cache* cache = reinterpret_cast<Cache*>(value);
-  cache->Erase("foo");
+  cache->Erase(EncodeKey(123));
 }
 
 class CacheTest : public testing::TestWithParam<std::string> {
@@ -164,6 +168,11 @@ CacheTest* CacheTest::current_;
 class LRUCacheTest : public CacheTest {};
 
 TEST_P(CacheTest, UsageTest) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16-byte keys.");
+    return;
+  }
+
   // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
@@ -208,6 +217,11 @@ TEST_P(CacheTest, UsageTest) {
 }
 
 TEST_P(CacheTest, PinnedUsageTest) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16-byte keys.");
+    return;
+  }
+
   // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 200000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
@@ -462,18 +476,18 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 TEST_P(CacheTest, EvictEmptyCache) {
   // Insert item large than capacity to trigger eviction on empty cache.
   auto cache = NewCache(1, 0, false);
-  ASSERT_OK(cache->Insert("foo", nullptr, 10, dumbDeleter));
+  ASSERT_OK(cache->Insert(EncodeKey(123), nullptr, 10, dumbDeleter));
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
   // Have deleter which will erase item from cache, which will re-enter
   // the cache at that point.
   std::shared_ptr<Cache> cache = NewCache(10, 0, false);
-  ASSERT_OK(cache->Insert("foo", nullptr, 1, dumbDeleter));
-  ASSERT_OK(cache->Insert("bar", cache.get(), 1, eraseDeleter));
-  cache->Erase("bar");
-  ASSERT_EQ(nullptr, cache->Lookup("foo"));
-  ASSERT_EQ(nullptr, cache->Lookup("bar"));
+  ASSERT_OK(cache->Insert(EncodeKey(123), nullptr, 1, dumbDeleter));
+  ASSERT_OK(cache->Insert(EncodeKey(456), cache.get(), 1, eraseDeleter));
+  cache->Erase(EncodeKey(456));
+  ASSERT_EQ(nullptr, cache->Lookup(EncodeKey(123)));
+  ASSERT_EQ(nullptr, cache->Lookup(EncodeKey(456)));
 }
 
 TEST_P(CacheTest, ErasedHandleState) {
@@ -585,7 +599,7 @@ TEST_P(CacheTest, SetCapacity) {
   std::vector<Cache::Handle*> handles(10);
   // Insert 5 entries, but not releasing.
   for (size_t i = 0; i < 5; i++) {
-    std::string key = std::to_string(i + 1);
+    std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
@@ -600,7 +614,7 @@ TEST_P(CacheTest, SetCapacity) {
   // then decrease capacity to 7, final capacity should be 7
   // and usage should be 7
   for (size_t i = 5; i < 10; i++) {
-    std::string key = std::to_string(i + 1);
+    std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
@@ -631,7 +645,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   std::vector<Cache::Handle*> handles(10);
   Status s;
   for (size_t i = 0; i < 10; i++) {
-    std::string key = std::to_string(i + 1);
+    std::string key = EncodeKey(i + 1);
     s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
@@ -639,7 +653,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(10, cache->GetUsage());
 
   // test2: set the flag to true. Insert and check if it fails.
-  std::string extra_key = "extra";
+  std::string extra_key = EncodeKey(999);
   Value* extra_value = new Value(0);
   cache->SetStrictCapacityLimit(true);
   Cache::Handle* handle;
@@ -655,7 +669,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   // test3: init with flag being true.
   std::shared_ptr<Cache> cache2 = NewCache(5, 0, true);
   for (size_t i = 0; i < 5; i++) {
-    std::string key = std::to_string(i + 1);
+    std::string key = EncodeKey(i + 1);
     s = cache2->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
@@ -685,14 +699,14 @@ TEST_P(CacheTest, OverCapacity) {
 
   // Insert n+1 entries, but not releasing.
   for (size_t i = 0; i < n + 1; i++) {
-    std::string key = std::to_string(i + 1);
+    std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
 
   // Guess what's in the cache now?
   for (size_t i = 0; i < n + 1; i++) {
-    std::string key = std::to_string(i + 1);
+    std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     ASSERT_TRUE(h != nullptr);
     if (h) cache->Release(h);
@@ -713,7 +727,7 @@ TEST_P(CacheTest, OverCapacity) {
   // This is consistent with the LRU policy since the element 0
   // was released first
   for (size_t i = 0; i < n + 1; i++) {
-    std::string key = std::to_string(i + 1);
+    std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     if (h) {
       ASSERT_NE(i, 0U);
