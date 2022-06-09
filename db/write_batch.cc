@@ -1495,7 +1495,8 @@ Status WriteBatch::VerifyChecksum() const {
   if (prot_info_ == nullptr) {
     return Status::OK();
   }
-  Slice input(rep_.data() + WriteBatchInternal::kHeader, rep_.size());
+  Slice input(rep_.data() + WriteBatchInternal::kHeader,
+              rep_.size() - WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
   char tag = 0;
   uint32_t column_family = 0;  // default

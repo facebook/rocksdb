@@ -350,7 +350,7 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALCorrupted) {
   ASSERT_OK(leader_batch_and_status.second);
   auto follower_batch_and_status =
       GetWriteBatch(nullptr /* cf_handle */, op_type2_);
-  auto leader_batch_size = leader_batch_and_status.first.GetDataSize();
+  size_t leader_batch_size = leader_batch_and_status.first.GetDataSize();
   size_t total_bytes =
       leader_batch_size + follower_batch_and_status.first.GetDataSize();
   // First 8 bytes are for sequence number which is not protected in write batch
@@ -359,62 +359,67 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALCorrupted) {
   std::atomic<bool> follower_joined{false};
   std::atomic<int> leader_count{0};
   port::Thread follower_thread;
-  SyncPoint::GetInstance()->EnableProcessing();
+  // This callback should only be called by the leader thread
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Wait2", [&](void* arg_leader) {
+        auto* leader = reinterpret_cast<WriteThread::Writer*>(arg_leader);
+        ASSERT_EQ(leader->state, WriteThread::STATE_GROUP_LEADER);
+
+        // This callback should only be called by the follower thread
+        SyncPoint::GetInstance()->SetCallBack(
+            "WriteThread::JoinBatchGroup:Wait", [&](void* arg_follower) {
+              auto* follower =
+                  reinterpret_cast<WriteThread::Writer*>(arg_follower);
+              // The leader thread will wait on this bool and hence wait until
+              // this writer joins the write group
+              ASSERT_NE(follower->state, WriteThread::STATE_GROUP_LEADER);
+              if (corrupt_byte_offset >= leader_batch_size) {
+                Slice batch_content = follower->batch->Data();
+                CorruptWriteBatch(&batch_content,
+                                  corrupt_byte_offset - leader_batch_size,
+                                  corrupt_byte_addend_);
+              }
+              // Leader busy waits on this flag
+              follower_joined = true;
+              // So the follower does not enter the outer callback at
+              // WriteThread::JoinBatchGroup:Wait2
+              SyncPoint::GetInstance()->DisableProcessing();
+            });
+
+        // Start the other writer thread which will join the write group as
+        // follower
+        follower_thread = port::Thread([&]() {
+          follower_batch_and_status =
+              GetWriteBatch(nullptr /* cf_handle */, op_type2_);
+          ASSERT_OK(follower_batch_and_status.second);
+          ASSERT_TRUE(
+              db_->Write(WriteOptions(), &follower_batch_and_status.first)
+                  .IsCorruption());
+        });
+
+        ASSERT_EQ(leader->batch->GetDataSize(), leader_batch_size);
+        if (corrupt_byte_offset < leader_batch_size) {
+          Slice batch_content = leader->batch->Data();
+          CorruptWriteBatch(&batch_content, corrupt_byte_offset,
+                            corrupt_byte_addend_);
+        }
+        leader_count++;
+        while (not follower_joined) {
+          // busy waiting
+        }
+      });
   while (corrupt_byte_offset < total_bytes) {
     // Reopen DB since it failed WAL write which lead to read-only mode
     Reopen(options);
-    // This callback should only be called by the leader thread
-    SyncPoint::GetInstance()->SetCallBack(
-        "WriteThread::JoinBatchGroup:Wait", [&](void* arg_leader) {
-          auto* leader = reinterpret_cast<WriteThread::Writer*>(arg_leader);
-          ASSERT_EQ(leader->state, WriteThread::STATE_GROUP_LEADER);
-
-          // This callback should only be called by the follower thread
-          SyncPoint::GetInstance()->SetCallBack(
-              "WriteThread::JoinBatchGroup:Wait", [&](void* arg_follower) {
-                auto* follower =
-                    reinterpret_cast<WriteThread::Writer*>(arg_follower);
-                // The leader thread will wait on this bool and hence wait until
-                // this writer joins the write group
-                ASSERT_NE(follower->state, WriteThread::STATE_GROUP_LEADER);
-                if (corrupt_byte_offset >= leader_batch_size) {
-                  Slice batch_content = follower->batch->Data();
-                  CorruptWriteBatch(&batch_content,
-                                    corrupt_byte_offset - leader_batch_size,
-                                    corrupt_byte_addend_);
-                }
-                // Leader busy waits on this flag
-                follower_joined = true;
-              });
-
-          // Start the other writer thread which will join the write group as
-          // follower
-          follower_thread = port::Thread([&]() {
-            follower_batch_and_status =
-                GetWriteBatch(nullptr /* cf_handle */, op_type2_);
-            ASSERT_OK(follower_batch_and_status.second);
-            ASSERT_TRUE(
-                db_->Write(WriteOptions(), &follower_batch_and_status.first)
-                    .IsCorruption());
-          });
-
-          ASSERT_EQ(leader->batch->GetDataSize(), leader_batch_size);
-          if (corrupt_byte_offset < leader_batch_size) {
-            Slice batch_content = leader->batch->Data();
-            CorruptWriteBatch(&batch_content, corrupt_byte_offset,
-                              corrupt_byte_addend_);
-          }
-          leader_count++;
-          while (not follower_joined) {
-            // busy waiting
-          }
-        });
+    SyncPoint::GetInstance()->EnableProcessing();
     auto log_size_pre_write = dbfull()->TEST_total_log_size();
     leader_batch_and_status = GetWriteBatch(nullptr /* cf_handle */, op_type1_);
     ASSERT_OK(leader_batch_and_status.second);
     ASSERT_TRUE(db_->Write(WriteOptions(), &leader_batch_and_status.first)
                     .IsCorruption());
     follower_thread.join();
+    // Prevent leader thread from entering this callback
+    SyncPoint::GetInstance()->ClearCallBack("WriteThread::JoinBatchGroup:Wait");
     ASSERT_EQ(1, leader_count);
     // Nothing should have been written to WAL
     ASSERT_EQ(log_size_pre_write, dbfull()->TEST_total_log_size());
@@ -445,12 +450,12 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALWithColumnFamilyCorrupted) {
       op_type2_ == WriteBatchOpType::kMerge) {
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
-  CreateAndReopenWithCF({"pikachu"}, options);
+  CreateAndReopenWithCF({"ramen"}, options);
 
   auto leader_batch_and_status = GetWriteBatch(handles_[1], op_type1_);
   ASSERT_OK(leader_batch_and_status.second);
   auto follower_batch_and_status = GetWriteBatch(handles_[1], op_type2_);
-  auto leader_batch_size = leader_batch_and_status.first.GetDataSize();
+  size_t leader_batch_size = leader_batch_and_status.first.GetDataSize();
   size_t total_bytes =
       leader_batch_size + follower_batch_and_status.first.GetDataSize();
   // First 8 bytes are for sequence number which is not protected in write batch
@@ -459,61 +464,68 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALWithColumnFamilyCorrupted) {
   std::atomic<bool> follower_joined{false};
   std::atomic<int> leader_count{0};
   port::Thread follower_thread;
+  // This callback should only be called by the leader thread
+  SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Wait2", [&](void* arg_leader) {
+        auto* leader = reinterpret_cast<WriteThread::Writer*>(arg_leader);
+        ASSERT_EQ(leader->state, WriteThread::STATE_GROUP_LEADER);
+
+        // This callback should only be called by the follower thread
+        SyncPoint::GetInstance()->SetCallBack(
+            "WriteThread::JoinBatchGroup:Wait", [&](void* arg_follower) {
+              auto* follower =
+                  reinterpret_cast<WriteThread::Writer*>(arg_follower);
+              // The leader thread will wait on this bool and hence wait until
+              // this writer joins the write group
+              ASSERT_NE(follower->state, WriteThread::STATE_GROUP_LEADER);
+              if (corrupt_byte_offset >= leader_batch_size) {
+                Slice batch_content =
+                    WriteBatchInternal::Contents(follower->batch);
+                CorruptWriteBatch(&batch_content,
+                                  corrupt_byte_offset - leader_batch_size,
+                                  corrupt_byte_addend_);
+              }
+              follower_joined = true;
+              // So the follower does not enter the outer callback at
+              // WriteThread::JoinBatchGroup:Wait2
+              SyncPoint::GetInstance()->DisableProcessing();
+            });
+
+        // Start the other writer thread which will join the write group as
+        // follower
+        follower_thread = port::Thread([&]() {
+          follower_batch_and_status = GetWriteBatch(handles_[1], op_type2_);
+          ASSERT_OK(follower_batch_and_status.second);
+          ASSERT_TRUE(
+              db_->Write(WriteOptions(), &follower_batch_and_status.first)
+                  .IsCorruption());
+        });
+
+        ASSERT_EQ(leader->batch->GetDataSize(), leader_batch_size);
+        if (corrupt_byte_offset < leader_batch_size) {
+          Slice batch_content = WriteBatchInternal::Contents(leader->batch);
+          CorruptWriteBatch(&batch_content, corrupt_byte_offset,
+                            corrupt_byte_addend_);
+        }
+        leader_count++;
+        while (not follower_joined) {
+          // busy waiting
+        }
+      });
   SyncPoint::GetInstance()->EnableProcessing();
   while (corrupt_byte_offset < total_bytes) {
     // Reopen DB since it failed WAL write which lead to read-only mode
-    ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
-    // This callback should only be called by the leader thread
-    SyncPoint::GetInstance()->SetCallBack(
-        "WriteThread::JoinBatchGroup:Wait", [&](void* arg_leader) {
-          auto* leader = reinterpret_cast<WriteThread::Writer*>(arg_leader);
-          ASSERT_EQ(leader->state, WriteThread::STATE_GROUP_LEADER);
-
-          // This callback should only be called by the follower thread
-          SyncPoint::GetInstance()->SetCallBack(
-              "WriteThread::JoinBatchGroup:Wait", [&](void* arg_follower) {
-                auto* follower =
-                    reinterpret_cast<WriteThread::Writer*>(arg_follower);
-                // The leader thread will wait on this bool and hence wait until
-                // this writer joins the write group
-                ASSERT_NE(follower->state, WriteThread::STATE_GROUP_LEADER);
-                if (corrupt_byte_offset >= leader_batch_size) {
-                  Slice batch_content =
-                      WriteBatchInternal::Contents(follower->batch);
-                  CorruptWriteBatch(&batch_content,
-                                    corrupt_byte_offset - leader_batch_size,
-                                    corrupt_byte_addend_);
-                }
-                follower_joined = true;
-              });
-
-          // Start the other writer thread which will join the write group as
-          // follower
-          follower_thread = port::Thread([&]() {
-            follower_batch_and_status = GetWriteBatch(handles_[1], op_type2_);
-            ASSERT_OK(follower_batch_and_status.second);
-            ASSERT_TRUE(
-                db_->Write(WriteOptions(), &follower_batch_and_status.first)
-                    .IsCorruption());
-          });
-
-          ASSERT_EQ(leader->batch->GetDataSize(), leader_batch_size);
-          if (corrupt_byte_offset < leader_batch_size) {
-            Slice batch_content = WriteBatchInternal::Contents(leader->batch);
-            CorruptWriteBatch(&batch_content, corrupt_byte_offset,
-                              corrupt_byte_addend_);
-          }
-          leader_count++;
-          while (not follower_joined) {
-            // busy waiting
-          }
-        });
+    ReopenWithColumnFamilies({kDefaultColumnFamilyName, "ramen"}, options);
+    SyncPoint::GetInstance()->EnableProcessing();
     auto log_size_pre_write = dbfull()->TEST_total_log_size();
     leader_batch_and_status = GetWriteBatch(handles_[1], op_type1_);
     ASSERT_OK(leader_batch_and_status.second);
     ASSERT_TRUE(db_->Write(WriteOptions(), &leader_batch_and_status.first)
                     .IsCorruption());
     follower_thread.join();
+    // Prevent leader thread from entering this callback
+    SyncPoint::GetInstance()->ClearCallBack("WriteThread::JoinBatchGroup:Wait");
+
     ASSERT_EQ(1, leader_count);
     // Nothing should have been written to WAL
     ASSERT_EQ(log_size_pre_write, dbfull()->TEST_total_log_size());
