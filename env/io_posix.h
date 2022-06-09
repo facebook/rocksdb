@@ -352,10 +352,10 @@ class PosixMmapReadableFile : public FSRandomAccessFile {
   PosixMmapReadableFile(const int fd, const std::string& fname, void* base,
                         size_t length, const EnvOptions& options);
   virtual ~PosixMmapReadableFile();
-  virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts,
-                        Slice* result, char* scratch,
-                        IODebugContext* dbg) const override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
+                char* scratch, IODebugContext* dbg) const override;
+  void Hint(AccessPattern pattern) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
 };
 
 class PosixMmapFile : public FSWritableFile {
