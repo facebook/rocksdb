@@ -25,18 +25,31 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Conversions between numeric keys/values and the types expected by Cache.
-static std::string EncodeKey(int k) {
+static std::string EncodeKey16Bytes(int k) {
   std::string result;
   PutFixed32(&result, k);
-  result += "aaaaaaaaaaaa";  // 12B of padding.
+  result.append(std::string(12, 'a'));  // Add a 12B padding.
   return result;
 }
-static int DecodeKey(const Slice& k) {
+
+static int DecodeKey16Bytes(const Slice& k) {
   assert(k.size() == 16);
-  std::string str(k.data(), 4);
-  return DecodeFixed32(str.c_str());
+  return DecodeFixed32(std::string(k.data(), 4).c_str());
 }
+
+static std::string EncodeKey32Bits(int k) {
+  std::string result;
+  PutFixed32(&result, k);
+  return result;
+}
+
+static int DecodeKey32Bits(const Slice& k) {
+  assert(k.size() == 4);
+  return DecodeFixed32(k.data());
+}
+
 static void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
+
 static int DecodeValue(void* v) {
   return static_cast<int>(reinterpret_cast<uintptr_t>(v));
 }
@@ -49,15 +62,20 @@ void dumbDeleter(const Slice& /*key*/, void* /*value*/) {}
 
 void eraseDeleter(const Slice& /*key*/, void* value) {
   Cache* cache = reinterpret_cast<Cache*>(value);
-  cache->Erase(EncodeKey(123));
+  cache->Erase("foo");
 }
 
 class CacheTest : public testing::TestWithParam<std::string> {
  public:
   static CacheTest* current_;
+  static std::string type_;
 
   static void Deleter(const Slice& key, void* v) {
-    current_->deleted_keys_.push_back(DecodeKey(key));
+    if (type_ == kFast) {
+      current_->deleted_keys_.push_back(DecodeKey16Bytes(key));
+    } else {
+      current_->deleted_keys_.push_back(DecodeKey32Bits(key));
+    }
     current_->deleted_values_.push_back(DecodeValue(v));
   }
 
@@ -76,6 +94,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
       : cache_(NewCache(kCacheSize, kNumShardBits, false)),
         cache2_(NewCache(kCacheSize2, kNumShardBits2, false)) {
     current_ = this;
+    type_ = GetParam();
   }
 
   ~CacheTest() override {}
@@ -116,6 +135,27 @@ class CacheTest : public testing::TestWithParam<std::string> {
                              charge_policy);
     }
     return nullptr;
+  }
+
+  // These functions encode/decode keys in tests cases that use
+  // int keys.
+  // Currently, FastLRUCache requires keys to be 16B long, whereas
+  // LRUCache and ClockCache don't, so the encoding depends on
+  // the cache type.
+  std::string EncodeKey(int k) {
+    if (GetParam() == kFast) {
+      return EncodeKey16Bytes(k);
+    } else {
+      return EncodeKey32Bits(k);
+    }
+  }
+
+  int DecodeKey(const Slice& k) {
+    if (GetParam() == kFast) {
+      return DecodeKey16Bytes(k);
+    } else {
+      return DecodeKey32Bits(k);
+    }
   }
 
   int Lookup(std::shared_ptr<Cache> cache, int key) {
@@ -162,12 +202,13 @@ class CacheTest : public testing::TestWithParam<std::string> {
   }
 };
 CacheTest* CacheTest::current_;
+std::string CacheTest::type_;
 
 class LRUCacheTest : public CacheTest {};
 
 TEST_P(CacheTest, UsageTest) {
   if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16-byte keys.");
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
     return;
   }
 
@@ -216,7 +257,7 @@ TEST_P(CacheTest, UsageTest) {
 
 TEST_P(CacheTest, PinnedUsageTest) {
   if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16-byte keys.");
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
     return;
   }
 
@@ -472,20 +513,30 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 }
 
 TEST_P(CacheTest, EvictEmptyCache) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+    return;
+  }
+
   // Insert item large than capacity to trigger eviction on empty cache.
   auto cache = NewCache(1, 0, false);
-  ASSERT_OK(cache->Insert(EncodeKey(123), nullptr, 10, dumbDeleter));
+  ASSERT_OK(cache->Insert("foo", nullptr, 10, dumbDeleter));
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+    return;
+  }
+
   // Have deleter which will erase item from cache, which will re-enter
   // the cache at that point.
   std::shared_ptr<Cache> cache = NewCache(10, 0, false);
-  ASSERT_OK(cache->Insert(EncodeKey(123), nullptr, 1, dumbDeleter));
-  ASSERT_OK(cache->Insert(EncodeKey(456), cache.get(), 1, eraseDeleter));
-  cache->Erase(EncodeKey(456));
-  ASSERT_EQ(nullptr, cache->Lookup(EncodeKey(123)));
-  ASSERT_EQ(nullptr, cache->Lookup(EncodeKey(456)));
+  ASSERT_OK(cache->Insert("foo", nullptr, 1, dumbDeleter));
+  ASSERT_OK(cache->Insert("bar", cache.get(), 1, eraseDeleter));
+  cache->Erase("bar");
+  ASSERT_EQ(nullptr, cache->Lookup("foo"));
+  ASSERT_EQ(nullptr, cache->Lookup("bar"));
 }
 
 TEST_P(CacheTest, ErasedHandleState) {
@@ -651,7 +702,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(10, cache->GetUsage());
 
   // test2: set the flag to true. Insert and check if it fails.
-  std::string extra_key = EncodeKey(999);
+  std::string extra_key = EncodeKey(100);
   Value* extra_value = new Value(0);
   cache->SetStrictCapacityLimit(true);
   Cache::Handle* handle;
