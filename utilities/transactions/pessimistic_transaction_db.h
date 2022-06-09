@@ -150,7 +150,7 @@ class PessimisticTransactionDB : public TransactionDB {
     return lock_manager_->GetLockTrackerFactory();
   }
 
-  std::shared_ptr<const Snapshot> CreateTimestampedSnapshot(
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
       TxnTimestamp ts) override;
 
   std::shared_ptr<const Snapshot> GetTimestampedSnapshot(
@@ -289,6 +289,8 @@ class SnapshotCreationCallback : public PostMemTableCallback {
   const TxnTimestamp commit_ts_;
   std::shared_ptr<TransactionNotifier> snapshot_notifier_;
   std::shared_ptr<const Snapshot>& snapshot_;
+
+  Status snapshot_creation_status_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

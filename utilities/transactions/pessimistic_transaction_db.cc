@@ -656,10 +656,10 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   transactions_.erase(it);
 }
 
-std::shared_ptr<const Snapshot>
+std::pair<Status, std::shared_ptr<const Snapshot>>
 PessimisticTransactionDB::CreateTimestampedSnapshot(TxnTimestamp ts) {
   if (kMaxTxnTimestamp == ts) {
-    return nullptr;
+    return std::make_pair(Status::InvalidArgument("invalid ts"), nullptr);
   }
   assert(db_impl_);
   return db_impl_->CreateTimestampedSnapshot(kMaxSequenceNumber, ts);
@@ -705,9 +705,15 @@ Status SnapshotCreationCallback::operator()(SequenceNumber seq,
   }
 
   // Create a snapshot which can also be used for write conflict checking.
-  snapshot_ = db_impl_->CreateTimestampedSnapshot(seq, commit_ts_);
-  assert(snapshot_);
-  if (snapshot_notifier_) {
+  auto ret = db_impl_->CreateTimestampedSnapshot(seq, commit_ts_);
+  snapshot_creation_status_ = ret.first;
+  snapshot_ = ret.second;
+  if (snapshot_creation_status_.ok()) {
+    assert(snapshot_);
+  } else {
+    assert(!snapshot_);
+  }
+  if (snapshot_ && snapshot_notifier_) {
     snapshot_notifier_->SnapshotCreated(snapshot_.get());
   }
   return Status::OK();

@@ -3179,8 +3179,8 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 }
 #endif  // ROCKSDB_LITE
 
-std::shared_ptr<const Snapshot> DBImpl::CreateTimestampedSnapshot(
-    SequenceNumber snapshot_seq, uint64_t ts) {
+std::pair<Status, std::shared_ptr<const Snapshot>>
+DBImpl::CreateTimestampedSnapshot(SequenceNumber snapshot_seq, uint64_t ts) {
   assert(ts != std::numeric_limits<uint64_t>::max());
 
   auto ret = CreateTimestampedSnapshotImpl(snapshot_seq, ts, /*lock=*/true);
@@ -3250,8 +3250,9 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   return snapshot;
 }
 
-std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
-    SequenceNumber snapshot_seq, uint64_t ts, bool lock) {
+std::pair<Status, std::shared_ptr<const SnapshotImpl>>
+DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
+                                      bool lock) {
   int64_t unix_time = 0;
   immutable_db_options_.clock->GetCurrentTime(&unix_time)
       .PermitUncheckedError();  // Ignore error
@@ -3270,7 +3271,8 @@ std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
       mutex_.Unlock();
     }
     delete s;
-    return nullptr;
+    return std::make_pair(
+        Status::NotSupported("Memtable does not support snapshot"), nullptr);
   }
 
   // Caller is not write thread, thus didn't provide a valid snapshot_seq.
@@ -3289,11 +3291,16 @@ std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
     SequenceNumber latest_snap_seq = latest->GetSequenceNumber();
     assert(latest_snap_seq <= snapshot_seq);
     bool needs_create_snap = true;
+    Status status;
     std::shared_ptr<const SnapshotImpl> ret;
     if (latest_snap_ts > ts) {
       // A snapshot created later cannot have smaller timestamp than a previous
       // timestamped snapshot.
       needs_create_snap = false;
+      std::ostringstream oss;
+      oss << "snapshot exists with larger timestamp " << latest_snap_ts << " > "
+          << ts;
+      status = Status::InvalidArgument(oss.str());
     } else if (latest_snap_ts == ts) {
       if (latest_snap_seq == snapshot_seq) {
         // We are requesting the same sequence number and timestamp, thus can
@@ -3306,6 +3313,11 @@ std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
         // timestamp. In this case, we cannot create the new timestamped
         // snapshot.
         needs_create_snap = false;
+        std::ostringstream oss;
+        oss << "Allocated seq is " << snapshot_seq
+            << ", while snapshot exists with smaller seq " << latest_snap_seq
+            << " but same timestamp " << ts;
+        status = Status::InvalidArgument(oss.str());
       }
     }
     if (!needs_create_snap) {
@@ -3313,7 +3325,7 @@ std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
         mutex_.Unlock();
       }
       delete s;
-      return ret;
+      return std::make_pair(status, ret);
     }
   }
 
@@ -3342,7 +3354,7 @@ std::shared_ptr<const SnapshotImpl> DBImpl::CreateTimestampedSnapshotImpl(
   if (lock) {
     mutex_.Unlock();
   }
-  return ret;
+  return std::make_pair(Status::OK(), ret);
 }
 
 namespace {

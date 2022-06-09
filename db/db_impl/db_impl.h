@@ -350,7 +350,7 @@ class DBImpl : public DB {
   // readers. If any of them uses it for write conflict checking, then
   // is_write_conflict_boundary is true. For simplicity, set it to true by
   // default.
-  std::shared_ptr<const Snapshot> CreateTimestampedSnapshot(
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
       SequenceNumber snapshot_seq, uint64_t ts);
   std::shared_ptr<const SnapshotImpl> GetTimestampedSnapshot(uint64_t ts) const;
   void ReleaseTimestampedSnapshotsOlderThan(
@@ -2064,8 +2064,9 @@ class DBImpl : public DB {
   // the WAL.
   // If snapshot_seq == kMaxSequenceNumber, this function is called by a caller
   // ensuring no writes to the database.
-  std::shared_ptr<const SnapshotImpl> CreateTimestampedSnapshotImpl(
-      SequenceNumber snapshot_seq, uint64_t ts, bool lock = true);
+  std::pair<Status, std::shared_ptr<const SnapshotImpl>>
+  CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
+                                bool lock = true);
 
   uint64_t GetMaxTotalWalSize() const;
 

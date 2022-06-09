@@ -461,8 +461,8 @@ class TransactionDB : public StackableDB {
   // Create a snapshot and assign ts to it. Return the snapshot to caller. The
   // snapshot-timestamp mapping is also tracked by the database.
   // Caller must ensure there are no active writes when this API is called.
-  virtual std::shared_ptr<const Snapshot> CreateTimestampedSnapshot(
-      TxnTimestamp ts) = 0;
+  virtual std::pair<Status, std::shared_ptr<const Snapshot>>
+  CreateTimestampedSnapshot(TxnTimestamp ts) = 0;
 
   // Return the latest timestamped snapshot if present.
   std::shared_ptr<const Snapshot> GetLatestTimestampedSnapshot() const {

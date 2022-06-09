@@ -179,12 +179,16 @@ TEST_P(TransactionTest, CreateSnapshot) {
                       "v0_" + std::to_string(i)));
   }
   {
-    auto snapshot = db->CreateTimestampedSnapshot(kMaxTxnTimestamp);
+    auto ret = db->CreateTimestampedSnapshot(kMaxTxnTimestamp);
+    ASSERT_TRUE(ret.first.IsInvalidArgument());
+    auto snapshot = ret.second;
     ASSERT_EQ(nullptr, snapshot.get());
   }
   constexpr TxnTimestamp timestamp = 100;
-  std::shared_ptr<const Snapshot> ts_snap0 =
-      db->CreateTimestampedSnapshot(timestamp);
+  Status s;
+  std::shared_ptr<const Snapshot> ts_snap0;
+  std::tie(s, ts_snap0) = db->CreateTimestampedSnapshot(timestamp);
+  ASSERT_OK(s);
   assert(ts_snap0);
   ASSERT_EQ(timestamp, ts_snap0->GetTimestamp());
   for (int i = 0; i < 10; ++i) {
@@ -195,7 +199,8 @@ TEST_P(TransactionTest, CreateSnapshot) {
     read_opts.snapshot = ts_snap0.get();
     for (int i = 0; i < 10; ++i) {
       std::string value;
-      Status s = db->Get(read_opts, "k" + std::to_string(i), &value);
+      s = db->Get(read_opts, "k" + std::to_string(i), &value);
+      ASSERT_OK(s);
       ASSERT_EQ("v0_" + std::to_string(i), value);
     }
   }
@@ -207,11 +212,12 @@ TEST_P(TransactionTest, CreateSnapshot) {
   {
     std::shared_ptr<const Snapshot> snapshot =
         db->GetTimestampedSnapshot(timestamp);
+    ASSERT_OK(s);
     ASSERT_EQ(ts_snap0, snapshot);
   }
   {
     std::vector<std::shared_ptr<const Snapshot> > snapshots;
-    const Status s = db->GetAllTimestampedSnapshots(snapshots);
+    s = db->GetAllTimestampedSnapshots(snapshots);
     ASSERT_OK(s);
     ASSERT_EQ(std::vector<std::shared_ptr<const Snapshot> >{ts_snap0},
               snapshots);
@@ -219,22 +225,32 @@ TEST_P(TransactionTest, CreateSnapshot) {
 }
 
 TEST_P(TransactionTest, SequenceAndTsOrder) {
-  auto snapshot = db->CreateTimestampedSnapshot(100);
+  Status s;
+  std::shared_ptr<const Snapshot> snapshot;
+  std::tie(s, snapshot) = db->CreateTimestampedSnapshot(100);
+  ASSERT_OK(s);
+  assert(snapshot);
   {
     // Cannot request smaller timestamp for the new timestamped snapshot.
-    auto tmp_snapshot = db->CreateTimestampedSnapshot(50);
+    std::shared_ptr<const Snapshot> tmp_snapshot;
+    std::tie(s, tmp_snapshot) = db->CreateTimestampedSnapshot(50);
+    ASSERT_TRUE(s.IsInvalidArgument());
     ASSERT_EQ(nullptr, tmp_snapshot.get());
   }
 
   // If requesting a new timestamped snapshot with the same timestamp and
   // sequence number, we avoid creating new snapshot object but reuse
   // exisisting one.
-  auto snapshot1 = db->CreateTimestampedSnapshot(100);
+  std::shared_ptr<const Snapshot> snapshot1;
+  std::tie(s, snapshot1) = db->CreateTimestampedSnapshot(100);
+  ASSERT_OK(s);
   ASSERT_EQ(snapshot.get(), snapshot1.get());
 
   // If there is no write, but we request a larger timestamp, we still create
   // a new snapshot object.
-  auto snapshot2 = db->CreateTimestampedSnapshot(200);
+  std::shared_ptr<const Snapshot> snapshot2;
+  std::tie(s, snapshot2) = db->CreateTimestampedSnapshot(200);
+  ASSERT_OK(s);
   assert(snapshot2);
   ASSERT_NE(snapshot.get(), snapshot2.get());
   ASSERT_EQ(snapshot2->GetSequenceNumber(), snapshot->GetSequenceNumber());
@@ -245,8 +261,32 @@ TEST_P(TransactionTest, SequenceAndTsOrder) {
   {
     // We are requesting the same timestamp for a larger sequence number, thus
     // we cannot create timestamped snapshot.
-    auto tmp_snapshot = db->CreateTimestampedSnapshot(200);
+    std::shared_ptr<const Snapshot> tmp_snapshot;
+    std::tie(s, tmp_snapshot) = db->CreateTimestampedSnapshot(200);
+    ASSERT_TRUE(s.IsInvalidArgument());
     ASSERT_EQ(nullptr, tmp_snapshot.get());
+  }
+  {
+    std::unique_ptr<Transaction> txn1(
+        db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_OK(txn1->Put("bar", "v0"));
+    std::shared_ptr<const Snapshot> ss;
+    ASSERT_OK(txn1->CommitAndCreateSnapshot(nullptr, 200, &ss));
+    // Cannot create snapshot because requested timestamp is the same as the
+    // latest timestamped snapshot while sequence number is strictly higher.
+    ASSERT_EQ(nullptr, ss);
+  }
+  {
+    std::unique_ptr<Transaction> txn2(
+        db->BeginTransaction(WriteOptions(), TransactionOptions()));
+    ASSERT_OK(txn2->Put("bar", "v0"));
+    std::shared_ptr<const Snapshot> ss;
+    // Application should never do this. This is just to demonstrate error
+    // handling.
+    ASSERT_OK(txn2->CommitAndCreateSnapshot(nullptr, 100, &ss));
+    // Cannot create snapshot because requested timestamp is smaller than
+    // latest timestamped snapshot.
+    ASSERT_EQ(nullptr, ss);
   }
 }
 
