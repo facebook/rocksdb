@@ -33,10 +33,8 @@ static std::string EncodeKey(int k) {
 }
 static int DecodeKey(const Slice& k) {
   assert(k.size() == 16);
-  Slice copy(k);
-
-  copy.remove_suffix(12);
-  return DecodeFixed32(copy.data());
+  std::string str(k.data(), 4);
+  return DecodeFixed32(str.c_str());
 }
 static void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
 static int DecodeValue(void* v) {
@@ -548,9 +546,9 @@ TEST_P(CacheTest, NewId) {
 
 class Value {
  public:
-  explicit Value(size_t v) : v_(v) { }
+  explicit Value(int v) : v_(v) { }
 
-  size_t v_;
+  int v_;
 };
 
 namespace {
@@ -598,7 +596,7 @@ TEST_P(CacheTest, SetCapacity) {
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   std::vector<Cache::Handle*> handles(10);
   // Insert 5 entries, but not releasing.
-  for (size_t i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++) {
     std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
@@ -613,14 +611,14 @@ TEST_P(CacheTest, SetCapacity) {
   // insert 5 more elements to cache, then release 5,
   // then decrease capacity to 7, final capacity should be 7
   // and usage should be 7
-  for (size_t i = 5; i < 10; i++) {
+  for (int i = 5; i < 10; i++) {
     std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
   ASSERT_EQ(10U, cache->GetCapacity());
   ASSERT_EQ(10U, cache->GetUsage());
-  for (size_t i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++) {
     cache->Release(handles[i]);
   }
   ASSERT_EQ(10U, cache->GetCapacity());
@@ -630,7 +628,7 @@ TEST_P(CacheTest, SetCapacity) {
   ASSERT_EQ(7, cache->GetUsage());
 
   // release remaining 5 to keep valgrind happy
-  for (size_t i = 5; i < 10; i++) {
+  for (int i = 5; i < 10; i++) {
     cache->Release(handles[i]);
   }
 
@@ -644,7 +642,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   std::vector<Cache::Handle*> handles(10);
   Status s;
-  for (size_t i = 0; i < 10; i++) {
+  for (int i = 0; i < 10; i++) {
     std::string key = EncodeKey(i + 1);
     s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
@@ -662,13 +660,13 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(nullptr, handle);
   ASSERT_EQ(10, cache->GetUsage());
 
-  for (size_t i = 0; i < 10; i++) {
+  for (int i = 0; i < 10; i++) {
     cache->Release(handles[i]);
   }
 
   // test3: init with flag being true.
   std::shared_ptr<Cache> cache2 = NewCache(5, 0, true);
-  for (size_t i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++) {
     std::string key = EncodeKey(i + 1);
     s = cache2->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
@@ -684,13 +682,13 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(5, cache2->GetUsage());
   ASSERT_EQ(nullptr, cache2->Lookup(extra_key));
 
-  for (size_t i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++) {
     cache2->Release(handles[i]);
   }
 }
 
 TEST_P(CacheTest, OverCapacity) {
-  size_t n = 10;
+  int n = 10;
 
   // a LRUCache with n entries and one shard only
   std::shared_ptr<Cache> cache = NewCache(n, 0, false);
@@ -698,14 +696,14 @@ TEST_P(CacheTest, OverCapacity) {
   std::vector<Cache::Handle*> handles(n+1);
 
   // Insert n+1 entries, but not releasing.
-  for (size_t i = 0; i < n + 1; i++) {
+  for (int i = 0; i < n + 1; i++) {
     std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
 
   // Guess what's in the cache now?
-  for (size_t i = 0; i < n + 1; i++) {
+  for (int i = 0; i < n + 1; i++) {
     std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     ASSERT_TRUE(h != nullptr);
@@ -714,7 +712,7 @@ TEST_P(CacheTest, OverCapacity) {
 
   // the cache is over capacity since nothing could be evicted
   ASSERT_EQ(n + 1U, cache->GetUsage());
-  for (size_t i = 0; i < n + 1; i++) {
+  for (int i = 0; i < n + 1; i++) {
     cache->Release(handles[i]);
   }
   // Make sure eviction is triggered.
@@ -726,7 +724,7 @@ TEST_P(CacheTest, OverCapacity) {
   // element 0 is evicted and the rest is there
   // This is consistent with the LRU policy since the element 0
   // was released first
-  for (size_t i = 0; i < n + 1; i++) {
+  for (int i = 0; i < n + 1; i++) {
     std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     if (h) {
@@ -759,7 +757,7 @@ TEST_P(CacheTest, ApplyToAllCacheEntriesTest) {
   std::sort(inserted.begin(), inserted.end());
   std::sort(legacy_callback_state.begin(), legacy_callback_state.end());
   ASSERT_EQ(inserted.size(), legacy_callback_state.size());
-  for (size_t i = 0; i < inserted.size(); ++i) {
+  for (int i = 0; i < static_cast<int>(inserted.size()); ++i) {
     EXPECT_EQ(inserted[i], legacy_callback_state[i]);
   }
 }
@@ -787,7 +785,7 @@ TEST_P(CacheTest, ApplyToAllEntriesTest) {
   std::sort(inserted.begin(), inserted.end());
   std::sort(callback_state.begin(), callback_state.end());
   ASSERT_EQ(inserted.size(), callback_state.size());
-  for (size_t i = 0; i < inserted.size(); ++i) {
+  for (int i = 0; i < static_cast<int>(inserted.size()); ++i) {
     EXPECT_EQ(inserted[i], callback_state[i]);
   }
 }
