@@ -1366,7 +1366,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
   size_t write_with_wal = 0;
   WriteBatch* to_be_cached_state = nullptr;
   WriteBatch* merged_batch;
-  io_s = status_to_io_status(MergeBatch(&merged_batch, write_group, &tmp_batch_,
+  io_s = status_to_io_status(MergeBatch(&merged_batch, write_group, &tmp_batch,
                                         &write_with_wal, &to_be_cached_state));
   if (UNLIKELY(!io_s.ok())) {
     return io_s;
