@@ -3034,92 +3034,32 @@ TEST_F(UpdateFullHistoryTsLowTest, ConcurrentUpdate) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  const size_t kTimestampSize = Timestamp(0, 0).size();
+  std::string lower_ts_low = Timestamp(10, 0);
+  std::string higher_ts_low = Timestamp(25, 0);
+  const size_t kTimestampSize = lower_ts_low.size();
   TestComparator test_cmp(kTimestampSize);
   options.comparator = &test_cmp;
 
   DestroyAndReopen(options);
-  std::atomic<int> cnt{0};
-  std::atomic<bool> before_writer_waiting_cb_invoked = false;
-  std::atomic<bool> write_lower_queued = false;
-  const auto get_thread_id = [&cnt]() {
-    thread_local int thread_id{cnt++};
-    return thread_id;
-  };
-  std::string higher_ts_low = Timestamp(25, 0);
-  std::string lower_ts_low = Timestamp(10, 0);
-  std::vector<VersionEdit*> version_edits;
-  version_edits.reserve(2);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
-  // test IncreaseFullHistoryTsLow concurrently. When two threads try to update
-  // full_history_ts_low concurrently, one with a higher ts_low, one with a
-  // lower ts_low. The thread writing the lower ts_low potentially can have
-  // three return status:
-  // 1) OK. This happens when lower ts_low writer is queued and done in a
-  // separate write batch before the higher ts_low writer is queued.
-  // 2) InvalidArgument. This happens when higher ts_low writer is queued and
-  // done in a separate write batch before the lower ts_low writer is queued.
-  // 3) TryAgain. This happens when lower ts_low writer and higher ts_low writer
-  // are queued and done in the same write batch.
-  //
-  // Below callbacks are a workaround to ensure 1) never happens, we always set
-  // the first arriving writer's ts_low to be the higher ts_low.
+  // This workaround swaps `lower_ts_low` originally used for update by the
+  // caller to `higher_ts_low` after its writer is queued to make sure
+  // the caller will always get a TryAgain error.
+  // It mimics cases where two threads update full_history_ts_low concurrently
+  // with one thread writing a higher ts_low and one thread writing a lower
+  // ts_low.
+  VersionEdit* version_edit;
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit", [&](void* arg) {
-        auto* edit = reinterpret_cast<VersionEdit*>(arg);
-        int thread_id = get_thread_id();
-        version_edits.insert(version_edits.begin() + thread_id, edit);
-        if (thread_id == 1) {
-          TEST_SYNC_POINT(
-              "UpdateFullHistoryTsLowTest::ConcurrentUpdate:"
-              "WriteLowerStart");
-        }
-      });
+      "DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
+      [&](void* arg) { version_edit = reinterpret_cast<VersionEdit*>(arg); });
   SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::LogAndApply:BeforeWriterWaiting", [&](void* /*arg*/) {
-        int thread_id = get_thread_id();
-        if (!before_writer_waiting_cb_invoked) {
-          version_edits.at(thread_id)->SetFullHistoryTsLow(higher_ts_low);
-          before_writer_waiting_cb_invoked = true;
-        } else {
-          version_edits.at(thread_id)->SetFullHistoryTsLow(lower_ts_low);
-        }
-        if (thread_id == 0) {
-          TEST_SYNC_POINT(
-              "UpdateFullHistoryTsLowTest::ConcurrentUpdate:"
-              "WriteHigherInProcess");
-        } else if (thread_id == 1) {
-          write_lower_queued = true;
-        }
-      });
-  // Below test sync points are to help ensure 2) never happens,
-  // Lower ts writing thread must have started before higher ts writing thread
-  // finishes. In reality, this test sync point doesn't work 100%. So a boolean
-  // `write_lower_queued` is used to track when InvalidArgument error should be
-  // asserted instead to avoid test flakiness.
-  SyncPoint::GetInstance()->LoadDependency({
-      {"UpdateFullHistoryTsLowTest::ConcurrentUpdate:"
-       "WriteLowerStart",
-       "UpdateFullHistoryTsLowTest::ConcurrentUpdate:"
-       "WriteHigherInProcess"},
-  });
+      "VersionSet::LogAndApply:BeforeWriterWaiting",
+      [&](void* /*arg*/) { version_edit->SetFullHistoryTsLow(higher_ts_low); });
   SyncPoint::GetInstance()->EnableProcessing();
-  port::Thread write_higher_thread([&]() {
-    ASSERT_OK(db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(),
-                                            higher_ts_low));
-  });
-  port::Thread write_lower_thread([&]() {
-    Status error_s =
-        db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), lower_ts_low);
-    if (write_lower_queued) {
-      ASSERT_TRUE(error_s.IsTryAgain());
-    } else {
-      ASSERT_TRUE(error_s.IsInvalidArgument());
-    }
-  });
-  write_lower_thread.join();
-  write_higher_thread.join();
+  ASSERT_TRUE(
+      db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), lower_ts_low)
+          .IsTryAgain());
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
 
