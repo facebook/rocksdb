@@ -318,7 +318,7 @@ txn_params = {
     "checkpoint_one_in": 0,
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
-    "create_timestamped_snapshot_one_in": 20,
+    "create_timestamped_snapshot_one_in": random.choice([0, 20]),
 }
 
 best_efforts_recovery_params = {
