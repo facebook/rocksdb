@@ -625,7 +625,7 @@ class IterKey {
 };
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
-// user keys.
+// internal keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:
   explicit InternalKeySliceTransform(const SliceTransform* transform)
