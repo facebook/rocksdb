@@ -952,6 +952,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   VersionEdit edit;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
+                           &edit);
 
   InstrumentedMutexLock l(&mutex_);
   std::string current_ts_low = cfd->GetFullHistoryTsLow();
@@ -959,12 +961,25 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
-    return Status::InvalidArgument(
-        "Cannot decrease full_history_timestamp_low");
+    return Status::InvalidArgument("Cannot decrease full_history_ts_low");
   }
 
-  return versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
-                                &mutex_);
+  Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                    &edit, &mutex_);
+  if (!s.ok()) {
+    return s;
+  }
+  current_ts_low = cfd->GetFullHistoryTsLow();
+  if (!current_ts_low.empty() &&
+      ucmp->CompareTimestamp(current_ts_low, ts_low) > 0) {
+    std::stringstream oss;
+    oss << "full_history_ts_low: " << Slice(current_ts_low).ToString(true)
+        << " is set to be higher than the requested "
+           "timestamp: "
+        << Slice(ts_low).ToString(true) << std::endl;
+    return Status::TryAgain(oss.str());
+  }
+  return Status::OK();
 }
 
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
