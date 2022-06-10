@@ -749,7 +749,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 }
 
 TEST_P(CacheTest, OverCapacity) {
-  int n = 10;
+  size_t n = 10;
 
   // a LRUCache with n entries and one shard only
   std::shared_ptr<Cache> cache = NewCache(n, 0, false);
@@ -757,7 +757,7 @@ TEST_P(CacheTest, OverCapacity) {
   std::vector<Cache::Handle*> handles(n+1);
 
   // Insert n+1 entries, but not releasing.
-  for (int i = 0; i < n + 1; i++) {
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
     std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(static_cast<int>(i + 1)), 1,
                              &deleter, &handles[i]);
@@ -765,7 +765,7 @@ TEST_P(CacheTest, OverCapacity) {
   }
 
   // Guess what's in the cache now?
-  for (int i = 0; i < n + 1; i++) {
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
     std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     ASSERT_TRUE(h != nullptr);
@@ -774,7 +774,7 @@ TEST_P(CacheTest, OverCapacity) {
 
   // the cache is over capacity since nothing could be evicted
   ASSERT_EQ(n + 1U, cache->GetUsage());
-  for (int i = 0; i < n + 1; i++) {
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
     cache->Release(handles[i]);
   }
   // Make sure eviction is triggered.
@@ -786,7 +786,7 @@ TEST_P(CacheTest, OverCapacity) {
   // element 0 is evicted and the rest is there
   // This is consistent with the LRU policy since the element 0
   // was released first
-  for (int i = 0; i < n + 1; i++) {
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
     std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     if (h) {
