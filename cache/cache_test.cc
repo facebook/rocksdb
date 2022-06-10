@@ -786,10 +786,10 @@ TEST_P(CacheTest, OverCapacity) {
     std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     if (h) {
-      ASSERT_NE(i, 0U);
+      ASSERT_NE(static_cast<size_t>(i), 0U);
       cache->Release(h);
     } else {
-      ASSERT_EQ(i, 0U);
+      ASSERT_EQ(static_cast<size_t>(i), 0U);
     }
   }
 }
