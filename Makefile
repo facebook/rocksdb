@@ -1810,9 +1810,6 @@ compressed_secondary_cache_test: $(OBJ_DIR)/cache/compressed_secondary_cache_tes
 lru_cache_test: $(OBJ_DIR)/cache/lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-fast_lru_cache_test: $(OBJ_DIR)/cache/fast_lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
 range_del_aggregator_test: $(OBJ_DIR)/db/range_del_aggregator_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
