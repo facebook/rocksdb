@@ -1502,6 +1502,7 @@ Status WriteBatch::VerifyChecksum() const {
   uint32_t column_family = 0;  // default
   Status s;
   size_t prot_info_idx = 0;
+  bool checksum_protected;
   while (!input.empty() && prot_info_idx < prot_info_->entries_.size()) {
     // In case key/value/column_family are not updated by
     // ReadRecordFromWriteBatch
@@ -1513,36 +1514,61 @@ Status WriteBatch::VerifyChecksum() const {
     if (!s.ok()) {
       return s;
     }
+    checksum_protected = true;
     // Write batch checksum uses op_type without ColumnFamily (e.g., if op_type
     // in the write batch is kTypeColumnFamilyValue, kTypeValue is used to
     // compute the checksum), and encodes column family id separately. See
     // comment in first `WriteBatchInternal::Put()` for more detail.
     switch (tag) {
       case kTypeColumnFamilyValue:
+      case kTypeValue:
         tag = kTypeValue;
         break;
       case kTypeColumnFamilyDeletion:
+      case kTypeDeletion:
         tag = kTypeDeletion;
         break;
       case kTypeColumnFamilySingleDeletion:
+      case kTypeSingleDeletion:
         tag = kTypeSingleDeletion;
         break;
       case kTypeColumnFamilyRangeDeletion:
+      case kTypeRangeDeletion:
         tag = kTypeRangeDeletion;
         break;
       case kTypeColumnFamilyMerge:
+      case kTypeMerge:
         tag = kTypeMerge;
         break;
       case kTypeColumnFamilyBlobIndex:
+      case kTypeBlobIndex:
         tag = kTypeBlobIndex;
         break;
+      case kTypeLogData:
+      case kTypeBeginPrepareXID:
+      case kTypeEndPrepareXID:
+      case kTypeCommitXID:
+      case kTypeRollbackXID:
+      case kTypeNoop:
+      case kTypeBeginPersistedPrepareXID:
+      case kTypeBeginUnprepareXID:
+      case kTypeDeletionWithTimestamp:
+      case kTypeCommitXIDAndTimestamp:
+        checksum_protected = false;
+        break;
+      default:
+        return Status::Corruption(
+            "unknown WriteBatch tag",
+            std::to_string(static_cast<unsigned int>(tag)));
     }
-    s = prot_info_->entries_[prot_info_idx++]
-            .StripC(column_family)
-            .StripKVO(key, value, static_cast<ValueType>(tag))
-            .GetStatus();
-    if (!s.ok()) {
-      return s;
+    if (checksum_protected) {
+      s = prot_info_->entries_[prot_info_idx++]
+              .StripC(column_family)
+              .StripKVO(key, value, static_cast<ValueType>(tag))
+              .GetStatus();
+      if (!s.ok()) {
+        return s;
+      }
     }
   }
 

@@ -559,6 +559,8 @@ INSTANTIATE_TEST_CASE_P(
       return oss.str();
     });
 
+// TODO: add test for transactions
+// TODO: add test for corrupted write batch with WAL disabled
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
