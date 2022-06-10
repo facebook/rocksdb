@@ -199,6 +199,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
     Erase(cache2_, key);
   }
 };
+
 CacheTest* CacheTest::current_;
 std::string CacheTest::type_;
 
