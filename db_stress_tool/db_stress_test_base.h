@@ -43,6 +43,8 @@ class StressTest {
 
   void PrintStatistics();
 
+  TransactionDB* GetTxnDb() const { return txn_db_; }
+
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);

@@ -575,10 +575,6 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
     } else {
       s = txn->Commit();
     }
-    uint64_t ts2 = db_stress_env->NowNanos();
-    uint64_t ts_delta = 1ULL * 1000 * 1000 * 1000;
-    assert(txn_db_);
-    txn_db_->ReleaseTimestampedSnapshotsOlderThan(ts2 - ts_delta);
   }
   delete txn;
   return s;
