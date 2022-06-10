@@ -43,7 +43,7 @@ class StressTest {
 
   void PrintStatistics();
 
-  TransactionDB* GetTxnDb() const { return txn_db_; }
+  void ReleaseOldTimestampedSnapshots(uint64_t ts);
 
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,

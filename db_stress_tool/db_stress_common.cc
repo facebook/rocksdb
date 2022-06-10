@@ -167,10 +167,11 @@ void SnapshotGcThread(void* v) {
         return;
       }
     }
+
     uint64_t now = db_stress_env->NowNanos();
     constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
-    TransactionDB* txn_db = stress_test->GetTxnDb();
-    txn_db->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
+    stress_test->ReleaseOldTimestampedSnapshots(now - time_diff);
+
     db_stress_env->SleepForMicroseconds(1000 * 1000);
   }
 }

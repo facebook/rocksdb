@@ -420,6 +420,20 @@ void StressTest::PrintStatistics() {
   }
 }
 
+void StressTest::ReleaseOldTimestampedSnapshots(uint64_t ts) {
+#ifndef ROCKSDB_LITE
+  if (!txn_db_) {
+    return;
+  }
+  assert(txn_db_);
+  txn_db_->ReleaseTimestampedSnapshotsOlderThan(ts);
+#else
+  (void)ts;
+  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
+  exit(1);
+#endif  // ROCKSDB_LITE
+}
+
 // Currently PreloadDb has to be single-threaded.
 void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
                                               SharedState* shared) {
