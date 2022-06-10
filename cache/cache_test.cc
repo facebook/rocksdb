@@ -14,6 +14,7 @@
 #include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
+#include "port/stack_trace.h"
 #include "test_util/testharness.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -848,8 +849,10 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
   constexpr int kSpecialCharge = 2;
   constexpr int kNotSpecialCharge = 1;
   constexpr int kSpecialCount = 100;
+  size_t expected_usage = 0;
   for (int i = 0; i < kSpecialCount; ++i) {
     Insert(i, i * 2, kSpecialCharge);
+    expected_usage += kSpecialCharge;
   }
 
   // For callback
@@ -873,9 +876,13 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
   // to cause ejections
   for (int i = kSpecialCount * 1; i < kSpecialCount * 5; ++i) {
     Insert(i, i * 2, kNotSpecialCharge);
+    expected_usage += kNotSpecialCharge;
   }
 
   apply_thread.join();
+  // verify no evictions
+  ASSERT_EQ(cache_->GetUsage(), expected_usage);
+  // verify everything seen in ApplyToAllEntries
   ASSERT_EQ(special_count, kSpecialCount);
 }
 
@@ -919,6 +926,7 @@ INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

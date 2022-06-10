@@ -654,17 +654,6 @@ Status BlockBasedTable::Open(
                                       file_size, level, immortal_table);
   rep->file = std::move(file);
   rep->footer = footer;
-  // We've successfully read the footer. We are ready to serve requests.
-  // Better not mutate rep_ after the creation. eg. internal_prefix_transform
-  // raw pointer will be used to create HashIndexReader, whose reset may
-  // access a dangling pointer.
-  // We need to wrap data with internal_prefix_transform to make sure it can
-  // handle prefix correctly.
-  // FIXME: is changed prefix_extractor handled anywhere for hash index?
-  if (prefix_extractor != nullptr) {
-    rep->internal_prefix_transform.reset(
-        new InternalKeySliceTransform(prefix_extractor.get()));
-  }
 
   // For fully portable/stable cache keys, we need to read the properties
   // block before setting up cache keys. TODO: consider setting up a bootstrap
@@ -694,8 +683,14 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
-  if (!PrefixExtractorChangedHelper(rep->table_properties.get(),
-                                    prefix_extractor.get())) {
+  bool force_null_table_prefix_extractor = false;
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+      &force_null_table_prefix_extractor);
+  if (force_null_table_prefix_extractor) {
+    assert(!rep->table_prefix_extractor);
+  } else if (!PrefixExtractorChangedHelper(rep->table_properties.get(),
+                                           prefix_extractor.get())) {
     // Establish fast path for unchanged prefix_extractor
     rep->table_prefix_extractor = prefix_extractor;
   } else {
@@ -2003,7 +1998,7 @@ InternalIterator* BlockBasedTable::NewIterator(
       read_options.auto_prefix_mode || PrefixExtractorChanged(prefix_extractor);
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(NewIndexIterator(
       read_options,
-      need_upper_bound_check &&
+      /*disable_prefix_seek=*/need_upper_bound_check &&
           rep_->index_type == BlockBasedTableOptions::kHashSearch,
       /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context));
   if (arena == nullptr) {
@@ -2565,18 +2560,10 @@ Status BlockBasedTable::CreateIndexReader(
                                              lookup_context, index_reader);
     }
     case BlockBasedTableOptions::kHashSearch: {
-      std::unique_ptr<Block> metaindex_guard;
-      std::unique_ptr<InternalIterator> metaindex_iter_guard;
-      bool should_fallback = false;
-      // FIXME: is changed prefix_extractor handled anywhere for hash index?
-      if (rep_->internal_prefix_transform.get() == nullptr) {
+      if (!rep_->table_prefix_extractor) {
         ROCKS_LOG_WARN(rep_->ioptions.logger,
-                       "No prefix extractor passed in. Fall back to binary"
-                       " search index.");
-        should_fallback = true;
-      }
-
-      if (should_fallback) {
+                       "Missing prefix extractor for hash index. Fall back to"
+                       " binary search index.");
         return BinarySearchIndexReader::Create(this, ro, prefetch_buffer,
                                                use_cache, prefetch, pin,
                                                lookup_context, index_reader);
