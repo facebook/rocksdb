@@ -874,7 +874,7 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
 
   // In parallel, add more entries, enough to cause resize but not enough
   // to cause ejections
-  for (int i = kSpecialCount * 1; i < kSpecialCount * 6; ++i) {
+  for (int i = kSpecialCount * 1; i < kSpecialCount * 5; ++i) {
     Insert(i, i * 2, kNotSpecialCharge);
   }
 
