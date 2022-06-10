@@ -2835,9 +2835,9 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
                                   const bool wal_only) {
   assert(dst->Count() == 0 ||
          (dst->prot_info_ == nullptr) == (src->prot_info_ == nullptr));
-  if ((src->prot_info_ != nullptr and
+  if ((src->prot_info_ != nullptr &&
        src->prot_info_->entries_.size() != src->Count()) ||
-      (dst->prot_info_ != nullptr and
+      (dst->prot_info_ != nullptr &&
        dst->prot_info_->entries_.size() != dst->Count())) {
     return Status::Corruption(
         "Write batch has inconsistent count and number of checksums");

@@ -404,7 +404,7 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALCorrupted) {
                             corrupt_byte_addend_);
         }
         leader_count++;
-        while (not follower_joined) {
+        while (!follower_joined) {
           // busy waiting
         }
       });
@@ -508,7 +508,7 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALWithColumnFamilyCorrupted) {
                             corrupt_byte_addend_);
         }
         leader_count++;
-        while (not follower_joined) {
+        while (!follower_joined) {
           // busy waiting
         }
       });

@@ -938,11 +938,18 @@ Status DBImpl::WriteImplWALOnly(
     seq_inc = total_batch_cnt;
   }
   Status status;
-  IOStatus io_s;
-  io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
   if (!write_options.disableWAL) {
-    io_s = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
+    IOStatus io_s =
+        ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
     status = io_s;
+    // last_sequence may not be set if there is an error
+    // This error checking and return is moved up to avoid using uninitialized
+    // last_sequence.
+    if (!io_s.ok()) {
+      IOStatusCheck(io_s);
+      write_thread->ExitAsBatchGroupLeader(write_group, status);
+      return status;
+    }
   } else {
     // Otherwise we inc seq number to do solely the seq allocation
     last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
@@ -976,10 +983,7 @@ Status DBImpl::WriteImplWALOnly(
   }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
-  if (!io_s.ok()) {
-    // Check WriteToWAL status
-    IOStatusCheck(io_s);
-  } else if (!w.CallbackFailed()) {
+  if (!w.CallbackFailed()) {
     WriteStatusCheck(status);
   }
   if (status.ok()) {
@@ -1201,7 +1205,7 @@ Status DBImpl::MergeBatch(WriteBatch** merged_batch,
       if (!writer->CallbackFailed()) {
         Status s = WriteBatchInternal::Append(*merged_batch, writer->batch,
                                               /*WAL_only*/ true);
-        if (not s.ok()) {
+        if (!s.ok()) {
           tmp_batch->Clear();
           return s;
         }
