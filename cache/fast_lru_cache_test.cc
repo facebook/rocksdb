@@ -13,10 +13,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class LRUCacheTest : public testing::Test {
+class FastLRUCacheTest : public testing::Test {
  public:
-  LRUCacheTest() {}
-  ~LRUCacheTest() override { DeleteCache(); }
+  FastLRUCacheTest() {}
+  ~FastLRUCacheTest() override { DeleteCache(); }
 
   void DeleteCache() {
     if (cache_ != nullptr) {
@@ -54,7 +54,10 @@ class LRUCacheTest : public testing::Test {
   fast_lru_cache::LRUCacheShard* cache_ = nullptr;
 };
 
-TEST_F(LRUCacheTest, ValidateKeySize) {
+// TODO(guido) This file should eventually contain similar tests than
+// lru_cache_test.cc.
+
+TEST_F(FastLRUCacheTest, ValidateKeySize) {
   NewCache(3);
   Insert('a', 16);
   Insert('b', 15);

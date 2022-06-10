@@ -1293,6 +1293,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
          {NewLRUCache(capacity), NewClockCache(capacity)}) {
       // This test doesn't support FastLRUCache because the
       // keys used are not 16B long.
+      // TODO(guido) Add support for FastLRUCache.
       if (!cache) {
         // Skip clock cache when not supported
         continue;

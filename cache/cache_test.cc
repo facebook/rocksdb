@@ -2,10 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/cache.h"
 
@@ -28,13 +24,14 @@ namespace ROCKSDB_NAMESPACE {
 static std::string EncodeKey16Bytes(int k) {
   std::string result;
   PutFixed32(&result, k);
-  result.append(std::string(12, 'a'));  // Add a 12B padding.
+  result.append(std::string(12, 'a'));  // Because we need a 16B output, we
+                                        // add a 12-byte padding.
   return result;
 }
 
 static int DecodeKey16Bytes(const Slice& k) {
   assert(k.size() == 16);
-  return DecodeFixed32(std::string(k.data(), 4).c_str());
+  return DecodeFixed32(k.data());  // Decodes only the first 4 bytes of k.
 }
 
 static std::string EncodeKey32Bits(int k) {
