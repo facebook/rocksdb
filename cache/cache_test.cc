@@ -65,7 +65,7 @@ void eraseDeleter(const Slice& /*key*/, void* value) {
   cache->Erase("foo");
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 class CacheTest : public testing::TestWithParam<std::string> {
  public:
