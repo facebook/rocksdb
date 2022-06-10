@@ -21,8 +21,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
 // Conversions between numeric keys/values and the types expected by Cache.
-static std::string EncodeKey16Bytes(int k) {
+std::string EncodeKey16Bytes(int k) {
   std::string result;
   PutFixed32(&result, k);
   result.append(std::string(12, 'a'));  // Because we need a 16B output, we
@@ -30,25 +32,25 @@ static std::string EncodeKey16Bytes(int k) {
   return result;
 }
 
-static int DecodeKey16Bytes(const Slice& k) {
+int DecodeKey16Bytes(const Slice& k) {
   assert(k.size() == 16);
   return DecodeFixed32(k.data());  // Decodes only the first 4 bytes of k.
 }
 
-static std::string EncodeKey32Bits(int k) {
+std::string EncodeKey32Bits(int k) {
   std::string result;
   PutFixed32(&result, k);
   return result;
 }
 
-static int DecodeKey32Bits(const Slice& k) {
+int DecodeKey32Bits(const Slice& k) {
   assert(k.size() == 4);
   return DecodeFixed32(k.data());
 }
 
-static void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
+void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
 
-static int DecodeValue(void* v) {
+int DecodeValue(void* v) {
   return static_cast<int>(reinterpret_cast<uintptr_t>(v));
 }
 
@@ -62,6 +64,8 @@ void eraseDeleter(const Slice& /*key*/, void* value) {
   Cache* cache = reinterpret_cast<Cache*>(value);
   cache->Erase("foo");
 }
+
+} // anonymous namespace
 
 class CacheTest : public testing::TestWithParam<std::string> {
  public:
