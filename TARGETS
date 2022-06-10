@@ -5768,6 +5768,12 @@ cpp_unittest_wrapper(name="timer_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="timestamped_snapshot_test",
+            srcs=["utilities/transactions/timestamped_snapshot_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="trace_analyzer_test",
             srcs=["tools/trace_analyzer_test.cc"],
             deps=[":rocksdb_test_lib"],

@@ -2875,6 +2875,12 @@ class ModelDB : public DB {
       assert(false);
       return 0;
     }
+
+    uint64_t GetTimestamp() const override {
+      // no need to call this
+      assert(false);
+      return 0;
+    }
   };
 
   explicit ModelDB(const Options& options) : options_(options) {}

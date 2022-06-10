@@ -295,6 +295,8 @@ DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
 
+DECLARE_int32(create_timestamped_snapshot_one_in);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
@@ -582,6 +584,8 @@ extern inline void SanitizeDoubleParam(double* param) {
 extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
+
+extern void SnapshotGcThread(void* v);
 
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 

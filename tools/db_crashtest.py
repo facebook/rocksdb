@@ -318,6 +318,7 @@ txn_params = {
     "checkpoint_one_in": 0,
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
+    "create_timestamped_snapshot_one_in": random.choice([0, 20]),
 }
 
 best_efforts_recovery_params = {
@@ -533,6 +534,11 @@ def finalize_and_sanitize(src_params):
     if dest_params["secondary_cache_uri"] != "":
         # Currently the only cache type compatible with a secondary cache is LRUCache
         dest_params["cache_type"] = "lru_cache"
+    # Remove the following once write-prepared/write-unprepared with/without
+    # unordered write supports timestamped snapshots
+    if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
+        dest_params["txn_write_policy"] = 0
+        dest_params["unordered_write"] = 0
 
     return dest_params
 
