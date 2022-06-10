@@ -874,7 +874,8 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
   });
 
   // In parallel, add more entries, enough to cause resize but not enough
-  // to cause ejections
+  // to cause ejections. (Note: if any cache shard is over capacity, there
+  // will be ejections)
   for (int i = kSpecialCount * 1; i < kSpecialCount * 5; ++i) {
     Insert(i, i * 2, kNotSpecialCharge);
     expected_usage += kNotSpecialCharge;
