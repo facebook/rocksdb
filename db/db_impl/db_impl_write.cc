@@ -1639,7 +1639,7 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
   if (max_total_wal_size > 0) {
     return max_total_wal_size;
   }
-  return 4 * max_total_in_memory_state_;
+  return 4 * max_total_in_memory_state_.load(std::memory_order_acquire);
 }
 
 // REQUIRES: mutex_ is held

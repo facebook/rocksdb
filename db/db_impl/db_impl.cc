@@ -2826,7 +2826,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Created column family [%s] (ID %u)",
                      column_family_name.c_str(), (unsigned)cfd->GetID());
-      single_column_family_mode_.store(false, std::memory_order_release);
     } else {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Creating column family [%s] FAILED -- %s",

@@ -30,6 +30,7 @@
 
 ### Behavior changes
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
+* DB::Write does not hold global `mutex_` if this db instance does not need to switch wal and mem-table.
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
