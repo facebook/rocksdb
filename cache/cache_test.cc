@@ -656,7 +656,7 @@ TEST_P(CacheTest, SetCapacity) {
   // Insert 5 entries, but not releasing.
   for (int i = 0; i < 5; i++) {
     std::string key = EncodeKey(i + 1);
-    Status s = cache->Insert(key, new Value(static_cast<int>(i + 1)), 1,
+    Status s = cache->Insert(key, new Value(i + 1), 1,
                              &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
@@ -703,7 +703,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   Status s;
   for (int i = 0; i < 10; i++) {
     std::string key = EncodeKey(i + 1);
-    s = cache->Insert(key, new Value(static_cast<int>(i + 1)), 1, &deleter,
+    s = cache->Insert(key, new Value(i + 1), 1, &deleter,
                       &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
@@ -728,7 +728,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   std::shared_ptr<Cache> cache2 = NewCache(5, 0, true);
   for (int i = 0; i < 5; i++) {
     std::string key = EncodeKey(i + 1);
-    s = cache2->Insert(key, new Value(static_cast<int>(i + 1)), 1, &deleter,
+    s = cache2->Insert(key, new Value(i + 1), 1, &deleter,
                        &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
@@ -759,7 +759,7 @@ TEST_P(CacheTest, OverCapacity) {
   // Insert n+1 entries, but not releasing.
   for (int i = 0; i < static_cast<int>(n + 1); i++) {
     std::string key = EncodeKey(i + 1);
-    Status s = cache->Insert(key, new Value(static_cast<int>(i + 1)), 1,
+    Status s = cache->Insert(key, new Value(i + 1), 1,
                              &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
