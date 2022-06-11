@@ -1214,8 +1214,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       return false;
     }
 
-    if (user_comparator_.CompareWithoutTimestamp(ikey.user_key,
-                                                 saved_key_.GetUserKey()) < 0) {
+    if (CompareKeyForSkip(ikey.user_key, saved_key_.GetUserKey()) < 0) {
       return true;
     }
 
