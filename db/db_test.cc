@@ -6786,6 +6786,24 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
 }
 
+TEST_F(DBTest, RowCacheWithMergeOperatorAndRangeDeletion) {
+  Options options = CurrentOptions();
+  options.row_cache = NewLRUCache(8192);
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "foo"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+            "foo", "foo_"));
+  ASSERT_OK(Merge("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(Get("foo"), "bar");
+}
+
 TEST_F(DBTest, PinnableSliceAndRowCache) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
