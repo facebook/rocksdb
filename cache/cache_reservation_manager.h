@@ -36,6 +36,10 @@ class CacheReservationManager {
   };
   virtual ~CacheReservationManager() {}
   virtual Status UpdateCacheReservation(std::size_t new_memory_used) = 0;
+  // TODO(hx235): replace the usage of
+  // `UpdateCacheReservation(memory_used_delta, increase)` with
+  // `UpdateCacheReservation(new_memory_used)` so that we only have one
+  // `UpdateCacheReservation` function
   virtual Status UpdateCacheReservation(std::size_t memory_used_delta,
                                         bool increase) = 0;
   virtual Status MakeCacheReservation(

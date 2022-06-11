@@ -372,8 +372,8 @@ struct BlockBasedTableOptions {
   //
   // (d) CacheEntryRole::kFileMetadata
   // (i) If kEnabled:
-  // Charge memory usage of file metadata created
-  // for newly added files to a Version.
+  // Charge memory usage of file metadata. RocksDB holds one file metadata
+  // structure in-memory per on-disk table file.
   // If such file metadata's
   // memory exceeds the avaible space left in the block cache at some point
   // (i.e, causing a cache full under `LRUCacheOptions::strict_capacity_limit` =

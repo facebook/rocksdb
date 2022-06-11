@@ -630,6 +630,9 @@ ColumnFamilyData::ColumnFamilyData(
         options_overrides.at(CacheEntryRole::kFileMetadata).charged;
     if (bbto->block_cache &&
         file_metadata_charged == CacheEntryRoleOptions::Decision::kEnabled) {
+      // TODO(hx235): Add a `ConcurrentCacheReservationManager` at DB scope
+      // responsible for reservation of `ObsoleteFileInfo` so that we can keep
+      // this `file_metadata_cache_res_mgr_` nonconcurrent
       file_metadata_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
           std::make_shared<
               CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>>(
