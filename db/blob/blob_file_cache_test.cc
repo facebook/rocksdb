@@ -174,7 +174,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   CacheHandleGuard<BlobSource> second;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "BlobFileCache::GetBlobFileReader:DoubleCheck", [&](void* /* arg */) {
+      "BlobFileCache::GetBlobSource:DoubleCheck", [&](void* /* arg */) {
         // Disabling sync points to prevent infinite recursion
         SyncPoint::GetInstance()->DisableProcessing();
 

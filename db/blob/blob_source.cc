@@ -255,7 +255,9 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
-    return Status::Incomplete("no blocking io");
+    return Status::Incomplete(
+        "A cache miss occurs if blob cache is enabled, and no blocking io "
+        "is allowed further.");
   }
 
   // Can't find the blob from the cache. Since I/O is allowed, read from the

@@ -181,49 +181,169 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
       blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &source));
 
-  ReadOptions read_options;
-  read_options.verify_checksums = true;
+  ReadOptions read_options_v1;
+  read_options_v1.verify_checksums = true;
+
+  ReadOptions read_options_v2;
+  read_options_v2.verify_checksums = true;
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
 
-  // GetBlob
-  {
-    PinnableSlice value;
-    uint64_t bytes_read = 0;
+  for (auto read_options : {read_options_v1, read_options_v2}) {
+    // GetBlob
+    {
+      PinnableSlice value;
+      uint64_t bytes_read = 0;
 
-    // filling cache = true
-    for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
-
+      // filling cache = true
       read_options.fill_cache = true;
-      ASSERT_OK(source->GetBlob(read_options, keys[i], blob_offsets[i],
-                                blob_sizes[i], kNoCompression, prefetch_buffer,
-                                &value, &bytes_read));
-      ASSERT_EQ(value, blobs[i]);
-      ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+      for (size_t i = 0; i < num_blobs; ++i) {
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
 
-      ASSERT_TRUE(source->TEST_BlobInCache(blob_offsets[i]));
+        ASSERT_OK(source->GetBlob(read_options, keys[i], blob_offsets[i],
+                                  blob_sizes[i], kNoCompression,
+                                  prefetch_buffer, &value, &bytes_read));
+        ASSERT_EQ(value, blobs[i]);
+        ASSERT_EQ(bytes_read,
+                  blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+
+        ASSERT_TRUE(source->TEST_BlobInCache(blob_offsets[i]));
+      }
+
+      source->Reset();
+      // Erase the blobs from the cache
+      options.blob_cache->EraseUnRefEntries();
+
+      // filling cache = false
+      read_options.fill_cache = false;
+      for (size_t i = 0; i < num_blobs; ++i) {
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+
+        ASSERT_OK(source->GetBlob(read_options, keys[i], blob_offsets[i],
+                                  blob_sizes[i], kNoCompression,
+                                  prefetch_buffer, &value, &bytes_read));
+        ASSERT_EQ(value, blobs[i]);
+        ASSERT_EQ(bytes_read,
+                  blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+      }
     }
 
     source->Reset();
     // Erase the blobs from the cache
     options.blob_cache->EraseUnRefEntries();
 
-    // filling cache = false
-    for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+    // Cache-only GetBlob
+    {
+      read_options.read_tier = ReadTier::kBlockCacheTier;
+      read_options.fill_cache = true;
 
-      read_options.fill_cache = false;
-      ASSERT_OK(source->GetBlob(read_options, keys[i], blob_offsets[i],
-                                blob_sizes[i], kNoCompression, prefetch_buffer,
-                                &value, &bytes_read));
-      ASSERT_EQ(value, blobs[i]);
-      ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+      PinnableSlice value;
+      uint64_t bytes_read = 0;
 
-      ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+      for (size_t i = 0; i < num_blobs; ++i) {
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+
+        ASSERT_NOK(source->GetBlob(read_options, keys[i], blob_offsets[i],
+                                   blob_sizes[i], kNoCompression,
+                                   prefetch_buffer, &value, &bytes_read));
+        ASSERT_TRUE(value.empty());
+        ASSERT_EQ(bytes_read, 0);
+
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+      }
     }
+
+    source->Reset();
+    // Erase the blobs from the cache
+    options.blob_cache->EraseUnRefEntries();
+
+    // MultiGetBlob
+    {
+      uint64_t bytes_read = 0;
+
+      autovector<std::reference_wrapper<const Slice>> key_refs;
+      autovector<uint64_t> offsets;
+      autovector<uint64_t> sizes;
+      std::array<Status, num_blobs> statuses_buf;
+      autovector<Status*> statuses;
+      std::array<PinnableSlice, num_blobs> value_buf;
+      autovector<PinnableSlice*> values;
+
+      uint64_t bytes_read_from_cache = 0;
+      for (size_t i = 0; i < num_blobs; i += 2) {
+        key_refs.emplace_back(std::cref(keys[i]));
+        offsets.push_back(blob_offsets[i]);
+        sizes.push_back(blob_sizes[i]);
+        statuses.push_back(&statuses_buf[i]);
+        values.push_back(&value_buf[i]);
+        bytes_read_from_cache += blob_sizes[i];
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+      }
+
+      read_options.fill_cache = true;
+      read_options.read_tier = ReadTier::kReadAllTier;
+
+      // Get half of blobs
+      source->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
+                           values, &bytes_read);
+
+      ASSERT_GT(bytes_read, bytes_read_from_cache);
+
+      for (size_t i = 0; i < num_blobs; ++i) {
+        if (i % 2 == 0) {
+          ASSERT_OK(statuses_buf[i]);
+          ASSERT_EQ(value_buf[i], blobs[i]);
+          ASSERT_TRUE(source->TEST_BlobInCache(blob_offsets[i]));
+        } else {
+          ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+        }
+      }
+    }
+
+    source->Reset();
+    // Erase the blobs from the cache
+    options.blob_cache->EraseUnRefEntries();
+
+    // Cache-only MultiGetBlob
+    {
+      uint64_t bytes_read = 0;
+
+      autovector<std::reference_wrapper<const Slice>> key_refs;
+      autovector<uint64_t> offsets;
+      autovector<uint64_t> sizes;
+      std::array<Status, num_blobs> statuses_buf;
+      autovector<Status*> statuses;
+      std::array<PinnableSlice, num_blobs> value_buf;
+      autovector<PinnableSlice*> values;
+
+      for (size_t i = 0; i < num_blobs; ++i) {
+        key_refs.emplace_back(std::cref(keys[i]));
+        offsets.push_back(blob_offsets[i]);
+        sizes.push_back(blob_sizes[i]);
+        statuses.push_back(&statuses_buf[i]);
+        values.push_back(&value_buf[i]);
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+      }
+
+      read_options.fill_cache = true;
+      read_options.read_tier = ReadTier::kBlockCacheTier;
+
+      source->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
+                           values, &bytes_read);
+
+      for (size_t i = 0; i < num_blobs; ++i) {
+        ASSERT_NOK(statuses_buf[i]);
+        ASSERT_TRUE(values[i]->empty());
+        ASSERT_EQ(bytes_read, 0);
+        ASSERT_FALSE(source->TEST_BlobInCache(blob_offsets[i]));
+      }
+    }
+
+    source->Reset();
+    // Erase the blobs from the cache
+    options.blob_cache->EraseUnRefEntries();
   }
 }
 
