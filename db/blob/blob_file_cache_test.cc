@@ -126,17 +126,17 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
       db_id_, db_session_id_, blob_file_read_hist, nullptr /*IOTracer*/);
 
   // First try: reader should be opened and put in cache
-  CacheHandleGuard<BlobFileReader> first;
+  CacheHandleGuard<BlobSource> first;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
 
   // Second try: reader should be served from cache
-  CacheHandleGuard<BlobFileReader> second;
+  CacheHandleGuard<BlobSource> second;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+  ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &second));
   ASSERT_NE(second.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -170,22 +170,22 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
       backing_cache.get(), &immutable_options, &file_options, column_family_id,
       db_id_, db_session_id_, blob_file_read_hist, nullptr /*IOTracer*/);
 
-  CacheHandleGuard<BlobFileReader> first;
-  CacheHandleGuard<BlobFileReader> second;
+  CacheHandleGuard<BlobSource> first;
+  CacheHandleGuard<BlobSource> second;
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileCache::GetBlobFileReader:DoubleCheck", [&](void* /* arg */) {
         // Disabling sync points to prevent infinite recursion
         SyncPoint::GetInstance()->DisableProcessing();
 
-        ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+        ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &second));
         ASSERT_NE(second.GetValue(), nullptr);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -221,11 +221,11 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   // Note: there is no blob file with the below number
   constexpr uint64_t blob_file_number = 123;
 
-  CacheHandleGuard<BlobFileReader> reader;
+  CacheHandleGuard<BlobSource> source;
 
   ASSERT_TRUE(
-      blob_file_cache.GetBlobFileReader(blob_file_number, &reader).IsIOError());
-  ASSERT_EQ(reader.GetValue(), nullptr);
+      blob_file_cache.GetBlobSource(blob_file_number, &source).IsIOError());
+  ASSERT_EQ(source.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
 }
@@ -261,11 +261,11 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
 
   // Insert into cache should fail since it has zero capacity and
   // strict_capacity_limit is set
-  CacheHandleGuard<BlobFileReader> reader;
+  CacheHandleGuard<BlobSource> source;
 
-  ASSERT_TRUE(blob_file_cache.GetBlobFileReader(blob_file_number, &reader)
-                  .IsIncomplete());
-  ASSERT_EQ(reader.GetValue(), nullptr);
+  ASSERT_TRUE(
+      blob_file_cache.GetBlobSource(blob_file_number, &source).IsIncomplete());
+  ASSERT_EQ(source.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
 }

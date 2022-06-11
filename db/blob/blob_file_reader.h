@@ -8,9 +8,6 @@
 #include <cinttypes>
 #include <memory>
 
-#include "cache/cache_entry_roles.h"
-#include "cache/cache_key.h"
-#include "db/blob/blob_log_format.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -34,8 +31,7 @@ class BlobFileReader {
                        const FileOptions& file_options,
                        uint32_t column_family_id,
                        HistogramImpl* blob_file_read_hist,
-                       uint64_t blob_file_number, const std::string& db_id,
-                       const std::string& db_session_id,
+                       uint64_t blob_file_number,
                        const std::shared_ptr<IOTracer>& io_tracer,
                        std::unique_ptr<BlobFileReader>* reader);
 
@@ -62,14 +58,10 @@ class BlobFileReader {
 
   uint64_t GetFileSize() const { return file_size_; }
 
-  bool TEST_BlobInCache(uint64_t offset) const;
-
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
-                 uint64_t file_size, uint64_t file_number,
-                 CompressionType compression_type, const std::string& db_id,
-                 const std::string& db_session_id,
-                 const ImmutableOptions& immutable_options);
+                 uint64_t file_size, CompressionType compression_type,
+                 SystemClock* clock, Statistics* statistics);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -101,95 +93,15 @@ class BlobFileReader {
                                        CompressionType compression_type,
                                        SystemClock* clock,
                                        Statistics* statistics,
-                                       PinnableSlice* value,
-                                       MemoryAllocator* memory_allocator);
+                                       PinnableSlice* value);
 
   static void SaveValue(const Slice& src, PinnableSlice* dst);
-
-  Status MaybeReadBlobFromCache(FilePrefetchBuffer* prefetch_buffer,
-                                const ReadOptions& read_options,
-                                uint64_t offset, const bool wait,
-                                Slice* record_slice) const;
-
-  Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
-                                   Cache* blob_cache, const Slice& key,
-                                   const bool wait,
-                                   const Cache::CacheItemHelper* cache_helper,
-                                   const Cache::CreateCallback& create_cb,
-                                   Cache::Priority priority) const;
-
-  Status InsertEntryToCache(const CacheTier& cache_tier, Cache* blob_cache,
-                            const Slice& key,
-                            const Cache::CacheItemHelper* cache_helper,
-                            const Slice* record_slice, size_t charge,
-                            Cache::Handle** cache_handle,
-                            Cache::Priority priority) const;
-
-  Status GetDataBlobFromCache(const Slice& cache_key, Cache* blob_cache,
-                              Cache* blob_cache_compressed,
-                              const ReadOptions& read_options,
-                              Slice* record_slice, bool wait) const;
-
-  Status PutDataBlobToCache(const Slice& cache_key, Cache* blob_cache,
-                            Cache* blob_cache_compressed,
-                            const Slice* record_slice,
-                            const Slice* record_slice_compressed) const;
-
-  static size_t SizeCallback(void* obj) {
-    assert(obj != nullptr);
-
-    const Slice header_slice(static_cast<const char*>(obj),
-                             BlobLogRecord::kHeaderSize);
-
-    BlobLogRecord record;
-    const Status s = record.DecodeHeaderFrom(header_slice);
-    assert(s == Status::OK());
-
-    return record.record_size();
-  }
-
-  static Status SaveToCallback(void* from_obj, size_t from_offset,
-                               size_t length, void* out) {
-    assert(from_obj != nullptr);
-
-    const char* buf = static_cast<const char*>(from_obj);
-    const Slice header_slice(buf, BlobLogRecord::kHeaderSize);
-
-    BlobLogRecord record;
-    const Status s = record.DecodeHeaderFrom(header_slice);
-    assert(s == Status::OK());
-
-    assert(length == record.record_size());
-    (void)from_offset;
-    memcpy(out, buf, length);
-
-    return Status::OK();
-  }
-
-  static Cache::CacheItemHelper* GetCacheItemHelper() {
-    static Cache::CacheItemHelper cache_helper(
-        SizeCallback, SaveToCallback,
-        GetCacheEntryDeleterForRole<char[], CacheEntryRole::kBlobLogRecord>());
-    return &cache_helper;
-  }
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
   CompressionType compression_type_;
-
-  Statistics* statistics_;
   SystemClock* clock_;
-
-  std::shared_ptr<Cache> blob_cache_;
-
-  // A file-specific generator of cache keys, sometimes referred to as the
-  // "base" cache key for a file because all the cache keys for various offsets
-  // within the file are computed using simple arithmetic.
-  OffsetableCacheKey base_cache_key_;
-
-  // The control option of how the cache tiers will be used. Currently rocksdb
-  // support block cache (volatile tier), secondary cache (non-volatile tier).
-  CacheTier lowest_used_cache_tier_;
+  Statistics* statistics_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

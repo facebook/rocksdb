@@ -18,7 +18,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
-#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/compression.h"
@@ -135,18 +134,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_options,
 
 class BlobFileReaderTest : public testing::Test {
  protected:
-  BlobFileReaderTest() {
-    mock_env_.reset(MockEnv::Create(Env::Default()));
-    db_session_id_ = EncodeSessionId(base_session_upper_, base_session_lower_);
-  }
-
+  BlobFileReaderTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
   std::unique_ptr<Env> mock_env_;
-
-  std::string db_session_id_;
-  std::string db_id_ = std::string("1234");
-
-  uint64_t base_session_upper_ = 1234;
-  uint64_t base_session_lower_ = 5678;
 };
 
 TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
@@ -184,7 +173,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &reader));
+      blob_file_number, nullptr /*IOTracer*/, &reader));
 
   // Make sure the blob can be retrieved with and without checksum verification
   ReadOptions read_options;
@@ -459,109 +448,9 @@ TEST_F(BlobFileReaderTest, Malformed) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, db_id_, db_session_id_,
-                                     nullptr /*IOTracer*/, &reader)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
-}
-
-TEST_F(BlobFileReaderTest, GetBlobsFromCache) {
-  Options options;
-  options.env = mock_env_.get();
-  options.cf_paths.emplace_back(
-      test::PerThreadDBPath(mock_env_.get(),
-                            "BlobFileReaderTest_GetBlobsFromCache"),
-      0);
-  options.enable_blob_files = true;
-
-  LRUCacheOptions co;
-  co.capacity = 2048;
-  co.num_shard_bits = 2;
-  co.metadata_charge_policy = kDontChargeCacheMetadata;
-  options.blob_cache = NewLRUCache(co);
-  options.lowest_used_cache_tier = CacheTier::kVolatileTier;
-
-  ImmutableOptions immutable_options(options);
-
-  constexpr uint32_t column_family_id = 1;
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
-  constexpr uint64_t blob_file_number = 1;
-  constexpr size_t num_blobs = 16;
-
-  std::vector<std::string> key_strs;
-  std::vector<std::string> blob_strs;
-
-  for (size_t i = 0; i < num_blobs; ++i) {
-    key_strs.push_back("key" + std::to_string(i));
-    blob_strs.push_back("blob" + std::to_string(i));
-  }
-
-  std::vector<Slice> keys;
-  std::vector<Slice> blobs;
-
-  for (size_t i = 0; i < num_blobs; ++i) {
-    keys.push_back({key_strs[i]});
-    blobs.push_back({blob_strs[i]});
-  }
-
-  std::vector<uint64_t> blob_offsets(keys.size());
-  std::vector<uint64_t> blob_sizes(keys.size());
-
-  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
-                expiration_range, blob_file_number, keys, blobs, kNoCompression,
-                blob_offsets, blob_sizes);
-
-  constexpr HistogramImpl* blob_file_read_hist = nullptr;
-
-  std::unique_ptr<BlobFileReader> reader;
-
-  ASSERT_OK(BlobFileReader::Create(
-      immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &reader));
-
-  ReadOptions read_options;
-  read_options.verify_checksums = false;
-
-  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
-
-  // GetBlob
-  {
-    PinnableSlice value;
-    uint64_t bytes_read = 0;
-
-    // filling cache = false
-    for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(reader->TEST_BlobInCache(blob_offsets[i]));
-
-      read_options.fill_cache = false;
-      ASSERT_OK(reader->GetBlob(read_options, keys[i], blob_offsets[i],
-                                blob_sizes[i], kNoCompression, prefetch_buffer,
-                                &value, &bytes_read));
-      ASSERT_EQ(value, blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
-
-      ASSERT_FALSE(reader->TEST_BlobInCache(blob_offsets[i]));
-    }
-
-    // Erase the blobs from the cache
-    options.blob_cache->EraseUnRefEntries();
-
-    // filling cache = true
-    for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(reader->TEST_BlobInCache(blob_offsets[i]));
-
-      read_options.fill_cache = true;
-      ASSERT_OK(reader->GetBlob(read_options, keys[i], blob_offsets[i],
-                                blob_sizes[i], kNoCompression, prefetch_buffer,
-                                &value, &bytes_read));
-      ASSERT_EQ(value, blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
-
-      ASSERT_TRUE(reader->TEST_BlobInCache(blob_offsets[i]));
-    }
-  }
-
-  options.blob_cache->EraseUnRefEntries();
 }
 
 TEST_F(BlobFileReaderTest, TTL) {
@@ -593,8 +482,8 @@ TEST_F(BlobFileReaderTest, TTL) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, db_id_, db_session_id_,
-                                     nullptr /*IOTracer*/, &reader)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
 }
 
@@ -632,8 +521,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, db_id_, db_session_id_,
-                                     nullptr /*IOTracer*/, &reader)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
 }
 
@@ -671,8 +560,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, db_id_, db_session_id_,
-                                     nullptr /*IOTracer*/, &reader)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
 }
 
@@ -707,10 +596,10 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
 
   constexpr uint32_t incorrect_column_family_id = 2;
 
-  ASSERT_TRUE(BlobFileReader::Create(
-                  immutable_options, FileOptions(), incorrect_column_family_id,
-                  blob_file_read_hist, blob_file_number, db_id_, db_session_id_,
-                  nullptr /*IOTracer*/, &reader)
+  ASSERT_TRUE(BlobFileReader::Create(immutable_options, FileOptions(),
+                                     incorrect_column_family_id,
+                                     blob_file_read_hist, blob_file_number,
+                                     nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -744,7 +633,7 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &reader));
+      blob_file_number, nullptr /*IOTracer*/, &reader));
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::VerifyBlob:CheckBlobCRC", [](void* arg) {
@@ -805,7 +694,7 @@ TEST_F(BlobFileReaderTest, Compression) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &reader));
+      blob_file_number, nullptr /*IOTracer*/, &reader));
 
   // Make sure the blob can be retrieved with and without checksum verification
   ReadOptions read_options;
@@ -877,7 +766,7 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &reader));
+      blob_file_number, nullptr /*IOTracer*/, &reader));
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", [](void* arg) {
@@ -912,14 +801,7 @@ class BlobFileReaderIOErrorTest
   BlobFileReaderIOErrorTest() : sync_point_(GetParam()) {
     mock_env_.reset(MockEnv::Create(Env::Default()));
     fault_injection_env_.reset(new FaultInjectionTestEnv(mock_env_.get()));
-    db_session_id_ = EncodeSessionId(base_session_upper_, base_session_lower_);
   }
-
-  std::string db_session_id_;
-  std::string db_id_ = std::string("1234");
-
-  uint64_t base_session_upper_ = 1234;
-  uint64_t base_session_lower_ = 5678;
 
   std::unique_ptr<Env> mock_env_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
@@ -973,7 +855,7 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
 
   const Status s = BlobFileReader::Create(
       immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &reader);
+      blob_file_number, nullptr /*IOTracer*/, &reader);
 
   const bool fail_during_create =
       (sync_point_ != "BlobFileReader::GetBlob:ReadFromFile");
@@ -1005,14 +887,7 @@ class BlobFileReaderDecodingErrorTest
  protected:
   BlobFileReaderDecodingErrorTest() : sync_point_(GetParam()) {
     mock_env_.reset(MockEnv::Create(Env::Default()));
-    db_session_id_ = EncodeSessionId(base_session_upper_, base_session_lower_);
   }
-
-  std::string db_session_id_;
-  std::string db_id_ = std::string("1234");
-
-  uint64_t base_session_upper_ = 1234;
-  uint64_t base_session_lower_ = 5678;
 
   std::unique_ptr<Env> mock_env_;
   std::string sync_point_;
@@ -1065,7 +940,7 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
 
   const Status s = BlobFileReader::Create(
       immutable_options, FileOptions(), column_family_id, blob_file_read_hist,
-      blob_file_number, db_id_, db_session_id_, nullptr /*IOTracer*/, &reader);
+      blob_file_number, nullptr /*IOTracer*/, &reader);
 
   const bool fail_during_create =
       sync_point_ != "BlobFileReader::GetBlob:TamperWithResult";

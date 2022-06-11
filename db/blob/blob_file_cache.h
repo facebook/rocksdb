@@ -18,7 +18,7 @@ struct ImmutableOptions;
 struct FileOptions;
 class HistogramImpl;
 class Status;
-class BlobFileReader;
+class BlobSource;
 class Slice;
 class IOTracer;
 
@@ -33,8 +33,8 @@ class BlobFileCache {
   BlobFileCache(const BlobFileCache&) = delete;
   BlobFileCache& operator=(const BlobFileCache&) = delete;
 
-  Status GetBlobFileReader(uint64_t blob_file_number,
-                           CacheHandleGuard<BlobFileReader>* blob_file_reader);
+  Status GetBlobSource(uint64_t blob_file_number,
+                       CacheHandleGuard<BlobSource>* blob_source);
 
  private:
   Cache* cache_;

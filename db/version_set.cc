@@ -25,6 +25,7 @@
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_source.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/file_pri.h"
 #include "db/dbformat.h"
@@ -1893,19 +1894,19 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     return Status::Corruption("Invalid blob file number");
   }
 
-  CacheHandleGuard<BlobFileReader> blob_file_reader;
+  CacheHandleGuard<BlobSource> blob_source;
 
   {
     assert(blob_file_cache_);
-    const Status s = blob_file_cache_->GetBlobFileReader(blob_file_number,
-                                                         &blob_file_reader);
+    const Status s =
+        blob_file_cache_->GetBlobSource(blob_file_number, &blob_source);
     if (!s.ok()) {
       return s;
     }
   }
 
-  assert(blob_file_reader.GetValue());
-  const Status s = blob_file_reader.GetValue()->GetBlob(
+  assert(blob_source.GetValue());
+  const Status s = blob_source.GetValue()->GetBlob(
       read_options, user_key, blob_index.offset(), blob_index.size(),
       blob_index.compression(), prefetch_buffer, value, bytes_read);
 
@@ -1946,11 +1947,10 @@ void Version::MultiGetBlob(
       continue;
     }
 
-    CacheHandleGuard<BlobFileReader> blob_file_reader;
+    CacheHandleGuard<BlobSource> blob_source;
     assert(blob_file_cache_);
-    status = blob_file_cache_->GetBlobFileReader(blob_file_number,
-                                                 &blob_file_reader);
-    assert(!status.ok() || blob_file_reader.GetValue());
+    status = blob_file_cache_->GetBlobSource(blob_file_number, &blob_source);
+    assert(!status.ok() || blob_source.GetValue());
 
     auto& blobs_in_file = elem.second;
     if (!status.ok()) {
@@ -1961,10 +1961,11 @@ void Version::MultiGetBlob(
       continue;
     }
 
-    assert(blob_file_reader.GetValue());
-    const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
+    assert(blob_source.GetValue());
+    const uint64_t file_size =
+        blob_source.GetValue()->GetBlobFileReader()->GetFileSize();
     const CompressionType compression =
-        blob_file_reader.GetValue()->GetCompressionType();
+        blob_source.GetValue()->GetBlobFileReader()->GetCompressionType();
 
     // sort blobs_in_file by file offset.
     std::sort(
@@ -2007,9 +2008,9 @@ void Version::MultiGetBlob(
       statuses.push_back(key_context.s);
       values.push_back(key_context.value);
     }
-    blob_file_reader.GetValue()->MultiGetBlob(read_options, user_keys, offsets,
-                                              value_sizes, statuses, values,
-                                              /*bytes_read=*/nullptr);
+    blob_source.GetValue()->MultiGetBlob(read_options, user_keys, offsets,
+                                         value_sizes, statuses, values,
+                                         /*bytes_read=*/nullptr);
     size_t num = blob_read_key_contexts.size();
     assert(num == user_keys.size());
     assert(num == offsets.size());
