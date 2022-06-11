@@ -41,6 +41,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -2542,6 +2543,56 @@ void rocksdb_write_writebatch_wi(
     char** errptr) {
   WriteBatch* wb = wbwi->rep->GetWriteBatch();
   SaveError(errptr, db->rep->Write(options->rep, wb));
+}
+
+void rocksdb_load_latest_options(
+    const char* db_path, rocksdb_env_t* env, bool ignore_unknown_options,
+    rocksdb_cache_t* cache, rocksdb_options_t** db_options,
+    size_t* num_column_families, char*** list_column_family_names,
+    rocksdb_options_t*** list_column_family_options, char** errptr) {
+  DBOptions db_opt;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  Status s = LoadLatestOptions(std::string(db_path), env->rep, &db_opt,
+                               &cf_descs, ignore_unknown_options, &cache->rep);
+  if (s.ok()) {
+    char** cf_names = (char**)malloc(cf_descs.size() * sizeof(char*));
+    rocksdb_options_t** cf_options = (rocksdb_options_t**)malloc(
+        cf_descs.size() * sizeof(rocksdb_options_t*));
+    for (size_t i = 0; i < cf_descs.size(); ++i) {
+      cf_names[i] = strdup(cf_descs[i].name.c_str());
+      cf_options[i] = new rocksdb_options_t{
+          Options(DBOptions(), std::move(cf_descs[i].options))};
+    }
+    *num_column_families = cf_descs.size();
+    *db_options = new rocksdb_options_t{
+        Options(std::move(db_opt), ColumnFamilyOptions())};
+    *list_column_family_names = cf_names;
+    *list_column_family_options = cf_options;
+  } else {
+    *num_column_families = 0;
+    *db_options = nullptr;
+    *list_column_family_names = nullptr;
+    *list_column_family_options = nullptr;
+    SaveError(errptr, s);
+  }
+}
+
+void rocksdb_load_latest_options_destroy(
+    rocksdb_options_t* db_options, char** list_column_family_names,
+    rocksdb_options_t** list_column_family_options, size_t len) {
+  rocksdb_options_destroy(db_options);
+  if (list_column_family_names) {
+    for (size_t i = 0; i < len; ++i) {
+      free(list_column_family_names[i]);
+    }
+    free(list_column_family_names);
+  }
+  if (list_column_family_options) {
+    for (size_t i = 0; i < len; ++i) {
+      rocksdb_options_destroy(list_column_family_options[i]);
+    }
+    free(list_column_family_options);
+  }
 }
 
 rocksdb_block_based_table_options_t*

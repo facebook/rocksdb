@@ -561,6 +561,71 @@ static void CheckTxnDBPinGetCF(rocksdb_transactiondb_t* txn_db,
   rocksdb_pinnableslice_destroy(p);
 }
 
+static void LoadAndCheckLatestOptions(const char* db_name, rocksdb_env_t* env,
+                                      bool ignore_unknown_options,
+                                      rocksdb_cache_t* cache,
+                                      rocksdb_comparator_t* cmp,
+                                      const size_t expected_num_column_families,
+                                      const char** expected_cf_names,
+                                      const char* expected_open_err) {
+  rocksdb_options_t* db_options;
+  size_t num_column_families;
+  char** list_column_family_names;
+  rocksdb_options_t** list_column_family_options;
+  char* err = 0;
+
+  // load the latest rocksdb option
+  rocksdb_load_latest_options(db_name, env, ignore_unknown_options, cache,
+                              &db_options, &num_column_families,
+                              &list_column_family_names,
+                              &list_column_family_options, &err);
+  assert(num_column_families == expected_num_column_families);
+  CheckNoError(err);
+
+  // verify the loaded options by opening the db.
+  rocksdb_options_set_error_if_exists(db_options, 0);
+
+  char** list_const_cf_names =
+      (char**)malloc(num_column_families * sizeof(char*));
+  rocksdb_options_t** list_const_cf_options = (rocksdb_options_t**)malloc(
+      num_column_families * sizeof(rocksdb_options_t*));
+  for (size_t i = 0; i < num_column_families; ++i) {
+    assert(strcmp(list_column_family_names[i], expected_cf_names[i]) == 0);
+    list_const_cf_names[i] = list_column_family_names[i];
+    if (cmp) {
+      rocksdb_options_set_comparator(list_column_family_options[i], cmp);
+    }
+    list_const_cf_options[i] = list_column_family_options[i];
+  }
+  rocksdb_column_family_handle_t** handles =
+      (rocksdb_column_family_handle_t**)malloc(
+          num_column_families * sizeof(rocksdb_column_family_handle_t*));
+
+  rocksdb_t* db = rocksdb_open_column_families(
+      db_options, db_name, (int)num_column_families,
+      (const char* const*)list_const_cf_names,
+      (const rocksdb_options_t* const*)list_const_cf_options, handles, &err);
+  if (expected_open_err == NULL) {
+    CheckNoError(err);
+    for (size_t i = 0; i < num_column_families; ++i) {
+      rocksdb_column_family_handle_destroy(handles[i]);
+    }
+    free(handles);
+    rocksdb_close(db);
+  } else {
+    assert(err != NULL);
+    assert(strcmp(err, expected_open_err) == 0);
+    free(handles);
+    free(err);
+  }
+
+  free(list_const_cf_names);
+  free(list_const_cf_options);
+  rocksdb_load_latest_options_destroy(db_options, list_column_family_names,
+                                      list_column_family_options,
+                                      num_column_families);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -1341,7 +1406,6 @@ int main(int argc, char** argv) {
     rocksdb_merge(db, woptions, "bar", 3, "barvalue", 8, &err);
     CheckNoError(err);
     CheckGet(db, roptions, "bar", "fake");
-
   }
 
   StartPhase("columnfamilies");
@@ -1353,7 +1417,16 @@ int main(int argc, char** argv) {
     rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(db_options, 1);
     db = rocksdb_open(db_options, dbname, &err);
-    CheckNoError(err)
+    CheckNoError(err);
+    rocksdb_close(db);
+    {
+      const char* expected_cf_names[1] = {"default"};
+      LoadAndCheckLatestOptions(dbname, env, false, cache, NULL, 1,
+                                expected_cf_names, NULL);
+    }
+
+    rocksdb_options_set_create_if_missing(db_options, 0);
+    db = rocksdb_open(db_options, dbname, &err);
     rocksdb_column_family_handle_t* cfh;
     cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
     rocksdb_column_family_handle_destroy(cfh);
@@ -1373,6 +1446,10 @@ int main(int argc, char** argv) {
     const char* cf_names[2] = {"default", "cf1"};
     const rocksdb_options_t* cf_opts[2] = {cf_options, cf_options};
     rocksdb_column_family_handle_t* handles[2];
+
+    LoadAndCheckLatestOptions(dbname, env, false, cache, NULL, 2, cf_names,
+                              NULL);
+
     db = rocksdb_open_column_families(db_options, dbname, 2, cf_names, cf_opts, handles, &err);
     CheckNoError(err);
 
@@ -1545,6 +1622,12 @@ int main(int argc, char** argv) {
       rocksdb_column_family_handle_destroy(handles[i]);
     }
     rocksdb_close(db);
+    {
+      // As column family has been dropped, we expect only one column family.
+      const char* expected_cf_names[1] = {"default"};
+      LoadAndCheckLatestOptions(dbname, env, false, cache, NULL, 1,
+                                expected_cf_names, NULL);
+    }
     rocksdb_destroy_db(options, dbname, &err);
     rocksdb_options_destroy(db_options);
     rocksdb_options_destroy(cf_options);
@@ -1606,6 +1689,16 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_set_total_order_seek(roptions, 0);
 
     rocksdb_close(db);
+
+    {
+      const char* expected_cf_names[1] = {"default"};
+      LoadAndCheckLatestOptions(dbname, env, false, cache, NULL, 1,
+                                expected_cf_names,
+                                "Invalid argument: leveldb.BytewiseComparator: "
+                                "does not match existing comparator foo");
+      LoadAndCheckLatestOptions(dbname, env, false, cache, cmp, 1,
+                                expected_cf_names, NULL);
+    }
     rocksdb_destroy_db(options, dbname, &err);
   }
 
