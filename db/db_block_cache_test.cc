@@ -1290,12 +1290,15 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
-         {NewLRUCache(capacity), NewClockCache(capacity),
-          NewFastLRUCache(capacity)}) {
+         {NewLRUCache(capacity), NewClockCache(capacity)}) {
+      // This test doesn't support FastLRUCache because the
+      // keys used are not 16B long.
+      // TODO(guido) Add support for FastLRUCache.
       if (!cache) {
         // Skip clock cache when not supported
         continue;
       }
+
       ++iterations_tested;
 
       Options options = CurrentOptions();

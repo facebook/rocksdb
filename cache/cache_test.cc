@@ -25,18 +25,36 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
 // Conversions between numeric keys/values and the types expected by Cache.
-static std::string EncodeKey(int k) {
+std::string EncodeKey16Bytes(int k) {
+  std::string result;
+  PutFixed32(&result, k);
+  result.append(std::string(12, 'a'));  // Because we need a 16B output, we
+                                        // add a 12-byte padding.
+  return result;
+}
+
+int DecodeKey16Bytes(const Slice& k) {
+  assert(k.size() == 16);
+  return DecodeFixed32(k.data());  // Decodes only the first 4 bytes of k.
+}
+
+std::string EncodeKey32Bits(int k) {
   std::string result;
   PutFixed32(&result, k);
   return result;
 }
-static int DecodeKey(const Slice& k) {
+
+int DecodeKey32Bits(const Slice& k) {
   assert(k.size() == 4);
   return DecodeFixed32(k.data());
 }
-static void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
-static int DecodeValue(void* v) {
+
+void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
+
+int DecodeValue(void* v) {
   return static_cast<int>(reinterpret_cast<uintptr_t>(v));
 }
 
@@ -51,12 +69,19 @@ void eraseDeleter(const Slice& /*key*/, void* value) {
   cache->Erase("foo");
 }
 
+}  // anonymous namespace
+
 class CacheTest : public testing::TestWithParam<std::string> {
  public:
   static CacheTest* current_;
+  static std::string type_;
 
   static void Deleter(const Slice& key, void* v) {
-    current_->deleted_keys_.push_back(DecodeKey(key));
+    if (type_ == kFast) {
+      current_->deleted_keys_.push_back(DecodeKey16Bytes(key));
+    } else {
+      current_->deleted_keys_.push_back(DecodeKey32Bits(key));
+    }
     current_->deleted_values_.push_back(DecodeValue(v));
   }
 
@@ -75,6 +100,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
       : cache_(NewCache(kCacheSize, kNumShardBits, false)),
         cache2_(NewCache(kCacheSize2, kNumShardBits2, false)) {
     current_ = this;
+    type_ = GetParam();
   }
 
   ~CacheTest() override {}
@@ -115,6 +141,27 @@ class CacheTest : public testing::TestWithParam<std::string> {
                              charge_policy);
     }
     return nullptr;
+  }
+
+  // These functions encode/decode keys in tests cases that use
+  // int keys.
+  // Currently, FastLRUCache requires keys to be 16B long, whereas
+  // LRUCache and ClockCache don't, so the encoding depends on
+  // the cache type.
+  std::string EncodeKey(int k) {
+    if (GetParam() == kFast) {
+      return EncodeKey16Bytes(k);
+    } else {
+      return EncodeKey32Bits(k);
+    }
+  }
+
+  int DecodeKey(const Slice& k) {
+    if (GetParam() == kFast) {
+      return DecodeKey16Bytes(k);
+    } else {
+      return DecodeKey32Bits(k);
+    }
   }
 
   int Lookup(std::shared_ptr<Cache> cache, int key) {
@@ -160,11 +207,18 @@ class CacheTest : public testing::TestWithParam<std::string> {
     Erase(cache2_, key);
   }
 };
+
 CacheTest* CacheTest::current_;
+std::string CacheTest::type_;
 
 class LRUCacheTest : public CacheTest {};
 
 TEST_P(CacheTest, UsageTest) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+    return;
+  }
+
   // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
@@ -209,6 +263,11 @@ TEST_P(CacheTest, UsageTest) {
 }
 
 TEST_P(CacheTest, PinnedUsageTest) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+    return;
+  }
+
   // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 200000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
@@ -461,12 +520,22 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 }
 
 TEST_P(CacheTest, EvictEmptyCache) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+    return;
+  }
+
   // Insert item large than capacity to trigger eviction on empty cache.
   auto cache = NewCache(1, 0, false);
   ASSERT_OK(cache->Insert("foo", nullptr, 10, dumbDeleter));
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+    return;
+  }
+
   // Have deleter which will erase item from cache, which will re-enter
   // the cache at that point.
   std::shared_ptr<Cache> cache = NewCache(10, 0, false);
@@ -535,9 +604,9 @@ TEST_P(CacheTest, NewId) {
 
 class Value {
  public:
-  explicit Value(size_t v) : v_(v) { }
+  explicit Value(int v) : v_(v) {}
 
-  size_t v_;
+  int v_;
 };
 
 namespace {
@@ -585,8 +654,8 @@ TEST_P(CacheTest, SetCapacity) {
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   std::vector<Cache::Handle*> handles(10);
   // Insert 5 entries, but not releasing.
-  for (size_t i = 0; i < 5; i++) {
-    std::string key = std::to_string(i + 1);
+  for (int i = 0; i < 5; i++) {
+    std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
@@ -600,14 +669,14 @@ TEST_P(CacheTest, SetCapacity) {
   // insert 5 more elements to cache, then release 5,
   // then decrease capacity to 7, final capacity should be 7
   // and usage should be 7
-  for (size_t i = 5; i < 10; i++) {
-    std::string key = std::to_string(i + 1);
+  for (int i = 5; i < 10; i++) {
+    std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
   ASSERT_EQ(10U, cache->GetCapacity());
   ASSERT_EQ(10U, cache->GetUsage());
-  for (size_t i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++) {
     cache->Release(handles[i]);
   }
   ASSERT_EQ(10U, cache->GetCapacity());
@@ -617,7 +686,7 @@ TEST_P(CacheTest, SetCapacity) {
   ASSERT_EQ(7, cache->GetUsage());
 
   // release remaining 5 to keep valgrind happy
-  for (size_t i = 5; i < 10; i++) {
+  for (int i = 5; i < 10; i++) {
     cache->Release(handles[i]);
   }
 
@@ -631,8 +700,8 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   std::vector<Cache::Handle*> handles(10);
   Status s;
-  for (size_t i = 0; i < 10; i++) {
-    std::string key = std::to_string(i + 1);
+  for (int i = 0; i < 10; i++) {
+    std::string key = EncodeKey(i + 1);
     s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
@@ -640,7 +709,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(10, cache->GetUsage());
 
   // test2: set the flag to true. Insert and check if it fails.
-  std::string extra_key = "extra";
+  std::string extra_key = EncodeKey(100);
   Value* extra_value = new Value(0);
   cache->SetStrictCapacityLimit(true);
   Cache::Handle* handle;
@@ -649,14 +718,14 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(nullptr, handle);
   ASSERT_EQ(10, cache->GetUsage());
 
-  for (size_t i = 0; i < 10; i++) {
+  for (int i = 0; i < 10; i++) {
     cache->Release(handles[i]);
   }
 
   // test3: init with flag being true.
   std::shared_ptr<Cache> cache2 = NewCache(5, 0, true);
-  for (size_t i = 0; i < 5; i++) {
-    std::string key = std::to_string(i + 1);
+  for (int i = 0; i < 5; i++) {
+    std::string key = EncodeKey(i + 1);
     s = cache2->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
@@ -671,7 +740,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(5, cache2->GetUsage());
   ASSERT_EQ(nullptr, cache2->Lookup(extra_key));
 
-  for (size_t i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++) {
     cache2->Release(handles[i]);
   }
 }
@@ -685,15 +754,15 @@ TEST_P(CacheTest, OverCapacity) {
   std::vector<Cache::Handle*> handles(n+1);
 
   // Insert n+1 entries, but not releasing.
-  for (size_t i = 0; i < n + 1; i++) {
-    std::string key = std::to_string(i + 1);
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
+    std::string key = EncodeKey(i + 1);
     Status s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
     ASSERT_TRUE(s.ok());
   }
 
   // Guess what's in the cache now?
-  for (size_t i = 0; i < n + 1; i++) {
-    std::string key = std::to_string(i + 1);
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
+    std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     ASSERT_TRUE(h != nullptr);
     if (h) cache->Release(h);
@@ -701,7 +770,7 @@ TEST_P(CacheTest, OverCapacity) {
 
   // the cache is over capacity since nothing could be evicted
   ASSERT_EQ(n + 1U, cache->GetUsage());
-  for (size_t i = 0; i < n + 1; i++) {
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
     cache->Release(handles[i]);
   }
   // Make sure eviction is triggered.
@@ -713,14 +782,14 @@ TEST_P(CacheTest, OverCapacity) {
   // element 0 is evicted and the rest is there
   // This is consistent with the LRU policy since the element 0
   // was released first
-  for (size_t i = 0; i < n + 1; i++) {
-    std::string key = std::to_string(i + 1);
+  for (int i = 0; i < static_cast<int>(n + 1); i++) {
+    std::string key = EncodeKey(i + 1);
     auto h = cache->Lookup(key);
     if (h) {
-      ASSERT_NE(i, 0U);
+      ASSERT_NE(static_cast<size_t>(i), 0U);
       cache->Release(h);
     } else {
-      ASSERT_EQ(i, 0U);
+      ASSERT_EQ(static_cast<size_t>(i), 0U);
     }
   }
 }
@@ -746,7 +815,7 @@ TEST_P(CacheTest, ApplyToAllCacheEntriesTest) {
   std::sort(inserted.begin(), inserted.end());
   std::sort(legacy_callback_state.begin(), legacy_callback_state.end());
   ASSERT_EQ(inserted.size(), legacy_callback_state.size());
-  for (size_t i = 0; i < inserted.size(); ++i) {
+  for (int i = 0; i < static_cast<int>(inserted.size()); ++i) {
     EXPECT_EQ(inserted[i], legacy_callback_state[i]);
   }
 }
@@ -774,7 +843,7 @@ TEST_P(CacheTest, ApplyToAllEntriesTest) {
   std::sort(inserted.begin(), inserted.end());
   std::sort(callback_state.begin(), callback_state.end());
   ASSERT_EQ(inserted.size(), callback_state.size());
-  for (size_t i = 0; i < inserted.size(); ++i) {
+  for (int i = 0; i < static_cast<int>(inserted.size()); ++i) {
     EXPECT_EQ(inserted[i], callback_state[i]);
   }
 }
