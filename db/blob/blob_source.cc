@@ -27,7 +27,6 @@ BlobSource::BlobSource(const BlobFileReader* reader,
                        const std::string& db_session_id, uint64_t file_number)
     : blob_file_reader_(reader),
       statistics_(immutable_options.statistics.get()),
-      clock_(immutable_options.clock),
       blob_cache_(immutable_options.blob_cache),
       lowest_used_cache_tier_(immutable_options.lowest_used_cache_tier),
       base_cache_key_(OffsetableCacheKey(db_id, db_session_id, file_number,

@@ -134,7 +134,6 @@ class BlobSource : public Cleanable {
   const BlobFileReader* blob_file_reader_;
 
   Statistics* statistics_;
-  SystemClock* clock_;
 
   // A blob cache to store uncompressed blobs.
   std::shared_ptr<Cache> blob_cache_;
