@@ -812,6 +812,10 @@ bool DBIter::FindValueForCurrentKey() {
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
+  // If false, it indicates that we have not seen any valid entry, even though
+  // last_key_entry_type is initialized to kTypeDeletion.
+  bool valid_entry_seen = false;
+
   // Temporarily pin blocks that hold (merge operands / the value)
   ReleaseTempPinnedData();
   TempPinData();
@@ -852,6 +856,7 @@ bool DBIter::FindValueForCurrentKey() {
       return false;
     }
 
+    valid_entry_seen = true;
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
       case kTypeValue:
@@ -913,6 +918,15 @@ bool DBIter::FindValueForCurrentKey() {
   if (!iter_.status().ok()) {
     valid_ = false;
     return false;
+  }
+
+  if (!valid_entry_seen) {
+    // Since we haven't seen any valid entry, last_key_entry_type remains
+    // unchanged and the same as its initial value.
+    assert(last_key_entry_type == kTypeDeletion);
+    assert(last_not_merge_type == kTypeDeletion);
+    valid_ = false;
+    return true;
   }
 
   Status s;
