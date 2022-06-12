@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 #define FORCE_INLINE __forceinline
 #elif defined(__GNUC__)
 #define FORCE_INLINE __attribute__((always_inline))
-#pragma GCC diagnostic ignored "-Wattribute"
+#pragma GCC diagnostic ignored "-Wattributes"
 #else
 #define inline
 #endif
@@ -67,6 +67,7 @@ struct MaxInlineBytewiseComp {
   }
   MaxInlineBytewiseComp(const InternalKeyComparator*) {}
 };
+
 struct MinInlineBytewiseComp {
   FORCE_INLINE
   bool operator()(const IteratorWrapper* a,
