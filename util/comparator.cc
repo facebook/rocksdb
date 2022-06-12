@@ -378,4 +378,30 @@ Status Comparator::CreateFromString(const ConfigOptions& config_options,
   }
   return status;
 }
+
+bool IsForwardBytewiseComparator(const Comparator* cmp) {
+  return IsForwardBytewiseComparator(cmp->Name());
+}
+bool IsForwardBytewiseComparator(const Slice& name) {
+  if (name.starts_with("RocksDB_SE_")) {
+    return true;
+  }
+  return name == "leveldb.BytewiseComparator";
+}
+
+bool IsBytewiseComparator(const Comparator* cmp) {
+  return IsBytewiseComparator(cmp->Name());
+}
+bool IsBytewiseComparator(const Slice& name) {
+  if (name.starts_with("RocksDB_SE_")) {
+    return true;
+  }
+  if (name.starts_with("rev:RocksDB_SE_")) {
+    // reverse bytewise compare, needs reverse in iterator
+    return true;
+  }
+  return name == "leveldb.BytewiseComparator" ||
+         name == "rocksdb.ReverseBytewiseComparator";
+}
+
 }  // namespace ROCKSDB_NAMESPACE

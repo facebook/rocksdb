@@ -150,4 +150,10 @@ extern const Comparator* BytewiseComparator();
 // ordering.
 extern const Comparator* ReverseBytewiseComparator();
 
+bool IsForwardBytewiseComparator(const Comparator* cmp);
+bool IsForwardBytewiseComparator(const Slice& name);
+
+bool IsBytewiseComparator(const Comparator* cmp);
+bool IsBytewiseComparator(const Slice& name);
+
 }  // namespace ROCKSDB_NAMESPACE
