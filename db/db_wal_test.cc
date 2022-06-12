@@ -2247,7 +2247,7 @@ TEST_F(DBWALTest, WalTermTest) {
 #ifndef ROCKSDB_LITE
 TEST_F(DBWALTest, GetCompressedWalsAfterSync) {
   if (db_->GetOptions().wal_compression == kNoCompression) {
-    ROCKSDB_GTEST_SKIP("stream compression not present");
+    ROCKSDB_GTEST_BYPASS("stream compression not present");
     return;
   }
   Options options = GetDefaultOptions();
