@@ -224,9 +224,11 @@ class DBIter final : public Iterator {
   bool ReverseToBackward();
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is smaller than iterator lower bound.
+  // target does not have timestamp.
   void SetSavedKeyToSeekTarget(const Slice& target);
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is larger than iterator upper bound.
+  // target does not have timestamp.
   void SetSavedKeyToSeekForPrevTarget(const Slice& target);
   bool FindValueForCurrentKey();
   bool FindValueForCurrentKeyUsingSeek();
