@@ -856,6 +856,13 @@ bool DBIter::FindValueForCurrentKey() {
       return false;
     }
 
+    if (timestamp_lb_ != nullptr) {
+      // Only needed when timestamp_lb_ is not null
+      const bool ret = ParseKey(&ikey_);
+      // Since the preceding ParseKey(&ikey) succeeds, so must this.
+      assert(ret);
+    }
+
     valid_entry_seen = true;
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
@@ -929,6 +936,11 @@ bool DBIter::FindValueForCurrentKey() {
     return true;
   }
 
+  if (timestamp_lb_ != nullptr) {
+    assert(last_key_entry_type == ikey_.type ||
+           last_key_entry_type == kTypeRangeDeletion);
+  }
+
   Status s;
   s.PermitUncheckedError();
   is_blob_ = false;
@@ -937,7 +949,12 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeDeletionWithTimestamp:
     case kTypeSingleDeletion:
     case kTypeRangeDeletion:
-      valid_ = false;
+      if (timestamp_lb_ == nullptr) {
+        valid_ = false;
+      } else {
+        saved_key_.SetInternalKey(ikey_);
+        valid_ = true;
+      }
       return true;
     case kTypeMerge:
       current_entry_is_merged_ = true;
@@ -984,6 +1001,9 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     case kTypeValue:
       // do nothing - we've already has value in pinned_value_
+      if (timestamp_lb_ != nullptr) {
+        saved_key_.SetInternalKey(ikey_);
+      }
       break;
     case kTypeBlobIndex:
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
