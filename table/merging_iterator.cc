@@ -129,7 +129,7 @@ class MergingIterTmpl : public MergingIterator {
     }
   }
 
-  virtual void AddIterator(InternalIterator* iter) {
+  void AddIterator(InternalIterator* iter) override {
     children_.emplace_back(iter);
     if (pinned_iters_mgr_) {
       iter->SetPinnedItersMgr(pinned_iters_mgr_);
