@@ -1341,7 +1341,9 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   if (timestamp_size_ > 0) {
     const std::string kTsMin(timestamp_size_, '\0');
     Slice ts = kTsMin;
-    saved_key_.UpdateInternalKey(/*seq=*/0, kValueTypeForSeekForPrev, &ts);
+    saved_key_.UpdateInternalKey(
+        /*seq=*/0, kValueTypeForSeekForPrev,
+        timestamp_lb_ == nullptr ? &ts : timestamp_lb_);
   }
 
   if (iterate_upper_bound_ != nullptr &&
@@ -1354,8 +1356,9 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
     if (timestamp_size_ > 0) {
       const std::string kTsMax(timestamp_size_, '\xff');
       Slice ts = kTsMax;
-      saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
-                                   &ts);
+      saved_key_.UpdateInternalKey(
+          kMaxSequenceNumber, kValueTypeForSeekForPrev,
+          timestamp_lb_ != nullptr ? timestamp_lb_ : &ts);
     }
   }
 }
