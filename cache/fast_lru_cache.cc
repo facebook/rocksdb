@@ -69,12 +69,11 @@ LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
   return ptr;
 }
 
-LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
-                             CacheMetadataChargePolicy metadata_charge_policy,
-                             size_t estimated_charge_per_entry)
+LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
+                             CacheMetadataChargePolicy metadata_charge_policy)
     : capacity_(0),
       strict_capacity_limit_(strict_capacity_limit),
-      table_(GetHashBits(capacity, estimated_charge_per_entry)),
+      table_(GetHashBits(capacity, estimated_value_size, metadata_charge_policy)),
       usage_(0),
       lru_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -180,8 +179,16 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 }
 
 int LRUCacheShard::GetHashBits(size_t capacity,
-                               size_t estimated_charge_per_entry) {
+                               size_t estimated_value_size,
+                               CacheMetadataChargePolicy metadata_charge_policy) {
+  size_t key_length = 16;
+  LRUHandle* e = reinterpret_cast<LRUHandle*>(
+      new char[sizeof(LRUHandle) - 1 + key_length]);
+  e->key_length = key_length;
+  e->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
+  size_t estimated_charge_per_entry = e->total_charge;
   size_t num_entries = capacity / estimated_charge_per_entry;
+  ++estimated_charge_per_entry;
   int num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
@@ -401,10 +408,9 @@ size_t LRUCacheShard::GetPinnedUsage() const {
 
 std::string LRUCacheShard::GetPrintableOptions() const { return std::string{}; }
 
-LRUCache::LRUCache(size_t capacity, int num_shard_bits,
+LRUCache::LRUCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
                    bool strict_capacity_limit,
-                   CacheMetadataChargePolicy metadata_charge_policy,
-                   size_t estimated_charge_per_entry)
+                   CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<LRUCacheShard*>(
@@ -412,8 +418,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i])
-        LRUCacheShard(per_shard, strict_capacity_limit, metadata_charge_policy,
-                      estimated_charge_per_entry);
+        LRUCacheShard(per_shard, estimated_value_size, strict_capacity_limit, metadata_charge_policy);
   }
 }
 
@@ -468,9 +473,8 @@ void LRUCache::DisownData() {
 }  // namespace fast_lru_cache
 
 std::shared_ptr<Cache> NewFastLRUCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy,
-    size_t estimated_charge_per_entry) {
+    size_t capacity, size_t estimated_value_size, int num_shard_bits, bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy) {
   if (num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
@@ -478,8 +482,7 @@ std::shared_ptr<Cache> NewFastLRUCache(
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<fast_lru_cache::LRUCache>(
-      capacity, num_shard_bits, strict_capacity_limit, metadata_charge_policy,
-      estimated_charge_per_entry);
+      capacity, estimated_value_size, num_shard_bits, strict_capacity_limit, metadata_charge_policy);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
