@@ -955,6 +955,7 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   int blob_file_starting_level = 0;
 
+  // This feature is WORK IN PROGRESS
   // If non-NULL use the specified cache for blobs.
   // If NULL, rocksdb will not use a blob cache.
   //
