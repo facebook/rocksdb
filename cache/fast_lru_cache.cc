@@ -186,9 +186,7 @@ int LRUCacheShard::GetHashBits(size_t capacity,
       new char[sizeof(LRUHandle) - 1 + key_length]);
   e->key_length = key_length;
   e->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
-  size_t estimated_charge_per_entry = e->total_charge;
-  size_t num_entries = capacity / estimated_charge_per_entry;
-  ++estimated_charge_per_entry;
+  size_t num_entries = capacity / e->total_charge;
   int num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
@@ -280,7 +278,6 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
 Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
   LRUHandle* e = nullptr;
   {
-    PREFETCH(table_.Head(hash), 0, 1);
     MutexLock l(&mutex_);
     e = table_.Lookup(key, hash);
     if (e != nullptr) {
