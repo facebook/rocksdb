@@ -43,6 +43,8 @@ class StressTest {
 
   void PrintStatistics();
 
+  void ReleaseOldTimestampedSnapshots(uint64_t ts);
+
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
@@ -56,7 +58,7 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
-  Status CommitTxn(Transaction* txn);
+  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
 
   Status RollbackTxn(Transaction* txn);
 #endif

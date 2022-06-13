@@ -666,7 +666,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (s.ok()) {
           s = txn->Merge(cfh, key, v);
           if (s.ok()) {
-            s = CommitTxn(txn);
+            s = CommitTxn(txn, thread);
           }
         }
 #endif
@@ -685,7 +685,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (s.ok()) {
           s = txn->Put(cfh, key, v);
           if (s.ok()) {
-            s = CommitTxn(txn);
+            s = CommitTxn(txn, thread);
           }
         }
 #endif
@@ -746,7 +746,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (s.ok()) {
           s = txn->Delete(cfh, key);
           if (s.ok()) {
-            s = CommitTxn(txn);
+            s = CommitTxn(txn, thread);
           }
         }
 #endif
@@ -783,7 +783,7 @@ class NonBatchedOpsStressTest : public StressTest {
         if (s.ok()) {
           s = txn->SingleDelete(cfh, key);
           if (s.ok()) {
-            s = CommitTxn(txn);
+            s = CommitTxn(txn, thread);
           }
         }
 #endif

@@ -32,6 +32,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
@@ -345,6 +346,19 @@ class DBImpl : public DB {
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+  // Create a timestamped snapshot. This snapshot can be shared by multiple
+  // readers. If any of them uses it for write conflict checking, then
+  // is_write_conflict_boundary is true. For simplicity, set it to true by
+  // default.
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
+      SequenceNumber snapshot_seq, uint64_t ts);
+  std::shared_ptr<const SnapshotImpl> GetTimestampedSnapshot(uint64_t ts) const;
+  void ReleaseTimestampedSnapshotsOlderThan(
+      uint64_t ts, size_t* remaining_total_ss = nullptr);
+  Status GetTimestampedSnapshots(uint64_t ts_lb, uint64_t ts_ub,
+                                 std::vector<std::shared_ptr<const Snapshot>>&
+                                     timestamped_snapshots) const;
+
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override;
@@ -1222,6 +1236,8 @@ class DBImpl : public DB {
   static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
+  bool seq_per_batch() const { return seq_per_batch_; }
+
  protected:
   const std::string dbname_;
   // TODO(peterd): unify with VersionSet::db_id_
@@ -1404,7 +1420,8 @@ class DBImpl : public DB {
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr);
+                   PreReleaseCallback* pre_release_callback = nullptr,
+                   PostMemTableCallback* post_memtable_callback = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -2039,9 +2056,23 @@ class DBImpl : public DB {
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
 
+  // If snapshot_seq != kMaxSequenceNumber, then this function can only be
+  // called from the write thread that publishes sequence numbers to readers.
+  // For 1) write-committed, or 2) write-prepared + one-write-queue, this will
+  // be the write thread performing memtable writes. For write-prepared with
+  // two write queues, this will be the write thread writing commit marker to
+  // the WAL.
+  // If snapshot_seq == kMaxSequenceNumber, this function is called by a caller
+  // ensuring no writes to the database.
+  std::pair<Status, std::shared_ptr<const SnapshotImpl>>
+  CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
+                                bool lock = true);
+
   uint64_t GetMaxTotalWalSize() const;
 
   FSDirectory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
+
+  Status MaybeReleaseTimestampedSnapshotsAndCheck();
 
   Status CloseHelper();
 
@@ -2307,6 +2338,8 @@ class DBImpl : public DB {
   TrimHistoryScheduler trim_history_scheduler_;
 
   SnapshotList snapshots_;
+
+  TimestampedSnapshotList timestamped_snapshots_;
 
   // For each background job, pending_outputs_ keeps the current file number at
   // the time that background job started.

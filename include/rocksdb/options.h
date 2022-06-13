@@ -1530,6 +1530,17 @@ struct ReadOptions {
   // from total_order_seek, based on seek key, and iterator upper bound.
   // Not supported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
+  // BUG: Using Comparator::IsSameLengthImmediateSuccessor and
+  // SliceTransform::FullLengthEnabled to enable prefix mode in cases where
+  // prefix of upper bound differs from prefix of seek key has a flaw.
+  // If present in the DB, "short keys" (shorter than "full length" prefix)
+  // can be omitted from auto_prefix_mode iteration when they would be present
+  // in total_order_seek iteration, regardless of whether the short keys are
+  // "in domain" of the prefix extractor. This is not an issue if no short
+  // keys are added to DB or are not expected to be returned by such
+  // iterators. (We are also assuming the new condition on
+  // IsSameLengthImmediateSuccessor is satisfied; see its BUG section).
+  // A bug example is in DBTest2::AutoPrefixMode1, search for "BUG".
   // Default: false
   bool auto_prefix_mode;
 

@@ -126,7 +126,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          uint64_t* log_used, uint64_t log_ref,
                          bool disable_memtable, uint64_t* seq_used,
                          size_t batch_cnt,
-                         PreReleaseCallback* pre_release_callback) {
+                         PreReleaseCallback* pre_release_callback,
+                         PostMemTableCallback* post_memtable_callback) {
   assert(!seq_per_batch_ || batch_cnt != 0);
   if (my_batch == nullptr) {
     return Status::InvalidArgument("Batch is nullptr!");
@@ -185,6 +186,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "pipelined_writes is not compatible with unordered_write");
   }
+  if (immutable_db_options_.enable_pipelined_write &&
+      post_memtable_callback != nullptr) {
+    return Status::NotSupported(
+        "pipelined write currently does not honor post_memtable_callback");
+  }
+  if (seq_per_batch_ && post_memtable_callback != nullptr) {
+    return Status::NotSupported(
+        "seq_per_batch currently does not honor post_memtable_callback");
+  }
   // Otherwise IsLatestPersistentState optimization does not make sense
   assert(!WriteBatchInternal::IsLatestPersistentState(my_batch) ||
          disable_memtable);
@@ -241,7 +251,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable, batch_cnt, pre_release_callback);
+                        disable_memtable, batch_cnt, pre_release_callback,
+                        post_memtable_callback);
   StopWatch write_sw(immutable_db_options_.clock, stats_, DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
@@ -268,6 +279,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // we're responsible for exit batch group
       // TODO(myabandeh): propagate status to write_group
       auto last_sequence = w.write_group->last_sequence;
+      for (auto* tmp_w : *(w.write_group)) {
+        assert(tmp_w);
+        if (tmp_w->post_memtable_callback) {
+          Status tmp_s =
+              (*tmp_w->post_memtable_callback)(last_sequence, disable_memtable);
+          // TODO: propagate the execution status of post_memtable_callback to
+          // caller.
+          assert(tmp_s.ok());
+        }
+      }
       versions_->SetLastSequence(last_sequence);
       MemTableInsertStatusCheck(w.status);
       write_thread_.ExitAsBatchGroupFollower(&w);
@@ -550,6 +571,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   if (should_exit_batch_group) {
     if (status.ok()) {
+      for (auto* tmp_w : write_group) {
+        assert(tmp_w);
+        if (tmp_w->post_memtable_callback) {
+          Status tmp_s =
+              (*tmp_w->post_memtable_callback)(last_sequence, disable_memtable);
+          // TODO: propagate the execution status of post_memtable_callback to
+          // caller.
+          assert(tmp_s.ok());
+        }
+      }
       // Note: if we are to resume after non-OK statuses we need to revisit how
       // we reacts to non-OK statuses here.
       versions_->SetLastSequence(last_sequence);

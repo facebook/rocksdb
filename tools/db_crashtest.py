@@ -174,9 +174,7 @@ default_params = {
     "detect_filter_construct_corruption": lambda: random.choice([0, 1]),
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
-    # Temporarily disable wal compression because it causes backup/checkpoint to miss
-    # compressed WAL files.
-    "wal_compression": "none",
+    "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": "",
 }
@@ -320,6 +318,7 @@ txn_params = {
     "checkpoint_one_in": 0,
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
+    "create_timestamped_snapshot_one_in": random.choice([0, 20]),
 }
 
 best_efforts_recovery_params = {
@@ -535,6 +534,11 @@ def finalize_and_sanitize(src_params):
     if dest_params["secondary_cache_uri"] != "":
         # Currently the only cache type compatible with a secondary cache is LRUCache
         dest_params["cache_type"] = "lru_cache"
+    # Remove the following once write-prepared/write-unprepared with/without
+    # unordered write supports timestamped snapshots
+    if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
+        dest_params["txn_write_policy"] = 0
+        dest_params["unordered_write"] = 0
 
     return dest_params
 
