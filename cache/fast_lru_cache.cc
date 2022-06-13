@@ -187,8 +187,14 @@ int LRUCacheShard::GetHashBits(
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
       new char[sizeof(LRUHandle) - 1 + key_length]);
   e->key_length = key_length;
+  e->deleter = nullptr;
+  e->refs = 0;
+  e->flags = 0;
+  e->refs = 0;
+
   e->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
   size_t num_entries = capacity / e->total_charge;
+  e->Free();
   int num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
