@@ -1193,12 +1193,14 @@ class PosixFileSystem : public FileSystem {
         static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
         io_uring_cqe_seen(iu, cqe);
 
-        // If the request is cancelled successfully, the original request is
-        // completed with -ECANCELED and the cancel request is completed with a
-        // result of 0. If the request was already running, the original may or
-        // may not complete in error. The cancel request will complete with
-        // -EALREADY for that case. And finally, if the request to cancel wasn't
-        // found, the cancel request is completed with -ENOENT.
+        // - If the request is cancelled successfully, the original request is
+        //   completed with -ECANCELED and the cancel request is completed with
+        //   a result of 0.
+        // - If the request was already running, the original may or
+        //   may not complete in error. The cancel request will complete with
+        //  -EALREADY for that case.
+        // - And finally, if the request to cancel wasn't
+        //   found, the cancel request is completed with -ENOENT.
         //
         // Every handle has to wait for 2 requests completion: original one and
         // the cancel request which is tracked by PosixHandle::req_count.
@@ -1206,7 +1208,7 @@ class PosixFileSystem : public FileSystem {
             static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           posix_handle->is_finished = true;
           FSReadRequest req;
-          req.status = status_to_io_status(IOStatus::Aborted());
+          req.status = status_to_io_status(Status::Aborted());
           posix_handle->cb(req, posix_handle->cb_arg);
 
           break;
