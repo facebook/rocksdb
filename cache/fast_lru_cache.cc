@@ -18,6 +18,10 @@
 #include "port/lang.h"
 #include "util/mutexlock.h"
 
+#define KEY_LENGTH \
+  16  // TODO(guido) Make usage of this symbol in other parts of the source code
+      // (e.g., cache_key.h, cache_test.cc, etc.)
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace fast_lru_cache {
@@ -183,10 +187,9 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 int LRUCacheShard::GetHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  size_t key_length = 16;
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
-      new char[sizeof(LRUHandle) - 1 + key_length]);
-  e->key_length = key_length;
+      new char[sizeof(LRUHandle) - 1 + KEY_LENGTH]);
+  e->key_length = KEY_LENGTH;
   e->deleter = nullptr;
   e->refs = 0;
   e->flags = 0;
@@ -350,8 +353,9 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                              size_t charge, Cache::DeleterFn deleter,
                              Cache::Handle** handle,
                              Cache::Priority /*priority*/) {
-  if (key.size() != 16) {
-    return Status::NotSupported("FastLRUCache only supports key size 16B.");
+  if (key.size() != KEY_LENGTH) {
+    return Status::NotSupported("FastLRUCache only supports key size " +
+                                std::to_string(KEY_LENGTH) + "B");
   }
 
   // Allocate the memory here outside of the mutex.
