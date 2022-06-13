@@ -296,13 +296,15 @@ void Java_org_rocksdb_WriteBatchWithIndex_deleteDirect(
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   auto remove = [&wb, &cf_handle](ROCKSDB_NAMESPACE::Slice& key) {
+    ROCKSDB_NAMESPACE::Status s;
     if (cf_handle == nullptr) {
-      wb->Delete(key);
+      s = wb->Delete(key);
     } else {
-      wb->Delete(cf_handle, key);
+      s = wb->Delete(cf_handle, key);
     }
+    return s;
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(remove, env, jkey, jkey_offset,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(remove, env, jkey, jkey_offset,
                                           jkey_len);
 }
 
@@ -740,8 +742,9 @@ void Java_org_rocksdb_WBWIRocksIterator_seekDirect0(
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->Seek(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(seek, env, jtarget, jtarget_off,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(seek, env, jtarget, jtarget_off,
                                           jtarget_len);
 }
 
@@ -810,8 +813,9 @@ void Java_org_rocksdb_WBWIRocksIterator_seekForPrevDirect0(
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::WBWIIterator*>(handle);
   auto seek_for_prev = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->SeekForPrev(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(seek_for_prev, env, jtarget,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(seek_for_prev, env, jtarget,
                                           jtarget_off, jtarget_len);
 }
 

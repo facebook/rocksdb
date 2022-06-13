@@ -1339,7 +1339,7 @@ void Java_org_rocksdb_RocksDB_deleteDirect(JNIEnv* env, jobject /*jdb*/,
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  auto remove = [&env, &db, &write_options,
+  auto remove = [&db, &write_options,
                  &cf_handle](ROCKSDB_NAMESPACE::Slice& key) {
     ROCKSDB_NAMESPACE::Status s;
     if (cf_handle == nullptr) {
@@ -1347,12 +1347,9 @@ void Java_org_rocksdb_RocksDB_deleteDirect(JNIEnv* env, jobject /*jdb*/,
     } else {
       s = db->Delete(*write_options, cf_handle, key);
     }
-    if (s.ok()) {
-      return;
-    }
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return s;
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(remove, env, jkey, jkey_offset,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(remove, env, jkey, jkey_offset,
                                           jkey_len);
 }
 

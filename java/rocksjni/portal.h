@@ -2356,25 +2356,35 @@ class JniUtil {
      * Helper for operations on a key and value
      * for example WriteBatch->Delete
      *
-     * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
      * from `op` and used for RocksDB->Delete etc.
      */
-    static void k_op_direct(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
-                            JNIEnv* env, jobject jkey, jint jkey_off,
-                            jint jkey_len) {
+    static std::unique_ptr<ROCKSDB_NAMESPACE::Status> k_op_direct(
+        const std::function<
+            ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice&)>& op,
+        JNIEnv* env, jobject jkey, jint jkey_off, jint jkey_len) {
       char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
       if (key == nullptr ||
           env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
-        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
-            env, "Invalid key argument");
-        return;
+        const char* msg = "Invalid key argument";
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, msg);
+        return std::make_unique<ROCKSDB_NAMESPACE::Status>(
+            ROCKSDB_NAMESPACE::Status::IOError(msg));
       }
 
       key += jkey_off;
 
       ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
 
-      return op(key_slice);
+      auto status = op(key_slice);
+      return std::make_unique<ROCKSDB_NAMESPACE::Status>(status);
+    }
+
+    static void k_op_direct_with_status_check(
+        const std::function<
+            ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice&)>& op,
+        JNIEnv* env, jobject jkey, jint jkey_off, jint jkey_len) {
+      auto status = k_op_direct(op, env, jkey, jkey_off, jkey_len);
+      op_status_check(env, status);
     }
 
     template <class T>

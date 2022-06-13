@@ -359,13 +359,15 @@ void Java_org_rocksdb_WriteBatch_deleteDirect(JNIEnv* env, jobject /*jobj*/,
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   auto remove = [&wb, &cf_handle](ROCKSDB_NAMESPACE::Slice& key) {
+    ROCKSDB_NAMESPACE::Status s;
     if (cf_handle == nullptr) {
-      wb->Delete(key);
+      s = wb->Delete(key);
     } else {
-      wb->Delete(cf_handle, key);
+      s = wb->Delete(cf_handle, key);
     }
+    return s;
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_direct(remove, env, jkey, jkey_offset,
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(remove, env, jkey, jkey_offset,
                                           jkey_len);
 }
 
