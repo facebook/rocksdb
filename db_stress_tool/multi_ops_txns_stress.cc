@@ -1250,9 +1250,13 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
 
 // VerifyPkSkFast() can be called by MultiOpsTxnsStressListener's callbacks
 // which can be called before TransactionDB::Open() returns to caller.
-// Therefore, at that time, db_ is still nullptr thus we have to use txn_db_
-// here.
+// Therefore, at that time, db_ and txn_db_  may still be nullptr.
 void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
+  if (txn_db_ == nullptr) {
+    // This can happen during an auto compaction during db open.
+    return;
+  }
+
   const Snapshot* const snapshot = txn_db_->GetSnapshot();
   assert(snapshot);
   ManagedSnapshot snapshot_guard(txn_db_, snapshot);
