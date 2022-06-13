@@ -364,6 +364,17 @@ TEST_F(ExternalSSTFileBasicTest, KeyValueOrdering) {
   ASSERT_OK(sst_file_writer.Put(Key(2001), Key(2001) + "_val"));
   ASSERT_OK(sst_file_writer.Put(Key(2002), Key(2002) + "_val"));
   ASSERT_OK(sst_file_writer.Finish());
+
+  
+  std::string file2 = sst_files_dir_ + "file02.sst";
+  ASSERT_OK(sst_file_writer.Open(file2));
+
+  ASSERT_OK(sst_file_writer.Put(Key(2000), Key(2000) + "_val"));
+  ASSERT_OK(sst_file_writer.Put(Key(2001), Key(2001) + "_val"));
+  ASSERT_NOK(sst_file_writer.Put(Key(1999), Key(1999) + "_val"));
+  ASSERT_NOK(sst_file_writer.Put(Key(2000), Key(2000) + "_val"));
+  ASSERT_OK(sst_file_writer.Finish());
+
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {

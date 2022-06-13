@@ -231,7 +231,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   sst_file->SetIOPriority(r->io_priority);
   r->kv_validator = std::unique_ptr<OutputValidator>(
-      new OutputValidator(r->internal_comparator, true, true));
+      new OutputValidator(r->internal_comparator, /* enable_order_check */ true, /* enable_hash */true));
 
   CompressionType compression_type;
   CompressionOptions compression_opts;
