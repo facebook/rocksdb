@@ -270,9 +270,6 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
 IOStatus RandomAccessFileReader::MultiRead(
     const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
     AlignedBuf* aligned_buf, Env::IOPriority rate_limiter_priority) const {
-  if (rate_limiter_priority != Env::IO_TOTAL) {
-    return IOStatus::NotSupported("Unable to rate limit MultiRead()");
-  }
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
@@ -359,6 +356,35 @@ IOStatus RandomAccessFileReader::MultiRead(
 
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
+      if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
+        assert(fs_reqs != nullptr);
+        // TODO: ideally we should request bandwith for each
+        // `FSReadRequest::len` seperately instead of requesting
+        // the sum and calling `LoopRateLimitRequestHelper()` afterwards
+        size_t total_multi_read_size = 0;
+        for (size_t i = 0; i < num_fs_reqs; ++i) {
+          FSReadRequest& req = fs_reqs[i];
+          total_multi_read_size += req.len;
+        }
+        static auto LoopRateLimitRequestHelper =
+            [](const size_t total_bytes_to_request, RateLimiter* rate_limiter,
+               const Env::IOPriority pri, Statistics* stats,
+               const RateLimiter::OpType op_type) {
+              assert(rate_limiter != nullptr);
+              size_t remaining_bytes = total_bytes_to_request;
+              size_t request_bytes = 0;
+              while (remaining_bytes > 0) {
+                request_bytes = std::min(
+                    static_cast<size_t>(rate_limiter->GetSingleBurstBytes()),
+                    remaining_bytes);
+                rate_limiter->Request(request_bytes, pri, stats, op_type);
+                remaining_bytes -= request_bytes;
+              }
+            };
+        LoopRateLimitRequestHelper(total_multi_read_size, rate_limiter_,
+                                   rate_limiter_priority, nullptr /* stats */,
+                                   RateLimiter::OpType::kRead);
+      }
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }
 
