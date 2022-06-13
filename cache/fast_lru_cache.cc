@@ -41,7 +41,7 @@ LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
 }
 
 inline LRUHandle** LRUHandleTable::Head(uint32_t hash) {
-  return  &list_[hash >> (32 - length_bits_)];
+  return &list_[hash >> (32 - length_bits_)];
 }
 
 LRUHandle* LRUHandleTable::Insert(LRUHandle* h) {
@@ -179,7 +179,8 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
-int LRUCacheShard::GetHashBits(size_t capacity, size_t estimated_charge_per_entry) {
+int LRUCacheShard::GetHashBits(size_t capacity,
+                               size_t estimated_charge_per_entry) {
   size_t num_entries = capacity / estimated_charge_per_entry;
   int num_hash_bits = 0;
   while (num_entries >>= 1) {
@@ -408,7 +409,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i])
         LRUCacheShard(per_shard, strict_capacity_limit, metadata_charge_policy,
-         estimated_charge_per_entry);
+                      estimated_charge_per_entry);
   }
 }
 
@@ -473,7 +474,8 @@ std::shared_ptr<Cache> NewFastLRUCache(
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<fast_lru_cache::LRUCache>(
-      capacity, num_shard_bits, strict_capacity_limit, metadata_charge_policy, estimated_charge_per_entry);
+      capacity, num_shard_bits, strict_capacity_limit, metadata_charge_policy,
+      estimated_charge_per_entry);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

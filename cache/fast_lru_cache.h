@@ -280,7 +280,8 @@ class LRUCache
  public:
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
            CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata, size_t estimated_charge_per_entry = 1);
+               kDontChargeCacheMetadata,
+           size_t estimated_charge_per_entry = 1);
   ~LRUCache() override;
   const char* Name() const override { return "LRUCache"; }
   CacheShard* GetShard(uint32_t shard) override;
@@ -302,6 +303,6 @@ std::shared_ptr<Cache> NewFastLRUCache(
     bool strict_capacity_limit = false,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy,
-        size_t estimated_charge_per_entry = 1);
+    size_t estimated_charge_per_entry = 1);
 
 }  // namespace ROCKSDB_NAMESPACE
