@@ -233,7 +233,6 @@ const_params_base="
   --wal_dir=$WAL_DIR \
   \
   --num=$num_keys \
-  --num_levels=8 \
   --key_size=$key_size \
   --value_size=$value_size \
   --block_size=$block_size \
@@ -271,6 +270,7 @@ const_params_base="
 level_const_params="
   $const_params_base \
   --compaction_style=0 \
+  --num_levels=8 \
   --min_level_to_compress=$min_level_to_compress \
   --level_compaction_dynamic_level_bytes=true \
   --pin_l0_filter_and_index_blocks_in_cache=1 \
@@ -295,6 +295,7 @@ blob_const_params="
 univ_const_params="
   $const_params_base \
   --compaction_style=1 \
+  --num_levels=40 \
   --universal_compression_size_percent=$compression_size_percent \
   --pin_l0_filter_and_index_blocks_in_cache=1 \
   --universal_min_merge_width=$univ_min_merge_width \
