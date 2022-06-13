@@ -111,8 +111,9 @@ void Java_org_rocksdb_RocksIterator_seek0(JNIEnv* env, jobject /*jobj*/,
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->Seek(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region_with_status_check(seek, env, jtarget, 0, jtarget_len);
 }
 
 /*
@@ -130,9 +131,9 @@ void Java_org_rocksdb_RocksIterator_seekByteArray0(
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->Seek(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, jtarget_off,
-                                          jtarget_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region_with_status_check(seek, env, jtarget, jtarget_off,jtarget_len);
 }
 
 /*
@@ -182,8 +183,9 @@ void Java_org_rocksdb_RocksIterator_seekForPrev0(JNIEnv* env, jobject /*jobj*/,
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->SeekForPrev(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, 0, jtarget_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region_with_status_check(seek, env, jtarget, 0, jtarget_len);
 }
 
 /*
@@ -201,9 +203,10 @@ void Java_org_rocksdb_RocksIterator_seekForPrevByteArray0(
   auto* it = reinterpret_cast<ROCKSDB_NAMESPACE::Iterator*>(handle);
   auto seek = [&it](ROCKSDB_NAMESPACE::Slice& target_slice) {
     it->SeekForPrev(target_slice);
+    return it->status();
   };
-  ROCKSDB_NAMESPACE::JniUtil::k_op_region(seek, env, jtarget, jtarget_off,
-                                          jtarget_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region_with_status_check(
+      seek, env, jtarget, jtarget_off, jtarget_len);
 }
 
 /*

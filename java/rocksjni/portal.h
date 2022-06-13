@@ -2168,26 +2168,40 @@ class JniUtil {
      * a char[] We suspect this is not much slower than GetByteArrayElements,
      * which probably copies anyway.
      */
-    static void k_op_region(std::function<void(ROCKSDB_NAMESPACE::Slice&)> op,
-                            JNIEnv* env, jbyteArray jkey, jint jkey_off,
-                            jint jkey_len) {
+    static std::unique_ptr<ROCKSDB_NAMESPACE::Status> k_op_region(
+        const std::function<
+            ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice&)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_off, jint jkey_len) {
       const std::unique_ptr<char[]> key(new char[jkey_len]);
       if (key == nullptr) {
         jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
         env->ThrowNew(oom_class,
                       "Memory allocation failed in RocksDB JNI function");
-        return;
+        return std::make_unique<ROCKSDB_NAMESPACE::Status>(
+            ROCKSDB_NAMESPACE::Status::MemoryLimit());
       }
       env->GetByteArrayRegion(jkey, jkey_off, jkey_len,
                               reinterpret_cast<jbyte*>(key.get()));
       if (env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
-        return;
+        return std::make_unique<ROCKSDB_NAMESPACE::Status>(
+            ROCKSDB_NAMESPACE::Status::MemoryLimit());
       }
 
       ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key.get()),
                                          jkey_len);
-      op(key_slice);
+      auto status = op(key_slice);
+      return std::make_unique<ROCKSDB_NAMESPACE::Status>(status);
+    }
+
+    static void k_op_region_with_status_check(
+        const std::function<
+            ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice&)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_off, jint jkey_len
+        ) {
+      auto status = k_op_region(op, env, jkey, jkey_off, jkey_len);
+
+      op_status_check(env, status);
     }
 
     /*
