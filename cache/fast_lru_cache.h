@@ -158,7 +158,8 @@ class LRUHandleTable {
 // A single shard of sharded cache.
 class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
-  LRUCacheShard(size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
+  LRUCacheShard(size_t capacity, size_t estimated_value_size,
+                bool strict_capacity_limit,
                 CacheMetadataChargePolicy metadata_charge_policy);
   ~LRUCacheShard() override = default;
 
@@ -233,7 +234,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Returns the number of bits used to hash an element in the per-shard
   // table.
-  static int GetHashBits(size_t capacity, size_t estimated_value_size, CacheMetadataChargePolicy metadata_charge_policy);
+  static int GetHashBits(size_t capacity, size_t estimated_value_size,
+                         CacheMetadataChargePolicy metadata_charge_policy);
 
   // Initialized before use.
   size_t capacity_;
@@ -280,7 +282,8 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
-  LRUCache(size_t capacity, size_t estimated_value_size, int num_shard_bits, bool strict_capacity_limit,
+  LRUCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
+           bool strict_capacity_limit,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata);
   ~LRUCache() override;
