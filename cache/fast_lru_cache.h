@@ -114,15 +114,13 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  // If the table uses more hash bits than `max_upper_hash_bits`,
-  // it will eat into the bits used for sharding, which are constant
-  // for a given LRUHandleTable.
-  explicit LRUHandleTable(int max_upper_hash_bits);
+  explicit LRUHandleTable(int hash_bits);
   ~LRUHandleTable();
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
   LRUHandle* Insert(LRUHandle* h);
   LRUHandle* Remove(const Slice& key, uint32_t hash);
+  inline LRUHandle** Head(uint32_t hash);
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end) {
@@ -145,8 +143,6 @@ class LRUHandleTable {
   // pointer to the trailing slot in the corresponding linked list.
   LRUHandle** FindPointer(const Slice& key, uint32_t hash);
 
-  void Resize();
-
   // Number of hash bits (upper because lower bits used for sharding)
   // used for table index. Length == 1 << length_bits_
   int length_bits_;
@@ -154,12 +150,6 @@ class LRUHandleTable {
   // The table consists of an array of buckets where each bucket is
   // a linked list of cache entries that hash into the bucket.
   std::unique_ptr<LRUHandle*[]> list_;
-
-  // Number of elements currently in the table.
-  uint32_t elems_;
-
-  // Set from max_upper_hash_bits (see constructor).
-  const int max_length_bits_;
 };
 
 // A single shard of sharded cache.
@@ -167,7 +157,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 CacheMetadataChargePolicy metadata_charge_policy,
-                int max_upper_hash_bits);
+                size_t estimated_charge_per_entry);
   ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -239,6 +229,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
+  // Returns the number of bits used to hash an element in the per-shard
+  // table.
+  int GetHashBits(size_t capacity, size_t estimated_charge_per_entry);
+
   // Initialized before use.
   size_t capacity_;
 
@@ -286,7 +280,7 @@ class LRUCache
  public:
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
            CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata);
+               kDontChargeCacheMetadata, size_t estimated_charge_per_entry = 1);
   ~LRUCache() override;
   const char* Name() const override { return "LRUCache"; }
   CacheShard* GetShard(uint32_t shard) override;
@@ -307,6 +301,7 @@ std::shared_ptr<Cache> NewFastLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false,
     CacheMetadataChargePolicy metadata_charge_policy =
-        kDefaultCacheMetadataChargePolicy);
+        kDefaultCacheMetadataChargePolicy,
+        size_t estimated_charge_per_entry = 1);
 
 }  // namespace ROCKSDB_NAMESPACE
