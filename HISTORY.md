@@ -72,6 +72,7 @@
 ### Behavior Changes
 * Disallow the combination of DBOptions.use_direct_io_for_flush_and_compaction == true and DBOptions.writable_file_max_buffer_size == 0. This combination can cause WritableFileWriter::Append() to loop forever, and it does not make much sense in direct IO.
 * `ReadOptions::total_order_seek` no longer affects `DB::Get()`. The original motivation for this interaction has been obsolete since RocksDB has been able to detect whether the current prefix extractor is compatible with that used to generate table files, probably RocksDB 5.14.0.
+* Added hash checks for data written to SST files to prevent persisting corrupted data. Users can set option `paranoid_checks` to make rocksdb to read back written data for extra hash checks.  
 
 ## New Features
 * Introduced an option `BlockBasedTableOptions::detect_filter_construct_corruption` for detecting corruption during Bloom Filter (format_version >= 5) and Ribbon Filter construction.
