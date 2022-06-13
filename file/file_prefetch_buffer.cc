@@ -361,7 +361,6 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
     if (length == 0) {
       rounddown_start2 =
           bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
-      prefetch_size += readahead_size;
       roundup_end2 = Roundup(rounddown_start2 + prefetch_size, alignment);
     }
 
