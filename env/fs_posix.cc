@@ -1208,7 +1208,7 @@ class PosixFileSystem : public FileSystem {
             static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           posix_handle->is_finished = true;
           FSReadRequest req;
-          req.status = status_to_io_status(Status::Aborted());
+          req.status = IOStatus::Aborted();
           posix_handle->cb(req, posix_handle->cb_arg);
 
           break;
