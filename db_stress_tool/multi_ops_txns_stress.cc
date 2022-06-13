@@ -1248,13 +1248,17 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   }
 }
 
+// VerifyPkSkFast() can be called by MultiOpsTxnsStressListener's callbacks
+// which can be called before TransactionDB::Open() returns to caller.
+// Therefore, at that time, db_ is still nullptr thus we have to use txn_db_
+// here.
 void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
-  const Snapshot* const snapshot = db_->GetSnapshot();
+  const Snapshot* const snapshot = txn_db_->GetSnapshot();
   assert(snapshot);
-  ManagedSnapshot snapshot_guard(db_, snapshot);
+  ManagedSnapshot snapshot_guard(txn_db_, snapshot);
 
   std::ostringstream oss;
-  auto* dbimpl = static_cast_with_check<DBImpl>(db_->GetRootDB());
+  auto* dbimpl = static_cast_with_check<DBImpl>(txn_db_->GetRootDB());
   assert(dbimpl);
 
   oss << "Job " << job_id << ": [" << snapshot->GetSequenceNumber() << ","
@@ -1270,7 +1274,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
   ropts.snapshot = snapshot;
   ropts.total_order_seek = true;
 
-  std::unique_ptr<Iterator> it(db_->NewIterator(ropts));
+  std::unique_ptr<Iterator> it(txn_db_->NewIterator(ropts));
   for (it->Seek(start_key); it->Valid(); it->Next()) {
     Record record;
     Status s = record.DecodeSecondaryIndexEntry(it->key(), it->value());
@@ -1287,7 +1291,7 @@ void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
     // Form a primary key and search in the primary index.
     std::string pk = Record::EncodePrimaryKey(record.a_value());
     std::string value;
-    s = db_->Get(ropts, pk, &value);
+    s = txn_db_->Get(ropts, pk, &value);
     if (!s.ok()) {
       oss << "Error searching pk " << Slice(pk).ToString(true) << ". "
           << s.ToString() << ". sk " << it->key().ToString(true);
