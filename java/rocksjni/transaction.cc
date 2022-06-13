@@ -826,30 +826,6 @@ typedef std::function<ROCKSDB_NAMESPACE::Status(
     const ROCKSDB_NAMESPACE::Slice&)>
     FnWriteK;
 
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-void txn_write_k_helper(JNIEnv* env, const FnWriteK& fn_write_k,
-                        const jbyteArray& jkey, const jint& jkey_part_len) {
-  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  if (key == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
-                                     jkey_part_len);
-
-  ROCKSDB_NAMESPACE::Status s = fn_write_k(key_slice);
-
-  // trigger java unref on key.
-  // by passing JNI_ABORT, it will simply release the reference without
-  // copying the result back to the java byte array.
-  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-
-  if (s.ok()) {
-    return;
-  }
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-}
-
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    delete
@@ -862,13 +838,14 @@ void Java_org_rocksdb_Transaction_delete__J_3BIJZ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteK fn_delete =
+
+  ROCKSDB_NAMESPACE::JniUtil::k_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, bool)>(
           &ROCKSDB_NAMESPACE::Transaction::Delete, txn, column_family_handle,
-          std::placeholders::_1, jassume_tracked);
-  txn_write_k_helper(env, fn_delete, jkey, jkey_part_len);
+          std::placeholders::_1, jassume_tracked),
+      env, jkey, jkey_part_len);
 }
 
 /*
@@ -880,10 +857,11 @@ void Java_org_rocksdb_Transaction_delete__J_3BI(JNIEnv* env, jobject /*jobj*/,
                                                 jlong jhandle, jbyteArray jkey,
                                                 jint jkey_part_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteK fn_delete = std::bind<ROCKSDB_NAMESPACE::Status (
-      ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::Slice&)>(
-      &ROCKSDB_NAMESPACE::Transaction::Delete, txn, std::placeholders::_1);
-  txn_write_k_helper(env, fn_delete, jkey, jkey_part_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_with_status_check(
+      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
+          const ROCKSDB_NAMESPACE::Slice&)>(
+          &ROCKSDB_NAMESPACE::Transaction::Delete, txn, std::placeholders::_1),
+      env, jkey, jkey_part_len);
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -1000,7 +978,8 @@ void Java_org_rocksdb_Transaction_singleDelete__J_3BIJZ(
           const ROCKSDB_NAMESPACE::Slice&, bool)>(
           &ROCKSDB_NAMESPACE::Transaction::SingleDelete, txn,
           column_family_handle, std::placeholders::_1, jassume_tracked);
-  txn_write_k_helper(env, fn_single_delete, jkey, jkey_part_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_with_status_check(fn_single_delete, env,
+                                                     jkey, jkey_part_len);
 }
 
 /*
@@ -1018,7 +997,8 @@ void Java_org_rocksdb_Transaction_singleDelete__J_3BI(JNIEnv* env,
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::Slice&)>(
       &ROCKSDB_NAMESPACE::Transaction::SingleDelete, txn,
       std::placeholders::_1);
-  txn_write_k_helper(env, fn_single_delete, jkey, jkey_part_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_with_status_check(fn_single_delete, env,
+                                                     jkey, jkey_part_len);
 }
 
 /*
@@ -1203,7 +1183,8 @@ void Java_org_rocksdb_Transaction_deleteUntracked__J_3BIJ(
                                          const ROCKSDB_NAMESPACE::Slice&)>(
       &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, txn,
       column_family_handle, std::placeholders::_1);
-  txn_write_k_helper(env, fn_delete_untracked, jkey, jkey_part_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_with_status_check(fn_delete_untracked, env,
+                                                     jkey, jkey_part_len);
 }
 
 /*
@@ -1221,7 +1202,8 @@ void Java_org_rocksdb_Transaction_deleteUntracked__J_3BI(JNIEnv* env,
       ROCKSDB_NAMESPACE::Transaction::*)(const ROCKSDB_NAMESPACE::Slice&)>(
       &ROCKSDB_NAMESPACE::Transaction::DeleteUntracked, txn,
       std::placeholders::_1);
-  txn_write_k_helper(env, fn_delete_untracked, jkey, jkey_part_len);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_with_status_check(fn_delete_untracked, env,
+                                                     jkey, jkey_part_len);
 }
 
 /*

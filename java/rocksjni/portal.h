@@ -2124,8 +2124,8 @@ class JniUtil {
      * TODO(AR) could be used for RocksDB->Delete etc.
      */
     static std::unique_ptr<ROCKSDB_NAMESPACE::Status> k_op(
-        std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)> op,
-        JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len) {
+        const std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
       if (env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
@@ -2143,6 +2143,20 @@ class JniUtil {
 
       return std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
           new ROCKSDB_NAMESPACE::Status(status));
+    }
+
+    static void k_op_with_status_check(
+        const std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_len) {
+      auto status = k_op(op, env, jkey, jkey_len);
+
+      op_status_check(env, status);
+    }
+
+    static void op_status_check(JNIEnv* env, std::unique_ptr<ROCKSDB_NAMESPACE::Status>& status) {
+      if (status != nullptr && !status->ok()) {
+        ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, status);
+      }
     }
 
     /*
