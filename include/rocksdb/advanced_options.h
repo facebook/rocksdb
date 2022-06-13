@@ -10,12 +10,14 @@
 
 #include <memory>
 
+#include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace ROCKSDB_NAMESPACE {
 
+class Cache;
 class Slice;
 class SliceTransform;
 class TablePropertiesCollectorFactory;
@@ -227,7 +229,7 @@ enum class Temperature : uint8_t {
 };
 
 // The control option of how the cache tiers will be used. Currently rocksdb
-// support block cahe (volatile tier), secondary cache (non-volatile tier).
+// support block cache (volatile tier), secondary cache (non-volatile tier).
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
@@ -952,6 +954,12 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   int blob_file_starting_level = 0;
+
+  // If non-NULL use the specified cache for blobs.
+  // If NULL, rocksdb will not use a blob cache.
+  //
+  // Default: nullptr (disabled)
+  std::shared_ptr<Cache> blob_cache = nullptr;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
