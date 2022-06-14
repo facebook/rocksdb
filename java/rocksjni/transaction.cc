@@ -864,6 +864,34 @@ void Java_org_rocksdb_Transaction_delete__J_3BI(JNIEnv* env, jobject /*jobj*/,
       env, jkey, jkey_part_len);
 }
 
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    deleteDirect
+ * Signature: (JLjava/nio/ByteBuffer;II)V
+ */
+void Java_org_rocksdb_Transaction_deleteDirect(JNIEnv* env, jobject, jlong jhandle, jobject jkey_direct, jint jkey_offset, jint jkey_length) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_direct_with_status_check(
+      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
+          const ROCKSDB_NAMESPACE::Slice&)>(
+          &ROCKSDB_NAMESPACE::Transaction::Delete, txn, std::placeholders::_1),
+      env, jkey_direct, jkey_offset, jkey_length);
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    deleteByteArray
+ * Signature: (J[BII)V
+ */
+void Java_org_rocksdb_Transaction_deleteByteArray(JNIEnv* env, jobject, jlong jhandle, jbyteArray jkey_array, jint jkey_offset, jint jkey_length) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  ROCKSDB_NAMESPACE::JniUtil::k_op_region_with_status_check(
+      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
+          const ROCKSDB_NAMESPACE::Slice&)>(
+          &ROCKSDB_NAMESPACE::Transaction::Delete, txn, std::placeholders::_1),
+      env, jkey_array, jkey_offset, jkey_length);
+}
+
 typedef std::function<ROCKSDB_NAMESPACE::Status(
     const ROCKSDB_NAMESPACE::SliceParts&)>
     FnWriteKParts;

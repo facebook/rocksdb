@@ -9,6 +9,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -16,7 +17,6 @@ import java.util.Random;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 
 /**
  * Base class of {@link TransactionTest} and {@link OptimisticTransactionTest}
@@ -443,6 +443,39 @@ public abstract class AbstractTransactionTest {
       assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
 
       txn.delete(k1);
+      assertThat(txn.get(readOptions, k1)).isNull();
+    }
+  }
+
+  @Test
+  public void deleteByteBufferDirect() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+
+    try(final DBContainer dbContainer = startDb();
+        final ReadOptions readOptions = new ReadOptions();
+        final Transaction txn = dbContainer.beginTransaction()) {
+      txn.put(k1, v1);
+      assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+      final ByteBuffer key = ByteBuffer.allocateDirect(k1.length + 1).put(k1);
+      key.flip();
+      txn.delete(key);
+      assertThat(txn.get(readOptions, k1)).isNull();
+    }
+  }
+
+  @Test
+  public void deleteByteBufferByteArray() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+
+    try(final DBContainer dbContainer = startDb();
+        final ReadOptions readOptions = new ReadOptions();
+        final Transaction txn = dbContainer.beginTransaction()) {
+      txn.put(k1, v1);
+      assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+
+      txn.delete(ByteBuffer.wrap(k1));
       assertThat(txn.get(readOptions, k1)).isNull();
     }
   }

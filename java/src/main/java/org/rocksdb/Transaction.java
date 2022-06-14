@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -1140,6 +1141,16 @@ public class Transaction extends RocksObject {
     delete(nativeHandle_, key, key.length);
   }
 
+  public void delete(final ByteBuffer key) throws RocksDBException {
+      assert (isOwningHandle());
+      if (key.isDirect()) {
+          deleteDirect(nativeHandle_, key, key.position(), key.remaining());
+      } else {
+          deleteByteArray(nativeHandle_, key.array(), key.arrayOffset() + key.position(), key.remaining());
+      }
+      key.position(key.limit());
+  }
+
   //TODO(AR) refactor if we implement org.rocksdb.SliceParts in future
   /**
    * Similar to {@link #delete(ColumnFamilyHandle, byte[])} but allows
@@ -2094,6 +2105,10 @@ public class Transaction extends RocksObject {
       final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
   private native void delete(final long handle, final byte[] key,
       final int keyLength) throws RocksDBException;
+  private native void deleteDirect(final long handle, final ByteBuffer key, final int keyOffset,
+                                   final int keyLength) throws RocksDBException;
+  private native void deleteByteArray(final long handle, final byte[] key, final int keyOffset,
+                                      final int keyLength) throws RocksDBException;
   private native void delete(final long handle, final byte[][] keys, final int keysLength,
       final long columnFamilyHandle, final boolean assumeTracked) throws RocksDBException;
   private native void delete(final long handle, final byte[][] keys,
