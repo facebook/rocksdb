@@ -109,7 +109,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
   Status s;
   if (my_batch->GetProtectionBytesPerKey() == 0 &&
       write_options.protection_bytes_per_key > 0) {
-    s = WriteBatchInternal::SetProtectionBytesPerKey(
+    s = WriteBatchInternal::UpdateProtectionInfo(
         my_batch, write_options.protection_bytes_per_key);
   }
   if (s.ok()) {
@@ -126,7 +126,7 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
   Status s;
   if (my_batch->GetProtectionBytesPerKey() == 0 &&
       write_options.protection_bytes_per_key > 0) {
-    s = WriteBatchInternal::SetProtectionBytesPerKey(
+    s = WriteBatchInternal::UpdateProtectionInfo(
         my_batch, write_options.protection_bytes_per_key);
   }
   if (s.ok()) {

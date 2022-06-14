@@ -237,7 +237,7 @@ class WriteBatchInternal {
     return wb.has_key_with_ts_;
   }
 
-  static Status SetProtectionBytesPerKey(WriteBatch* wb, size_t bytes_per_key);
+  static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key);
 };
 
 // LocalSavePoint is similar to a scope guard

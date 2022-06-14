@@ -74,7 +74,7 @@ class PessimisticTransactionDB : public TransactionDB {
     Status s;
     if (updates->GetProtectionBytesPerKey() == 0 &&
         opts.protection_bytes_per_key > 0) {
-      s = WriteBatchInternal::SetProtectionBytesPerKey(
+      s = WriteBatchInternal::UpdateProtectionInfo(
           updates, opts.protection_bytes_per_key);
     }
     if (s.ok()) {

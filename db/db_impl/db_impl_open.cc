@@ -1009,8 +1009,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       if (!status.ok()) {
         return status;
       }
-      status = WriteBatchInternal::SetProtectionBytesPerKey(
-          &batch, 8 /* bytes_per_key */);
+      status = WriteBatchInternal::UpdateProtectionInfo(&batch,
+                                                        8 /* bytes_per_key */);
       if (!status.ok()) {
         return status;
       }

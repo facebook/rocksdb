@@ -113,12 +113,12 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
   if (write_options_.protection_bytes_per_key !=
       write_batch_.GetWriteBatch()->GetProtectionBytesPerKey()) {
-    WriteBatchInternal::SetProtectionBytesPerKey(
+    WriteBatchInternal::UpdateProtectionInfo(
         write_batch_.GetWriteBatch(), write_options_.protection_bytes_per_key);
   }
   if (write_options_.protection_bytes_per_key !=
       commit_time_batch_.GetProtectionBytesPerKey()) {
-    WriteBatchInternal::SetProtectionBytesPerKey(
+    WriteBatchInternal::UpdateProtectionInfo(
         &commit_time_batch_, write_options_.protection_bytes_per_key);
   }
 }

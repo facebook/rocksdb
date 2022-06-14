@@ -308,7 +308,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
       woptions.disableWAL = !enable_WAL_;
       woptions.sync = enable_WAL_;
       if (woptions.protection_bytes_per_key > 0) {
-        ASSERT_OK(WriteBatchInternal::SetProtectionBytesPerKey(
+        ASSERT_OK(WriteBatchInternal::UpdateProtectionInfo(
             &write_op.write_batch_, woptions.protection_bytes_per_key));
       }
       Status s;

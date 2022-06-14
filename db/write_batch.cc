@@ -2904,8 +2904,8 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
   }
 }
 
-Status WriteBatchInternal::SetProtectionBytesPerKey(WriteBatch* wb,
-                                                    size_t bytes_per_key) {
+Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
+                                                size_t bytes_per_key) {
   assert((wb->prot_info_ == nullptr) != (bytes_per_key == 0));
   if (bytes_per_key == 0) {
     wb->prot_info_.reset();
