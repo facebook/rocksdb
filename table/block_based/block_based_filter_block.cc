@@ -187,9 +187,9 @@ std::unique_ptr<FilterBlockReader> BlockBasedFilterBlockReader::Create(
 
   CachableEntry<BlockContents> filter_block;
   if (prefetch || !use_cache) {
-    const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
-                                     nullptr /* get_context */, lookup_context,
-                                     &filter_block);
+    const Status s = ReadFilterBlock(
+        table, prefetch_buffer, ro, use_cache, nullptr /* get_context */,
+        lookup_context, &filter_block, BlockType::kDeprecatedFilter);
     if (!s.ok()) {
       IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
@@ -257,7 +257,8 @@ bool BlockBasedFilterBlockReader::MayMatch(
   CachableEntry<BlockContents> filter_block;
 
   const Status s =
-      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
+      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block,
+                           BlockType::kDeprecatedFilter);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -316,7 +317,8 @@ std::string BlockBasedFilterBlockReader::ToString() const {
 
   const Status s =
       GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
-                           nullptr /* lookup_context */, &filter_block);
+                           nullptr /* lookup_context */, &filter_block,
+                           BlockType::kDeprecatedFilter);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return std::string("Unable to retrieve filter block");

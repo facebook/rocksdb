@@ -138,6 +138,7 @@ class TestDirectory : public Directory {
   ~TestDirectory() {}
 
   virtual Status Fsync() override;
+  virtual Status Close() override;
 
  private:
   FaultInjectionTestEnv* env_;

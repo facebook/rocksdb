@@ -1064,6 +1064,22 @@ IOStatus WinDirectory::Fsync(const IOOptions& /*options*/,
   return IOStatus::OK();
 }
 
+IOStatus WinDirectory::Close(const IOOptions& /*options*/,
+                             IODebugContext* /*dbg*/) {
+  IOStatus s = IOStatus::OK();
+  BOOL ret __attribute__((__unused__));
+  if (handle_ != INVALID_HANDLE_VALUE) {
+    ret = ::CloseHandle(handle_);
+    if (!ret) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError("Directory closes failed for : " + GetName(),
+                                  lastError);
+    }
+    handle_ = NULL;
+  }
+  return s;
+}
+
 size_t WinDirectory::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(handle_, id, max_size);
 }

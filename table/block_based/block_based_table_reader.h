@@ -596,12 +596,6 @@ struct BlockBasedTable::Rep {
   BlockBasedTableOptions::IndexType index_type;
   bool whole_key_filtering;
   bool prefix_filtering;
-  // TODO(kailiu) It is very ugly to use internal key in table, since table
-  // module should not be relying on db module. However to make things easier
-  // and compatible with existing code, we introduce a wrapper that allows
-  // block to extract prefix without knowing if a key is internal or not.
-  // null if no prefix_extractor is passed in when opening the table reader.
-  std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
   std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
@@ -641,7 +635,7 @@ struct BlockBasedTable::Rep {
       table_reader_cache_res_handle = nullptr;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
-    return (block_type == BlockType::kFilter ||
+    return (block_type == BlockType::kFilterPartitionIndex ||
             block_type == BlockType::kCompressionDictionary)
                ? kDisableGlobalSequenceNumber
                : global_seqno;

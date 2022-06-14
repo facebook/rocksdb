@@ -195,6 +195,8 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+    case BlockType::kDeprecatedFilter:
       PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
 
       if (get_context) {
@@ -252,6 +254,8 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
   // TODO: introduce perf counters for misses per block type
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+    case BlockType::kDeprecatedFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_miss;
       } else {
@@ -307,6 +311,8 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
 
   switch (block_type) {
     case BlockType::kFilter:
+    case BlockType::kFilterPartitionIndex:
+    case BlockType::kDeprecatedFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_add;
         if (redundant) {
@@ -557,7 +563,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
   // assert(!db_id.empty());
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
-  // from offets. See GetCacheKey.
+  // from offsets. See GetCacheKey.
   *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
                                            /*max_offset*/ file_size >> 2);
 }
@@ -648,17 +654,6 @@ Status BlockBasedTable::Open(
                                       file_size, level, immortal_table);
   rep->file = std::move(file);
   rep->footer = footer;
-  // We've successfully read the footer. We are ready to serve requests.
-  // Better not mutate rep_ after the creation. eg. internal_prefix_transform
-  // raw pointer will be used to create HashIndexReader, whose reset may
-  // access a dangling pointer.
-  // We need to wrap data with internal_prefix_transform to make sure it can
-  // handle prefix correctly.
-  // FIXME: is changed prefix_extractor handled anywhere for hash index?
-  if (prefix_extractor != nullptr) {
-    rep->internal_prefix_transform.reset(
-        new InternalKeySliceTransform(prefix_extractor.get()));
-  }
 
   // For fully portable/stable cache keys, we need to read the properties
   // block before setting up cache keys. TODO: consider setting up a bootstrap
@@ -688,8 +683,14 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
-  if (!PrefixExtractorChangedHelper(rep->table_properties.get(),
-                                    prefix_extractor.get())) {
+  bool force_null_table_prefix_extractor = false;
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+      &force_null_table_prefix_extractor);
+  if (force_null_table_prefix_extractor) {
+    assert(!rep->table_prefix_extractor);
+  } else if (!PrefixExtractorChangedHelper(rep->table_properties.get(),
+                                           prefix_extractor.get())) {
     // Establish fast path for unchanged prefix_extractor
     rep->table_prefix_extractor = prefix_extractor;
   } else {
@@ -1217,11 +1218,16 @@ Status BlockBasedTable::GetDataBlockFromCache(
           : 0;
   assert(block);
   assert(block->IsEmpty());
+  // Here we treat the legacy name "...index_and_filter_blocks..." to mean all
+  // metadata blocks that might go into block cache, EXCEPT only those needed
+  // for the read path (Get, etc.). TableProperties should not be needed on the
+  // read path (prefix extractor setting is an O(1) size special case that we
+  // are working not to require from TableProperties), so it is not given
+  // high-priority treatment if it should go into BlockCache.
   const Cache::Priority priority =
       rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
-              (block_type == BlockType::kFilter ||
-               block_type == BlockType::kCompressionDictionary ||
-               block_type == BlockType::kIndex)
+              block_type != BlockType::kData &&
+              block_type != BlockType::kProperties
           ? Cache::Priority::HIGH
           : Cache::Priority::LOW;
 
@@ -1348,9 +1354,7 @@ Status BlockBasedTable::PutDataBlockToCache(
           : 0;
   const Cache::Priority priority =
       rep_->table_options.cache_index_and_filter_blocks_with_high_priority &&
-              (block_type == BlockType::kFilter ||
-               block_type == BlockType::kCompressionDictionary ||
-               block_type == BlockType::kIndex)
+              block_type != BlockType::kData
           ? Cache::Priority::HIGH
           : Cache::Priority::LOW;
   assert(cached_block);
@@ -1603,6 +1607,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
               ++get_context->get_context_stats_.num_index_read;
               break;
             case BlockType::kFilter:
+            case BlockType::kFilterPartitionIndex:
+            case BlockType::kDeprecatedFilter:
               ++get_context->get_context_stats_.num_filter_read;
               break;
             case BlockType::kData:
@@ -1645,6 +1651,8 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         trace_block_type = TraceType::kBlockTraceDataBlock;
         break;
       case BlockType::kFilter:
+      case BlockType::kFilterPartitionIndex:
+      case BlockType::kDeprecatedFilter:
         trace_block_type = TraceType::kBlockTraceFilterBlock;
         break;
       case BlockType::kCompressionDictionary:
@@ -1759,6 +1767,8 @@ Status BlockBasedTable::RetrieveBlock(
           ++(get_context->get_context_stats_.num_index_read);
           break;
         case BlockType::kFilter:
+        case BlockType::kFilterPartitionIndex:
+        case BlockType::kDeprecatedFilter:
           ++(get_context->get_context_stats_.num_filter_read);
           break;
         case BlockType::kData:
@@ -1988,7 +1998,7 @@ InternalIterator* BlockBasedTable::NewIterator(
       read_options.auto_prefix_mode || PrefixExtractorChanged(prefix_extractor);
   std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(NewIndexIterator(
       read_options,
-      need_upper_bound_check &&
+      /*disable_prefix_seek=*/need_upper_bound_check &&
           rep_->index_type == BlockBasedTableOptions::kHashSearch,
       /*input_iter=*/nullptr, /*get_context=*/nullptr, &lookup_context));
   if (arena == nullptr) {
@@ -2421,10 +2431,16 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
 
 BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     const Slice& meta_block_name) {
-  if (meta_block_name.starts_with(kFilterBlockPrefix) ||
-      meta_block_name.starts_with(kFullFilterBlockPrefix) ||
-      meta_block_name.starts_with(kPartitionedFilterBlockPrefix)) {
+  if (meta_block_name.starts_with(kFilterBlockPrefix)) {
+    return BlockType::kDeprecatedFilter;
+  }
+
+  if (meta_block_name.starts_with(kFullFilterBlockPrefix)) {
     return BlockType::kFilter;
+  }
+
+  if (meta_block_name.starts_with(kPartitionedFilterBlockPrefix)) {
+    return BlockType::kFilterPartitionIndex;
   }
 
   if (meta_block_name == kPropertiesBlockName) {
@@ -2544,18 +2560,10 @@ Status BlockBasedTable::CreateIndexReader(
                                              lookup_context, index_reader);
     }
     case BlockBasedTableOptions::kHashSearch: {
-      std::unique_ptr<Block> metaindex_guard;
-      std::unique_ptr<InternalIterator> metaindex_iter_guard;
-      bool should_fallback = false;
-      // FIXME: is changed prefix_extractor handled anywhere for hash index?
-      if (rep_->internal_prefix_transform.get() == nullptr) {
+      if (!rep_->table_prefix_extractor) {
         ROCKS_LOG_WARN(rep_->ioptions.logger,
-                       "No prefix extractor passed in. Fall back to binary"
-                       " search index.");
-        should_fallback = true;
-      }
-
-      if (should_fallback) {
+                       "Missing prefix extractor for hash index. Fall back to"
+                       " binary search index.");
         return BinarySearchIndexReader::Create(this, ro, prefetch_buffer,
                                                use_cache, prefetch, pin,
                                                lookup_context, index_reader);

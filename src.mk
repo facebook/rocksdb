@@ -82,6 +82,7 @@ LIB_SOURCES =                                                   \
   db/version_set.cc                                             \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
+  db/wide/wide_column_serialization.cc                          \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
@@ -497,6 +498,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
   db/wal_manager_test.cc                                                \
+  db/wide/wide_column_serialization_test.cc                             \
   db/write_batch_test.cc                                                \
   db/write_callback_test.cc                                             \
   db/write_controller_test.cc                                           \
@@ -592,6 +594,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/transactions/write_unprepared_transaction_test.cc           \
   utilities/transactions/write_committed_transaction_ts_test.cc         \
+  utilities/transactions/timestamped_snapshot_test.cc                   \
   utilities/ttl/ttl_test.cc                                             \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
