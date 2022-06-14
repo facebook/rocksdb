@@ -130,7 +130,7 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     return cache;
   } else if (FLAGS_cache_type == "fast_lru_cache") {
     return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                           num_shard_bits, false,
+                           num_shard_bits, false /*strict_capacity_limit*/,
                            kDefaultCacheMetadataChargePolicy);
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
