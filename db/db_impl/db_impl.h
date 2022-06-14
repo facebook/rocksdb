@@ -1918,10 +1918,9 @@ class DBImpl : public DB {
   // Merge write batches in the write group into merged_batch.
   // Returns OK if merge is successful.
   // Returns Corruption if corruption in write batch is detected.
-  Status MergeBatch(WriteBatch** merged_batch,
-                    const WriteThread::WriteGroup& write_group,
-                    WriteBatch* tmp_batch, size_t* write_with_wal,
-                    WriteBatch** to_be_cached_state);
+  Status MergeBatch(const WriteThread::WriteGroup& write_group,
+                    WriteBatch* tmp_batch, WriteBatch** merged_batch,
+                    size_t* write_with_wal, WriteBatch** to_be_cached_state);
 
   // rate_limiter_priority is used to charge `DBOptions::rate_limiter`
   // for automatic WAL flush (`Options::manual_wal_flush` == false)

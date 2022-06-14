@@ -1176,9 +1176,9 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   return status;
 }
 
-Status DBImpl::MergeBatch(WriteBatch** merged_batch,
-                          const WriteThread::WriteGroup& write_group,
-                          WriteBatch* tmp_batch, size_t* write_with_wal,
+Status DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
+                          WriteBatch* tmp_batch, WriteBatch** merged_batch,
+                          size_t* write_with_wal,
                           WriteBatch** to_be_cached_state) {
   assert(write_with_wal != nullptr);
   assert(tmp_batch != nullptr);
@@ -1274,7 +1274,7 @@ IOStatus DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   size_t write_with_wal = 0;
   WriteBatch* to_be_cached_state = nullptr;
   WriteBatch* merged_batch;
-  io_s = status_to_io_status(MergeBatch(&merged_batch, write_group, &tmp_batch_,
+  io_s = status_to_io_status(MergeBatch(write_group, &tmp_batch_, &merged_batch,
                                         &write_with_wal, &to_be_cached_state));
   if (UNLIKELY(!io_s.ok())) {
     return io_s;
@@ -1370,7 +1370,7 @@ IOStatus DBImpl::ConcurrentWriteToWAL(
   size_t write_with_wal = 0;
   WriteBatch* to_be_cached_state = nullptr;
   WriteBatch* merged_batch;
-  io_s = status_to_io_status(MergeBatch(&merged_batch, write_group, &tmp_batch,
+  io_s = status_to_io_status(MergeBatch(write_group, &tmp_batch, &merged_batch,
                                         &write_with_wal, &to_be_cached_state));
   if (UNLIKELY(!io_s.ok())) {
     return io_s;

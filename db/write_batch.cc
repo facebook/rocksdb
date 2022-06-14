@@ -1502,7 +1502,7 @@ Status WriteBatch::VerifyChecksum() const {
   uint32_t column_family = 0;  // default
   Status s;
   size_t prot_info_idx = 0;
-  bool checksum_protected;
+  bool checksum_protected = true;
   while (!input.empty() && prot_info_idx < prot_info_->entries_.size()) {
     // In case key/value/column_family are not updated by
     // ReadRecordFromWriteBatch
