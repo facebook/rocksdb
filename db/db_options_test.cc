@@ -1210,39 +1210,6 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
 }
 
-TEST_F(DBOptionsTest, SetWithBlobCache) {
-  Options options;
-
-  ASSERT_EQ(options.blob_cache, nullptr);
-
-  options.env = env_;
-  options.create_if_missing = true;
-  options.enable_blob_files = true;
-
-  LRUCacheOptions co;
-  co.capacity = 2048;
-  co.num_shard_bits = 2;
-  co.metadata_charge_policy = kDontChargeCacheMetadata;
-  options.blob_cache = NewLRUCache(co);
-
-  Reopen(options);
-
-  ASSERT_NE(options.blob_cache, nullptr);
-  ASSERT_EQ(options.blob_cache->GetCapacity(), 2048);
-
-  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
-  Options c_opts = dbfull()->GetOptions(cfh);
-  ASSERT_EQ(options.blob_cache, c_opts.blob_cache);
-
-  c_opts.blob_cache->EraseUnRefEntries();
-
-  // block cache is an immutable option
-  ASSERT_NOK(dbfull()->SetOptions(cfh, {{"blob_cache", "1M"}}));
-
-  ASSERT_NE(options.blob_cache, nullptr);
-  ASSERT_EQ(options.blob_cache->GetCapacity(), 2048);
-}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

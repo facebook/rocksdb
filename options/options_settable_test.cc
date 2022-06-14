@@ -529,7 +529,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_cache=1M;",
       new_options));
 
-  ASSERT_TRUE(new_options->blob_cache.get() != nullptr);
+  ASSERT_NE(new_options->blob_cache.get(), nullptr);
 
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),

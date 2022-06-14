@@ -17,7 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class Cache;
 class Slice;
 class SliceTransform;
 class TablePropertiesCollectorFactory;
