@@ -236,6 +236,10 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
 #endif
+
+  // Currently only used in MultiOpsTxnsStressTest
+  std::atomic<DB*> db_aptr_;
+
   Options options_;
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;
