@@ -176,7 +176,8 @@ default_params = {
     "async_io": lambda: random.choice([0, 1]),
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
-    "secondary_cache_uri": "",
+    "secondary_cache_uri": lambda: random.choice(
+        ["", "compressed_secondary_cache://capacity=8388608"]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -186,7 +187,6 @@ stress_cmd = "./db_stress"
 
 def is_release_mode():
     return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
-
 
 def get_dbname(test_name):
     test_dir_name = "rocksdb_crashtest_" + test_name
