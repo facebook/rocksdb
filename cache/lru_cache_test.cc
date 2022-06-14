@@ -226,8 +226,8 @@ class FastLRUCacheTest : public testing::Test {
     cache_ = reinterpret_cast<fast_lru_cache::LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(fast_lru_cache::LRUCacheShard)));
     new (cache_) fast_lru_cache::LRUCacheShard(
-        capacity, false /*strict_capcity_limit*/, kDontChargeCacheMetadata,
-        24 /*max_upper_hash_bits*/);
+        capacity, 1 /*estimated_value_size*/, false /*strict_capacity_limit*/,
+        kDontChargeCacheMetadata);
   }
 
   Status Insert(const std::string& key) {

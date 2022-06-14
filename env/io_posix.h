@@ -62,6 +62,8 @@ struct Posix_IOHandle {
   size_t len;
   char* scratch;
   bool is_finished = false;
+  // req_count is used by AbortIO API to keep track of number of requests.
+  uint32_t req_count = 0;
 };
 
 inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
