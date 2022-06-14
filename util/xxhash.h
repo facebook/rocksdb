@@ -13,6 +13,7 @@
 #include "port/lang.h" // for FALLTHROUGH_INTENDED, inserted as appropriate
 /* END RocksDB customizations */
 
+// clang-format off
 /*
  * xxHash - Extremely Fast Hash algorithm
  * Header File
