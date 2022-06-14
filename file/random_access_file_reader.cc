@@ -358,32 +358,27 @@ IOStatus RandomAccessFileReader::MultiRead(
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
       if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
         assert(fs_reqs != nullptr);
-        // TODO: ideally we should request bandwith for each
-        // `FSReadRequest::len` seperately instead of requesting
-        // the sum and calling `LoopRateLimitRequestHelper()` afterwards
+        // TODO: ideally we should call `RateLimiter::RequestToken()` for
+        // allowed bytes to multi-read and then consume those bytes by
+        // satisfying as much requests in `MultiRead()` as possible, instead of
+        // what we do here, which can cause burst when the
+        // `total_multi_read_size` is big.
         size_t total_multi_read_size = 0;
         for (size_t i = 0; i < num_fs_reqs; ++i) {
           FSReadRequest& req = fs_reqs[i];
           total_multi_read_size += req.len;
         }
-        static auto LoopRateLimitRequestHelper =
-            [](const size_t total_bytes_to_request, RateLimiter* rate_limiter,
-               const Env::IOPriority pri, Statistics* stats,
-               const RateLimiter::OpType op_type) {
-              assert(rate_limiter != nullptr);
-              size_t remaining_bytes = total_bytes_to_request;
-              size_t request_bytes = 0;
-              while (remaining_bytes > 0) {
-                request_bytes = std::min(
-                    static_cast<size_t>(rate_limiter->GetSingleBurstBytes()),
-                    remaining_bytes);
-                rate_limiter->Request(request_bytes, pri, stats, op_type);
-                remaining_bytes -= request_bytes;
-              }
-            };
-        LoopRateLimitRequestHelper(total_multi_read_size, rate_limiter_,
-                                   rate_limiter_priority, nullptr /* stats */,
-                                   RateLimiter::OpType::kRead);
+        size_t remaining_bytes = total_multi_read_size;
+        size_t request_bytes = 0;
+        while (remaining_bytes > 0) {
+          request_bytes = std::min(
+              static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()),
+              remaining_bytes);
+          rate_limiter_->Request(request_bytes, rate_limiter_priority,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
+          remaining_bytes -= request_bytes;
+        }
       }
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }
