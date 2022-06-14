@@ -114,7 +114,9 @@ class CacheTest : public testing::TestWithParam<std::string> {
       return NewClockCache(capacity);
     }
     if (type == kFast) {
-      return NewFastLRUCache(capacity);
+      return NewFastLRUCache(
+          capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     }
     return nullptr;
   }
@@ -137,7 +139,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
                            charge_policy);
     }
     if (type == kFast) {
-      return NewFastLRUCache(capacity, num_shard_bits, strict_capacity_limit,
+      return NewFastLRUCache(capacity, 1 /*estimated_value_size*/,
+                             num_shard_bits, strict_capacity_limit,
                              charge_policy);
     }
     return nullptr;
