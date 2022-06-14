@@ -357,13 +357,13 @@ IOStatus RandomAccessFileReader::MultiRead(
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
       if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
-        assert(fs_reqs != nullptr);
         // TODO: ideally we should call `RateLimiter::RequestToken()` for
         // allowed bytes to multi-read and then consume those bytes by
-        // satisfying as much requests in `MultiRead()` as possible, instead of
+        // satisfying as many requests in `MultiRead()` as possible, instead of
         // what we do here, which can cause burst when the
         // `total_multi_read_size` is big.
         size_t total_multi_read_size = 0;
+        assert(fs_reqs != nullptr);
         for (size_t i = 0; i < num_fs_reqs; ++i) {
           FSReadRequest& req = fs_reqs[i];
           total_multi_read_size += req.len;
