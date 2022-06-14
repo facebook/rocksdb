@@ -288,7 +288,8 @@ class CacheBench {
       }
     } else if (FLAGS_cache_type == "fast_lru_cache") {
       cache_ = NewFastLRUCache(FLAGS_cache_size, FLAGS_value_bytes,
-                               FLAGS_num_shard_bits, false, kDefaultCacheMetadataChargePolicy);
+                               FLAGS_num_shard_bits, false,
+                               kDefaultCacheMetadataChargePolicy);
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
 #ifndef ROCKSDB_LITE
