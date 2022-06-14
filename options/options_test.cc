@@ -592,13 +592,13 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
       "blob_cache={capacity=1M;num_shard_bits=4;"
       "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
       &new_cf_opt));
-  ASSERT_TRUE(new_cf_opt.blob_cache != nullptr);
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
   ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_cf_opt.blob_cache)
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
                 ->GetNumShardBits(),
             4);
   ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_cf_opt.blob_cache)
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
                 ->GetHighPriPoolRatio(),
             0.5);
 }
@@ -2774,13 +2774,13 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
       "blob_cache={capacity=1M;num_shard_bits=4;"
       "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
       &new_cf_opt));
-  ASSERT_TRUE(new_cf_opt.blob_cache != nullptr);
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
   ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
-  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(new_cf_opt.blob_cache)
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
                 ->GetNumShardBits(),
             4);
   ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
-  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(new_cf_opt.blob_cache)
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
                 ->GetHighPriPoolRatio(),
             0.5);
 }
