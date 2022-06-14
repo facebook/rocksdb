@@ -188,6 +188,7 @@ stress_cmd = "./db_stress"
 def is_release_mode():
     return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
 
+
 def get_dbname(test_name):
     test_dir_name = "rocksdb_crashtest_" + test_name
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
