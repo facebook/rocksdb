@@ -47,6 +47,22 @@ namespace ROCKSDB_NAMESPACE {
 
 class OptionsTest : public testing::Test {};
 
+class UnregisteredTableFactory : public TableFactory {
+ public:
+  UnregisteredTableFactory() {}
+  const char* Name() const override { return "Unregistered"; }
+  using TableFactory::NewTableReader;
+  Status NewTableReader(const ReadOptions&, const TableReaderOptions&,
+                        std::unique_ptr<RandomAccessFileReader>&&, uint64_t,
+                        std::unique_ptr<TableReader>*, bool) const override {
+    return Status::NotSupported();
+  }
+  TableBuilder* NewTableBuilder(const TableBuilderOptions&,
+                                WritableFileWriter*) const override {
+    return nullptr;
+  }
+};
+
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST_F(OptionsTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
@@ -3662,6 +3678,10 @@ TEST_F(OptionsParserTest, DumpAndParse) {
       cf_opt.table_factory.reset(test::RandomTableFactory(&rnd, c));
     } else if (c == 4) {
       cf_opt.table_factory.reset(NewBlockBasedTableFactory(special_bbto));
+    } else if (c == 5) {
+      // A table factory that doesn't support deserialization should be
+      // supported.
+      cf_opt.table_factory.reset(new UnregisteredTableFactory());
     }
     base_cf_opts.emplace_back(cf_opt);
   }
