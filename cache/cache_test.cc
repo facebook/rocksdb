@@ -116,7 +116,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
     if (type == kFast) {
       return NewFastLRUCache(
           capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
-          false /*estimated_value_size*/, kDefaultCacheMetadataChargePolicy);
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     }
     return nullptr;
   }
