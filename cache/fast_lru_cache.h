@@ -303,9 +303,8 @@ class LRUCache
 }  // namespace fast_lru_cache
 
 std::shared_ptr<Cache> NewFastLRUCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits = -1,
-    bool strict_capacity_limit = false,
-    CacheMetadataChargePolicy metadata_charge_policy =
-        kDefaultCacheMetadataChargePolicy);
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy);
 
 }  // namespace ROCKSDB_NAMESPACE

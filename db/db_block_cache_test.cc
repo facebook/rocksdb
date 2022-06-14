@@ -936,7 +936,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
         NewClockCache(capacity, num_shard_bits),
-        NewFastLRUCache(capacity, num_shard_bits)}) {
+        NewFastLRUCache(capacity, 1, num_shard_bits, false, kDefaultCacheMetadataChargePolicy)}) {
     if (!base_cache) {
       // Skip clock cache when not supported
       continue;

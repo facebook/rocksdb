@@ -19,7 +19,7 @@
 #include "util/mutexlock.h"
 
 #define KEY_LENGTH \
-  16  // TODO(guido) Make usage of this symbol in other parts of the source code
+  16  // TODO(guido) Make use of this symbol in other parts of the source code
       // (e.g., cache_key.h, cache_test.cc, etc.)
 
 namespace ROCKSDB_NAMESPACE {

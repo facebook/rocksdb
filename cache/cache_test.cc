@@ -114,7 +114,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
       return NewClockCache(capacity);
     }
     if (type == kFast) {
-      return NewFastLRUCache(capacity, 1);
+      return NewFastLRUCache(capacity, 1, -1, false, kDefaultCacheMetadataChargePolicy);
     }
     return nullptr;
   }
