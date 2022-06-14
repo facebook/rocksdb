@@ -1157,6 +1157,11 @@ DEFINE_bool(charge_table_reader, false,
             "CacheEntryRoleOptions::charged of"
             "CacheEntryRole::kBlockBasedTableReader");
 
+DEFINE_bool(charge_file_metadata, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kFileMetadata");
+
 DEFINE_uint64(backup_rate_limit, 0ull,
               "If non-zero, db_bench will rate limit reads and writes for DB "
               "backup. This "
@@ -4240,6 +4245,11 @@ class Benchmark {
       block_based_options.cache_usage_options.options_overrides.insert(
           {CacheEntryRole::kBlockBasedTableReader,
            {/*.charged = */ FLAGS_charge_table_reader
+                ? CacheEntryRoleOptions::Decision::kEnabled
+                : CacheEntryRoleOptions::Decision::kDisabled}});
+      block_based_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kFileMetadata,
+           {/*.charged = */ FLAGS_charge_file_metadata
                 ? CacheEntryRoleOptions::Decision::kEnabled
                 : CacheEntryRoleOptions::Decision::kDisabled}});
       block_based_options.block_cache_compressed = compressed_cache_;
