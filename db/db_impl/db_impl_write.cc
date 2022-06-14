@@ -178,6 +178,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         "rate-limiting automatic WAL flush, which requires "
         "`WriteOptions::disableWAL` and "
         "`DBOptions::manual_wal_flush` both set to false");
+  } else if (write_options.protection_bytes_per_key != 0 &&
+             write_options.protection_bytes_per_key != 8) {
+    return Status::InvalidArgument(
+        "`WriteOptions::protection_bytes_per_key` must be zero or eight");
   }
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
