@@ -18,7 +18,7 @@ struct ImmutableOptions;
 struct FileOptions;
 class HistogramImpl;
 class Status;
-class BlobFileReader;
+class BlobSource;
 class Slice;
 class IOTracer;
 
@@ -26,14 +26,15 @@ class BlobFileCache {
  public:
   BlobFileCache(Cache* cache, const ImmutableOptions* immutable_options,
                 const FileOptions* file_options, uint32_t column_family_id,
+                const std::string& db_id, const std::string& db_session_id,
                 HistogramImpl* blob_file_read_hist,
                 const std::shared_ptr<IOTracer>& io_tracer);
 
   BlobFileCache(const BlobFileCache&) = delete;
   BlobFileCache& operator=(const BlobFileCache&) = delete;
 
-  Status GetBlobFileReader(uint64_t blob_file_number,
-                           CacheHandleGuard<BlobFileReader>* blob_file_reader);
+  Status GetBlobSource(uint64_t blob_file_number,
+                       CacheHandleGuard<BlobSource>* blob_source);
 
  private:
   Cache* cache_;
@@ -43,6 +44,10 @@ class BlobFileCache {
   const ImmutableOptions* immutable_options_;
   const FileOptions* file_options_;
   uint32_t column_family_id_;
+
+  const std::string& db_id_;
+  const std::string& db_session_id_;
+
   HistogramImpl* blob_file_read_hist_;
   std::shared_ptr<IOTracer> io_tracer_;
 

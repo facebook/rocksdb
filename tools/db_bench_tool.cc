@@ -4455,6 +4455,7 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+    options.blob_cache = cache_;
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {

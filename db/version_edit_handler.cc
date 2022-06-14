@@ -833,9 +833,8 @@ Status VersionEditHandlerPointInTime::VerifyBlobFile(
     const BlobFileAddition& blob_addition) {
   BlobFileCache* blob_file_cache = cfd->blob_file_cache();
   assert(blob_file_cache);
-  CacheHandleGuard<BlobFileReader> blob_file_reader;
-  Status s =
-      blob_file_cache->GetBlobFileReader(blob_file_num, &blob_file_reader);
+  CacheHandleGuard<BlobSource> blob_source;
+  Status s = blob_file_cache->GetBlobSource(blob_file_num, &blob_source);
   if (!s.ok()) {
     return s;
   }

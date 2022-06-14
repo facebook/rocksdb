@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_source.h"
 #include "options/cf_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
@@ -22,6 +23,8 @@ BlobFileCache::BlobFileCache(Cache* cache,
                              const ImmutableOptions* immutable_options,
                              const FileOptions* file_options,
                              uint32_t column_family_id,
+                             const std::string& db_id,
+                             const std::string& db_session_id,
                              HistogramImpl* blob_file_read_hist,
                              const std::shared_ptr<IOTracer>& io_tracer)
     : cache_(cache),
@@ -29,6 +32,8 @@ BlobFileCache::BlobFileCache(Cache* cache,
       immutable_options_(immutable_options),
       file_options_(file_options),
       column_family_id_(column_family_id),
+      db_id_(db_id),
+      db_session_id_(db_session_id),
       blob_file_read_hist_(blob_file_read_hist),
       io_tracer_(io_tracer) {
   assert(cache_);
@@ -36,11 +41,9 @@ BlobFileCache::BlobFileCache(Cache* cache,
   assert(file_options_);
 }
 
-Status BlobFileCache::GetBlobFileReader(
-    uint64_t blob_file_number,
-    CacheHandleGuard<BlobFileReader>* blob_file_reader) {
-  assert(blob_file_reader);
-  assert(blob_file_reader->IsEmpty());
+Status BlobFileCache::GetBlobSource(uint64_t blob_file_number,
+                                    CacheHandleGuard<BlobSource>* blob_source) {
+  assert(blob_source);
 
   const Slice key = GetSlice(&blob_file_number);
 
@@ -48,35 +51,33 @@ Status BlobFileCache::GetBlobFileReader(
 
   Cache::Handle* handle = cache_->Lookup(key);
   if (handle) {
-    *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
+    *blob_source = CacheHandleGuard<BlobSource>(cache_, handle);
     return Status::OK();
   }
 
-  TEST_SYNC_POINT("BlobFileCache::GetBlobFileReader:DoubleCheck");
+  TEST_SYNC_POINT("BlobFileCache::GetBlobSource:DoubleCheck");
 
   // Check again while holding mutex
   MutexLock lock(mutex_.get(key));
 
   handle = cache_->Lookup(key);
   if (handle) {
-    *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
+    *blob_source = CacheHandleGuard<BlobSource>(cache_, handle);
     return Status::OK();
   }
 
   assert(immutable_options_);
   Statistics* const statistics = immutable_options_->stats;
 
-  RecordTick(statistics, NO_FILE_OPENS);
-
-  std::unique_ptr<BlobFileReader> reader;
+  std::unique_ptr<BlobSource> source;
 
   {
     assert(file_options_);
-    const Status s = BlobFileReader::Create(
-        *immutable_options_, *file_options_, column_family_id_,
-        blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
+    const Status s = BlobSource::Create(*immutable_options_, *file_options_,
+                                        column_family_id_, blob_file_read_hist_,
+                                        blob_file_number, db_id_,
+                                        db_session_id_, io_tracer_, &source);
     if (!s.ok()) {
-      RecordTick(statistics, NO_FILE_ERRORS);
       return s;
     }
   }
@@ -84,17 +85,17 @@ Status BlobFileCache::GetBlobFileReader(
   {
     constexpr size_t charge = 1;
 
-    const Status s = cache_->Insert(key, reader.get(), charge,
-                                    &DeleteCacheEntry<BlobFileReader>, &handle);
+    const Status s = cache_->Insert(key, source.get(), charge,
+                                    &DeleteCacheEntry<BlobSource>, &handle);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;
     }
   }
 
-  reader.release();
+  source.release();
 
-  *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
+  *blob_source = CacheHandleGuard<BlobSource>(cache_, handle);
 
   return Status::OK();
 }

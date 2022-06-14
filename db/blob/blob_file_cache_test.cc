@@ -20,6 +20,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 
@@ -84,9 +85,18 @@ void WriteBlobFile(uint32_t column_family_id,
 
 class BlobFileCacheTest : public testing::Test {
  protected:
-  BlobFileCacheTest() { mock_env_.reset(MockEnv::Create(Env::Default())); }
+  BlobFileCacheTest() {
+    mock_env_.reset(MockEnv::Create(Env::Default()));
+    db_session_id_ = EncodeSessionId(base_session_upper_, base_session_lower_);
+  }
 
   std::unique_ptr<Env> mock_env_;
+
+  std::string db_session_id_;
+  std::string db_id_ = std::string("1234");
+
+  uint64_t base_session_upper_ = 1234;
+  uint64_t base_session_lower_ = 5678;
 };
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader) {
@@ -111,22 +121,22 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
-                                &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+  BlobFileCache blob_file_cache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      db_id_, db_session_id_, blob_file_read_hist, nullptr /*IOTracer*/);
 
   // First try: reader should be opened and put in cache
-  CacheHandleGuard<BlobFileReader> first;
+  CacheHandleGuard<BlobSource> first;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
 
   // Second try: reader should be served from cache
-  CacheHandleGuard<BlobFileReader> second;
+  CacheHandleGuard<BlobSource> second;
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+  ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &second));
   ASSERT_NE(second.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -156,26 +166,26 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
-                                &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+  BlobFileCache blob_file_cache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      db_id_, db_session_id_, blob_file_read_hist, nullptr /*IOTracer*/);
 
-  CacheHandleGuard<BlobFileReader> first;
-  CacheHandleGuard<BlobFileReader> second;
+  CacheHandleGuard<BlobSource> first;
+  CacheHandleGuard<BlobSource> second;
 
   SyncPoint::GetInstance()->SetCallBack(
-      "BlobFileCache::GetBlobFileReader:DoubleCheck", [&](void* /* arg */) {
+      "BlobFileCache::GetBlobSource:DoubleCheck", [&](void* /* arg */) {
         // Disabling sync points to prevent infinite recursion
         SyncPoint::GetInstance()->DisableProcessing();
 
-        ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+        ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &second));
         ASSERT_NE(second.GetValue(), nullptr);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
         ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  ASSERT_OK(blob_file_cache.GetBlobSource(blob_file_number, &first));
   ASSERT_NE(first.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
@@ -204,18 +214,18 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   constexpr uint32_t column_family_id = 1;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
-                                &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+  BlobFileCache blob_file_cache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      db_id_, db_session_id_, blob_file_read_hist, nullptr /*IOTracer*/);
 
   // Note: there is no blob file with the below number
   constexpr uint64_t blob_file_number = 123;
 
-  CacheHandleGuard<BlobFileReader> reader;
+  CacheHandleGuard<BlobSource> source;
 
   ASSERT_TRUE(
-      blob_file_cache.GetBlobFileReader(blob_file_number, &reader).IsIOError());
-  ASSERT_EQ(reader.GetValue(), nullptr);
+      blob_file_cache.GetBlobSource(blob_file_number, &source).IsIOError());
+  ASSERT_EQ(source.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
 }
@@ -245,17 +255,17 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_options,
-                                &file_options, column_family_id,
-                                blob_file_read_hist, nullptr /*IOTracer*/);
+  BlobFileCache blob_file_cache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      db_id_, db_session_id_, blob_file_read_hist, nullptr /*IOTracer*/);
 
   // Insert into cache should fail since it has zero capacity and
   // strict_capacity_limit is set
-  CacheHandleGuard<BlobFileReader> reader;
+  CacheHandleGuard<BlobSource> source;
 
-  ASSERT_TRUE(blob_file_cache.GetBlobFileReader(blob_file_number, &reader)
-                  .IsIncomplete());
-  ASSERT_EQ(reader.GetValue(), nullptr);
+  ASSERT_TRUE(
+      blob_file_cache.GetBlobSource(blob_file_number, &source).IsIncomplete());
+  ASSERT_EQ(source.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
 }
