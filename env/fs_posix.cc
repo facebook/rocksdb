@@ -1124,17 +1124,104 @@ class PosixFileSystem : public FileSystem {
 #endif
   }
 
-  // TODO akanksha: Look into flags and see how to provide support for AbortIO
-  // in posix for IOUring requests. Currently it calls Poll to wait for requests
-  // to complete the request.
   virtual IOStatus AbortIO(std::vector<void*>& io_handles) override {
-    IOStatus s = Poll(io_handles, io_handles.size());
+#if defined(ROCKSDB_IOURING_PRESENT)
+    // io_uring_queue_init.
+    struct io_uring* iu = nullptr;
+    if (thread_local_io_urings_) {
+      iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
+    }
+
+    // Init failed, platform doesn't support io_uring.
     // If Poll is not supported then it didn't submit any request and it should
     // return OK.
-    if (s.IsNotSupported()) {
+    if (iu == nullptr) {
       return IOStatus::OK();
     }
-    return s;
+
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      Posix_IOHandle* posix_handle =
+          static_cast<Posix_IOHandle*>(io_handles[i]);
+      if (posix_handle->is_finished == true) {
+        continue;
+      }
+      assert(posix_handle->iu == iu);
+      if (posix_handle->iu != iu) {
+        return IOStatus::IOError("");
+      }
+
+      // Prepare the cancel request.
+      struct io_uring_sqe* sqe;
+      sqe = io_uring_get_sqe(iu);
+      io_uring_prep_cancel(sqe, posix_handle, 0);
+      io_uring_sqe_set_data(sqe, posix_handle);
+
+      // submit the request.
+      ssize_t ret = io_uring_submit(iu);
+      if (ret < 0) {
+        fprintf(stderr, "io_uring_submit error: %ld\n", long(ret));
+        return IOStatus::IOError("io_uring_submit() requested but returned " +
+                                 std::to_string(ret));
+      }
+    }
+
+    // After submitting the requests, wait for the requests.
+    for (size_t i = 0; i < io_handles.size(); i++) {
+      if ((static_cast<Posix_IOHandle*>(io_handles[i]))->is_finished) {
+        continue;
+      }
+
+      while (true) {
+        struct io_uring_cqe* cqe = nullptr;
+        ssize_t ret = io_uring_wait_cqe(iu, &cqe);
+        if (ret) {
+          // abort as it shouldn't be in indeterminate state and there is no
+          // good way currently to handle this error.
+          abort();
+        }
+        assert(cqe != nullptr);
+
+        Posix_IOHandle* posix_handle =
+            static_cast<Posix_IOHandle*>(io_uring_cqe_get_data(cqe));
+        assert(posix_handle->iu == iu);
+        if (posix_handle->iu != iu) {
+          return IOStatus::IOError("");
+        }
+        posix_handle->req_count++;
+
+        // Reset cqe data to catch any stray reuse of it
+        static_cast<struct io_uring_cqe*>(cqe)->user_data = 0xd5d5d5d5d5d5d5d5;
+        io_uring_cqe_seen(iu, cqe);
+
+        // - If the request is cancelled successfully, the original request is
+        //   completed with -ECANCELED and the cancel request is completed with
+        //   a result of 0.
+        // - If the request was already running, the original may or
+        //   may not complete in error. The cancel request will complete with
+        //  -EALREADY for that case.
+        // - And finally, if the request to cancel wasn't
+        //   found, the cancel request is completed with -ENOENT.
+        //
+        // Every handle has to wait for 2 requests completion: original one and
+        // the cancel request which is tracked by PosixHandle::req_count.
+        if (posix_handle->req_count == 2 &&
+            static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
+          posix_handle->is_finished = true;
+          FSReadRequest req;
+          req.status = IOStatus::Aborted();
+          posix_handle->cb(req, posix_handle->cb_arg);
+
+          break;
+        }
+      }
+    }
+    return IOStatus::OK();
+#else
+    // If Poll is not supported then it didn't submit any request and it should
+    // return OK.
+    (void)io_handles;
+    return IOStatus::OK();
+#endif
   }
 
 #if defined(ROCKSDB_IOURING_PRESENT)
