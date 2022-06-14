@@ -1153,7 +1153,7 @@ class PosixFileSystem : public FileSystem {
       // Prepare the cancel request.
       struct io_uring_sqe* sqe;
       sqe = io_uring_get_sqe(iu);
-      io_uring_prep_cancel(sqe, posix_handle, 0);
+      io_uring_prep_cancel(sqe, (void*)(unsigned long)1, 0);
       io_uring_sqe_set_data(sqe, posix_handle);
 
       // submit the request.
