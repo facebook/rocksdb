@@ -2946,7 +2946,8 @@ class Benchmark {
       return cache;
     } else if (FLAGS_cache_type == "fast_lru_cache") {
       return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                             FLAGS_cache_numshardbits, false /*strict_capacity_limit*/,
+                             FLAGS_cache_numshardbits,
+                             false /*strict_capacity_limit*/,
                              kDefaultCacheMetadataChargePolicy);
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(
