@@ -826,7 +826,7 @@ ClockCache::~ClockCache() {
 
 bool ClockCache::IsMutable() const {
 #ifdef SUPPORT_CLOCK_CACHE
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   return (shards_ == nullptr);
 #else
   return false;
@@ -834,19 +834,19 @@ bool ClockCache::IsMutable() const {
 }
 
 size_t ClockCache::GetCapacity() const {
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   return options_.capacity;
 }
 
 bool ClockCache::HasStrictCapacityLimit() const {
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   return options_.strict_capacity_limit;
 }
 
 void ClockCache::SetCapacity(size_t capacity) {
   uint32_t num_shards = GetNumShards();
   const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   for (uint32_t s = 0; s < num_shards; s++) {
     GetShard(s)->SetCapacity(per_shard);
   }
@@ -855,7 +855,7 @@ void ClockCache::SetCapacity(size_t capacity) {
 
 void ClockCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
   uint32_t num_shards = GetNumShards();
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
 
   for (uint32_t s = 0; s < num_shards; s++) {
     GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
@@ -873,7 +873,7 @@ Status ClockCache::PrepareOptions(const ConfigOptions& config_options) {
     return Status::InvalidArgument(
         "The cache cannot be sharded into too many fine pieces");
   } else {
-    MutexLock l(&capacity_mutex_);
+    MutexLock l(&options_mutex_);
     if (shards_ == nullptr) {  // Not already prepared
       if (options_.num_shard_bits < 0) {
         options_.num_shard_bits = GetDefaultCacheShardBits(options_.capacity);
@@ -970,7 +970,7 @@ std::string ClockCache::GetPrintableOptions() const {
   const int kBufferSize = 200;
   char buffer[kBufferSize];
   {
-    MutexLock l(&capacity_mutex_);
+    MutexLock l(&options_mutex_);
     snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
              options_.capacity);
     ret.append(buffer);

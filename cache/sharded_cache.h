@@ -127,7 +127,7 @@ class ShardedCache : public Cache {
   uint32_t SetNumShards(int num_shard_bits);
 
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
-  mutable port::Mutex capacity_mutex_;
+  mutable port::Mutex options_mutex_;
 
  private:
   uint32_t shard_mask_;

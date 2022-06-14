@@ -461,7 +461,7 @@ LRUCache::LRUCache() : ShardedCache(), shards_(nullptr) {
   RegisterOptions(&options_, &fast_lru_cache_options_type_info);
 }
 Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   if (shards_ != nullptr) {  // Already prepared
     return Status::OK();
   } else if (options_.num_shard_bits >= 20) {
@@ -498,24 +498,24 @@ LRUCache::~LRUCache() {
 }
 
 bool LRUCache::IsMutable() const {
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   return (shards_ == nullptr);
 }
 
 size_t LRUCache::GetCapacity() const {
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   return options_.capacity;
 }
 
 bool LRUCache::HasStrictCapacityLimit() const {
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   return options_.strict_capacity_limit;
 }
 
 void LRUCache::SetCapacity(size_t capacity) {
   uint32_t num_shards = GetNumShards();
   const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
   for (uint32_t s = 0; s < num_shards; s++) {
     GetShard(s)->SetCapacity(per_shard);
   }
@@ -524,7 +524,7 @@ void LRUCache::SetCapacity(size_t capacity) {
 
 void LRUCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
   uint32_t num_shards = GetNumShards();
-  MutexLock l(&capacity_mutex_);
+  MutexLock l(&options_mutex_);
 
   for (uint32_t s = 0; s < num_shards; s++) {
     GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
