@@ -111,16 +111,10 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
-  if (write_options_.protection_bytes_per_key !=
-      write_batch_.GetWriteBatch()->GetProtectionBytesPerKey()) {
-    WriteBatchInternal::UpdateProtectionInfo(
-        write_batch_.GetWriteBatch(), write_options_.protection_bytes_per_key);
-  }
-  if (write_options_.protection_bytes_per_key !=
-      commit_time_batch_.GetProtectionBytesPerKey()) {
-    WriteBatchInternal::UpdateProtectionInfo(
-        &commit_time_batch_, write_options_.protection_bytes_per_key);
-  }
+  WriteBatchInternal::UpdateProtectionInfo(
+      write_batch_.GetWriteBatch(), write_options_.protection_bytes_per_key);
+  WriteBatchInternal::UpdateProtectionInfo(
+      &commit_time_batch_, write_options_.protection_bytes_per_key);
 }
 
 void TransactionBaseImpl::SetSnapshot() {

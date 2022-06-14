@@ -2906,14 +2906,23 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
 
 Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
                                                 size_t bytes_per_key) {
-  assert((wb->prot_info_ == nullptr) != (bytes_per_key == 0));
   if (bytes_per_key == 0) {
-    wb->prot_info_.reset();
-    return Status::OK();
+    if (wb->prot_info_ != nullptr) {
+      wb->prot_info_.reset();
+      return Status::OK();
+    } else {
+      // Already not protected.
+      return Status::OK();
+    }
   } else if (bytes_per_key == 8) {
-    wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
-    ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
-    return wb->Iterate(&prot_info_updater);
+    if (wb->prot_info_ == nullptr) {
+      wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
+      ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
+      return wb->Iterate(&prot_info_updater);
+    } else {
+      // Already protected.
+      return Status::OK();
+    }
   }
   return Status::NotSupported(
       "WriteBatch protection info must be zero or eight bytes/key");

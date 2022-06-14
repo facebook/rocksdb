@@ -72,8 +72,7 @@ class PessimisticTransactionDB : public TransactionDB {
   inline Status WriteWithConcurrencyControl(const WriteOptions& opts,
                                             WriteBatch* updates) {
     Status s;
-    if (updates->GetProtectionBytesPerKey() == 0 &&
-        opts.protection_bytes_per_key > 0) {
+    if (opts.protection_bytes_per_key > 0) {
       s = WriteBatchInternal::UpdateProtectionInfo(
           updates, opts.protection_bytes_per_key);
     }
