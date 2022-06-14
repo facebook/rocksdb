@@ -1412,7 +1412,6 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   Options* DisableExtraChecks();
 };
 
-//
 // An application can issue a read request (via Get/Iterators) and specify
 // if that read should process data that ALREADY resides on a specified cache
 // level. For example, if an application specifies kBlockCacheTier then the
@@ -1530,6 +1529,17 @@ struct ReadOptions {
   // from total_order_seek, based on seek key, and iterator upper bound.
   // Not supported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
+  // BUG: Using Comparator::IsSameLengthImmediateSuccessor and
+  // SliceTransform::FullLengthEnabled to enable prefix mode in cases where
+  // prefix of upper bound differs from prefix of seek key has a flaw.
+  // If present in the DB, "short keys" (shorter than "full length" prefix)
+  // can be omitted from auto_prefix_mode iteration when they would be present
+  // in total_order_seek iteration, regardless of whether the short keys are
+  // "in domain" of the prefix extractor. This is not an issue if no short
+  // keys are added to DB or are not expected to be returned by such
+  // iterators. (We are also assuming the new condition on
+  // IsSameLengthImmediateSuccessor is satisfied; see its BUG section).
+  // A bug example is in DBTest2::AutoPrefixMode1, search for "BUG".
   // Default: false
   bool auto_prefix_mode;
 
@@ -1791,6 +1801,17 @@ enum class BottommostLevelCompaction {
   kForceOptimized,
 };
 
+// For manual compaction, we can configure if we want to skip/force garbage
+// collection of blob files.
+enum class BlobGarbageCollectionPolicy {
+  // Force blob file garbage collection.
+  kForce,
+  // Skip blob file garbage collection.
+  kDisable,
+  // Inherit blob file garbage collection policy from ColumnFamilyOptions.
+  kUseDefault,
+};
+
 // CompactRangeOptions is used by CompactRange() call.
 struct CompactRangeOptions {
   // If true, no other compaction will run at the same time as this
@@ -1823,6 +1844,26 @@ struct CompactRangeOptions {
   // Cancellation can be delayed waiting on automatic compactions when used
   // together with `exclusive_manual_compaction == true`.
   std::atomic<bool>* canceled = nullptr;
+  // NOTE: Calling DisableManualCompaction() overwrites the uer-provided
+  // canceled variable in CompactRangeOptions.
+  // Typically, when CompactRange is being called in one thread (t1) with
+  // canceled = false, and DisableManualCompaction is being called in the
+  // other thread (t2), manual compaction is disabled normally, even if the
+  // compaction iterator may still scan a few items before *canceled is
+  // set to true
+
+  // If set to kForce, RocksDB will override enable_blob_file_garbage_collection
+  // to true; if set to kDisable, RocksDB will override it to false, and
+  // kUseDefault leaves the setting in effect. This enables customers to both
+  // force-enable and force-disable GC when calling CompactRange.
+  BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+      BlobGarbageCollectionPolicy::kUseDefault;
+
+  // If set to < 0 or > 1, RocksDB leaves blob_garbage_collection_age_cutoff
+  // from ColumnFamilyOptions in effect. Otherwise, it will override the
+  // user-provided setting. This enables customers to selectively override the
+  // age cutoff.
+  double blob_garbage_collection_age_cutoff = -1;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()

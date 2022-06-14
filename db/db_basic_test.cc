@@ -25,6 +25,7 @@
 #endif
 #include "util/file_checksum_helper.h"
 #include "util/random.h"
+#include "utilities/counted_fs.h"
 #include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
@@ -1151,6 +1152,39 @@ TEST_F(DBBasicTest, DBClose) {
   ASSERT_EQ(env->GetCloseCount(), 2);
   options.info_log.reset();
   ASSERT_EQ(env->GetCloseCount(), 3);
+}
+
+TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::PerThreadDBPath("db_close_all_dir_fds_test");
+  // Configure a specific WAL directory
+  options.wal_dir = dbname + "_wal_dir";
+  // Configure 3 different data directories
+  options.db_paths.emplace_back(dbname + "_1", 512 * 1024);
+  options.db_paths.emplace_back(dbname + "_2", 4 * 1024 * 1024);
+  options.db_paths.emplace_back(dbname + "_3", 1024 * 1024 * 1024);
+
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  DB* db = nullptr;
+  std::unique_ptr<Env> env = NewCompositeEnv(
+      std::make_shared<CountedFileSystem>(FileSystem::Default()));
+  options.create_if_missing = true;
+  options.env = env.get();
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  // Explicitly close the database to ensure the open and close counter for
+  // directories are equivalent
+  s = db->Close();
+  auto* counted_fs =
+      options.env->GetFileSystem()->CheckedCast<CountedFileSystem>();
+  assert(counted_fs);
+  ASSERT_TRUE(counted_fs->counters()->dir_opens ==
+              counted_fs->counters()->dir_closes);
+  ASSERT_OK(s);
+  delete db;
 }
 
 TEST_F(DBBasicTest, DBCloseFlushError) {
@@ -4116,6 +4150,27 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   options.file_checksum_gen_factory.reset(new MisnamedFileChecksumGenFactory());
   Reopen(options);
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
+}
+
+TEST_F(DBBasicTest, ManualWalSync) {
+  Options options = CurrentOptions();
+  options.track_and_verify_wals_in_manifest = true;
+  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("x", "y"));
+  // This does not create a new WAL.
+  ASSERT_OK(db_->SyncWAL());
+  EXPECT_FALSE(dbfull()->GetVersionSet()->GetWalSet().GetWals().empty());
+
+  std::unique_ptr<LogFile> wal;
+  Status s = db_->GetCurrentWalFile(&wal);
+  ASSERT_OK(s);
+  Close();
+
+  EXPECT_OK(env_->DeleteFile(LogFileName(dbname_, wal->LogNumber())));
+
+  ASSERT_TRUE(TryReopen(options).IsCorruption());
 }
 #endif  // !ROCKSDB_LITE
 

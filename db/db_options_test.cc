@@ -220,6 +220,7 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
 
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   Options c_opts = dbfull()->GetOptions(cfh);
+
   const auto* c_bbto =
       c_opts.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(c_bbto, nullptr);

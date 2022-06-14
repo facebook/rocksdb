@@ -78,6 +78,8 @@ struct ImmutableCFOptions {
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
+
+  std::shared_ptr<Cache> blob_cache;
 };
 
 struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {
@@ -140,6 +142,7 @@ struct MutableCFOptions {
         blob_garbage_collection_force_threshold(
             options.blob_garbage_collection_force_threshold),
         blob_compaction_readahead_size(options.blob_compaction_readahead_size),
+        blob_file_starting_level(options.blob_file_starting_level),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         check_flush_compaction_key_order(
@@ -189,6 +192,7 @@ struct MutableCFOptions {
         blob_garbage_collection_age_cutoff(0.0),
         blob_garbage_collection_force_threshold(0.0),
         blob_compaction_readahead_size(0),
+        blob_file_starting_level(0),
         max_sequential_skip_in_iterations(0),
         check_flush_compaction_key_order(true),
         paranoid_file_checks(false),
@@ -255,6 +259,7 @@ struct MutableCFOptions {
   double blob_garbage_collection_age_cutoff;
   double blob_garbage_collection_force_threshold;
   uint64_t blob_compaction_readahead_size;
+  int blob_file_starting_level;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

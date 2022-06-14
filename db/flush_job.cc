@@ -456,6 +456,7 @@ Status FlushJob::MemPurge() {
         snapshot_checker_);
     assert(job_context_);
     SequenceNumber job_snapshot_seq = job_context_->GetJobSnapshotSequence();
+    const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
         iter.get(), (cfd_->internal_comparator()).user_comparator(), &merge,
         kMaxSequenceNumber, &existing_snapshots_,
@@ -464,10 +465,9 @@ Status FlushJob::MemPurge() {
         true /* internal key corruption is not ok */, range_del_agg.get(),
         nullptr, ioptions->allow_data_in_errors,
         ioptions->enforce_single_del_contracts,
+        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
         /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr,
-        /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, ioptions->info_log,
+        /*shutting_down=*/nullptr, ioptions->info_log,
         &(cfd_->GetFullHistoryTsLow()));
 
     // Set earliest sequence number in the new memtable

@@ -30,6 +30,7 @@ enum TraceType : char {
   kTraceIteratorSeekForPrev = 6,
   // Block cache tracing related trace types.
   kBlockTraceIndexBlock = 7,
+  // TODO: split out kinds of filter blocks?
   kBlockTraceFilterBlock = 8,
   kBlockTraceDataBlock = 9,
   kBlockTraceUncompressionDictBlock = 10,

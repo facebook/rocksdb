@@ -224,6 +224,15 @@ class CountedDirectory : public FSDirectoryWrapper {
     return rv;
   }
 
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    IOStatus rv = FSDirectoryWrapper::Close(options, dbg);
+    if (rv.ok()) {
+      fs_->counters()->closes++;
+      fs_->counters()->dir_closes++;
+    }
+    return rv;
+  }
+
   IOStatus FsyncWithDirOptions(const IOOptions& options, IODebugContext* dbg,
                                const DirFsyncOptions& dir_options) override {
     IOStatus rv =
@@ -250,6 +259,10 @@ std::string FileOpCounters::PrintCounters() const {
   ss << "Num Dir Fsync(): " << dsyncs.load(std::memory_order_relaxed)
      << std::endl;
   ss << "Num Close(): " << closes.load(std::memory_order_relaxed) << std::endl;
+  ss << "Num Dir Open(): " << dir_opens.load(std::memory_order_relaxed)
+     << std::endl;
+  ss << "Num Dir Close(): " << dir_closes.load(std::memory_order_relaxed)
+     << std::endl;
   ss << "Num Read(): " << reads.ops.load(std::memory_order_relaxed)
      << std::endl;
   ss << "Num Append(): " << writes.ops.load(std::memory_order_relaxed)
@@ -347,6 +360,7 @@ IOStatus CountedFileSystem::NewDirectory(const std::string& name,
   IOStatus s = target()->NewDirectory(name, options, &base, dbg);
   if (s.ok()) {
     counters_.opens++;
+    counters_.dir_opens++;
     result->reset(new CountedDirectory(std::move(base), this));
   }
   return s;

@@ -254,6 +254,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.blob_garbage_collection_force_threshold;
   cf_opts->blob_compaction_readahead_size =
       moptions.blob_compaction_readahead_size;
+  cf_opts->blob_file_starting_level = moptions.blob_file_starting_level;
 
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =
@@ -302,6 +303,7 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->cf_paths = ioptions.cf_paths;
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
+  cf_opts->blob_cache = ioptions.blob_cache;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size

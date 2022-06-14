@@ -49,8 +49,8 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                             std::string* timestamp) {
   assert(user_comparator_);
   if (options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(DefaultColumnFamily(), *(options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        DefaultColumnFamily(), *(options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -60,6 +60,13 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
       return s;
     }
   }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (timestamp) {
+    timestamp->clear();
+  }
+
   GetWithTimestampReadCallback read_cb(kMaxSequenceNumber);
   std::string* ts =
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
@@ -102,8 +109,8 @@ std::vector<Status> CompactedDBImpl::MultiGet(
   size_t num_keys = keys.size();
 
   if (options.timestamp) {
-    Status s =
-        FailIfTsSizesMismatch(DefaultColumnFamily(), *(options.timestamp));
+    Status s = FailIfTsMismatchCf(DefaultColumnFamily(), *(options.timestamp),
+                                  /*ts_for_read=*/true);
     if (!s.ok()) {
       return std::vector<Status>(num_keys, s);
     }
@@ -111,6 +118,14 @@ std::vector<Status> CompactedDBImpl::MultiGet(
     Status s = FailIfCfHasTs(DefaultColumnFamily());
     if (!s.ok()) {
       return std::vector<Status>(num_keys, s);
+    }
+  }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (timestamps) {
+    for (auto& ts : *timestamps) {
+      ts.clear();
     }
   }
 

@@ -1428,7 +1428,7 @@ public class RocksDBTest {
         assertThat(livefiles.manifestFileSize).isEqualTo(59);
         assertThat(livefiles.files.size()).isEqualTo(3);
         assertThat(livefiles.files.get(0)).isEqualTo("/CURRENT");
-        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000004");
+        assertThat(livefiles.files.get(1)).isEqualTo("/MANIFEST-000005");
         assertThat(livefiles.files.get(2)).isEqualTo("/OPTIONS-000007");
       }
     }

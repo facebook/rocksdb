@@ -47,6 +47,22 @@ namespace ROCKSDB_NAMESPACE {
 
 class OptionsTest : public testing::Test {};
 
+class UnregisteredTableFactory : public TableFactory {
+ public:
+  UnregisteredTableFactory() {}
+  const char* Name() const override { return "Unregistered"; }
+  using TableFactory::NewTableReader;
+  Status NewTableReader(const ReadOptions&, const TableReaderOptions&,
+                        std::unique_ptr<RandomAccessFileReader>&&, uint64_t,
+                        std::unique_ptr<TableReader>*, bool) const override {
+    return Status::NotSupported();
+  }
+  TableBuilder* NewTableBuilder(const TableBuilderOptions&,
+                                WritableFileWriter*) const override {
+    return nullptr;
+  }
+};
+
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST_F(OptionsTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
@@ -109,6 +125,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
+      {"blob_file_starting_level", "1"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -247,6 +264,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
+  ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -583,6 +601,22 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
+
+  // blob cache
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "blob_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
+      &new_cf_opt));
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
+  ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+                ->GetNumShardBits(),
+            4);
+  ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
+                ->GetHighPriPoolRatio(),
+            0.5);
 }
 
 TEST_F(OptionsTest, CompressionOptionsFromString) {
@@ -2330,6 +2364,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_age_cutoff", "0.5"},
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
+      {"blob_file_starting_level", "1"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -2462,6 +2497,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
+  ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -2747,6 +2783,22 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
+
+  // blob cache
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "blob_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
+      &new_cf_opt));
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
+  ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+                ->GetNumShardBits(),
+            4);
+  ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
+                ->GetHighPriPoolRatio(),
+            0.5);
 }
 
 TEST_F(OptionsTest, SliceTransformCreateFromString) {
@@ -3658,6 +3710,10 @@ TEST_F(OptionsParserTest, DumpAndParse) {
       cf_opt.table_factory.reset(test::RandomTableFactory(&rnd, c));
     } else if (c == 4) {
       cf_opt.table_factory.reset(NewBlockBasedTableFactory(special_bbto));
+    } else if (c == 5) {
+      // A table factory that doesn't support deserialization should be
+      // supported.
+      cf_opt.table_factory.reset(new UnregisteredTableFactory());
     }
     base_cf_opts.emplace_back(cf_opt);
   }

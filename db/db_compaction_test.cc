@@ -6387,6 +6387,74 @@ INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
                         ::testing::Combine(::testing::Values(0.0, 0.5, 1.0),
                                            ::testing::Bool()));
 
+TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGCOverrides) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // one blob per file
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0;
+
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 128; i += 2) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    ASSERT_OK(
+        Put("key" + std::to_string(i + 1), "value" + std::to_string(i + 1)));
+    ASSERT_OK(Flush());
+  }
+
+  std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(original_blob_files.size(), 128);
+
+  // Note: turning off enable_blob_files before the compaction results in
+  // garbage collected values getting inlined.
+  ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+
+  CompactRangeOptions cro;
+  cro.blob_garbage_collection_policy = BlobGarbageCollectionPolicy::kForce;
+  cro.blob_garbage_collection_age_cutoff = blob_gc_age_cutoff_;
+
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Check that the GC stats are correct
+  {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    assert(versions->GetColumnFamilySet());
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+
+    const InternalStats* const internal_stats = cfd->internal_stats();
+    assert(internal_stats);
+
+    const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+    ASSERT_GE(compaction_stats.size(), 2);
+
+    ASSERT_GE(compaction_stats[1].bytes_read_blob, 0);
+    ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
+  }
+
+  const size_t cutoff_index = static_cast<size_t>(
+      cro.blob_garbage_collection_age_cutoff * original_blob_files.size());
+  const size_t expected_num_files = original_blob_files.size() - cutoff_index;
+
+  const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
+
+  ASSERT_EQ(new_blob_files.size(), expected_num_files);
+
+  // Original blob files below the cutoff should be gone, original blob files
+  // at or above the cutoff should be still there
+  for (size_t i = cutoff_index; i < original_blob_files.size(); ++i) {
+    ASSERT_EQ(new_blob_files[i - cutoff_index], original_blob_files[i]);
+  }
+
+  for (size_t i = 0; i < 128; ++i) {
+    ASSERT_EQ(Get("key" + std::to_string(i)), "value" + std::to_string(i));
+  }
+}
+
 TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
   Options options;
   options.env = env_;

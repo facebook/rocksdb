@@ -775,7 +775,8 @@ Version::~Version() {
         uint32_t path_id = f->fd.GetPathId();
         assert(path_id < cfd_->ioptions()->cf_paths.size());
         vset_->obsolete_files_.push_back(
-            ObsoleteFileInfo(f, cfd_->ioptions()->cf_paths[path_id].path));
+            ObsoleteFileInfo(f, cfd_->ioptions()->cf_paths[path_id].path,
+                             cfd_->GetFileMetadataCacheReservationManager()));
       }
     }
   }
