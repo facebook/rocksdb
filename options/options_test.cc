@@ -601,6 +601,22 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
+
+  // blob cache
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "blob_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
+      &new_cf_opt));
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
+  ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+                ->GetNumShardBits(),
+            4);
+  ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
+                ->GetHighPriPoolRatio(),
+            0.5);
 }
 
 TEST_F(OptionsTest, CompressionOptionsFromString) {
@@ -2767,6 +2783,22 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
+
+  // blob cache
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "blob_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
+      &new_cf_opt));
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
+  ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+                ->GetNumShardBits(),
+            4);
+  ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
+                ->GetHighPriPoolRatio(),
+            0.5);
 }
 
 TEST_F(OptionsTest, SliceTransformCreateFromString) {

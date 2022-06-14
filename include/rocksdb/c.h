@@ -1264,6 +1264,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_file_starting_level(
 extern ROCKSDB_LIBRARY_API int rocksdb_options_get_blob_file_starting_level(
     rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_cache(
+    rocksdb_options_t* opt, rocksdb_cache_t* blob_cache);
+
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);
