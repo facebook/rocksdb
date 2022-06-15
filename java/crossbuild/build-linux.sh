@@ -11,5 +11,3 @@ make jclean clean
 make -j 4 rocksdbjavastatic
 cp /rocksdb/java/target/librocksdbjni-* /rocksdb-build
 cp /rocksdb/java/target/rocksdbjni-* /rocksdb-build
-sudo shutdown -h now
-
