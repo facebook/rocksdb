@@ -114,10 +114,7 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  // If the table uses more hash bits than `max_upper_hash_bits`,
-  // it will eat into the bits used for sharding, which are constant
-  // for a given LRUHandleTable.
-  explicit LRUHandleTable(int max_upper_hash_bits);
+  explicit LRUHandleTable(int hash_bits);
   ~LRUHandleTable();
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
@@ -139,13 +136,15 @@ class LRUHandleTable {
 
   int GetLengthBits() const { return length_bits_; }
 
+  // Return the address of the head of the chain in the bucket given
+  // by the hash.
+  inline LRUHandle** Head(uint32_t hash);
+
  private:
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
   // pointer to the trailing slot in the corresponding linked list.
   LRUHandle** FindPointer(const Slice& key, uint32_t hash);
-
-  void Resize();
 
   // Number of hash bits (upper because lower bits used for sharding)
   // used for table index. Length == 1 << length_bits_
@@ -154,20 +153,14 @@ class LRUHandleTable {
   // The table consists of an array of buckets where each bucket is
   // a linked list of cache entries that hash into the bucket.
   std::unique_ptr<LRUHandle*[]> list_;
-
-  // Number of elements currently in the table.
-  uint32_t elems_;
-
-  // Set from max_upper_hash_bits (see constructor).
-  const int max_length_bits_;
 };
 
 // A single shard of sharded cache.
 class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
-  LRUCacheShard(size_t capacity, bool strict_capacity_limit,
-                CacheMetadataChargePolicy metadata_charge_policy,
-                int max_upper_hash_bits);
+  LRUCacheShard(size_t capacity, size_t estimated_value_size,
+                bool strict_capacity_limit,
+                CacheMetadataChargePolicy metadata_charge_policy);
   ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -239,6 +232,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
+  // Returns the number of bits used to hash an element in the per-shard
+  // table.
+  static int GetHashBits(size_t capacity, size_t estimated_value_size,
+                         CacheMetadataChargePolicy metadata_charge_policy);
+
   // Initialized before use.
   size_t capacity_;
 
@@ -277,7 +275,50 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // don't mind mutex_ invoking the non-const actions.
   mutable port::Mutex mutex_;
 };
+  
+struct FastLRUCacheOptions {
+  static const char* kName() { return "FastLRUCacheOptions"; }
 
+  // Capacity of the cache.
+  size_t capacity = 0;
+
+  size_t estimated_value_size;
+  
+  // Cache is sharded into 2^num_shard_bits shards, by hash of key.
+  // Refer to NewLRUCache for further information.
+  int num_shard_bits = -1;
+
+  // If strict_capacity_limit is set,
+  // insert to the cache will fail when cache is full.
+  bool strict_capacity_limit = false;
+
+  // If non-nullptr will use this allocator instead of system allocator when
+  // allocating memory for cache blocks. Call this method before you start using
+  // the cache!
+  //
+  // Caveat: when the cache is used as block cache, the memory allocator is
+  // ignored when dealing with compression libraries that allocate memory
+  // internally (currently only XPRESS).
+  std::shared_ptr<MemoryAllocator> memory_allocator;
+
+  CacheMetadataChargePolicy metadata_charge_policy =
+      kDefaultCacheMetadataChargePolicy;
+
+
+  FastLRUCacheOptions() {}
+  FastLRUCacheOptions(size_t _capacity, size_t _estimated_value_size,
+                      int _num_shard_bits, bool _strict_capacity_limit,
+      const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr,
+      CacheMetadataChargePolicy _metadata_charge_policy =
+          kDefaultCacheMetadataChargePolicy)
+      : capacity(_capacity),
+        estimated_value_size(_estimated_value_size),
+        num_shard_bits(_num_shard_bits),
+        strict_capacity_limit(_strict_capacity_limit),
+        memory_allocator(_memory_allocator),
+        metadata_charge_policy(_metadata_charge_policy) {}
+};
+  
 class LRUCache
 #ifdef NDEBUG
     final
@@ -285,7 +326,7 @@ class LRUCache
     : public ShardedCache {
  public:
   explicit LRUCache();
-  explicit LRUCache(const LRUCacheOptions& options);
+  explicit LRUCache(const FastLRUCacheOptions& options);
   ~LRUCache() override;
   static const char* kClassName() { return "FastLRUCache"; }
   const char* Name() const override { return kClassName(); }
@@ -307,14 +348,13 @@ class LRUCache
 
  private:
   LRUCacheShard* shards_ = nullptr;
-  LRUCacheOptions options_;
+  FastLRUCacheOptions options_;
 };
 }  // namespace fast_lru_cache
 
 std::shared_ptr<Cache> NewFastLRUCache(
-    size_t capacity, int num_shard_bits = -1,
-    bool strict_capacity_limit = false,
-    CacheMetadataChargePolicy metadata_charge_policy =
-        kDefaultCacheMetadataChargePolicy);
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy);
 
 }  // namespace ROCKSDB_NAMESPACE

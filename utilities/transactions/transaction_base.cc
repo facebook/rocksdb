@@ -21,6 +21,43 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+Status Transaction::CommitAndTryCreateSnapshot(
+    std::shared_ptr<TransactionNotifier> notifier, TxnTimestamp ts,
+    std::shared_ptr<const Snapshot>* snapshot) {
+  if (snapshot) {
+    snapshot->reset();
+  }
+  TxnTimestamp commit_ts = GetCommitTimestamp();
+  if (commit_ts == kMaxTxnTimestamp) {
+    if (ts == kMaxTxnTimestamp) {
+      return Status::InvalidArgument("Commit timestamp unset");
+    } else {
+      const Status s = SetCommitTimestamp(ts);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  } else if (ts != kMaxTxnTimestamp) {
+    if (ts != commit_ts) {
+      // For now we treat this as error.
+      return Status::InvalidArgument("Different commit ts specified");
+    }
+  }
+  SetSnapshotOnNextOperation(notifier);
+  Status s = Commit();
+  if (!s.ok()) {
+    return s;
+  }
+  assert(s.ok());
+  // If we reach here, we must return ok status for this function.
+  std::shared_ptr<const Snapshot> new_snapshot = GetTimestampedSnapshot();
+
+  if (snapshot) {
+    *snapshot = new_snapshot;
+  }
+  return Status::OK();
+}
+
 TransactionBaseImpl::TransactionBaseImpl(
     DB* db, const WriteOptions& write_options,
     const LockTrackerFactory& lock_tracker_factory)

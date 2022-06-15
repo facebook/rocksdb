@@ -1248,7 +1248,19 @@ void MultiOpsTxnsStressTest::VerifyDb(ThreadState* thread) const {
   }
 }
 
+// VerifyPkSkFast() can be called by MultiOpsTxnsStressListener's callbacks
+// which can be called before TransactionDB::Open() returns to caller.
+// Therefore, at that time, db_ and txn_db_  may still be nullptr.
+// Caller has to make sure that the race condition does not happen.
 void MultiOpsTxnsStressTest::VerifyPkSkFast(int job_id) {
+  DB* const db = db_aptr_.load(std::memory_order_acquire);
+  if (db == nullptr) {
+    return;
+  }
+
+  assert(db_ == db);
+  assert(db_ != nullptr);
+
   const Snapshot* const snapshot = db_->GetSnapshot();
   assert(snapshot);
   ManagedSnapshot snapshot_guard(db_, snapshot);

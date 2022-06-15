@@ -37,6 +37,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
 #include "db/version_set.h"
@@ -566,9 +567,7 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for high pri blocks. "
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
-DEFINE_string(cache_uri, "", "Full URI for Cache");
-DEFINE_bool(use_clock_cache, false,
-            "Replace default LRU block cache with clock cache.");
+DEFINE_string(cache_uri, "lru_cache", "Type of block cache.");
 
 DEFINE_bool(use_compressed_secondary_cache, false,
             "Use the CompressedSecondaryCache as the secondary cache.");
@@ -1156,6 +1155,11 @@ DEFINE_bool(charge_table_reader, false,
             "Setting for "
             "CacheEntryRoleOptions::charged of"
             "CacheEntryRole::kBlockBasedTableReader");
+
+DEFINE_bool(charge_file_metadata, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kFileMetadata");
 
 DEFINE_uint64(backup_rate_limit, 0ull,
               "If non-zero, db_bench will rate limit reads and writes for DB "
@@ -2933,21 +2937,12 @@ class Benchmark {
   };
 
   std::shared_ptr<Cache> NewCache(int64_t capacity) {
+    ConfigOptions config_options;
+    config_options.ignore_unknown_options = false;
+    config_options.ignore_unsupported_options = false;
     if (capacity <= 0) {
       return nullptr;
-    }
-    if (!FLAGS_cache_uri.empty()) {
-      std::shared_ptr<Cache> cache;
-      Status s =
-          Cache::CreateFromString(ConfigOptions(), FLAGS_cache_uri, &cache);
-      if (!s.ok() || cache == nullptr) {
-        fprintf(stderr, "Could not create Cache for [%s] status=%s\n",
-                FLAGS_cache_uri.c_str(), s.ToString().c_str());
-        exit(1);
-      } else {
-        return cache;
-      }
-    } else if (FLAGS_use_clock_cache) {
+    } else if (FLAGS_cache_uri == "clock_cache") {
       auto cache = NewClockCache(static_cast<size_t>(capacity),
                                  FLAGS_cache_numshardbits);
       if (!cache) {
@@ -2955,7 +2950,12 @@ class Benchmark {
         exit(1);
       }
       return cache;
-    } else {
+    } else if (FLAGS_cache_uri == "fast_lru_cache") {
+      return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
+                             FLAGS_cache_numshardbits,
+                             false /*strict_capacity_limit*/,
+                             kDefaultCacheMetadataChargePolicy);
+    } else if (FLAGS_cache_uri == "lru_cache") {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
@@ -2976,7 +2976,7 @@ class Benchmark {
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(
-            ConfigOptions(), FLAGS_secondary_cache_uri, &secondary_cache);
+            config_options, FLAGS_secondary_cache_uri, &secondary_cache);
         if (secondary_cache == nullptr) {
           fprintf(
               stderr,
@@ -3004,6 +3004,17 @@ class Benchmark {
       }
 
       return NewLRUCache(opts);
+    } else {
+      std::shared_ptr<Cache> cache;
+      Status s =
+          Cache::CreateFromString(config_options, FLAGS_cache_uri, &cache);
+      if (!s.ok() || cache == nullptr) {
+        fprintf(stderr, "Could not create Cache for [%s] status=%s\n",
+                FLAGS_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      } else {
+        return cache;
+      }
     }
   }
 
@@ -4243,6 +4254,11 @@ class Benchmark {
       block_based_options.cache_usage_options.options_overrides.insert(
           {CacheEntryRole::kBlockBasedTableReader,
            {/*.charged = */ FLAGS_charge_table_reader
+                ? CacheEntryRoleOptions::Decision::kEnabled
+                : CacheEntryRoleOptions::Decision::kDisabled}});
+      block_based_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kFileMetadata,
+           {/*.charged = */ FLAGS_charge_file_metadata
                 ? CacheEntryRoleOptions::Decision::kEnabled
                 : CacheEntryRoleOptions::Decision::kDisabled}});
       block_based_options.block_cache_compressed = compressed_cache_;

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "cache/cache_key.h"
+#include "cache/fast_lru_cache.h"
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
@@ -203,6 +204,53 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"d", "e", "f", "g", "Z"}, 1);
   ASSERT_TRUE(Lookup("d"));
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
+}
+
+// TODO(guido) Consolidate the following FastLRUCache tests with
+// that of LRUCache.
+class FastLRUCacheTest : public testing::Test {
+ public:
+  FastLRUCacheTest() {}
+  ~FastLRUCacheTest() override { DeleteCache(); }
+
+  void DeleteCache() {
+    if (cache_ != nullptr) {
+      cache_->~LRUCacheShard();
+      port::cacheline_aligned_free(cache_);
+      cache_ = nullptr;
+    }
+  }
+
+  void NewCache(size_t capacity) {
+    DeleteCache();
+    cache_ = reinterpret_cast<fast_lru_cache::LRUCacheShard*>(
+        port::cacheline_aligned_alloc(sizeof(fast_lru_cache::LRUCacheShard)));
+    new (cache_) fast_lru_cache::LRUCacheShard(
+        capacity, 1 /*estimated_value_size*/, false /*strict_capacity_limit*/,
+        kDontChargeCacheMetadata);
+  }
+
+  Status Insert(const std::string& key) {
+    return cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
+                          nullptr /*deleter*/, nullptr /*handle*/,
+                          Cache::Priority::LOW);
+  }
+
+  Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
+
+ private:
+  fast_lru_cache::LRUCacheShard* cache_ = nullptr;
+};
+
+TEST_F(FastLRUCacheTest, ValidateKeySize) {
+  NewCache(3);
+  EXPECT_OK(Insert('a', 16));
+  EXPECT_NOK(Insert('b', 15));
+  EXPECT_OK(Insert('b', 16));
+  EXPECT_NOK(Insert('c', 17));
+  EXPECT_NOK(Insert('d', 1000));
+  EXPECT_NOK(Insert('e', 11));
+  EXPECT_NOK(Insert('f', 0));
 }
 
 class TestSecondaryCache : public SecondaryCache {

@@ -19,15 +19,17 @@
 #include "rocksdb/utilities/options_type.h"
 #include "util/mutexlock.h"
 
+#define KEY_LENGTH \
+  16  // TODO(guido) Make use of this symbol in other parts of the source code
+      // (e.g., cache_key.h, cache_test.cc, etc.)
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace fast_lru_cache {
 
-LRUHandleTable::LRUHandleTable(int max_upper_hash_bits)
-    : length_bits_(/* historical starting size*/ 4),
-      list_(new LRUHandle* [size_t{1} << length_bits_] {}),
-      elems_(0),
-      max_length_bits_(max_upper_hash_bits) {}
+LRUHandleTable::LRUHandleTable(int hash_bits)
+    : length_bits_(hash_bits),
+      list_(new LRUHandle* [size_t{1} << length_bits_] {}) {}
 
 LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange(
@@ -43,19 +45,15 @@ LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
   return *FindPointer(key, hash);
 }
 
+inline LRUHandle** LRUHandleTable::Head(uint32_t hash) {
+  return &list_[hash >> (32 - length_bits_)];
+}
+
 LRUHandle* LRUHandleTable::Insert(LRUHandle* h) {
   LRUHandle** ptr = FindPointer(h->key(), h->hash);
   LRUHandle* old = *ptr;
   h->next_hash = (old == nullptr ? nullptr : old->next_hash);
   *ptr = h;
-  if (old == nullptr) {
-    ++elems_;
-    if ((elems_ >> length_bits_) > 0) {  // elems_ >= length
-      // Since each cache entry is fairly large, we aim for a small
-      // average linked list length (<= 1).
-      Resize();
-    }
-  }
   return old;
 }
 
@@ -64,7 +62,6 @@ LRUHandle* LRUHandleTable::Remove(const Slice& key, uint32_t hash) {
   LRUHandle* result = *ptr;
   if (result != nullptr) {
     *ptr = result->next_hash;
-    --elems_;
   }
   return result;
 }
@@ -77,46 +74,13 @@ LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
   return ptr;
 }
 
-void LRUHandleTable::Resize() {
-  if (length_bits_ >= max_length_bits_) {
-    // Due to reaching limit of hash information, if we made the table bigger,
-    // we would allocate more addresses but only the same number would be used.
-    return;
-  }
-  if (length_bits_ >= 31) {
-    // Avoid undefined behavior shifting uint32_t by 32.
-    return;
-  }
-
-  uint32_t old_length = uint32_t{1} << length_bits_;
-  int new_length_bits = length_bits_ + 1;
-  std::unique_ptr<LRUHandle* []> new_list {
-    new LRUHandle* [size_t{1} << new_length_bits] {}
-  };
-  uint32_t count = 0;
-  for (uint32_t i = 0; i < old_length; i++) {
-    LRUHandle* h = list_[i];
-    while (h != nullptr) {
-      LRUHandle* next = h->next_hash;
-      uint32_t hash = h->hash;
-      LRUHandle** ptr = &new_list[hash >> (32 - new_length_bits)];
-      h->next_hash = *ptr;
-      *ptr = h;
-      h = next;
-      count++;
-    }
-  }
-  assert(elems_ == count);
-  list_ = std::move(new_list);
-  length_bits_ = new_length_bits;
-}
-
-LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
-                             CacheMetadataChargePolicy metadata_charge_policy,
-                             int max_upper_hash_bits)
+LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
+                             bool strict_capacity_limit,
+                             CacheMetadataChargePolicy metadata_charge_policy)
     : capacity_(0),
       strict_capacity_limit_(strict_capacity_limit),
-      table_(max_upper_hash_bits),
+      table_(
+          GetHashBits(capacity, estimated_value_size, metadata_charge_policy)),
       usage_(0),
       lru_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -219,6 +183,27 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     usage_ -= old->total_charge;
     deleted->push_back(old);
   }
+}
+
+int LRUCacheShard::GetHashBits(
+    size_t capacity, size_t estimated_value_size,
+    CacheMetadataChargePolicy metadata_charge_policy) {
+  LRUHandle* e = reinterpret_cast<LRUHandle*>(
+      new char[sizeof(LRUHandle) - 1 + KEY_LENGTH]);
+  e->key_length = KEY_LENGTH;
+  e->deleter = nullptr;
+  e->refs = 0;
+  e->flags = 0;
+  e->refs = 0;
+
+  e->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
+  size_t num_entries = capacity / e->total_charge;
+  e->Free();
+  int num_hash_bits = 0;
+  while (num_entries >>= 1) {
+    ++num_hash_bits;
+  }
+  return num_hash_bits;
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
@@ -369,6 +354,11 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                              size_t charge, Cache::DeleterFn deleter,
                              Cache::Handle** handle,
                              Cache::Priority /*priority*/) {
+  if (key.size() != KEY_LENGTH) {
+    return Status::NotSupported("FastLRUCache only supports key size " +
+                                std::to_string(KEY_LENGTH) + "B");
+  }
+
   // Allocate the memory here outside of the mutex.
   // If the cache is full, we'll have to release it.
   // It shouldn't happen very often though.
@@ -433,26 +423,29 @@ static std::unordered_map<std::string, OptionTypeInfo>
     fast_lru_cache_options_type_info = {
 #ifndef ROCKSDB_LITE
         {"capacity",
-         {offsetof(struct LRUCacheOptions, capacity), OptionType::kSizeT,
+         {offsetof(struct FastLRUCacheOptions, capacity), OptionType::kSizeT,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"num_shard_bits",
-         {offsetof(struct LRUCacheOptions, num_shard_bits), OptionType::kInt,
+         {offsetof(struct FastLRUCacheOptions, num_shard_bits), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+        {"estimated_value_size",
+         {offsetof(struct FastLRUCacheOptions, capacity), OptionType::kSizeT,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"strict_capacity_limit",
-         {offsetof(struct LRUCacheOptions, strict_capacity_limit),
+         {offsetof(struct FastLRUCacheOptions, strict_capacity_limit),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
 #if 0
         {"metadata_charge_policy",
          OptionTypeInfo::Enum(
-             offsetof(struct LRUCacheOptions, metadata_charge_policy),
+             offsetof(struct FastLRUCacheOptions, metadata_charge_policy),
              &metadata_charge_policy_string_map)},
 #endif  // 0
 #endif  // ROCKSDB_LITE
 };
 }  // namespace
 
-LRUCache::LRUCache(const LRUCacheOptions& options)
+LRUCache::LRUCache(const FastLRUCacheOptions& options)
     : ShardedCache(), shards_(nullptr), options_(options) {
   RegisterOptions(&options_, &fast_lru_cache_options_type_info);
 }
@@ -460,6 +453,7 @@ LRUCache::LRUCache(const LRUCacheOptions& options)
 LRUCache::LRUCache() : ShardedCache(), shards_(nullptr) {
   RegisterOptions(&options_, &fast_lru_cache_options_type_info);
 }
+  
 Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
   MutexLock l(&options_mutex_);
   if (shards_ != nullptr) {  // Already prepared
@@ -478,9 +472,8 @@ Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
     size_t per_shard = (options_.capacity + (num_shards - 1)) / num_shards;
     for (uint32_t i = 0; i < num_shards; i++) {
       new (&shards_[i])
-          LRUCacheShard(per_shard, options_.strict_capacity_limit,
-                        options_.metadata_charge_policy,
-                        /* max_upper_hash_bits */ 32 - options_.num_shard_bits);
+        LRUCacheShard(per_shard, options_.estimated_value_size,
+                      options_.strict_capacity_limit, options_.metadata_charge_policy);
     }
   }
   return s;
@@ -574,10 +567,11 @@ std::string LRUCache::GetPrintableOptions() const { return ""; }
 }  // namespace fast_lru_cache
 
 std::shared_ptr<Cache> NewFastLRUCache(
-    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  LRUCacheOptions options(capacity, num_shard_bits, strict_capacity_limit, 0.0,
-                          nullptr, false, metadata_charge_policy);
+  FastLRUCacheOptions options(capacity, num_shard_bits, estimated_value_size, strict_capacity_limit,
+                              nullptr, metadata_charge_policy);
   auto cache = std::make_shared<fast_lru_cache::LRUCache>(options);
   Status s = cache->PrepareOptions(ConfigOptions());
   if (s.ok()) {

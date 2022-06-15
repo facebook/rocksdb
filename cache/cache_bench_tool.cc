@@ -12,6 +12,7 @@
 #include <set>
 #include <sstream>
 
+#include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
@@ -75,7 +76,7 @@ DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache> secondary_cache;
 #endif  // ROCKSDB_LITE
-DEFINE_string(cache_uri, "", "URI for creating a cache");
+DEFINE_string(cache_uri, "lru_cache", "URI for creating a cache");
 DEFINE_bool(use_clock_cache, false, "");
 
 // ## BEGIN stress_cache_key sub-tool options ##
@@ -279,25 +280,17 @@ class CacheBench {
       if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
-    ConfigOptions config_options;
-    config_options.ignore_unknown_options = false;
-    config_options.ignore_unsupported_options = false;
-
-    if (!FLAGS_cache_uri.empty()) {
-      Status s =
-          Cache::CreateFromString(config_options, FLAGS_cache_uri, &cache_);
-      if (!s.ok() || !cache_) {
-        fprintf(stderr, "No cache registered matching string: %s status=%s\n",
-                FLAGS_cache_uri.c_str(), s.ToString().c_str());
-        exit(1);
-      }
-    } else if (FLAGS_use_clock_cache) {
+    if (FLAGS_cache_uri == "clock_cache") {
       cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
       if (!cache_) {
         fprintf(stderr, "Clock cache not supported.\n");
         exit(1);
       }
-    } else {
+    } else if (FLAGS_cache_uri == "fast_lru_cache") {
+      cache_ = NewFastLRUCache(
+          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
+    } else if (FLAGS_cache_uri == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
@@ -315,6 +308,17 @@ class CacheBench {
 #endif  // ROCKSDB_LITE
 
       cache_ = NewLRUCache(opts);
+    } else {
+      ConfigOptions config_options;
+      config_options.ignore_unknown_options = false;
+      config_options.ignore_unsupported_options = false;
+      Status s =
+        Cache::CreateFromString(config_options, FLAGS_cache_uri, &cache_);
+      if (!s.ok() || !cache_) {
+        fprintf(stderr, "No cache registered matching string: %s status=%s\n",
+                FLAGS_cache_uri.c_str(), s.ToString().c_str());
+        exit(1);
+      }
     }
   }
 

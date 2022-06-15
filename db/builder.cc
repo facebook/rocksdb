@@ -193,6 +193,7 @@ Status BuildTable(
                   &blob_file_paths, blob_file_additions)
             : nullptr);
 
+    const std::atomic<bool> kManualCompactionCanceledFalse{false};
     CompactionIterator c_iter(
         iter, tboptions.internal_comparator.user_comparator(), &merge,
         kMaxSequenceNumber, &snapshots, earliest_write_conflict_snapshot,
@@ -201,11 +202,9 @@ Status BuildTable(
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         ioptions.enforce_single_del_contracts,
+        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse,
         /*compaction=*/nullptr, compaction_filter.get(),
-        /*shutting_down=*/nullptr,
-        /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, db_options.info_log,
-        full_history_ts_low);
+        /*shutting_down=*/nullptr, db_options.info_log, full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {

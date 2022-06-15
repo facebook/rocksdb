@@ -147,8 +147,8 @@ struct BlockBasedTableOptions {
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
   // blocks with high priority. If set to true, depending on implementation of
-  // block cache, index and filter blocks may be less likely to be evicted
-  // than data blocks.
+  // block cache, index, filter, and other metadata blocks may be less likely
+  // to be evicted than data blocks.
   bool cache_index_and_filter_blocks_with_high_priority = true;
 
   // DEPRECATED: This option will be removed in a future version. For now, this
@@ -370,7 +370,20 @@ struct BlockBasedTableOptions {
   // (iii) Compatible existing behavior:
   // Same as kDisabled.
   //
-  // (d) Other CacheEntryRole
+  // (d) CacheEntryRole::kFileMetadata
+  // (i) If kEnabled:
+  // Charge memory usage of file metadata. RocksDB holds one file metadata
+  // structure in-memory per on-disk table file.
+  // If such file metadata's
+  // memory exceeds the avaible space left in the block cache at some point
+  // (i.e, causing a cache full under `LRUCacheOptions::strict_capacity_limit` =
+  // true), creation will fail with Status::MemoryLimit().
+  // (ii) If kDisabled:
+  // Does not charge the memory usage mentioned above.
+  // (iii) Compatible existing behavior:
+  // Same as kDisabled.
+  //
+  // (e) Other CacheEntryRole
   // Not supported.
   // `Status::kNotSupported` will be returned if
   // `CacheEntryRoleOptions::charged` is set to {`kEnabled`, `kDisabled`}.

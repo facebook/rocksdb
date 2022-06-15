@@ -498,6 +498,67 @@ TEST_P(WriteCommittedTxnWithTsTest, RefineReadTimestamp) {
   txn0.reset();
 }
 
+TEST_P(WriteCommittedTxnWithTsTest, CheckKeysForConflicts) {
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  ASSERT_OK(ReOpen());
+
+  std::unique_ptr<Transaction> txn1(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  assert(txn1);
+
+  std::unique_ptr<Transaction> txn2(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  assert(txn2);
+  ASSERT_OK(txn2->Put("foo", "v0"));
+  ASSERT_OK(txn2->SetCommitTimestamp(10));
+  ASSERT_OK(txn2->Commit());
+  txn2.reset();
+
+  // txn1 takes a snapshot after txn2 commits. The writes of txn2 have
+  // a smaller seqno than txn1's snapshot, thus should not affect conflict
+  // checking.
+  txn1->SetSnapshot();
+
+  std::unique_ptr<Transaction> txn3(
+      db->BeginTransaction(WriteOptions(), TransactionOptions()));
+  assert(txn3);
+  ASSERT_OK(txn3->SetReadTimestampForValidation(20));
+  std::string dontcare;
+  ASSERT_OK(txn3->GetForUpdate(ReadOptions(), "foo", &dontcare));
+  ASSERT_OK(txn3->SingleDelete("foo"));
+  ASSERT_OK(txn3->SetName("txn3"));
+  ASSERT_OK(txn3->Prepare());
+  ASSERT_OK(txn3->SetCommitTimestamp(30));
+  // txn3 reads at ts=20 > txn2's commit timestamp, and commits at ts=30.
+  // txn3 can commit successfully, leaving a tombstone with ts=30.
+  ASSERT_OK(txn3->Commit());
+  txn3.reset();
+
+  bool called = false;
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::GetLatestSequenceForKey:mem", [&](void* arg) {
+        auto* const ts_ptr = reinterpret_cast<std::string*>(arg);
+        assert(ts_ptr);
+        Slice ts_slc = *ts_ptr;
+        uint64_t last_ts = 0;
+        ASSERT_TRUE(GetFixed64(&ts_slc, &last_ts));
+        ASSERT_EQ(30, last_ts);
+        called = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // txn1's read timestamp is 25 < 30 (commit timestamp of txn3). Therefore,
+  // the tombstone written by txn3 causes the conflict checking to fail.
+  ASSERT_OK(txn1->SetReadTimestampForValidation(25));
+  ASSERT_TRUE(txn1->GetForUpdate(ReadOptions(), "foo", &dontcare).IsBusy());
+  ASSERT_TRUE(called);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

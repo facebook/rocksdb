@@ -3081,10 +3081,21 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   int manual_compactions_paused = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
+        auto canceled = static_cast<std::atomic<bool>*>(arg);
+        // CompactRange triggers manual compaction and cancel the compaction
+        // by set *canceled as true
+        if (canceled != nullptr) {
+          canceled->store(true, std::memory_order_release);
+        }
+        manual_compactions_paused += 1;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
+        // CompactFiles() relies on manual_compactions_paused to
+        // determine if thie compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
-        manual_compactions_paused += 1;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3149,7 +3160,7 @@ TEST_F(DBTest2, PausingManualCompaction2) {
 
   Random rnd(301);
   for (int i = 0; i < 2; i++) {
-    // Generate a file containing 10 keys.
+    // Generate a file containing 100 keys.
     for (int j = 0; j < 100; j++) {
       ASSERT_OK(Put(Key(j), rnd.RandomString(50)));
     }
@@ -3248,10 +3259,21 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   int run_manual_compactions = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
+        auto canceled = static_cast<std::atomic<bool>*>(arg);
+        // CompactRange triggers manual compaction and cancel the compaction
+        // by set *canceled as true
+        if (canceled != nullptr) {
+          canceled->store(true, std::memory_order_release);
+        }
+        run_manual_compactions++;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "TestCompactFiles:PausingManualCompaction:3", [&](void* arg) {
         auto paused = static_cast<std::atomic<int>*>(arg);
+        // CompactFiles() relies on manual_compactions_paused to
+        // determine if thie compaction should be paused or not
         ASSERT_EQ(0, paused->load(std::memory_order_acquire));
         paused->fetch_add(1, std::memory_order_release);
-        run_manual_compactions++;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3266,7 +3288,6 @@ TEST_F(DBTest2, PausingManualCompaction4) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionJob::Run():PausingManualCompaction:2");
-  dbfull()->EnableManualCompaction();
   ASSERT_OK(dbfull()->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 #ifndef ROCKSDB_LITE
@@ -3515,8 +3536,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
       "CompactionJob::FinishCompactionOutputFile1",
       [&](void* /*arg*/) { running_compaction++; });
 
-  // Case I: 1 Notify begin compaction, 2 DisableManualCompaction, 3 Compaction
-  // not run, 4 Notify compaction end.
+  // Case I: 1 Notify begin compaction, 2 Set *canceled as true to disable
+  // manual compaction in the callback function, 3 Compaction not run,
+  // 4 Notify compaction end.
   listener->code_ = Status::kIncomplete;
   listener->subcode_ = Status::SubCode::kManualCompactionPaused;
 
@@ -3533,8 +3555,9 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   listener->num_compaction_started_ = 0;
   listener->num_compaction_ended_ = 0;
 
-  // Case II: 1 DisableManualCompaction, 2 Notify begin compaction (return
-  // without notifying), 3 Notify compaction end (return without notifying).
+  // Case II: 1 Set *canceled as true in the callback function to disable manual
+  // compaction, 2 Notify begin compaction (return without notifying), 3 Notify
+  // compaction end (return without notifying).
   ASSERT_TRUE(dbfull()
                   ->CompactRange(compact_options, nullptr, nullptr)
                   .IsManualCompactionPaused());
@@ -3545,8 +3568,8 @@ TEST_F(DBTest2, CancelManualCompactionWithListener) {
   ASSERT_EQ(running_compaction, 0);
 
   // Case III: 1 Notify begin compaction, 2 Compaction in between
-  // 3. DisableManualCompaction, , 4 Notify compaction end.
-  // compact_options.canceled->store(false, std::memory_order_release);
+  // 3. Set *canceled as true in the callback function to disable manual
+  // compaction, 4 Notify compaction end.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
       "CompactionIterator:ProcessKV");
 
@@ -6353,86 +6376,85 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ReadOptions ro;
     ro.total_order_seek = false;
     ro.auto_prefix_mode = true;
+
+    const auto stat = BLOOM_FILTER_PREFIX_CHECKED;
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    std::string ub_str = "b9";
-    Slice ub(ub_str);
+    Slice ub;
     ro.iterate_upper_bound = &ub;
 
+    ub = "b9";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    ub_str = "z";
-    ub = Slice(ub_str);
+    ub = "z";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    ub_str = "c";
-    ub = Slice(ub_str);
+    ub = "c";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+    }
+
+    ub = "c1";
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
     // The same queries without recreating iterator
     {
-      ub_str = "b9";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
-
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      ub = "b9";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
 
-      ub_str = "z";
-      ub = Slice(ub_str);
-
+      ub = "z";
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "c";
-      ub = Slice(ub_str);
-
+      ub = "c";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "b9";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
+      ub = "b9";
       iterator->SeekForPrev("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
-      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "zz";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
+      ub = "zz";
       iterator->SeekToLast();
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("y1", iterator->key().ToString());
@@ -6440,6 +6462,136 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       iterator->SeekToFirst();
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
+    }
+
+    // Similar, now with reverse comparator
+    // Technically, we are violating axiom 2 of prefix_extractors, but
+    // it should be revised because of major use-cases using
+    // ReverseBytewiseComparator with capped/fixed prefix Seek. (FIXME)
+    options.comparator = ReverseBytewiseComparator();
+    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("a1", large_value));
+    ASSERT_OK(Put("x1", large_value));
+    ASSERT_OK(Put("y1", large_value));
+    ASSERT_OK(Flush());
+
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      ub = "b1";
+      iterator->Seek("b9");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      ub = "b1";
+      iterator->Seek("z");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("y1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b1";
+      iterator->Seek("c");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b";
+      iterator->Seek("c9");
+      ASSERT_FALSE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "a";
+      iterator->Seek("b9");
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b";
+      iterator->Seek("a");
+      ASSERT_FALSE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // matches BytewiseComparator::IsSameLengthImmediateSuccessor. Upper
+      // comparing before seek key prevents a real bug from surfacing.
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b1";
+      iterator->SeekForPrev("b9");
+      ASSERT_TRUE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      ASSERT_EQ("x1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "a";
+      iterator->SeekToLast();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+
+      iterator->SeekToFirst();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("y1", iterator->key().ToString());
+    }
+
+    // Now something a bit different, related to "short" keys that
+    // auto_prefix_mode can omit. See "BUG" section of auto_prefix_mode.
+    options.comparator = BytewiseComparator();
+    for (const auto config : {"fixed:2", "capped:2"}) {
+      ASSERT_OK(SliceTransform::CreateFromString(ConfigOptions(), config,
+                                                 &options.prefix_extractor));
+
+      // FIXME: kHashSearch, etc. requires all keys be InDomain
+      if (StartsWith(config, "fixed") &&
+          (table_options.index_type == BlockBasedTableOptions::kHashSearch ||
+           StartsWith(options.memtable_factory->Name(), "Hash"))) {
+        continue;
+      }
+      DestroyAndReopen(options);
+
+      const char* a_end_stuff = "a\xffXYZ";
+      const char* b_begin_stuff = "b\x00XYZ";
+      ASSERT_OK(Put("a", large_value));
+      ASSERT_OK(Put("b", large_value));
+      ASSERT_OK(Put(Slice(b_begin_stuff, 3), large_value));
+      ASSERT_OK(Put("c", large_value));
+      ASSERT_OK(Flush());
+
+      // control showing valid optimization with auto_prefix mode
+      ub = Slice(a_end_stuff, 4);
+      ro.iterate_upper_bound = &ub;
+
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek(Slice(a_end_stuff, 2));
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      // test, cannot be validly optimized with auto_prefix_mode
+      ub = Slice(b_begin_stuff, 2);
+      ro.iterate_upper_bound = &ub;
+
+      iterator->Seek(Slice(a_end_stuff, 2));
+      // !!! BUG !!! See "BUG" section of auto_prefix_mode.
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      // To prove that is the wrong result, now use total order seek
+      ReadOptions tos_ro = ro;
+      tos_ro.total_order_seek = true;
+      tos_ro.auto_prefix_mode = false;
+      iterator.reset(db_->NewIterator(tos_ro));
+      iterator->Seek(Slice(a_end_stuff, 2));
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("b", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
     }
   } while (ChangeOptions(kSkipPlainTable));
 }
