@@ -47,6 +47,7 @@
 * Add support for timestamped snapshots (#9879)
 * Provide support for AbortIO in posix to cancel submitted asynchronous requests using io_uring.
 * Add support for rate-limiting batched `MultiGet()` APIs
+* Add suggest_compact_range() and suggest_compact_range_cf() to C API.
 
 ### Behavior changes
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
