@@ -889,6 +889,21 @@ Status DBImpl::SetDBId(bool read_only, RecoveryContext* recovery_ctx) {
       return s;
     }
     s = GetDbIdentityFromIdentityFile(&db_id_);
+    if (s.ok() && db_id_.empty()) {
+      // Patch version of same fix as
+      // https://github.com/facebook/rocksdb/pull/10173
+      // (less intrusive, more obviously low-touch)
+      if (read_only) {
+        db_id_ = env_->GenerateUniqueId();
+        return Status::OK();
+      } else {
+        s = SetIdentityFile(env_, dbname_);
+        if (!s.ok()) {
+          return s;
+        }
+      }
+      s = GetDbIdentityFromIdentityFile(&db_id_);
+    }
     if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
       assert(!read_only);
       assert(recovery_ctx != nullptr);
