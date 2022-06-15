@@ -290,7 +290,7 @@ class Cache {
   virtual const char* Name() const = 0;
 
   // Insert a mapping from key->value into the volatile cache only
-  // and assign it // the specified charge against the total cache capacity.
+  // and assign it with the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
   // return Status::Incomplete.
   //
@@ -394,8 +394,8 @@ class Cache {
   // memory - call this only if you're shutting down the process.
   // Any attempts of using cache after this call will fail terribly.
   // Always delete the DB object before calling this method!
-  virtual void DisownData(){
-      // default implementation is noop
+  virtual void DisownData() {
+    // default implementation is noop
   }
 
   struct ApplyToAllEntriesOptions {

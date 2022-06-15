@@ -30,6 +30,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
+        "db/blob/blob_source.cc",
         "db/blob/prefetch_buffer_collection.cc",
         "db/builder.cc",
         "db/c.cc",
@@ -358,6 +359,7 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "db/blob/blob_log_format.cc",
         "db/blob/blob_log_sequential_reader.cc",
         "db/blob/blob_log_writer.cc",
+        "db/blob/blob_source.cc",
         "db/blob/prefetch_buffer_collection.cc",
         "db/builder.cc",
         "db/c.cc",
@@ -4798,6 +4800,18 @@ cpp_unittest_wrapper(name="blob_garbage_meter_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="blob_source_test",
+            srcs=["db/blob/blob_source_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="block_based_filter_block_test",
+            srcs=["table/block_based/block_based_filter_block_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="block_based_table_reader_test",
             srcs=["table/block_based/block_based_table_reader_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5872,4 +5886,3 @@ cpp_unittest_wrapper(name="write_unprepared_transaction_test",
             srcs=["utilities/transactions/write_unprepared_transaction_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
-
