@@ -1742,6 +1742,8 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
+  assert(value != nullptr);
+  value->Reset();
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
@@ -2349,6 +2351,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    values[i].Reset();
     key_context.emplace_back(column_families[i], keys[i], &values[i],
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
@@ -2495,6 +2498,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    values[i].Reset();
     key_context.emplace_back(column_family, keys[i], &values[i],
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
