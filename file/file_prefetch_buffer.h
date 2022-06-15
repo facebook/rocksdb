@@ -85,6 +85,8 @@ class FilePrefetchBuffer {
         fs_(fs),
         clock_(clock),
         stats_(stats) {
+    assert((num_file_reads_ >= kMinNumFileReadsToStartAutoReadahead + 1) ||
+           (num_file_reads_ == 0));
     // If async_io_ is enabled, data is asynchronously filled in second buffer
     // while curr_ is being consumed. If data is overlapping in two buffers,
     // data is copied to third buffer to return continuous buffer.
