@@ -281,12 +281,12 @@ struct FastLRUCacheOptions {
 
   // Capacity of the cache.
   size_t capacity = 0;
-
-  size_t estimated_value_size;
   
   // Cache is sharded into 2^num_shard_bits shards, by hash of key.
   // Refer to NewLRUCache for further information.
   int num_shard_bits = -1;
+
+  size_t estimated_value_size;
 
   // If strict_capacity_limit is set,
   // insert to the cache will fail when cache is full.
@@ -306,14 +306,15 @@ struct FastLRUCacheOptions {
 
 
   FastLRUCacheOptions() {}
-  FastLRUCacheOptions(size_t _capacity, size_t _estimated_value_size,
-                      int _num_shard_bits, bool _strict_capacity_limit,
+  FastLRUCacheOptions(
+      size_t _capacity, int _num_shard_bits, size_t _estimated_value_size,
+      bool _strict_capacity_limit,
       const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr,
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy)
       : capacity(_capacity),
-        estimated_value_size(_estimated_value_size),
         num_shard_bits(_num_shard_bits),
+        estimated_value_size(_estimated_value_size),
         strict_capacity_limit(_strict_capacity_limit),
         memory_allocator(_memory_allocator),
         metadata_charge_policy(_metadata_charge_policy) {}

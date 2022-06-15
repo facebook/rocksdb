@@ -118,6 +118,8 @@ StressTest::~StressTest() {
 std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
                                             int32_t num_shard_bits) {
   ConfigOptions config_options;
+  config_options.ignore_unsupported_options = false;
+  config_options.ignore_unknown_options = false;
   if (capacity <= 0) {
     return nullptr;
   }
@@ -158,8 +160,16 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
 #endif
     return NewLRUCache(opts);
   } else {
-    fprintf(stderr, "Cache type not supported.");
-    exit(1);
+    std::shared_ptr<Cache> cache;
+    Status s =
+        Cache::CreateFromString(config_options, FLAGS_cache_type, &cache);
+    if (!s.ok() || cache == nullptr) {
+      fprintf(stderr, "Could not create Cache for [%s] status=%s\n",
+              FLAGS_cache_type.c_str(), s.ToString().c_str());
+      exit(1);
+    } else {
+      return cache;
+    }
   }
 }
 

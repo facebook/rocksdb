@@ -435,12 +435,6 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct FastLRUCacheOptions, strict_capacity_limit),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-#if 0
-        {"metadata_charge_policy",
-         OptionTypeInfo::Enum(
-             offsetof(struct FastLRUCacheOptions, metadata_charge_policy),
-             &metadata_charge_policy_string_map)},
-#endif  // 0
 #endif  // ROCKSDB_LITE
 };
 }  // namespace
@@ -570,8 +564,9 @@ std::shared_ptr<Cache> NewFastLRUCache(
     size_t capacity, size_t estimated_value_size, int num_shard_bits,
     bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  FastLRUCacheOptions options(capacity, num_shard_bits, estimated_value_size, strict_capacity_limit,
-                              nullptr, metadata_charge_policy);
+  fast_lru_cache::FastLRUCacheOptions options(
+      capacity, num_shard_bits, estimated_value_size, strict_capacity_limit,
+      nullptr, metadata_charge_policy);
   auto cache = std::make_shared<fast_lru_cache::LRUCache>(options);
   Status s = cache->PrepareOptions(ConfigOptions());
   if (s.ok()) {

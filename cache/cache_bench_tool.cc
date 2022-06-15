@@ -280,6 +280,9 @@ class CacheBench {
       if (max_key > (static_cast<uint64_t>(1) << max_log_)) max_log_++;
     }
 
+    ConfigOptions config_options;
+    config_options.ignore_unknown_options = false;
+    config_options.ignore_unsupported_options = false;
     if (FLAGS_cache_uri == "clock_cache") {
       cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
       if (!cache_) {
@@ -309,9 +312,6 @@ class CacheBench {
 
       cache_ = NewLRUCache(opts);
     } else {
-      ConfigOptions config_options;
-      config_options.ignore_unknown_options = false;
-      config_options.ignore_unsupported_options = false;
       Status s =
         Cache::CreateFromString(config_options, FLAGS_cache_uri, &cache_);
       if (!s.ok() || !cache_) {

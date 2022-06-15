@@ -15,6 +15,7 @@
 #include "rocksdb/configurable.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/utilities/customizable_util.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
