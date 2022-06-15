@@ -43,11 +43,13 @@ void BlockPrefetcher::PrefetchIfNeeded(
     return;
   }
 
-  // In case of async_io, it always creates the PrefetchBuffer.
+  // In case of async_io, always creates the PrefetchBuffer irrespective of
+  // num_file_reads_.
   if (async_io) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_);
+        &prefetch_buffer_, /*implicit_auto_readahead=*/true,
+        /*num_file_reads=*/0);
     return;
   }
 
