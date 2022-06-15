@@ -206,6 +206,10 @@ class WriteBatchInternal {
                            bool batch_per_txn = true,
                            bool hint_per_batch = false);
 
+  // Appends src write batch to dst write batch and updates count in dst
+  // write batch. Returns OK if the append is successful. Checks number of
+  // checksum against count in dst and src write batches, and returns Corruption
+  // if the count is inconsistent.
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);
 
