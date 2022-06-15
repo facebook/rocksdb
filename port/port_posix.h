@@ -158,7 +158,7 @@ static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)
   asm volatile("pause");
 #elif defined(__aarch64__)
-  asm volatile("yield");
+  asm volatile("isb");
 #elif defined(__powerpc64__)
   asm volatile("or 27,27,27");
 #endif
