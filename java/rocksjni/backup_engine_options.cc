@@ -107,7 +107,7 @@ void Java_org_rocksdb_BackupEngineOptions_setInfoLog(JNIEnv* /*env*/,
   auto* sptr_logger =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::LoggerJniCallback>*>(
           jhandle);
-  bopt->info_log = sptr_logger->get();
+  bopt->info_log.reset(sptr_logger->get());
 }
 
 /*

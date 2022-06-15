@@ -1386,7 +1386,7 @@ Status StressTest::TestBackupRestore(
       FLAGS_db + "/.restore" + std::to_string(thread->tid);
   BackupEngineOptions backup_opts(backup_dir);
   // For debugging, get info_log from live options
-  backup_opts.info_log = db_->GetDBOptions().info_log.get();
+  backup_opts.info_log.reset(db_->GetDBOptions().info_log.get());
   if (thread->rand.OneIn(10)) {
     backup_opts.share_table_files = false;
   } else {

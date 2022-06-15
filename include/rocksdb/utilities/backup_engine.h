@@ -15,6 +15,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
@@ -55,7 +56,7 @@ struct BackupEngineOptions {
   // Backup info and error messages will be written to info_log
   // if non-nullptr.
   // Default: nullptr
-  Logger* info_log;
+  std::shared_ptr<Logger> info_log;
 
   // If sync == true, we can guarantee you'll get consistent backup and
   // restore even on a machine crash/reboot. Backup and restore processes are

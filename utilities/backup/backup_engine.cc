@@ -112,7 +112,7 @@ void BackupEngineOptions::Dump(Logger* logger) const {
   ROCKS_LOG_INFO(logger, "               Options.backup_env: %p", backup_env);
   ROCKS_LOG_INFO(logger, "        Options.share_table_files: %d",
                  static_cast<int>(share_table_files));
-  ROCKS_LOG_INFO(logger, "                 Options.info_log: %p", info_log);
+  ROCKS_LOG_INFO(logger, "                 Options.info_log: %p", info_log.get());
   ROCKS_LOG_INFO(logger, "                     Options.sync: %d",
                  static_cast<int>(sync));
   ROCKS_LOG_INFO(logger, "         Options.destroy_old_data: %d",
@@ -1069,7 +1069,7 @@ IOStatus BackupEngineImpl::Initialize() {
   if (read_only_) {
     ROCKS_LOG_INFO(options_.info_log, "Starting read_only backup engine");
   }
-  options_.Dump(options_.info_log);
+  options_.Dump(options_.info_log.get());
 
   auto meta_path = GetAbsolutePath(kMetaDirName);
 
@@ -1204,7 +1204,7 @@ IOStatus BackupEngineImpl::Initialize() {
       if (io_s.ok()) {
         io_s = backup_iter->second->LoadFromFile(
             options_.backup_dir, abs_path_to_size,
-            options_.backup_rate_limiter.get(), options_.info_log,
+            options_.backup_rate_limiter.get(), options_.info_log.get(),
             &reported_ignored_fields_);
       }
       if (io_s.IsCorruption() || io_s.IsNotSupported()) {
