@@ -980,7 +980,7 @@ if(USE_FOLLY)
     third-party/folly/folly/detail/Futex.cpp
     third-party/folly/folly/lang/SafeAssert.cpp
     third-party/folly/folly/lang/ToAscii.cpp
-    third-party/folly/folly/ScopeGuard.cpp)
+    third-party/folly/folly/ScopeGuard.cpp
     third-party/folly/folly/synchronization/AtomicNotification.cpp
     third-party/folly/folly/synchronization/DistributedMutex.cpp
     third-party/folly/folly/synchronization/ParkingLot.cpp)
