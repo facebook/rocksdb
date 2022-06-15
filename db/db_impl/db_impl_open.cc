@@ -524,7 +524,7 @@ Status DBImpl::Recover(
       return s;
     }
   }
-  s = SetDBId(read_only, recovery_ctx);
+  s = SetupDBId(read_only, recovery_ctx);
   if (s.ok() && !read_only) {
     s = DeleteUnreferencedSstFiles(recovery_ctx);
   }

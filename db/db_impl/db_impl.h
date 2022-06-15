@@ -1479,8 +1479,10 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
-  // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
+  // Setup DB identity file, and write DB ID to manifest if necessary.
+  Status SetupDBId(bool read_only, RecoveryContext* recovery_ctx);
+  // Assign db_id_ and write DB ID to manifest if necessary.
+  void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
