@@ -426,8 +426,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct FastLRUCacheOptions, capacity), OptionType::kSizeT,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
         {"num_shard_bits",
-         {offsetof(struct FastLRUCacheOptions, num_shard_bits), OptionType::kInt,
-          OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
+         {offsetof(struct FastLRUCacheOptions, num_shard_bits),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"estimated_value_size",
          {offsetof(struct FastLRUCacheOptions, capacity), OptionType::kSizeT,
           OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
@@ -447,7 +448,7 @@ LRUCache::LRUCache(const FastLRUCacheOptions& options)
 LRUCache::LRUCache() : ShardedCache(), shards_(nullptr) {
   RegisterOptions(&options_, &fast_lru_cache_options_type_info);
 }
-  
+
 Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
   MutexLock l(&options_mutex_);
   if (shards_ != nullptr) {  // Already prepared
@@ -465,9 +466,9 @@ Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards));
     size_t per_shard = (options_.capacity + (num_shards - 1)) / num_shards;
     for (uint32_t i = 0; i < num_shards; i++) {
-      new (&shards_[i])
-        LRUCacheShard(per_shard, options_.estimated_value_size,
-                      options_.strict_capacity_limit, options_.metadata_charge_policy);
+      new (&shards_[i]) LRUCacheShard(per_shard, options_.estimated_value_size,
+                                      options_.strict_capacity_limit,
+                                      options_.metadata_charge_policy);
     }
   }
   return s;

@@ -275,13 +275,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // don't mind mutex_ invoking the non-const actions.
   mutable port::Mutex mutex_;
 };
-  
+
 struct FastLRUCacheOptions {
   static const char* kName() { return "FastLRUCacheOptions"; }
 
   // Capacity of the cache.
   size_t capacity = 0;
-  
+
   // Cache is sharded into 2^num_shard_bits shards, by hash of key.
   // Refer to NewLRUCache for further information.
   int num_shard_bits = -1;
@@ -304,7 +304,6 @@ struct FastLRUCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
-
   FastLRUCacheOptions() {}
   FastLRUCacheOptions(
       size_t _capacity, int _num_shard_bits, size_t _estimated_value_size,
@@ -319,7 +318,7 @@ struct FastLRUCacheOptions {
         memory_allocator(_memory_allocator),
         metadata_charge_policy(_metadata_charge_policy) {}
 };
-  
+
 class LRUCache
 #ifdef NDEBUG
     final

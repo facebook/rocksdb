@@ -313,7 +313,7 @@ class CacheBench {
       cache_ = NewLRUCache(opts);
     } else {
       Status s =
-        Cache::CreateFromString(config_options, FLAGS_cache_uri, &cache_);
+          Cache::CreateFromString(config_options, FLAGS_cache_uri, &cache_);
       if (!s.ok() || !cache_) {
         fprintf(stderr, "No cache registered matching string: %s status=%s\n",
                 FLAGS_cache_uri.c_str(), s.ToString().c_str());
