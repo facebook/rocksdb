@@ -44,6 +44,7 @@ default_params = {
     "charge_compression_dictionary_building_buffer": lambda: random.choice([0, 1]),
     "charge_filter_construction": lambda: random.choice([0, 1]),
     "charge_table_reader": lambda: random.choice([0, 1]),
+    "charge_file_metadata": lambda: random.choice([0, 1]),
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),

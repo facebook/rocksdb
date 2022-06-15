@@ -325,6 +325,11 @@ DEFINE_bool(charge_table_reader, false,
             "CacheEntryRoleOptions::charged of"
             "CacheEntryRole::kBlockBasedTableReader");
 
+DEFINE_bool(charge_file_metadata, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "kFileMetadata");
+
 DEFINE_int32(
     top_level_index_pinning,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),

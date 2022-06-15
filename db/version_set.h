@@ -699,8 +699,13 @@ struct ObsoleteFileInfo {
 
   ObsoleteFileInfo() noexcept
       : metadata(nullptr), only_delete_metadata(false) {}
-  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
-      : metadata(f), path(file_path), only_delete_metadata(false) {}
+  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path,
+                   std::shared_ptr<CacheReservationManager>
+                       file_metadata_cache_res_mgr_arg = nullptr)
+      : metadata(f),
+        path(file_path),
+        only_delete_metadata(false),
+        file_metadata_cache_res_mgr(file_metadata_cache_res_mgr_arg) {}
 
   ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
   ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
@@ -713,13 +718,23 @@ struct ObsoleteFileInfo {
     path = std::move(rhs.path);
     metadata = rhs.metadata;
     rhs.metadata = nullptr;
+    file_metadata_cache_res_mgr = rhs.file_metadata_cache_res_mgr;
+    rhs.file_metadata_cache_res_mgr = nullptr;
 
     return *this;
   }
   void DeleteMetadata() {
+    if (file_metadata_cache_res_mgr) {
+      Status s = file_metadata_cache_res_mgr->UpdateCacheReservation(
+          metadata->ApproximateMemoryUsage(), false /* increase */);
+      s.PermitUncheckedError();
+    }
     delete metadata;
     metadata = nullptr;
   }
+
+ private:
+  std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr;
 };
 
 class ObsoleteBlobFileInfo {

@@ -563,7 +563,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
   // assert(!db_id.empty());
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
-  // from offets. See GetCacheKey.
+  // from offsets. See GetCacheKey.
   *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
                                            /*max_offset*/ file_size >> 2);
 }

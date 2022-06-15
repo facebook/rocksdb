@@ -1744,5 +1744,6 @@ template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kFilterConstruction>;
 template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kBlockBasedTableReader>;
+template class TargetCacheChargeTrackingCache<CacheEntryRole::kFileMetadata>;
 
 }  // namespace ROCKSDB_NAMESPACE
