@@ -2388,13 +2388,14 @@ class CombinedStats {
 
     if (throughput_mbs_.size() == throughput_ops_.size()) {
       fprintf(stdout,
-              "%s [AVG %d runs] : %d (± %d) ops/sec; %6.1f (± %.1f) MB/sec\n",
+              "%s [AVG %d runs] : %d (\xC2\xB1 %d) ops/sec; %6.1f (\xC2\xB1 "
+              "%.1f) MB/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)),
               CalcAvg(throughput_mbs_), CalcConfidence95(throughput_mbs_));
     } else {
-      fprintf(stdout, "%s [AVG %d runs] : %d (± %d) ops/sec\n", name, num_runs,
-              static_cast<int>(CalcAvg(throughput_ops_)),
+      fprintf(stdout, "%s [AVG %d runs] : %d (\xC2\xB1 %d) ops/sec\n", name,
+              num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)));
     }
   }
@@ -2435,8 +2436,10 @@ class CombinedStats {
     int num_runs = static_cast<int>(throughput_ops_.size());
 
     if (throughput_mbs_.size() == throughput_ops_.size()) {
+      // \xC2\xB1 is +/- character in UTF-8
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d (± %d) ops/sec; %6.1f (± %.1f) MB/sec\n"
+              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec; %6.1f (\xC2\xB1 "
+              "%.1f) MB/sec\n"
               "%s [MEDIAN %d runs] : %d ops/sec; %6.1f MB/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)),
@@ -2445,7 +2448,7 @@ class CombinedStats {
               CalcMedian(throughput_mbs_));
     } else {
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d (± %d) ops/sec\n"
+              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec\n"
               "%s [MEDIAN %d runs] : %d ops/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)), name,
