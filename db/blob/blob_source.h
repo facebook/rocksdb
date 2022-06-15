@@ -1,4 +1,4 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -50,75 +50,28 @@ class BlobSource {
                         uint64_t offset) const;
 
  private:
-  CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
-                       uint64_t offset) const;
-
-  void SaveValue(const Slice& src, PinnableSlice* dst);
+  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
+                              uint64_t offset) const;
 
   Status MaybeReadBlobFromCache(FilePrefetchBuffer* prefetch_buffer,
                                 const ReadOptions& read_options,
                                 const CacheKey& cache_key, uint64_t offset,
-                                const bool wait,
                                 CachableEntry<Slice>* blob_entry) const;
 
-  Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
-                                   Cache* blob_cache, const Slice& key,
-                                   const bool wait,
-                                   const Cache::CacheItemHelper* cache_helper,
-                                   const Cache::CreateCallback& create_cb,
-                                   Cache::Priority priority) const;
+  inline Cache::Handle* GetEntryFromCache(Cache* blob_cache, const Slice& key,
+                                          Cache::Priority priority) const;
 
-  Status InsertEntryToCache(const CacheTier& cache_tier, Cache* blob_cache,
-                            const Slice& key,
-                            const Cache::CacheItemHelper* cache_helper,
-                            const Slice* blob, size_t charge,
-                            Cache::Handle** cache_handle,
-                            Cache::Priority priority) const;
+  inline Status InsertEntryIntoCache(Cache* blob_cache, const Slice& key,
+                                     const Slice* blob, size_t charge,
+                                     Cache::Handle** cache_handle,
+                                     Cache::Priority priority) const;
 
   Status GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
-                          CachableEntry<Slice>* blob, bool wait) const;
+                          CachableEntry<Slice>* blob) const;
 
-  Status PutBlobToCache(const Slice& cache_key, Cache* blob_cache,
-                        CachableEntry<Slice>* cached_blob,
-                        PinnableSlice* blob) const;
-
-  static size_t SizeCallback(void* obj) {
-    assert(obj != nullptr);
-
-    const Slice header_slice(static_cast<const char*>(obj),
-                             BlobLogRecord::kHeaderSize);
-
-    BlobLogRecord record;
-    const Status s = record.DecodeHeaderFrom(header_slice);
-    assert(s == Status::OK());
-
-    return record.record_size();
-  }
-
-  static Status SaveToCallback(void* from_obj, size_t from_offset,
-                               size_t length, void* out) {
-    assert(from_obj != nullptr);
-
-    const char* buf = static_cast<const char*>(from_obj);
-    const Slice header_slice(buf, BlobLogRecord::kHeaderSize);
-
-    BlobLogRecord record;
-    const Status s = record.DecodeHeaderFrom(header_slice);
-    assert(s == Status::OK());
-
-    assert(length == record.record_size());
-    (void)from_offset;
-    memcpy(out, buf, length);
-
-    return Status::OK();
-  }
-
-  static Cache::CacheItemHelper* GetCacheItemHelper() {
-    static Cache::CacheItemHelper cache_helper(
-        SizeCallback, SaveToCallback,
-        [](const Slice& /*key*/, void* /*val*/) -> void {});
-    return &cache_helper;
-  }
+  Status PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
+                          CachableEntry<Slice>* cached_blob,
+                          PinnableSlice* blob) const;
 
   const std::string& db_id_;
   const std::string& db_session_id_;
@@ -126,14 +79,10 @@ class BlobSource {
   Statistics* statistics_;
 
   // A cache to store blob file reader.
-  BlobFileCache* blob_file_cache_;
+  std::unique_ptr<BlobFileCache> blob_file_cache_;
 
   // A cache to store uncompressed blobs.
   std::shared_ptr<Cache> blob_cache_;
-
-  // The control option of how the cache tiers will be used. Currently rocksdb
-  // support block cache (volatile tier), secondary cache (non-volatile tier).
-  const CacheTier lowest_used_cache_tier_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

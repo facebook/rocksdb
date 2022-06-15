@@ -1,4 +1,4 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -34,14 +34,13 @@ BlobSource::BlobSource(Cache* cache, const ImmutableOptions* immutable_options,
       blob_file_cache_(new BlobFileCache(cache, immutable_options, file_options,
                                          column_family_id, blob_file_read_hist,
                                          io_tracer)),
-      blob_cache_(immutable_options->blob_cache),
-      lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {}
+      blob_cache_(immutable_options->blob_cache) {}
 
-BlobSource::~BlobSource() { delete blob_file_cache_; }
+BlobSource::~BlobSource() = default;
 
 Status BlobSource::MaybeReadBlobFromCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& read_options,
-    const CacheKey& cache_key, uint64_t offset, const bool wait,
+    const CacheKey& cache_key, uint64_t offset,
     CachableEntry<Slice>* blob_entry) const {
   assert(blob_entry != nullptr);
   assert(blob_entry->IsEmpty());
@@ -50,10 +49,10 @@ Status BlobSource::MaybeReadBlobFromCache(
   //
   // If either blob cache is enabled, we'll try to read from it.
   Status s;
-  Slice key;
+
   if (blob_cache_ != nullptr) {
-    key = cache_key.AsSlice();
-    s = GetBlobFromCache(key, blob_cache_.get(), blob_entry, wait);
+    Slice key = cache_key.AsSlice();
+    s = GetBlobFromCache(key, blob_cache_.get(), blob_entry);
     if (blob_entry->GetValue()) {
       if (prefetch_buffer) {
         // Update the blob details so that PrefetchBuffer can use the read
@@ -71,75 +70,50 @@ Status BlobSource::MaybeReadBlobFromCache(
   return s;
 }
 
-Cache::Handle* BlobSource::GetEntryFromCache(
-    const CacheTier& cache_tier, Cache* blob_cache, const Slice& key,
-    const bool wait, const Cache::CacheItemHelper* cache_helper,
-    const Cache::CreateCallback& create_cb, Cache::Priority priority) const {
+inline Cache::Handle* BlobSource::GetEntryFromCache(
+    Cache* blob_cache, const Slice& key, Cache::Priority priority) const {
+  (void)priority;
   assert(blob_cache);
-
-  Cache::Handle* cache_handle = nullptr;
-
-  if (cache_tier == CacheTier::kNonVolatileBlockTier) {
-    cache_handle = blob_cache->Lookup(key, cache_helper, create_cb, priority,
-                                      wait, statistics_);
-  } else {
-    cache_handle = blob_cache->Lookup(key, statistics_);
-  }
-
-  return cache_handle;
+  return blob_cache->Lookup(key, statistics_);
 }
 
-Status BlobSource::InsertEntryToCache(
-    const CacheTier& cache_tier, Cache* blob_cache, const Slice& key,
-    const Cache::CacheItemHelper* cache_helper, const Slice* blob,
-    size_t charge, Cache::Handle** cache_handle,
-    Cache::Priority priority) const {
-  Status s;
-
-  if (cache_tier == CacheTier::kNonVolatileBlockTier) {
-    s = blob_cache->Insert(
-        key, const_cast<void*>(static_cast<const void*>(blob->data())),
-        cache_helper, charge, cache_handle, priority);
-  } else {
-    s = blob_cache->Insert(
-        key, const_cast<void*>(static_cast<const void*>(blob->data())), charge,
-        cache_helper->del_cb, cache_handle, priority);
-  }
-
+inline Status BlobSource::InsertEntryIntoCache(Cache* blob_cache,
+                                               const Slice& key,
+                                               const Slice* blob, size_t charge,
+                                               Cache::Handle** cache_handle,
+                                               Cache::Priority priority) const {
+  const Status s =
+      blob_cache->Insert(key, const_cast<void*>(static_cast<const void*>(blob)),
+                         charge, nullptr /* deleter */, cache_handle, priority);
   return s;
 }
 
 Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
-                                    CachableEntry<Slice>* blob,
-                                    bool wait) const {
+                                    CachableEntry<Slice>* blob) const {
   assert(blob);
   assert(blob->IsEmpty());
   const Cache::Priority priority = Cache::Priority::LOW;
 
-  // Lookup uncompressed cache first
   if (blob_cache != nullptr) {
     assert(!cache_key.empty());
     Cache::Handle* cache_handle = nullptr;
-    cache_handle = GetEntryFromCache(
-        lowest_used_cache_tier_, blob_cache, cache_key, wait,
-        nullptr /* cache_helper */, nullptr /* create_db */, priority);
+    cache_handle = GetEntryFromCache(blob_cache, cache_key, priority);
     if (cache_handle != nullptr) {
-      Slice value(static_cast<char*>(blob_cache->Value(cache_handle)));
-      blob->SetCachedValue(&value, blob_cache, cache_handle);
+      blob->SetCachedValue(
+          reinterpret_cast<Slice*>(blob_cache->Value(cache_handle)), blob_cache,
+          cache_handle);
       return Status::OK();
     }
   }
 
   assert(blob->IsEmpty());
 
-  // TODO: If not found, search from the compressed blob cache.
-
   return Status::NotFound("Blob record not found in cache");
 }
 
-Status BlobSource::PutBlobToCache(const Slice& cache_key, Cache* blob_cache,
-                                  CachableEntry<Slice>* cached_blob,
-                                  PinnableSlice* blob) const {
+Status BlobSource::PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
+                                    CachableEntry<Slice>* cached_blob,
+                                    PinnableSlice* blob) const {
   assert(blob);
   assert(!cache_key.empty());
 
@@ -147,15 +121,10 @@ Status BlobSource::PutBlobToCache(const Slice& cache_key, Cache* blob_cache,
 
   Status s;
 
-  // TODO: Insert compressed blob into compressed blob cache.
-  // Release the hold on the compressed cache entry immediately.
-
-  // Insert into uncompressed blob cache
   if (blob_cache != nullptr) {
     Cache::Handle* cache_handle = nullptr;
-    s = InsertEntryToCache(lowest_used_cache_tier_, blob_cache, cache_key,
-                           GetCacheItemHelper(), blob, blob->size(),
-                           &cache_handle, priority);
+    s = InsertEntryIntoCache(blob_cache, cache_key, blob, blob->size(),
+                             &cache_handle, priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
       cached_blob->SetCachedValue(blob, blob_cache, cache_handle);
@@ -165,8 +134,9 @@ Status BlobSource::PutBlobToCache(const Slice& cache_key, Cache* blob_cache,
   return s;
 }
 
-CacheKey BlobSource::GetCacheKey(uint64_t file_number, uint64_t file_size,
-                                 uint64_t offset) const {
+inline CacheKey BlobSource::GetCacheKey(uint64_t file_number,
+                                        uint64_t file_size,
+                                        uint64_t offset) const {
   OffsetableCacheKey base_cache_key =
       OffsetableCacheKey(db_id_, db_session_id_, file_number, file_size);
   return base_cache_key.WithOffset(offset);
@@ -191,13 +161,9 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   CachableEntry<Slice> blob_entry;
 
-  // TODO: We haven't support cache tiering for blob files yet, but will do it
-  // later.
-  if (blob_cache_ &&
-      lowest_used_cache_tier_ != CacheTier::kNonVolatileBlockTier) {
-    const Status s =
-        MaybeReadBlobFromCache(prefetch_buffer, read_options, cache_key, offset,
-                               true /* wait_for_cache */, &blob_entry);
+  if (blob_cache_) {
+    const Status s = MaybeReadBlobFromCache(prefetch_buffer, read_options,
+                                            cache_key, offset, &blob_entry);
 
     if (s.ok() && blob_entry.GetValue() != nullptr) {
       assert(blob_entry.GetValue()->size() == value_size);
@@ -205,7 +171,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
         *bytes_read = value_size;
       }
       value->PinSelf(*blob_entry.GetValue());
-      blob_entry.TransferTo(value);
       return s;
     }
   }
@@ -214,9 +179,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
-    return Status::Incomplete(
-        "A cache miss occurs if blob cache is enabled, and no blocking io "
-        "is allowed further.");
+    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
   }
 
   // Can't find the blob from the cache. Since I/O is allowed, read from the
@@ -230,18 +193,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     return Status::Corruption("Compression type mismatch when reading blob");
   }
 
-  // Note: if verify_checksum is set, we read the entire blob record to be able
-  // to perform the verification; otherwise, we just read the blob itself. Since
-  // the offset in BlobIndex actually points to the blob value, we need to make
-  // an adjustment in the former case.
-  const uint64_t adjustment =
-      read_options.verify_checksums
-          ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
-          : 0;
-  assert(offset >= adjustment);
-
-  const uint64_t record_size = value_size + adjustment;
-
   {
     const Status s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
@@ -249,22 +200,18 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
-
-    if (bytes_read) {
-      *bytes_read = record_size;
-    }
   }
 
   if (blob_cache_ && read_options.fill_cache) {
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    const Status s = PutBlobToCache(key, blob_cache_.get(), &blob_entry, value);
+    const Status s =
+        PutBlobIntoCache(key, blob_cache_.get(), &blob_entry, value);
     if (!s.ok()) {
       return s;
     }
     value->PinSelf(*blob_entry.GetValue());
-    blob_entry.TransferTo(value);
   }
 
   return Status::OK();
