@@ -37,7 +37,7 @@ BlobSource::BlobSource(Cache* cache, const ImmutableOptions* immutable_options,
       blob_cache_(immutable_options->blob_cache),
       lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {}
 
-BlobSource::~BlobSource() = default;
+BlobSource::~BlobSource() { delete blob_file_cache_; }
 
 Status BlobSource::MaybeReadBlobFromCache(
     FilePrefetchBuffer* prefetch_buffer, const ReadOptions& read_options,
@@ -124,9 +124,8 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
         lowest_used_cache_tier_, blob_cache, cache_key, wait,
         nullptr /* cache_helper */, nullptr /* create_db */, priority);
     if (cache_handle != nullptr) {
-      Slice* value =
-          new Slice(static_cast<char*>(blob_cache->Value(cache_handle)));
-      blob->SetCachedValue(value, blob_cache, cache_handle);
+      Slice value(static_cast<char*>(blob_cache->Value(cache_handle)));
+      blob->SetCachedValue(&value, blob_cache, cache_handle);
       return Status::OK();
     }
   }
