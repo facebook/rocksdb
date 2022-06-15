@@ -171,7 +171,7 @@ commands:
   setup-folly:
     steps:
       - run:
-          name: Install dependencies
+          name: Install folly dependencies
           command: |
             sudo apt-get install libgoogle-glog-dev
       - run:
