@@ -111,6 +111,11 @@ class Mutex {
   // it does NOT verify that mutex is held by a calling thread
   void AssertHeld();
 
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
+
  private:
   friend class CondVar;
   pthread_mutex_t mu_;

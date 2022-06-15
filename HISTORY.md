@@ -36,6 +36,9 @@
 ### Behavior changes
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
 
+### Performance Improvements
+* When compiled with folly (Meta-internal integration; experimental in open source build), improve the locking performance (CPU efficiency) of LRUCache by using folly DistributedMutex in place of standard mutex.
+
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
 * Fixed a bug where manual flush would block forever even though flush options had wait=false.

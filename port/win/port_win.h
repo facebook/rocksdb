@@ -120,6 +120,11 @@ class Mutex {
 #endif
   }
 
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
+
   // Mutex is move only with lock ownership transfer
   Mutex(const Mutex&) = delete;
   void operator=(const Mutex&) = delete;

@@ -461,6 +461,8 @@ ifeq ($(USE_FOLLY),1)
 	endif
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+# TODO: fix linking with fbcode compiler config
+	PLATFORM_LDFLAGS += -lglog
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
@@ -2361,6 +2363,8 @@ checkout_folly:
 	@# A hack to remove boost dependency.
 	@# NOTE: this hack is not needed if using FBCODE compiler config
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
+	@# NOTE: this hack is required for clang in some cases
+	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
 
 # ---------------------------------------------------------------------------
 #   Build size testing
