@@ -325,6 +325,11 @@ DEFINE_bool(charge_table_reader, false,
             "CacheEntryRoleOptions::charged of"
             "CacheEntryRole::kBlockBasedTableReader");
 
+DEFINE_bool(charge_file_metadata, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "kFileMetadata");
+
 DEFINE_int32(
     top_level_index_pinning,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
@@ -500,7 +505,9 @@ DEFINE_string(db, "", "Use the db with the following name.");
 DEFINE_string(secondaries_base, "",
               "Use this path as the base path for secondary instances.");
 
-DEFINE_bool(test_secondary, false, "Test secondary instance.");
+DEFINE_bool(test_secondary, false,
+            "If true, start an additional secondary instance which can be used "
+            "for verification.");
 
 DEFINE_string(
     expected_values_dir, "",
@@ -636,7 +643,7 @@ DEFINE_int32(ingest_external_file_one_in, 0,
              "every N operations on average.  0 indicates IngestExternalFile() "
              "is disabled.");
 
-DEFINE_int32(ingest_external_file_width, 1000,
+DEFINE_int32(ingest_external_file_width, 100,
              "The width of the ingested external files.");
 
 DEFINE_int32(compact_files_one_in, 0,
@@ -789,11 +796,6 @@ static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((__unused__)) =
 DEFINE_uint64(max_manifest_file_size, 16384, "Maximum size of a MANIFEST file");
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
-
-DEFINE_int32(secondary_catch_up_one_in, 0,
-             "If non-zero, the secondaries attemp to catch up with the primary "
-             "once for every N operations on average. 0 indicates the "
-             "secondaries do not try to catch up after open.");
 
 DEFINE_string(memtablerep, "skip_list", "");
 
@@ -969,5 +971,9 @@ DEFINE_bool(
     "Enable DB options `verify_sst_unique_id_in_manifest`, if true, during "
     "DB-open try verifying the SST unique id between MANIFEST and SST "
     "properties.");
+
+DEFINE_int32(
+    create_timestamped_snapshot_one_in, 0,
+    "On non-zero, create timestamped snapshots upon transaction commits.");
 
 #endif  // GFLAGS

@@ -762,7 +762,7 @@ struct FSReadRequest {
   // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
-  // A buffer that MultiRead()  can optionally place data in. It can
+  // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.
   // The lifecycle of scratch will be until IO is completed.
   //
@@ -1022,9 +1022,8 @@ class FSWritableFile {
     return IOStatus::OK();
   }
   virtual IOStatus Close(const IOOptions& /*options*/,
-                         IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported("Close");
-  }
+                         IODebugContext* /*dbg*/) = 0;
+
   virtual IOStatus Flush(const IOOptions& options, IODebugContext* dbg) = 0;
   virtual IOStatus Sync(const IOOptions& options,
                         IODebugContext* dbg) = 0;  // sync data
@@ -1271,7 +1270,10 @@ class FSDirectory {
   }
 
   // Close directory
-  virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
+  virtual IOStatus Close(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported("Close");
+  }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;

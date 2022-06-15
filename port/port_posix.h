@@ -202,7 +202,16 @@ extern void *cacheline_aligned_alloc(size_t size);
 
 extern void cacheline_aligned_free(void *memblock);
 
+#if defined(__aarch64__)
+//  __builtin_prefetch(..., 1) turns into a prefetch into prfm pldl3keep. On
+// arm64 we want this as close to the core as possible to turn it into a
+// L1 prefetech unless locality == 0 in which case it will be turned into a
+// non-temporal prefetch
+#define PREFETCH(addr, rw, locality) \
+  __builtin_prefetch(addr, rw, locality >= 1 ? 3 : locality)
+#else
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+#endif
 
 extern void Crash(const std::string& srcfile, int srcline);
 

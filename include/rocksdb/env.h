@@ -936,7 +936,7 @@ class WritableFile {
   // size due to whole pages writes. The behavior is undefined if called
   // with other writes to follow.
   virtual Status Truncate(uint64_t /*size*/) { return Status::OK(); }
-  virtual Status Close() { return Status::NotSupported("Close"); }
+  virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0;  // sync data
 
@@ -1149,7 +1149,7 @@ class Directory {
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
   // Close directory.
-  virtual Status Close() = 0;
+  virtual Status Close() { return Status::NotSupported("Close"); }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;

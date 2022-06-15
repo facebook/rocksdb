@@ -96,6 +96,10 @@ class Comparator : public Customizable {
   virtual const Comparator* GetRootComparator() const { return this; }
 
   // given two keys, determine if t is the successor of s
+  // BUG: only return true if no other keys starting with `t` are ordered
+  // before `t`. Otherwise, the auto_prefix_mode can omit entries within
+  // iterator bounds that have same prefix as upper bound but different
+  // prefix from seek key.
   virtual bool IsSameLengthImmediateSuccessor(const Slice& /*s*/,
                                               const Slice& /*t*/) const {
     return false;
