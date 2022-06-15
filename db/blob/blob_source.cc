@@ -6,18 +6,11 @@
 #include "db/blob/blob_source.h"
 
 #include <cassert>
-#include <cstdint>
-#include <cstdio>
 #include <string>
 
 #include "db/blob/blob_file_reader.h"
-#include "db/blob/blob_log_format.h"
 #include "file/file_prefetch_buffer.h"
-#include "monitoring/statistics.h"
 #include "options/cf_options.h"
-#include "rocksdb/slice.h"
-#include "rocksdb/status.h"
-#include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
 
