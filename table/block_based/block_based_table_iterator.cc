@@ -257,7 +257,7 @@ void BlockBasedTableIterator::InitDataBlock() {
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
     block_prefetcher_.PrefetchIfNeeded(
         rep, data_block_handle, read_options_.readahead_size, is_for_compaction,
-        read_options_.async_io, read_options_.rate_limiter_priority);
+        /*async_io=*/false, read_options_.rate_limiter_priority);
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
