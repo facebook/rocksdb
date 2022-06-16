@@ -32,15 +32,9 @@ class IOTracer;
 // storage with minimal cost.
 class BlobSource {
  public:
-  // The Cache* parameter is used to store blob file readers. When it's passed
-  // in, BlobSource will exclusively own cache afterwards. If it's a raw pointer
-  // managed by another shared/unique pointer, the developer must release the
-  // ownership.
-  BlobSource(Cache* cache, const ImmutableOptions* immutable_options,
-             const FileOptions* file_options, const std::string& db_id,
-             const std::string& db_session_id, uint32_t column_family_id,
-             HistogramImpl* blob_file_read_hist,
-             const std::shared_ptr<IOTracer>& io_tracer);
+  BlobSource(const ImmutableOptions* immutable_options,
+             const std::string& db_id, const std::string& db_session_id,
+             BlobFileCache* blob_file_cache);
 
   BlobSource(const BlobSource&) = delete;
   BlobSource& operator=(const BlobSource&) = delete;

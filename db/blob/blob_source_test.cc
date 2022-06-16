@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <string>
 
+#include "blob_file_cache.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
 #include "db/blob/blob_source.h"
@@ -173,9 +174,12 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobSource blob_source(backing_cache.get(), &immutable_options, &file_options,
-                         db_id, db_session_id, column_family_id,
-                         blob_file_read_hist, nullptr /*IOTracer*/);
+  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      blob_file_read_hist, nullptr /*IOTracer*/));
+
+  BlobSource blob_source(&immutable_options, db_id, db_session_id,
+                         blob_file_cache.get());
 
   ReadOptions read_options;
   read_options.verify_checksums = true;

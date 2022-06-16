@@ -14,19 +14,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-BlobSource::BlobSource(Cache* cache, const ImmutableOptions* immutable_options,
-                       const FileOptions* file_options,
+BlobSource::BlobSource(const ImmutableOptions* immutable_options,
                        const std::string& db_id,
                        const std::string& db_session_id,
-                       uint32_t column_family_id,
-                       HistogramImpl* blob_file_read_hist,
-                       const std::shared_ptr<IOTracer>& io_tracer)
+                       BlobFileCache* blob_file_cache)
     : db_id_(db_id),
       db_session_id_(db_session_id),
       statistics_(immutable_options->statistics.get()),
-      blob_file_cache_(new BlobFileCache(cache, immutable_options, file_options,
-                                         column_family_id, blob_file_read_hist,
-                                         io_tracer)),
+      blob_file_cache_(blob_file_cache),
       blob_cache_(immutable_options->blob_cache) {}
 
 BlobSource::~BlobSource() = default;
