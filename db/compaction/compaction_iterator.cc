@@ -892,6 +892,7 @@ void CompactionIterator::NextFromInput() {
               info_log_, "Invalid key %s in compaction. %s",
               allow_data_in_errors_ ? key_.ToString(true).c_str() : "hidden",
               pik_status.getState());
+          assert(false);
         }
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
