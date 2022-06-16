@@ -952,6 +952,8 @@ TEST_F(CheckpointTest, PutRaceWithCheckpointTrackedWalSync) {
   // Before the bug fix, reopening the DB would fail because the MANIFEST's
   // AddWal entry indicated the WAL should be synced through "key2" -> "val2".
   Reopen(options);
+
+  Close();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
