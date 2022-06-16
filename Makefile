@@ -1594,9 +1594,6 @@ random_access_file_reader_test: $(OBJ_DIR)/file/random_access_file_reader_test.o
 file_reader_writer_test: $(OBJ_DIR)/util/file_reader_writer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-block_based_filter_block_test: $(OBJ_DIR)/table/block_based/block_based_filter_block_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
 block_based_table_reader_test: table/block_based/block_based_table_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

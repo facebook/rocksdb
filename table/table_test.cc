@@ -3524,11 +3524,10 @@ TEST_P(BlockBasedTableTest, InvalidOptions) {
 }
 
 TEST_P(BlockBasedTableTest, BlockReadCountTest) {
-  // bloom_filter_type = 0 -- block-based filter (not available in public API)
   // bloom_filter_type = 1 -- full filter using use_block_based_builder=false
   // bloom_filter_type = 2 -- full filter using use_block_based_builder=true
   //                          because of API change to hide block-based filter
-  for (int bloom_filter_type = 0; bloom_filter_type <= 2; ++bloom_filter_type) {
+  for (int bloom_filter_type = 1; bloom_filter_type <= 2; ++bloom_filter_type) {
     for (int index_and_filter_in_cache = 0; index_and_filter_in_cache < 2;
          ++index_and_filter_in_cache) {
       Options options;
@@ -3537,22 +3536,8 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
       table_options.block_cache = NewLRUCache(1, 0);
       table_options.cache_index_and_filter_blocks = index_and_filter_in_cache;
-      if (bloom_filter_type == 0) {
-#ifndef ROCKSDB_LITE
-        // Use back-door way of enabling obsolete block-based Bloom
-        ASSERT_OK(FilterPolicy::CreateFromString(
-            ConfigOptions(),
-            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:10",
-            &table_options.filter_policy));
-#else
-        // Skip this case in LITE build
-        continue;
-#endif
-      } else {
-        // Public API
-        table_options.filter_policy.reset(
-            NewBloomFilterPolicy(10, bloom_filter_type == 2));
-      }
+      table_options.filter_policy.reset(
+          NewBloomFilterPolicy(10, bloom_filter_type == 2));
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       std::vector<std::string> keys;
       stl_wrappers::KVMap kvmap;

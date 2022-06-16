@@ -553,7 +553,7 @@ enum class CacheEntryRole {
   kFilterBlock,
   // Block-based table metadata block for partitioned filter
   kFilterMetaBlock,
-  // Block-based table deprecated filter block (old "block-based" filter)
+  // OBSOLETE / DEPRECATED: old/removed block-based filter
   kDeprecatedFilterBlock,
   // Block-based table index block
   kIndexBlock,
