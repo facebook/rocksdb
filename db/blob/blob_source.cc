@@ -75,10 +75,9 @@ inline Status BlobSource::InsertEntryIntoCache(Cache* blob_cache,
                                                const Slice* blob, size_t charge,
                                                Cache::Handle** cache_handle,
                                                Cache::Priority priority) const {
-  const Status s =
-      blob_cache->Insert(key, const_cast<void*>(static_cast<const void*>(blob)),
-                         charge, nullptr /* deleter */, cache_handle, priority);
-  return s;
+  return blob_cache->Insert(
+      key, const_cast<void*>(static_cast<const void*>(blob)), charge,
+      nullptr /* deleter */, cache_handle, priority);
 }
 
 Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
