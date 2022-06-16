@@ -95,6 +95,8 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "pthread_mutex_t"; }
+
   explicit Mutex(bool adaptive = kDefaultToAdaptiveMutex);
   // No copying
   Mutex(const Mutex&) = delete;

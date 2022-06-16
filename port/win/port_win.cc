@@ -36,8 +36,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-extern const bool kDefaultToAdaptiveMutex = false;
-
 namespace port {
 
 #ifdef ROCKSDB_WINDOWS_UTF8_FILENAMES

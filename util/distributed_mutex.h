@@ -23,7 +23,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class DMutex : public folly::DistributedMutex {
  public:
-  explicit DMutex(bool ignored_adaptive = false) { (void)ignored_adaptive; }
+  static const char* kName() { return "folly::DistributedMutex"; }
+
+  explicit DMutex(bool IGNORED_adaptive = false) { (void)IGNORED_adaptive; }
 
   // currently no-op
   void AssertHeld() {}
