@@ -444,7 +444,8 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       vstorage_->LevelFiles(start_level_);
 
   if (start_level_ == 0 && mutable_cf_options_.compression_per_level.empty() &&
-      !vstorage_->LevelFiles(output_level_).empty()) {
+      !vstorage_->LevelFiles(output_level_).empty() &&
+      ioptions_.db_paths.size() <= 1) {
     // Try to pick trivial move from L0 to L1. We start from the oldest
     // file. We keep expanding to newer files if it would form a
     // trivial move.
