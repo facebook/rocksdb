@@ -24,11 +24,11 @@ struct ClockCacheOptions {
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy,
-      const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr)
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
-        memory_allocator(_memory_allocator),
+        memory_allocator(std::move(_memory_allocator)),
         metadata_charge_policy(_metadata_charge_policy) {}
   static const char* kName() { return "ClockCacheOptions"; }
 

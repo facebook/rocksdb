@@ -308,14 +308,14 @@ struct FastLRUCacheOptions {
   FastLRUCacheOptions(
       size_t _capacity, int _num_shard_bits, size_t _estimated_value_size,
       bool _strict_capacity_limit,
-      const std::shared_ptr<MemoryAllocator>& _memory_allocator = nullptr,
+      std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         estimated_value_size(_estimated_value_size),
         strict_capacity_limit(_strict_capacity_limit),
-        memory_allocator(_memory_allocator),
+        memory_allocator(std::move(_memory_allocator)),
         metadata_charge_policy(_metadata_charge_policy) {}
 };
 
