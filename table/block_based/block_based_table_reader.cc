@@ -950,7 +950,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
          {std::make_pair(Rep::FilterType::kFullFilter, kFullFilterBlockPrefix),
           std::make_pair(Rep::FilterType::kPartitionedFilter,
                          kPartitionedFilterBlockPrefix),
-          std::make_pair(Rep::FilterType::kNoFilter, kFilterBlockPrefix)}) {
+          std::make_pair(Rep::FilterType::kNoFilter,
+                         kObsoleteFilterBlockPrefix)}) {
       if (builtin_compatible) {
         // This code is only here to deal with a hiccup in early 7.0.x where
         // there was an unintentional name change in the SST files metadata.
@@ -963,6 +964,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             test::LegacyBloomFilterPolicy::kClassName(),
             test::FastLocalBloomFilterPolicy::kClassName(),
             test::Standard128RibbonFilterPolicy::kClassName(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter",
             BloomFilterPolicy::kClassName(),
             RibbonFilterPolicy::kClassName(),
         };
@@ -980,6 +982,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
               Status s = rep_->filter_handle.DecodeFrom(&v);
               if (s.ok()) {
                 rep_->filter_type = filter_type;
+                if (filter_type == Rep::FilterType::kNoFilter) {
+                  ROCKS_LOG_WARN(rep_->ioptions.logger,
+                                 "Detected obsolete filter type in %s. Read "
+                                 "performance might suffer until DB is fully "
+                                 "re-compacted.",
+                                 rep_->file->file_name().c_str());
+                }
                 break;
               }
             }
@@ -2375,7 +2384,7 @@ BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     return BlockType::kHashIndexMetadata;
   }
 
-  if (meta_block_name.starts_with(kFilterBlockPrefix)) {
+  if (meta_block_name.starts_with(kObsoleteFilterBlockPrefix)) {
     // Obsolete but possible in old files
     return BlockType::kInvalid;
   }

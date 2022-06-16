@@ -249,6 +249,7 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
 void PartitionedFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
     const bool no_io, BlockCacheLookupContext* lookup_context) {
+  assert(prefix_extractor);
   MayMatch(range, prefix_extractor, no_io, lookup_context,
            &FullFilterBlockReader::PrefixesMayMatch);
 }
