@@ -63,7 +63,7 @@ class BlockPrefetcher {
   // initial_auto_readahead_size_ is used if RocksDB uses internal prefetch
   // buffer.
   uint64_t initial_auto_readahead_size_;
-  int64_t num_file_reads_ = 0;
+  uint64_t num_file_reads_ = 0;
   uint64_t prev_offset_ = 0;
   size_t prev_len_ = 0;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer_;

@@ -298,6 +298,8 @@ DECLARE_bool(verify_sst_unique_id_in_manifest);
 
 DECLARE_int32(create_timestamped_snapshot_one_in);
 
+DECLARE_bool(allow_data_in_errors);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;

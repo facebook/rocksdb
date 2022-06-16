@@ -178,6 +178,7 @@ default_params = {
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": "",
+    "allow_data_in_errors": True,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
