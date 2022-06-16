@@ -57,16 +57,11 @@ class BlobSource {
                         uint64_t offset) const;
 
  private:
-  Status MaybeReadBlobFromCache(FilePrefetchBuffer* prefetch_buffer,
-                                const ReadOptions& read_options,
-                                const CacheKey& cache_key, uint64_t offset,
-                                CachableEntry<Slice>* blob_entry) const;
-
   Status GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
-                          CachableEntry<Slice>* blob) const;
+                          CachableEntry<PinnableSlice>* blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
-                          CachableEntry<Slice>* cached_blob,
+                          CachableEntry<PinnableSlice>* cached_blob,
                           PinnableSlice* blob) const;
 
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
@@ -76,24 +71,23 @@ class BlobSource {
     return base_cache_key.WithOffset(offset);
   }
 
-  inline Cache::Handle* GetEntryFromCache(Cache* blob_cache, const Slice& key,
-                                          Cache::Priority priority) const {
-    (void)priority;
+  inline Cache::Handle* GetEntryFromCache(Cache* blob_cache,
+                                          const Slice& key) const {
     assert(blob_cache);
     return blob_cache->Lookup(key, statistics_);
   }
 
   inline Status InsertEntryIntoCache(Cache* blob_cache, const Slice& key,
-                                     const Slice* blob, size_t charge,
+                                     const PinnableSlice* blob, size_t charge,
                                      Cache::Handle** cache_handle,
                                      Cache::Priority priority) const {
-    return blob_cache->Insert(
-        key, const_cast<void*>(static_cast<const void*>(blob)), charge,
-        nullptr /* deleter */, cache_handle, priority);
+    return blob_cache->Insert(key,
+                              const_cast<void*>(static_cast<const void*>(blob)),
+                              charge, nullptr, cache_handle, priority);
   }
 
-  const std::string& db_id_;
-  const std::string& db_session_id_;
+  const std::string db_id_;
+  const std::string db_session_id_;
 
   Statistics* statistics_;
 

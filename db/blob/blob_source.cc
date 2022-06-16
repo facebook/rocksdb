@@ -31,52 +31,19 @@ BlobSource::BlobSource(Cache* cache, const ImmutableOptions* immutable_options,
 
 BlobSource::~BlobSource() = default;
 
-Status BlobSource::MaybeReadBlobFromCache(
-    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& read_options,
-    const CacheKey& cache_key, uint64_t offset,
-    CachableEntry<Slice>* blob_entry) const {
-  assert(blob_entry != nullptr);
-  assert(blob_entry->IsEmpty());
-
-  // First, try to get the blob from the cache
-  //
-  // If blob cache is enabled, we'll try to read from it.
-  Status s;
-
-  if (blob_cache_ != nullptr) {
-    Slice key = cache_key.AsSlice();
-    s = GetBlobFromCache(key, blob_cache_.get(), blob_entry);
-    if (blob_entry->GetValue()) {
-      if (prefetch_buffer) {
-        // Update the blob details so that PrefetchBuffer can use the read
-        // pattern to determine if reads are sequential or not for prefetching.
-        // It should also take in account blob read from cache.
-        prefetch_buffer->UpdateReadPattern(
-            offset, blob_entry->GetValue()->size(),
-            read_options.adaptive_readahead /* decrease_readahead_size */);
-      }
-    }
-  }
-
-  assert(s.ok() || blob_entry->GetValue() == nullptr);
-
-  return s;
-}
-
 Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
-                                    CachableEntry<Slice>* blob) const {
+                                    CachableEntry<PinnableSlice>* blob) const {
   assert(blob);
   assert(blob->IsEmpty());
-  const Cache::Priority priority = Cache::Priority::LOW;
 
   if (blob_cache != nullptr) {
     assert(!cache_key.empty());
     Cache::Handle* cache_handle = nullptr;
-    cache_handle = GetEntryFromCache(blob_cache, cache_key, priority);
+    cache_handle = GetEntryFromCache(blob_cache, cache_key);
     if (cache_handle != nullptr) {
       blob->SetCachedValue(
-          reinterpret_cast<Slice*>(blob_cache->Value(cache_handle)), blob_cache,
-          cache_handle);
+          static_cast<PinnableSlice*>(blob_cache->Value(cache_handle)),
+          blob_cache, cache_handle);
       return Status::OK();
     }
   }
@@ -87,7 +54,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
 }
 
 Status BlobSource::PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
-                                    CachableEntry<Slice>* cached_blob,
+                                    CachableEntry<PinnableSlice>* cached_blob,
                                     PinnableSlice* blob) const {
   assert(blob);
   assert(!cache_key.empty());
@@ -97,12 +64,19 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
   Status s;
 
   if (blob_cache != nullptr) {
+    // Objects to be put into the cache have to be heap-allocated and
+    // self-contained, i.e. own their contents. The Cache has to be able to take
+    // unique ownership of them. Therefore, we copy the blob into a separate
+    // heap-allocated PinnableSlice, and insert that into the cache.
+    PinnableSlice* value = new PinnableSlice();
+    value->PinSelf(*blob);
+
     Cache::Handle* cache_handle = nullptr;
-    s = InsertEntryIntoCache(blob_cache, cache_key, blob, blob->size(),
+    s = InsertEntryIntoCache(blob_cache, cache_key, value, value->size(),
                              &cache_handle, priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
-      cached_blob->SetCachedValue(blob, blob_cache, cache_handle);
+      cached_blob->SetCachedValue(value, blob_cache, cache_handle);
     }
   }
 
@@ -126,12 +100,25 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
 
-  CachableEntry<Slice> blob_entry;
+  CachableEntry<PinnableSlice> blob_entry;
 
+  // First, try to get the blob from the cache
+  //
+  // If blob cache is enabled, we'll try to read from it.
   Status s;
   if (blob_cache_) {
-    s = MaybeReadBlobFromCache(prefetch_buffer, read_options, cache_key, offset,
-                               &blob_entry);
+    Slice key = cache_key.AsSlice();
+    s = GetBlobFromCache(key, blob_cache_.get(), &blob_entry);
+    if (blob_entry.GetValue()) {
+      if (prefetch_buffer) {
+        // Update the blob details so that PrefetchBuffer can use the read
+        // pattern to determine if reads are sequential or not for prefetching.
+        // It should also take in account blob read from cache.
+        prefetch_buffer->UpdateReadPattern(offset,
+                                           blob_entry.GetValue()->size(),
+                                           false /* decrease_readahead_size */);
+      }
+    }
 
     if (s.ok() && blob_entry.GetValue() != nullptr) {
       assert(blob_entry.GetValue()->size() == value_size);
@@ -181,7 +168,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
-    value->PinSelf(*blob_entry.GetValue());
   }
 
   assert(s.ok());
@@ -190,23 +176,17 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
 bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
                                   uint64_t offset) const {
-  assert(blob_cache_ != nullptr);
-
-  if (!blob_cache_) {
-    return false;
-  }
-
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   const Slice key = cache_key.AsSlice();
 
-  Cache::Handle* const cache_handle = blob_cache_->Lookup(key);
-  if (cache_handle == nullptr) {
-    return false;
+  CachableEntry<PinnableSlice> blob_entry;
+  const Status s = GetBlobFromCache(key, blob_cache_.get(), &blob_entry);
+
+  if (s.ok() && blob_entry.GetValue() != nullptr) {
+    return true;
   }
 
-  blob_cache_->Release(cache_handle);
-
-  return true;
+  return false;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

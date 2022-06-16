@@ -166,7 +166,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                 expiration_range, blob_file_number, keys, blobs, kNoCompression,
                 blob_offsets, blob_sizes);
 
-  constexpr size_t capacity = 10;
+  constexpr size_t capacity = 1024;
   std::shared_ptr<Cache> backing_cache =
       NewLRUCache(capacity);  // Blob file cache
 
@@ -182,8 +182,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
 
-  // GetBlob
   {
+    // GetBlob
     std::vector<PinnableSlice> values(keys.size());
     uint64_t bytes_read = 0;
 
@@ -239,12 +239,30 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
     }
+
+    // Cache-only GetBlob
+    read_options.read_tier = ReadTier::kBlockCacheTier;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                               blob_offsets[i]));
+
+      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
+                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    kNoCompression, prefetch_buffer, &values[i],
+                                    &bytes_read));
+      ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_EQ(bytes_read, blob_sizes[i]);
+
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                               blob_offsets[i]));
+    }
   }
 
   options.blob_cache->EraseUnRefEntries();
 
-  // Cache-only GetBlob
   {
+    // Cache-only GetBlob
     std::vector<PinnableSlice> values(keys.size());
     uint64_t bytes_read = 0;
 
