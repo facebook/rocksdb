@@ -89,6 +89,7 @@ class LevelCompactionBuilder {
   // function will return false.
   bool PickFileToCompact();
 
+  // Return true if a L0 trivial move is picked up.
   bool TryPickL0TrivialMove();
 
   // For L0->L0, picks the longest span of files that aren't currently
