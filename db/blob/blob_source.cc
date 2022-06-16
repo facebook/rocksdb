@@ -154,9 +154,10 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   CachableEntry<Slice> blob_entry;
 
+  Status s;
   if (blob_cache_) {
-    const Status s = MaybeReadBlobFromCache(prefetch_buffer, read_options,
-                                            cache_key, offset, &blob_entry);
+    s = MaybeReadBlobFromCache(prefetch_buffer, read_options, cache_key, offset,
+                               &blob_entry);
 
     if (s.ok() && blob_entry.GetValue() != nullptr) {
       assert(blob_entry.GetValue()->size() == value_size);
@@ -177,17 +178,20 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   // Can't find the blob from the cache. Since I/O is allowed, read from the
   // file.
-  CacheHandleGuard<BlobFileReader> blob_file_reader;
-  blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
-
-  assert(blob_file_reader.GetValue());
-
-  if (compression_type != blob_file_reader.GetValue()->GetCompressionType()) {
-    return Status::Corruption("Compression type mismatch when reading blob");
-  }
-
   {
-    const Status s = blob_file_reader.GetValue()->GetBlob(
+    CacheHandleGuard<BlobFileReader> blob_file_reader;
+    s = blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    if (!s.ok()) {
+      return s;
+    }
+
+    assert(blob_file_reader.GetValue());
+
+    if (compression_type != blob_file_reader.GetValue()->GetCompressionType()) {
+      return Status::Corruption("Compression type mismatch when reading blob");
+    }
+
+    s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
         prefetch_buffer, value, bytes_read);
     if (!s.ok()) {
@@ -199,15 +203,15 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    const Status s =
-        PutBlobIntoCache(key, blob_cache_.get(), &blob_entry, value);
+    s = PutBlobIntoCache(key, blob_cache_.get(), &blob_entry, value);
     if (!s.ok()) {
       return s;
     }
     value->PinSelf(*blob_entry.GetValue());
   }
 
-  return Status::OK();
+  assert(s.ok());
+  return s;
 }
 
 bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
