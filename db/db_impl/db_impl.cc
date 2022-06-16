@@ -1479,8 +1479,8 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     assert(wal.getting_synced);
     if (immutable_db_options_.track_and_verify_wals_in_manifest &&
         wal.writer->file()->GetFileSize() > 0) {
-      size_t tracked_synced_size = std::min(wal.tracked_synced_size_limit,
-                                            wal.writer->file()->GetFileSize());
+      uint64_t tracked_synced_size = std::min(
+          wal.tracked_synced_size_limit, wal.writer->file()->GetFileSize());
       synced_wals.AddWal(wal.number, WalMetadata(tracked_synced_size));
     }
 
@@ -1491,7 +1491,7 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
       it = logs_.erase(it);
     } else {
       wal.getting_synced = false;
-      wal.tracked_synced_size_limit = SIZE_MAX;
+      wal.tracked_synced_size_limit = UINT64_MAX;
       ++it;
     }
   }
