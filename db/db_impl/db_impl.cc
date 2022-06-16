@@ -1398,6 +1398,12 @@ Status DBImpl::SyncWAL() {
       auto& log = *it;
       assert(!log.getting_synced);
       log.getting_synced = true;
+      if (it->number == current_log_number) {
+        // The current log can be appended while we sync it. Such appends are
+        // not necessarily synced so we need to figure out the size guaranteed
+        // to be synced ahead of time.
+        log.tracked_synced_size_limit = log.writer->file()->GetFileSize();
+      }
       logs_to_sync.push_back(log.writer);
     }
 
@@ -1473,8 +1479,9 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     assert(wal.getting_synced);
     if (immutable_db_options_.track_and_verify_wals_in_manifest &&
         wal.writer->file()->GetFileSize() > 0) {
-      synced_wals.AddWal(wal.number,
-                         WalMetadata(wal.writer->file()->GetFileSize()));
+      size_t tracked_synced_size = std::min(tracked_synced_size_limit,
+                                            wal.writer->file()->GetFileSize());
+      synced_wals.AddWal(wal.number, WalMetadata(tracked_synced_size));
     }
 
     if (logs_.size() > 1) {
@@ -1484,6 +1491,7 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
       it = logs_.erase(it);
     } else {
       wal.getting_synced = false;
+      wal.tracked_synced_size_limit = SIZE_MAX;
       ++it;
     }
   }
