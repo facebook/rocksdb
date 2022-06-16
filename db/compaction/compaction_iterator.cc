@@ -1095,8 +1095,7 @@ void CompactionIterator::PrepareOutput() {
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_) {
       if (ikey_.type == kTypeDeletion ||
-          (ikey_.type == kTypeSingleDeletion &&
-           (!timestamp_size_ || !full_history_ts_low_))) {
+          (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(
             info_log_,
             "Unexpected key %s for seq-zero optimization. "
