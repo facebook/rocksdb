@@ -389,6 +389,7 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   }
 
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
+  TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait2", w);
 
   if (!linked_as_leader) {
     /**

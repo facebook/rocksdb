@@ -976,4 +976,8 @@ DEFINE_int32(
     create_timestamped_snapshot_one_in, 0,
     "On non-zero, create timestamped snapshots upon transaction commits.");
 
+DEFINE_bool(allow_data_in_errors,
+            ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
+            "If true, allow logging data, e.g. key, value in LOG files.");
+
 #endif  // GFLAGS
