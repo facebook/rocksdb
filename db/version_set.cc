@@ -2251,7 +2251,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   Status s;
   uint64_t num_index_read = 0;
   uint64_t num_filter_read = 0;
-  uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
   uint64_t num_level_read = 0;
 
@@ -2275,7 +2274,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
                             fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
                             blob_rqs, num_filter_read, num_index_read,
-                            num_data_read, num_sst_read);
+                            num_sst_read);
         if (fp.GetHitFileLevel() == 0) {
           dump_stats_for_l0_file = true;
         }
@@ -2290,7 +2289,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
             read_options, fp.CurrentFileRange(), fp.GetHitFileLevel(),
             fp.IsHitFileLastInLevel(), f, blob_rqs, num_filter_read,
-            num_index_read, num_data_read, num_sst_read));
+            num_index_read, num_sst_read));
         if (fp.KeyMaySpanNextFile()) {
           break;
         }
@@ -2342,7 +2341,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         }
         num_filter_read = 0;
         num_index_read = 0;
-        num_data_read = 0;
         num_sst_read = 0;
       }
       prev_level = fp.GetHitFileLevel();
