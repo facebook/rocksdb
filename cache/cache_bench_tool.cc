@@ -764,7 +764,7 @@ class StressCacheKey {
 
   void RunOnce() {
     // Re-initialized simulated state
-    const size_t db_count = FLAGS_sck_db_count;
+    const size_t db_count = FLAGS_sck_db_count >= 1U ? FLAGS_sck_db_count : 1U;
     dbs_.reset(new TableProperties[db_count]{});
     const size_t table_mask = (size_t{1} << FLAGS_sck_table_bits) - 1;
     table_.reset(new uint64_t[table_mask + 1]{});
