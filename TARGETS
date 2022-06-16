@@ -165,7 +165,6 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "table/adaptive/adaptive_table_factory.cc",
         "table/block_based/binary_search_index_reader.cc",
         "table/block_based/block.cc",
-        "table/block_based/block_based_filter_block.cc",
         "table/block_based/block_based_table_builder.cc",
         "table/block_based/block_based_table_factory.cc",
         "table/block_based/block_based_table_iterator.cc",
@@ -494,7 +493,6 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "table/adaptive/adaptive_table_factory.cc",
         "table/block_based/binary_search_index_reader.cc",
         "table/block_based/block.cc",
-        "table/block_based/block_based_filter_block.cc",
         "table/block_based/block_based_table_builder.cc",
         "table/block_based/block_based_table_factory.cc",
         "table/block_based/block_based_table_iterator.cc",
@@ -4796,12 +4794,6 @@ cpp_unittest_wrapper(name="blob_file_reader_test",
 
 cpp_unittest_wrapper(name="blob_garbage_meter_test",
             srcs=["db/blob/blob_garbage_meter_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
-cpp_unittest_wrapper(name="block_based_filter_block_test",
-            srcs=["table/block_based/block_based_filter_block_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

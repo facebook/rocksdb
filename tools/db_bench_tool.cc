@@ -1605,9 +1605,6 @@ DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
             "instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
-DEFINE_bool(use_block_based_filter, false, "if use kBlockBasedFilter "
-            "instead of kFullFilter for filter block. "
-            "This is valid if only we use BlockTable");
 DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
               " database The possible merge operators are defined in"
@@ -4525,19 +4522,6 @@ class Benchmark {
           table_options->filter_policy = BlockBasedTableOptions().filter_policy;
         } else if (FLAGS_bloom_bits == 0) {
           table_options->filter_policy.reset();
-        } else if (FLAGS_use_block_based_filter) {
-          // Use back-door way of enabling obsolete block-based Bloom
-          Status s = FilterPolicy::CreateFromString(
-              ConfigOptions(),
-              "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
-                  std::to_string(FLAGS_bloom_bits),
-              &table_options->filter_policy);
-          if (!s.ok()) {
-            fprintf(stderr,
-                    "failure creating obsolete block-based filter: %s\n",
-                    s.ToString().c_str());
-            exit(1);
-          }
         } else {
           table_options->filter_policy.reset(
               FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)

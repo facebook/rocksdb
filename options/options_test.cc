@@ -999,21 +999,11 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
 
-  // Back door way of enabling deprecated block-based Bloom
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      config_options, table_opt,
-      "filter_policy=rocksdb.internal.DeprecatedBlockBasedBloomFilter:4",
-      &new_opt));
-  auto builtin =
-      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(builtin->GetId(),
-            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:4");
-
   // Test configuring using other internal names
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.LegacyBloomFilter:3", &new_opt));
-  builtin =
+  auto builtin =
       dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(builtin->GetId(), "rocksdb.internal.LegacyBloomFilter:3");
 

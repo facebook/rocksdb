@@ -38,7 +38,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 class FilterBlockReader;
-class BlockBasedFilterBlockReader;
 class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
@@ -67,7 +66,7 @@ using KVPairBlock = std::vector<std::pair<std::string, std::string>>;
 // loaded blocks in the memory.
 class BlockBasedTable : public TableReader {
  public:
-  static const std::string kFilterBlockPrefix;
+  static const std::string kObsoleteFilterBlockPrefix;
   static const std::string kFullFilterBlockPrefix;
   static const std::string kPartitionedFilterBlockPrefix;
 
@@ -585,7 +584,6 @@ struct BlockBasedTable::Rep {
   enum class FilterType {
     kNoFilter,
     kFullFilter,
-    kBlockFilter,
     kPartitionedFilter,
   };
   FilterType filter_type;

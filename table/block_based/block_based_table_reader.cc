@@ -46,7 +46,6 @@
 #include "rocksdb/trace_record.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block.h"
-#include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_iterator.h"
 #include "table/block_based/block_like_traits.h"
@@ -196,7 +195,6 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
   switch (block_type) {
     case BlockType::kFilter:
     case BlockType::kFilterPartitionIndex:
-    case BlockType::kDeprecatedFilter:
       PERF_COUNTER_ADD(block_cache_filter_hit_count, 1);
 
       if (get_context) {
@@ -255,7 +253,6 @@ void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
   switch (block_type) {
     case BlockType::kFilter:
     case BlockType::kFilterPartitionIndex:
-    case BlockType::kDeprecatedFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_miss;
       } else {
@@ -312,7 +309,6 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
   switch (block_type) {
     case BlockType::kFilter:
     case BlockType::kFilterPartitionIndex:
-    case BlockType::kDeprecatedFilter:
       if (get_context) {
         ++get_context->get_context_stats_.num_cache_filter_add;
         if (redundant) {
@@ -954,7 +950,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
          {std::make_pair(Rep::FilterType::kFullFilter, kFullFilterBlockPrefix),
           std::make_pair(Rep::FilterType::kPartitionedFilter,
                          kPartitionedFilterBlockPrefix),
-          std::make_pair(Rep::FilterType::kBlockFilter, kFilterBlockPrefix)}) {
+          std::make_pair(Rep::FilterType::kNoFilter,
+                         kObsoleteFilterBlockPrefix)}) {
       if (builtin_compatible) {
         // This code is only here to deal with a hiccup in early 7.0.x where
         // there was an unintentional name change in the SST files metadata.
@@ -967,7 +964,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
             test::LegacyBloomFilterPolicy::kClassName(),
             test::FastLocalBloomFilterPolicy::kClassName(),
             test::Standard128RibbonFilterPolicy::kClassName(),
-            DeprecatedBlockBasedBloomFilterPolicy::kClassName(),
+            "rocksdb.internal.DeprecatedBlockBasedBloomFilter",
             BloomFilterPolicy::kClassName(),
             RibbonFilterPolicy::kClassName(),
         };
@@ -985,6 +982,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
               Status s = rep_->filter_handle.DecodeFrom(&v);
               if (s.ok()) {
                 rep_->filter_type = filter_type;
+                if (filter_type == Rep::FilterType::kNoFilter) {
+                  ROCKS_LOG_WARN(rep_->ioptions.logger,
+                                 "Detected obsolete filter type in %s. Read "
+                                 "performance might suffer until DB is fully "
+                                 "re-compacted.",
+                                 rep_->file->file_name().c_str());
+                }
                 break;
               }
             }
@@ -995,6 +999,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         if (FindMetaBlock(meta_iter, filter_block_key, &rep_->filter_handle)
                 .ok()) {
           rep_->filter_type = filter_type;
+          if (filter_type == Rep::FilterType::kNoFilter) {
+            ROCKS_LOG_WARN(
+                rep_->ioptions.logger,
+                "Detected obsolete filter type in %s. Read performance might "
+                "suffer until DB is fully re-compacted.",
+                rep_->file->file_name().c_str());
+          }
           break;
         }
       }
@@ -1459,10 +1470,6 @@ std::unique_ptr<FilterBlockReader> BlockBasedTable::CreateFilterBlockReader(
       return PartitionedFilterBlockReader::Create(
           this, ro, prefetch_buffer, use_cache, prefetch, pin, lookup_context);
 
-    case Rep::FilterType::kBlockFilter:
-      return BlockBasedFilterBlockReader::Create(
-          this, ro, prefetch_buffer, use_cache, prefetch, pin, lookup_context);
-
     case Rep::FilterType::kFullFilter:
       return FullFilterBlockReader::Create(this, ro, prefetch_buffer, use_cache,
                                            prefetch, pin, lookup_context);
@@ -1608,7 +1615,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
               break;
             case BlockType::kFilter:
             case BlockType::kFilterPartitionIndex:
-            case BlockType::kDeprecatedFilter:
               ++get_context->get_context_stats_.num_filter_read;
               break;
             default:
@@ -1649,7 +1655,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         break;
       case BlockType::kFilter:
       case BlockType::kFilterPartitionIndex:
-      case BlockType::kDeprecatedFilter:
         trace_block_type = TraceType::kBlockTraceFilterBlock;
         break;
       case BlockType::kCompressionDictionary:
@@ -1765,7 +1770,6 @@ Status BlockBasedTable::RetrieveBlock(
           break;
         case BlockType::kFilter:
         case BlockType::kFilterPartitionIndex:
-        case BlockType::kDeprecatedFilter:
           ++(get_context->get_context_stats_.num_filter_read);
           break;
         default:
@@ -1889,75 +1893,16 @@ bool BlockBasedTable::PrefixMayMatch(
 
   bool may_match = true;
 
-  // First, try check with full filter
   FilterBlockReader* const filter = rep_->filter.get();
-  bool filter_checked = true;
+  bool filter_checked = false;
   if (filter != nullptr) {
     const bool no_io = read_options.read_tier == kBlockCacheTier;
 
-    if (!filter->IsBlockBased()) {
-      const Slice* const const_ikey_ptr = &internal_key;
-      may_match = filter->RangeMayExist(
-          read_options.iterate_upper_bound, user_key_without_ts,
-          prefix_extractor, rep_->internal_comparator.user_comparator(),
-          const_ikey_ptr, &filter_checked, need_upper_bound_check, no_io,
-          lookup_context);
-    } else {
-      // if prefix_extractor changed for block based filter, skip filter
-      if (need_upper_bound_check) {
-        return true;
-      }
-      auto prefix = prefix_extractor->Transform(user_key_without_ts);
-      InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
-      auto internal_prefix = internal_key_prefix.Encode();
-
-      // To prevent any io operation in this method, we set `read_tier` to make
-      // sure we always read index or filter only when they have already been
-      // loaded to memory.
-      ReadOptions no_io_read_options;
-      no_io_read_options.read_tier = kBlockCacheTier;
-
-      // Then, try find it within each block
-      // we already know prefix_extractor and prefix_extractor_name must match
-      // because `CheckPrefixMayMatch` first checks `check_filter_ == true`
-      std::unique_ptr<InternalIteratorBase<IndexValue>> iiter(NewIndexIterator(
-          no_io_read_options,
-          /*need_upper_bound_check=*/false, /*input_iter=*/nullptr,
-          /*get_context=*/nullptr, lookup_context));
-      iiter->Seek(internal_prefix);
-
-      if (!iiter->Valid()) {
-        // we're past end of file
-        // if it's incomplete, it means that we avoided I/O
-        // and we're not really sure that we're past the end
-        // of the file
-        may_match = iiter->status().IsIncomplete();
-      } else if ((rep_->index_key_includes_seq ? ExtractUserKey(iiter->key())
-                                               : iiter->key())
-                     .starts_with(ExtractUserKey(internal_prefix))) {
-        // we need to check for this subtle case because our only
-        // guarantee is that "the key is a string >= last key in that data
-        // block" according to the doc/table_format.txt spec.
-        //
-        // Suppose iiter->key() starts with the desired prefix; it is not
-        // necessarily the case that the corresponding data block will
-        // contain the prefix, since iiter->key() need not be in the
-        // block.  However, the next data block may contain the prefix, so
-        // we return true to play it safe.
-        may_match = true;
-      } else if (filter->IsBlockBased()) {
-        // iiter->key() does NOT start with the desired prefix.  Because
-        // Seek() finds the first key that is >= the seek target, this
-        // means that iiter->key() > prefix.  Thus, any data blocks coming
-        // after the data block corresponding to iiter->key() cannot
-        // possibly contain the key.  Thus, the corresponding data block
-        // is the only on could potentially contain the prefix.
-        BlockHandle handle = iiter->value().handle;
-        may_match = filter->PrefixMayMatch(
-            prefix, prefix_extractor, handle.offset(), no_io,
-            /*const_key_ptr=*/nullptr, /*get_context=*/nullptr, lookup_context);
-      }
-    }
+    const Slice* const const_ikey_ptr = &internal_key;
+    may_match = filter->RangeMayExist(
+        read_options.iterate_upper_bound, user_key_without_ts, prefix_extractor,
+        rep_->internal_comparator.user_comparator(), const_ikey_ptr,
+        &filter_checked, need_upper_bound_check, no_io, lookup_context);
   }
 
   if (filter_checked) {
@@ -2030,7 +1975,7 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
     FilterBlockReader* filter, const Slice& internal_key, const bool no_io,
     const SliceTransform* prefix_extractor, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) const {
-  if (filter == nullptr || filter->IsBlockBased()) {
+  if (filter == nullptr) {
     return true;
   }
   Slice user_key = ExtractUserKey(internal_key);
@@ -2039,15 +1984,13 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   size_t ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
   Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
   if (rep_->whole_key_filtering) {
-    may_match =
-        filter->KeyMayMatch(user_key_without_ts, prefix_extractor, kNotValid,
-                            no_io, const_ikey_ptr, get_context, lookup_context);
+    may_match = filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
+                                    get_context, lookup_context);
   } else if (!PrefixExtractorChanged(prefix_extractor) &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
-                 prefix_extractor->Transform(user_key_without_ts),
-                 prefix_extractor, kNotValid, no_io, const_ikey_ptr,
-                 get_context, lookup_context)) {
+                 prefix_extractor->Transform(user_key_without_ts), no_io,
+                 const_ikey_ptr, get_context, lookup_context)) {
     // FIXME ^^^: there should be no reason for Get() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
     may_match = false;
@@ -2063,14 +2006,13 @@ void BlockBasedTable::FullFilterKeysMayMatch(
     FilterBlockReader* filter, MultiGetRange* range, const bool no_io,
     const SliceTransform* prefix_extractor,
     BlockCacheLookupContext* lookup_context) const {
-  if (filter == nullptr || filter->IsBlockBased()) {
+  if (filter == nullptr) {
     return;
   }
   uint64_t before_keys = range->KeysLeft();
   assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
-    filter->KeysMayMatch(range, prefix_extractor, kNotValid, no_io,
-                         lookup_context);
+    filter->KeysMayMatch(range, no_io, lookup_context);
     uint64_t after_keys = range->KeysLeft();
     if (after_keys) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE, after_keys);
@@ -2086,8 +2028,7 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   } else if (!PrefixExtractorChanged(prefix_extractor)) {
     // FIXME ^^^: there should be no reason for MultiGet() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
-    filter->PrefixesMayMatch(range, prefix_extractor, kNotValid, false,
-                             lookup_context);
+    filter->PrefixesMayMatch(range, prefix_extractor, false, lookup_context);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
     uint64_t after_keys = range->KeysLeft();
     uint64_t filtered_keys = before_keys - after_keys;
@@ -2151,22 +2092,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       IndexValue v = iiter->value();
-
-      bool not_exist_in_filter =
-          filter != nullptr && filter->IsBlockBased() == true &&
-          !filter->KeyMayMatch(ExtractUserKeyAndStripTimestamp(key, ts_sz),
-                               prefix_extractor, v.handle.offset(), no_io,
-                               /*const_ikey_ptr=*/nullptr, get_context,
-                               &lookup_context);
-
-      if (not_exist_in_filter) {
-        // Not found
-        // TODO: think about interaction with Merge. If a user key cannot
-        // cross one data block, we should be fine.
-        RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
-        PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_useful, 1, rep_->level);
-        break;
-      }
 
       if (!v.first_internal_key.empty() && !skip_filters &&
           UserComparatorWrapper(rep_->internal_comparator.user_comparator())
@@ -2272,7 +2197,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       }
     }
-    if (matched && filter != nullptr && !filter->IsBlockBased()) {
+    if (matched && filter != nullptr) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
       PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                 rep_->level);
@@ -2425,10 +2350,6 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
 
 BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
     const Slice& meta_block_name) {
-  if (meta_block_name.starts_with(kFilterBlockPrefix)) {
-    return BlockType::kDeprecatedFilter;
-  }
-
   if (meta_block_name.starts_with(kFullFilterBlockPrefix)) {
     return BlockType::kFilter;
   }
@@ -2455,6 +2376,11 @@ BlockType BlockBasedTable::GetBlockTypeForMetaBlockByName(
 
   if (meta_block_name == kHashIndexPrefixesMetadataBlock) {
     return BlockType::kHashIndexMetadata;
+  }
+
+  if (meta_block_name.starts_with(kObsoleteFilterBlockPrefix)) {
+    // Obsolete but possible in old files
+    return BlockType::kInvalid;
   }
 
   assert(false);
