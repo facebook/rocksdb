@@ -469,10 +469,6 @@ DEFINE_double(bloom_bits, 10,
               "Bloom filter bits per key. "
               "Negative means use default settings.");
 
-DEFINE_bool(use_block_based_filter, false,
-            "use block based filter"
-            "instead of full filter for block based table");
-
 DEFINE_int32(
     ribbon_starting_level, 999,
     "Use Bloom filter on levels below specified and Ribbon beginning on level "

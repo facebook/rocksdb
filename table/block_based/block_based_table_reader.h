@@ -38,7 +38,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 class FilterBlockReader;
-class BlockBasedFilterBlockReader;
 class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
@@ -585,7 +584,6 @@ struct BlockBasedTable::Rep {
   enum class FilterType {
     kNoFilter,
     kFullFilter,
-    kBlockFilter,
     kPartitionedFilter,
   };
   FilterType filter_type;

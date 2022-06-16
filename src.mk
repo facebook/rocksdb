@@ -156,7 +156,6 @@ LIB_SOURCES =                                                   \
   table/adaptive/adaptive_table_factory.cc                      \
   table/block_based/binary_search_index_reader.cc               \
   table/block_based/block.cc                                    \
-  table/block_based/block_based_filter_block.cc                 \
   table/block_based/block_based_table_builder.cc                \
   table/block_based/block_based_table_factory.cc                \
   table/block_based/block_based_table_iterator.cc               \
@@ -525,7 +524,6 @@ TEST_MAIN_SOURCES =                                                     \
   options/customizable_test.cc                                          \
   options/options_settable_test.cc                                      \
   options/options_test.cc                                               \
-  table/block_based/block_based_filter_block_test.cc                    \
   table/block_based/block_based_table_reader_test.cc                    \
   table/block_based/block_test.cc                                       \
   table/block_based/data_block_hash_index_test.cc                       \
