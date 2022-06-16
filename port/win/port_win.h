@@ -66,6 +66,8 @@ namespace ROCKSDB_NAMESPACE {
 
 #define PREFETCH(addr, rw, locality)
 
+extern const bool kDefaultToAdaptiveMutex;
+
 namespace port {
 
 // "Windows is designed to run on little-endian computer architectures."
@@ -79,7 +81,7 @@ class Mutex {
  public:
   static const char* kName() { return "std::mutex"; }
 
-  explicit Mutex(bool IGNORED_adaptive = false)
+  explicit Mutex(bool IGNORED_adaptive = kDefaultToAdaptiveMutex)
 #ifndef NDEBUG
       : locked_(false)
 #endif
