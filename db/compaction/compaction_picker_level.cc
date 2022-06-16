@@ -89,6 +89,8 @@ class LevelCompactionBuilder {
   // function will return false.
   bool PickFileToCompact();
 
+  bool TryPickL0TrivialMove();
+
   // For L0->L0, picks the longest span of files that aren't currently
   // undergoing compaction for which work-per-deleted-file decreases. The span
   // always starts from the newest L0 file.
@@ -424,25 +426,7 @@ uint32_t LevelCompactionBuilder::GetPathId(
   return p;
 }
 
-bool LevelCompactionBuilder::PickFileToCompact() {
-  // level 0 files are overlapping. So we cannot pick more
-  // than one concurrent compactions at this level. This
-  // could be made better by looking at key-ranges that are
-  // being compacted at level 0.
-  if (start_level_ == 0 &&
-      !compaction_picker_->level0_compactions_in_progress()->empty()) {
-    TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
-    return false;
-  }
-
-  start_level_inputs_.clear();
-  start_level_inputs_.level = start_level_;
-
-  assert(start_level_ >= 0);
-
-  const std::vector<FileMetaData*>& level_files =
-      vstorage_->LevelFiles(start_level_);
-
+bool LevelCompactionBuilder::TryPickL0TrivialMove() {
   if (start_level_ == 0 && mutable_cf_options_.compression_per_level.empty() &&
       !vstorage_->LevelFiles(output_level_).empty() &&
       ioptions_.db_paths.size() <= 1) {
@@ -459,6 +443,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     // We search from the oldest file from the newest. In theory, there are
     // files in the middle can form trivial move too, but it is probably
     // uncommon and we ignore these cases for simplicity.
+    const std::vector<FileMetaData*>& level_files =
+        vstorage_->LevelFiles(start_level_);
+
     InternalKey my_smallest, my_largest;
     for (auto it = level_files.rbegin(); it != level_files.rend(); ++it) {
       CompactionInputFiles output_level_inputs;
@@ -501,6 +488,31 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     is_l0_trivial_move_ = true;
     return true;
   }
+  return false;
+}
+
+bool LevelCompactionBuilder::PickFileToCompact() {
+  // level 0 files are overlapping. So we cannot pick more
+  // than one concurrent compactions at this level. This
+  // could be made better by looking at key-ranges that are
+  // being compacted at level 0.
+  if (start_level_ == 0 &&
+      !compaction_picker_->level0_compactions_in_progress()->empty()) {
+    TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
+    return false;
+  }
+
+  start_level_inputs_.clear();
+  start_level_inputs_.level = start_level_;
+
+  assert(start_level_ >= 0);
+
+  if (TryPickL0TrivialMove()) {
+    return true;
+  }
+
+  const std::vector<FileMetaData*>& level_files =
+      vstorage_->LevelFiles(start_level_);
 
   // Pick the file with the highest score in this level that is not already
   // being compacted.
