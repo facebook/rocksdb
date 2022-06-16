@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Avoid a crash if the IDENTITY file is accidentally truncated to empty. A new DB ID will be written and generated on Open.
+* Add some fixes in async_io which was doing extra prefetching in shorter scans.
 
 ## 7.3.1 (06/08/2022)
 ### Bug Fixes
