@@ -26,8 +26,16 @@ class FilePrefetchBuffer;
 class Slice;
 class IOTracer;
 
+// BlobSource is a class that provides universal access to blobs, regardless of
+// whether they are in the blob cache, secondary cache, or (remote) storage.
+// Depending on user settings, it always fetch blobs from multi-tier cache and
+// storage with minimal cost.
 class BlobSource {
  public:
+  // The Cache* parameter is used to store blob file readers. When it's passed
+  // in, BlobSource will exclusively own cache afterwards. If it's a raw pointer
+  // managed by another shared/unique pointer, the developer must release the
+  // ownership.
   BlobSource(Cache* cache, const ImmutableOptions* immutable_options,
              const FileOptions* file_options, const std::string& db_id,
              const std::string& db_session_id, uint32_t column_family_id,
@@ -49,21 +57,10 @@ class BlobSource {
                         uint64_t offset) const;
 
  private:
-  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
-                              uint64_t offset) const;
-
   Status MaybeReadBlobFromCache(FilePrefetchBuffer* prefetch_buffer,
                                 const ReadOptions& read_options,
                                 const CacheKey& cache_key, uint64_t offset,
                                 CachableEntry<Slice>* blob_entry) const;
-
-  inline Cache::Handle* GetEntryFromCache(Cache* blob_cache, const Slice& key,
-                                          Cache::Priority priority) const;
-
-  inline Status InsertEntryIntoCache(Cache* blob_cache, const Slice& key,
-                                     const Slice* blob, size_t charge,
-                                     Cache::Handle** cache_handle,
-                                     Cache::Priority priority) const;
 
   Status GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
                           CachableEntry<Slice>* blob) const;
@@ -71,6 +68,29 @@ class BlobSource {
   Status PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
                           CachableEntry<Slice>* cached_blob,
                           PinnableSlice* blob) const;
+
+  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
+                              uint64_t offset) const {
+    OffsetableCacheKey base_cache_key =
+        OffsetableCacheKey(db_id_, db_session_id_, file_number, file_size);
+    return base_cache_key.WithOffset(offset);
+  }
+
+  inline Cache::Handle* GetEntryFromCache(Cache* blob_cache, const Slice& key,
+                                          Cache::Priority priority) const {
+    (void)priority;
+    assert(blob_cache);
+    return blob_cache->Lookup(key, statistics_);
+  }
+
+  inline Status InsertEntryIntoCache(Cache* blob_cache, const Slice& key,
+                                     const Slice* blob, size_t charge,
+                                     Cache::Handle** cache_handle,
+                                     Cache::Priority priority) const {
+    return blob_cache->Insert(
+        key, const_cast<void*>(static_cast<const void*>(blob)), charge,
+        nullptr /* deleter */, cache_handle, priority);
+  }
 
   const std::string& db_id_;
   const std::string& db_session_id_;

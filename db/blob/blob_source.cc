@@ -40,7 +40,7 @@ Status BlobSource::MaybeReadBlobFromCache(
 
   // First, try to get the blob from the cache
   //
-  // If either blob cache is enabled, we'll try to read from it.
+  // If blob cache is enabled, we'll try to read from it.
   Status s;
 
   if (blob_cache_ != nullptr) {
@@ -61,23 +61,6 @@ Status BlobSource::MaybeReadBlobFromCache(
   assert(s.ok() || blob_entry->GetValue() == nullptr);
 
   return s;
-}
-
-inline Cache::Handle* BlobSource::GetEntryFromCache(
-    Cache* blob_cache, const Slice& key, Cache::Priority priority) const {
-  (void)priority;
-  assert(blob_cache);
-  return blob_cache->Lookup(key, statistics_);
-}
-
-inline Status BlobSource::InsertEntryIntoCache(Cache* blob_cache,
-                                               const Slice& key,
-                                               const Slice* blob, size_t charge,
-                                               Cache::Handle** cache_handle,
-                                               Cache::Priority priority) const {
-  return blob_cache->Insert(
-      key, const_cast<void*>(static_cast<const void*>(blob)), charge,
-      nullptr /* deleter */, cache_handle, priority);
 }
 
 Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
@@ -124,14 +107,6 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
   }
 
   return s;
-}
-
-inline CacheKey BlobSource::GetCacheKey(uint64_t file_number,
-                                        uint64_t file_size,
-                                        uint64_t offset) const {
-  OffsetableCacheKey base_cache_key =
-      OffsetableCacheKey(db_id_, db_session_id_, file_number, file_size);
-  return base_cache_key.WithOffset(offset);
 }
 
 Status BlobSource::GetBlob(const ReadOptions& read_options,
@@ -217,20 +192,19 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
                                   uint64_t offset) const {
   assert(blob_cache_ != nullptr);
 
-  Cache* const cache = blob_cache_.get();
-  if (cache == nullptr) {
+  if (!blob_cache_) {
     return false;
   }
 
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   const Slice key = cache_key.AsSlice();
 
-  Cache::Handle* const cache_handle = cache->Lookup(key);
+  Cache::Handle* const cache_handle = blob_cache_->Lookup(key);
   if (cache_handle == nullptr) {
     return false;
   }
 
-  cache->Release(cache_handle);
+  blob_cache_->Release(cache_handle);
 
   return true;
 }
