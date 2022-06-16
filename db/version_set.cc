@@ -2296,8 +2296,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         f = fp.GetNextFileInLevel();
       }
       if (mget_tasks.size() > 0) {
-        RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT,
-            mget_tasks.size());
+        RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
         // Collect all results so far
         std::vector<Status> statuses = folly::coro::blockingWait(
             folly::coro::collectAllRange(std::move(mget_tasks))
@@ -2349,7 +2348,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   // Dump stats for most recent level
   if (num_filter_read + num_index_read) {
-    RecordInHistogram(db_statistics_, NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+    RecordInHistogram(db_statistics_,
+                      NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
                       num_index_read + num_filter_read);
   }
   if (num_sst_read) {
@@ -2357,7 +2357,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     num_level_read++;
   }
   if (num_level_read) {
-    RecordInHistogram(db_statistics_, NUM_LEVEL_READ_PER_MULTIGET, num_level_read);
+    RecordInHistogram(db_statistics_, NUM_LEVEL_READ_PER_MULTIGET,
+                      num_level_read);
   }
 
   if (s.ok() && !blob_rqs.empty()) {

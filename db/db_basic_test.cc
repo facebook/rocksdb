@@ -2384,8 +2384,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   HistogramData hist_index_and_filter_blocks;
   HistogramData hist_sst;
 
-  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET,
-                                    &hist_level);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
   options.statistics->histogramData(NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
                                     &hist_index_and_filter_blocks);
   options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
@@ -2410,8 +2409,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   }
   db_->MultiGet(read_opts, handles_[1], kMultiGetBatchSize, &keys[950],
                 values.data(), s.data(), false);
-  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET,
-                                    &hist_level);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
   ASSERT_EQ(hist_level.max, 2);
 }
 
