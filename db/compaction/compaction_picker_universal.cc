@@ -758,7 +758,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSortedRuns(
                         Temperature::kUnknown,
                         /* max_subcompactions */ 0, grandparents,
                         /* is manual */ false, /* trim_ts */ "", score_,
-                        false /* deletion_compaction */, compaction_reason);
+                        false /* deletion_compaction */,
+                        /* all_level_non_overlapping */ false,
+                        compaction_reason);
 }
 
 // Look at overall size amplification. If size amplification
@@ -1083,6 +1085,7 @@ Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
       Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
+      /* all_level_non_overlapping */ false,
       CompactionReason::kUniversalSizeAmplification);
 }
 
@@ -1225,6 +1228,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       Temperature::kUnknown,
       /* max_subcompactions */ 0, grandparents, /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
+      /* all_level_non_overlapping */ false,
       CompactionReason::kFilesMarkedForCompaction);
 }
 
@@ -1300,7 +1304,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
       Temperature::kUnknown,
       /* max_subcompactions */ 0, /* grandparents */ {}, /* is manual */ false,
       /* trim_ts */ "", score_, false /* deletion_compaction */,
-      compaction_reason);
+      /* all_level_non_overlapping */ false, compaction_reason);
 }
 
 Compaction* UniversalCompactionBuilder::PickPeriodicCompaction() {

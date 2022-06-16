@@ -641,7 +641,8 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionOptions(mutable_cf_options, vstorage, output_level),
         Temperature::kUnknown, compact_range_options.max_subcompactions,
         /* grandparents */ {}, /* is manual */ true, trim_ts, /* score */ -1,
-        /* deletion_compaction */ false, CompactionReason::kUnknown,
+        /* deletion_compaction */ false, /* all_level_non_overlapping */ false,
+        CompactionReason::kUnknown,
         compact_range_options.blob_garbage_collection_policy,
         compact_range_options.blob_garbage_collection_age_cutoff);
 
@@ -823,7 +824,8 @@ Compaction* CompactionPicker::CompactRange(
       GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       Temperature::kUnknown, compact_range_options.max_subcompactions,
       std::move(grandparents), /* is manual */ true, trim_ts, /* score */ -1,
-      /* deletion_compaction */ false, CompactionReason::kUnknown,
+      /* deletion_compaction */ false, /* all_level_non_overlapping */ false,
+      CompactionReason::kUnknown,
       compact_range_options.blob_garbage_collection_policy,
       compact_range_options.blob_garbage_collection_age_cutoff);
 
