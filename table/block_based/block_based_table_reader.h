@@ -113,11 +113,11 @@ class BlockBasedTable : public TableReader {
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
 
-  bool PrefixMayMatch(const Slice& internal_key,
-                      const ReadOptions& read_options,
-                      const SliceTransform* options_prefix_extractor,
-                      const bool need_upper_bound_check,
-                      BlockCacheLookupContext* lookup_context) const;
+  bool PrefixRangeMayMatch(const Slice& internal_key,
+                           const ReadOptions& read_options,
+                           const SliceTransform* options_prefix_extractor,
+                           const bool need_upper_bound_check,
+                           BlockCacheLookupContext* lookup_context) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must

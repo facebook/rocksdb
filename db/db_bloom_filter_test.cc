@@ -254,6 +254,15 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 #endif  // ROCKSDB_LITE
 
+    // No bloom on extractor changed, after re-open
+    options.prefix_extractor.reset(NewCappedPrefixTransform(10));
+    Reopen(options);
+    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
+    ASSERT_EQ(
+        3,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+
     get_perf_context()->Reset();
   }
 }
@@ -2763,9 +2772,24 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
-    ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:4"}}));
+    // Same with re-open
+    options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+    Reopen(options);
     {
-      // set back to capped:4 and verify BF is always read
+      Slice upper_bound("abd");
+      ReadOptions read_options;
+      read_options.prefix_same_as_start = true;
+      read_options.iterate_upper_bound = &upper_bound;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      ASSERT_EQ(CountIter(iter, "abc"), 4);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
+                2 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    }
+    // Set back to capped:4 and verify BF is always read
+    options.prefix_extractor.reset(NewCappedPrefixTransform(4));
+    Reopen(options);
+    {
       Slice upper_bound("abd");
       ReadOptions read_options;
       read_options.prefix_same_as_start = true;
@@ -2775,6 +2799,24 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 5);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
     }
+    // Same if there's a problem initally loading prefix transform
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+        [&](void* arg) { *static_cast<bool*>(arg) = true; });
+    SyncPoint::GetInstance()->EnableProcessing();
+    Reopen(options);
+    {
+      Slice upper_bound("abd");
+      ReadOptions read_options;
+      read_options.prefix_same_as_start = true;
+      read_options.iterate_upper_bound = &upper_bound;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      ASSERT_EQ(CountIter(iter, "abc"), 0);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
+                4 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
+    }
+    SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 

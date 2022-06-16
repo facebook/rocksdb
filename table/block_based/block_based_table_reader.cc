@@ -1865,7 +1865,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
 // cache.
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
-bool BlockBasedTable::PrefixMayMatch(
+bool BlockBasedTable::PrefixRangeMayMatch(
     const Slice& internal_key, const ReadOptions& read_options,
     const SliceTransform* options_prefix_extractor,
     const bool need_upper_bound_check,
