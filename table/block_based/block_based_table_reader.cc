@@ -1611,9 +1611,6 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
             case BlockType::kDeprecatedFilter:
               ++get_context->get_context_stats_.num_filter_read;
               break;
-            case BlockType::kData:
-              ++get_context->get_context_stats_.num_data_read;
-              break;
             default:
               break;
           }
@@ -1770,9 +1767,6 @@ Status BlockBasedTable::RetrieveBlock(
         case BlockType::kFilterPartitionIndex:
         case BlockType::kDeprecatedFilter:
           ++(get_context->get_context_stats_.num_filter_read);
-          break;
-        case BlockType::kData:
-          ++(get_context->get_context_stats_.num_data_read);
           break;
         default:
           break;

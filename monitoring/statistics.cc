@@ -226,7 +226,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {LAST_LEVEL_READ_COUNT, "rocksdb.last.level.read.count"},
     {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
     {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
-    {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"}};
+    {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"},
+    {MULTIGET_COROUTINE_COUNT, "rocksdb.multiget.coroutine.count"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},
@@ -287,6 +288,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {POLL_WAIT_MICROS, "rocksdb.poll.wait.micros"},
     {PREFETCHED_BYTES_DISCARDED, "rocksdb.prefetched.bytes.discarded"},
     {MULTIGET_IO_BATCH_SIZE, "rocksdb.multiget.io.batch.size"},
+    {NUM_LEVEL_READ_PER_MULTIGET, "rocksdb.num.level.read.per.multiget"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
