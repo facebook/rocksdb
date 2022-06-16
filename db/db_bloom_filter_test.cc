@@ -2799,7 +2799,6 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     options.prefix_extractor.reset(NewFixedPrefixTransform(3));
     Reopen(options);
     {
-      fprintf(stderr, "New test\n");
       Slice upper_bound("abd");
       ReadOptions read_options;
       read_options.prefix_same_as_start = true;
