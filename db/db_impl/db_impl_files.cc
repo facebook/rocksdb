@@ -252,6 +252,12 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                                job_context->blob_delete_files);
   }
 
+  // Before potentially releasing mutex and waiting on condvar, increment
+  // pending_purge_obsolete_files_ so that another thread executing
+  // `GetSortedWals` will wait until this thread finishes execution since the
+  // other thread will be waiting for `pending_purge_obsolete_files_`.
+  ++pending_purge_obsolete_files_;
+
   // logs_ is empty when called during recovery, in which case there can't yet
   // be any tracked obsolete logs
   if (!alive_log_files_.empty() && !logs_.empty()) {
@@ -308,8 +314,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->logs_to_free = logs_to_free_;
   job_context->log_recycle_files.assign(log_recycle_files_.begin(),
                                         log_recycle_files_.end());
-  if (job_context->HaveSomethingToDelete()) {
-    ++pending_purge_obsolete_files_;
+  if (!job_context->HaveSomethingToDelete()) {
+    --pending_purge_obsolete_files_;
   }
   logs_to_free_.clear();
 }
