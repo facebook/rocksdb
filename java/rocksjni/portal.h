@@ -2079,21 +2079,20 @@ class JniUtil {
      * TODO(AR) could be used for RocksDB->Put etc.
      */
     static std::unique_ptr<ROCKSDB_NAMESPACE::Status> kv_op(
-        std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice,
-                                                ROCKSDB_NAMESPACE::Slice)>
-            op,
-        JNIEnv* env, jobject /*jobj*/, jbyteArray jkey, jint jkey_len,
-        jbyteArray jvalue, jint jvalue_len) {
+        const std::function<ROCKSDB_NAMESPACE::Status(
+            ROCKSDB_NAMESPACE::Slice, ROCKSDB_NAMESPACE::Slice)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_len, jbyteArray jvalue,
+        jint jvalue_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-      if(env->ExceptionCheck()) {
+      if (env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
         return nullptr;
       }
 
       jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
-      if(env->ExceptionCheck()) {
+      if (env->ExceptionCheck()) {
         // exception thrown: OutOfMemoryError
-        if(key != nullptr) {
+        if (key != nullptr) {
           env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
         }
         return nullptr;
@@ -2106,15 +2105,23 @@ class JniUtil {
 
       auto status = op(key_slice, value_slice);
 
-      if(value != nullptr) {
+      if (value != nullptr) {
         env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
       }
-      if(key != nullptr) {
+      if (key != nullptr) {
         env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
       }
 
-      return std::unique_ptr<ROCKSDB_NAMESPACE::Status>(
-          new ROCKSDB_NAMESPACE::Status(status));
+      return std::make_unique<ROCKSDB_NAMESPACE::Status>(status);
+    }
+
+    static void kv_op_with_status_check(
+        const std::function<ROCKSDB_NAMESPACE::Status(
+            ROCKSDB_NAMESPACE::Slice, ROCKSDB_NAMESPACE::Slice)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_len, jbyteArray jvalue,
+        jint jvalue_len) {
+      auto status = kv_op(op, env, jkey, jkey_len, jvalue, jvalue_len);
+      op_status_check(env, status);
     }
 
     /*
@@ -2335,18 +2342,17 @@ class JniUtil {
      * TODO(AR) could be extended to cover returning ROCKSDB_NAMESPACE::Status
      * from `op` and used for RocksDB->Put etc.
      */
-    static void kv_op_direct(std::function<void(ROCKSDB_NAMESPACE::Slice&,
-                                                ROCKSDB_NAMESPACE::Slice&)>
-                                 op,
-                             JNIEnv* env, jobject jkey, jint jkey_off,
-                             jint jkey_len, jobject jval, jint jval_off,
-                             jint jval_len) {
+    static std::unique_ptr<ROCKSDB_NAMESPACE::Status> kv_op_direct(
+        const std::function<ROCKSDB_NAMESPACE::Status(
+            ROCKSDB_NAMESPACE::Slice&, ROCKSDB_NAMESPACE::Slice&)>& op,
+        JNIEnv* env, jobject jkey, jint jkey_off, jint jkey_len, jobject jval,
+        jint jval_off, jint jval_len) {
       char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
       if (key == nullptr ||
           env->GetDirectBufferCapacity(jkey) < (jkey_off + jkey_len)) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env, "Invalid key argument");
-        return;
+        return nullptr;
       }
 
       char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
@@ -2354,7 +2360,7 @@ class JniUtil {
           env->GetDirectBufferCapacity(jval) < (jval_off + jval_len)) {
         ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
             env, "Invalid value argument");
-        return;
+        return nullptr;
       }
 
       key += jkey_off;
@@ -2363,7 +2369,18 @@ class JniUtil {
       ROCKSDB_NAMESPACE::Slice key_slice(key, jkey_len);
       ROCKSDB_NAMESPACE::Slice value_slice(value, jval_len);
 
-      op(key_slice, value_slice);
+      auto status = op(key_slice, value_slice);
+      return std::make_unique<ROCKSDB_NAMESPACE::Status>(status);
+    }
+
+    static void kv_op_direct_with_status_check(const std::function<ROCKSDB_NAMESPACE::Status(ROCKSDB_NAMESPACE::Slice&,
+                                                                        ROCKSDB_NAMESPACE::Slice&)>&
+                                                   op,
+                                               JNIEnv* env, jobject jkey, jint jkey_off,
+                                               jint jkey_len, jobject jval, jint jval_off,
+                                               jint jval_len) {
+      auto status = kv_op_direct(op, env, jkey, jkey_off, jkey_len, jval, jval_off, jval_len);
+      op_status_check(env, status);
     }
 
     /*

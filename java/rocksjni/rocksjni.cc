@@ -683,7 +683,7 @@ void Java_org_rocksdb_RocksDB_putDirect(
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
-  auto put = [&env, &db, &cf_handle, &write_options](
+  auto put = [&db, &cf_handle, &write_options](
                  ROCKSDB_NAMESPACE::Slice& key,
                  ROCKSDB_NAMESPACE::Slice& value) {
     ROCKSDB_NAMESPACE::Status s;
@@ -692,13 +692,10 @@ void Java_org_rocksdb_RocksDB_putDirect(
     } else {
       s = db->Put(*write_options, cf_handle, key, value);
     }
-    if (s.ok()) {
-      return;
-    }
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+    return s;
   };
-  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct(put, env, jkey, jkey_off, jkey_len,
-                                           jval, jval_off, jval_len);
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_with_status_check(
+      put, env, jkey, jkey_off, jkey_len, jval, jval_off, jval_len);
 }
 
 //////////////////////////////////////////////////////////////////////////////
