@@ -2252,8 +2252,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   Status s;
   uint64_t num_index_read = 0;
   uint64_t num_filter_read = 0;
-  uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
+  uint64_t num_level_read = 0;
 
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
   // blob_file => [[blob_idx, it], ...]
@@ -2275,7 +2275,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
                             fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
                             blob_rqs, num_filter_read, num_index_read,
-                            num_data_read, num_sst_read);
+                            num_sst_read);
         if (fp.GetHitFileLevel() == 0) {
           dump_stats_for_l0_file = true;
         }
@@ -2290,13 +2290,14 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
             read_options, fp.CurrentFileRange(), fp.GetHitFileLevel(),
             fp.IsHitFileLastInLevel(), f, blob_rqs, num_filter_read,
-            num_index_read, num_data_read, num_sst_read));
+            num_index_read, num_sst_read));
         if (fp.KeyMaySpanNextFile()) {
           break;
         }
         f = fp.GetNextFileInLevel();
       }
       if (mget_tasks.size() > 0) {
+        RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
         // Collect all results so far
         std::vector<Status> statuses = folly::coro::blockingWait(
             folly::coro::collectAllRange(std::move(mget_tasks))
@@ -2328,18 +2329,18 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           (prev_level != 0 && prev_level != (int)fp.GetHitFileLevel())) {
         // Dump the stats if the search has moved to the next level and
         // reset for next level.
-        if (num_sst_read || (num_filter_read + num_index_read)) {
+        if (num_filter_read + num_index_read) {
           RecordInHistogram(db_statistics_,
                             NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
                             num_index_read + num_filter_read);
-          RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                            num_data_read);
+        }
+        if (num_sst_read) {
           RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL,
                             num_sst_read);
+          num_level_read++;
         }
         num_filter_read = 0;
         num_index_read = 0;
-        num_data_read = 0;
         num_sst_read = 0;
       }
       prev_level = fp.GetHitFileLevel();
@@ -2347,11 +2348,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
 
   // Dump stats for most recent level
-  RecordInHistogram(db_statistics_, NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                    num_index_read + num_filter_read);
-  RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                    num_data_read);
-  RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+  if (num_filter_read + num_index_read) {
+    RecordInHistogram(db_statistics_,
+                      NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                      num_index_read + num_filter_read);
+  }
+  if (num_sst_read) {
+    RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+    num_level_read++;
+  }
+  if (num_level_read) {
+    RecordInHistogram(db_statistics_, NUM_LEVEL_READ_PER_MULTIGET,
+                      num_level_read);
+  }
 
   if (s.ok() && !blob_rqs.empty()) {
     MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);

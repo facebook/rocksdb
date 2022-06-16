@@ -1646,11 +1646,19 @@ static const bool FLAGS_readwritepercent_dummy __attribute__((__unused__)) =
 DEFINE_int32(disable_seek_compaction, false,
              "Not used, left here for backwards compatibility");
 
+DEFINE_bool(allow_data_in_errors,
+            ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
+            "If true, allow logging data, e.g. key, value in LOG files.");
+
 static const bool FLAGS_deletepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_deletepercent, &ValidateInt32Percent);
 static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
                           &ValidateTableCacheNumshardbits);
+
+DEFINE_uint32(write_batch_protection_bytes_per_key, 0,
+              "Size of per-key-value checksum in each write batch. Currently "
+              "only value 0 and 8 are supported.");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -2380,13 +2388,14 @@ class CombinedStats {
 
     if (throughput_mbs_.size() == throughput_ops_.size()) {
       fprintf(stdout,
-              "%s [AVG %d runs] : %d (± %d) ops/sec; %6.1f (± %.1f) MB/sec\n",
+              "%s [AVG %d runs] : %d (\xC2\xB1 %d) ops/sec; %6.1f (\xC2\xB1 "
+              "%.1f) MB/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)),
               CalcAvg(throughput_mbs_), CalcConfidence95(throughput_mbs_));
     } else {
-      fprintf(stdout, "%s [AVG %d runs] : %d (± %d) ops/sec\n", name, num_runs,
-              static_cast<int>(CalcAvg(throughput_ops_)),
+      fprintf(stdout, "%s [AVG %d runs] : %d (\xC2\xB1 %d) ops/sec\n", name,
+              num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)));
     }
   }
@@ -2427,8 +2436,10 @@ class CombinedStats {
     int num_runs = static_cast<int>(throughput_ops_.size());
 
     if (throughput_mbs_.size() == throughput_ops_.size()) {
+      // \xC2\xB1 is +/- character in UTF-8
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d (± %d) ops/sec; %6.1f (± %.1f) MB/sec\n"
+              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec; %6.1f (\xC2\xB1 "
+              "%.1f) MB/sec\n"
               "%s [MEDIAN %d runs] : %d ops/sec; %6.1f MB/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)),
@@ -2437,7 +2448,7 @@ class CombinedStats {
               CalcMedian(throughput_mbs_));
     } else {
       fprintf(stdout,
-              "%s [AVG    %d runs] : %d (± %d) ops/sec\n"
+              "%s [AVG    %d runs] : %d (\xC2\xB1 %d) ops/sec\n"
               "%s [MEDIAN %d runs] : %d ops/sec\n",
               name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
               static_cast<int>(CalcConfidence95(throughput_ops_)), name,
@@ -4450,6 +4461,8 @@ class Benchmark {
       options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     }
 
+    options.allow_data_in_errors = FLAGS_allow_data_in_errors;
+
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;
     options.min_blob_size = FLAGS_min_blob_size;
@@ -4477,7 +4490,6 @@ class Benchmark {
       exit(1);
     }
 #endif  // ROCKSDB_LITE
-
   }
 
   void InitializeOptionsGeneral(Options* opts) {
@@ -4905,7 +4917,8 @@ class Benchmark {
 
     RandomGenerator gen;
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
+                     FLAGS_write_batch_protection_bytes_per_key,
+                     user_timestamp_size_);
     Status s;
     int64_t bytes = 0;
 
@@ -6694,7 +6707,8 @@ class Benchmark {
 
   void DoDelete(ThreadState* thread, bool seq) {
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
+                     FLAGS_write_batch_protection_bytes_per_key,
+                     user_timestamp_size_);
     Duration duration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
@@ -6894,7 +6908,8 @@ class Benchmark {
     std::string keys[3];
 
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     /*protection_bytes_per_key=*/0, user_timestamp_size_);
+                     FLAGS_write_batch_protection_bytes_per_key,
+                     user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
@@ -6926,7 +6941,7 @@ class Benchmark {
     std::string suffixes[3] = {"1", "2", "0"};
     std::string keys[3];
 
-    WriteBatch batch(0, 0, /*protection_bytes_per_key=*/0,
+    WriteBatch batch(0, 0, FLAGS_write_batch_protection_bytes_per_key,
                      user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {

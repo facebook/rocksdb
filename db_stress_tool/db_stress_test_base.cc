@@ -2931,6 +2931,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);
   }
+
+  options.allow_data_in_errors = FLAGS_allow_data_in_errors;
 }
 
 void InitializeOptionsGeneral(

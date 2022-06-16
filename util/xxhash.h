@@ -13,6 +13,7 @@
 #include "port/lang.h" // for FALLTHROUGH_INTENDED, inserted as appropriate
 /* END RocksDB customizations */
 
+// clang-format off
 /*
  * xxHash - Extremely Fast Hash algorithm
  * Header File
@@ -3673,7 +3674,7 @@ XXH3_initCustomSecret_avx512(void* XXH_RESTRICT customSecret, xxh_u64 seed64)
         int i;
         for (i=0; i < nbRounds; ++i) {
             /* GCC has a bug, _mm512_stream_load_si512 accepts 'void*', not 'void const*',
-             * this will warn "discards ‘const’ qualifier". */
+             * this will warn "discards 'const' qualifier". */
             union {
                 XXH_ALIGN(64) const __m512i* cp;
                 XXH_ALIGN(64) void* p;
