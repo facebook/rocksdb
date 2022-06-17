@@ -1599,10 +1599,10 @@ class DBImpl : public DB {
     log::Writer* writer;  // own
     // true for some prefix of logs_
     bool getting_synced = false;
-    // This can be used to limit the synced size tracked in MANIFEST. It is
-    // useful for files that undergo append during sync, in which case the file
-    // size at tracking time is not necessarily all synced.
-    uint64_t tracked_synced_size_limit = UINT64_MAX;
+    // The size of the file before the sync happens. This amount is guaranteed
+    // to be persisted even if appends happen during sync so it can be used for
+    // tracking the synced size in MANIFEST.
+    uint64_t pre_sync_size = 0;
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in

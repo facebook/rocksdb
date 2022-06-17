@@ -1192,6 +1192,9 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
       // Note: there does not seem to be a reason to set this early before we
       // actually write to the WAL
       log.getting_synced = true;
+      // Size is expected to be monotonically increasing.
+      assert(log.writer->file()->GetFileSize() >= log.pre_sync_size);
+      log.pre_sync_size = log.writer->file()->GetFileSize();
     }
   } else {
     *need_log_sync = false;

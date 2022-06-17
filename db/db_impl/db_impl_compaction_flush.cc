@@ -96,6 +96,9 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     auto& log = *it;
     assert(!log.getting_synced);
     log.getting_synced = true;
+    // Size is expected to be monotonically increasing.
+    assert(log.writer->file()->GetFileSize() >= log.pre_sync_size);
+    log.pre_sync_size = log.writer->file()->GetFileSize();
     logs_to_sync.push_back(log.writer);
   }
 
