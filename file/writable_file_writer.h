@@ -143,7 +143,7 @@ class WritableFileWriter {
   // Actually written data size can be used for truncate
   // not counting padding data
   std::atomic<uint64_t> filesize_;
-  uint64_t flushed_size_;
+  std::atomic<uint64_t> flushed_size_;
 #ifndef ROCKSDB_LITE
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
@@ -261,7 +261,9 @@ class WritableFileWriter {
     return filesize_.load(std::memory_order_acquire);
   }
 
-  uint64_t GetFlushedSize() const { return flushed_size_; }
+  uint64_t GetFlushedSize() const {
+    return flushed_size_.load(std::memory_order_acquire);
+  }
 
   IOStatus InvalidateCache(size_t offset, size_t length) {
     return writable_file_->InvalidateCache(offset, length);
