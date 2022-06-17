@@ -9,7 +9,6 @@
 #include <string>
 
 #include "db/blob/blob_file_reader.h"
-#include "file/file_prefetch_buffer.h"
 #include "options/cf_options.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -85,12 +84,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
                            FilePrefetchBuffer* prefetch_buffer,
                            PinnableSlice* value, uint64_t* bytes_read) {
   assert(value);
-
-  const uint64_t key_size = user_key.size();
-
-  if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
-    return Status::Corruption("Invalid blob offset");
-  }
 
   Status s;
 

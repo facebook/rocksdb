@@ -10,21 +10,16 @@
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "db/blob/blob_file_cache.h"
-#include "db/blob/blob_log_format.h"
+#include "include/rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class Cache;
 struct ImmutableOptions;
-struct FileOptions;
-class HistogramImpl;
 class Status;
-class BlobFileReader;
 class FilePrefetchBuffer;
 class Slice;
-class IOTracer;
 
 // BlobSource is a class that provides universal access to blobs, regardless of
 // whether they are in the blob cache, secondary cache, or (remote) storage.
