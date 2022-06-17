@@ -585,6 +585,7 @@ IOStatus WritableFileWriter::WriteBuffered(
 
     left -= allowed;
     src += allowed;
+    flushed_size_ += allowed;
   }
   buf_.Size(0);
   buffered_data_crc32c_checksum_ = 0;
@@ -675,6 +676,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
   // the corresponding checksum value
   buf_.Size(0);
   buffered_data_crc32c_checksum_ = 0;
+  flushed_size_ += left;
   return s;
 }
 
@@ -782,6 +784,7 @@ IOStatus WritableFileWriter::WriteDirect(
     left -= size;
     src += size;
     write_offset += size;
+    flushed_size_ += size;
     assert((next_write_offset_ % alignment) == 0);
   }
 
@@ -884,6 +887,7 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
 
   IOSTATS_ADD(bytes_written, left);
   assert((next_write_offset_ % alignment) == 0);
+  flushed_size_ += left;
 
   if (s.ok()) {
     // Move the tail to the beginning of the buffer

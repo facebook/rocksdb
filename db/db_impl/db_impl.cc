@@ -1400,8 +1400,8 @@ Status DBImpl::SyncWAL() {
       assert(!log.getting_synced);
       log.getting_synced = true;
       // Size is expected to be monotonically increasing.
-      assert(log.writer->file()->GetFileSize() >= log.pre_sync_size);
-      log.pre_sync_size = log.writer->file()->GetFileSize();
+      assert(log.writer->file()->GetFlushedSize() >= log.pre_sync_size);
+      log.pre_sync_size = log.writer->file()->GetFlushedSize();
       logs_to_sync.push_back(log.writer);
     }
 
@@ -1476,7 +1476,7 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     auto& wal = *it;
     assert(wal.getting_synced);
     if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.writer->file()->GetFileSize() > 0) {
+        wal.writer->file()->GetFlushedSize() > 0) {
       synced_wals.AddWal(wal.number, WalMetadata(wal.pre_sync_size));
     }
 
