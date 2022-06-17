@@ -261,9 +261,7 @@ class WritableFileWriter {
     return filesize_.load(std::memory_order_acquire);
   }
 
-  uint64_t GetFlushedSize() const {
-    return flushed_size_;
-  }
+  uint64_t GetFlushedSize() const { return flushed_size_; }
 
   IOStatus InvalidateCache(size_t offset, size_t length) {
     return writable_file_->InvalidateCache(offset, length);
