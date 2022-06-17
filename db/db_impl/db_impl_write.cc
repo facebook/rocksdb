@@ -106,15 +106,31 @@ void DBImpl::SetRecoverableStatePreReleaseCallback(
 }
 
 Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
-  return WriteImpl(write_options, my_batch, /*callback=*/nullptr,
-                   /*log_used=*/nullptr);
+  Status s;
+  if (write_options.protection_bytes_per_key > 0) {
+    s = WriteBatchInternal::UpdateProtectionInfo(
+        my_batch, write_options.protection_bytes_per_key);
+  }
+  if (s.ok()) {
+    s = WriteImpl(write_options, my_batch, /*callback=*/nullptr,
+                  /*log_used=*/nullptr);
+  }
+  return s;
 }
 
 #ifndef ROCKSDB_LITE
 Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
                                  WriteBatch* my_batch,
                                  WriteCallback* callback) {
-  return WriteImpl(write_options, my_batch, callback, nullptr);
+  Status s;
+  if (write_options.protection_bytes_per_key > 0) {
+    s = WriteBatchInternal::UpdateProtectionInfo(
+        my_batch, write_options.protection_bytes_per_key);
+  }
+  if (s.ok()) {
+    s = WriteImpl(write_options, my_batch, callback, nullptr);
+  }
+  return s;
 }
 #endif  // ROCKSDB_LITE
 
@@ -129,6 +145,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          PreReleaseCallback* pre_release_callback,
                          PostMemTableCallback* post_memtable_callback) {
   assert(!seq_per_batch_ || batch_cnt != 0);
+  assert(my_batch == nullptr || my_batch->Count() == 0 ||
+         write_options.protection_bytes_per_key == 0 ||
+         write_options.protection_bytes_per_key ==
+             my_batch->GetProtectionBytesPerKey());
   if (my_batch == nullptr) {
     return Status::InvalidArgument("Batch is nullptr!");
   } else if (!disable_memtable &&
@@ -156,6 +176,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         "rate-limiting automatic WAL flush, which requires "
         "`WriteOptions::disableWAL` and "
         "`DBOptions::manual_wal_flush` both set to false");
+  } else if (write_options.protection_bytes_per_key != 0 &&
+             write_options.protection_bytes_per_key != 8) {
+    return Status::InvalidArgument(
+        "`WriteOptions::protection_bytes_per_key` must be zero or eight");
   }
   // TODO: this use of operator bool on `tracer_` can avoid unnecessary lock
   // grabs but does not seem thread-safe.
@@ -2188,7 +2212,8 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   // Pre-allocate size of write batch conservatively.
   // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
   // and we allocate 11 extra bytes for key length, as well as value length.
-  WriteBatch batch(key.size() + value.size() + 24);
+  WriteBatch batch(key.size() + value.size() + 24, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key, 0 /* default_cf_ts_sz */);
   Status s = batch.Put(column_family, key, value);
   if (!s.ok()) {
     return s;
@@ -2202,7 +2227,9 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   assert(default_cf);
   const Comparator* const default_cf_ucmp = default_cf->GetComparator();
   assert(default_cf_ucmp);
-  WriteBatch batch(0, 0, 0, default_cf_ucmp->timestamp_size());
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
   Status s = batch.Put(column_family, key, ts, value);
   if (!s.ok()) {
     return s;
@@ -2212,7 +2239,8 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key) {
-  WriteBatch batch;
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key, 0 /* default_cf_ts_sz */);
   Status s = batch.Delete(column_family, key);
   if (!s.ok()) {
     return s;
@@ -2226,7 +2254,9 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   assert(default_cf);
   const Comparator* const default_cf_ucmp = default_cf->GetComparator();
   assert(default_cf_ucmp);
-  WriteBatch batch(0, 0, 0, default_cf_ucmp->timestamp_size());
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
   Status s = batch.Delete(column_family, key, ts);
   if (!s.ok()) {
     return s;
@@ -2236,7 +2266,8 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key) {
-  WriteBatch batch;
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key, 0 /* default_cf_ts_sz */);
   Status s = batch.SingleDelete(column_family, key);
   if (!s.ok()) {
     return s;
@@ -2251,7 +2282,9 @@ Status DB::SingleDelete(const WriteOptions& opt,
   assert(default_cf);
   const Comparator* const default_cf_ucmp = default_cf->GetComparator();
   assert(default_cf_ucmp);
-  WriteBatch batch(0, 0, 0, default_cf_ucmp->timestamp_size());
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
   Status s = batch.SingleDelete(column_family, key, ts);
   if (!s.ok()) {
     return s;
@@ -2262,7 +2295,8 @@ Status DB::SingleDelete(const WriteOptions& opt,
 Status DB::DeleteRange(const WriteOptions& opt,
                        ColumnFamilyHandle* column_family,
                        const Slice& begin_key, const Slice& end_key) {
-  WriteBatch batch;
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key, 0 /* default_cf_ts_sz */);
   Status s = batch.DeleteRange(column_family, begin_key, end_key);
   if (!s.ok()) {
     return s;
@@ -2272,7 +2306,8 @@ Status DB::DeleteRange(const WriteOptions& opt,
 
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
-  WriteBatch batch;
+  WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                   opt.protection_bytes_per_key, 0 /* default_cf_ts_sz */);
   Status s = batch.Merge(column_family, key, value);
   if (!s.ok()) {
     return s;

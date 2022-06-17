@@ -236,6 +236,8 @@ class WriteBatchInternal {
   static bool HasKeyWithTimestamp(const WriteBatch& wb) {
     return wb.has_key_with_ts_;
   }
+
+  static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key);
 };
 
 // LocalSavePoint is similar to a scope guard

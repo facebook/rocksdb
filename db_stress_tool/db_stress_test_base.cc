@@ -617,6 +617,7 @@ void StressTest::OperateDb(ThreadState* thread) {
     write_opts.sync = true;
   }
   write_opts.disableWAL = FLAGS_disable_wal;
+  write_opts.protection_bytes_per_key = FLAGS_batch_protection_bytes_per_key;
   const int prefix_bound = static_cast<int>(FLAGS_readpercent) +
                            static_cast<int>(FLAGS_prefixpercent);
   const int write_bound = prefix_bound + static_cast<int>(FLAGS_writepercent);

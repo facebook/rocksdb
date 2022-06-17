@@ -59,7 +59,9 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
   for (auto it = rtxn->batches_.rbegin(); it != rtxn->batches_.rend(); ++it) {
     auto last_visible_txn = it->first - 1;
     const auto& batch = it->second.batch_;
-    WriteBatch rollback_batch;
+    WriteBatch rollback_batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                              w_options.protection_bytes_per_key,
+                              0 /* default_cf_ts_sz */);
 
     struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
       DBImpl* db_;
