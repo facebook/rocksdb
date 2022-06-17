@@ -183,7 +183,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
       strict_capacity_limit_(strict_capacity_limit),
       table_(
           GetHashBits(capacity, estimated_value_size, metadata_charge_policy) +
-          ceil(log2(1.0 / kLoadFactor))),
+          static_cast<uint8_t>(ceil(log2(1.0 / kLoadFactor)))),
       usage_(0),
       lru_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);

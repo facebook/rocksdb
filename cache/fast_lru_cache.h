@@ -22,7 +22,7 @@
 constexpr uint8_t kCacheKeySize =
     static_cast<uint8_t>(sizeof(ROCKSDB_NAMESPACE::CacheKey));
 
-constexpr float kLoadFactor = 0.7;
+constexpr double kLoadFactor = 0.7;
 
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
 constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
