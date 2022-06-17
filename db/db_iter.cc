@@ -207,6 +207,16 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   return true;
 }
 
+bool DBIter::SetWideColumnEntityValueIfNeeded(
+    const Slice& /* wide_column_entity */) {
+  assert(!is_blob_);
+
+  // TODO: support wide-column entities
+  status_ = Status::Corruption("Encountered unexpected wide-column entity");
+  valid_ = false;
+  return false;
+}
+
 // PRE: saved_key_ has the current user key if skipping_saved_key
 // POST: saved_key_ should have the next user key if valid_,
 //       if the current entry is a result of merge
@@ -341,11 +351,16 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             break;
           case kTypeValue:
           case kTypeBlobIndex:
+          case kTypeWideColumnEntity:
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
 
               if (ikey_.type == kTypeBlobIndex) {
                 if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  return false;
+                }
+              } else if (ikey_.type == kTypeWideColumnEntity) {
+                if (!SetWideColumnEntityValueIfNeeded(iter_.value())) {
                   return false;
                 }
               }
@@ -367,6 +382,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               } else {
                 if (ikey_.type == kTypeBlobIndex) {
                   if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
+                } else if (ikey_.type == kTypeWideColumnEntity) {
+                  if (!SetWideColumnEntityValueIfNeeded(iter_.value())) {
                     return false;
                   }
                 }
@@ -533,7 +552,7 @@ bool DBIter::MergeValuesNewToOld() {
       return false;
     }
 
-    if (kTypeValue == ikey.type) {
+    if (kTypeValue == ikey.type || kTypeWideColumnEntity == ikey.type) {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
@@ -783,7 +802,8 @@ bool DBIter::FindValueForCurrentKey() {
   merge_context_.Clear();
   current_entry_is_merged_ = false;
   // last entry before merge (could be kTypeDeletion,
-  // kTypeDeletionWithTimestamp, kTypeSingleDeletion or kTypeValue)
+  // kTypeDeletionWithTimestamp, kTypeSingleDeletion, kTypeValue,
+  // kTypeBlobIndex, or kTypeWideColumnEntity)
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
@@ -831,6 +851,7 @@ bool DBIter::FindValueForCurrentKey() {
     switch (last_key_entry_type) {
       case kTypeValue:
       case kTypeBlobIndex:
+      case kTypeWideColumnEntity:
         if (range_del_agg_.ShouldDelete(
                 ikey, RangeDelPositioningMode::kBackwardTraversal)) {
           last_key_entry_type = kTypeRangeDeletion;
@@ -928,7 +949,8 @@ bool DBIter::FindValueForCurrentKey() {
         is_blob_ = false;
         return true;
       } else {
-        assert(last_not_merge_type == kTypeValue);
+        assert(last_not_merge_type == kTypeValue ||
+               last_not_merge_type == kTypeWideColumnEntity);
         s = Merge(&pinned_value_, saved_key_.GetUserKey());
         if (!s.ok()) {
           return false;
@@ -941,6 +963,11 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     case kTypeBlobIndex:
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
+        return false;
+      }
+      break;
+    case kTypeWideColumnEntity:
+      if (!SetWideColumnEntityValueIfNeeded(pinned_value_)) {
         return false;
       }
       break;
@@ -1034,11 +1061,16 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     Slice ts = ExtractTimestampFromUserKey(ikey.user_key, timestamp_size_);
     saved_timestamp_.assign(ts.data(), ts.size());
   }
-  if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
+  if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex ||
+      ikey.type == kTypeWideColumnEntity) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
     if (ikey.type == kTypeBlobIndex) {
       if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
+        return false;
+      }
+    } else if (ikey_.type == kTypeWideColumnEntity) {
+      if (!SetWideColumnEntityValueIfNeeded(pinned_value_)) {
         return false;
       }
     }
@@ -1080,7 +1112,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       return false;
     }
 
-    if (ikey.type == kTypeValue) {
+    if (ikey.type == kTypeValue || ikey.type == kTypeWideColumnEntity) {
       const Slice val = iter_.value();
       Status s = Merge(&val, saved_key_.GetUserKey());
       if (!s.ok()) {

@@ -298,6 +298,8 @@ class DBIter final : public Iterator {
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
 
+  bool SetWideColumnEntityValueIfNeeded(const Slice& wide_column_entity);
+
   Status Merge(const Slice* val, const Slice& user_key);
 
   const SliceTransform* prefix_extractor_;
