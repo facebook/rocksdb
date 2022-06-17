@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <string>
 
 #include "blob_file_cache.h"
@@ -174,12 +175,12 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  BlobFileCache* blob_file_cache = new BlobFileCache(
+  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
       backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/);
+      blob_file_read_hist, nullptr /*IOTracer*/));
 
   BlobSource blob_source(&immutable_options, db_id, db_session_id,
-                         blob_file_cache);
+                         blob_file_cache.get());
 
   ReadOptions read_options;
   read_options.verify_checksums = true;

@@ -26,21 +26,20 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
 
 BlobSource::~BlobSource() = default;
 
-Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
+Status BlobSource::GetBlobFromCache(const Slice& cache_key,
                                     CachableEntry<std::string>* blob) const {
   assert(blob);
   assert(blob->IsEmpty());
+  assert(blob_cache_);
+  assert(!cache_key.empty());
 
-  if (blob_cache != nullptr) {
-    assert(!cache_key.empty());
-    Cache::Handle* cache_handle = nullptr;
-    cache_handle = GetEntryFromCache(blob_cache, cache_key);
-    if (cache_handle != nullptr) {
-      blob->SetCachedValue(
-          static_cast<std::string*>(blob_cache->Value(cache_handle)),
-          blob_cache, cache_handle);
-      return Status::OK();
-    }
+  Cache::Handle* cache_handle = nullptr;
+  cache_handle = GetEntryFromCache(cache_key);
+  if (cache_handle != nullptr) {
+    blob->SetCachedValue(
+        static_cast<std::string*>(blob_cache_->Value(cache_handle)),
+        blob_cache_.get(), cache_handle);
+    return Status::OK();
   }
 
   assert(blob->IsEmpty());
@@ -48,31 +47,31 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
   return Status::NotFound("Blob record not found in cache");
 }
 
-Status BlobSource::PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
+Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
                                     CachableEntry<std::string>* cached_blob,
                                     PinnableSlice* blob) const {
   assert(blob);
   assert(!cache_key.empty());
-
-  const Cache::Priority priority = Cache::Priority::LOW;
+  assert(blob_cache_);
 
   Status s;
+  const Cache::Priority priority = Cache::Priority::LOW;
 
-  if (blob_cache != nullptr) {
-    // Objects to be put into the cache have to be heap-allocated and
-    // self-contained, i.e. own their contents. The Cache has to be able to take
-    // unique ownership of them. Therefore, we copy the blob into a string
-    // directly, and insert that into the cache.
-    std::string* buf = new std::string();
-    buf->assign(blob->data(), blob->size());
+  // Objects to be put into the cache have to be heap-allocated and
+  // self-contained, i.e. own their contents. The Cache has to be able to take
+  // unique ownership of them. Therefore, we copy the blob into a string
+  // directly, and insert that into the cache.
+  std::string* buf = new std::string();
+  buf->assign(blob->data(), blob->size());
 
-    Cache::Handle* cache_handle = nullptr;
-    s = InsertEntryIntoCache(blob_cache, cache_key, buf, buf->size(),
-                             &cache_handle, priority);
-    if (s.ok()) {
-      assert(cache_handle != nullptr);
-      cached_blob->SetCachedValue(buf, blob_cache, cache_handle);
-    }
+  // TODO: support custom allocators and provide a better estimated memory
+  // usage using malloc_usable_size.
+  Cache::Handle* cache_handle = nullptr;
+  s = InsertEntryIntoCache(cache_key, buf, buf->size(), &cache_handle,
+                           priority);
+  if (s.ok()) {
+    assert(cache_handle != nullptr);
+    cached_blob->SetCachedValue(buf, blob_cache_.get(), cache_handle);
   }
 
   return s;
@@ -93,6 +92,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     return Status::Corruption("Invalid blob offset");
   }
 
+  Status s;
+
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
 
   CachableEntry<std::string> blob_entry;
@@ -100,28 +101,15 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   // First, try to get the blob from the cache
   //
   // If blob cache is enabled, we'll try to read from it.
-  Status s;
   if (blob_cache_) {
     Slice key = cache_key.AsSlice();
-    s = GetBlobFromCache(key, blob_cache_.get(), &blob_entry);
-    if (blob_entry.GetValue()) {
-      if (prefetch_buffer) {
-        // Update the blob details so that PrefetchBuffer can use the read
-        // pattern to determine if reads are sequential or not for prefetching.
-        // It should also take in account blob read from cache.
-        prefetch_buffer->UpdateReadPattern(offset,
-                                           blob_entry.GetValue()->size(),
-                                           false /* decrease_readahead_size */);
-      }
-    }
-
-    if (s.ok() && blob_entry.GetValue() != nullptr) {
+    s = GetBlobFromCache(key, &blob_entry);
+    if (s.ok() && blob_entry.GetValue()) {
       assert(blob_entry.GetValue()->size() == value_size);
       if (bytes_read) {
         *bytes_read = value_size;
       }
-      value->GetSelf()->swap(*blob_entry.GetValue());
-      value->PinSelf();
+      value->PinSelf(*blob_entry.GetValue());
       return s;
     }
   }
@@ -160,7 +148,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    s = PutBlobIntoCache(key, blob_cache_.get(), &blob_entry, value);
+    s = PutBlobIntoCache(key, &blob_entry, value);
     if (!s.ok()) {
       return s;
     }
@@ -176,7 +164,7 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   const Slice key = cache_key.AsSlice();
 
   CachableEntry<std::string> blob_entry;
-  const Status s = GetBlobFromCache(key, blob_cache_.get(), &blob_entry);
+  const Status s = GetBlobFromCache(key, &blob_entry);
 
   if (s.ok() && blob_entry.GetValue() != nullptr) {
     return true;

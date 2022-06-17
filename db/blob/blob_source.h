@@ -32,10 +32,6 @@ class IOTracer;
 // storage with minimal cost.
 class BlobSource {
  public:
-  // The BlobFileCache* parameter is used to store blob file readers. When it's
-  // passed in, BlobSource will exclusively own cache afterwards. If it's a raw
-  // pointer managed by another shared/unique pointer, the developer must
-  // release the ownership.
   BlobSource(const ImmutableOptions* immutable_options,
              const std::string& db_id, const std::string& db_session_id,
              BlobFileCache* blob_file_cache);
@@ -55,33 +51,31 @@ class BlobSource {
                         uint64_t offset) const;
 
  private:
-  Status GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
+  Status GetBlobFromCache(const Slice& cache_key,
                           CachableEntry<std::string>* blob) const;
 
-  Status PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
+  Status PutBlobIntoCache(const Slice& cache_key,
                           CachableEntry<std::string>* cached_blob,
                           PinnableSlice* blob) const;
 
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
                               uint64_t offset) const {
-    OffsetableCacheKey base_cache_key =
-        OffsetableCacheKey(db_id_, db_session_id_, file_number, file_size);
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
+                                      file_size);
     return base_cache_key.WithOffset(offset);
   }
 
-  inline Cache::Handle* GetEntryFromCache(Cache* blob_cache,
-                                          const Slice& key) const {
-    assert(blob_cache);
-    return blob_cache->Lookup(key, statistics_);
+  inline Cache::Handle* GetEntryFromCache(const Slice& key) const {
+    return blob_cache_->Lookup(key, statistics_);
   }
 
-  inline Status InsertEntryIntoCache(Cache* blob_cache, const Slice& key,
-                                     const std::string* value, size_t charge,
+  inline Status InsertEntryIntoCache(const Slice& key, std::string* value,
+                                     size_t charge,
                                      Cache::Handle** cache_handle,
                                      Cache::Priority priority) const {
-    return blob_cache->Insert(
-        key, const_cast<void*>(static_cast<const void*>(value)), charge,
-        &DeleteCacheEntry<std::string>, cache_handle, priority);
+    return blob_cache_->Insert(key, value, charge,
+                               &DeleteCacheEntry<std::string>, cache_handle,
+                               priority);
   }
 
   const std::string db_id_;
@@ -90,7 +84,7 @@ class BlobSource {
   Statistics* statistics_;
 
   // A cache to store blob file reader.
-  std::unique_ptr<BlobFileCache> blob_file_cache_;
+  BlobFileCache* blob_file_cache_;
 
   // A cache to store uncompressed blobs.
   std::shared_ptr<Cache> blob_cache_;
