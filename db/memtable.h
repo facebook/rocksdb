@@ -274,7 +274,7 @@ class MemTable {
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback);
 
-  // If `key` exists in current memtable with type `kTypeValue` and the existing
+  // If `key` exists in current memtable with type value_type and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
   // adds the new value to the memtable out-of-place.
   //
@@ -285,15 +285,15 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
   Status Update(SequenceNumber seq, const Slice& key, const Slice& value,
-                const ProtectionInfoKVOS64* kv_prot_info);
+                ValueType value_type, const ProtectionInfoKVOS64* kv_prot_info);
 
-  // If `key` exists in current memtable with type `kTypeValue` and the existing
+  // If `key` exists in current memtable with type value_type and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
-  // if `key` exists in current memtable with type `kTypeValue`, adds the new
+  // if `key` exists in current memtable with type value_type, adds the new
   // value to the memtable out-of-place.
   //
   // Returns `Status::NotFound` if `key` does not exist in current memtable or
-  // the latest version of `key` does not have `kTypeValue`.
+  // the latest version of `key` does not have type value_type.
   //
   // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
   // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
@@ -302,7 +302,7 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
   Status UpdateCallback(SequenceNumber seq, const Slice& key,
-                        const Slice& delta,
+                        const Slice& delta, ValueType value_type,
                         const ProtectionInfoKVOS64* kv_prot_info);
 
   // Returns the number of successive merge entries starting from the newest
