@@ -28,15 +28,18 @@ namespace fast_lru_cache {
 
 namespace {
 // Returns x % 2^{bits}.
-inline uint32_t BinaryMod(uint32_t x, uint32_t bits) {
+inline uint32_t BinaryMod(uint32_t x, uint8_t bits) {
+  assert(bits <= 32);
   return (x << (32 - bits)) >> (32 - bits);
 }
 }  // anonymous namespace
 
-LRUHandleTable::LRUHandleTable(int hash_bits)
+LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
     : length_bits_(hash_bits),
       occupancy_(0),
-      array_(new LRUHandle[size_t{1} << length_bits_]) {}
+      array_(new LRUHandle[size_t{1} << length_bits_]) {
+  assert(hash_bits <= 32);
+}
 
 LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange(
@@ -155,9 +158,9 @@ int LRUHandleTable::FindSlot(const Slice& key,
                              std::function<bool(LRUHandle*)> cond, int& probe,
                              int displacement) {
   uint32_t base =
-      BinaryMod(Hash(key.data(), key.size(), 0xbc9f1d34), length_bits_);
+      BinaryMod(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
   uint32_t increment = BinaryMod(
-      (Hash(key.data(), key.size(), 0x7a2bb9d5) << 1) | 1, length_bits_);
+      (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
   uint32_t current = BinaryMod(base + probe * increment, length_bits_);
   while (1) {
     LRUHandle* e = &array_[current];
@@ -283,7 +286,7 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
-int LRUCacheShard::GetHashBits(
+uint8_t LRUCacheShard::GetHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
   LRUHandle e;
@@ -294,7 +297,7 @@ int LRUCacheShard::GetHashBits(
 
   e.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
   size_t num_entries = capacity / e.total_charge;
-  int num_hash_bits = 0;
+  uint8_t num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
   }
@@ -513,7 +516,7 @@ size_t LRUCacheShard::GetPinnedUsage() const {
 std::string LRUCacheShard::GetPrintableOptions() const { return std::string{}; }
 
 LRUCache::LRUCache(size_t capacity, size_t estimated_value_size,
-                   int num_shard_bits, bool strict_capacity_limit,
+                   uint8_t num_shard_bits, bool strict_capacity_limit,
                    CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   // // We must enforce strict capacity requirement, or else insertions
@@ -591,8 +594,8 @@ std::shared_ptr<Cache> NewFastLRUCache(
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<fast_lru_cache::LRUCache>(
-      capacity, estimated_value_size, num_shard_bits, strict_capacity_limit,
-      metadata_charge_policy);
+      capacity, estimated_value_size, static_cast<uint8_t>(num_shard_bits),
+      strict_capacity_limit, metadata_charge_policy);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -24,6 +24,9 @@ constexpr uint8_t kCacheKeySize =
 
 constexpr float kLoadFactor = 0.7;
 
+constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
+constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
+
 namespace ROCKSDB_NAMESPACE {
 namespace fast_lru_cache {
 
@@ -154,7 +157,7 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  explicit LRUHandleTable(int hash_bits);
+  explicit LRUHandleTable(uint8_t hash_bits);
   ~LRUHandleTable();
 
   // Returns a pointer to the handle matching the key/hash, or nullptr
@@ -183,7 +186,7 @@ class LRUHandleTable {
     }
   }
 
-  int GetLengthBits() const { return length_bits_; }
+  uint8_t GetLengthBits() const { return length_bits_; }
 
   uint32_t GetOccupancy() const { return occupancy_; }
 
@@ -210,10 +213,11 @@ class LRUHandleTable {
   int FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond,
                int& probe, int displacement);
 
-  // Number of hash bits (upper because lower bits used for sharding)
-  // used for table index. Length == 1 << length_bits_
-  int length_bits_;
+  // Number of hash bits used for table index.
+  // The size of the table is 1 << length_bits_.
+  uint8_t length_bits_;
 
+  // Number of elements in the table.
   uint32_t occupancy_;
 
   std::unique_ptr<LRUHandle[]> array_;
@@ -293,10 +297,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
-  // Returns the number of bits used to hash an element in the per-shard
+  // Returns the number of bits used to hash an element in the hash
   // table.
-  static int GetHashBits(size_t capacity, size_t estimated_value_size,
-                         CacheMetadataChargePolicy metadata_charge_policy);
+  static uint8_t GetHashBits(size_t capacity, size_t estimated_value_size,
+                             CacheMetadataChargePolicy metadata_charge_policy);
 
   // Initialized before use.
   size_t capacity_;
@@ -343,7 +347,7 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
-  LRUCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
+  LRUCache(size_t capacity, size_t estimated_value_size, uint8_t num_shard_bits,
            bool strict_capacity_limit,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata);
