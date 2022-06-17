@@ -261,6 +261,10 @@ class WritableFileWriter {
     return filesize_.load(std::memory_order_acquire);
   }
 
+  // Returns the size of data flushed to the underlying `FSWritableFile`.
+  // Expected to match `writable_file()->GetFileSize()`.
+  // The return value can serve as a lower-bound for the amount of data synced
+  // by a future call to `SyncWithoutFlush()`.
   uint64_t GetFlushedSize() const {
     return flushed_size_.load(std::memory_order_acquire);
   }
