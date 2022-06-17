@@ -176,7 +176,7 @@ int LRUHandleTable::FindSlot(const Slice& key,
 LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
                              bool strict_capacity_limit,
                              CacheMetadataChargePolicy metadata_charge_policy)
-    : capacity_(0),
+    : capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       table_(
           GetHashBits(capacity, estimated_value_size, metadata_charge_policy) +
@@ -188,7 +188,6 @@ LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
   lru_.next = &lru_;
   lru_.prev = &lru_;
   lru_low_pri_ = &lru_;
-  SetCapacity(capacity);
 }
 
 void LRUCacheShard::EraseUnRefEntries() {
@@ -303,6 +302,8 @@ int LRUCacheShard::GetHashBits(
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
+  assert(false);  // Not supported.
+  // TODO(Guido) Add support?
   autovector<LRUHandle*> last_reference_list;
   {
     MutexLock l(&mutex_);
@@ -351,16 +352,16 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
         table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
-      // The new occupancy check is there to avoid some bad situations, due to
-      // the support of
-      //  non-strict capacity limit and capacity adjustments:
+      // The new occupancy check is there to avoid some bad states, because
+      // the user can insert elements beyond capacity (strict_capacity_limit ==
+      // false) as well as adjust capacity (SetCapacity function):
       //  - If the strict_capacity_limit == false and the user provides a
-      //  handle, the old code
+      //    handle, the old code
       //    forced the insert. But in our closed-address hash table we can't
       //    insert if the table occupancy is maximum.
       //  - When the capacity is adjusted, we currently don't rebuild the table.
-      //  So an insert
-      //    may pass the shard usage check, regardless of the table occupancy.
+      //    So an insert may pass the shard usage check, regardless of the table
+      //    occupancy.
       // Unfortunately, the tests currently set strict_capacity_limit = false,
       // so we can't just disable it here.
       if (handle == nullptr) {
