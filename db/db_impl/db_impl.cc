@@ -1337,6 +1337,7 @@ Status DBImpl::FlushWAL(bool sync) {
 }
 
 Status DBImpl::SyncWAL() {
+  TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
   autovector<log::Writer*, 1> logs_to_sync;
   bool need_log_dir_sync;
   uint64_t current_log_number;
@@ -1349,7 +1350,7 @@ Status DBImpl::SyncWAL() {
     current_log_number = logfile_number_;
 
     while (logs_.front().number <= current_log_number &&
-           logs_.front().getting_synced) {
+           logs_.front().IsSyncing()) {
       log_sync_cv_.Wait();
     }
     // First check that logs are safe to sync in background.
@@ -1366,8 +1367,7 @@ Status DBImpl::SyncWAL() {
     for (auto it = logs_.begin();
          it != logs_.end() && it->number <= current_log_number; ++it) {
       auto& log = *it;
-      assert(!log.getting_synced);
-      log.getting_synced = true;
+      log.PrepareForSync();
       logs_to_sync.push_back(log.writer);
     }
 
@@ -1440,11 +1440,10 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
-    assert(wal.getting_synced);
+    assert(wal.IsSyncing());
     if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.writer->file()->GetFileSize() > 0) {
-      synced_wals.AddWal(wal.number,
-                         WalMetadata(wal.writer->file()->GetFileSize()));
+        wal.GetPreSyncSize() > 0) {
+      synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
     }
 
     if (logs_.size() > 1) {
@@ -1453,12 +1452,12 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
       InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
-      wal.getting_synced = false;
+      wal.FinishSync();
       ++it;
     }
   }
   assert(logs_.empty() || logs_[0].number > up_to ||
-         (logs_.size() == 1 && !logs_[0].getting_synced));
+         (logs_.size() == 1 && !logs_[0].IsSyncing()));
 
   Status s;
   if (synced_wals.IsWalAddition()) {
@@ -1478,8 +1477,7 @@ void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
-    assert(wal.getting_synced);
-    wal.getting_synced = false;
+    wal.FinishSync();
   }
   log_sync_cv_.SignalAll();
 }

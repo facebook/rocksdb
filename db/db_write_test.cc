@@ -334,6 +334,41 @@ TEST_P(DBWriteTest, ManualWalFlushInEffect) {
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
 }
 
+TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
+  // Repro race condition bug where unflushed WAL data extended the synced size
+  // recorded to MANIFEST despite being unrecoverable.
+  Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_env.get();
+  options.manual_wal_flush = true;
+  options.track_and_verify_wals_in_manifest = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "val1"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWAL:Begin",
+      [this](void* /* arg */) { ASSERT_OK(Put("key2", "val2")); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->FlushWAL(true /* sync */));
+
+  // Ensure callback ran.
+  ASSERT_EQ("val2", Get("key2"));
+
+  Close();
+
+  // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
+  // DB WAL.
+  fault_env->DropUnsyncedFileData();
+
+  Reopen(options);
+
+  // Need to close before `fault_env` goes out of scope.
+  Close();
+}
+
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
       new FaultInjectionTestEnv(env_));
