@@ -116,7 +116,8 @@ struct LRUHandle {
     return total_charge - meta_charge;
   }
 
-  // A handle can represent 3 different things: an empty slot, a tombstone, or an actual element.
+  // A handle can represent 3 different things: an empty slot, a tombstone, or
+  // an actual element.
   inline bool IsEmpty() {
     return !this->IsElement() && this->displacements == 0;
   }
@@ -126,7 +127,8 @@ struct LRUHandle {
   }
 
   inline bool Matches(const Slice& some_key, uint32_t some_hash) {
-    return this->IsElement() && this->hash == some_hash && this->key() == some_key;
+    return this->IsElement() && this->hash == some_hash &&
+           this->key() == some_key;
   }
 };
 
@@ -154,7 +156,7 @@ class LRUHandleTable {
 
   void Exclude(LRUHandle* e);
 
-  void Assign(int slot, LRUHandle *src);
+  void Assign(int slot, LRUHandle* src);
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end) {
@@ -171,13 +173,16 @@ class LRUHandleTable {
   uint32_t GetOccupancy() const { return occupancy_; }
 
  private:
-  int FindElement(const Slice& key, uint32_t hash, int& probe, int displacement);
+  int FindElement(const Slice& key, uint32_t hash, int& probe,
+                  int displacement);
 
-  int FindPresentElement(const Slice& key, uint32_t hash, int& probe, int displacement);
+  int FindPresentElement(const Slice& key, uint32_t hash, int& probe,
+                         int displacement);
 
   int FindAvailableSlot(const Slice& key, int& probe, int displacement);
 
-  int FindPresentElementOrAvailableSlot(const Slice& key, uint32_t hash, int& probe, int displacement);
+  int FindPresentElementOrAvailableSlot(const Slice& key, uint32_t hash,
+                                        int& probe, int displacement);
 
   // Returns the index of the first probe that contains a handle e
   // such that cond(e) is true.  If the probe sequence ends without
@@ -187,7 +192,8 @@ class LRUHandleTable {
   // matching slot, we update e->displacements += displacement.
   // The variable probe is updated such that consecutive calls to
   // FindSlot use every probe number, without repetition.
-  int FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond, int& probe, int displacement);
+  int FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond,
+               int& probe, int displacement);
 
   // Number of hash bits (upper because lower bits used for sharding)
   // used for table index. Length == 1 << length_bits_
