@@ -168,6 +168,16 @@ commands:
           command: |
             echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
             echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
+  setup-folly:
+    steps:
+      - run:
+          name: Install folly dependencies
+          command: |
+            sudo apt-get install libgoogle-glog-dev
+      - run:
+          name: Checkout folly sources
+          command: |
+            make checkout_folly
 
   build-for-benchmarks:
     steps:
@@ -442,7 +452,7 @@ jobs:
       - pre-steps
       - install-gflags
       - upgrade-cmake
-      - run: make checkout_folly
+      - setup-folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
@@ -477,7 +487,7 @@ jobs:
     steps:
       - pre-steps
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
-      - run: make checkout_folly
+      - setup-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
 
@@ -532,7 +542,7 @@ jobs:
       - pre-steps
       - install-clang-13
       - install-gflags
-      - run: make checkout_folly
+      - setup-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 

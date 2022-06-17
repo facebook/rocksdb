@@ -374,9 +374,13 @@ TEST_LIB_SOURCES =                                              \
 
 FOLLY_SOURCES =                                                 \
   $(FOLLY_DIR)/folly/container/detail/F14Table.cpp              \
+  $(FOLLY_DIR)/folly/detail/Futex.cpp                           \
   $(FOLLY_DIR)/folly/lang/SafeAssert.cpp                        \
   $(FOLLY_DIR)/folly/lang/ToAscii.cpp                           \
   $(FOLLY_DIR)/folly/ScopeGuard.cpp                             \
+  $(FOLLY_DIR)/folly/synchronization/AtomicNotification.cpp     \
+  $(FOLLY_DIR)/folly/synchronization/DistributedMutex.cpp       \
+  $(FOLLY_DIR)/folly/synchronization/ParkingLot.cpp             \
 
 TOOLS_MAIN_SOURCES =                                                    \
   db_stress_tool/db_stress.cc                                           \

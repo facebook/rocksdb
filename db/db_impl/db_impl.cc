@@ -101,6 +101,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
+#include "util/distributed_mutex.h"
 #include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -145,6 +146,8 @@ void DumpSupportInfo(Logger* logger) {
   }
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
                    crc32c::IsFastCrc32Supported().c_str());
+
+  ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
 }
 }  // namespace
 

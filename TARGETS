@@ -334,6 +334,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "//folly/experimental/coro:collect",
         "//folly/experimental/coro:coroutine",
         "//folly/experimental/coro:task",
+        "//folly/synchronization:distributed_mutex",
     ], headers=None, link_whole=False, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
@@ -662,6 +663,7 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "//folly/experimental/coro:collect",
         "//folly/experimental/coro:coroutine",
         "//folly/experimental/coro:task",
+        "//folly/synchronization:distributed_mutex",
     ], headers=None, link_whole=True, extra_test_libs=False)
 
 cpp_library_wrapper(name="rocksdb_test_lib", srcs=[

@@ -42,6 +42,9 @@
 * Removed support for reading Bloom filters using obsolete block-based filter format. (Support for writing such filters was dropped in 7.0.) For good read performance on old DBs using these filters, a full compaction is required.
 * Per KV checksum in write batch is verified before a write batch is written to WAL to detect any corruption to the write batch (#10114).
 
+### Performance Improvements
+* When compiled with folly (Meta-internal integration; experimental in open source build), improve the locking performance (CPU efficiency) of LRUCache by using folly DistributedMutex in place of standard mutex.
+
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
 * Fixed a bug where manual flush would block forever even though flush options had wait=false.
