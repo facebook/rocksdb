@@ -25,7 +25,8 @@ ManifestReader::~ManifestReader() {}
 // Extract all the live files needed by this MANIFEST file
 //
 Status ManifestReader::GetLiveFiles(const std::string bucket_path,
-                                    std::set<uint64_t>* list) {
+                                    std::set<uint64_t>* list,
+                                    std::string* epoch) {
   Status s;
   std::unique_ptr<CloudManifest> cloud_manifest;
   {
@@ -44,6 +45,7 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
       return s;
     }
   }
+  *epoch = cloud_manifest->GetCurrentEpoch().ToString();
   std::unique_ptr<SequentialFileReader> file_reader;
   {
     auto manifestFile = ManifestFileWithEpoch(

@@ -24,7 +24,14 @@ class ManifestReader {
   virtual ~ManifestReader();
 
   // Retrieve all live files referred to by this bucket path
-  Status GetLiveFiles(const std::string bucket_path, std::set<uint64_t>* list);
+  Status GetLiveFiles(const std::string bucket_path, std::set<uint64_t>* list) {
+    std::string epoch;
+    return GetLiveFiles(bucket_path, list, &epoch);
+  }
+
+  // Retrive all live files and epoch
+  Status GetLiveFiles(const std::string bucket_path, std::set<uint64_t>* list,
+                      std::string* epoch);
 
   static Status GetMaxFileNumberFromManifest(Env* env, const std::string& fname,
                                              uint64_t* maxFileNumber);

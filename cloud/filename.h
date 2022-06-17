@@ -89,6 +89,7 @@ inline std::string ManifestFileWithEpoch(const std::string& dbname,
                        : (dbname + "/MANIFEST-" + epoch);
 }
 
+
 inline std::string RemoveEpoch(const std::string& path) {
   auto lastDash = path.rfind('-');
   if (lastDash == std::string::npos) {
