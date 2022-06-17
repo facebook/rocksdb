@@ -46,8 +46,7 @@ struct LRUHandle {
   uint8_t flags;
 
   // Number of elements that hash to this slot or a lower one,
-  // but ended up in a higher slot. This field is managed
-  // by the hash table, but not the shard.
+  // but wind up in a higher slot.
   uint32_t displacements;
 
   char key_data[KEY_LENGTH];
