@@ -530,6 +530,11 @@ class CloudEnv : public Env {
   // Files both in S3 and in the local directory have this [epoch] suffix.
   virtual std::string RemapFilename(const std::string& logical_name) const = 0;
 
+  // return the list of live files under object path
+  virtual Status FindAllLiveFiles(const std::string& object_path,
+                                  std::vector<std::string>* live_sst_files,
+                                  std::string* manifest_file);
+
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from
   // src_object_prefix: all db objects in source bucket are prepended with this

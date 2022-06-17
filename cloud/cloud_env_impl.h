@@ -27,11 +27,11 @@ class CloudEnvImpl : public CloudEnv {
   // Constructor
   CloudEnvImpl(const CloudEnvOptions& options, Env* base_env,
                const std::shared_ptr<Logger>& logger);
-  
+
   virtual ~CloudEnvImpl();
-  static const char *kClassName() { return kCloud(); }
+  static const char* kClassName() { return kCloud(); }
   virtual const char* Name() const override { return kClassName(); }
-  
+
   Status NewSequentialFile(const std::string& fname,
                            std::unique_ptr<SequentialFile>* result,
                            const EnvOptions& options) override;
@@ -173,6 +173,9 @@ class CloudEnvImpl : public CloudEnv {
                            std::vector<std::string>* pathnames);
   Status FindObsoleteDbid(const std::string& bucket_name_prefix,
                           std::vector<std::string>* dbids);
+  Status FindAllLiveFiles(const std::string& bucket_name_prefix,
+                          std::vector<std::string>* live_sst_files,
+                          std::string* manifest_file) override;
   Status extractParents(const std::string& bucket_name_prefix,
                         const DbidList& dbid_list, DbidParents* parents);
   Status PreloadCloudManifest(const std::string& local_dbname) override;
@@ -251,7 +254,6 @@ class CloudEnvImpl : public CloudEnv {
     std::lock_guard<std::mutex> lk(files_to_delete_mutex_);
     file_deletion_delay_ = delay;
   }
-
 
   Status PrepareOptions(const ConfigOptions& config_options) override;
   Status ValidateOptions(const DBOptions& /*db_opts*/,
