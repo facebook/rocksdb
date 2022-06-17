@@ -120,9 +120,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       if (bytes_read) {
         *bytes_read = value_size;
       }
-      std::string* buf = value->GetSelf();
-      buf = blob_entry.GetValue();
-      (void)buf;
+      value->GetSelf()->swap(*blob_entry.GetValue());
       value->PinSelf();
       return s;
     }

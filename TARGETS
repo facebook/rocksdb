@@ -4806,12 +4806,6 @@ cpp_unittest_wrapper(name="blob_source_test",
             extra_compiler_flags=[])
 
 
-cpp_unittest_wrapper(name="block_based_filter_block_test",
-            srcs=["table/block_based/block_based_filter_block_test.cc"],
-            deps=[":rocksdb_test_lib"],
-            extra_compiler_flags=[])
-
-
 cpp_unittest_wrapper(name="block_based_table_reader_test",
             srcs=["table/block_based/block_based_table_reader_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5886,3 +5880,4 @@ cpp_unittest_wrapper(name="write_unprepared_transaction_test",
             srcs=["utilities/transactions/write_unprepared_transaction_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
+
