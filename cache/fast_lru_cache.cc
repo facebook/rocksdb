@@ -8,27 +8,38 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "cache/fast_lru_cache.h"
+#include <math.h>
 
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
 #include "util/mutexlock.h"
+#include "util/hash.h"
 
-#define KEY_LENGTH \
-  16  // TODO(guido) Make use of this symbol in other parts of the source code
-      // (e.g., cache_key.h, cache_test.cc, etc.)
+#define LOAD_FACTOR 0.7
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace fast_lru_cache {
 
+namespace {
+  // Returns x % 2^{bits}.
+  inline uint32_t BinaryMod(uint32_t x, uint32_t bits) {
+    return (x << (32 - bits)) >> (32 - bits);
+  }
+}
+
 LRUHandleTable::LRUHandleTable(int hash_bits)
     : length_bits_(hash_bits),
-      list_(new LRUHandle* [size_t{1} << length_bits_] {}) {}
+      occupancy_(0),
+      array_(new LRUHandle[size_t{1} << length_bits_]) {
+  std::memset(array_, 0, (size_t{1} << length_bits_) * sizeof(LRUHandle));
+}
 
 LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange(
@@ -41,36 +52,122 @@ LRUHandleTable::~LRUHandleTable() {
 }
 
 LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
-  return *FindPointer(key, hash);
+  int probe = 0;
+  int slot = FindPresentElement(key, hash, probe, 0);
+  return (slot == -1) ? nullptr : &array_[slot];
 }
 
-inline LRUHandle** LRUHandleTable::Head(uint32_t hash) {
-  return &list_[hash >> (32 - length_bits_)];
-}
+LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
+  int probe = 0;
+  int slot = FindPresentElementOrAvailableSlot(h->key(), h->hash, probe, 1 /*displacement*/);
+  *old = nullptr;
+  if (slot == -1) {
+    return nullptr;
+  }
 
-LRUHandle* LRUHandleTable::Insert(LRUHandle* h) {
-  LRUHandle** ptr = FindPointer(h->key(), h->hash);
-  LRUHandle* old = *ptr;
-  h->next_hash = (old == nullptr ? nullptr : old->next_hash);
-  *ptr = h;
-  return old;
+  if (array_[slot].IsEmpty() || array_[slot].IsTombstone()) {
+    bool empty = array_[slot].IsEmpty();
+    Assign(slot, h);
+    LRUHandle* new_entry = &array_[slot];
+    if (empty) {
+      // This used to be an empty slot.
+      return new_entry;
+    }
+    // It used to be a tombstone, so there may already be a copy of the
+    // key in the table.
+    slot = FindElement(h->key(), h->hash, probe, 0 /*displacement*/);
+    if (slot == -1) {
+      // No existing copy of the key.
+      return new_entry;
+    }
+    *old = &array_[slot];
+    return new_entry;
+  } else {
+    // There is an existing copy of the key.
+    *old = &array_[slot];
+    // Find an available slot for the new element.
+    array_[slot].displacements++;
+    slot = FindAvailableSlot(h->key(), probe, 1 /*displacement*/);
+    if (slot == -1) {
+      return nullptr;
+    }
+    Assign(slot, h);
+    return &array_[slot];
+  }
 }
 
 LRUHandle* LRUHandleTable::Remove(const Slice& key, uint32_t hash) {
-  LRUHandle** ptr = FindPointer(key, hash);
-  LRUHandle* result = *ptr;
-  if (result != nullptr) {
-    *ptr = result->next_hash;
+  int probe = 0;
+  int slot = FindElement(key, hash, probe, -1 /*displacement*/);
+  if (slot == -1) {
+    assert(false);
+    // Remove assumes the element is in the table.
   }
-  return result;
+  LRUHandle *e = &array_[slot];
+  e->SetIsElement(false);
+  e->SetIsPresent(false);
+  occupancy_--;
+  return e;
 }
 
-LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
-  LRUHandle** ptr = &list_[hash >> (32 - length_bits_)];
-  while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
-    ptr = &(*ptr)->next_hash;
+void LRUHandleTable::Assign(int slot, LRUHandle* src)  {
+  LRUHandle* dst = &array_[slot];
+  uint32_t disp = dst->displacements;
+  memcpy(dst, src, sizeof(LRUHandle));
+  dst->displacements = disp;
+  dst->SetIsPresent(true);
+  dst->SetIsElement(true);
+  occupancy_++;
+}
+
+void LRUHandleTable::Exclude(LRUHandle* e) {
+  e->SetIsPresent(false);
+}
+
+int LRUHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe, int displacement) {
+  std::function<bool(LRUHandle*)> cond = [&, key, hash](LRUHandle* e){
+    return e->Matches(key, hash) && e->IsElement();
+  };
+  return FindSlot(key, cond, probe, displacement);
+}
+
+int LRUHandleTable::FindPresentElement(const Slice& key, uint32_t hash, int& probe, int displacement) {
+  std::function<bool(LRUHandle*)> cond = [&, key, hash](LRUHandle* e){
+    return e->Matches(key, hash) && e->IsPresent();
+  };
+  return FindSlot(key, cond, probe, displacement);
+}
+
+int LRUHandleTable::FindAvailableSlot(const Slice& key, int& probe, int displacement) {
+  std::function<bool(LRUHandle*)> cond = [](LRUHandle* e){
+    return e->IsEmpty() || e->IsTombstone();
+  };
+  return FindSlot(key, cond, probe, displacement);
+}
+
+int LRUHandleTable::FindPresentElementOrAvailableSlot(const Slice& key, uint32_t hash, int& probe, int displacement) {
+  std::function<bool(LRUHandle*)> cond = [&, key, hash](LRUHandle* e){
+    return e->IsEmpty() || e->IsTombstone() || (e->Matches(key, hash) && e->IsPresent());
+  };
+  return FindSlot(key, cond, probe, displacement);
+}
+
+int LRUHandleTable::FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond, int& probe, int displacement) {
+  uint32_t base = BinaryMod(Hash(key.data(), key.size(), 0xbc9f1d34), length_bits_);
+  uint32_t increment = BinaryMod((Hash(key.data(), key.size(), 0x7a2bb9d5) << 1) | 1, length_bits_);
+  uint32_t current = BinaryMod(base + probe * increment, length_bits_);
+  while (1) {
+    LRUHandle *e = &array_[current];
+    probe++;
+    if (cond(e)) {
+      return current;
+    }
+    current = BinaryMod(current + increment, length_bits_);
+    if (e->IsEmpty() || current == base) {
+      return -1;
+    }
+    e->displacements += displacement;
   }
-  return ptr;
 }
 
 LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
@@ -78,8 +175,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
                              CacheMetadataChargePolicy metadata_charge_policy)
     : capacity_(0),
       strict_capacity_limit_(strict_capacity_limit),
-      table_(
-          GetHashBits(capacity, estimated_value_size, metadata_charge_policy)),
+      table_(GetHashBits(capacity, estimated_value_size, metadata_charge_policy) + ceil(log2(1.0 / LOAD_FACTOR))),
       usage_(0),
       lru_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -97,10 +193,9 @@ void LRUCacheShard::EraseUnRefEntries() {
     while (lru_.next != &lru_) {
       LRUHandle* old = lru_.next;
       // LRU list contains only elements which can be evicted.
-      assert(old->InCache() && !old->HasRefs());
+      assert(old->IsPresent() && !old->HasRefs());
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
-      old->SetInCache(false);
       assert(usage_ >= old->total_charge);
       usage_ -= old->total_charge;
       last_reference_list.push_back(old);
@@ -113,6 +208,7 @@ void LRUCacheShard::EraseUnRefEntries() {
   }
 }
 
+// TODO(guido) Check this makes sense in the new data structure.
 void LRUCacheShard::ApplyToSomeEntries(
     const std::function<void(const Slice& key, void* value, size_t charge,
                              DeleterFn deleter)>& callback,
@@ -174,10 +270,9 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   while ((usage_ + charge) > capacity_ && lru_.next != &lru_) {
     LRUHandle* old = lru_.next;
     // LRU list contains only elements which can be evicted.
-    assert(old->InCache() && !old->HasRefs());
+    assert(old->IsPresent() && !old->HasRefs());
     LRU_Remove(old);
     table_.Remove(old->key(), old->hash);
-    old->SetInCache(false);
     assert(usage_ >= old->total_charge);
     usage_ -= old->total_charge;
     deleted->push_back(old);
@@ -187,17 +282,14 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 int LRUCacheShard::GetHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(
-      new char[sizeof(LRUHandle) - 1 + KEY_LENGTH]);
-  e->key_length = KEY_LENGTH;
-  e->deleter = nullptr;
-  e->refs = 0;
-  e->flags = 0;
-  e->refs = 0;
+  LRUHandle e;
+  e.deleter = nullptr;
+  e.refs = 0;
+  e.flags = 0;
+  e.refs = 0;
 
-  e->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
-  size_t num_entries = capacity / e->total_charge;
-  e->Free();
+  e.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
+  size_t num_entries = capacity / e.total_charge;
   int num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
@@ -224,43 +316,66 @@ void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
-                                 bool free_handle_on_fail) {
+Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
+                             size_t charge, Cache::DeleterFn deleter,
+                             Cache::Handle** handle,
+                             Cache::Priority /*priority*/) {
+  if (key.size() != KEY_LENGTH) {
+    return Status::NotSupported("FastLRUCache only supports key size " +
+                                std::to_string(KEY_LENGTH) + "B");
+  }
+
+  LRUHandle tmp;
+  tmp.displacements = 0;
+  tmp.flags = 0;
+  tmp.value = value;
+  tmp.deleter = deleter;
+  tmp.hash = hash;
+  tmp.refs = 0;
+  tmp.next = tmp.prev = nullptr;
+  tmp.CalcTotalCharge(charge, metadata_charge_policy_);
+  memcpy(tmp.key_data, key.data(), KEY_LENGTH);
+
   Status s = Status::OK();
   autovector<LRUHandle*> last_reference_list;
   {
     MutexLock l(&mutex_);
-
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty.
-    EvictFromLRU(e->total_charge, &last_reference_list);
-
-    if ((usage_ + e->total_charge) > capacity_ &&
-        (strict_capacity_limit_ || handle == nullptr)) {
-      e->SetInCache(false);
+    EvictFromLRU(tmp.total_charge, &last_reference_list);
+    if ((usage_ + tmp.total_charge > capacity_ &&
+        (strict_capacity_limit_ || handle == nullptr)) || table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
+      // The new occupancy check is there to avoid some bad situations, due to the support of
+      //  non-strict capacity limit and capacity adjustments:
+      //  - If the strict_capacity_limit == false and the user provides a handle, the old code
+      //    forced the insert. But in our closed-address hash table we can't insert if the
+      //    table occupancy is maximum.
+      //  - When the capacity is adjusted, we currently don't rebuild the table. So an insert
+      //    may pass the shard usage check, regardless of the table occupancy.
+      // Unfortunately, the tests currently set strict_capacity_limit = false, so we can't just
+      // disable it here.
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.
-        last_reference_list.push_back(e);
+        last_reference_list.push_back(&tmp);
       } else {
-        if (free_handle_on_fail) {
-          delete[] reinterpret_cast<char*>(e);
-          *handle = nullptr;
-        }
         s = Status::Incomplete("Insert failed due to LRU cache being full.");
       }
     } else {
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
-      LRUHandle* old = table_.Insert(e);
+      LRUHandle* old;
+      LRUHandle* e = table_.Insert(&tmp, &old);
+      assert(e != nullptr); // Insertions should never fail.
       usage_ += e->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
-        assert(old->InCache());
-        old->SetInCache(false);
+        assert(old->IsPresent());
+        table_.Exclude(old);
         if (!old->HasRefs()) {
           // old is on LRU because it's in cache and its reference count is 0.
           LRU_Remove(old);
+          table_.Remove(old->key(), old->hash);
           assert(usage_ >= old->total_charge);
           usage_ -= old->total_charge;
           last_reference_list.push_back(old);
@@ -292,7 +407,7 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
     MutexLock l(&mutex_);
     e = table_.Lookup(key, hash);
     if (e != nullptr) {
-      assert(e->InCache());
+      assert(e->IsPresent());
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
@@ -321,14 +436,13 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   {
     MutexLock l(&mutex_);
     last_reference = e->Unref();
-    if (last_reference && e->InCache()) {
+    if (last_reference && e->IsPresent()) {
       // The item is still in cache, and nobody else holds a reference to it.
       if (usage_ > capacity_ || erase_if_last_ref) {
         // The LRU list must be empty since the cache is full.
         assert(lru_.next == &lru_ || erase_if_last_ref);
         // Take this opportunity and remove the item.
         table_.Remove(e->key(), e->hash);
-        e->SetInCache(false);
       } else {
         // Put the item back on the LRU list, and don't free it.
         LRU_Insert(e);
@@ -349,54 +463,24 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   return last_reference;
 }
 
-Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                             size_t charge, Cache::DeleterFn deleter,
-                             Cache::Handle** handle,
-                             Cache::Priority /*priority*/) {
-  if (key.size() != KEY_LENGTH) {
-    return Status::NotSupported("FastLRUCache only supports key size " +
-                                std::to_string(KEY_LENGTH) + "B");
-  }
-
-  // Allocate the memory here outside of the mutex.
-  // If the cache is full, we'll have to release it.
-  // It shouldn't happen very often though.
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(
-      new char[sizeof(LRUHandle) - 1 + key.size()]);
-
-  e->value = value;
-  e->flags = 0;
-  e->deleter = deleter;
-  e->key_length = key.size();
-  e->hash = hash;
-  e->refs = 0;
-  e->next = e->prev = nullptr;
-  e->SetInCache(true);
-  e->CalcTotalCharge(charge, metadata_charge_policy_);
-  memcpy(e->key_data, key.data(), key.size());
-
-  return InsertItem(e, handle, /* free_handle_on_fail */ true);
-}
-
 void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
   LRUHandle* e;
   bool last_reference = false;
   {
     MutexLock l(&mutex_);
-    e = table_.Remove(key, hash);
+    e = table_.Lookup(key, hash);
     if (e != nullptr) {
-      assert(e->InCache());
-      e->SetInCache(false);
+      table_.Exclude(e);
       if (!e->HasRefs()) {
-        // The entry is in LRU since it's in hash and has no external references
+        // The entry is in LRU since it's in cache and has no external references
         LRU_Remove(e);
+        table_.Remove(key, hash);
         assert(usage_ >= e->total_charge);
         usage_ -= e->total_charge;
         last_reference = true;
       }
     }
   }
-
   // Free the entry here outside of mutex for performance reasons.
   // last_reference will only be true if e != nullptr.
   if (last_reference) {
@@ -421,6 +505,9 @@ LRUCache::LRUCache(size_t capacity, size_t estimated_value_size,
                    int num_shard_bits, bool strict_capacity_limit,
                    CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
+  // // We must enforce strict capacity requirement, or else insertions
+  // // will fail when all slots are occupied and also pinned.
+  // assert(strict_capacity_limit);
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<LRUCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
