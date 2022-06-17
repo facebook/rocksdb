@@ -197,6 +197,7 @@ void CompactionIterator::Next() {
 
 bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                               Slice* skip_until) {
+  // TODO: support compaction filter for wide-column entities
   if (!compaction_filter_ ||
       (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex)) {
     return true;
@@ -519,7 +520,8 @@ void CompactionIterator::NextFromInput() {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
-      if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex) {
+      if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex &&
+          ikey_.type != kTypeWideColumnEntity) {
         ROCKS_LOG_FATAL(info_log_, "Unexpected key %s for compaction output",
                         ikey_.DebugString(allow_data_in_errors_, true).c_str());
         assert(false);
@@ -533,7 +535,7 @@ void CompactionIterator::NextFromInput() {
         assert(false);
       }
 
-      if (ikey_.type == kTypeBlobIndex) {
+      if (ikey_.type == kTypeBlobIndex || ikey_.type == kTypeWideColumnEntity) {
         ikey_.type = kTypeValue;
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       }
@@ -689,7 +691,8 @@ void CompactionIterator::NextFromInput() {
             // either way. We will maintain counts of how many mismatches
             // happened
             if (next_ikey.type != kTypeValue &&
-                next_ikey.type != kTypeBlobIndex) {
+                next_ikey.type != kTypeBlobIndex &&
+                next_ikey.type != kTypeWideColumnEntity) {
               ++iter_stats_.num_single_del_mismatch;
             }
 
