@@ -27,7 +27,7 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
 BlobSource::~BlobSource() = default;
 
 Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
-                                    CachableEntry<PinnableSlice>* blob) const {
+                                    CachableEntry<std::string>* blob) const {
   assert(blob);
   assert(blob->IsEmpty());
 
@@ -37,7 +37,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
     cache_handle = GetEntryFromCache(blob_cache, cache_key);
     if (cache_handle != nullptr) {
       blob->SetCachedValue(
-          static_cast<PinnableSlice*>(blob_cache->Value(cache_handle)),
+          static_cast<std::string*>(blob_cache->Value(cache_handle)),
           blob_cache, cache_handle);
       return Status::OK();
     }
@@ -49,7 +49,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
 }
 
 Status BlobSource::PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
-                                    CachableEntry<PinnableSlice>* cached_blob,
+                                    CachableEntry<std::string>* cached_blob,
                                     PinnableSlice* blob) const {
   assert(blob);
   assert(!cache_key.empty());
@@ -61,17 +61,17 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
   if (blob_cache != nullptr) {
     // Objects to be put into the cache have to be heap-allocated and
     // self-contained, i.e. own their contents. The Cache has to be able to take
-    // unique ownership of them. Therefore, we copy the blob into a separate
-    // heap-allocated PinnableSlice, and insert that into the cache.
-    PinnableSlice* value = new PinnableSlice();
-    value->PinSelf(*blob);
+    // unique ownership of them. Therefore, we copy the blob into a string
+    // directly, and insert that into the cache.
+    std::string* buf = new std::string();
+    buf->assign(blob->data(), blob->size());
 
     Cache::Handle* cache_handle = nullptr;
-    s = InsertEntryIntoCache(blob_cache, cache_key, value, value->size(),
+    s = InsertEntryIntoCache(blob_cache, cache_key, buf, buf->size(),
                              &cache_handle, priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
-      cached_blob->SetCachedValue(value, blob_cache, cache_handle);
+      cached_blob->SetCachedValue(buf, blob_cache, cache_handle);
     }
   }
 
@@ -95,7 +95,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
 
-  CachableEntry<PinnableSlice> blob_entry;
+  CachableEntry<std::string> blob_entry;
 
   // First, try to get the blob from the cache
   //
@@ -120,7 +120,10 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       if (bytes_read) {
         *bytes_read = value_size;
       }
-      value->PinSelf(*blob_entry.GetValue());
+      std::string* buf = value->GetSelf();
+      buf = blob_entry.GetValue();
+      (void)buf;
+      value->PinSelf();
       return s;
     }
   }
@@ -174,7 +177,7 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   const Slice key = cache_key.AsSlice();
 
-  CachableEntry<PinnableSlice> blob_entry;
+  CachableEntry<std::string> blob_entry;
   const Status s = GetBlobFromCache(key, blob_cache_.get(), &blob_entry);
 
   if (s.ok() && blob_entry.GetValue() != nullptr) {

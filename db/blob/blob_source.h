@@ -32,6 +32,10 @@ class IOTracer;
 // storage with minimal cost.
 class BlobSource {
  public:
+  // The BlobFileCache* parameter is used to store blob file readers. When it's
+  // passed in, BlobSource will exclusively own cache afterwards. If it's a raw
+  // pointer managed by another shared/unique pointer, the developer must
+  // release the ownership.
   BlobSource(const ImmutableOptions* immutable_options,
              const std::string& db_id, const std::string& db_session_id,
              BlobFileCache* blob_file_cache);
@@ -52,10 +56,10 @@ class BlobSource {
 
  private:
   Status GetBlobFromCache(const Slice& cache_key, Cache* blob_cache,
-                          CachableEntry<PinnableSlice>* blob) const;
+                          CachableEntry<std::string>* blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key, Cache* blob_cache,
-                          CachableEntry<PinnableSlice>* cached_blob,
+                          CachableEntry<std::string>* cached_blob,
                           PinnableSlice* blob) const;
 
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
@@ -72,12 +76,12 @@ class BlobSource {
   }
 
   inline Status InsertEntryIntoCache(Cache* blob_cache, const Slice& key,
-                                     const PinnableSlice* blob, size_t charge,
+                                     const std::string* value, size_t charge,
                                      Cache::Handle** cache_handle,
                                      Cache::Priority priority) const {
-    return blob_cache->Insert(key,
-                              const_cast<void*>(static_cast<const void*>(blob)),
-                              charge, nullptr, cache_handle, priority);
+    return blob_cache->Insert(
+        key, const_cast<void*>(static_cast<const void*>(value)), charge,
+        &DeleteCacheEntry<std::string>, cache_handle, priority);
   }
 
   const std::string db_id_;

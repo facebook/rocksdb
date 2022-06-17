@@ -174,12 +174,12 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
+  BlobFileCache* blob_file_cache = new BlobFileCache(
       backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+      blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id, db_session_id,
-                         blob_file_cache.get());
+                         blob_file_cache);
 
   ReadOptions read_options;
   read_options.verify_checksums = true;
