@@ -88,7 +88,7 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
   Slice result;
   Status s = reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
                           bufs_[index].buffer_.BufferStart() + chunk_len,
-                          nullptr, rate_limiter_priority);
+                          /*aligned_buf=*/nullptr, rate_limiter_priority);
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
@@ -120,8 +120,9 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   req.offset = rounddown_start + chunk_len;
   req.result = result;
   req.scratch = bufs_[index].buffer_.BufferStart() + chunk_len;
-  Status s = reader->ReadAsync(req, opts, fp, nullptr /*cb_arg*/, &io_handle_,
-                               &del_fn_, rate_limiter_priority);
+  Status s = reader->ReadAsync(req, opts, /*aligned_buf=*/nullptr, fp,
+                               /*cb_arg=*/nullptr, &io_handle_, &del_fn_,
+                               rate_limiter_priority);
   req.status.PermitUncheckedError();
   if (s.ok()) {
     async_read_in_progress_ = true;
@@ -544,7 +545,8 @@ void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
   if (req.status.ok()) {
     if (req.offset + req.result.size() <=
         bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize()) {
-      // All requested bytes are already in the buffer. So no need to update.
+      // All requested bytes are already in the buffer or no data is read
+      // because of EOF. So no need to update.
       return;
     }
     if (req.offset < bufs_[index].offset_) {

@@ -93,12 +93,30 @@ class RandomAccessFileReader {
   const bool is_last_level_;
 
   struct ReadAsyncInfo {
+    ReadAsyncInfo(std::function<void(const FSReadRequest&, void*)> cb,
+                  void* cb_arg, uint64_t start_time)
+        : cb_(cb),
+          cb_arg_(cb_arg),
+          start_time_(start_time),
+          user_scratch_(nullptr),
+          user_aligned_buf_(nullptr),
+          user_offset_(0),
+          user_len_(0) {}
+
+    std::function<void(const FSReadRequest&, void*)> cb_;
+    void* cb_arg_;
+    uint64_t start_time_;
 #ifndef ROCKSDB_LITE
     FileOperationInfo::StartTimePoint fs_start_ts_;
 #endif
-    uint64_t start_time_;
-    std::function<void(const FSReadRequest&, void*)> cb_;
-    void* cb_arg_;
+    // Below fields stores the parameters passed by caller in case of direct_io.
+    char* user_scratch_;
+    AlignedBuf* user_aligned_buf_;
+    uint64_t user_offset_;
+    size_t user_len_;
+    Slice user_result_;
+    // Used in case of direct_io
+    AlignedBuffer buf_;
   };
 
  public:
@@ -188,6 +206,7 @@ class RandomAccessFileReader {
   IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
+                     AlignedBuf* aligned_buf,
                      std::function<void(const FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
                      Env::IOPriority rate_limiter_priority);
