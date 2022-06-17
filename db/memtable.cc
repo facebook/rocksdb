@@ -745,15 +745,18 @@ static bool SaveValue(void* arg, const char* entry) {
     }
     switch (type) {
       case kTypeBlobIndex:
-        if (s->is_blob_index == nullptr) {
+      case kTypeWideColumnEntity:
+        if (type == kTypeBlobIndex && s->is_blob_index == nullptr) {
           ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
           *(s->status) = Status::NotSupported(
               "Encounter unsupported blob value. Please open DB with "
               "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         } else if (*(s->merge_in_progress)) {
-          *(s->status) =
-              Status::NotSupported("Blob DB does not support merge operator.");
+          *(s->status) = Status::NotSupported("Merge operator not supported");
+        } else if (!s->do_merge) {
+          *(s->status) = Status::NotSupported("GetMergeOperands not supported");
         }
+
         if (!s->status->ok()) {
           *(s->found_final_value) = true;
           return false;
@@ -801,30 +804,6 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         return false;
       }
-      case kTypeWideColumnEntity:
-        if (*(s->merge_in_progress)) {
-          *(s->status) = Status::NotSupported(
-              "Merge currently not supported for wide-column entities");
-          *(s->found_final_value) = true;
-          return false;
-        }
-
-        if (!s->do_merge) {
-          *(s->status) = Status::NotSupported(
-              "GetMergeOperands currently not supported for wide-column "
-              "entities");
-          *(s->found_final_value) = true;
-          return false;
-        }
-
-        if (s->value) {
-          const Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-          s->value->assign(v.data(), v.size());
-        }
-
-        *(s->status) = Status::OK();
-        *(s->found_final_value) = true;
-        return false;
       case kTypeDeletion:
       case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
