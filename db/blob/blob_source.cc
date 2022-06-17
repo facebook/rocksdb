@@ -44,7 +44,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key,
 
   assert(blob->IsEmpty());
 
-  return Status::NotFound("Blob record not found in cache");
+  return Status::NotFound("Blob not found in cache");
 }
 
 Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
