@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 
+#include "cache/cache_key.h"
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
 #include "port/malloc.h"
@@ -18,7 +19,10 @@
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
 
-#define KEY_LENGTH 16
+constexpr uint8_t kCacheKeySize =
+    static_cast<uint8_t>(sizeof(ROCKSDB_NAMESPACE::CacheKey));
+
+constexpr float kLoadFactor = 0.7;
 
 namespace ROCKSDB_NAMESPACE {
 namespace fast_lru_cache {
@@ -38,9 +42,8 @@ struct LRUHandle {
 
   enum Flags : uint8_t {
     // Whether the handle can be found via a Lookup.
-    IS_PRESENT = (1 << 0),
+    IS_VISIBLE = (1 << 0),
     // Whether the slot is in use by an element.
-    // IS_PRESENT implies IS_ELEMENT.
     IS_ELEMENT = (1 << 1),
   };
   uint8_t flags;
@@ -49,9 +52,19 @@ struct LRUHandle {
   // but wind up in a higher slot.
   uint32_t displacements;
 
-  char key_data[KEY_LENGTH];
+  // Every slot in the hash table is an LRUHandle e, which be in three different
+  // states:
+  // - Element (IS_ELEMENT set): The slot contains an actual key-value element.
+  // - Tombstone (IS_ELEMENT unset and displacements > 0): The slot contains a
+  // tombstone.
+  // - Empty (IS_ELEMENT unset and displacements == 0): The slot is unused.
+  // A slot that is an element can further have IS_VISIBLE set or not.
 
-  Slice key() const { return Slice(key_data, KEY_LENGTH); }
+  char key_data[kCacheKeySize];
+
+  LRUHandle() { memset(this, 0, sizeof(LRUHandle)); }
+
+  Slice key() const { return Slice(key_data, kCacheKeySize); }
 
   // Increase the reference count by 1.
   void Ref() { refs++; }
@@ -66,13 +79,13 @@ struct LRUHandle {
   // Return true if there are external refs, false otherwise.
   bool HasRefs() const { return refs > 0; }
 
-  bool IsPresent() const { return flags & IS_PRESENT; }
+  bool IsVisible() const { return flags & IS_VISIBLE; }
 
-  void SetIsPresent(bool is_present) {
-    if (is_present) {
-      flags |= IS_PRESENT;
+  void SetIsVisible(bool is_visible) {
+    if (is_visible) {
+      flags |= IS_VISIBLE;
     } else {
-      flags &= ~IS_PRESENT;
+      flags &= ~IS_VISIBLE;
     }
   }
 
@@ -99,7 +112,8 @@ struct LRUHandle {
     if (metadata_charge_policy != kFullChargeCacheMetadata) {
       return 0;
     } else {
-      return sizeof(LRUHandle);
+      return sizeof(LRUHandle);  // TODO Is this the right metadata accounting
+                                 // we want with pre-allocated handles?
     }
   }
 
@@ -131,6 +145,8 @@ struct LRUHandle {
   }
 };
 
+// TODO(Guido) Update the following comment.
+
 // We provide our own simple hash table since it removes a whole bunch
 // of porting hacks and is also faster than some of the built-in hash
 // table implementations in some of the compiler/runtime combinations
@@ -144,10 +160,10 @@ class LRUHandleTable {
   // Returns a pointer to the handle matching the key/hash, or nullptr
   // if not present.
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
-  // Returns a pointer to the inserted handle. The argument old is
-  // an output argument, which is a reference to a pointer to an
-  // existing handle that matches the key/hash, or nullptr if no such
-  // handle exists.
+  // Returns a pointer to the inserted handle, or nullptr if no slot
+  // available was found. The output argument old is set to a
+  // pointer to an existing handle that matches the key/hash, or nullptr
+  // if none is found.
   LRUHandle* Insert(LRUHandle* h, LRUHandle** old);
   // Returns a pointer to the handle matching the key/hash, or nullptr
   // if not present. Assumes the element is in the table.
@@ -161,7 +177,7 @@ class LRUHandleTable {
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end) {
     for (uint32_t i = index_begin; i < index_end; i++) {
       LRUHandle* h = &array_[i];
-      if (h->IsPresent()) {
+      if (h->IsVisible()) {
         func(h);
       }
     }
@@ -200,9 +216,7 @@ class LRUHandleTable {
 
   uint32_t occupancy_;
 
-  // TODO(guido) Cache alignment.
-  // TODO(guido) unique_ptr?
-  LRUHandle* array_;
+  std::unique_ptr<LRUHandle[]> array_;
 };
 
 // A single shard of sharded cache.

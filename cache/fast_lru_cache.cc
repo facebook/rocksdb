@@ -22,8 +22,6 @@
 #include "util/hash.h"
 #include "util/mutexlock.h"
 
-#define LOAD_FACTOR 0.7
-
 namespace ROCKSDB_NAMESPACE {
 
 namespace fast_lru_cache {
@@ -33,14 +31,12 @@ namespace {
 inline uint32_t BinaryMod(uint32_t x, uint32_t bits) {
   return (x << (32 - bits)) >> (32 - bits);
 }
-}  // namespace
+}  // anonymous namespace
 
 LRUHandleTable::LRUHandleTable(int hash_bits)
     : length_bits_(hash_bits),
       occupancy_(0),
-      array_(new LRUHandle[size_t{1} << length_bits_]) {
-  std::memset(array_, 0, (size_t{1} << length_bits_) * sizeof(LRUHandle));
-}
+      array_(new LRUHandle[size_t{1} << length_bits_]) {}
 
 LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange(
@@ -104,7 +100,7 @@ LRUHandle* LRUHandleTable::Remove(const Slice& key, uint32_t hash) {
   assert(slot != -1); // Remove assumes the key/hash is in the hash table.
   LRUHandle* e = &array_[slot];
   e->SetIsElement(false);
-  e->SetIsPresent(false);
+  e->SetIsVisible(false);
   occupancy_--;
   return e;
 }
@@ -114,12 +110,12 @@ void LRUHandleTable::Assign(int slot, LRUHandle* src) {
   uint32_t disp = dst->displacements;
   memcpy(dst, src, sizeof(LRUHandle));
   dst->displacements = disp;
-  dst->SetIsPresent(true);
+  dst->SetIsVisible(true);
   dst->SetIsElement(true);
   occupancy_++;
 }
 
-void LRUHandleTable::Exclude(LRUHandle* e) { e->SetIsPresent(false); }
+void LRUHandleTable::Exclude(LRUHandle* e) { e->SetIsVisible(false); }
 
 int LRUHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe,
                                 int displacement) {
@@ -132,7 +128,7 @@ int LRUHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe,
 int LRUHandleTable::FindPresentElement(const Slice& key, uint32_t hash,
                                        int& probe, int displacement) {
   std::function<bool(LRUHandle*)> cond = [&, key, hash](LRUHandle* e) {
-    return e->Matches(key, hash) && e->IsPresent();
+    return e->Matches(key, hash) && e->IsVisible();
   };
   return FindSlot(key, cond, probe, displacement);
 }
@@ -150,7 +146,7 @@ int LRUHandleTable::FindPresentElementOrAvailableSlot(const Slice& key,
                                                       int displacement) {
   std::function<bool(LRUHandle*)> cond = [&, key, hash](LRUHandle* e) {
     return e->IsEmpty() || e->IsTombstone() ||
-           (e->Matches(key, hash) && e->IsPresent());
+           (e->Matches(key, hash) && e->IsVisible());
   };
   return FindSlot(key, cond, probe, displacement);
 }
@@ -184,7 +180,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
       strict_capacity_limit_(strict_capacity_limit),
       table_(
           GetHashBits(capacity, estimated_value_size, metadata_charge_policy) +
-          ceil(log2(1.0 / LOAD_FACTOR))),
+          ceil(log2(1.0 / kLoadFactor))),
       usage_(0),
       lru_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -202,7 +198,7 @@ void LRUCacheShard::EraseUnRefEntries() {
     while (lru_.next != &lru_) {
       LRUHandle* old = lru_.next;
       // LRU list contains only elements which can be evicted.
-      assert(old->IsPresent() && !old->HasRefs());
+      assert(old->IsVisible() && !old->HasRefs());
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
       assert(usage_ >= old->total_charge);
@@ -279,7 +275,7 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   while ((usage_ + charge) > capacity_ && lru_.next != &lru_) {
     LRUHandle* old = lru_.next;
     // LRU list contains only elements which can be evicted.
-    assert(old->IsPresent() && !old->HasRefs());
+    assert(old->IsVisible() && !old->HasRefs());
     LRU_Remove(old);
     table_.Remove(old->key(), old->hash);
     assert(usage_ >= old->total_charge);
@@ -329,9 +325,9 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                              size_t charge, Cache::DeleterFn deleter,
                              Cache::Handle** handle,
                              Cache::Priority /*priority*/) {
-  if (key.size() != KEY_LENGTH) {
+  if (key.size() != kCacheKeySize) {
     return Status::NotSupported("FastLRUCache only supports key size " +
-                                std::to_string(KEY_LENGTH) + "B");
+                                std::to_string(kCacheKeySize) + "B");
   }
 
   LRUHandle tmp;
@@ -343,7 +339,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   tmp.refs = 0;
   tmp.next = tmp.prev = nullptr;
   tmp.CalcTotalCharge(charge, metadata_charge_policy_);
-  memcpy(tmp.key_data, key.data(), KEY_LENGTH);
+  memcpy(tmp.key_data, key.data(), kCacheKeySize);
 
   Status s = Status::OK();
   autovector<LRUHandle*> last_reference_list;
@@ -383,7 +379,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       usage_ += e->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
-        assert(old->IsPresent());
+        assert(old->IsVisible());
         table_.Exclude(old);
         if (!old->HasRefs()) {
           // old is on LRU because it's in cache and its reference count is 0.
@@ -420,7 +416,7 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
     MutexLock l(&mutex_);
     e = table_.Lookup(key, hash);
     if (e != nullptr) {
-      assert(e->IsPresent());
+      assert(e->IsVisible());
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
@@ -449,7 +445,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   {
     MutexLock l(&mutex_);
     last_reference = e->Unref();
-    if (last_reference && e->IsPresent()) {
+    if (last_reference && e->IsVisible()) {
       // The item is still in cache, and nobody else holds a reference to it.
       if (usage_ > capacity_ || erase_if_last_ref) {
         // The LRU list must be empty since the cache is full.
