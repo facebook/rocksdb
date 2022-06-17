@@ -199,14 +199,14 @@ class LRUHandleTable {
   int FindPresentElementOrAvailableSlot(const Slice& key, uint32_t hash,
                                         int& probe, int displacement);
 
-  // Returns the index of the first probe that contains a handle e
+  // Returns the index of the first slot probed that has a handle e
   // such that cond(e) is true.  If the probe sequence ends without
   // a match, returns a pointer to the first slot available in the
   // sequence.  Otherwise, if no match is found and no slot is
-  // available, returns -1. For every handle e probed, except any
+  // available, returns -1.  For every handle e probed, except the
   // matching slot, we update e->displacements += displacement.
-  // The variable probe is updated such that consecutive calls to
-  // FindSlot use every probe number, without repetition.
+  // The variable probe is modified such that consecutive calls to
+  // FindSlot continue probing where the previous left.
   int FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond,
                int& probe, int displacement);
 
