@@ -500,11 +500,15 @@ bool LevelCompactionBuilder::TryPickL0TrivialMove() {
 }
 
 bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
-  if (start_level_inputs_.size() == 1) {
+  if (start_level_inputs_.size() == 1 &&
+      (ioptions_.db_paths.empty() || ioptions_.db_paths.size() == 1) &&
+      (mutable_cf_options_.compression_per_level.empty())) {
     // Only file of `index`, and it is likely a trivial move. Try to
     // expand if it is still a trivial move, but not beyond
     // max_compaction_bytes or 4 files, so that we don't create too
     // much compaction pressure for the next level.
+    // Ignore if there are more than one DB path, as it would be hard
+    // to predict whether it is a trivial move.
     const std::vector<FileMetaData*>& level_files =
         vstorage_->LevelFiles(start_level_);
     const size_t kMaxMultiTrivialMove = 4;

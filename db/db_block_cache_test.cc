@@ -676,6 +676,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.max_compaction_bytes = 2000;
 
   BlockBasedTableOptions table_options;
   table_options.block_cache = NewLRUCache(1 << 25, 0, false);
