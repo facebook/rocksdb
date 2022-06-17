@@ -428,6 +428,9 @@ uint32_t LevelCompactionBuilder::GetPathId(
 }
 
 bool LevelCompactionBuilder::TryPickL0TrivialMove() {
+  if (vstorage_->base_level() <= 0) {
+    return false;
+  }
   if (start_level_ == 0 && mutable_cf_options_.compression_per_level.empty() &&
       !vstorage_->LevelFiles(output_level_).empty() &&
       ioptions_.db_paths.size() <= 1) {
