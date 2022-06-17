@@ -943,6 +943,9 @@ TEST_F(CheckpointTest, PutRaceWithCheckpointTrackedWalSync) {
 
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
 
+  // Ensure callback ran.
+  ASSERT_EQ("val2", Get("key2"));
+
   Close();
 
   // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
@@ -953,6 +956,7 @@ TEST_F(CheckpointTest, PutRaceWithCheckpointTrackedWalSync) {
   // AddWal entry indicated the WAL should be synced through "key2" -> "val2".
   Reopen(options);
 
+  // Need to close before `fault_env` goes out of scope.
   Close();
 }
 
