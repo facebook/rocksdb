@@ -101,10 +101,7 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
 LRUHandle* LRUHandleTable::Remove(const Slice& key, uint32_t hash) {
   int probe = 0;
   int slot = FindElement(key, hash, probe, -1 /*displacement*/);
-  if (slot == -1) {
-    assert(false);
-    // Remove assumes the element is in the table.
-  }
+  assert(slot != -1); // Remove assumes the key/hash is in the hash table.
   LRUHandle* e = &array_[slot];
   e->SetIsElement(false);
   e->SetIsPresent(false);
