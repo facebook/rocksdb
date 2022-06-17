@@ -1147,7 +1147,7 @@ class VersionBuilder::Rep {
     Status s;
 
 #ifndef NDEBUG
-    // The same check is done within Apply() so we skip it in debug mode.
+    // The same check is done within Apply() so we skip it in release mode.
     s = CheckConsistency(base_vstorage_);
     if (!s.ok()) {
       return s;
