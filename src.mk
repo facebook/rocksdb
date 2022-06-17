@@ -21,6 +21,7 @@ LIB_SOURCES =                                                   \
   db/blob/blob_log_format.cc                                    \
   db/blob/blob_log_sequential_reader.cc                         \
   db/blob/blob_log_writer.cc                                    \
+  db/blob/blob_source.cc                                        \
   db/blob/prefetch_buffer_collection.cc                         \
   db/builder.cc                                                 \
   db/c.cc                                                       \
@@ -419,6 +420,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/blob/blob_file_garbage_test.cc                                     \
   db/blob/blob_file_reader_test.cc                                      \
   db/blob/blob_garbage_meter_test.cc                                    \
+  db/blob/blob_source_test.cc                                           \
   db/blob/db_blob_basic_test.cc                                         \
   db/blob/db_blob_compaction_test.cc                                    \
   db/blob/db_blob_corruption_test.cc                                    \
