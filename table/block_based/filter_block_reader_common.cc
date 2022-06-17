@@ -112,9 +112,8 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     return true;
   } else {
     *filter_checked = true;
-    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, no_io,
-                          const_ikey_ptr, /* get_context */ nullptr,
-                          lookup_context);
+    return PrefixMayMatch(prefix, no_io, const_ikey_ptr,
+                          /* get_context */ nullptr, lookup_context);
   }
 }
 

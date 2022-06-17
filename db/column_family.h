@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cache/cache_reservation_manager.h"
 #include "db/memtable_list.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
@@ -520,6 +521,10 @@ class ColumnFamilyData {
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
   WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
+  std::shared_ptr<CacheReservationManager>
+  GetFileMetadataCacheReservationManager() {
+    return file_metadata_cache_res_mgr_;
+  }
 
   static const uint32_t kDummyColumnFamilyDataId;
 
@@ -618,6 +623,10 @@ class ColumnFamilyData {
   bool db_paths_registered_;
 
   std::string full_history_ts_low_;
+
+  // For charging memory usage of file metadata created for newly added files to
+  // a Version associated with this CFD
+  std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

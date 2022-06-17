@@ -553,7 +553,7 @@ enum class CacheEntryRole {
   kFilterBlock,
   // Block-based table metadata block for partitioned filter
   kFilterMetaBlock,
-  // Block-based table deprecated filter block (old "block-based" filter)
+  // OBSOLETE / DEPRECATED: old/removed block-based filter
   kDeprecatedFilterBlock,
   // Block-based table index block
   kIndexBlock,
@@ -570,6 +570,9 @@ enum class CacheEntryRole {
   // BlockBasedTableReader's charge to account for
   // its memory usage
   kBlockBasedTableReader,
+  // FileMetadata's charge to account for
+  // its memory usage
+  kFileMetadata,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,

@@ -158,7 +158,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer,
                                 false /*Implicit auto readahead*/,
-                                false /*async_io*/);
+                                0 /*num_reads_*/);
   IOOptions opts;
   {
     Status s = rep->file->PrepareIOOptions(ro, opts);

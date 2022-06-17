@@ -53,7 +53,6 @@ struct GetContextStats {
   // MultiGet stats.
   uint64_t num_filter_read = 0;
   uint64_t num_index_read = 0;
-  uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
 };
 

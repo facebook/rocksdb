@@ -36,16 +36,7 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
     return BlockBasedTableOptions().filter_policy;
   }
   const FilterPolicy* new_policy;
-  if (FLAGS_use_block_based_filter) {
-    if (FLAGS_ribbon_starting_level < 999) {
-      fprintf(
-          stderr,
-          "Cannot combine use_block_based_filter and ribbon_starting_level\n");
-      exit(1);
-    } else {
-      new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, true);
-    }
-  } else if (FLAGS_ribbon_starting_level >= 999) {
+  if (FLAGS_ribbon_starting_level >= 999) {
     // Use Bloom API
     new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, false);
   } else {
@@ -66,6 +57,7 @@ StressTest::StressTest()
 #ifndef ROCKSDB_LITE
       txn_db_(nullptr),
 #endif
+      db_aptr_(nullptr),
       clock_(db_stress_env->GetSystemClock().get()),
       new_column_family_name_(1),
       num_times_reopened_(0),
@@ -107,17 +99,6 @@ StressTest::~StressTest() {
   column_families_.clear();
   delete db_;
 
-  assert(secondaries_.size() == secondary_cfh_lists_.size());
-  size_t n = secondaries_.size();
-  for (size_t i = 0; i != n; ++i) {
-    for (auto* cf : secondary_cfh_lists_[i]) {
-      delete cf;
-    }
-    secondary_cfh_lists_[i].clear();
-    delete secondaries_[i];
-  }
-  secondaries_.clear();
-
   for (auto* cf : cmp_cfhs_) {
     delete cf;
   }
@@ -140,7 +121,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
     return cache;
   } else if (FLAGS_cache_type == "fast_lru_cache") {
-    return NewFastLRUCache((size_t)capacity, num_shard_bits);
+    return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
+                           num_shard_bits, false /*strict_capacity_limit*/,
+                           kDefaultCacheMetadataChargePolicy);
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
@@ -347,63 +330,6 @@ void StressTest::TrackExpectedState(SharedState* shared) {
   }
 }
 
-bool StressTest::VerifySecondaries() {
-#ifndef ROCKSDB_LITE
-  if (FLAGS_test_secondary) {
-    uint64_t now = clock_->NowMicros();
-    fprintf(stdout, "%s Start to verify secondaries against primary\n",
-            clock_->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
-  }
-  for (size_t k = 0; k != secondaries_.size(); ++k) {
-    Status s = secondaries_[k]->TryCatchUpWithPrimary();
-    if (!s.ok()) {
-      fprintf(stderr, "Secondary failed to catch up with primary\n");
-      return false;
-    }
-    // This `ReadOptions` is for validation purposes. Ignore
-    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
-    ReadOptions ropts;
-    ropts.total_order_seek = true;
-    // Verify only the default column family since the primary may have
-    // dropped other column families after most recent reopen.
-    std::unique_ptr<Iterator> iter1(db_->NewIterator(ropts));
-    std::unique_ptr<Iterator> iter2(secondaries_[k]->NewIterator(ropts));
-    for (iter1->SeekToFirst(), iter2->SeekToFirst();
-         iter1->Valid() && iter2->Valid(); iter1->Next(), iter2->Next()) {
-      if (iter1->key().compare(iter2->key()) != 0 ||
-          iter1->value().compare(iter2->value())) {
-        fprintf(stderr,
-                "Secondary %d contains different data from "
-                "primary.\nPrimary: %s : %s\nSecondary: %s : %s\n",
-                static_cast<int>(k),
-                iter1->key().ToString(/*hex=*/true).c_str(),
-                iter1->value().ToString(/*hex=*/true).c_str(),
-                iter2->key().ToString(/*hex=*/true).c_str(),
-                iter2->value().ToString(/*hex=*/true).c_str());
-        return false;
-      }
-    }
-    if (iter1->Valid() && !iter2->Valid()) {
-      fprintf(stderr,
-              "Secondary %d record count is smaller than that of primary\n",
-              static_cast<int>(k));
-      return false;
-    } else if (!iter1->Valid() && iter2->Valid()) {
-      fprintf(stderr,
-              "Secondary %d record count is larger than that of primary\n",
-              static_cast<int>(k));
-      return false;
-    }
-  }
-  if (FLAGS_test_secondary) {
-    uint64_t now = clock_->NowMicros();
-    fprintf(stdout, "%s Verification of secondaries succeeded\n",
-            clock_->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
-  }
-#endif  // ROCKSDB_LITE
-  return true;
-}
-
 Status StressTest::AssertSame(DB* db, ColumnFamilyHandle* cf,
                               ThreadState::SnapshotState& snap_state) {
   Status s;
@@ -486,6 +412,20 @@ void StressTest::PrintStatistics() {
     fprintf(stdout, "Secondary instances STATISTICS:\n%s\n",
             dbstats_secondaries->ToString().c_str());
   }
+}
+
+void StressTest::ReleaseOldTimestampedSnapshots(uint64_t ts) {
+#ifndef ROCKSDB_LITE
+  if (!txn_db_) {
+    return;
+  }
+  assert(txn_db_);
+  txn_db_->ReleaseTimestampedSnapshotsOlderThan(ts);
+#else
+  (void)ts;
+  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
+  exit(1);
+#endif  // ROCKSDB_LITE
 }
 
 // Currently PreloadDb has to be single-threaded.
@@ -628,13 +568,21 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   return s;
 }
 
-Status StressTest::CommitTxn(Transaction* txn) {
+Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
   Status s = txn->Prepare();
+  std::shared_ptr<const Snapshot> timestamped_snapshot;
   if (s.ok()) {
-    s = txn->Commit();
+    if (thread && FLAGS_create_timestamped_snapshot_one_in &&
+        thread->rand.OneIn(FLAGS_create_timestamped_snapshot_one_in)) {
+      uint64_t ts = db_stress_env->NowNanos();
+      s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
+                                          &timestamped_snapshot);
+    } else {
+      s = txn->Commit();
+    }
   }
   delete txn;
   return s;
@@ -968,18 +916,6 @@ void StressTest::OperateDb(ThreadState* thread) {
         TestCustomOperations(thread, rand_column_families);
       }
       thread->stats.FinishedSingleOp();
-#ifndef ROCKSDB_LITE
-      uint32_t tid = thread->tid;
-      assert(secondaries_.empty() ||
-             static_cast<size_t>(tid) < secondaries_.size());
-      if (thread->rand.OneInOpt(FLAGS_secondary_catch_up_one_in)) {
-        Status s = secondaries_[tid]->TryCatchUpWithPrimary();
-        if (!s.ok()) {
-          VerificationAbort(shared, "Secondary instance failed to catch up", s);
-          break;
-        }
-      }
-#endif
     }
   }
   while (!thread->snapshot_queue.empty()) {
@@ -2599,7 +2535,13 @@ void StressTest::Open(SharedState* shared) {
         fflush(stderr);
       }
       assert(s.ok());
-      db_ = txn_db_;
+
+      // Do not swap the order of the following.
+      {
+        db_ = txn_db_;
+        db_aptr_.store(txn_db_, std::memory_order_release);
+      }
+
       // after a crash, rollback to commit recovered transactions
       std::vector<Transaction*> trans;
       txn_db_->GetAllPreparedTransactions(&trans);
@@ -2619,72 +2561,34 @@ void StressTest::Open(SharedState* shared) {
       assert(trans.size() == 0);
 #endif
     }
-    assert(!s.ok() || column_families_.size() ==
-                          static_cast<size_t>(FLAGS_column_families));
+    assert(s.ok());
+    assert(column_families_.size() ==
+           static_cast<size_t>(FLAGS_column_families));
 
-    if (s.ok() && FLAGS_test_secondary) {
-#ifndef ROCKSDB_LITE
-      secondaries_.resize(FLAGS_threads);
-      std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
-      secondary_cfh_lists_.clear();
-      secondary_cfh_lists_.resize(FLAGS_threads);
-      Options tmp_opts;
-      // TODO(yanqin) support max_open_files != -1 for secondary instance.
-      tmp_opts.max_open_files = -1;
-      tmp_opts.statistics = dbstats_secondaries;
-      tmp_opts.env = db_stress_env;
-      for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
-        const std::string secondary_path =
-            FLAGS_secondaries_base + "/" + std::to_string(i);
-        s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                                cf_descriptors, &secondary_cfh_lists_[i],
-                                &secondaries_[i]);
-        if (!s.ok()) {
-          break;
-        }
-      }
-#else
-      fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
-      exit(1);
-#endif
-    }
     // Secondary instance does not support write-prepared/write-unprepared
     // transactions, thus just disable secondary instance if we use
     // transaction.
-    if (s.ok() && FLAGS_continuous_verification_interval > 0 &&
-        !FLAGS_use_txn && !cmp_db_) {
+    if (s.ok() && FLAGS_test_secondary && !FLAGS_use_txn) {
+#ifndef ROCKSDB_LITE
       Options tmp_opts;
       // TODO(yanqin) support max_open_files != -1 for secondary instance.
       tmp_opts.max_open_files = -1;
       tmp_opts.env = db_stress_env;
-      std::string secondary_path = FLAGS_secondaries_base + "/cmp_database";
+      const std::string& secondary_path = FLAGS_secondaries_base;
       s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
                               cf_descriptors, &cmp_cfhs_, &cmp_db_);
-      assert(!s.ok() ||
-             cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+      assert(s.ok());
+      assert(cmp_cfhs_.size() == static_cast<size_t>(FLAGS_column_families));
+#else
+      fprintf(stderr, "Secondary is not supported in RocksDBLite\n");
+      exit(1);
+#endif  // !ROCKSDB_LITE
     }
   } else {
 #ifndef ROCKSDB_LITE
     DBWithTTL* db_with_ttl;
     s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
     db_ = db_with_ttl;
-    if (FLAGS_test_secondary) {
-      secondaries_.resize(FLAGS_threads);
-      std::fill(secondaries_.begin(), secondaries_.end(), nullptr);
-      Options tmp_opts;
-      tmp_opts.env = options_.env;
-      // TODO(yanqin) support max_open_files != -1 for secondary instance.
-      tmp_opts.max_open_files = -1;
-      for (size_t i = 0; i != static_cast<size_t>(FLAGS_threads); ++i) {
-        const std::string secondary_path =
-            FLAGS_secondaries_base + "/" + std::to_string(i);
-        s = DB::OpenAsSecondary(tmp_opts, FLAGS_db, secondary_path,
-                                &secondaries_[i]);
-        if (!s.ok()) {
-          break;
-        }
-      }
-    }
 #else
     fprintf(stderr, "TTL is not supported in RocksDBLite\n");
     exit(1);
@@ -2735,17 +2639,6 @@ void StressTest::Reopen(ThreadState* thread) {
   txn_db_ = nullptr;
 #endif
 
-  assert(secondaries_.size() == secondary_cfh_lists_.size());
-  size_t n = secondaries_.size();
-  for (size_t i = 0; i != n; ++i) {
-    for (auto* cf : secondary_cfh_lists_[i]) {
-      delete cf;
-    }
-    secondary_cfh_lists_[i].clear();
-    delete secondaries_[i];
-  }
-  secondaries_.clear();
-
   num_times_reopened_++;
   auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
@@ -2782,15 +2675,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
   }
   if (FLAGS_use_txn) {
     fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
-    exit(1);
-  }
-  if (FLAGS_read_only) {
-    fprintf(stderr, "When opened as read-only, timestamp not supported.\n");
-    exit(1);
-  }
-  if (FLAGS_test_secondary || FLAGS_secondary_catch_up_one_in > 0 ||
-      FLAGS_continuous_verification_interval > 0) {
-    fprintf(stderr, "Secondary instance does not support timestamp.\n");
     exit(1);
   }
 #ifndef ROCKSDB_LITE
@@ -2871,6 +2755,11 @@ void InitializeOptionsFromFlags(
   block_based_options.cache_usage_options.options_overrides.insert(
       {CacheEntryRole::kBlockBasedTableReader,
        {/*.charged = */ FLAGS_charge_table_reader
+            ? CacheEntryRoleOptions::Decision::kEnabled
+            : CacheEntryRoleOptions::Decision::kDisabled}});
+  block_based_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kFileMetadata,
+       {/*.charged = */ FLAGS_charge_file_metadata
             ? CacheEntryRoleOptions::Decision::kEnabled
             : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
@@ -3033,6 +2922,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);
   }
+
+  options.allow_data_in_errors = FLAGS_allow_data_in_errors;
 }
 
 void InitializeOptionsGeneral(

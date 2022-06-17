@@ -1594,9 +1594,6 @@ random_access_file_reader_test: $(OBJ_DIR)/file/random_access_file_reader_test.o
 file_reader_writer_test: $(OBJ_DIR)/util/file_reader_writer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-block_based_filter_block_test: $(OBJ_DIR)/table/block_based/block_based_filter_block_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
 block_based_table_reader_test: table/block_based/block_based_table_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1775,6 +1772,9 @@ write_prepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_prepare
 	$(AM_LINK)
 
 write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unprepared_transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+timestamped_snapshot_test: $(OBJ_DIR)/utilities/transactions/timestamped_snapshot_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 sst_dump: $(OBJ_DIR)/tools/sst_dump.o $(TOOLS_LIBRARY) $(LIBRARY)

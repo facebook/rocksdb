@@ -88,6 +88,19 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #endif
 }
 
+// A wrapper for fadvise, if the platform doesn't support fadvise,
+// it will simply return 0.
+int Madvise(void* addr, size_t len, int advice) {
+#ifdef OS_LINUX
+  return posix_madvise(addr, len, advice);
+#else
+  (void)addr;
+  (void)len;
+  (void)advice;
+  return 0;  // simply do nothing.
+#endif
+}
+
 namespace {
 
 // On MacOS (and probably *BSD), the posix write and pwrite calls do not support
@@ -980,6 +993,29 @@ IOStatus PosixMmapReadableFile::Read(uint64_t offset, size_t n,
   }
   *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
   return s;
+}
+
+void PosixMmapReadableFile::Hint(AccessPattern pattern) {
+  switch (pattern) {
+    case kNormal:
+      Madvise(mmapped_region_, length_, POSIX_MADV_NORMAL);
+      break;
+    case kRandom:
+      Madvise(mmapped_region_, length_, POSIX_MADV_RANDOM);
+      break;
+    case kSequential:
+      Madvise(mmapped_region_, length_, POSIX_MADV_SEQUENTIAL);
+      break;
+    case kWillNeed:
+      Madvise(mmapped_region_, length_, POSIX_MADV_WILLNEED);
+      break;
+    case kWontNeed:
+      Madvise(mmapped_region_, length_, POSIX_MADV_DONTNEED);
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {

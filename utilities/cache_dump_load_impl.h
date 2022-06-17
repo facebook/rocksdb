@@ -36,7 +36,7 @@ enum CacheDumpUnitType : unsigned char {
   kHashIndexMetadata = 9,
   kMetaIndex = 10,
   kIndex = 11,
-  kDeprecatedFilterBlock = 12,
+  kDeprecatedFilterBlock = 12,  // OBSOLETE / DEPRECATED
   kFilterMetaBlock = 13,
   kBlockTypeMax,
 };

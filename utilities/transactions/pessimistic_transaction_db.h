@@ -150,6 +150,18 @@ class PessimisticTransactionDB : public TransactionDB {
     return lock_manager_->GetLockTrackerFactory();
   }
 
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
+      TxnTimestamp ts) override;
+
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot(
+      TxnTimestamp ts) const override;
+
+  void ReleaseTimestampedSnapshotsOlderThan(TxnTimestamp ts) override;
+
+  Status GetTimestampedSnapshots(TxnTimestamp ts_lb, TxnTimestamp ts_ub,
+                                 std::vector<std::shared_ptr<const Snapshot>>&
+                                     timestamped_snapshots) const override;
+
  protected:
   DBImpl* db_impl_;
   std::shared_ptr<Logger> info_log_;
@@ -254,6 +266,34 @@ inline Status PessimisticTransactionDB::FailIfCfEnablesTs(
   }
   return Status::OK();
 }
+
+class SnapshotCreationCallback : public PostMemTableCallback {
+ public:
+  explicit SnapshotCreationCallback(
+      DBImpl* dbi, TxnTimestamp commit_ts,
+      const std::shared_ptr<TransactionNotifier>& notifier,
+      std::shared_ptr<const Snapshot>& snapshot)
+      : db_impl_(dbi),
+        commit_ts_(commit_ts),
+        snapshot_notifier_(notifier),
+        snapshot_(snapshot) {
+    assert(db_impl_);
+  }
+
+  ~SnapshotCreationCallback() override {
+    snapshot_creation_status_.PermitUncheckedError();
+  }
+
+  Status operator()(SequenceNumber seq, bool disable_memtable) override;
+
+ private:
+  DBImpl* const db_impl_;
+  const TxnTimestamp commit_ts_;
+  std::shared_ptr<TransactionNotifier> snapshot_notifier_;
+  std::shared_ptr<const Snapshot>& snapshot_;
+
+  Status snapshot_creation_status_;
+};
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

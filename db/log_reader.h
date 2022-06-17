@@ -103,6 +103,10 @@ class Reader {
     return static_cast<size_t>(end_of_buffer_offset_);
   }
 
+  bool IsCompressedAndEmptyFile() {
+    return !first_record_read_ && compression_type_record_read_;
+  }
+
  protected:
   std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
