@@ -2782,8 +2782,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     // Set back to capped:4 and verify BF is always read
@@ -2812,8 +2811,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                4 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 6);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
     }
     SyncPoint::GetInstance()->DisableProcessing();
