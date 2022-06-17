@@ -1610,11 +1610,21 @@ void DBIter::SeekToLast() {
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
-    if (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
-                            *iterate_upper_bound_, /*a_has_ts=*/false, key(),
-                            /*b_has_ts=*/false)) {
+    const bool is_ikey = (timestamp_size_ > 0 && timestamp_lb_ != nullptr);
+    Slice k = Valid() ? key() : Slice();
+    if (is_ikey) {
+      k.remove_suffix(kNumInternalBytes + timestamp_size_);
+    }
+    while (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
+                               *iterate_upper_bound_, /*a_has_ts=*/false, k,
+                               /*b_has_ts=*/false)) {
       ReleaseTempPinnedData();
       PrevInternal(nullptr);
+
+      k = key();
+      if (is_ikey) {
+        k.remove_suffix(kNumInternalBytes + timestamp_size_);
+      }
     }
     return;
   }
