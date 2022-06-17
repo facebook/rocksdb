@@ -11,10 +11,9 @@
 #include <memory>
 #include <string>
 
-#include "blob_file_cache.h"
+#include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
-#include "db/blob/blob_source.h"
 #include "db/db_test_util.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
