@@ -288,7 +288,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
     while (!logs_.empty() && logs_.front().number < min_log_number) {
       auto& log = logs_.front();
-      if (log.getting_synced) {
+      if (log.IsSyncing()) {
         log_sync_cv_.Wait();
         // logs_ could have changed while we were waiting.
         continue;

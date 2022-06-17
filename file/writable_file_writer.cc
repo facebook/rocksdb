@@ -555,6 +555,8 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 
     left -= allowed;
     src += allowed;
+    uint64_t cur_size = flushed_size_.load(std::memory_order_acquire);
+    flushed_size_.store(cur_size + allowed, std::memory_order_release);
   }
   buf_.Size(0);
   buffered_data_crc32c_checksum_ = 0;
@@ -642,6 +644,8 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(const char* data,
   // the corresponding checksum value
   buf_.Size(0);
   buffered_data_crc32c_checksum_ = 0;
+  uint64_t cur_size = flushed_size_.load(std::memory_order_acquire);
+  flushed_size_.store(cur_size + left, std::memory_order_release);
   return s;
 }
 
@@ -744,6 +748,8 @@ IOStatus WritableFileWriter::WriteDirect() {
     left -= size;
     src += size;
     write_offset += size;
+    uint64_t cur_size = flushed_size_.load(std::memory_order_acquire);
+    flushed_size_.store(cur_size + size, std::memory_order_release);
     assert((next_write_offset_ % alignment) == 0);
   }
 
@@ -840,6 +846,8 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum() {
 
   IOSTATS_ADD(bytes_written, left);
   assert((next_write_offset_ % alignment) == 0);
+  uint64_t cur_size = flushed_size_.load(std::memory_order_acquire);
+  flushed_size_.store(cur_size + left, std::memory_order_release);
 
   if (s.ok()) {
     // Move the tail to the beginning of the buffer
