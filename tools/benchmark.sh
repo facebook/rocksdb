@@ -52,7 +52,7 @@ function display_usage() {
   echo -e "\tNUM_THREADS\t\t\tThe number of threads to use (default: 64)"
   echo -e "\tMB_WRITE_PER_SEC\t\t\tRate limit for background writer"
   echo -e "\tNUM_NEXTS_PER_SEEK\t\t(default: 10)"
-  echo -e "\tCACHE_SIZE\t\t\tSize of the block cache(default: 16GB)"
+  echo -e "\tCACHE_SIZE\t\t\tSize of the block cache (default: 16GB)"
   echo -e "\tCOMPRESSION_MAX_DICT_BYTES"
   echo -e "\tCOMPRESSION_TYPE\t\tDefault compression(default: zstd)"
   echo -e "\tBOTTOMMOST_COMPRESSION\t\t(default: none)"

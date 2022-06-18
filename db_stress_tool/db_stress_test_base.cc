@@ -2883,6 +2883,10 @@ void InitializeOptionsFromFlags(
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
+  if (FLAGS_cache_size > 0) {
+    options.blob_cache = cache;
+  }
+
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
