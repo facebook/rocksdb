@@ -47,6 +47,16 @@ PerfContext::PerfContext(const PerfContext& other) {
   get_read_bytes = other.get_read_bytes;
   multiget_read_bytes = other.multiget_read_bytes;
   iter_read_bytes = other.iter_read_bytes;
+
+  blob_cache_hit_count = other.blob_cache_hit_count;
+  blob_read_count = other.blob_read_count;
+  blob_read_byte = other.blob_read_byte;
+  blob_read_time = other.blob_read_time;
+  blob_checksum_time = other.blob_checksum_time;
+  blob_decompress_time = other.blob_decompress_time;
+  getblob_read_bytes = other.getblob_read_bytes;
+  multigetblob_read_bytes = other.multigetblob_read_bytes;
+
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
@@ -146,6 +156,16 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   get_read_bytes = other.get_read_bytes;
   multiget_read_bytes = other.multiget_read_bytes;
   iter_read_bytes = other.iter_read_bytes;
+
+  blob_cache_hit_count = other.blob_cache_hit_count;
+  blob_read_count = other.blob_read_count;
+  blob_read_byte = other.blob_read_byte;
+  blob_read_time = other.blob_read_time;
+  blob_checksum_time = other.blob_checksum_time;
+  blob_decompress_time = other.blob_decompress_time;
+  getblob_read_bytes = other.getblob_read_bytes;
+  multigetblob_read_bytes = other.multigetblob_read_bytes;
+
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
@@ -247,6 +267,16 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   get_read_bytes = other.get_read_bytes;
   multiget_read_bytes = other.multiget_read_bytes;
   iter_read_bytes = other.iter_read_bytes;
+
+  blob_cache_hit_count = other.blob_cache_hit_count;
+  blob_read_count = other.blob_read_count;
+  blob_read_byte = other.blob_read_byte;
+  blob_read_time = other.blob_read_time;
+  blob_checksum_time = other.blob_checksum_time;
+  blob_decompress_time = other.blob_decompress_time;
+  getblob_read_bytes = other.getblob_read_bytes;
+  multigetblob_read_bytes = other.multigetblob_read_bytes;
+
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
@@ -345,6 +375,16 @@ void PerfContext::Reset() {
   get_read_bytes = 0;
   multiget_read_bytes = 0;
   iter_read_bytes = 0;
+
+  blob_cache_hit_count = 0;
+  blob_read_count = 0;
+  blob_read_byte = 0;
+  blob_read_time = 0;
+  blob_checksum_time = 0;
+  blob_decompress_time = 0;
+  getblob_read_bytes = 0;
+  multigetblob_read_bytes = 0;
+
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
   internal_recent_skipped_count = 0;
@@ -467,6 +507,14 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(get_read_bytes);
   PERF_CONTEXT_OUTPUT(multiget_read_bytes);
   PERF_CONTEXT_OUTPUT(iter_read_bytes);
+  PERF_CONTEXT_OUTPUT(blob_cache_hit_count);
+  PERF_CONTEXT_OUTPUT(blob_read_count);
+  PERF_CONTEXT_OUTPUT(blob_read_byte);
+  PERF_CONTEXT_OUTPUT(blob_read_time);
+  PERF_CONTEXT_OUTPUT(blob_checksum_time);
+  PERF_CONTEXT_OUTPUT(blob_decompress_time);
+  PERF_CONTEXT_OUTPUT(getblob_read_bytes);
+  PERF_CONTEXT_OUTPUT(multigetblob_read_bytes);
   PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);

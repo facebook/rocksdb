@@ -307,6 +307,9 @@ static const std::string total_blob_file_size = "total-blob-file-size";
 static const std::string live_blob_file_size = "live-blob-file-size";
 static const std::string live_blob_file_garbage_size =
     "live-blob-file-garbage-size";
+static const std::string blob_cache_capacity = "blob-cache-capacity";
+static const std::string blob_cache_usage = "blob-cache-usage";
+static const std::string blob_cache_pinned_usage = "blob-cache-pinned-usage";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
     rocksdb_prefix + num_files_at_level_prefix;
@@ -409,6 +412,12 @@ const std::string DB::Properties::kLiveBlobFileSize =
     rocksdb_prefix + live_blob_file_size;
 const std::string DB::Properties::kLiveBlobFileGarbageSize =
     rocksdb_prefix + live_blob_file_garbage_size;
+const std::string DB::Properties::kBlobCacheCapacity =
+    rocksdb_prefix + blob_cache_capacity;
+const std::string DB::Properties::kBlobCacheUsage =
+    rocksdb_prefix + blob_cache_usage;
+const std::string DB::Properties::kBlobCachePinnedUsage =
+    rocksdb_prefix + blob_cache_pinned_usage;
 
 const UnorderedMap<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -570,6 +579,15 @@ const UnorderedMap<std::string, DBPropertyInfo>
         {DB::Properties::kLiveBlobFileGarbageSize,
          {false, nullptr, &InternalStats::HandleLiveBlobFileGarbageSize,
           nullptr, nullptr}},
+        {DB::Properties::kBlobCacheCapacity,
+         {false, nullptr, &InternalStats::HandleBlobCacheCapacity, nullptr,
+          nullptr}},
+        {DB::Properties::kBlobCacheUsage,
+         {false, nullptr, &InternalStats::HandleBlobCacheUsage, nullptr,
+          nullptr}},
+        {DB::Properties::kBlobCachePinnedUsage,
+         {false, nullptr, &InternalStats::HandleBlobCachePinnedUsage, nullptr,
+          nullptr}},
 };
 
 InternalStats::InternalStats(int num_levels, SystemClock* clock,
@@ -848,6 +866,45 @@ bool InternalStats::HandleLiveBlobFileGarbageSize(uint64_t* value,
 
   *value = vstorage->GetBlobStats().total_garbage_size;
 
+  return true;
+}
+
+bool InternalStats::GetBlobCacheForStats(Cache** blob_cache) {
+  assert(blob_cache != nullptr);
+  *blob_cache = cfd_->ioptions()->blob_cache.get();
+  return *blob_cache != nullptr;
+}
+
+bool InternalStats::HandleBlobCacheCapacity(uint64_t* value, DBImpl* /*db*/,
+                                            Version* /*version*/) {
+  Cache* blob_cache;
+  bool ok = GetBlobCacheForStats(&blob_cache);
+  if (!ok) {
+    return false;
+  }
+  *value = static_cast<uint64_t>(blob_cache->GetCapacity());
+  return true;
+}
+
+bool InternalStats::HandleBlobCacheUsage(uint64_t* value, DBImpl* /*db*/,
+                                         Version* /*version*/) {
+  Cache* blob_cache;
+  bool ok = GetBlobCacheForStats(&blob_cache);
+  if (!ok) {
+    return false;
+  }
+  *value = static_cast<uint64_t>(blob_cache->GetUsage());
+  return true;
+}
+
+bool InternalStats::HandleBlobCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
+                                               Version* /*version*/) {
+  Cache* blob_cache;
+  bool ok = GetBlobCacheForStats(&blob_cache);
+  if (!ok) {
+    return false;
+  }
+  *value = static_cast<uint64_t>(blob_cache->GetPinnedUsage());
   return true;
 }
 

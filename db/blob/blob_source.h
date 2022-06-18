@@ -90,24 +90,17 @@ class BlobSource {
                           CachableEntry<std::string>* cached_blob,
                           PinnableSlice* blob) const;
 
+  Cache::Handle* GetEntryFromCache(const Slice& key) const;
+
+  Status InsertEntryIntoCache(const Slice& key, std::string* value,
+                              size_t charge, Cache::Handle** cache_handle,
+                              Cache::Priority priority) const;
+
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
                               uint64_t offset) const {
     OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
                                       file_size);
     return base_cache_key.WithOffset(offset);
-  }
-
-  inline Cache::Handle* GetEntryFromCache(const Slice& key) const {
-    return blob_cache_->Lookup(key, statistics_);
-  }
-
-  inline Status InsertEntryIntoCache(const Slice& key, std::string* value,
-                                     size_t charge,
-                                     Cache::Handle** cache_handle,
-                                     Cache::Priority priority) const {
-    return blob_cache_->Insert(key, value, charge,
-                               &DeleteCacheEntry<std::string>, cache_handle,
-                               priority);
   }
 
   const std::string& db_id_;

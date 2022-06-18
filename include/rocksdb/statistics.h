@@ -337,6 +337,18 @@ enum Tickers : uint32_t {
   // # of bytes in the blob files evicted because of BlobDB is full. Only
   // applicable to legacy BlobDB.
   BLOB_DB_FIFO_BYTES_EVICTED,
+  // # of times cache miss when accessing blob from blob cache.
+  BLOB_DB_CACHE_MISS,
+  // # of times cache hit when accessing blob from blob cache.
+  BLOB_DB_CACHE_HIT,
+  // # of data blocks added to blob cache.
+  BLOB_DB_CACHE_ADD,
+  // # of failures when adding blobs to blob cache.
+  BLOB_DB_CACHE_ADD_FAILURES,
+  // # of bytes read from blob cache.
+  BLOB_DB_CACHE_BYTES_READ,
+  // # of bytes written into blob cache.
+  BLOB_DB_CACHE_BYTES_WRITE,
 
   // These counters indicate a performance issue in WritePrepared transactions.
   // We should not seem them ticking them much.
