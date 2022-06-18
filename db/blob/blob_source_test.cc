@@ -253,7 +253,6 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
 
       blob_bytes += blob_sizes[i];
       total_bytes += bytes_read;
-      blob_sizes[i];
       ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, i);
       ASSERT_EQ((int)get_perf_context()->blob_read_count, i + 1);
       ASSERT_EQ((int)get_perf_context()->blob_read_byte, total_bytes);
