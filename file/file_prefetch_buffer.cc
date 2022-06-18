@@ -120,9 +120,9 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   req.offset = rounddown_start + chunk_len;
   req.result = result;
   req.scratch = bufs_[index].buffer_.BufferStart() + chunk_len;
-  Status s = reader->ReadAsync(req, opts, /*aligned_buf=*/nullptr, fp,
+  Status s = reader->ReadAsync(req, opts, rate_limiter_priority, fp,
                                /*cb_arg=*/nullptr, &io_handle_, &del_fn_,
-                               rate_limiter_priority);
+                               /*aligned_buf=*/nullptr);
   req.status.PermitUncheckedError();
   if (s.ok()) {
     async_read_in_progress_ = true;

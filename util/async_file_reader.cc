@@ -21,14 +21,14 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
     awaiter->file_
         ->ReadAsync(
-            awaiter->read_reqs_[i], awaiter->opts_,
+            awaiter->read_reqs_[i], awaiter->opts_, Env::IOPriority::IO_TOTAL,
             [](const FSReadRequest& req, void* cb_arg) {
               FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
               read_req->status = req.status;
               read_req->result = req.result;
             },
             &awaiter->read_reqs_[i], &awaiter->io_handle_[i],
-            &awaiter->del_fn_[i], Env::IOPriority::IO_TOTAL)
+            &awaiter->del_fn_[i], /*aligned_buf=*/nullptr)
         .PermitUncheckedError();
   }
   return true;

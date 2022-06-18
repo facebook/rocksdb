@@ -206,10 +206,10 @@ class RandomAccessFileReader {
   IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
 
   IOStatus ReadAsync(FSReadRequest& req, const IOOptions& opts,
-                     AlignedBuf* aligned_buf,
+                     Env::IOPriority rate_limiter_priority,
                      std::function<void(const FSReadRequest&, void*)> cb,
                      void* cb_arg, void** io_handle, IOHandleDeleter* del_fn,
-                     Env::IOPriority rate_limiter_priority);
+                     AlignedBuf* aligned_buf);
 
   void ReadAsyncCallback(const FSReadRequest& req, void* cb_arg);
 };
