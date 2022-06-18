@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
+#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace fast_lru_cache {
@@ -273,7 +274,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
-  mutable port::Mutex mutex_;
+  mutable DMutex mutex_;
 };
 
 class LRUCache

@@ -79,12 +79,15 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "std::mutex"; }
 
-   /* implicit */ Mutex(bool adaptive = kDefaultToAdaptiveMutex)
+  explicit Mutex(bool IGNORED_adaptive = kDefaultToAdaptiveMutex)
 #ifndef NDEBUG
-     : locked_(false)
+      : locked_(false)
 #endif
-   { }
+  {
+    (void)IGNORED_adaptive;
+  }
 
   ~Mutex();
 
@@ -119,6 +122,11 @@ class Mutex {
     assert(locked_);
 #endif
   }
+
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
 
   // Mutex is move only with lock ownership transfer
   Mutex(const Mutex&) = delete;

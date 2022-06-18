@@ -4562,6 +4562,9 @@ class Benchmark {
         options.rate_limiter.reset(NewGenericRateLimiter(
             FLAGS_rate_limiter_bytes_per_sec,
             FLAGS_rate_limiter_refill_period_us, 10 /* fairness */,
+            // TODO: replace this with a more general FLAG for deciding
+            // RateLimiter::Mode as now we also rate-limit foreground reads e.g,
+            // Get()/MultiGet()
             FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                       : RateLimiter::Mode::kWritesOnly,
             FLAGS_rate_limiter_auto_tuned));

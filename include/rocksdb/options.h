@@ -1641,10 +1641,6 @@ struct ReadOptions {
   // is a `PlainTableFactory`) and cuckoo tables (these can exist when
   // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
   //
-  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
-  // `Status::NotSupported` when that operation requires file read(s) and
-  // `rate_limiter_priority != Env::IO_TOTAL`.
-  //
   // The bytes charged to rate limiter may not exactly match the file read bytes
   // since there are some seemingly insignificant reads, like for file
   // headers/footers, that we currently do not charge to rate limiter.

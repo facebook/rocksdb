@@ -11,6 +11,7 @@
 * Fix a bug that could return wrong results with `index_type=kHashSearch` and using `SetOptions` to change the `prefix_extractor`.
 * Fixed a bug in WAL tracking with wal_compression. WAL compression writes a kSetCompressionType record which is not associated with any sequence number. As result, WalManager::GetSortedWalsOfType() will skip these WALs and not return them to caller, e.g. Checkpoint, Backup, causing the operations to fail.
 * Avoid a crash if the IDENTITY file is accidentally truncated to empty. A new DB ID will be written and generated on Open.
+* Fixed a possible corruption for users of `manual_wal_flush` and/or `FlushWAL(true /* sync */)`, together with `track_and_verify_wals_in_manifest == true`. For those users, losing unsynced data (e.g., due to power loss) could make future DB opens fail with a `Status::Corruption` complaining about missing WAL data.
 
 ### Public API changes
 * Add new API GetUnixTime in Snapshot class which returns the unix time at which Snapshot is taken.
@@ -36,12 +37,16 @@
 * Add a new column family option `blob_file_starting_level` to enable writing blob files during flushes and compactions starting from the specified LSM tree level.
 * Add support for timestamped snapshots (#9879)
 * Provide support for AbortIO in posix to cancel submitted asynchronous requests using io_uring.
+* Add support for rate-limiting batched `MultiGet()` APIs
 
 ### Behavior changes
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
 * DB::Write does not hold global `mutex_` if this db instance does not need to switch wal and mem-table (#7516).
 * Removed support for reading Bloom filters using obsolete block-based filter format. (Support for writing such filters was dropped in 7.0.) For good read performance on old DBs using these filters, a full compaction is required.
 * Per KV checksum in write batch is verified before a write batch is written to WAL to detect any corruption to the write batch (#10114).
+
+### Performance Improvements
+* When compiled with folly (Meta-internal integration; experimental in open source build), improve the locking performance (CPU efficiency) of LRUCache by using folly DistributedMutex in place of standard mutex.
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes
