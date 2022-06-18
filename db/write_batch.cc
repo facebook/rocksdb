@@ -1662,6 +1662,10 @@ Status WriteBatch::VerifyChecksum() const {
       case kTypeCommitXIDAndTimestamp:
         checksum_protected = false;
         break;
+      case kTypeColumnFamilyWideColumnEntity:
+      case kTypeWideColumnEntity:
+        tag = kTypeWideColumnEntity;
+        break;
       default:
         return Status::Corruption(
             "unknown WriteBatch tag",
@@ -2102,20 +2106,25 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status PutEntityCF(uint32_t column_family_id, const Slice& key,
                      const Slice& value) override {
-    // TODO: look into PutCFImpl, especially the stuff around txns and in-place
-    // update
     const auto* kv_prot_info = NextProtectionInfo();
 
+    Status s;
     if (kv_prot_info) {
       // Memtable needs seqno, doesn't need CF ID
       auto mem_kv_prot_info =
           kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-      return PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
-                       &mem_kv_prot_info);
+      s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
+                    &mem_kv_prot_info);
+    } else {
+      s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
+                    /* kv_prot_info */ nullptr);
     }
 
-    return PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
-                     /* kv_prot_info */ nullptr);
+    if (UNLIKELY(s.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
+
+    return s;
   }
 
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
