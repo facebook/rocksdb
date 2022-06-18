@@ -347,7 +347,7 @@ class LRUCache
 #endif
     : public ShardedCache {
  public:
-  LRUCache(size_t capacity, size_t estimated_value_size, uint8_t num_shard_bits,
+  LRUCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
            bool strict_capacity_limit,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata);

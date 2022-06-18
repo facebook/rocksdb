@@ -215,7 +215,6 @@ void LRUCacheShard::EraseUnRefEntries() {
   }
 }
 
-// TODO(guido) Check this makes sense in the new data structure.
 void LRUCacheShard::ApplyToSomeEntries(
     const std::function<void(const Slice& key, void* value, size_t charge,
                              DeleterFn deleter)>& callback,
@@ -516,7 +515,7 @@ size_t LRUCacheShard::GetPinnedUsage() const {
 std::string LRUCacheShard::GetPrintableOptions() const { return std::string{}; }
 
 LRUCache::LRUCache(size_t capacity, size_t estimated_value_size,
-                   uint8_t num_shard_bits, bool strict_capacity_limit,
+                   int num_shard_bits, bool strict_capacity_limit,
                    CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   // // We must enforce strict capacity requirement, or else insertions
@@ -594,7 +593,7 @@ std::shared_ptr<Cache> NewFastLRUCache(
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<fast_lru_cache::LRUCache>(
-      capacity, estimated_value_size, static_cast<uint8_t>(num_shard_bits),
+      capacity, estimated_value_size, num_shard_bits,
       strict_capacity_limit, metadata_charge_policy);
 }
 
