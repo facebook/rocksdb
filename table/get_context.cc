@@ -241,7 +241,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     auto type = parsed_key.type;
     // Key matches. Process it
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
+         type == kTypeWideColumnEntity) &&
         max_covering_tombstone_seq_ != nullptr &&
         *max_covering_tombstone_seq_ > parsed_key.sequence) {
       type = kTypeRangeDeletion;
@@ -249,10 +250,16 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     switch (type) {
       case kTypeValue:
       case kTypeBlobIndex:
+      case kTypeWideColumnEntity:
         assert(state_ == kNotFound || state_ == kMerge);
         if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
           // Blob value not supported. Stop.
           state_ = kUnexpectedBlobIndex;
+          return false;
+        }
+        if (type == kTypeWideColumnEntity) {
+          // TODO: support wide-column entities
+          state_ = kUnexpectedBlobIndex;  // FIXME
           return false;
         }
         if (is_blob_index_ != nullptr) {
