@@ -19,16 +19,41 @@
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
 
+namespace ROCKSDB_NAMESPACE {
+namespace fast_lru_cache {
+
+// Every slot in the hash table is an LRUHandle e, which can be in 4 different
+// states:
+// - Visible element (IS_ELEMENT set and IS_VISIBLE set): The slot contains a
+// key-value element.
+// - Ghost element (IS_ELEMENT set and IS_VISIBLE unset): The slot contains an
+// element that has been removed, but it's still referenced. It's invisible
+// to lookups.
+// - Tombstone (IS_ELEMENT unset and displacements > 0): The slot contains a
+// tombstone.
+// - Empty (IS_ELEMENT unset and displacements == 0): The slot is unused.
+// A slot that is an element can further have IS_VISIBLE set or not.
+//
+// When an handle is inserted, it's in visible state. When it's removed, or
+// when another handle with the same key is inserted, it becomes a ghost,
+// and it will never go back to being visible. At any point in time, there
+// is at most one visible element matching a particular key, but any number
+// of ghosts matching it.
+
 constexpr uint8_t kCacheKeySize =
     static_cast<uint8_t>(sizeof(ROCKSDB_NAMESPACE::CacheKey));
 
+// The load factor should be at least 50% and far from 100%.
+// Load factor p implies that in a full table (i.e., a fraction
+// p of all slots, without counting tombstones, are occupied by
+// elements) the probability that a random probe hits an empty
+// slot is p, and thus 1/p probes are required on average.
+// For p = 70%, between 1 and 2 probes are needed on average.
 constexpr double kLoadFactor = 0.7;
 
+// Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
 constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
-
-namespace ROCKSDB_NAMESPACE {
-namespace fast_lru_cache {
 
 // An experimental (under development!) alternative to LRUCache
 
@@ -44,28 +69,30 @@ struct LRUHandle {
   uint32_t refs;
 
   enum Flags : uint8_t {
-    // Whether the handle can be found via a Lookup.
+    // Whether the handle is visible to Lookups.
     IS_VISIBLE = (1 << 0),
     // Whether the slot is in use by an element.
     IS_ELEMENT = (1 << 1),
   };
   uint8_t flags;
 
-  // Number of elements that hash to this slot or a lower one,
+  // The number of elements that hash to this slot or a lower one,
   // but wind up in a higher slot.
   uint32_t displacements;
-
-  // Every slot in the hash table is an LRUHandle e, which be in three different
-  // states:
-  // - Element (IS_ELEMENT set): The slot contains an actual key-value element.
-  // - Tombstone (IS_ELEMENT unset and displacements > 0): The slot contains a
-  // tombstone.
-  // - Empty (IS_ELEMENT unset and displacements == 0): The slot is unused.
-  // A slot that is an element can further have IS_VISIBLE set or not.
 
   char key_data[kCacheKeySize];
 
   LRUHandle() { memset(this, 0, sizeof(LRUHandle)); }
+
+  LRUHandle(const LRUHandle& e) { *this = e; }
+
+  LRUHandle& operator=(const LRUHandle& e) {
+    if (this == &e) {
+      return *this;
+    }
+    memcpy(this, &e, sizeof(LRUHandle));
+    return *this;
+  }
 
   Slice key() const { return Slice(key_data, kCacheKeySize); }
 
@@ -132,8 +159,6 @@ struct LRUHandle {
     return total_charge - meta_charge;
   }
 
-  // A handle can represent 3 different things: an empty slot, a tombstone, or
-  // an actual element.
   inline bool IsEmpty() {
     return !this->IsElement() && this->displacements == 0;
   }
@@ -160,21 +185,26 @@ class LRUHandleTable {
   explicit LRUHandleTable(uint8_t hash_bits);
   ~LRUHandleTable();
 
-  // Returns a pointer to the handle matching the key/hash, or nullptr
-  // if not present.
+  // Returns a pointer to a visible element matching the key/hash, or
+  // nullptr if not present.
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
+
+  // Inserts a copy of h into the hash table.
   // Returns a pointer to the inserted handle, or nullptr if no slot
-  // available was found. The output argument old is set to a
-  // pointer to an existing handle that matches the key/hash, or nullptr
-  // if none is found.
+  // available was found. If an existing visible element matching the
+  // key/hash is already present in the hash table, the argument old
+  // is set to pointe to it; otherwise, it is set to nullptr.
   LRUHandle* Insert(LRUHandle* h, LRUHandle** old);
-  // Returns a pointer to the handle matching the key/hash, or nullptr
-  // if not present. Assumes the element is in the table.
-  LRUHandle* Remove(const Slice& key, uint32_t hash);
 
-  void Exclude(LRUHandle* e);
+  // Removes h from the hash table. The handle must already be off
+  // the LRU list.
+  void Remove(LRUHandle *h);
 
-  void Assign(int slot, LRUHandle* src);
+  // Turns a visible element h into a ghost (i.e., not visible).
+  void Exclude(LRUHandle* h);
+
+  // Assigns a copy of h to the given slot.
+  void Assign(int slot, LRUHandle* h);
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end) {
@@ -191,25 +221,22 @@ class LRUHandleTable {
   uint32_t GetOccupancy() const { return occupancy_; }
 
  private:
-  int FindElement(const Slice& key, uint32_t hash, int& probe,
-                  int displacement);
-
-  int FindPresentElement(const Slice& key, uint32_t hash, int& probe,
+  int FindVisibleElement(const Slice& key, uint32_t hash, int& probe,
                          int displacement);
 
   int FindAvailableSlot(const Slice& key, int& probe, int displacement);
 
-  int FindPresentElementOrAvailableSlot(const Slice& key, uint32_t hash,
+  int FindVisibleElementOrAvailableSlot(const Slice& key, uint32_t hash,
                                         int& probe, int displacement);
 
-  // Returns the index of the first slot probed that has a handle e
-  // such that cond(e) is true.  If the probe sequence ends without
-  // a match, returns a pointer to the first slot available in the
-  // sequence.  Otherwise, if no match is found and no slot is
-  // available, returns -1.  For every handle e probed, except the
-  // matching slot, we update e->displacements += displacement.
-  // The variable probe is modified such that consecutive calls to
-  // FindSlot continue probing where the previous left.
+  // Returns the index of the first slot probed (hashing with
+  // the given key) with a handle e such that cond(e) is true.
+  // Otherwise, if no match is found, returns -1.
+  // For every handle e probed except the final slot, updates
+  // e->displacements += displacement.
+  // The argument probe is modified such that consecutive calls
+  // to FindSlot continue probing right after where the previous
+  // call left.
   int FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond,
                int& probe, int displacement);
 
@@ -295,7 +322,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // to hold (usage_ + charge) is freed or the lru list is empty
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
-  void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
+  void EvictFromLRU(size_t charge, autovector<LRUHandle>* deleted);
 
   // Returns the number of bits used to hash an element in the hash
   // table.
