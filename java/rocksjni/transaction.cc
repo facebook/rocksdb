@@ -705,6 +705,44 @@ void txn_write_kv_parts_helper(JNIEnv* env,
 
 /*
  * Class:     org_rocksdb_Transaction
+ * Method:    putDirect
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
+ */
+void Java_org_rocksdb_Transaction_putDirect(JNIEnv* env, jobject, jlong jhandle,
+                                            jobject jkey_direct,
+                                            jint jkey_offset, jint jkey_length,
+                                            jobject jvalue_direct,
+                                            jint jvalue_offset,
+                                            jint jvalue_length) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_direct_with_status_check(
+      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
+          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
+          &ROCKSDB_NAMESPACE::Transaction::Put, txn, std::placeholders::_1,
+          std::placeholders::_2),
+      env, jkey_direct, jkey_offset, jkey_length, jvalue_direct, jvalue_offset,
+      jvalue_length);
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
+ * Method:    putByteArray
+ * Signature: (J[BII[BII)V
+ */
+void Java_org_rocksdb_Transaction_putByteArray(JNIEnv* env, jobject, jlong jhandle,
+                                               jbyteArray jkey, jint jkey_offset, jint jkey_length,
+                                               jbyteArray jval, jint jval_offset, jint jval_len) {
+  auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_region_with_status_check(
+      std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
+          const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
+          &ROCKSDB_NAMESPACE::Transaction::Put, txn, std::placeholders::_1,
+          std::placeholders::_2),
+      env, jkey, jkey_offset, jkey_length, jval, jval_offset, jval_len);
+}
+
+/*
+ * Class:     org_rocksdb_Transaction
  * Method:    put
  * Signature: (J[[BI[[BIJZ)V
  */

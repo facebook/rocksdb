@@ -2124,6 +2124,59 @@ class JniUtil {
       op_status_check(env, status);
     }
 
+    static std::unique_ptr<ROCKSDB_NAMESPACE::Status> kv_op_region(
+        const std::function<ROCKSDB_NAMESPACE::Status(
+            ROCKSDB_NAMESPACE::Slice, ROCKSDB_NAMESPACE::Slice)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_offset, jint jkey_len,
+        jbyteArray jvalue, jint jvalue_offset, jint jvalue_len) {
+      const std::unique_ptr<char[]> key(new char[jkey_len]);
+      if (key == nullptr) {
+        jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+        env->ThrowNew(oom_class,
+                      "Memory allocation failed in RocksDB JNI function");
+        return std::make_unique<ROCKSDB_NAMESPACE::Status>(
+            ROCKSDB_NAMESPACE::Status::MemoryLimit());
+      }
+      env->GetByteArrayRegion(jkey, jkey_offset, jkey_len,
+                              reinterpret_cast<jbyte*>(key.get()));
+      if (env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return std::make_unique<ROCKSDB_NAMESPACE::Status>(
+            ROCKSDB_NAMESPACE::Status::MemoryLimit());
+      }
+      const std::unique_ptr<char[]> value(new char [jvalue_len]);
+      if (value == nullptr) {
+        jclass oom_class = env->FindClass("/lang/java/OutOfMemoryError");
+        env->ThrowNew(oom_class,
+                      "Memory allocation failed in RocksDB JNI function");
+        return std::make_unique<ROCKSDB_NAMESPACE::Status>(
+            ROCKSDB_NAMESPACE::Status::MemoryLimit());
+      }
+      env->GetByteArrayRegion(jvalue, jvalue_offset, jvalue_len,reinterpret_cast<jbyte*>(value.get()));
+      if (env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return std::make_unique<ROCKSDB_NAMESPACE::Status>(
+            ROCKSDB_NAMESPACE::Status::MemoryLimit());
+      }
+
+      ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key.get()),
+                                         jkey_len);
+      ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value.get()),
+                                           jvalue_len);
+      auto status = op(key_slice, value_slice);
+      return std::make_unique<Status>(status);
+    }
+    
+    static void kv_op_region_with_status_check(
+        const std::function<ROCKSDB_NAMESPACE::Status(
+            ROCKSDB_NAMESPACE::Slice, ROCKSDB_NAMESPACE::Slice)>& op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_offset, jint jkey_len,
+        jbyteArray jval, jint jval_offset, jint jval_len) {
+      auto status = kv_op_region(op, env, jkey, jkey_offset, jkey_len, jval,
+                                 jval_offset, jval_len);
+      op_status_check(env, status);
+    }
+
     /*
      * Helper for operations on a key
      * for example WriteBatch->Delete

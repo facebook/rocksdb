@@ -481,6 +481,36 @@ public abstract class AbstractTransactionTest {
   }
 
   @Test
+  public void putByteBufferDirect() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try(final DBContainer dbContainer = startDb();
+        final ReadOptions readOptions = new ReadOptions();
+        final Transaction txn = dbContainer.beginTransaction()) {
+      assertThat(txn.get(readOptions, k1)).isNull();
+      final ByteBuffer key = ByteBuffer.allocateDirect(k1.length + 1).put(k1);
+      key.flip();
+      final ByteBuffer value = ByteBuffer.allocateDirect(v1.length + 1).put(v1);
+      value.flip();
+      txn.put(key, value);
+      assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+    }
+  }
+
+  @Test
+  public void putByteBufferByteArray() throws RocksDBException {
+    final byte[] k1 = "key1".getBytes(UTF_8);
+    final byte[] v1 = "value1".getBytes(UTF_8);
+    try(final DBContainer dbContainer = startDb();
+        final ReadOptions readOptions = new ReadOptions();
+        final Transaction txn = dbContainer.beginTransaction()) {
+      assertThat(txn.get(readOptions, k1)).isNull();
+      txn.put(ByteBuffer.wrap(k1), ByteBuffer.wrap(v1));
+      assertThat(txn.get(readOptions, k1)).isEqualTo(v1);
+    }
+  }
+
+  @Test
   public void delete_parts_cf() throws RocksDBException {
     final byte keyParts[][] = new byte[][] {
         "ke".getBytes(UTF_8),
