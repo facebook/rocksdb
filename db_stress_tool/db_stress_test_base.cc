@@ -1808,6 +1808,16 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
   unknownPropertyNames.insert(levelPropertyNames.begin(),
                               levelPropertyNames.end());
 
+  std::unordered_set<std::string> blobCachePropertyNames = {
+      DB::Properties::kBlobCacheCapacity,
+      DB::Properties::kBlobCacheUsage,
+      DB::Properties::kBlobCachePinnedUsage,
+  };
+  if (db_->GetOptions().blob_cache == nullptr) {
+    unknownPropertyNames.insert(blobCachePropertyNames.begin(),
+                                blobCachePropertyNames.end());
+  }
+
   std::string prop;
   for (const auto& ppt_name_and_info : InternalStats::ppt_name_to_info) {
     bool res = db_->GetProperty(ppt_name_and_info.first, &prop);
