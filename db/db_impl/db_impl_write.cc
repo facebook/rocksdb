@@ -2257,7 +2257,7 @@ Status DB::PutEntity(const WriteOptions& options,
   assert(default_cf_ucmp);
 
   WriteBatch batch(/* reserved_bytes */ 0, /* max_bytes */ 0,
-                   /* protection_bytes_per_key */ 0,
+                   options.protection_bytes_per_key,
                    default_cf_ucmp->timestamp_size());
 
   const Status s = batch.PutEntity(column_family, key, columns);
