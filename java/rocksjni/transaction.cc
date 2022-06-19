@@ -555,44 +555,6 @@ jlong Java_org_rocksdb_Transaction_getIterator__JJJ(
       txn->GetIterator(*read_options, column_family_handle));
 }
 
-typedef std::function<ROCKSDB_NAMESPACE::Status(
-    const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>
-    FnWriteKV;
-
-// TODO(AR) consider refactoring to share this between here and rocksjni.cc
-void txn_write_kv_helper(JNIEnv* env, const FnWriteKV& fn_write_kv,
-                         const jbyteArray& jkey, const jint& jkey_part_len,
-                         const jbyteArray& jval, const jint& jval_len) {
-  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  if (key == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
-  jbyte* value = env->GetByteArrayElements(jval, nullptr);
-  if (value == nullptr) {
-    // exception thrown: OutOfMemoryError
-    env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-    return;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key),
-                                     jkey_part_len);
-  ROCKSDB_NAMESPACE::Slice value_slice(reinterpret_cast<char*>(value),
-                                       jval_len);
-
-  ROCKSDB_NAMESPACE::Status s = fn_write_kv(key_slice, value_slice);
-
-  // trigger java unref on key.
-  // by passing JNI_ABORT, it will simply release the reference without
-  // copying the result back to the java byte array.
-  env->ReleaseByteArrayElements(jval, value, JNI_ABORT);
-  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-
-  if (s.ok()) {
-    return;
-  }
-  ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-}
-
 /*
  * Class:     org_rocksdb_Transaction
  * Method:    put
@@ -606,14 +568,15 @@ void Java_org_rocksdb_Transaction_put__J_3BI_3BIJZ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_put =
+
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&,
           bool)>(&ROCKSDB_NAMESPACE::Transaction::Put, txn,
                  column_family_handle, std::placeholders::_1,
-                 std::placeholders::_2, jassume_tracked);
-  txn_write_kv_helper(env, fn_put, jkey, jkey_part_len, jval, jval_len);
+                 std::placeholders::_2, jassume_tracked),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 /*
@@ -627,12 +590,12 @@ void Java_org_rocksdb_Transaction_put__J_3BI_3BI(JNIEnv* env, jobject /*jobj*/,
                                                  jbyteArray jval,
                                                  jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_put =
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
           &ROCKSDB_NAMESPACE::Transaction::Put, txn, std::placeholders::_1,
-          std::placeholders::_2);
-  txn_write_kv_helper(env, fn_put, jkey, jkey_part_len, jval, jval_len);
+          std::placeholders::_2),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -795,14 +758,14 @@ void Java_org_rocksdb_Transaction_merge__J_3BI_3BIJZ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_merge =
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&,
           bool)>(&ROCKSDB_NAMESPACE::Transaction::Merge, txn,
                  column_family_handle, std::placeholders::_1,
-                 std::placeholders::_2, jassume_tracked);
-  txn_write_kv_helper(env, fn_merge, jkey, jkey_part_len, jval, jval_len);
+                 std::placeholders::_2, jassume_tracked),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 /*
@@ -814,12 +777,12 @@ void Java_org_rocksdb_Transaction_merge__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_merge =
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
           &ROCKSDB_NAMESPACE::Transaction::Merge, txn, std::placeholders::_1,
-          std::placeholders::_2);
-  txn_write_kv_helper(env, fn_merge, jkey, jkey_part_len, jval, jval_len);
+          std::placeholders::_2),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 typedef std::function<ROCKSDB_NAMESPACE::Status(
@@ -1084,14 +1047,13 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BIJ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_put_untracked =
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
           &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn,
-          column_family_handle, std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_put_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
+          column_family_handle, std::placeholders::_1, std::placeholders::_2),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 /*
@@ -1103,13 +1065,12 @@ void Java_org_rocksdb_Transaction_putUntracked__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_put_untracked =
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
           &ROCKSDB_NAMESPACE::Transaction::PutUntracked, txn,
-          std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_put_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
+          std::placeholders::_1, std::placeholders::_2),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 /*
@@ -1166,14 +1127,13 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BIJ(
   auto* column_family_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(
           jcolumn_family_handle);
-  FnWriteKV fn_merge_untracked =
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
           &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, txn,
-          column_family_handle, std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_merge_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
+          column_family_handle, std::placeholders::_1, std::placeholders::_2),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 /*
@@ -1185,13 +1145,12 @@ void Java_org_rocksdb_Transaction_mergeUntracked__J_3BI_3BI(
     JNIEnv* env, jobject /*jobj*/, jlong jhandle, jbyteArray jkey,
     jint jkey_part_len, jbyteArray jval, jint jval_len) {
   auto* txn = reinterpret_cast<ROCKSDB_NAMESPACE::Transaction*>(jhandle);
-  FnWriteKV fn_merge_untracked =
+  ROCKSDB_NAMESPACE::JniUtil::kv_op_with_status_check(
       std::bind<ROCKSDB_NAMESPACE::Status (ROCKSDB_NAMESPACE::Transaction::*)(
           const ROCKSDB_NAMESPACE::Slice&, const ROCKSDB_NAMESPACE::Slice&)>(
           &ROCKSDB_NAMESPACE::Transaction::MergeUntracked, txn,
-          std::placeholders::_1, std::placeholders::_2);
-  txn_write_kv_helper(env, fn_merge_untracked, jkey, jkey_part_len, jval,
-                      jval_len);
+          std::placeholders::_1, std::placeholders::_2),
+      env, jkey, jkey_part_len, jval, jval_len);
 }
 
 /*
