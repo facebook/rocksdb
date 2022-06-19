@@ -237,7 +237,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     blob_bytes = 0;
     total_bytes = 0;
     get_perf_context()->Reset();
-    statistics->Reset();
+    statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
@@ -279,7 +279,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     read_options.fill_cache = true;
     total_bytes = 0;
     get_perf_context()->Reset();
-    statistics->Reset();
+    statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
@@ -314,7 +314,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     read_options.read_tier = ReadTier::kBlockCacheTier;
     total_bytes = 0;
     get_perf_context()->Reset();
-    statistics->Reset();
+    statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
@@ -356,7 +356,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     read_options.read_tier = ReadTier::kBlockCacheTier;
     read_options.fill_cache = true;
     get_perf_context()->Reset();
-    statistics->Reset();
+    statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
