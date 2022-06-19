@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.4.0 (06/19/2022)
 ### Bug Fixes
 * Fixed a bug in calculating key-value integrity protection for users of in-place memtable updates. In particular, the affected users would be those who configure `protection_bytes_per_key > 0` on `WriteBatch` or `WriteOptions`, and configure `inplace_callback != nullptr`.
 * Fixed a bug where a snapshot taken during SST file ingestion would be unstable.
