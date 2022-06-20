@@ -277,9 +277,6 @@ class LRUHandleTable {
   // Number of elements in the table.
   uint32_t occupancy_;
 
-  // Probing increment.
-  uint32_t increment_;
-
   std::unique_ptr<LRUHandle[]> array_;
 };
 
