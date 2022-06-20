@@ -22,23 +22,50 @@
 namespace ROCKSDB_NAMESPACE {
 namespace fast_lru_cache {
 
-// Every slot in the hash table is an LRUHandle e, which can be in 4 different
-// states:
-// - Visible element (IS_ELEMENT set and IS_VISIBLE set): The slot contains a
-// key-value element.
-// - Ghost element (IS_ELEMENT set and IS_VISIBLE unset): The slot contains an
-// element that has been removed, but it's still referenced. It's invisible
-// to lookups.
-// - Tombstone (IS_ELEMENT unset and displacements > 0): The slot contains a
-// tombstone.
-// - Empty (IS_ELEMENT unset and displacements == 0): The slot is unused.
-// A slot that is an element can further have IS_VISIBLE set or not.
+// LRU cache implementation using an open-address hash table.
+
+// Every slot in the hash table is an LRUHandle. Because handles can be
+// referenced externally, we can't discard them immediately once they are
+// deleted (via a delete or an LRU eviction) or replaced by a new version
+// (via an insert of the same key). The state of an element is defined by
+// the following two properties:
+// (R) Referenced: An element can be referenced externally (refs > 0), or not.
+//    Importantly, an element can be evicted if and only if it is not
+//    referenced. In particular, when an element becomes referenced, it is
+//    temporarily taken out of the LRU list until all references to it
+//    are dropped.
+// (V) Visible: An element can visible for lookups (IS_VISIBLE set), or not.
+//    Initially, every element is visible. An element that is not visible is
+//    called a ghost.
+// These properties induce 4 different states, with transitions defined as follows:
+// - V --> not V: When a visible element is deleted or replaced by a new version.
+// - Not V --> V: This cannot happen. A ghost remains in that state until it is
+//    not referenced any more, at which point it is ready to be removed from the
+//    hash table. (A ghost simply waits to transition to the afterlife---it will
+//    never be visible again.)
+// - R --> not R: When all references to an element are dropped.
+// - Not R --> R: When an unreferenced element becomes referenced. This can only
+//    happen if the element is V, since references to an element can only be
+//    created when it is visible.
+
+// Internally, the cache uses an open-addressed hash table to index the handles.
+// We use tombstone counters to keep track of displacements.
+// Because of the tombstones and the two possible visibility states of an
+// element, the table slots can be in 4 different states:
+// 1. Visible element (IS_ELEMENT set and IS_VISIBLE set): The slot contains a
+//    key-value element.
+// 2. Ghost element (IS_ELEMENT set and IS_VISIBLE unset): The slot contains an
+//    element that has been removed, but it's still referenced. It's invisible
+//    to lookups.
+// 3. Tombstone (IS_ELEMENT unset and displacements > 0): The slot contains a
+//    tombstone.
+// 4. Empty (IS_ELEMENT unset and displacements == 0): The slot is unused.
+//    A slot that is an element can further have IS_VISIBLE set or not.
 //
-// When an handle is inserted, it's in visible state. When it's removed, or
-// when another handle with the same key is inserted, it becomes a ghost,
-// and it will never go back to being visible. At any point in time, there
-// is at most one visible element matching a particular key, but any number
-// of ghosts matching it.
+// When a ghost is removed from the table, it can either transition to being a
+// tombstone or an empty slot, depending on the number of displacements of the
+// slot. In any case, the slot becomes available. When a handle is inserted
+// into that slot, it becomes a visible element again.
 
 constexpr uint8_t kCacheKeySize =
     static_cast<uint8_t>(sizeof(ROCKSDB_NAMESPACE::CacheKey));
