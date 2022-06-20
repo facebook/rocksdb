@@ -129,28 +129,29 @@ void LRUHandleTable::Exclude(LRUHandle* h) { h->SetIsVisible(false); }
 
 int LRUHandleTable::FindVisibleElement(const Slice& key, uint32_t hash,
                                        int& probe, int displacement) {
-  std::function<bool(LRUHandle*)> cond = [&](LRUHandle* h) {
-    return h->Matches(key, hash) && h->IsVisible();
-  };
-  return FindSlot(key, cond, probe, displacement);
+  return FindSlot(
+      key,
+      [&](LRUHandle* h) { return h->Matches(key, hash) && h->IsVisible(); },
+      probe, displacement);
 }
 
 int LRUHandleTable::FindAvailableSlot(const Slice& key, int& probe,
                                       int displacement) {
-  std::function<bool(LRUHandle*)> cond = [](LRUHandle* h) {
-    return h->IsEmpty() || h->IsTombstone();
-  };
-  return FindSlot(key, cond, probe, displacement);
+  return FindSlot(
+      key, [](LRUHandle* h) { return h->IsEmpty() || h->IsTombstone(); }, probe,
+      displacement);
 }
 
 int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
                                                       uint32_t hash, int& probe,
                                                       int displacement) {
-  std::function<bool(LRUHandle*)> cond = [&](LRUHandle* h) {
-    return h->IsEmpty() || h->IsTombstone() ||
-           (h->Matches(key, hash) && h->IsVisible());
-  };
-  return FindSlot(key, cond, probe, displacement);
+  return FindSlot(
+      key,
+      [&](LRUHandle* h) {
+        return h->IsEmpty() || h->IsTombstone() ||
+               (h->Matches(key, hash) && h->IsVisible());
+      },
+      probe, displacement);
 }
 
 int LRUHandleTable::FindSlot(const Slice& key,
@@ -294,9 +295,6 @@ uint8_t LRUCacheShard::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
   LRUHandle h;
-  h.deleter = nullptr;
-  h.refs = 0;
-  h.flags = 0;
   h.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
   size_t num_entries = capacity / h.total_charge;
   uint8_t num_hash_bits = 0;
@@ -358,11 +356,10 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // Originally, when strict_capacity_limit_ == false and handle != nullptr
       // (i.e., the user wants to immediately get a reference to the new
       // handle), the insertion would proceed even if the total charge already
-      // exceeds capacity. We can't do this, because we can't physically insert
-      // a new handle when the table is at maximum occupancy. Thus, we need the
-      // extra occupancy clause.
-      // TODO(Guido): The tests currently assume the former behavior. Do
-      // something about it.
+      // exceeds capacity. We can't do this now, because we can't physically insert
+      // a new handle when the table is at maximum occupancy.
+      // TODO(Guido) Some tests (at least two from cache_test, as well as the stress
+      // tests) currently assume the old behavior.
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.

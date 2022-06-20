@@ -31,8 +31,8 @@ namespace fast_lru_cache {
 // (via an insert of the same key). The state of an element is defined by
 // the following two properties:
 // (R) Referenced: An element can be referenced externally (refs > 0), or not.
-//    Importantly, an element can be evicted if and only if it is not
-//    referenced. In particular, when an element becomes referenced, it is
+//    Importantly, an element can be evicted if and only if it's not
+//    referenced. In particular, when an element becomes referenced, it's
 //    temporarily taken out of the LRU list until all references to it
 //    are dropped.
 // (V) Visible: An element can visible for lookups (IS_VISIBLE set), or not.
@@ -42,14 +42,14 @@ namespace fast_lru_cache {
 // follows:
 // - V --> not V: When a visible element is deleted or replaced by a new
 // version.
-// - Not V --> V: This cannot happen. A ghost remains in that state until it is
-//    not referenced any more, at which point it is ready to be removed from the
+// - Not V --> V: This cannot happen. A ghost remains in that state until it's
+//    not referenced any more, at which point it's ready to be removed from the
 //    hash table. (A ghost simply waits to transition to the afterlife---it will
 //    never be visible again.)
 // - R --> not R: When all references to an element are dropped.
 // - Not R --> R: When an unreferenced element becomes referenced. This can only
 //    happen if the element is V, since references to an element can only be
-//    created when it is visible.
+//    created when it's visible.
 
 // Internally, the cache uses an open-addressed hash table to index the handles.
 // We use tombstone counters to keep track of displacements.
@@ -72,12 +72,19 @@ namespace fast_lru_cache {
 constexpr uint8_t kCacheKeySize =
     static_cast<uint8_t>(sizeof(ROCKSDB_NAMESPACE::CacheKey));
 
-// The load factor should be at least 50% and far from 100%.
-// Load factor p implies that in a full table (i.e., a fraction
-// p of all slots, without counting tombstones, are occupied by
-// elements) the probability that a random probe hits an empty
-// slot is p, and thus 1/p probes are required on average.
-// For p = 70%, between 1 and 2 probes are needed on average.
+// The load factor p is a real number in (0, 1) such that at all
+// times at most a fraction p of all slots, without counting tombstones,
+// are occupied by elements. This means that the probability that a
+// random probe hits an empty slot is at most p, and thus at most 1/p probes
+// are required on average. We use p = 70%, so between 1 and 2 probes are
+// needed on average.
+// Because the size of the hash table is always rounded up to the next
+// power of 2, p is really an upper bound on the actual load factor---the
+// actual load factor is anywhere between p/2 and p. This is a bit wasteful,
+// but bear in mind that slots only hold metadata, not actual values.
+// Since space cost is dominated by the values (the LSM blocks), overprovisioning
+// the table with metadata only increases the total cache space usage by
+// a tiny fraction.
 constexpr double kLoadFactor = 0.7;
 
 // Arbitrary seeds.
@@ -109,7 +116,7 @@ struct LRUHandle {
   // but wind up in a higher slot.
   uint32_t displacements;
 
-  char key_data[kCacheKeySize];
+  std::array<char, kCacheKeySize> key_data;
 
   LRUHandle() {
     value = nullptr;
@@ -121,10 +128,10 @@ struct LRUHandle {
     refs = 0;
     flags = 0;
     displacements = 0;
-    memset(key_data, 0, kCacheKeySize);
+    key_data.fill(0);
   }
 
-  Slice key() const { return Slice(key_data, kCacheKeySize); }
+  Slice key() const { return Slice(key_data.data(), kCacheKeySize); }
 
   // Increase the reference count by 1.
   void Ref() { refs++; }
@@ -223,7 +230,7 @@ class LRUHandleTable {
   // Returns a pointer to the inserted handle, or nullptr if no slot
   // available was found. If an existing visible element matching the
   // key/hash is already present in the hash table, the argument old
-  // is set to pointe to it; otherwise, it is set to nullptr.
+  // is set to pointe to it; otherwise, it's set to nullptr.
   LRUHandle* Insert(LRUHandle* h, LRUHandle** old);
 
   // Removes h from the hash table. The handle must already be off
