@@ -268,7 +268,7 @@ void LRUCacheShard::LRU_Remove(LRUHandle* h) {
 void LRUCacheShard::LRU_Insert(LRUHandle* h) {
   assert(h->next == nullptr);
   assert(h->prev == nullptr);
-  // Insert "e" to head of LRU list.
+  // Insert h to head of LRU list.
   h->next = &lru_;
   h->prev = lru_.prev;
   h->prev->next = h;
