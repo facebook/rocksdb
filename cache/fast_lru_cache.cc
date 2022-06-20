@@ -356,10 +356,10 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // Originally, when strict_capacity_limit_ == false and handle != nullptr
       // (i.e., the user wants to immediately get a reference to the new
       // handle), the insertion would proceed even if the total charge already
-      // exceeds capacity. We can't do this now, because we can't physically insert
-      // a new handle when the table is at maximum occupancy.
-      // TODO(Guido) Some tests (at least two from cache_test, as well as the stress
-      // tests) currently assume the old behavior.
+      // exceeds capacity. We can't do this now, because we can't physically
+      // insert a new handle when the table is at maximum occupancy.
+      // TODO(Guido) Some tests (at least two from cache_test, as well as the
+      // stress tests) currently assume the old behavior.
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.

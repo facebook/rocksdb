@@ -82,9 +82,9 @@ constexpr uint8_t kCacheKeySize =
 // power of 2, p is really an upper bound on the actual load factor---the
 // actual load factor is anywhere between p/2 and p. This is a bit wasteful,
 // but bear in mind that slots only hold metadata, not actual values.
-// Since space cost is dominated by the values (the LSM blocks), overprovisioning
-// the table with metadata only increases the total cache space usage by
-// a tiny fraction.
+// Since space cost is dominated by the values (the LSM blocks),
+// overprovisioning the table with metadata only increases the total cache space
+// usage by a tiny fraction.
 constexpr double kLoadFactor = 0.7;
 
 // Arbitrary seeds.
