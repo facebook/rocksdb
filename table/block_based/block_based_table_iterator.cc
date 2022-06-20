@@ -257,13 +257,14 @@ void BlockBasedTableIterator::InitDataBlock() {
     //   Enabled from the very first IO when ReadOptions.readahead_size is set.
     block_prefetcher_.PrefetchIfNeeded(
         rep, data_block_handle, read_options_.readahead_size, is_for_compaction,
-        /*async_io=*/false, read_options_.rate_limiter_priority);
+        /*no_sequential_checking=*/false, read_options_.rate_limiter_priority);
     Status s;
     table_->NewDataBlockIterator<DataBlockIter>(
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
         /*get_context=*/nullptr, &lookup_context_,
         block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s);
+        /*for_compaction=*/is_for_compaction, /*no_sequential_checking=*/false,
+        s);
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
   }
@@ -288,9 +289,12 @@ void BlockBasedTableIterator::AsyncInitDataBlock(bool is_first_pass) {
       // Explicit user requested readahead:
       //   Enabled from the very first IO when ReadOptions.readahead_size is
       //   set.
+      // In case of async_io with Implicit readahead, block_prefetcher_ will
+      // always the create the prefetch buffer by setting no_sequential_checking
+      // = true.
       block_prefetcher_.PrefetchIfNeeded(
           rep, data_block_handle, read_options_.readahead_size,
-          is_for_compaction, read_options_.async_io,
+          is_for_compaction, /*no_sequential_checking=*/read_options_.async_io,
           read_options_.rate_limiter_priority);
 
       Status s;
