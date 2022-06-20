@@ -80,8 +80,8 @@ class BlobSource {
                                priority);
   }
 
-  const std::string db_id_;
-  const std::string db_session_id_;
+  const std::string& db_id_;
+  const std::string& db_session_id_;
 
   Statistics* statistics_;
 
