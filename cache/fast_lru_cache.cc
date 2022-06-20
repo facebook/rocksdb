@@ -340,7 +340,9 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   tmp.refs = 0;
   tmp.next = tmp.prev = nullptr;
   tmp.CalcTotalCharge(charge, metadata_charge_policy_);
-  memcpy(tmp.key_data, key.data(), kCacheKeySize);
+  for (int i = 0; i < kCacheKeySize; i++) {
+    tmp.key_data[i] = key.data()[i];
+  }
 
   Status s = Status::OK();
   autovector<LRUHandle> last_reference_list;
