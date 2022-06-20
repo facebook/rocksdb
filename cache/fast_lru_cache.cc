@@ -19,8 +19,8 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
-#include "util/hash.h"
 #include "util/distributed_mutex.h"
+#include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -102,11 +102,14 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
   }
 }
 
-void LRUHandleTable::Remove(LRUHandle *h) {
-  assert(h->next == nullptr && h->prev == nullptr); // Already off the LRU list.
+void LRUHandleTable::Remove(LRUHandle* h) {
+  assert(h->next == nullptr &&
+         h->prev == nullptr);  // Already off the LRU list.
   int probe = 0;
-  int slot = FindSlot(h->key(), [&h](LRUHandle* e) { return e == h; }, probe, -1 /*displacement*/);
-  assert(slot != -1); // The handle must be in the hash table.
+  int slot = FindSlot(
+      h->key(), [&h](LRUHandle* e) { return e == h; }, probe,
+      -1 /*displacement*/);
+  assert(slot != -1);  // The handle must be in the hash table.
   h->SetIsVisible(false);
   h->SetIsElement(false);
   occupancy_--;
@@ -348,11 +351,11 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
          (strict_capacity_limit_ || handle == nullptr)) ||
         table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
       // Originally, when strict_capacity_limit_ == false and handle != nullptr
-      // (i.e., the user wants to immediately get a reference to the new handle),
-      // the insertion would proceed even if the total charge already exceeds
-      // capacity. We can't do this, because we can't physically insert a new
-      // handle when the table is at maximum occupancy. Thus, we need the extra
-      // occupancy clause.
+      // (i.e., the user wants to immediately get a reference to the new
+      // handle), the insertion would proceed even if the total charge already
+      // exceeds capacity. We can't do this, because we can't physically insert
+      // a new handle when the table is at maximum occupancy. Thus, we need the
+      // extra occupancy clause.
       // TODO(Guido): The tests currently assume the former behavior. Do
       // something about it.
       if (handle == nullptr) {
@@ -582,8 +585,8 @@ std::shared_ptr<Cache> NewFastLRUCache(
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<fast_lru_cache::LRUCache>(
-      capacity, estimated_value_size, num_shard_bits,
-      strict_capacity_limit, metadata_charge_policy);
+      capacity, estimated_value_size, num_shard_bits, strict_capacity_limit,
+      metadata_charge_policy);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

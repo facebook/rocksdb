@@ -38,8 +38,10 @@ namespace fast_lru_cache {
 // (V) Visible: An element can visible for lookups (IS_VISIBLE set), or not.
 //    Initially, every element is visible. An element that is not visible is
 //    called a ghost.
-// These properties induce 4 different states, with transitions defined as follows:
-// - V --> not V: When a visible element is deleted or replaced by a new version.
+// These properties induce 4 different states, with transitions defined as
+// follows:
+// - V --> not V: When a visible element is deleted or replaced by a new
+// version.
 // - Not V --> V: This cannot happen. A ghost remains in that state until it is
 //    not referenced any more, at which point it is ready to be removed from the
 //    hash table. (A ghost simply waits to transition to the afterlife---it will
@@ -225,7 +227,7 @@ class LRUHandleTable {
 
   // Removes h from the hash table. The handle must already be off
   // the LRU list.
-  void Remove(LRUHandle *h);
+  void Remove(LRUHandle* h);
 
   // Turns a visible element h into a ghost (i.e., not visible).
   void Exclude(LRUHandle* h);
