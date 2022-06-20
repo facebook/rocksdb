@@ -43,7 +43,8 @@ CacheReservationManagerImpl<R>::CacheReservationManagerImpl(
     std::shared_ptr<Cache> cache, bool delayed_decrease)
     : delayed_decrease_(delayed_decrease),
       cache_allocated_size_(0),
-      memory_used_(0) {
+      memory_used_(0),
+      blob_cache_size_(0) {
   assert(cache != nullptr);
   cache_ = cache;
 }
@@ -52,6 +53,9 @@ template <CacheEntryRole R>
 CacheReservationManagerImpl<R>::~CacheReservationManagerImpl() {
   for (auto* handle : dummy_handles_) {
     cache_->Release(handle, true);
+  }
+  if (dummy_blobs_handle_) {
+    cache_->Release(dummy_blobs_handle_, true);
   }
 }
 
@@ -83,6 +87,27 @@ Status CacheReservationManagerImpl<R>::UpdateCacheReservation(
       return s;
     }
   }
+}
+
+template <CacheEntryRole R>
+Status CacheReservationManagerImpl<R>::UpdateBlobCacheReservation(
+    std::shared_ptr<Cache> blob_cache) {
+  Status s = Status::OK();
+  if (blob_cache != cache_) {
+    std::size_t new_memory_used = blob_cache->GetUsage();
+    if (new_memory_used != blob_cache_size_.load(std::memory_order_relaxed)) {
+      if (!dummy_blobs_handle_) {
+        cache_->Release(dummy_blobs_handle_, true);
+      }
+      s = cache_->Insert(GetNextCacheKey(), nullptr, new_memory_used,
+                         GetNoopDeleterForRole<R>(), &dummy_blobs_handle_);
+      if (s != Status::OK()) {
+        return s;
+      }
+      blob_cache_size_ = new_memory_used;
+    }
+  }
+  return s;
 }
 
 template <CacheEntryRole R>

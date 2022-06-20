@@ -12,6 +12,7 @@
 #include "db/blob/blob_file_cache.h"
 #include "include/rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/cachable_entry.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -68,9 +69,38 @@ class BlobSource {
                                      size_t charge,
                                      Cache::Handle** cache_handle,
                                      Cache::Priority priority) const {
-    return blob_cache_->Insert(key, value, charge,
-                               &DeleteCacheEntry<std::string>, cache_handle,
-                               priority);
+    const Status s =
+        blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
+                            cache_handle, priority);
+    if (s.ok()) {
+      // The current blob cache is LRU or clock cache, and every insertion,
+      // whether induced by direct insertion or indirect eviction, will effect
+      // cache usage. So, following that, we try to report the most recent blob
+      // cache size.
+      ChargeCacheUsage();
+    }
+    return s;
+  }
+
+  // Report the memory usage of the blob cache against the global memory limit.
+  //
+  // To help service owners to manage their memory budget effectively, Write
+  // Buffer Manager has been working towards counting all major memory users
+  // inside RocksDB towards a single global memory limit. This global limit is
+  // specified by the capacity of the block-based table's block cache, and is
+  // technically implemented by inserting dummy entries ("reservations") into
+  // the block cache. Thus, the blob cache has one and only one dummy entry in
+  // the block cache, and its entry size is equal to the current blob cache
+  // memory usage.
+  //
+  // ChargeCacheUsage() is to update the size of the dummy entry in the block
+  // cache when a new blob is inserted into the blob cache or an old blob is
+  // evictioned.
+  inline void ChargeCacheUsage() const {
+    if (write_buffer_manager_ != nullptr &&
+        write_buffer_manager_->cost_to_cache()) {
+      write_buffer_manager_->ReserveMemWithBlobCache(blob_cache_);
+    }
   }
 
   const std::string db_id_;
@@ -83,6 +113,11 @@ class BlobSource {
 
   // A cache to store uncompressed blobs.
   std::shared_ptr<Cache> blob_cache_;
+
+  // Write buffer manager helps users control the total memory used by memtables
+  // across multiple column families and/or DB instances.
+  // https://github.com/facebook/rocksdb/wiki/Write-Buffer-Manager
+  std::shared_ptr<WriteBufferManager> write_buffer_manager_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

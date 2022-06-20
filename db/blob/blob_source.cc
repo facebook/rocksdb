@@ -21,7 +21,8 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       db_session_id_(db_session_id),
       statistics_(immutable_options->statistics.get()),
       blob_file_cache_(blob_file_cache),
-      blob_cache_(immutable_options->blob_cache) {}
+      blob_cache_(immutable_options->blob_cache),
+      write_buffer_manager_(immutable_options->write_buffer_manager) {}
 
 BlobSource::~BlobSource() = default;
 

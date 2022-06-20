@@ -42,6 +42,8 @@ class CacheReservationManager {
   // `UpdateCacheReservation` function
   virtual Status UpdateCacheReservation(std::size_t memory_used_delta,
                                         bool increase) = 0;
+  virtual Status UpdateBlobCacheReservation(
+      std::shared_ptr<Cache> blob_cache) = 0;
   virtual Status MakeCacheReservation(
       std::size_t incremental_memory_used,
       std::unique_ptr<CacheReservationManager::CacheReservationHandle>
@@ -114,7 +116,7 @@ class CacheReservationManagerImpl
   // (and new_memory_used < cache_allocated_size_ * 3/4
   // when delayed_decrease is set true);
   //
-  // Keey dummy entries the same if (1) new_memory_used == cache_allocated_size_
+  // Keep dummy entries the same if (1) new_memory_used == cache_allocated_size_
   // or (2) new_memory_used is in the interval of
   // [cache_allocated_size_ * 3/4, cache_allocated_size) when delayed_decrease
   // is set true.
@@ -138,6 +140,23 @@ class CacheReservationManagerImpl
                                 bool /* increase */) override {
     return Status::NotSupported();
   }
+
+  // Update the "blob cache" dummy entry in the block cache to match the memory
+  // usage of the blob cache against the global memory limit.
+  //
+  // Skip the dummy entry if blob cache and block cache are same
+  // backing cache.
+  //
+  // Keep the dummy entry the same if blob cache usage didn't
+  // change;
+  //
+  // Otherwise update this dummy entry.
+  //
+  // @param blob_cache The blob cache used by BlobDB
+  //
+  // @return It returns Status::OK() if the dummy entry updates succeed.
+  //         Otherwise, it returns the non-ok status;
+  Status UpdateBlobCacheReservation(std::shared_ptr<Cache> blob_cache) override;
 
   // One of the two ways of reserving cache space and releasing is done through
   // destruction of CacheReservationHandle.
@@ -213,10 +232,13 @@ class CacheReservationManagerImpl
 
   std::shared_ptr<Cache> cache_;
   bool delayed_decrease_;
-  std::atomic<std::size_t> cache_allocated_size_;
-  std::size_t memory_used_;
+  std::atomic<std::size_t> cache_allocated_size_;  // no blob cache usage
+  std::size_t memory_used_;                        // no blob cache usage
   std::vector<Cache::Handle *> dummy_handles_;
   CacheKey cache_key_;
+
+  std::atomic<std::size_t> blob_cache_size_;
+  Cache::Handle *dummy_blobs_handle_;
 };
 
 class ConcurrentCacheReservationManager
@@ -280,6 +302,12 @@ class ConcurrentCacheReservationManager
                                                  memory_used_delta);
     }
     return s;
+  }
+
+  inline Status UpdateBlobCacheReservation(
+      std::shared_ptr<Cache> blob_cache) override {
+    std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+    return cache_res_mgr_->UpdateBlobCacheReservation(blob_cache);
   }
 
   inline Status MakeCacheReservation(

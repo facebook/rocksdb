@@ -152,6 +152,10 @@ class WriteBufferManager final {
 
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
+  // Charge the memory usage of the blob cache when the backing cache of the
+  // blob cache and the block cache are different.
+  void ReserveMemWithBlobCache(std::shared_ptr<Cache> blob_cache);
+
  private:
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;

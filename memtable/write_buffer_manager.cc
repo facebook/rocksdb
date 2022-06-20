@@ -199,4 +199,14 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
   wbm_stall->Signal();
 }
 
+void WriteBufferManager::ReserveMemWithBlobCache(
+    std::shared_ptr<Cache> blob_cache) {
+#ifndef ROCKSDB_LITE
+  assert(cache_res_mgr_ != nullptr);
+  std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+  Status s = cache_res_mgr_->UpdateBlobCacheReservation(blob_cache);
+  s.PermitUncheckedError();
+#endif  // ROCKSDB_LITE
+}
+
 }  // namespace ROCKSDB_NAMESPACE
