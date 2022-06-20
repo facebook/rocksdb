@@ -26,6 +26,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/cachable_entry.h"
 #include "util/coding.h"
+#include "util/distributed_mutex.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
@@ -287,7 +288,9 @@ class CacheBench {
         exit(1);
       }
     } else if (FLAGS_cache_type == "fast_lru_cache") {
-      cache_ = NewFastLRUCache(FLAGS_cache_size, FLAGS_num_shard_bits);
+      cache_ = NewFastLRUCache(
+          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     } else if (FLAGS_cache_type == "lru_cache") {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
 #ifndef ROCKSDB_LITE
@@ -585,7 +588,15 @@ class CacheBench {
   }
 
   void PrintEnv() const {
+#if defined(__GNUC__) && !defined(__OPTIMIZE__)
+    printf(
+        "WARNING: Optimization is disabled: benchmarks unnecessarily slow\n");
+#endif
+#ifndef NDEBUG
+    printf("WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
+#endif
     printf("RocksDB version     : %d.%d\n", kMajorVersion, kMinorVersion);
+    printf("DMutex impl name    : %s\n", DMutex::kName());
     printf("Number of threads   : %u\n", FLAGS_threads);
     printf("Ops per thread      : %" PRIu64 "\n", FLAGS_ops_per_thread);
     printf("Cache size          : %s\n",

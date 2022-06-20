@@ -562,4 +562,22 @@ class WriteCommittedTxnWithTsTest
   std::vector<ColumnFamilyHandle*> handles_{};
 };
 
+class TimestampedSnapshotWithTsSanityCheck
+    : public TransactionTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, WriteOrdering>> {
+ public:
+  explicit TimestampedSnapshotWithTsSanityCheck()
+      : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            std::get<2>(GetParam()), std::get<3>(GetParam())) {}
+  ~TimestampedSnapshotWithTsSanityCheck() override {
+    for (auto* h : handles_) {
+      delete h;
+    }
+  }
+
+ protected:
+  std::vector<ColumnFamilyHandle*> handles_{};
+};
+
 }  // namespace ROCKSDB_NAMESPACE

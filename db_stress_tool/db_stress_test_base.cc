@@ -36,16 +36,7 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
     return BlockBasedTableOptions().filter_policy;
   }
   const FilterPolicy* new_policy;
-  if (FLAGS_use_block_based_filter) {
-    if (FLAGS_ribbon_starting_level < 999) {
-      fprintf(
-          stderr,
-          "Cannot combine use_block_based_filter and ribbon_starting_level\n");
-      exit(1);
-    } else {
-      new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, true);
-    }
-  } else if (FLAGS_ribbon_starting_level >= 999) {
+  if (FLAGS_ribbon_starting_level >= 999) {
     // Use Bloom API
     new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, false);
   } else {
@@ -66,6 +57,7 @@ StressTest::StressTest()
 #ifndef ROCKSDB_LITE
       txn_db_(nullptr),
 #endif
+      db_aptr_(nullptr),
       clock_(db_stress_env->GetSystemClock().get()),
       new_column_family_name_(1),
       num_times_reopened_(0),
@@ -129,7 +121,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     }
     return cache;
   } else if (FLAGS_cache_type == "fast_lru_cache") {
-    return NewFastLRUCache((size_t)capacity, num_shard_bits);
+    return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
+                           num_shard_bits, false /*strict_capacity_limit*/,
+                           kDefaultCacheMetadataChargePolicy);
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
@@ -420,6 +414,20 @@ void StressTest::PrintStatistics() {
   }
 }
 
+void StressTest::ReleaseOldTimestampedSnapshots(uint64_t ts) {
+#ifndef ROCKSDB_LITE
+  if (!txn_db_) {
+    return;
+  }
+  assert(txn_db_);
+  txn_db_->ReleaseTimestampedSnapshotsOlderThan(ts);
+#else
+  (void)ts;
+  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
+  exit(1);
+#endif  // ROCKSDB_LITE
+}
+
 // Currently PreloadDb has to be single-threaded.
 void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
                                               SharedState* shared) {
@@ -560,13 +568,21 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   return s;
 }
 
-Status StressTest::CommitTxn(Transaction* txn) {
+Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
   Status s = txn->Prepare();
+  std::shared_ptr<const Snapshot> timestamped_snapshot;
   if (s.ok()) {
-    s = txn->Commit();
+    if (thread && FLAGS_create_timestamped_snapshot_one_in &&
+        thread->rand.OneIn(FLAGS_create_timestamped_snapshot_one_in)) {
+      uint64_t ts = db_stress_env->NowNanos();
+      s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
+                                          &timestamped_snapshot);
+    } else {
+      s = txn->Commit();
+    }
   }
   delete txn;
   return s;
@@ -601,6 +617,7 @@ void StressTest::OperateDb(ThreadState* thread) {
     write_opts.sync = true;
   }
   write_opts.disableWAL = FLAGS_disable_wal;
+  write_opts.protection_bytes_per_key = FLAGS_batch_protection_bytes_per_key;
   const int prefix_bound = static_cast<int>(FLAGS_readpercent) +
                            static_cast<int>(FLAGS_prefixpercent);
   const int write_bound = prefix_bound + static_cast<int>(FLAGS_writepercent);
@@ -2519,7 +2536,13 @@ void StressTest::Open(SharedState* shared) {
         fflush(stderr);
       }
       assert(s.ok());
-      db_ = txn_db_;
+
+      // Do not swap the order of the following.
+      {
+        db_ = txn_db_;
+        db_aptr_.store(txn_db_, std::memory_order_release);
+      }
+
       // after a crash, rollback to commit recovered transactions
       std::vector<Transaction*> trans;
       txn_db_->GetAllPreparedTransactions(&trans);
@@ -2735,6 +2758,11 @@ void InitializeOptionsFromFlags(
        {/*.charged = */ FLAGS_charge_table_reader
             ? CacheEntryRoleOptions::Decision::kEnabled
             : CacheEntryRoleOptions::Decision::kDisabled}});
+  block_based_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kFileMetadata,
+       {/*.charged = */ FLAGS_charge_file_metadata
+            ? CacheEntryRoleOptions::Decision::kEnabled
+            : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
       static_cast<uint32_t>(FLAGS_format_version);
   block_based_options.index_block_restart_interval =
@@ -2895,6 +2923,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);
   }
+
+  options.allow_data_in_errors = FLAGS_allow_data_in_errors;
 }
 
 void InitializeOptionsGeneral(

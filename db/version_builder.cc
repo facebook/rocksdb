@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "cache/cache_reservation_manager.h"
 #include "db/blob/blob_file_meta.h"
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
@@ -255,10 +256,13 @@ class VersionBuilder::Rep {
   // version edits.
   std::map<uint64_t, MutableBlobFileMetaData> mutable_blob_file_metas_;
 
+  std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+
  public:
   Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
       TableCache* table_cache, VersionStorageInfo* base_vstorage,
-      VersionSet* version_set)
+      VersionSet* version_set,
+      std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr)
       : file_options_(file_options),
         ioptions_(ioptions),
         table_cache_(table_cache),
@@ -266,7 +270,8 @@ class VersionBuilder::Rep {
         version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
         has_invalid_levels_(false),
-        level_nonzero_cmp_(base_vstorage_->InternalComparator()) {
+        level_nonzero_cmp_(base_vstorage_->InternalComparator()),
+        file_metadata_cache_res_mgr_(file_metadata_cache_res_mgr) {
     assert(ioptions_);
 
     levels_ = new LevelState[num_levels_];
@@ -290,6 +295,12 @@ class VersionBuilder::Rep {
         assert(table_cache_ != nullptr);
         table_cache_->ReleaseHandle(f->table_reader_handle);
         f->table_reader_handle = nullptr;
+      }
+
+      if (file_metadata_cache_res_mgr_) {
+        Status s = file_metadata_cache_res_mgr_->UpdateCacheReservation(
+            f->ApproximateMemoryUsage(), false /* increase */);
+        s.PermitUncheckedError();
       }
       delete f;
     }
@@ -762,6 +773,22 @@ class VersionBuilder::Rep {
 
     FileMetaData* const f = new FileMetaData(meta);
     f->refs = 1;
+
+    if (file_metadata_cache_res_mgr_) {
+      Status s = file_metadata_cache_res_mgr_->UpdateCacheReservation(
+          f->ApproximateMemoryUsage(), true /* increase */);
+      if (!s.ok()) {
+        delete f;
+        s = Status::MemoryLimit(
+            "Can't allocate " +
+            kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
+                CacheEntryRole::kFileMetadata)] +
+            " due to exceeding the memory limit "
+            "based on "
+            "cache capacity");
+        return s;
+      }
+    }
 
     auto& add_files = level_state.added_files;
     assert(add_files.find(file_number) == add_files.end());
@@ -1239,13 +1266,13 @@ class VersionBuilder::Rep {
   }
 };
 
-VersionBuilder::VersionBuilder(const FileOptions& file_options,
-                               const ImmutableCFOptions* ioptions,
-                               TableCache* table_cache,
-                               VersionStorageInfo* base_vstorage,
-                               VersionSet* version_set)
+VersionBuilder::VersionBuilder(
+    const FileOptions& file_options, const ImmutableCFOptions* ioptions,
+    TableCache* table_cache, VersionStorageInfo* base_vstorage,
+    VersionSet* version_set,
+    std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr)
     : rep_(new Rep(file_options, ioptions, table_cache, base_vstorage,
-                   version_set)) {}
+                   version_set, file_metadata_cache_res_mgr)) {}
 
 VersionBuilder::~VersionBuilder() = default;
 
@@ -1280,7 +1307,8 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->ioptions(),
           cfd->table_cache(), cfd->current()->storage_info(),
-          cfd->current()->version_set())),
+          cfd->current()->version_set(),
+          cfd->GetFileMetadataCacheReservationManager())),
       version_(cfd->current()) {
   version_->Ref();
 }
@@ -1289,7 +1317,8 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, Version* v)
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->ioptions(),
-          cfd->table_cache(), v->storage_info(), v->version_set())),
+          cfd->table_cache(), v->storage_info(), v->version_set(),
+          cfd->GetFileMetadataCacheReservationManager())),
       version_(v) {
   assert(version_ != cfd->current());
 }

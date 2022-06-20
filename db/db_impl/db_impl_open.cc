@@ -524,7 +524,8 @@ Status DBImpl::Recover(
       return s;
     }
   }
-  s = SetDBId(read_only, recovery_ctx);
+  s = SetupDBId(read_only, recovery_ctx);
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
     s = DeleteUnreferencedSstFiles(recovery_ctx);
   }
@@ -1002,9 +1003,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
       // We create a new batch and initialize with a valid prot_info_ to store
       // the data checksums
-      WriteBatch batch(0, 0, 8, 0);
+      WriteBatch batch;
 
       status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        return status;
+      }
+      status = WriteBatchInternal::UpdateProtectionInfo(&batch,
+                                                        8 /* bytes_per_key */);
       if (!status.ok()) {
         return status;
       }

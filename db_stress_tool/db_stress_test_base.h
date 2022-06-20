@@ -43,6 +43,8 @@ class StressTest {
 
   void PrintStatistics();
 
+  void ReleaseOldTimestampedSnapshots(uint64_t ts);
+
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
@@ -56,7 +58,7 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
-  Status CommitTxn(Transaction* txn);
+  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
 
   Status RollbackTxn(Transaction* txn);
 #endif
@@ -234,6 +236,10 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
 #endif
+
+  // Currently only used in MultiOpsTxnsStressTest
+  std::atomic<DB*> db_aptr_;
+
   Options options_;
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;

@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -13,8 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.rocksdb.util.Environment;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for

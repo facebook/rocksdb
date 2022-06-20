@@ -32,6 +32,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
@@ -345,6 +346,19 @@ class DBImpl : public DB {
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+  // Create a timestamped snapshot. This snapshot can be shared by multiple
+  // readers. If any of them uses it for write conflict checking, then
+  // is_write_conflict_boundary is true. For simplicity, set it to true by
+  // default.
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
+      SequenceNumber snapshot_seq, uint64_t ts);
+  std::shared_ptr<const SnapshotImpl> GetTimestampedSnapshot(uint64_t ts) const;
+  void ReleaseTimestampedSnapshotsOlderThan(
+      uint64_t ts, size_t* remaining_total_ss = nullptr);
+  Status GetTimestampedSnapshots(uint64_t ts_lb, uint64_t ts_ub,
+                                 std::vector<std::shared_ptr<const Snapshot>>&
+                                     timestamped_snapshots) const;
+
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override;
@@ -1222,6 +1236,8 @@ class DBImpl : public DB {
   static void TEST_ResetDbSessionIdGen();
   static std::string GenerateDbSessionId(Env* env);
 
+  bool seq_per_batch() const { return seq_per_batch_; }
+
  protected:
   const std::string dbname_;
   // TODO(peterd): unify with VersionSet::db_id_
@@ -1404,7 +1420,8 @@ class DBImpl : public DB {
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false, uint64_t* seq_used = nullptr,
                    size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr);
+                   PreReleaseCallback* pre_release_callback = nullptr,
+                   PostMemTableCallback* post_memtable_callback = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -1462,8 +1479,10 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
-  // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
+  // Setup DB identity file, and write DB ID to manifest if necessary.
+  Status SetupDBId(bool read_only, RecoveryContext* recovery_ctx);
+  // Assign db_id_ and write DB ID to manifest if necessary.
+  void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1574,12 +1593,38 @@ class DBImpl : public DB {
       return s;
     }
 
+    bool IsSyncing() { return getting_synced; }
+
+    uint64_t GetPreSyncSize() {
+      assert(getting_synced);
+      return pre_sync_size;
+    }
+
+    void PrepareForSync() {
+      assert(!getting_synced);
+      // Size is expected to be monotonically increasing.
+      assert(writer->file()->GetFlushedSize() >= pre_sync_size);
+      getting_synced = true;
+      pre_sync_size = writer->file()->GetFlushedSize();
+    }
+
+    void FinishSync() {
+      assert(getting_synced);
+      getting_synced = false;
+    }
+
     uint64_t number;
     // Visual Studio doesn't support deque's member to be noncopyable because
     // of a std::unique_ptr as a member.
     log::Writer* writer;  // own
+
+   private:
     // true for some prefix of logs_
     bool getting_synced = false;
+    // The size of the file before the sync happens. This amount is guaranteed
+    // to be persisted even if appends happen during sync so it can be used for
+    // tracking the synced size in MANIFEST.
+    uint64_t pre_sync_size = 0;
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in
@@ -1898,9 +1943,12 @@ class DBImpl : public DB {
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
                          WriteContext* write_context);
 
-  WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
-                         WriteBatch* tmp_batch, size_t* write_with_wal,
-                         WriteBatch** to_be_cached_state);
+  // Merge write batches in the write group into merged_batch.
+  // Returns OK if merge is successful.
+  // Returns Corruption if corruption in write batch is detected.
+  Status MergeBatch(const WriteThread::WriteGroup& write_group,
+                    WriteBatch* tmp_batch, WriteBatch** merged_batch,
+                    size_t* write_with_wal, WriteBatch** to_be_cached_state);
 
   // rate_limiter_priority is used to charge `DBOptions::rate_limiter`
   // for automatic WAL flush (`Options::manual_wal_flush` == false)
@@ -2039,9 +2087,23 @@ class DBImpl : public DB {
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
 
+  // If snapshot_seq != kMaxSequenceNumber, then this function can only be
+  // called from the write thread that publishes sequence numbers to readers.
+  // For 1) write-committed, or 2) write-prepared + one-write-queue, this will
+  // be the write thread performing memtable writes. For write-prepared with
+  // two write queues, this will be the write thread writing commit marker to
+  // the WAL.
+  // If snapshot_seq == kMaxSequenceNumber, this function is called by a caller
+  // ensuring no writes to the database.
+  std::pair<Status, std::shared_ptr<const SnapshotImpl>>
+  CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
+                                bool lock = true);
+
   uint64_t GetMaxTotalWalSize() const;
 
   FSDirectory* GetDataDir(ColumnFamilyData* cfd, size_t path_id) const;
+
+  Status MaybeReleaseTimestampedSnapshotsAndCheck();
 
   Status CloseHelper();
 
@@ -2307,6 +2369,8 @@ class DBImpl : public DB {
   TrimHistoryScheduler trim_history_scheduler_;
 
   SnapshotList snapshots_;
+
+  TimestampedSnapshotList timestamped_snapshots_;
 
   // For each background job, pending_outputs_ keeps the current file number at
   // the time that background job started.

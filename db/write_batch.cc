@@ -1491,6 +1491,94 @@ Status WriteBatch::UpdateTimestamps(
   return s;
 }
 
+Status WriteBatch::VerifyChecksum() const {
+  if (prot_info_ == nullptr) {
+    return Status::OK();
+  }
+  Slice input(rep_.data() + WriteBatchInternal::kHeader,
+              rep_.size() - WriteBatchInternal::kHeader);
+  Slice key, value, blob, xid;
+  char tag = 0;
+  uint32_t column_family = 0;  // default
+  Status s;
+  size_t prot_info_idx = 0;
+  bool checksum_protected = true;
+  while (!input.empty() && prot_info_idx < prot_info_->entries_.size()) {
+    // In case key/value/column_family are not updated by
+    // ReadRecordFromWriteBatch
+    key.clear();
+    value.clear();
+    column_family = 0;
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
+                                 &blob, &xid);
+    if (!s.ok()) {
+      return s;
+    }
+    checksum_protected = true;
+    // Write batch checksum uses op_type without ColumnFamily (e.g., if op_type
+    // in the write batch is kTypeColumnFamilyValue, kTypeValue is used to
+    // compute the checksum), and encodes column family id separately. See
+    // comment in first `WriteBatchInternal::Put()` for more detail.
+    switch (tag) {
+      case kTypeColumnFamilyValue:
+      case kTypeValue:
+        tag = kTypeValue;
+        break;
+      case kTypeColumnFamilyDeletion:
+      case kTypeDeletion:
+        tag = kTypeDeletion;
+        break;
+      case kTypeColumnFamilySingleDeletion:
+      case kTypeSingleDeletion:
+        tag = kTypeSingleDeletion;
+        break;
+      case kTypeColumnFamilyRangeDeletion:
+      case kTypeRangeDeletion:
+        tag = kTypeRangeDeletion;
+        break;
+      case kTypeColumnFamilyMerge:
+      case kTypeMerge:
+        tag = kTypeMerge;
+        break;
+      case kTypeColumnFamilyBlobIndex:
+      case kTypeBlobIndex:
+        tag = kTypeBlobIndex;
+        break;
+      case kTypeLogData:
+      case kTypeBeginPrepareXID:
+      case kTypeEndPrepareXID:
+      case kTypeCommitXID:
+      case kTypeRollbackXID:
+      case kTypeNoop:
+      case kTypeBeginPersistedPrepareXID:
+      case kTypeBeginUnprepareXID:
+      case kTypeDeletionWithTimestamp:
+      case kTypeCommitXIDAndTimestamp:
+        checksum_protected = false;
+        break;
+      default:
+        return Status::Corruption(
+            "unknown WriteBatch tag",
+            std::to_string(static_cast<unsigned int>(tag)));
+    }
+    if (checksum_protected) {
+      s = prot_info_->entries_[prot_info_idx++]
+              .StripC(column_family)
+              .StripKVO(key, value, static_cast<ValueType>(tag))
+              .GetStatus();
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+
+  if (prot_info_idx != WriteBatchInternal::Count(this)) {
+    return Status::Corruption("WriteBatch has wrong count");
+  }
+  assert(WriteBatchInternal::Count(this) == prot_info_->entries_.size());
+  return Status::OK();
+}
+
 namespace {
 
 class MemTableInserter : public WriteBatch::Handler {
@@ -2756,16 +2844,10 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
+  assert(b->prot_info_ == nullptr);
 
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
-
-  // If we have a prot_info_, update protection info entries for the batch.
-  if (b->prot_info_) {
-    ProtectionInfoUpdater prot_info_updater(b->prot_info_.get());
-    return b->Iterate(&prot_info_updater);
-  }
-
   return Status::OK();
 }
 
@@ -2773,6 +2855,14 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
                                   const bool wal_only) {
   assert(dst->Count() == 0 ||
          (dst->prot_info_ == nullptr) == (src->prot_info_ == nullptr));
+  if ((src->prot_info_ != nullptr &&
+       src->prot_info_->entries_.size() != src->Count()) ||
+      (dst->prot_info_ != nullptr &&
+       dst->prot_info_->entries_.size() != dst->Count())) {
+    return Status::Corruption(
+        "Write batch has inconsistent count and number of checksums");
+  }
+
   size_t src_len;
   int src_count;
   uint32_t src_flags;
@@ -2789,12 +2879,18 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
     src_flags = src->content_flags_.load(std::memory_order_relaxed);
   }
 
-  if (dst->prot_info_ != nullptr) {
+  if (src->prot_info_ != nullptr) {
+    if (dst->prot_info_ == nullptr) {
+      dst->prot_info_.reset(new WriteBatch::ProtectionInfo());
+    }
     std::copy(src->prot_info_->entries_.begin(),
               src->prot_info_->entries_.begin() + src_count,
               std::back_inserter(dst->prot_info_->entries_));
-  } else if (src->prot_info_ != nullptr) {
-    dst->prot_info_.reset(new WriteBatch::ProtectionInfo(*src->prot_info_));
+  } else if (dst->prot_info_ != nullptr) {
+    // dst has empty prot_info->entries
+    // In this special case, we allow write batch without prot_info to
+    // be appende to write batch with empty prot_info
+    dst->prot_info_ = nullptr;
   }
   SetCount(dst, Count(dst) + src_count);
   assert(src->rep_.size() >= WriteBatchInternal::kHeader);
@@ -2812,6 +2908,30 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
   } else {
     return leftByteSize + rightByteSize - WriteBatchInternal::kHeader;
   }
+}
+
+Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
+                                                size_t bytes_per_key) {
+  if (bytes_per_key == 0) {
+    if (wb->prot_info_ != nullptr) {
+      wb->prot_info_.reset();
+      return Status::OK();
+    } else {
+      // Already not protected.
+      return Status::OK();
+    }
+  } else if (bytes_per_key == 8) {
+    if (wb->prot_info_ == nullptr) {
+      wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
+      ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
+      return wb->Iterate(&prot_info_updater);
+    } else {
+      // Already protected.
+      return Status::OK();
+    }
+  }
+  return Status::NotSupported(
+      "WriteBatch protection info must be zero or eight bytes/key");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

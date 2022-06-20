@@ -432,6 +432,7 @@ enum Tickers : uint32_t {
   NON_LAST_LEVEL_READ_COUNT,
 
   BLOCK_CHECKSUM_COMPUTE_COUNT,
+  MULTIGET_COROUTINE_COUNT,
 
   TICKER_ENUM_MAX
 };
@@ -529,6 +530,7 @@ enum Histograms : uint32_t {
   // Num of index and filter blocks read from file system per level.
   NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
   // Num of data blocks read from file system per level.
+  // Obsolete
   NUM_DATA_BLOCKS_READ_PER_LEVEL,
   // Num of sst files read from file system per level.
   NUM_SST_READ_PER_LEVEL,
@@ -545,6 +547,9 @@ enum Histograms : uint32_t {
 
   // Number of IOs issued in parallel in a MultiGet batch
   MULTIGET_IO_BATCH_SIZE,
+
+  // Number of levels requiring IO for MultiGet
+  NUM_LEVEL_READ_PER_MULTIGET,
 
   HISTOGRAM_ENUM_MAX,
 };
