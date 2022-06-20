@@ -1523,6 +1523,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       write_controller_(_write_controller),
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
+      db_id_(db_id),
       db_session_id_(db_session_id) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
