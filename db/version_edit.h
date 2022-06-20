@@ -414,10 +414,6 @@ class VersionEdit {
   bool HasLastSequence() const { return has_last_sequence_; }
   SequenceNumber GetLastSequence() const { return last_sequence_; }
 
-  void SetCompactCursor(int level, const InternalKey& key) {
-    compact_cursors_.push_back(std::make_pair(level, key));
-  }
-
   // Delete the specified table file from the specified level.
   void DeleteFile(int level, uint64_t file) {
     deleted_files_.emplace(level, file);

@@ -3318,12 +3318,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
     if (c->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
         c->immutable_options()->compaction_pri == kRoundRobin) {
-      int input_base_level = c->GetInputBaseLevel();
-      if (input_base_level > 0) {
-        auto vstorage = c->column_family_data()->current()->storage_info();
-        const InternalKey new_cursor =
-            vstorage->AdvanceCompactCursor(input_base_level);
-        c->edit()->AddCompactCursor(input_base_level, new_cursor);
+      int start_level = c->start_level();
+      if (start_level > 0) {
+        auto vstorage = c->input_version()->storage_info();
+        c->edit()->AddCompactCursor(
+            start_level, vstorage->GetNextCompactCursor(start_level));
       }
     }
     status = versions_->LogAndApply(c->column_family_data(),

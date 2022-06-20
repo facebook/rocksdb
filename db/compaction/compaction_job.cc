@@ -2162,13 +2162,11 @@ Status CompactionJob::InstallCompactionResults(
 
   if (compaction->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
       compaction->immutable_options()->compaction_pri == kRoundRobin) {
-    int input_base_level = compaction->GetInputBaseLevel();
-    if (input_base_level > 0) {
-      ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-      auto vstorage = cfd->current()->storage_info();
-      const InternalKey new_cursor =
-          vstorage->AdvanceCompactCursor(input_base_level);
-      edit->AddCompactCursor(input_base_level, new_cursor);
+    int start_level = compaction->start_level();
+    if (start_level > 0) {
+      auto vstorage = compaction->input_version()->storage_info();
+      edit->AddCompactCursor(start_level,
+                             vstorage->GetNextCompactCursor(start_level));
     }
   }
 

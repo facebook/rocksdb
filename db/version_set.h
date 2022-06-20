@@ -148,17 +148,16 @@ class VersionStorageInfo {
   // REQUIRES: lock is held
   // Update the compact cursor and advance the file index so that it can point
   // to the next cursor
-  const InternalKey& AdvanceCompactCursor(int level) {
-    int cmp_idx = ++next_file_to_compact_by_size_[level];
+  const InternalKey& GetNextCompactCursor(int level) {
+    int cmp_idx = next_file_to_compact_by_size_[level] + 1;
+    // TODO(zichen): may need to update next_file_to_compact_by_size_
+    // for parallel compaction.
     InternalKey new_cursor;
     if (cmp_idx >= (int)files_by_compaction_pri_[level].size()) {
-      new_cursor = InternalKey();
-    } else {
-      new_cursor =
-          files_[level][files_by_compaction_pri_[level][cmp_idx]]->smallest;
+      cmp_idx = 0;
     }
-    compact_cursor_[level] = new_cursor;
-    return compact_cursor_[level];
+    // TODO(zichen): rethink if this strategy gives us some good guarantee
+    return files_[level][files_by_compaction_pri_[level][cmp_idx]]->smallest;
   }
 
   void ReserveBlob(size_t size) { blob_files_.reserve(size); }

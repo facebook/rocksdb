@@ -3247,9 +3247,6 @@ void SortFileByRoundRobin(const InternalKeyComparator& icmp,
     for (size_t i = 0; i < local_temp.size(); i++) {
       temp->at(i) = local_temp[i];
     }
-  } else if (temp->size() == 0) {
-    // Reset the cursur as an empty key if no files exist in this level
-    compact_cursor->at(level) = InternalKey();
   }
 }
 }  // namespace
