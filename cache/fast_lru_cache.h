@@ -80,8 +80,9 @@ constexpr uint8_t kCacheKeySize =
 // For p = 70%, between 1 and 2 probes are needed on average.
 constexpr double kLoadFactor = 0.7;
 
-constexpr uint32_t kProbingSeed = 0x7a2bb9d5; // Arbitrary seeds.
-constexpr uint32_t kLargePrime = 433494437; // Arbitrary large prime number.
+// Arbitrary seeds.
+constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
+constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
 
 // An experimental (under development!) alternative to LRUCache
 
@@ -110,16 +111,17 @@ struct LRUHandle {
 
   char key_data[kCacheKeySize];
 
-  LRUHandle() { memset(this, 0, sizeof(LRUHandle)); }
-
-  LRUHandle(const LRUHandle& e) { *this = e; }
-
-  LRUHandle& operator=(const LRUHandle& e) {
-    if (this == &e) {
-      return *this;
-    }
-    memcpy(this, &e, sizeof(LRUHandle));
-    return *this;
+  LRUHandle() {
+    value = nullptr;
+    deleter = nullptr;
+    next = nullptr;
+    prev = nullptr;
+    total_charge = 0;
+    hash = 0;
+    refs = 0;
+    flags = 0;
+    displacements = 0;
+    memset(key_data, 0, kCacheKeySize);
   }
 
   Slice key() const { return Slice(key_data, kCacheKeySize); }
@@ -210,7 +212,7 @@ struct LRUHandle {
 // 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  explicit LRUHandleTable(uint32_t size);
+  explicit LRUHandleTable(uint8_t hash_bits);
   ~LRUHandleTable();
 
   // Returns a pointer to a visible element matching the key/hash, or
@@ -244,7 +246,7 @@ class LRUHandleTable {
     }
   }
 
-  uint32_t GetSize() const { return size_; }
+  uint8_t GetLengthBits() const { return length_bits_; }
 
   uint32_t GetOccupancy() const { return occupancy_; }
 
@@ -268,8 +270,9 @@ class LRUHandleTable {
   int FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond,
                int& probe, int displacement);
 
-  // Number of slots in the hash table.
-  uint32_t size_;
+  // Number of hash bits used for table index.
+  // The size of the table is 1 << length_bits_.
+  uint8_t length_bits_;
 
   // Number of elements in the table.
   uint32_t occupancy_;
@@ -356,7 +359,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Returns the number of bits used to hash an element in the hash
   // table.
-  static size_t CalcSize(size_t capacity, size_t estimated_value_size,
+  static uint8_t CalcHashBits(size_t capacity, size_t estimated_value_size,
                              CacheMetadataChargePolicy metadata_charge_policy);
 
   // Initialized before use.

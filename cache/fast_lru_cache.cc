@@ -21,22 +21,25 @@
 #include "port/lang.h"
 #include "util/distributed_mutex.h"
 #include "util/hash.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace fast_lru_cache {
 
-LRUHandleTable::LRUHandleTable(uint32_t size)
-    : size_(size),
+namespace {
+// Returns x % 2^{bits}.
+inline uint32_t BinaryMod(uint32_t x, uint8_t bits) {
+  assert(bits <= 32);
+  return (x << (32 - bits)) >> (32 - bits);
+}
+}  // anonymous namespace
+
+LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
+    : length_bits_(hash_bits),
       occupancy_(0),
-      array_(new LRUHandle[size]) {
-  // Make increment and size_ relatively prime, so that we
-  // probe every slot before looping back.
-  increment_ = kLargePrime;
-  if (size_ == increment_) {
-    increment_++;
-  }
-  increment_ %= size_;
+      array_(new LRUHandle[size_t{1} << length_bits_]) {
+  assert(hash_bits <= 32);
 }
 
 LRUHandleTable::~LRUHandleTable() {
@@ -46,7 +49,7 @@ LRUHandleTable::~LRUHandleTable() {
           h->Free();
         }
       },
-      0, size_);
+      0, uint32_t{1} << length_bits_);
 }
 
 LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
@@ -126,7 +129,7 @@ void LRUHandleTable::Exclude(LRUHandle* h) { h->SetIsVisible(false); }
 
 int LRUHandleTable::FindVisibleElement(const Slice& key, uint32_t hash,
                                        int& probe, int displacement) {
-  std::function<bool(LRUHandle*)> cond = [&, key, hash](LRUHandle* h) {
+  std::function<bool(LRUHandle*)> cond = [&](LRUHandle* h) {
     return h->Matches(key, hash) && h->IsVisible();
   };
   return FindSlot(key, cond, probe, displacement);
@@ -143,7 +146,7 @@ int LRUHandleTable::FindAvailableSlot(const Slice& key, int& probe,
 int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
                                                       uint32_t hash, int& probe,
                                                       int displacement) {
-  std::function<bool(LRUHandle*)> cond = [&, key, hash](LRUHandle* h) {
+  std::function<bool(LRUHandle*)> cond = [&](LRUHandle* h) {
     return h->IsEmpty() || h->IsTombstone() ||
            (h->Matches(key, hash) && h->IsVisible());
   };
@@ -153,9 +156,12 @@ int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
 int LRUHandleTable::FindSlot(const Slice& key,
                              std::function<bool(LRUHandle*)> cond, int& probe,
                              int displacement) {
-  uint32_t base = Hash(key.data(), key.size(), kProbingSeed) % size_;
-  uint32_t current = (base + probe * increment_) % size_;
-  while (1) {
+  uint32_t base =
+      BinaryMod(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
+uint32_t increment = BinaryMod(
+      (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
+  uint32_t current = BinaryMod(base + probe * increment, length_bits_);
+  while (true) {
     LRUHandle* h = &array_[current];
     probe++;
     if (current == base && probe > 1) {
@@ -171,7 +177,7 @@ int LRUHandleTable::FindSlot(const Slice& key,
       return -1;
     }
     h->displacements += displacement;
-    current = (current + increment_) % size_;
+    current = BinaryMod(current + increment, length_bits_);
   }
 }
 
@@ -181,7 +187,8 @@ LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
     : capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       table_(
-          static_cast<size_t>(CalcSize(capacity, estimated_value_size, metadata_charge_policy) / kLoadFactor)),
+          CalcHashBits(capacity, estimated_value_size, metadata_charge_policy) +
+          static_cast<uint8_t>(ceil(log2(1.0 / kLoadFactor)))),
       usage_(0),
       lru_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -221,21 +228,22 @@ void LRUCacheShard::ApplyToSomeEntries(
   // nicely even if we resize between calls because we use upper-most
   // hash bits for table indexes.
   DMutexLock l(mutex_);
-  uint32_t length = table_.GetSize();
+  uint32_t length_bits = table_.GetLengthBits();
+  uint32_t length = uint32_t{1} << length_bits;
 
   assert(average_entries_per_lock > 0);
   // Assuming we are called with same average_entries_per_lock repeatedly,
   // this simplifies some logic (index_end will not overflow).
   assert(average_entries_per_lock < length || *state == 0);
 
-  uint32_t index_begin = *state;
+  uint32_t index_begin = *state >> (32 - length_bits);
   uint32_t index_end = index_begin + average_entries_per_lock;
   if (index_end >= length) {
     // Going to end
     index_end = length;
     *state = UINT32_MAX;
   } else {
-    *state = index_end;
+    *state = index_end << (32 - length_bits);
   }
 
   table_.ApplyToEntriesRange(
@@ -282,7 +290,7 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
-size_t LRUCacheShard::CalcSize(
+uint8_t LRUCacheShard::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
   LRUHandle h;
@@ -290,7 +298,12 @@ size_t LRUCacheShard::CalcSize(
   h.refs = 0;
   h.flags = 0;
   h.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
-  return capacity / h.total_charge;
+  size_t num_entries = capacity / h.total_charge;
+  uint8_t num_hash_bits = 0;
+  while (num_entries >>= 1) {
+    ++num_hash_bits;
+  }
+  return num_hash_bits;
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
@@ -341,7 +354,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     EvictFromLRU(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
-        table_.GetOccupancy() == table_.GetSize()) {
+        table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
       // Originally, when strict_capacity_limit_ == false and handle != nullptr
       // (i.e., the user wants to immediately get a reference to the new
       // handle), the insertion would proceed even if the total charge already
