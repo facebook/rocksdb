@@ -886,6 +886,7 @@ std::string RemapFilenameWithCloudManifest(const std::string& logical_path, Clou
   switch (type) {
     case kTableFile:
       // We should not be accessing sst files before CLOUDMANIFEST is loaded
+      assert(cloud_manifest);
       epoch = cloud_manifest->GetEpoch(fileNumber);
       break;
     case kDescriptorFile:
@@ -894,6 +895,7 @@ std::string RemapFilenameWithCloudManifest(const std::string& logical_path, Clou
       // Even though logical file might say MANIFEST-000001, we cut the number
       // suffix and store MANIFEST-[epoch] in the cloud and locally.
       file_name = "MANIFEST";
+      assert(cloud_manifest);
       epoch = cloud_manifest->GetCurrentEpoch();
       break;
     default:
@@ -908,7 +910,6 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
   if (UNLIKELY(test_disable_cloud_manifest_)) {
     return logical_path;
   }
-  assert(cloud_manifest_);
   return RemapFilenameWithCloudManifest(logical_path, cloud_manifest_.get());
 }
 
