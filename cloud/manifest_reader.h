@@ -25,13 +25,14 @@ class ManifestReader {
 
   // Retrieve all live files referred to by this bucket path
   Status GetLiveFiles(const std::string bucket_path, std::set<uint64_t>* list) {
-    std::string epoch;
-    return GetLiveFiles(bucket_path, list, &epoch);
+    std::unique_ptr<CloudManifest> cloud_manifest;
+    return GetLiveFilesAndCloudManifest(bucket_path, list, &cloud_manifest);
   }
 
-  // Retrive all live files and epoch
-  Status GetLiveFiles(const std::string bucket_path, std::set<uint64_t>* list,
-                      std::string* epoch);
+  // Retrive all live files and cloud_manifest
+  Status GetLiveFilesAndCloudManifest(
+      const std::string bucket_path, std::set<uint64_t>* list,
+      std::unique_ptr<CloudManifest>* cloud_manifest);
 
   static Status GetMaxFileNumberFromManifest(Env* env, const std::string& fname,
                                              uint64_t* maxFileNumber);

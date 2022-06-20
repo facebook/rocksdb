@@ -173,7 +173,8 @@ class CloudEnvImpl : public CloudEnv {
                            std::vector<std::string>* pathnames);
   Status FindObsoleteDbid(const std::string& bucket_name_prefix,
                           std::vector<std::string>* dbids);
-  Status FindAllLiveFiles(const std::string& bucket_name_prefix,
+  Status FindAllLiveFiles(const std::string& bucket,
+                          const std::string& object_path,
                           std::vector<std::string>* live_sst_files,
                           std::string* manifest_file) override;
   Status extractParents(const std::string& bucket_name_prefix,

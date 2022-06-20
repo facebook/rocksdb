@@ -869,10 +869,7 @@ Status CloudEnvImpl::LoadLocalCloudManifest(
   return s;
 }
 
-std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
-  if (UNLIKELY(test_disable_cloud_manifest_)) {
-    return logical_path;
-  }
+std::string RemapFilenameWithCloudManifest(const std::string& logical_path, CloudManifest* cloud_manifest) {
   auto file_name = basename(logical_path);
   uint64_t fileNumber;
   FileType type;
@@ -889,17 +886,15 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
   switch (type) {
     case kTableFile:
       // We should not be accessing sst files before CLOUDMANIFEST is loaded
-      assert(cloud_manifest_);
-      epoch = cloud_manifest_->GetEpoch(fileNumber);
+      epoch = cloud_manifest->GetEpoch(fileNumber);
       break;
     case kDescriptorFile:
       // We should not be accessing MANIFEST files before CLOUDMANIFEST is
       // loaded
-      assert(cloud_manifest_);
       // Even though logical file might say MANIFEST-000001, we cut the number
       // suffix and store MANIFEST-[epoch] in the cloud and locally.
       file_name = "MANIFEST";
-      epoch = cloud_manifest_->GetCurrentEpoch();
+      epoch = cloud_manifest->GetCurrentEpoch();
       break;
     default:
       return logical_path;
@@ -907,6 +902,14 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
   auto dir = dirname(logical_path);
   return dir + (dir.empty() ? "" : "/") + file_name +
          (epoch.empty() ? "" : ("-" + epoch.ToString()));
+}
+
+std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
+  if (UNLIKELY(test_disable_cloud_manifest_)) {
+    return logical_path;
+  }
+  assert(cloud_manifest_);
+  return RemapFilenameWithCloudManifest(logical_path, cloud_manifest_.get());
 }
 
 Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
@@ -2049,23 +2052,27 @@ Status CloudEnvImpl::CheckValidity() const {
   }
 }
 
-Status CloudEnvImpl::FindAllLiveFiles(const std::string& bucket_name_prefix,
+Status CloudEnvImpl::FindAllLiveFiles(const std::string& bucket,
+                                      const std::string& object_path,
                                       std::vector<std::string>* live_sst_files,
                                       std::string* manifest_file) {
   std::unique_ptr<ManifestReader> extractor(
-      new ManifestReader(info_log_, this, bucket_name_prefix));
+      new ManifestReader(info_log_, this, bucket));
   std::set<uint64_t> file_nums;
-  std::string current_epoch;
-  auto st = extractor->GetLiveFiles(bucket_name_prefix, &file_nums, &current_epoch);
+  std::unique_ptr<CloudManifest> cloud_manifest;
+  auto st = extractor->GetLiveFilesAndCloudManifest(object_path, &file_nums,
+                                                    &cloud_manifest);
   if (!st.ok()) {
     return st;
   }
+  std::string current_epoch = cloud_manifest->GetCurrentEpoch().ToString();
   live_sst_files->resize(file_nums.size());
-  *manifest_file = ManifestFileWithEpoch(bucket_name_prefix, current_epoch);
+  *manifest_file = ManifestFileWithEpoch(object_path, current_epoch);
   size_t idx = 0;
-  for (auto num: file_nums) {
-    std::string table_file = MakeTableFileName(bucket_name_prefix, num);
-    live_sst_files[idx] = table_file + "-" + current_epoch;
+  for (auto num : file_nums) {
+    std::string logical_path = MakeTableFileName(object_path, num);
+    (*live_sst_files)[idx] =
+        RemapFilenameWithCloudManifest(logical_path, cloud_manifest.get());
     idx++;
   }
   return Status::OK();
