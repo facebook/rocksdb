@@ -78,8 +78,8 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex ||
-         t == kTypeDeletionWithTimestamp || t == kTypeWideColumnEntity;
+  return t <= kTypeMerge || kTypeSingleDeletion == t || kTypeBlobIndex == t ||
+         kTypeDeletionWithTimestamp == t || kTypeWideColumnEntity == t;
 }
 
 // Checks whether a type is from user operation
