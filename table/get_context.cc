@@ -257,11 +257,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kUnexpectedBlobIndex;
           return false;
         }
-        if (type == kTypeWideColumnEntity) {
-          // TODO: support wide-column entities
-          state_ = kUnexpectedBlobIndex;  // FIXME
-          return false;
-        }
         if (is_blob_index_ != nullptr) {
           *is_blob_index_ = (type == kTypeBlobIndex);
         }
@@ -283,20 +278,25 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // It means this function is called as part of DB GetMergeOperands
             // API and the current value should be part of
             // merge_context_->operand_list
-            if (is_blob_index_ != nullptr && *is_blob_index_) {
+            if (type == kTypeBlobIndex) {
               PinnableSlice pin_val;
               if (GetBlobValue(value, &pin_val) == false) {
                 return false;
               }
               Slice blob_value(pin_val);
               push_operand(blob_value, nullptr);
+            } else if (type == kTypeWideColumnEntity) {
+              // TODO: support wide-column entities
+              state_ = kCorrupt;
+              return false;
             } else {
+              assert(type == kTypeValue);
               push_operand(value, value_pinner);
             }
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
-          if (is_blob_index_ != nullptr && *is_blob_index_) {
+          if (type == kTypeBlobIndex) {
             PinnableSlice pin_val;
             if (GetBlobValue(value, &pin_val) == false) {
               return false;
@@ -311,7 +311,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               // merge_context_->operand_list
               push_operand(blob_value, nullptr);
             }
+          } else if (type == kTypeWideColumnEntity) {
+            // TODO: support wide-column entities
+            state_ = kCorrupt;
+            return false;
           } else {
+            assert(type == kTypeValue);
+
             state_ = kFound;
             if (do_merge_) {
               Merge(&value);
