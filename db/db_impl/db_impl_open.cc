@@ -1128,6 +1128,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       if (!status.ok()) {
         return status;
       }
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch", &batch);
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
+          &record_checksum);
       status = WriteBatchInternal::UpdateProtectionInfo(
           &batch, 8 /* bytes_per_key */, &record_checksum);
       if (!status.ok()) {

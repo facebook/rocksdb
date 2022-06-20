@@ -3079,7 +3079,7 @@ Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
       ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
       Status s = wb->Iterate(&prot_info_updater);
       if (s.ok() && checksum != nullptr) {
-        uint64_t expected_hash = Hash64(wb->rep_.data(), wb->rep_.size());
+        uint64_t expected_hash = XXH3_64bits(wb->rep_.data(), wb->rep_.size());
         if (expected_hash != *checksum) {
           return Status::Corruption("Write batch content corrupted.");
         }

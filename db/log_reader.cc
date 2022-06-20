@@ -97,8 +97,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           ReportCorruption(scratch->size(), "partial record without end(1)");
         }
         if (checksum != nullptr) {
-          // XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
-          // *checksum = XXH3_64bits_digest(hash_state_);
+          // No need to stream since the record is a single fragment
           *checksum = XXH3_64bits(fragment.data(), fragment.size());
         }
         prospective_record_offset = physical_record_offset;

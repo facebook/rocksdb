@@ -65,13 +65,14 @@ class Reader {
   // "*scratch" as temporary storage. The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
-  // If checksum is not nullptr, then it contains the checksum of the record,
-  // and the checksum is calculated from the original buffers that contain the
+  // If record_checksum is not nullptr, then this function will calculate the
+  // checksum of the record read and set record_checksum to it. The checksum is
+  // calculated from the original buffers that contain the contents of the
   // record.
   virtual bool ReadRecord(Slice* record, std::string* scratch,
                           WALRecoveryMode wal_recovery_mode =
                               WALRecoveryMode::kTolerateCorruptedTailRecords,
-                          uint64_t* checksum = 0);
+                          uint64_t* record_checksum = 0);
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -199,7 +200,7 @@ class FragmentBufferedReader : public Reader {
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
                       WALRecoveryMode::kTolerateCorruptedTailRecords,
-                  uint64_t* checksum = nullptr) override;
+                  uint64_t* record_checksum = nullptr) override;
   void UnmarkEOF() override;
 
  private:
