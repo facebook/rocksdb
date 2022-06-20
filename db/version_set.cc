@@ -1881,10 +1881,6 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         PinnableSlice* value, uint64_t* bytes_read) const {
   assert(value);
 
-  if (read_options.read_tier == kBlockCacheTier) {
-    return Status::Incomplete("Cannot read blob: no disk I/O allowed");
-  }
-
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
@@ -1897,6 +1893,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   }
 
   assert(blob_source_);
+  value->Reset();
   const Status s = blob_source_->GetBlob(
       read_options, user_key, blob_file_number, blob_index.offset(),
       blob_file_meta->GetBlobFileSize(), blob_index.size(),
@@ -4159,7 +4156,7 @@ void VersionSet::Reset() {
     WriteController* wc = column_family_set_->write_controller();
     column_family_set_.reset(new ColumnFamilySet(
         dbname_, db_options_, file_options_, table_cache_, wbm, wc,
-        block_cache_tracer_, io_tracer_, /*db_id*/ "", db_session_id_));
+        block_cache_tracer_, io_tracer_, db_id_, db_session_id_));
   }
   db_id_.clear();
   next_file_number_.store(2);

@@ -48,6 +48,78 @@ TEST_F(DBBlobBasicTest, GetBlob) {
                   .IsIncomplete());
 }
 
+TEST_F(DBBlobBasicTest, GetBlobFromCache) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 2048;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+
+  read_options.fill_cache = false;
+
+  {
+    PinnableSlice result;
+
+    read_options.read_tier = kReadAllTier;
+    ASSERT_TRUE(
+        db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
+    ASSERT_EQ(*result.GetSelf(), blob_value);
+
+    result.Reset();
+    read_options.read_tier = kBlockCacheTier;
+
+    // Try again with no I/O allowed. The table and the necessary blocks
+    // should already be in their respective caches; however, since we didn't
+    // re-fill the cache, the blob itself can only be read from the blob file,
+    // so the read should return Incomplete.
+    ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
+                    .IsIncomplete());
+    ASSERT_TRUE(result.empty());
+  }
+
+  read_options.fill_cache = true;
+
+  {
+    PinnableSlice result;
+
+    read_options.read_tier = kReadAllTier;
+    ASSERT_TRUE(
+        db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
+    ASSERT_EQ(*result.GetSelf(), blob_value);
+
+    result.Reset();
+    read_options.read_tier = kBlockCacheTier;
+
+    // Try again with no I/O allowed. The table and the necessary blocks/blobs
+    // should already be in their respective caches.
+    ASSERT_TRUE(
+        db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
+    ASSERT_EQ(*result.GetSelf(), blob_value);
+  }
+}
+
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   constexpr size_t min_blob_size = 6;
 
