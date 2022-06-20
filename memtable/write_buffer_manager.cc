@@ -206,6 +206,8 @@ void WriteBufferManager::ReserveMemWithBlobCache(
   std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
   Status s = cache_res_mgr_->UpdateBlobCacheReservation(blob_cache);
   s.PermitUncheckedError();
+#else
+  (void)blob_cache;
 #endif  // ROCKSDB_LITE
 }
 
