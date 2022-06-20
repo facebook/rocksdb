@@ -18,6 +18,7 @@
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
+#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace fast_lru_cache {
@@ -61,7 +62,6 @@ namespace fast_lru_cache {
 //    tombstone.
 // 4. Empty (IS_ELEMENT unset and displacements == 0): The slot is unused.
 //    A slot that is an element can further have IS_VISIBLE set or not.
-//
 // When a ghost is removed from the table, it can either transition to being a
 // tombstone or an empty slot, depending on the number of displacements of the
 // slot. In any case, the slot becomes available. When a handle is inserted
@@ -392,7 +392,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
-  mutable port::Mutex mutex_;
+  mutable DMutex mutex_;
 };
 
 class LRUCache

@@ -1593,12 +1593,38 @@ class DBImpl : public DB {
       return s;
     }
 
+    bool IsSyncing() { return getting_synced; }
+
+    uint64_t GetPreSyncSize() {
+      assert(getting_synced);
+      return pre_sync_size;
+    }
+
+    void PrepareForSync() {
+      assert(!getting_synced);
+      // Size is expected to be monotonically increasing.
+      assert(writer->file()->GetFlushedSize() >= pre_sync_size);
+      getting_synced = true;
+      pre_sync_size = writer->file()->GetFlushedSize();
+    }
+
+    void FinishSync() {
+      assert(getting_synced);
+      getting_synced = false;
+    }
+
     uint64_t number;
     // Visual Studio doesn't support deque's member to be noncopyable because
     // of a std::unique_ptr as a member.
     log::Writer* writer;  // own
+
+   private:
     // true for some prefix of logs_
     bool getting_synced = false;
+    // The size of the file before the sync happens. This amount is guaranteed
+    // to be persisted even if appends happen during sync so it can be used for
+    // tracking the synced size in MANIFEST.
+    uint64_t pre_sync_size = 0;
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in

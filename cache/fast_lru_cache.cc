@@ -20,7 +20,7 @@
 #include "monitoring/statistics.h"
 #include "port/lang.h"
 #include "util/hash.h"
-#include "util/mutexlock.h"
+#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -192,7 +192,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
 void LRUCacheShard::EraseUnRefEntries() {
   autovector<LRUHandle> last_reference_list;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
     while (lru_.next != &lru_) {
       LRUHandle* old = lru_.next;
       // LRU list contains only elements which can be evicted.
@@ -218,7 +218,7 @@ void LRUCacheShard::ApplyToSomeEntries(
   // The state is essentially going to be the starting hash, which works
   // nicely even if we resize between calls because we use upper-most
   // hash bits for table indexes.
-  MutexLock l(&mutex_);
+  DMutexLock l(mutex_);
   uint32_t length_bits = table_.GetLengthBits();
   uint32_t length = uint32_t{1} << length_bits;
 
@@ -302,7 +302,7 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
   assert(false);  // Not supported. TODO(Guido) Support it?
   autovector<LRUHandle> last_reference_list;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
     capacity_ = capacity;
     EvictFromLRU(0, &last_reference_list);
   }
@@ -314,7 +314,7 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
 }
 
 void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
-  MutexLock l(&mutex_);
+  DMutexLock l(mutex_);
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
@@ -339,7 +339,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   Status s = Status::OK();
   autovector<LRUHandle> last_reference_list;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
+
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty.
     EvictFromLRU(tmp.total_charge, &last_reference_list);
@@ -404,7 +405,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
   LRUHandle* h = nullptr;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
     h = table_.Lookup(key, hash);
     if (h != nullptr) {
       assert(h->IsVisible());
@@ -420,7 +421,7 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
 
 bool LRUCacheShard::Ref(Cache::Handle* h) {
   LRUHandle* e = reinterpret_cast<LRUHandle*>(h);
-  MutexLock l(&mutex_);
+  DMutexLock l(mutex_);
   // To create another reference - entry must be already externally referenced.
   assert(e->HasRefs());
   e->Ref();
@@ -435,7 +436,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   LRUHandle copy;
   bool last_reference = false;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
     last_reference = h->Unref();
     if (last_reference && h->IsVisible()) {
       // The item is still in cache, and nobody else holds a reference to it.
@@ -469,7 +470,7 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
   LRUHandle copy;
   bool last_reference = false;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
     LRUHandle* h = table_.Lookup(key, hash);
     if (h != nullptr) {
       table_.Exclude(h);
@@ -493,12 +494,12 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
 }
 
 size_t LRUCacheShard::GetUsage() const {
-  MutexLock l(&mutex_);
+  DMutexLock l(mutex_);
   return usage_;
 }
 
 size_t LRUCacheShard::GetPinnedUsage() const {
-  MutexLock l(&mutex_);
+  DMutexLock l(mutex_);
   assert(usage_ >= lru_usage_);
   return usage_ - lru_usage_;
 }

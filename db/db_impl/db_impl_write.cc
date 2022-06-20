@@ -1181,17 +1181,16 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // Note: there does not seem to be a reason to wait for parallel sync at
     // this early step but it is not important since parallel sync (SyncWAL) and
     // need_log_sync are usually not used together.
-    while (logs_.front().getting_synced) {
+    while (logs_.front().IsSyncing()) {
       log_sync_cv_.Wait();
     }
     for (auto& log : logs_) {
-      assert(!log.getting_synced);
       // This is just to prevent the logs to be synced by a parallel SyncWAL
       // call. We will do the actual syncing later after we will write to the
       // WAL.
       // Note: there does not seem to be a reason to set this early before we
       // actually write to the WAL
-      log.getting_synced = true;
+      log.PrepareForSync();
     }
   } else {
     *need_log_sync = false;

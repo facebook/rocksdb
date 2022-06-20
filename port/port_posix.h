@@ -95,6 +95,8 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "pthread_mutex_t"; }
+
   explicit Mutex(bool adaptive = kDefaultToAdaptiveMutex);
   // No copying
   Mutex(const Mutex&) = delete;
@@ -110,6 +112,11 @@ class Mutex {
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
   void AssertHeld();
+
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
 
  private:
   friend class CondVar;
