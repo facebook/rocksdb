@@ -84,17 +84,15 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
     PinnableSlice result;
 
     read_options.read_tier = kReadAllTier;
-    ASSERT_TRUE(
-        db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
-    ASSERT_EQ(*result.GetSelf(), blob_value);
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, blob_value);
 
     result.Reset();
     read_options.read_tier = kBlockCacheTier;
 
-    // Try again with no I/O allowed. The table and the necessary blocks
-    // should already be in their respective caches; however, since we didn't
-    // re-fill the cache, the blob itself can only be read from the blob file,
-    // so the read should return Incomplete.
+    // Try again with no I/O allowed. Since we didn't re-fill the cache, the
+    // blob itself can only be read from the blob file, so the read should
+    // return Incomplete.
     ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
                     .IsIncomplete());
     ASSERT_TRUE(result.empty());
@@ -108,7 +106,7 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
     read_options.read_tier = kReadAllTier;
     ASSERT_TRUE(
         db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
-    ASSERT_EQ(*result.GetSelf(), blob_value);
+    ASSERT_EQ(result, blob_value);
 
     result.Reset();
     read_options.read_tier = kBlockCacheTier;
@@ -117,7 +115,7 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
     // should already be in their respective caches.
     ASSERT_TRUE(
         db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
-    ASSERT_EQ(*result.GetSelf(), blob_value);
+    ASSERT_EQ(result, blob_value);
   }
 }
 
@@ -158,7 +156,6 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
     read_options.fill_cache = false;
     read_options.read_tier = kReadAllTier;
 
-    // Create an iterator to keep the current version alive
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     ASSERT_OK(iter->status());
 
@@ -183,6 +180,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
     // the blob itself can only be read from the blob file, so iter->Valid()
     // should be false.
     iter->SeekToFirst();
+    ASSERT_NOK(iter->status());
     ASSERT_FALSE(iter->Valid());
   }
 
