@@ -10,7 +10,7 @@
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "db/blob/blob_file_cache.h"
-#include "include/rocksdb/cache.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
 
