@@ -158,7 +158,7 @@ int LRUHandleTable::FindSlot(const Slice& key,
                              int displacement) {
   uint32_t base =
       BinaryMod(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
-uint32_t increment = BinaryMod(
+  uint32_t increment = BinaryMod(
       (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
   uint32_t current = BinaryMod(base + probe * increment, length_bits_);
   while (true) {

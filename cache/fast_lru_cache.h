@@ -360,7 +360,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Returns the number of bits used to hash an element in the hash
   // table.
   static uint8_t CalcHashBits(size_t capacity, size_t estimated_value_size,
-                             CacheMetadataChargePolicy metadata_charge_policy);
+                              CacheMetadataChargePolicy metadata_charge_policy);
 
   // Initialized before use.
   size_t capacity_;
