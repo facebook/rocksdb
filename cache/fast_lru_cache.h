@@ -41,7 +41,7 @@ namespace fast_lru_cache {
 // These properties induce 4 different states, with transitions defined as
 // follows:
 // - V --> not V: When a visible element is deleted or replaced by a new
-// version.
+//    version.
 // - Not V --> V: This cannot happen. A ghost remains in that state until it's
 //    not referenced any more, at which point it's ready to be removed from the
 //    hash table. (A ghost simply waits to transition to the afterlife---it will
