@@ -1412,7 +1412,6 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   Options* DisableExtraChecks();
 };
 
-//
 // An application can issue a read request (via Get/Iterators) and specify
 // if that read should process data that ALREADY resides on a specified cache
 // level. For example, if an application specifies kBlockCacheTier then the
@@ -1530,6 +1529,17 @@ struct ReadOptions {
   // from total_order_seek, based on seek key, and iterator upper bound.
   // Not supported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
+  // BUG: Using Comparator::IsSameLengthImmediateSuccessor and
+  // SliceTransform::FullLengthEnabled to enable prefix mode in cases where
+  // prefix of upper bound differs from prefix of seek key has a flaw.
+  // If present in the DB, "short keys" (shorter than "full length" prefix)
+  // can be omitted from auto_prefix_mode iteration when they would be present
+  // in total_order_seek iteration, regardless of whether the short keys are
+  // "in domain" of the prefix extractor. This is not an issue if no short
+  // keys are added to DB or are not expected to be returned by such
+  // iterators. (We are also assuming the new condition on
+  // IsSameLengthImmediateSuccessor is satisfied; see its BUG section).
+  // A bug example is in DBTest2::AutoPrefixMode1, search for "BUG".
   // Default: false
   bool auto_prefix_mode;
 
@@ -1631,10 +1641,6 @@ struct ReadOptions {
   // is a `PlainTableFactory`) and cuckoo tables (these can exist when
   // `ColumnFamilyOptions::table_factory` is a `CuckooTableFactory`).
   //
-  // The new `DB::MultiGet()` APIs (i.e., the ones returning `void`) will return
-  // `Status::NotSupported` when that operation requires file read(s) and
-  // `rate_limiter_priority != Env::IO_TOTAL`.
-  //
   // The bytes charged to rate limiter may not exactly match the file read bytes
   // since there are some seemingly insignificant reads, like for file
   // headers/footers, that we currently do not charge to rate limiter.
@@ -1727,6 +1733,13 @@ struct WriteOptions {
   // Default: `Env::IO_TOTAL`
   Env::IOPriority rate_limiter_priority;
 
+  // `protection_bytes_per_key` is the number of bytes used to store
+  // protection information for each key entry. Currently supported values are
+  // zero (disabled) and eight.
+  //
+  // Default: zero (disabled).
+  size_t protection_bytes_per_key;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
@@ -1734,7 +1747,8 @@ struct WriteOptions {
         no_slowdown(false),
         low_pri(false),
         memtable_insert_hint_per_batch(false),
-        rate_limiter_priority(Env::IO_TOTAL) {}
+        rate_limiter_priority(Env::IO_TOTAL),
+        protection_bytes_per_key(0) {}
 };
 
 // Options that control flush operations

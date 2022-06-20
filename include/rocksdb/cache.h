@@ -290,7 +290,7 @@ class Cache {
   virtual const char* Name() const = 0;
 
   // Insert a mapping from key->value into the volatile cache only
-  // and assign it // the specified charge against the total cache capacity.
+  // and assign it with the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
   // return Status::Incomplete.
   //
@@ -394,8 +394,8 @@ class Cache {
   // memory - call this only if you're shutting down the process.
   // Any attempts of using cache after this call will fail terribly.
   // Always delete the DB object before calling this method!
-  virtual void DisownData(){
-      // default implementation is noop
+  virtual void DisownData() {
+    // default implementation is noop
   }
 
   struct ApplyToAllEntriesOptions {
@@ -553,7 +553,7 @@ enum class CacheEntryRole {
   kFilterBlock,
   // Block-based table metadata block for partitioned filter
   kFilterMetaBlock,
-  // Block-based table deprecated filter block (old "block-based" filter)
+  // OBSOLETE / DEPRECATED: old/removed block-based filter
   kDeprecatedFilterBlock,
   // Block-based table index block
   kIndexBlock,
@@ -570,6 +570,9 @@ enum class CacheEntryRole {
   // BlockBasedTableReader's charge to account for
   // its memory usage
   kBlockBasedTableReader,
+  // FileMetadata's charge to account for
+  // its memory usage
+  kFileMetadata,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,

@@ -139,6 +139,7 @@ DECLARE_bool(cache_index_and_filter_blocks);
 DECLARE_bool(charge_compression_dictionary_building_buffer);
 DECLARE_bool(charge_filter_construction);
 DECLARE_bool(charge_table_reader);
+DECLARE_bool(charge_file_metadata);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
@@ -151,7 +152,6 @@ DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
-DECLARE_bool(use_block_based_filter);
 DECLARE_int32(ribbon_starting_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
@@ -294,6 +294,10 @@ DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
+
+DECLARE_int32(create_timestamped_snapshot_one_in);
+
+DECLARE_bool(allow_data_in_errors);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -582,6 +586,8 @@ extern inline void SanitizeDoubleParam(double* param) {
 extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
+
+extern void SnapshotGcThread(void* v);
 
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 

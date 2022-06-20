@@ -37,7 +37,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "table/block_based/block.h"
-#include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/block_builder.h"
@@ -80,17 +79,6 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   if (filter_bits_builder == nullptr) {
     return nullptr;
   } else {
-    // Check for backdoor deprecated block-based bloom config
-    size_t starting_est = filter_bits_builder->EstimateEntriesAdded();
-    constexpr auto kSecretStart =
-        DeprecatedBlockBasedBloomFilterPolicy::kSecretBitsPerKeyStart;
-    if (starting_est >= kSecretStart && starting_est < kSecretStart + 100) {
-      int bits_per_key = static_cast<int>(starting_est - kSecretStart);
-      delete filter_bits_builder;
-      return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
-                                              table_opt, bits_per_key);
-    }
-    // END check for backdoor deprecated block-based bloom config
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
       // Since after partition cut request from filter builder it takes time
@@ -904,10 +892,6 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 
   rep_ = new Rep(sanitized_table_options, tbo, file);
 
-  if (rep_->filter_builder != nullptr) {
-    rep_->filter_builder->StartBlock(0);
-  }
-
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
       const_cast<TableProperties*>(&rep_->props));
@@ -1094,9 +1078,6 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   WriteRawBlock(block_contents, type, handle, block_type, &raw_block_contents);
   r->compressed_output.clear();
   if (is_data_block) {
-    if (r->filter_builder != nullptr) {
-      r->filter_builder->StartBlock(r->get_offset());
-    }
     r->props.data_size = r->get_offset();
     ++r->props.num_data_blocks;
   }
@@ -1385,9 +1366,6 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
       break;
     }
 
-    if (r->filter_builder != nullptr) {
-      r->filter_builder->StartBlock(r->get_offset());
-    }
     r->props.data_size = r->get_offset();
     ++r->props.num_data_blocks;
 
@@ -1496,9 +1474,6 @@ Status BlockBasedTableBuilder::InsertBlockInCacheHelper(
     case BlockType::kFilterPartitionIndex:
       s = InsertBlockInCache<Block>(block_contents, handle, block_type);
       break;
-    case BlockType::kDeprecatedFilter:
-      s = InsertBlockInCache<BlockContents>(block_contents, handle, block_type);
-      break;
     case BlockType::kFilter:
       s = InsertBlockInCache<ParsedFullFilterBlock>(block_contents, handle,
                                                     block_type);
@@ -1568,7 +1543,6 @@ void BlockBasedTableBuilder::WriteFilterBlock(
     return;
   }
   BlockHandle filter_block_handle;
-  bool is_block_based_filter = rep_->filter_builder->IsBlockBased();
   bool is_partitioned_filter = rep_->table_options.partition_filters;
   if (ok()) {
     rep_->props.num_filter_entries +=
@@ -1595,8 +1569,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
 
       rep_->props.filter_size += filter_content.size();
 
-      BlockType btype = is_block_based_filter ? BlockType::kDeprecatedFilter
-                        : is_partitioned_filter && /* last */ s.ok()
+      BlockType btype = is_partitioned_filter && /* last */ s.ok()
                             ? BlockType::kFilterPartitionIndex
                             : BlockType::kFilter;
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle, btype,
@@ -1608,10 +1581,8 @@ void BlockBasedTableBuilder::WriteFilterBlock(
     // Add mapping from "<filter_block_prefix>.Name" to location
     // of filter data.
     std::string key;
-    key = is_block_based_filter ? BlockBasedTable::kFilterBlockPrefix
-          : is_partitioned_filter
-              ? BlockBasedTable::kPartitionedFilterBlockPrefix
-              : BlockBasedTable::kFullFilterBlockPrefix;
+    key = is_partitioned_filter ? BlockBasedTable::kPartitionedFilterBlockPrefix
+                                : BlockBasedTable::kFullFilterBlockPrefix;
     key.append(rep_->table_options.filter_policy->CompatibilityName());
     meta_index_builder->Add(key, filter_block_handle);
   }
@@ -2114,7 +2085,7 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   }
 }
 
-const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
+const std::string BlockBasedTable::kObsoleteFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
 const std::string BlockBasedTable::kPartitionedFilterBlockPrefix =
     "partitionedfilter.";
