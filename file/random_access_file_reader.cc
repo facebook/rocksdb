@@ -537,8 +537,12 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
                    read_async_info->user_len_);
       if (read_async_info->user_aligned_buf_ == nullptr) {
         // Copy the data into user's scratch.
+// Clang analyzer assumes that it will take use_direct_io() == false in
+// ReadAsync and use_direct_io() == true in Callback which cannot be true.
+#ifndef __clang_analyzer__
         read_async_info->buf_.Read(user_req.scratch, offset_advance_len,
                                    res_len);
+#endif  // __clang_analyzer__
       } else {
         // Set aligned_buf provided by user without additional copy.
         user_req.scratch =
