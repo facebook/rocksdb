@@ -871,7 +871,7 @@ bool DBIter::FindValueForCurrentKey() {
 
     if (timestamp_lb_ != nullptr) {
       // Only needed when timestamp_lb_ is not null
-      const bool ret = ParseKey(&ikey_);
+      [[maybe_unused]] const bool ret = ParseKey(&ikey_);
       saved_ikey_.assign(iter_.key().data(), iter_.key().size());
       // Since the preceding ParseKey(&ikey) succeeds, so must this.
       assert(ret);
