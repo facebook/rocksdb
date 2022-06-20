@@ -481,6 +481,9 @@ class LRUCache
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& handles) override;
+  std::shared_ptr<SecondaryCache> GetSecondaryCache() {
+    return secondary_cache_;
+  }
 
   //  Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
