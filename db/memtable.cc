@@ -881,15 +881,6 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
-  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(read_opts,
-                                GetInternalKeySeqno(key.internal_key())));
-  if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
-  }
-
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
@@ -920,6 +911,16 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
     if (bloom_checked) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
+
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+        NewRangeTombstoneIterator(read_opts,
+                                  GetInternalKeySeqno(key.internal_key())));
+    if (range_del_iter != nullptr) {
+      *max_covering_tombstone_seq =
+          std::max(*max_covering_tombstone_seq,
+                   range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    }
+
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
                  is_blob_index, value, timestamp, s, merge_context, seq,
                  &found_final_value, &merge_in_progress);
