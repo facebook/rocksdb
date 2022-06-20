@@ -446,11 +446,8 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
   }
 }
 
-// TODO: rate_limiter_priority is not taken into consideration. Either provide
-// support for it or remove this argument.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
-    Env::IOPriority /*rate_limiter_priority*/,
     std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
     void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf) {
   IOStatus s;
