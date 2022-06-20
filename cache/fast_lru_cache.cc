@@ -294,7 +294,7 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 uint8_t LRUCacheShard::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  LRUHandle* h = reinterpret_cast<LRUHandle*>(new LRUHandle);
+  LRUHandle* h = reinterpret_cast<LRUHandle*>(new LRUHandle());
   h->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
   size_t num_entries = capacity / h->total_charge;
   h->Free();
