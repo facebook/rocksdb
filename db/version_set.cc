@@ -4159,8 +4159,9 @@ void VersionSet::Reset() {
     WriteController* wc = column_family_set_->write_controller();
     column_family_set_.reset(new ColumnFamilySet(
         dbname_, db_options_, file_options_, table_cache_, wbm, wc,
-        block_cache_tracer_, io_tracer_, db_id_, db_session_id_));
+        block_cache_tracer_, io_tracer_, /*db_id*/ "", db_session_id_));
   }
+  db_id_.clear();
   next_file_number_.store(2);
   min_log_number_to_keep_.store(0);
   manifest_file_number_ = 0;
