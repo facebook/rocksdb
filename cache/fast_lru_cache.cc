@@ -106,10 +106,9 @@ void LRUHandleTable::Remove(LRUHandle* h) {
   assert(h->next == nullptr &&
          h->prev == nullptr);  // Already off the LRU list.
   int probe = 0;
-  int slot = FindSlot(
+  FindSlot(
       h->key(), [&h](LRUHandle* e) { return e == h; }, probe,
       -1 /*displacement*/);
-  assert(slot != -1);  // The handle must be in the hash table.
   h->SetIsVisible(false);
   h->SetIsElement(false);
   occupancy_--;
