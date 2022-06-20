@@ -179,8 +179,13 @@ struct LRUHandle {
     if (metadata_charge_policy != kFullChargeCacheMetadata) {
       return 0;
     } else {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      return malloc_usable_size(
+          const_cast<void*>(static_cast<const void*>(this)));
+#else
       return sizeof(LRUHandle);  // TODO Is this the right metadata accounting
                                  // we want with pre-allocated handles?
+#endif
     }
   }
 
