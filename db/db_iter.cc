@@ -552,7 +552,7 @@ bool DBIter::MergeValuesNewToOld() {
       return false;
     }
 
-    if (kTypeValue == ikey.type || kTypeWideColumnEntity == ikey.type) {
+    if (kTypeValue == ikey.type) {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
@@ -599,6 +599,11 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
       return true;
+    } else if (kTypeWideColumnEntity == ikey.type) {
+      status_ = Status::NotSupported(
+          "Merge currently not supported for wide-column entities");
+      valid_ = false;
+      return false;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
