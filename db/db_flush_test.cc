@@ -985,7 +985,7 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
     KEYS[k] = "IamKey" + std::to_string(k);
   }
 
-  std::vector<std::string> RNDKEYS(KVSIZE);
+  std::vector<std::string> RNDVALS(KVSIZE);
   const std::string NOT_FOUND = "NOT_FOUND";
 
   // Heavy overwrite workload,
@@ -997,12 +997,12 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   // Insertion of of K-V pairs, multiple times (overwrites).
   for (size_t i = 0; i < NUM_REPEAT; i++) {
     for (size_t j = 0; j < KEYS.size(); j++) {
-      RNDKEYS[j] = rnd.RandomString(RAND_VALUES_LENGTH);
-      ASSERT_OK(Put(KEYS[j], RNDKEYS[j]));
-      ASSERT_EQ(Get(KEYS[j]), RNDKEYS[j]);
+      RNDVALS[j] = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(KEYS[j], RNDVALS[j]));
+      ASSERT_EQ(Get(KEYS[j]), RNDVALS[j]);
     }
     for (size_t j = 0; j < KEYS.size(); j++) {
-      ASSERT_EQ(Get(KEYS[j]), RNDKEYS[j]);
+      ASSERT_EQ(Get(KEYS[j]), RNDVALS[j]);
     }
   }
 
@@ -1021,12 +1021,12 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
   // Insertion of of K-V pairs, multiple times (overwrites).
   for (size_t i = 0; i < NUM_REPEAT; i++) {
     for (size_t j = 0; j < KEYS.size(); j++) {
-      RNDKEYS[j] = rnd.RandomString(RAND_VALUES_LENGTH);
-      ASSERT_OK(Put(KEYS[j], RNDKEYS[j]));
-      ASSERT_EQ(Get(KEYS[j]), RNDKEYS[j]);
+      RNDVALS[j] = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(KEYS[j], RNDVALS[j]));
+      ASSERT_EQ(Get(KEYS[j]), RNDVALS[j]);
     }
     for (size_t j = 0; j < KEYS.size(); j++) {
-      ASSERT_EQ(Get(KEYS[j]), RNDKEYS[j]);
+      ASSERT_EQ(Get(KEYS[j]), RNDVALS[j]);
     }
   }
 
@@ -1046,6 +1046,113 @@ TEST_F(DBFlushTest, MemPurgeBasicToggle) {
 // relies on dynamically changing the option
 // flag experimental_mempurge_threshold.
 #endif
+
+// At the moment, MemPurge feature is deactivated
+// when atomic_flush is enabled. This is because the level
+// of garbage between Column Families is not guaranteed to
+// be consistent, therefore a CF could hypothetically
+// trigger a MemPurge while another CF would trigger
+// a regular Flush.
+TEST_F(DBFlushTest, MemPurgeWithAtomicFlush) {
+  Options options = CurrentOptions();
+
+  // The following options are used to enforce several values that
+  // may already exist as default values to make this test resilient
+  // to default value updates in the future.
+  options.statistics = CreateDBStatistics();
+
+  // Record all statistics.
+  options.statistics->set_stats_level(StatsLevel::kAll);
+
+  // create the DB if it's not already present
+  options.create_if_missing = true;
+
+  // Useful for now as we are trying to compare uncompressed data savings on
+  // flush().
+  options.compression = kNoCompression;
+
+  // Prevent memtable in place updates. Should already be disabled
+  // (from Wiki:
+  //  In place updates can be enabled by toggling on the bool
+  //  inplace_update_support flag. However, this flag is by default set to
+  //  false
+  //  because this thread-safe in-place update support is not compatible
+  //  with concurrent memtable writes. Note that the bool
+  //  allow_concurrent_memtable_write is set to true by default )
+  options.inplace_update_support = false;
+  options.allow_concurrent_memtable_write = true;
+
+  // Enforce size of a single MemTable to 64KB (64KB = 65,536 bytes).
+  options.write_buffer_size = 1 << 20;
+  // Activate the MemPurge prototype.
+  options.experimental_mempurge_threshold = 153.245;
+  // Activate atomic_flush.
+  options.atomic_flush = true;
+
+  const std::vector<std::string> new_cf_names = {"pikachu", "eevie"};
+  CreateColumnFamilies(new_cf_names, options);
+
+  Close();
+
+  // 3 CFs: default will be filled with overwrites (would normally trigger
+  // mempurge)
+  //        new_cf_names[1] will be filled with random values (would trigger
+  //        flush) new_cf_names[2] not filled with anything.
+  ReopenWithColumnFamilies(
+      {kDefaultColumnFamilyName, new_cf_names[0], new_cf_names[1]}, options);
+  size_t num_cfs = handles_.size();
+  ASSERT_EQ(3, num_cfs);
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(2, "bar", "baz"));
+
+  std::atomic<uint32_t> mempurge_count{0};
+  std::atomic<uint32_t> sst_count{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:MemPurgeSuccessful",
+      [&](void* /*arg*/) { mempurge_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushJob:SSTFileCreated", [&](void* /*arg*/) { sst_count++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const size_t KVSIZE = 3;
+  std::vector<std::string> KEYS(KVSIZE);
+  for (size_t k = 0; k < KVSIZE; k++) {
+    KEYS[k] = "IamKey" + std::to_string(k);
+  }
+
+  std::string RNDKEY;
+  std::vector<std::string> RNDVALS(KVSIZE);
+  const std::string NOT_FOUND = "NOT_FOUND";
+
+  // Heavy overwrite workload,
+  // more than would fit in maximum allowed memtables.
+  Random rnd(106);
+  const size_t NUM_REPEAT = 100;
+  const size_t RAND_KEY_LENGTH = 128;
+  const size_t RAND_VALUES_LENGTH = 10240;
+
+  // Insertion of of K-V pairs, multiple times (overwrites).
+  for (size_t i = 0; i < NUM_REPEAT; i++) {
+    for (size_t j = 0; j < KEYS.size(); j++) {
+      RNDKEY = rnd.RandomString(RAND_KEY_LENGTH);
+      RNDVALS[j] = rnd.RandomString(RAND_VALUES_LENGTH);
+      ASSERT_OK(Put(KEYS[j], RNDVALS[j]));
+      ASSERT_OK(Put(1, RNDKEY, RNDVALS[j]));
+      ASSERT_EQ(Get(KEYS[j]), RNDVALS[j]);
+      ASSERT_EQ(Get(1, RNDKEY), RNDVALS[j]);
+    }
+  }
+
+  // Check that there was no mempurge because atomic_flush option is true.
+  const uint32_t EXPECTED_MIN_MEMPURGE_COUNT = 0;
+  // Check that there was at least one SST files created during flush.
+  const uint32_t EXPECTED_SST_COUNT = 1;
+
+  EXPECT_EQ(mempurge_count.exchange(0), EXPECTED_MIN_MEMPURGE_COUNT);
+  EXPECT_GE(sst_count.exchange(0), EXPECTED_SST_COUNT);
+
+  Close();
+}
 
 TEST_F(DBFlushTest, MemPurgeDeleteAndDeleteRange) {
   Options options = CurrentOptions();
