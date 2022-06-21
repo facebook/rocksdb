@@ -701,6 +701,7 @@ Status DB::OpenAsSecondary(
 
   handles->clear();
   DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname, secondary_path);
+  impl->init_logger_creation_s_.PermitUncheckedError();
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->file_options_,
       impl->table_cache_.get(), impl->write_buffer_manager_,

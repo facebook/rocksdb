@@ -283,6 +283,7 @@ Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
 
   SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
+  impl->init_logger_creation_s_.PermitUncheckedError();
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
                            error_if_wal_file_exists);

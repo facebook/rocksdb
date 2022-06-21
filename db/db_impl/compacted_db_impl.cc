@@ -240,6 +240,7 @@ Status CompactedDBImpl::Open(const Options& options,
   }
   DBOptions db_options(options);
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
+  db->init_logger_creation_s_.PermitUncheckedError();
   Status s = db->Init(options);
   if (s.ok()) {
     s = db->StartPeriodicWorkScheduler();

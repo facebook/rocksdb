@@ -1797,6 +1797,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->init_logger_creation_s_;
     delete impl;
     return s;
+  } else {
+    assert(impl->init_logger_creation_s_.ok());
   }
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {
