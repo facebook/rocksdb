@@ -207,8 +207,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   return true;
 }
 
-bool DBIter::SetWideColumnEntityValueIfNeeded(
-    const Slice& /* wide_column_entity */) {
+bool DBIter::SetWideColumnValueIfNeeded(const Slice& /* wide_columns_slice */) {
   assert(!is_blob_);
 
   // TODO: support wide-column entities
@@ -360,7 +359,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                   return false;
                 }
               } else if (ikey_.type == kTypeWideColumnEntity) {
-                if (!SetWideColumnEntityValueIfNeeded(iter_.value())) {
+                if (!SetWideColumnValueIfNeeded(iter_.value())) {
                   return false;
                 }
               }
@@ -385,7 +384,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                     return false;
                   }
                 } else if (ikey_.type == kTypeWideColumnEntity) {
-                  if (!SetWideColumnEntityValueIfNeeded(iter_.value())) {
+                  if (!SetWideColumnValueIfNeeded(iter_.value())) {
                     return false;
                   }
                 }
@@ -972,7 +971,7 @@ bool DBIter::FindValueForCurrentKey() {
       }
       break;
     case kTypeWideColumnEntity:
-      if (!SetWideColumnEntityValueIfNeeded(pinned_value_)) {
+      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
         return false;
       }
       break;
@@ -1075,7 +1074,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         return false;
       }
     } else if (ikey_.type == kTypeWideColumnEntity) {
-      if (!SetWideColumnEntityValueIfNeeded(pinned_value_)) {
+      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
         return false;
       }
     }
