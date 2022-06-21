@@ -240,8 +240,8 @@ void CompactionJob::Prepare() {
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
-      StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
-      GenSubcompactionBoundaries();
+    StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
+    GenSubcompactionBoundaries();
   }
   if (boundaries_.size() > 1) {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
@@ -1024,6 +1024,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   const std::optional<Slice> start = sub_compact->start;
   const std::optional<Slice> end = sub_compact->end;
 
+  std::optional<Slice> start_without_ts;
+  std::optional<Slice> end_without_ts;
+
   ReadOptions read_options;
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
@@ -1034,15 +1037,20 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
 
-  // Note: if we're going to support subcompactions for user-defined timestamps,
-  // the timestamp part will have to be stripped from the bounds here.
-  assert((!start.has_value() && !end.has_value()) ||
-         cfd->user_comparator()->timestamp_size() == 0);
+  size_t ts_sz = cfd->user_comparator()->timestamp_size();
   if (start.has_value()) {
     read_options.iterate_lower_bound = &start.value();
+    if (ts_sz > 0) {
+      start_without_ts = StripTimestampFromUserKey(start.value(), ts_sz);
+      read_options.iterate_lower_bound = &start_without_ts.value();
+    }
   }
   if (end.has_value()) {
     read_options.iterate_upper_bound = &end.value();
+    if (ts_sz > 0) {
+      end_without_ts = StripTimestampFromUserKey(end.value(), ts_sz);
+      read_options.iterate_upper_bound = &end_without_ts.value();
+    }
   }
 
   // Although the v2 aggregator is what the level iterator(s) know about,
