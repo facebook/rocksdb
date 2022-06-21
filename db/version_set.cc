@@ -1798,6 +1798,7 @@ VersionStorageInfo::VersionStorageInfo(
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
       l0_delay_trigger_count_(0),
+      compact_cursor_(num_levels_),
       accumulated_file_size_(0),
       accumulated_raw_key_size_(0),
       accumulated_raw_value_size_(0),
@@ -1820,6 +1821,8 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_deletions_ = ref_vstorage->current_num_deletions_;
     current_num_samples_ = ref_vstorage->current_num_samples_;
     oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
+    compact_cursor_ = ref_vstorage->compact_cursor_;
+    compact_cursor_.resize(num_levels_);
   }
 }
 
@@ -3192,6 +3195,60 @@ void SortFileByOverlappingRatio(
                      file_to_order[f2.file->fd.GetNumber()];
             });
 }
+
+void SortFileByRoundRobin(const InternalKeyComparator& icmp,
+                          std::vector<InternalKey>* compact_cursor,
+                          bool level0_non_overlapping, int level,
+                          std::vector<Fsize>* temp) {
+  if (level == 0 && !level0_non_overlapping) {
+    // Using kOldestSmallestSeqFirst when level === 0, since the
+    // files may overlap (not fully sorted)
+    std::sort(temp->begin(), temp->end(),
+              [](const Fsize& f1, const Fsize& f2) -> bool {
+                return f1.file->fd.smallest_seqno < f2.file->fd.smallest_seqno;
+              });
+    return;
+  }
+
+  bool should_move_files =
+      compact_cursor->at(level).Valid() && temp->size() > 1;
+
+  // The iterator points to the Fsize with smallest key larger than or equal to
+  // the given cursor
+  std::vector<Fsize>::iterator current_file_iter;
+  if (should_move_files) {
+    // Find the file of which the smallest key is larger than or equal to
+    // the cursor (the smallest key in the successor file of the last
+    // chosen file), skip this if the cursor is invalid or there is only
+    // one file in this level
+    current_file_iter = std::lower_bound(
+        temp->begin(), temp->end(), compact_cursor->at(level),
+        [&](const Fsize& f, const InternalKey& cursor) -> bool {
+          return icmp.Compare(cursor, f.file->smallest) > 0;
+        });
+
+    should_move_files = current_file_iter != temp->end();
+  }
+  if (should_move_files) {
+    // Construct a local temporary vector
+    std::vector<Fsize> local_temp;
+    local_temp.reserve(temp->size());
+    // Move the selected File into the first position and its successors
+    // into the second, third, ..., positions
+    for (auto iter = current_file_iter; iter != temp->end(); iter++) {
+      local_temp.push_back(*iter);
+    }
+    // Move the origin predecessors of the selected file in a round-robin
+    // manner
+    for (auto iter = temp->begin(); iter != current_file_iter; iter++) {
+      local_temp.push_back(*iter);
+    }
+    // Replace all the items in temp
+    for (size_t i = 0; i < local_temp.size(); i++) {
+      temp->at(i) = local_temp[i];
+    }
+  }
+}
 }  // namespace
 
 void VersionStorageInfo::UpdateFilesByCompactionPri(
@@ -3243,6 +3300,10 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
         SortFileByOverlappingRatio(*internal_comparator_, files_[level],
                                    files_[level + 1], ioptions.clock, level,
                                    num_non_empty_levels_, options.ttl, &temp);
+        break;
+      case kRoundRobin:
+        SortFileByRoundRobin(*internal_comparator_, &compact_cursor_,
+                             level0_non_overlapping_, level, &temp);
         break;
       default:
         assert(false);
@@ -5285,6 +5346,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   delete[] vstorage -> files_;
   vstorage->files_ = new_files_list;
   vstorage->num_levels_ = new_levels;
+  vstorage->ResizeCompactCursors(new_levels);
 
   MutableCFOptions mutable_cf_options(*options);
   VersionEdit ve;
@@ -5519,6 +5581,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->max_timestamp, f->unique_id);
         }
       }
+
+      edit.SetCompactCursors(vstorage->GetCompactCursors());
 
       const auto& blob_files = vstorage->GetBlobFiles();
       for (const auto& meta : blob_files) {
