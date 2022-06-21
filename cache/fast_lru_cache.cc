@@ -43,6 +43,9 @@ LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
 }
 
 LRUHandleTable::~LRUHandleTable() {
+  // TODO(Guido) If users still hold references to handles,
+  // they will become invalidated. And if we choose not to
+  // delete the data, it will become leaked.
   ApplyToEntriesRange(
       [](LRUHandle* h) {
         if (!h->HasRefs()) {
@@ -294,10 +297,9 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 uint8_t LRUCacheShard::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  LRUHandle* h = new LRUHandle();
-  h->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
-  size_t num_entries = capacity / h->total_charge;
-  delete h;
+  LRUHandle h;
+  h.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
+  size_t num_entries = capacity / h.total_charge;
   uint8_t num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
@@ -334,13 +336,13 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                 std::to_string(kCacheKeySize) + "B");
   }
 
-  LRUHandle* tmp = new LRUHandle();
-  tmp->value = value;
-  tmp->deleter = deleter;
-  tmp->hash = hash;
-  tmp->CalcTotalCharge(charge, metadata_charge_policy_);
+  LRUHandle tmp;
+  tmp.value = value;
+  tmp.deleter = deleter;
+  tmp.hash = hash;
+  tmp.CalcTotalCharge(charge, metadata_charge_policy_);
   for (int i = 0; i < kCacheKeySize; i++) {
-    tmp->key_data[i] = key.data()[i];
+    tmp.key_data[i] = key.data()[i];
   }
 
   Status s = Status::OK();
@@ -350,8 +352,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty.
-    EvictFromLRU(tmp->total_charge, &last_reference_list);
-    if ((usage_ + tmp->total_charge > capacity_ &&
+    EvictFromLRU(tmp.total_charge, &last_reference_list);
+    if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
         table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
       // Originally, when strict_capacity_limit_ == false and handle != nullptr
@@ -364,7 +366,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.
-        last_reference_list.push_back(*tmp);
+        last_reference_list.push_back(tmp);
       } else {
         s = Status::Incomplete("Insert failed due to LRU cache being full.");
       }
@@ -372,7 +374,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
       LRUHandle* old;
-      LRUHandle* h = table_.Insert(tmp, &old);
+      LRUHandle* h = table_.Insert(&tmp, &old);
       assert(h != nullptr);  // Insertions should never fail.
       usage_ += h->total_charge;
       if (old != nullptr) {
@@ -404,8 +406,6 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   for (auto& h : last_reference_list) {
     h.FreeData();
   }
-
-  delete tmp;
 
   return s;
 }
