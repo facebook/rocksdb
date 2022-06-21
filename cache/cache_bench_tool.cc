@@ -214,7 +214,7 @@ struct KeyGen {
     EncodeFixed64(key_data + 10, key);
     key_data[18] = char{4};
     EncodeFixed64(key_data + 19, key);
-    return Slice(&key_data[off], sizeof(key_data) - off);
+    return Slice(&key_data[off], 16);
   }
 };
 
@@ -320,9 +320,11 @@ class CacheBench {
   void PopulateCache() {
     Random64 rnd(1);
     KeyGen keygen;
-    for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
-      cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), createValue(rnd),
-                     &helper1, FLAGS_value_bytes);
+    char *value = createValue(rnd);
+    Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), value,
+                      &helper1, FLAGS_value_bytes);
+    if (s != Status::OK()) {
+      delete value;
     }
   }
 
@@ -542,8 +544,12 @@ class CacheBench {
                              FLAGS_value_bytes);
         } else {
           // do insert
-          cache_->Insert(key, createValue(thread->rnd), &helper2,
-                         FLAGS_value_bytes, &handle);
+          char *value = createValue(thread->rnd);
+          Status s = cache_->Insert(key, value, &helper2,
+                          FLAGS_value_bytes, &handle);
+          if (s != Status::OK()) {
+            delete value;
+          }
         }
       } else if (random_op < insert_threshold_) {
         if (handle) {
@@ -551,8 +557,12 @@ class CacheBench {
           handle = nullptr;
         }
         // do insert
-        cache_->Insert(key, createValue(thread->rnd), &helper3,
-                       FLAGS_value_bytes, &handle);
+        char *value = createValue(thread->rnd);
+        Status s = cache_->Insert(key, value, &helper3,
+                        FLAGS_value_bytes, &handle);
+        if (s != Status::OK()) {
+          delete value;
+        }
       } else if (random_op < lookup_threshold_) {
         if (handle) {
           cache_->Release(handle);
