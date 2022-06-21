@@ -195,7 +195,7 @@ class PointLockManager : public LockManager {
   bool IsLockExpired(TransactionID txn_id, const LockInfo& lock_info, Env* env,
                      uint64_t* wait_time);
 
-  std::shared_ptr<LockMap> GetLockMap(uint32_t column_family_id);
+  LockMap* GetLockMap(uint32_t column_family_id);
 
   Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
                             LockMapStripe* stripe, uint32_t column_family_id,
