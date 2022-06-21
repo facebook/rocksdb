@@ -9,6 +9,7 @@
 //
 
 #include "util/compression.h"
+#include <iostream>
 #ifdef GFLAGS
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
@@ -139,6 +140,7 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     if (!FLAGS_secondary_cache_uri.empty()) {
       Status s = SecondaryCache::CreateFromString(
           config_options, FLAGS_secondary_cache_uri, &secondary_cache);
+      std::cout << secondary_cache->GetPrintableOptions() << std::endl;
       if (secondary_cache == nullptr) {
         fprintf(stderr,
                 "No secondary cache registered matching string: %s status=%s\n",

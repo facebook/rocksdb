@@ -72,6 +72,10 @@ Status SecondaryCache::CreateFromString(
                                          &comp_sec_cache_options_type_info, "",
                                          args, &sec_cache_opts);
     if (status.ok()) {
+      std::cout << sec_cache_opts.metadata_charge_policy << std::endl;
+      std::cout << sec_cache_opts.num_shard_bits << std::endl;
+      std::cout << sec_cache_opts.capacity << std::endl;
+      std::cout << sec_cache_opts.compression_type << std::endl;
       sec_cache = NewCompressedSecondaryCache(sec_cache_opts);
     }
 

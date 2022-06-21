@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <string>
+#include <iostream>
 
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
@@ -233,7 +234,13 @@ struct LRUHandle {
   inline size_t GetCharge(
       CacheMetadataChargePolicy metadata_charge_policy) const {
     size_t meta_charge = CalcuMetaCharge(metadata_charge_policy);
-    assert(total_charge >= meta_charge);
+    if (total_charge < meta_charge) {
+      std::cout << total_charge << " " << meta_charge << std::endl;
+    }
+    std::cout << "key " << key_data << std::endl;
+    std::cout << "total_charge " << total_charge << std::endl;
+    std::cout << "meta_charge " << meta_charge << std::endl;
+    std::cout << "charge " << total_charge - meta_charge << std::endl;
     return total_charge - meta_charge;
   }
 };
@@ -488,6 +495,7 @@ class LRUCache
   double GetHighPriPoolRatio();
 
  private:
+  friend class CompressedSecondaryCache;
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
   std::shared_ptr<SecondaryCache> secondary_cache_;

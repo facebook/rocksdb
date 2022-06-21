@@ -635,6 +635,7 @@ std::string LRUCacheShard::GetPrintableOptions() const {
     snprintf(buffer, kBufferSize, "    high_pri_pool_ratio: %.3lf\n",
              high_pri_pool_ratio_);
   }
+  std::cout << "metadata_charge_policy: " << metadata_charge_policy_;
   return std::string(buffer);
 }
 
@@ -647,6 +648,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
                    std::move(allocator)) {
   num_shards_ = 1 << num_shard_bits;
+
   shards_ = reinterpret_cast<LRUCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
   size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;

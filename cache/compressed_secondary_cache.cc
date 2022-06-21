@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "cache/lru_cache.h"
 #include "memory/memory_allocator.h"
 #include "util/compression.h"
 #include "util/string_util.h"
@@ -142,6 +143,9 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "    compression_type : %d\n",
            cache_options_.compress_format_version);
   ret.append(buffer);
+  std::cout << dynamic_cast<LRUCache*>(cache_.get())->GetPrintableOptions() << std::endl;
+  std::cout << dynamic_cast<LRUCache*>(cache_.get())->GetShard(0)->GetPrintableOptions() << std::endl;
+
   return ret;
 }
 
