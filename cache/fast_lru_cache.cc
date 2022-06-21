@@ -44,10 +44,11 @@ LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
 
 LRUHandleTable::~LRUHandleTable() {
   // TODO(Guido) If users still hold references to handles,
-  // they will become invalidated. And if we choose not to
+  // those will become invalidated. And if we choose not to
   // delete the data, it will become leaked.
   ApplyToEntriesRange(
       [](LRUHandle* h) {
+        // TODO(Guido) Remove the HasRefs() check?
         if (!h->HasRefs()) {
           h->FreeData();
         }
@@ -157,9 +158,9 @@ int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
       probe, displacement);
 }
 
-int LRUHandleTable::FindSlot(const Slice& key,
-                             std::function<bool(LRUHandle*)> cond, int& probe,
-                             int displacement) {
+inline int LRUHandleTable::FindSlot(const Slice& key,
+                                    std::function<bool(LRUHandle*)> cond,
+                                    int& probe, int displacement) {
   uint32_t base =
       BinaryMod(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
   uint32_t increment = BinaryMod(
