@@ -45,6 +45,7 @@ TEST_F(DBWideBasicTest, Entity) {
     ASSERT_TRUE(iter->status().IsNotSupported());
   }
 
+  options.avoid_flush_during_recovery = true;
   Reopen(options);
 
   // Try reading after recovery
