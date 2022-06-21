@@ -44,6 +44,7 @@
 #include "env/unique_id_gen.h"
 #include "logging/log_buffer.h"
 #include "logging/logging.h"
+#include "options/options_helper.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -1153,7 +1154,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
     IoctlFriendlyTmpdir ift;
     std::vector<std::string> fnames;
     for (int i = 0; i < 1000; ++i) {
-      fnames.push_back(ift.name() + "/" + "testfile" + ToString(i));
+      fnames.push_back(ift.name() + "/" + "testfile" + std::to_string(i));
 
       // Create file.
       std::unique_ptr<WritableFile> wfile;
@@ -1603,9 +1604,9 @@ class TestLogger : public Logger {
 
       if (new_format[0] == '[') {
         // "[DEBUG] "
-        ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(struct timeval))));
+        ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(port::TimeVal))));
       } else {
-        ASSERT_TRUE(n <= 48 + (512 - static_cast<int>(sizeof(struct timeval))));
+        ASSERT_TRUE(n <= 48 + (512 - static_cast<int>(sizeof(port::TimeVal))));
       }
       va_end(backup_ap);
     }
@@ -1673,9 +1674,9 @@ class TestLogger2 : public Logger {
       va_copy(backup_ap, ap);
       int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
       // 48 bytes for extra information + bytes allocated
-      ASSERT_TRUE(
-          n <= 48 + static_cast<int>(max_log_size_ - sizeof(struct timeval)));
-      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(struct timeval)));
+      ASSERT_TRUE(n <=
+                  48 + static_cast<int>(max_log_size_ - sizeof(port::TimeVal)));
+      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(port::TimeVal)));
       va_end(backup_ap);
     }
   }
@@ -2937,7 +2938,7 @@ TEST_F(EnvTest, FailureToCreateLockFile) {
   ASSERT_OK(DestroyDir(env, dir));
 }
 
-TEST_F(EnvTest, CreateDefaultEnv) {
+TEST_F(CreateEnvTest, CreateDefaultEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
 
@@ -2989,7 +2990,7 @@ class WrappedEnv : public EnvWrapper {
   }
 };
 }  // namespace
-TEST_F(EnvTest, CreateMockEnv) {
+TEST_F(CreateEnvTest, CreateMockEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
   WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
@@ -3017,7 +3018,7 @@ TEST_F(EnvTest, CreateMockEnv) {
   opt_str = copy->ToString(options);
 }
 
-TEST_F(EnvTest, CreateWrappedEnv) {
+TEST_F(CreateEnvTest, CreateWrappedEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
   WrappedEnv::Register(*(options.registry->AddLibrary("test")), "");
@@ -3054,7 +3055,7 @@ TEST_F(EnvTest, CreateWrappedEnv) {
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
 }
 
-TEST_F(EnvTest, CreateCompositeEnv) {
+TEST_F(CreateEnvTest, CreateCompositeEnv) {
   ConfigOptions options;
   options.ignore_unsupported_options = false;
   std::shared_ptr<Env> guard, copy;
@@ -3109,6 +3110,18 @@ TEST_F(EnvTest, CreateCompositeEnv) {
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
+
+  guard.reset(new CompositeEnvWrapper(nullptr, timed_fs, clock));
+  ColumnFamilyOptions cf_opts;
+  DBOptions db_opts;
+  db_opts.env = guard.get();
+  auto comp = db_opts.env->CheckedCast<CompositeEnvWrapper>();
+  ASSERT_NE(comp, nullptr);
+  ASSERT_EQ(comp->Inner(), nullptr);
+  ASSERT_NOK(ValidateOptions(db_opts, cf_opts));
+  ASSERT_OK(db_opts.env->PrepareOptions(options));
+  ASSERT_NE(comp->Inner(), nullptr);
+  ASSERT_OK(ValidateOptions(db_opts, cf_opts));
 }
 #endif  // ROCKSDB_LITE
 

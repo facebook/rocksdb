@@ -267,7 +267,9 @@ Status WritePreparedTxn::RollbackInternal() {
   assert(db_impl_);
   assert(wpt_db_);
 
-  WriteBatch rollback_batch;
+  WriteBatch rollback_batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                            write_options_.protection_bytes_per_key,
+                            0 /* default_cf_ts_sz */);
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
   auto cf_map_shared_ptr = wpt_db_->GetCFHandleMap();
@@ -374,7 +376,9 @@ Status WritePreparedTxn::RollbackInternal() {
     }
 
    protected:
-    bool WriteAfterCommit() const override { return false; }
+    Handler::OptionState WriteAfterCommit() const override {
+      return Handler::OptionState::kDisabled;
+    }
   } rollback_handler(db_impl_, wpt_db_, read_at_seq, &rollback_batch,
                      *cf_comp_map_shared_ptr.get(), *cf_map_shared_ptr.get(),
                      wpt_db_->txn_db_options_.rollback_merge_operands,

@@ -279,9 +279,9 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         snapshot_checker_.get(), Env::Default(),
         false /* report_detailed_time */, false, range_del_agg_.get(),
         nullptr /* blob_file_builder */, true /*allow_data_in_errors*/,
-        std::move(compaction), filter, &shutting_down_,
-        /*manual_compaction_paused=*/nullptr,
-        /*manual_compaction_canceled=*/nullptr, /*info_log=*/nullptr,
+        true /*enforce_single_del_contracts*/,
+        /*manual_compaction_canceled=*/kManualCompactionCanceledFalse_,
+        std::move(compaction), filter, &shutting_down_, /*info_log=*/nullptr,
         full_history_ts_low));
   }
 
@@ -313,7 +313,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
                   key_not_exists_beyond_output_level, full_history_ts_low);
     c_iter_->SeekToFirst();
     for (size_t i = 0; i < expected_keys.size(); i++) {
-      std::string info = "i = " + ToString(i);
+      std::string info = "i = " + std::to_string(i);
       ASSERT_TRUE(c_iter_->Valid()) << info;
       ASSERT_OK(c_iter_->status()) << info;
       ASSERT_EQ(expected_keys[i], c_iter_->key().ToString()) << info;
@@ -340,6 +340,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg_;
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
   std::atomic<bool> shutting_down_{false};
+  const std::atomic<bool> kManualCompactionCanceledFalse_{false};
   FakeCompaction* compaction_proxy_;
 };
 

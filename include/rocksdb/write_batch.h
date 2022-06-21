@@ -63,7 +63,9 @@ struct SavePoint {
 
 class WriteBatch : public WriteBatchBase {
  public:
-  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
+  explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
+      : WriteBatch(reserved_bytes, max_bytes, 0, 0) {}
+
   // `protection_bytes_per_key` is the number of bytes used to store
   // protection information for each key entry. Currently supported values are
   // zero (disabled) and eight.
@@ -318,8 +320,17 @@ class WriteBatch : public WriteBatchBase {
 
    protected:
     friend class WriteBatchInternal;
-    virtual bool WriteAfterCommit() const { return true; }
-    virtual bool WriteBeforePrepare() const { return false; }
+    enum class OptionState {
+      kUnknown,
+      kDisabled,
+      kEnabled,
+    };
+    virtual OptionState WriteAfterCommit() const {
+      return OptionState::kUnknown;
+    }
+    virtual OptionState WriteBeforePrepare() const {
+      return OptionState::kUnknown;
+    }
   };
   Status Iterate(Handler* handler) const;
 
@@ -374,11 +385,17 @@ class WriteBatch : public WriteBatchBase {
   //
   // in: cf, the column family id.
   // ret: timestamp size of the given column family. Return
-  //      std::numeric_limits<size_t>::max() indicating "dont know or column
+  //      std::numeric_limits<size_t>::max() indicating "don't know or column
   //      family info not found", this will cause UpdateTimestamps() to fail.
   // size_t ts_sz_func(uint32_t cf);
   Status UpdateTimestamps(const Slice& ts,
                           std::function<size_t(uint32_t /*cf*/)> ts_sz_func);
+
+  // Verify the per-key-value checksums of this write batch.
+  // Corruption status will be returned if the verification fails.
+  // If this write batch does not have per-key-value checksum,
+  // OK status will be returned.
+  Status VerifyChecksum() const;
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }

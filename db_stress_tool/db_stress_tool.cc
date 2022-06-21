@@ -24,9 +24,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -82,7 +80,6 @@ int db_stress_tool(int argc, char** argv) {
   dbsl_env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
-#ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
       FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
       FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) {
@@ -98,18 +95,10 @@ int db_stress_tool(int argc, char** argv) {
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
   }
-  if (FLAGS_write_fault_one_in) {
-    SyncPoint::GetInstance()->SetCallBack(
-        "BuildTable:BeforeFinishBuildTable",
-        [&](void*) { fault_fs_guard->EnableWriteErrorInjection(); });
-    SyncPoint::GetInstance()->EnableProcessing();
-  }
-#endif
 
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
 
-#ifndef NDEBUG
   if (FLAGS_write_fault_one_in) {
     // In the write injection case, we need to use the FS interface and returns
     // the IOStatus with different error and flags. Therefore,
@@ -118,7 +107,6 @@ int db_stress_tool(int argc, char** argv) {
     // CompositeEnvWrapper of env and fault_fs.
     db_stress_env = raw_env;
   }
-#endif
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
@@ -196,9 +184,11 @@ int db_stress_tool(int argc, char** argv) {
         "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
-  if (FLAGS_ingest_external_file_one_in > 0 && FLAGS_nooverwritepercent > 0) {
-    fprintf(stderr,
-            "Error: nooverwritepercent must be 0 when using file ingestion\n");
+  if (FLAGS_ingest_external_file_one_in > 0 &&
+      FLAGS_nooverwritepercent == 100) {
+    fprintf(
+        stderr,
+        "Error: nooverwritepercent must not be 100 when using file ingestion");
     exit(1);
   }
   if (FLAGS_clear_column_family_one_in > 0 && FLAGS_backup_one_in > 0) {
@@ -245,12 +235,6 @@ int db_stress_tool(int argc, char** argv) {
     FLAGS_secondaries_base = default_secondaries_path;
   }
 
-  if (!FLAGS_test_secondary && FLAGS_secondary_catch_up_one_in > 0) {
-    fprintf(
-        stderr,
-        "Must set -test_secondary=true if secondary_catch_up_one_in > 0.\n");
-    exit(1);
-  }
   if (FLAGS_best_efforts_recovery && !FLAGS_skip_verifydb &&
       !FLAGS_disable_wal) {
     fprintf(stderr,
@@ -281,15 +265,19 @@ int db_stress_tool(int argc, char** argv) {
         "test_batches_snapshots  must all be 0 when using compaction filter\n");
     exit(1);
   }
-  if (FLAGS_batch_protection_bytes_per_key > 0 &&
-      !FLAGS_test_batches_snapshots) {
-    fprintf(stderr,
-            "Error: test_batches_snapshots must be enabled when "
-            "batch_protection_bytes_per_key > 0\n");
-    exit(1);
-  }
   if (FLAGS_test_multi_ops_txns) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
+  }
+
+  if (FLAGS_create_timestamped_snapshot_one_in > 0) {
+    if (!FLAGS_use_txn) {
+      fprintf(stderr, "timestamped snapshot supported only in TransactionDB\n");
+      exit(1);
+    } else if (FLAGS_txn_write_policy != 0) {
+      fprintf(stderr,
+              "timestamped snapshot supported only in write-committed\n");
+      exit(1);
+    }
   }
 
 #ifndef NDEBUG

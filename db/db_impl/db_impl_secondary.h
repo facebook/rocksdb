@@ -89,8 +89,13 @@ class DBImplSecondary : public DBImpl {
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
+
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value);
+                 const Slice& key, PinnableSlice* value,
+                 std::string* timestamp);
 
   using DBImpl::NewIterator;
   Iterator* NewIterator(const ReadOptions&,

@@ -2817,7 +2817,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
 
   Random rnd(301);
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, ToString(key), rnd.RandomString(kTestValueSize)));
+    ASSERT_OK(Put(1, std::to_string(key), rnd.RandomString(kTestValueSize)));
   }
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[1]));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -2849,7 +2849,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
 
   // make sure all key-values are still there.
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_NE(Get(1, ToString(key)), "NOT_FOUND");
+    ASSERT_NE(Get(1, std::to_string(key)), "NOT_FOUND");
   }
 }
 
@@ -4404,7 +4404,8 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
   for (CompactionFilterType comp_filter_type :
        {kUseCompactionFilter, kUseCompactionFilterFactory}) {
     // Assert that periodic compactions are not enabled.
-    ASSERT_EQ(port::kMaxUint64 - 1, options.periodic_compaction_seconds);
+    ASSERT_EQ(std::numeric_limits<uint64_t>::max() - 1,
+              options.periodic_compaction_seconds);
 
     if (comp_filter_type == kUseCompactionFilter) {
       options.compaction_filter = &test_compaction_filter;
@@ -4667,9 +4668,9 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   });
 
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush");
-  ASSERT_OK(Put(ToString(0), rnd.RandomString(1024)));
+  ASSERT_OK(Put(std::to_string(0), rnd.RandomString(1024)));
   ASSERT_OK(dbfull()->Flush(flush_opts));
-  ASSERT_OK(Put(ToString(0), rnd.RandomString(1024)));
+  ASSERT_OK(Put(std::to_string(0), rnd.RandomString(1024)));
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
   manual_compaction_thread.join();
 
@@ -4678,7 +4679,7 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   std::string num_keys_in_memtable;
   ASSERT_TRUE(db_->GetProperty(DB::Properties::kNumEntriesActiveMemTable,
                                &num_keys_in_memtable));
-  ASSERT_EQ(ToString(1), num_keys_in_memtable);
+  ASSERT_EQ(std::to_string(1), num_keys_in_memtable);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -4827,7 +4828,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 10 + j;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -4837,7 +4838,7 @@ TEST_F(DBCompactionTest, SubcompactionEvent) {
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 10; j++) {
       int key_id = i * 20 + j * 2;
-      ASSERT_OK(Put(Key(key_id), "value" + ToString(key_id)));
+      ASSERT_OK(Put(Key(key_id), "value" + std::to_string(key_id)));
     }
     ASSERT_OK(Flush());
   }
@@ -5829,7 +5830,7 @@ TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
-  ASSERT_EQ(ToString(kSstNum), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kSstNum), FilesPerLevel(0));
 
   auto cro = CompactRangeOptions();
   cro.bottommost_level_compaction = bottommost_level_compaction_;
@@ -5842,7 +5843,7 @@ TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
     ASSERT_EQ("0,1", FilesPerLevel(0));
   } else {
     // Just trivial move from level 0 -> 1
-    ASSERT_EQ("0," + ToString(kSstNum), FilesPerLevel(0));
+    ASSERT_EQ("0," + std::to_string(kSstNum), FilesPerLevel(0));
   }
 }
 
@@ -6385,6 +6386,74 @@ class DBCompactionTestBlobGC
 INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
                         ::testing::Combine(::testing::Values(0.0, 0.5, 1.0),
                                            ::testing::Bool()));
+
+TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGCOverrides) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // one blob per file
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0;
+
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 128; i += 2) {
+    ASSERT_OK(Put("key" + std::to_string(i), "value" + std::to_string(i)));
+    ASSERT_OK(
+        Put("key" + std::to_string(i + 1), "value" + std::to_string(i + 1)));
+    ASSERT_OK(Flush());
+  }
+
+  std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(original_blob_files.size(), 128);
+
+  // Note: turning off enable_blob_files before the compaction results in
+  // garbage collected values getting inlined.
+  ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+
+  CompactRangeOptions cro;
+  cro.blob_garbage_collection_policy = BlobGarbageCollectionPolicy::kForce;
+  cro.blob_garbage_collection_age_cutoff = blob_gc_age_cutoff_;
+
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Check that the GC stats are correct
+  {
+    VersionSet* const versions = dbfull()->GetVersionSet();
+    assert(versions);
+    assert(versions->GetColumnFamilySet());
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+
+    const InternalStats* const internal_stats = cfd->internal_stats();
+    assert(internal_stats);
+
+    const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+    ASSERT_GE(compaction_stats.size(), 2);
+
+    ASSERT_GE(compaction_stats[1].bytes_read_blob, 0);
+    ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
+  }
+
+  const size_t cutoff_index = static_cast<size_t>(
+      cro.blob_garbage_collection_age_cutoff * original_blob_files.size());
+  const size_t expected_num_files = original_blob_files.size() - cutoff_index;
+
+  const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
+
+  ASSERT_EQ(new_blob_files.size(), expected_num_files);
+
+  // Original blob files below the cutoff should be gone, original blob files
+  // at or above the cutoff should be still there
+  for (size_t i = cutoff_index; i < original_blob_files.size(); ++i) {
+    ASSERT_EQ(new_blob_files[i - cutoff_index], original_blob_files[i]);
+  }
+
+  for (size_t i = 0; i < 128; ++i) {
+    ASSERT_EQ(Get("key" + std::to_string(i)), "value" + std::to_string(i));
+  }
+}
 
 TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
   Options options;
@@ -7173,7 +7242,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFull) {
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ(ToString(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
 
   db_->DisableManualCompaction();
 
@@ -7230,7 +7299,7 @@ TEST_F(DBCompactionTest, DisableManualCompactionThreadQueueFullDBClose) {
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ(ToString(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
 
   db_->DisableManualCompaction();
 
@@ -7290,7 +7359,7 @@ TEST_F(DBCompactionTest, DBCloseWithManualCompaction) {
     ASSERT_OK(Put(Key(2), "value2"));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ(ToString(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
+  ASSERT_EQ(std::to_string(kNumL0Files + (kNumL0Files / 2)), FilesPerLevel(0));
 
   // Close DB with manual compaction and auto triggered compaction in the queue.
   auto s = db_->Close();

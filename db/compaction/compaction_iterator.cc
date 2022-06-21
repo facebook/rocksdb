@@ -28,21 +28,21 @@ CompactionIterator::CompactionIterator(
     Env* env, bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
+    bool enforce_single_del_contracts,
+    const std::atomic<bool>& manual_compaction_canceled,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const std::atomic<int>* manual_compaction_paused,
-    const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
           report_detailed_time, expect_valid_internal_key, range_del_agg,
-          blob_file_builder, allow_data_in_errors,
+          blob_file_builder, allow_data_in_errors, enforce_single_del_contracts,
+          manual_compaction_canceled,
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
-          compaction_filter, shutting_down, manual_compaction_paused,
-          manual_compaction_canceled, info_log, full_history_ts_low) {}
+          compaction_filter, shutting_down, info_log, full_history_ts_low) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -52,11 +52,11 @@ CompactionIterator::CompactionIterator(
     Env* env, bool report_detailed_time, bool expect_valid_internal_key,
     CompactionRangeDelAggregator* range_del_agg,
     BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
+    bool enforce_single_del_contracts,
+    const std::atomic<bool>& manual_compaction_canceled,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
-    const std::atomic<int>* manual_compaction_paused,
-    const std::atomic<bool>* manual_compaction_canceled,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low)
     : input_(input, cmp,
@@ -76,10 +76,10 @@ CompactionIterator::CompactionIterator(
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
-      manual_compaction_paused_(manual_compaction_paused),
       manual_compaction_canceled_(manual_compaction_canceled),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
+      enforce_single_del_contracts_(enforce_single_del_contracts),
       timestamp_size_(cmp_ ? cmp_->timestamp_size() : 0),
       full_history_ts_low_(full_history_ts_low),
       current_user_key_sequence_(0),
@@ -157,10 +157,12 @@ void CompactionIterator::Next() {
       Status s = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
-      assert(s.ok());
       if (!s.ok()) {
-        ROCKS_LOG_FATAL(info_log_, "Invalid key in compaction. %s",
-                        s.getState());
+        ROCKS_LOG_FATAL(
+            info_log_, "Invalid ikey %s in compaction. %s",
+            allow_data_in_errors_ ? key_.ToString(true).c_str() : "hidden",
+            s.getState());
+        assert(false);
       }
 
       // Keep current_key_ in sync.
@@ -305,6 +307,14 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     ikey_.type = kTypeDeletion;
     current_key_.UpdateInternalKey(ikey_.sequence, kTypeDeletion);
     // no value associated with delete
+    value_.clear();
+    iter_stats_.num_record_drop_user++;
+  } else if (filter == CompactionFilter::Decision::kPurge) {
+    // convert the current key to a single delete; key_ is pointing into
+    // current_key_ at this point, so updating current_key_ updates key()
+    ikey_.type = kTypeSingleDeletion;
+    current_key_.UpdateInternalKey(ikey_.sequence, kTypeSingleDeletion);
+    // no value associated with single delete
     value_.clear();
     iter_stats_.num_record_drop_user++;
   } else if (filter == CompactionFilter::Decision::kChangeValue) {
@@ -509,18 +519,18 @@ void CompactionIterator::NextFromInput() {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
-      assert(ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex);
       if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex) {
-        ROCKS_LOG_FATAL(info_log_,
-                        "Unexpected key type %d for compaction output",
-                        ikey_.type);
+        ROCKS_LOG_FATAL(info_log_, "Unexpected key %s for compaction output",
+                        ikey_.DebugString(allow_data_in_errors_, true).c_str());
+        assert(false);
       }
-      assert(current_user_key_snapshot_ >= last_snapshot);
       if (current_user_key_snapshot_ < last_snapshot) {
         ROCKS_LOG_FATAL(info_log_,
-                        "current_user_key_snapshot_ (%" PRIu64
+                        "key %s, current_user_key_snapshot_ (%" PRIu64
                         ") < last_snapshot (%" PRIu64 ")",
+                        ikey_.DebugString(allow_data_in_errors_, true).c_str(),
                         current_user_key_snapshot_, last_snapshot);
+        assert(false);
       }
 
       if (ikey_.type == kTypeBlobIndex) {
@@ -625,24 +635,39 @@ void CompactionIterator::NextFromInput() {
 
           TEST_SYNC_POINT_CALLBACK(
               "CompactionIterator::NextFromInput:SingleDelete:2", nullptr);
-          if (next_ikey.type == kTypeSingleDeletion ||
-              next_ikey.type == kTypeDeletion) {
+          if (next_ikey.type == kTypeSingleDeletion) {
             // We encountered two SingleDeletes for same key in a row. This
             // could be due to unexpected user input. If write-(un)prepared
             // transaction is used, this could also be due to releasing an old
             // snapshot between a Put and its matching SingleDelete.
-            // Furthermore, if write-(un)prepared transaction is rolled back
-            // after prepare, we will write a Delete to cancel a prior Put. If
-            // old snapshot is released between a later Put and its matching
-            // SingleDelete, we will end up with a Delete followed by
-            // SingleDelete.
             // Skip the first SingleDelete and let the next iteration decide
-            // how to handle the second SingleDelete or Delete.
+            // how to handle the second SingleDelete.
 
             // First SingleDelete has been skipped since we already called
             // input_.Next().
             ++iter_stats_.num_record_drop_obsolete;
             ++iter_stats_.num_single_del_mismatch;
+          } else if (next_ikey.type == kTypeDeletion) {
+            std::ostringstream oss;
+            oss << "Found SD and type: " << static_cast<int>(next_ikey.type)
+                << " on the same key, violating the contract "
+                   "of SingleDelete. Check your application to make sure the "
+                   "application does not mix SingleDelete and Delete for "
+                   "the same key. If you are using "
+                   "write-prepared/write-unprepared transactions, and use "
+                   "SingleDelete to delete certain keys, then make sure "
+                   "TransactionDBOptions::rollback_deletion_type_callback is "
+                   "configured properly. Mixing SD and DEL can lead to "
+                   "undefined behaviors";
+            ++iter_stats_.num_record_drop_obsolete;
+            ++iter_stats_.num_single_del_mismatch;
+            if (enforce_single_del_contracts_) {
+              ROCKS_LOG_ERROR(info_log_, "%s", oss.str().c_str());
+              valid_ = false;
+              status_ = Status::Corruption(oss.str());
+              return;
+            }
+            ROCKS_LOG_WARN(info_log_, "%s", oss.str().c_str());
           } else if (!is_timestamp_eligible_for_gc) {
             // We cannot drop the SingleDelete as timestamp is enabled, and
             // timestamp of this key is greater than or equal to
@@ -744,12 +769,13 @@ void CompactionIterator::NextFromInput() {
       // Note: Dropping this key will not affect TransactionDB write-conflict
       // checking since there has already been a record returned for this key
       // in this snapshot.
-      assert(last_sequence >= current_user_key_sequence_);
       if (last_sequence < current_user_key_sequence_) {
         ROCKS_LOG_FATAL(info_log_,
-                        "last_sequence (%" PRIu64
+                        "key %s, last_sequence (%" PRIu64
                         ") < current_user_key_sequence_ (%" PRIu64 ")",
+                        ikey_.DebugString(allow_data_in_errors_, true).c_str(),
                         last_sequence, current_user_key_sequence_);
+        assert(false);
       }
 
       ++iter_stats_.num_record_drop_hidden;  // rule (A)
@@ -861,10 +887,12 @@ void CompactionIterator::NextFromInput() {
         pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
-        assert(pik_status.ok());
         if (!pik_status.ok()) {
-          ROCKS_LOG_FATAL(info_log_, "Invalid key in compaction. %s",
-                          pik_status.getState());
+          ROCKS_LOG_FATAL(
+              info_log_, "Invalid key %s in compaction. %s",
+              allow_data_in_errors_ ? key_.ToString(true).c_str() : "hidden",
+              pik_status.getState());
+          assert(false);
         }
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
@@ -1067,15 +1095,22 @@ void CompactionIterator::PrepareOutput() {
         !compaction_->allow_ingest_behind() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_) {
-      assert(ikey_.type != kTypeDeletion);
-      assert(ikey_.type != kTypeSingleDeletion ||
-             (timestamp_size_ || full_history_ts_low_));
       if (ikey_.type == kTypeDeletion ||
-          (ikey_.type == kTypeSingleDeletion &&
-           (!timestamp_size_ || !full_history_ts_low_))) {
-        ROCKS_LOG_FATAL(info_log_,
-                        "Unexpected key type %d for seq-zero optimization",
-                        ikey_.type);
+          (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
+        ROCKS_LOG_FATAL(
+            info_log_,
+            "Unexpected key %s for seq-zero optimization. "
+            "earliest_snapshot %" PRIu64
+            ", earliest_write_conflict_snapshot %" PRIu64
+            " job_snapshot %" PRIu64
+            ". timestamp_size: %d full_history_ts_low_ %s",
+            ikey_.DebugString(allow_data_in_errors_, true).c_str(),
+            earliest_snapshot_, earliest_write_conflict_snapshot_,
+            job_snapshot_, static_cast<int>(timestamp_size_),
+            full_history_ts_low_ != nullptr
+                ? Slice(*full_history_ts_low_).ToString(true).c_str()
+                : "null");
+        assert(false);
       }
       ikey_.sequence = 0;
       last_key_seq_zeroed_ = true;
@@ -1106,14 +1141,17 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   }
   auto snapshots_iter = std::lower_bound(
       snapshots_->begin(), snapshots_->end(), in);
+  assert(prev_snapshot != nullptr);
   if (snapshots_iter == snapshots_->begin()) {
     *prev_snapshot = 0;
   } else {
     *prev_snapshot = *std::prev(snapshots_iter);
-    assert(*prev_snapshot < in);
     if (*prev_snapshot >= in) {
       ROCKS_LOG_FATAL(info_log_,
-                      "*prev_snapshot >= in in findEarliestVisibleSnapshot");
+                      "*prev_snapshot (%" PRIu64 ") >= in (%" PRIu64
+                      ") in findEarliestVisibleSnapshot",
+                      *prev_snapshot, in);
+      assert(false);
     }
   }
   if (snapshot_checker_ == nullptr) {
@@ -1123,9 +1161,12 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   bool has_released_snapshot = !released_snapshots_.empty();
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {
     auto cur = *snapshots_iter;
-    assert(in <= cur);
     if (in > cur) {
-      ROCKS_LOG_FATAL(info_log_, "in > cur in findEarliestVisibleSnapshot");
+      ROCKS_LOG_FATAL(info_log_,
+                      "in (%" PRIu64 ") > cur (%" PRIu64
+                      ") in findEarliestVisibleSnapshot",
+                      in, cur);
+      assert(false);
     }
     // Skip if cur is in released_snapshots.
     if (has_released_snapshot && released_snapshots_.count(cur) > 0) {

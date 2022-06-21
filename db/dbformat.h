@@ -90,7 +90,8 @@ inline bool IsExtendedValueType(ValueType t) {
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
-static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
+static const SequenceNumber kDisableGlobalSequenceNumber =
+    std::numeric_limits<uint64_t>::max();
 
 constexpr uint64_t kNumInternalBytes = 8;
 
@@ -319,7 +320,7 @@ class InternalKey {
   }
 
   Slice user_key() const { return ExtractUserKey(rep_); }
-  size_t size() { return rep_.size(); }
+  size_t size() const { return rep_.size(); }
 
   void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {
     SetFrom(ParsedInternalKey(_user_key, s, t));
@@ -624,7 +625,7 @@ class IterKey {
 };
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
-// user keys.
+// internal keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:
   explicit InternalKeySliceTransform(const SliceTransform* transform)

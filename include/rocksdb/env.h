@@ -796,7 +796,7 @@ class RandomAccessFile {
   // should return after all reads have completed. The reads will be
   // non-overlapping. If the function return Status is not ok, status of
   // individual requests will be ignored and return status will be assumed
-  // for all read requests. The function return status is only meant for any
+  // for all read requests. The function return status is only meant for
   // any errors that occur before even processing specific read requests
   virtual Status MultiRead(ReadRequest* reqs, size_t num_reqs) {
     assert(reqs != nullptr);
@@ -1148,6 +1148,8 @@ class Directory {
   virtual ~Directory() {}
   // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
+  // Close directory.
+  virtual Status Close() { return Status::NotSupported("Close"); }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
     return 0;
@@ -1810,6 +1812,7 @@ class DirectoryWrapper : public Directory {
   explicit DirectoryWrapper(Directory* target) : target_(target) {}
 
   Status Fsync() override { return target_->Fsync(); }
+  Status Close() override { return target_->Close(); }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
   }

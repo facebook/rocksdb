@@ -139,11 +139,6 @@ CacheDumperImpl::DumpOneBlockCallBack() {
         block_start = (static_cast<Block*>(value))->data();
         block_len = (static_cast<Block*>(value))->size();
         break;
-      case CacheEntryRole::kDeprecatedFilterBlock:
-        type = CacheDumpUnitType::kDeprecatedFilterBlock;
-        block_start = (static_cast<BlockContents*>(value))->data.data();
-        block_len = (static_cast<BlockContents*>(value))->data.size();
-        break;
       case CacheEntryRole::kFilterBlock:
         type = CacheDumpUnitType::kFilter;
         block_start = (static_cast<ParsedFullFilterBlock*>(value))
@@ -162,6 +157,10 @@ CacheDumperImpl::DumpOneBlockCallBack() {
         type = CacheDumpUnitType::kIndex;
         block_start = (static_cast<Block*>(value))->data();
         block_len = (static_cast<Block*>(value))->size();
+        break;
+      case CacheEntryRole::kDeprecatedFilterBlock:
+        // Obsolete
+        filter_out = true;
         break;
       case CacheEntryRole::kMisc:
         filter_out = true;
@@ -322,22 +321,6 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     // according to the block type, get the helper callback function and create
     // the corresponding block
     switch (dump_unit.type) {
-      case CacheDumpUnitType::kDeprecatedFilterBlock: {
-        helper = BlocklikeTraits<BlockContents>::GetCacheItemHelper(
-            BlockType::kFilter);
-        std::unique_ptr<BlockContents> block_holder;
-        block_holder.reset(BlocklikeTraits<BlockContents>::Create(
-            std::move(raw_block_contents), 0, statistics, false,
-            toptions_.filter_policy.get()));
-        // Insert the block to secondary cache.
-        // Note that, if we cannot get the correct helper callback, the block
-        // will not be inserted.
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
       case CacheDumpUnitType::kFilter: {
         helper = BlocklikeTraits<ParsedFullFilterBlock>::GetCacheItemHelper(
             BlockType::kFilter);
@@ -376,7 +359,8 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         break;
       }
       case CacheDumpUnitType::kFilterMetaBlock: {
-        helper = BlocklikeTraits<Block>::GetCacheItemHelper(BlockType::kFilter);
+        helper = BlocklikeTraits<Block>::GetCacheItemHelper(
+            BlockType::kFilterPartitionIndex);
         std::unique_ptr<Block> block_holder;
         block_holder.reset(BlocklikeTraits<Block>::Create(
             std::move(raw_block_contents), toptions_.read_amp_bytes_per_bit,
@@ -388,6 +372,9 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         break;
       }
       case CacheDumpUnitType::kFooter:
+        break;
+      case CacheDumpUnitType::kDeprecatedFilterBlock:
+        // Obsolete
         break;
       default:
         continue;

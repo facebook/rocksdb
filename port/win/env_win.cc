@@ -28,6 +28,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "port/port_dirent.h"
 #include "port/win/io_win.h"
@@ -192,8 +193,8 @@ WinFileSystem::WinFileSystem(const std::shared_ptr<SystemClock>& clock)
 }
 
 const std::shared_ptr<WinFileSystem>& WinFileSystem::Default() {
-  static std::shared_ptr<WinFileSystem> fs =
-      std::make_shared<WinFileSystem>(WinClock::Default());
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<WinFileSystem>, fs)
+  (std::make_shared<WinFileSystem>(WinClock::Default()));
   return fs;
 }
 
@@ -600,7 +601,7 @@ IOStatus WinFileSystem::NewDirectory(const std::string& name,
     return s;
   }
 
-  result->reset(new WinDirectory(handle));
+  result->reset(new WinDirectory(name, handle));
 
   return s;
 }
@@ -1410,8 +1411,8 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 }
 
 const std::shared_ptr<SystemClock>& SystemClock::Default() {
-  static std::shared_ptr<SystemClock> clock =
-      std::make_shared<port::WinClock>();
+  STATIC_AVOID_DESTRUCTION(std::shared_ptr<SystemClock>, clock)
+  (std::make_shared<port::WinClock>());
   return clock;
 }
 }  // namespace ROCKSDB_NAMESPACE

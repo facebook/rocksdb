@@ -10,6 +10,8 @@
 
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memory_allocator.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/secondary_cache.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/compression.h"
@@ -79,37 +81,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
   void SetFailCreate(bool fail) { fail_create_ = fail; }
 
-  void BasicTest(bool sec_cache_is_compressed, bool use_jemalloc) {
-    CompressedSecondaryCacheOptions opts;
-    opts.capacity = 2048;
-    opts.num_shard_bits = 0;
-    opts.metadata_charge_policy = kDontChargeCacheMetadata;
-
-    if (sec_cache_is_compressed) {
-      if (!LZ4_Supported()) {
-        ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
-        opts.compression_type = CompressionType::kNoCompression;
-      }
-    } else {
-      opts.compression_type = CompressionType::kNoCompression;
-    }
-
-    if (use_jemalloc) {
-      JemallocAllocatorOptions jopts;
-      std::shared_ptr<MemoryAllocator> allocator;
-      std::string msg;
-      if (JemallocNodumpAllocator::IsSupported(&msg)) {
-        Status s = NewJemallocNodumpAllocator(jopts, &allocator);
-        if (s.ok()) {
-          opts.memory_allocator = allocator;
-        }
-      } else {
-        ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
-      }
-    }
-    std::shared_ptr<SecondaryCache> sec_cache =
-        NewCompressedSecondaryCache(opts);
-
+  void BasicTestHelper(std::shared_ptr<SecondaryCache> sec_cache) {
     bool is_in_sec_cache{true};
     // Lookup an non-existent key.
     std::unique_ptr<SecondaryCacheResultHandle> handle0 =
@@ -158,6 +130,38 @@ class CompressedSecondaryCacheTest : public testing::Test {
     sec_cache->WaitAll(handles);
 
     sec_cache.reset();
+  }
+
+  void BasicTest(bool sec_cache_is_compressed, bool use_jemalloc) {
+    CompressedSecondaryCacheOptions opts;
+    opts.capacity = 2048;
+    opts.num_shard_bits = 0;
+    opts.metadata_charge_policy = kDontChargeCacheMetadata;
+
+    if (sec_cache_is_compressed) {
+      if (!LZ4_Supported()) {
+        ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+        opts.compression_type = CompressionType::kNoCompression;
+      }
+    } else {
+      opts.compression_type = CompressionType::kNoCompression;
+    }
+
+    if (use_jemalloc) {
+      JemallocAllocatorOptions jopts;
+      std::shared_ptr<MemoryAllocator> allocator;
+      std::string msg;
+      if (JemallocNodumpAllocator::IsSupported(&msg)) {
+        Status s = NewJemallocNodumpAllocator(jopts, &allocator);
+        if (s.ok()) {
+          opts.memory_allocator = allocator;
+        }
+      } else {
+        ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
+      }
+    }
+    std::shared_ptr<SecondaryCache> sec_cache =
+        NewCompressedSecondaryCache(opts);
   }
 
   void FailsTest(bool sec_cache_is_compressed) {
@@ -546,6 +550,42 @@ TEST_F(CompressedSecondaryCacheTest,
        BasicTestWithMemoryAllocatorAndCompression) {
   BasicTest(true, true);
 }
+
+#ifndef ROCKSDB_LITE
+
+TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
+  std::string sec_cache_uri =
+      "compressed_secondary_cache://"
+      "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
+  std::shared_ptr<SecondaryCache> sec_cache;
+  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                              &sec_cache);
+  EXPECT_OK(s);
+  BasicTestHelper(sec_cache);
+}
+
+TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
+  std::string sec_cache_uri;
+  if (LZ4_Supported()) {
+    sec_cache_uri =
+        "compressed_secondary_cache://"
+        "capacity=2048;num_shard_bits=0;compression_type=kLZ4Compression;"
+        "compress_format_version=2";
+  } else {
+    ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
+    sec_cache_uri =
+        "compressed_secondary_cache://"
+        "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
+  }
+
+  std::shared_ptr<SecondaryCache> sec_cache;
+  Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
+                                              &sec_cache);
+  EXPECT_OK(s);
+  BasicTestHelper(sec_cache);
+}
+
+#endif  // ROCKSDB_LITE
 
 TEST_F(CompressedSecondaryCacheTest, FailsTestWithNoCompression) {
   FailsTest(false);

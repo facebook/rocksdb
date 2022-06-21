@@ -41,7 +41,10 @@ default_params = {
                                          random.lognormvariate(2.3, 1.3)]),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
     "cache_size": 8388608,
-    "reserve_table_reader_memory": lambda: random.choice([0, 1]),
+    "charge_compression_dictionary_building_buffer": lambda: random.choice([0, 1]),
+    "charge_filter_construction": lambda: random.choice([0, 1]),
+    "charge_table_reader": lambda: random.choice([0, 1]),
+    "charge_file_metadata": lambda: random.choice([0, 1]),
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
@@ -56,6 +59,7 @@ default_params = {
     # lambda: random.choice([1] * 9 + [4])
     "compression_parallel_threads": 1,
     "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
+    "compression_use_zstd_dict_trainer": lambda: random.randint(0, 1),
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -75,6 +79,7 @@ default_params = {
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
+    "ingest_external_file_one_in": 1000000,
     "iterpercent": 10,
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
@@ -109,12 +114,11 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "use_clock_cache": 0, # currently broken
+    "cache_type": lambda: random.choice(["fast_lru_cache", "lru_cache"]),   # clock_cache is broken
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
-    "use_block_based_filter": lambda: random.randint(0, 1),
     "value_size_mult": 32,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
@@ -132,6 +136,8 @@ default_params = {
     # Sync mode might make test runs slower so running it in a smaller chance
     "sync" : lambda : random.choice(
         [1 if t == 0 else 0 for t in range(0, 20)]),
+    "bytes_per_sync": lambda: random.choice([0, 262144]),
+    "wal_bytes_per_sync": lambda: random.choice([0, 524288]),
     # Disable compaction_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
@@ -153,7 +159,9 @@ default_params = {
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
-    "sync_fault_injection": False,
+    "sync_fault_injection": 0,
+    # TODO: reenable after investigating failure
+    # "sync_fault_injection": lambda: random.randint(0, 1),
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
@@ -167,6 +175,9 @@ default_params = {
     "adaptive_readahead": lambda: random.choice([0, 1]),
     "async_io": lambda: random.choice([0, 1]),
     "wal_compression": lambda: random.choice(["none", "zstd"]),
+    "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
+    "secondary_cache_uri": "",
+    "allow_data_in_errors": True,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -292,6 +303,8 @@ cf_consistency_params = {
     # Snapshots are used heavily in this test mode, while they are incompatible
     # with compaction filter.
     "enable_compaction_filter": 0,
+    # `CfConsistencyStressTest::TestIngestExternalFile()` is not implemented.
+    "ingest_external_file_one_in": 0,
 }
 
 txn_params = {
@@ -306,13 +319,14 @@ txn_params = {
     "checkpoint_one_in": 0,
     # pipeline write is not currnetly compatible with WritePrepared txns
     "enable_pipelined_write": 0,
+    "create_timestamped_snapshot_one_in": random.choice([0, 20]),
 }
 
 best_efforts_recovery_params = {
-    "best_efforts_recovery": True,
-    "skip_verifydb": True,
-    "verify_db_one_in": 0,
-    "continuous_verification_interval": 0,
+    "best_efforts_recovery": 1,
+    "atomic_flush": 0,
+    "disable_wal": 1,
+    "column_families": 1,
 }
 
 blob_params = {
@@ -327,25 +341,22 @@ blob_params = {
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
+    "blob_file_starting_level": lambda: random.choice([0] * 4 + [1] * 3 + [2] * 2 + [3]),
 }
 
 ts_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
+    "delrangepercent": 0,
+    "delpercent": 5,
     "use_merge": 0,
     "use_full_merge_v1": 0,
     "use_txn": 0,
-    "read_only": 0,
-    "backup_one_in": 0,
-    "secondary_catch_up_one_in": 0,
-    "continuous_verification_interval": 0,
-    "checkpoint_one_in": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
-    "use_block_based_filter": 0,
 }
 
 multiops_txn_default_params = {
@@ -383,6 +394,9 @@ multiops_txn_default_params = {
     # compactions.
     "flush_one_in": 1000,
     "key_spaces_path": setup_multiops_txn_key_spaces_file(),
+    "rollback_one_in":  4,
+    # Re-enable once we have a compaction for MultiOpsTxnStressTest
+    "enable_compaction_filter": 0,
 }
 
 multiops_wc_txn_params = {
@@ -401,11 +415,17 @@ multiops_wp_txn_params = {
     "enable_pipelined_write": 0,
     # OpenReadOnly after checkpoint is not currnetly compatible with WritePrepared txns
     "checkpoint_one_in": 0,
+    # Required to be 1 in order to use commit-time-batch
+    "use_only_the_last_commit_time_batch_for_recovery": 1,
+    "recycle_log_file_num": 0,
+    "clear_wp_commit_cache_one_in": 10,
 }
 
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
+    if is_release_mode():
+        dest_params['read_fault_one_in'] = 0
     if dest_params.get("compression_max_dict_bytes") == 0:
         dest_params["compression_zstd_max_train_bytes"] = 0
         dest_params["compression_max_dict_buffer_bytes"] = 0
@@ -416,6 +436,11 @@ def finalize_and_sanitize(src_params):
     if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+        if dest_params["file_checksum_impl"] != "none":
+            # TODO(T109283569): there is a bug in `GenerateOneFileChecksum()`,
+            # used by `IngestExternalFile()`, causing it to fail with mmap
+            # reads. Remove this once it is fixed.
+            dest_params["ingest_external_file_one_in"] = 0
     if (dest_params["use_direct_io_for_flush_and_compaction"] == 1
             or dest_params["use_direct_reads"] == 1) and \
             not is_direct_io_supported(dest_params["db"]):
@@ -428,12 +453,23 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
-    # DeleteRange is not currnetly compatible with Txns and timestamp
+    # Multi-key operations are not currently compatible with transactions or
+    # timestamp.
     if (dest_params.get("test_batches_snapshots") == 1 or
         dest_params.get("use_txn") == 1 or
         dest_params.get("user_timestamp_size") > 0):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
+        dest_params["ingest_external_file_one_in"] = 0
+    # File ingestion does not guarantee prefix-recoverability with WAL disabled.
+    # Ingesting a file persists data immediately that is newer than memtable
+    # data that can be lost on restart.
+    #
+    # Even if the above issue is fixed or worked around, our trace-and-replay
+    # does not trace file ingestion, so in its current form it would not recover
+    # the expected state to the correct point in time.
+    if (dest_params.get("disable_wal") == 1):
+        dest_params["ingest_external_file_one_in"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
@@ -459,10 +495,6 @@ def finalize_and_sanitize(src_params):
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0
-        else:
-            dest_params["use_block_based_filter"] = 0
-    if dest_params["ribbon_starting_level"] < 999:
-        dest_params["use_block_based_filter"] = 0
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
@@ -482,13 +514,26 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
-    if dest_params.get("test_batches_snapshots") == 0:
-        dest_params["batch_protection_bytes_per_key"] = 0
     if (dest_params.get("prefix_size") == -1 and
         dest_params.get("memtable_whole_key_filtering") == 0):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
     if dest_params.get("two_write_queues") == 1:
         dest_params["enable_pipelined_write"] = 0
+    if dest_params.get("best_efforts_recovery") == 1:
+        dest_params["disable_wal"] = 1
+        dest_params["atomic_flush"] = 0
+        dest_params["enable_compaction_filter"] = 0
+        dest_params["sync"] = 0
+        dest_params["write_fault_one_in"] = 0
+    if dest_params["secondary_cache_uri"] != "":
+        # Currently the only cache type compatible with a secondary cache is LRUCache
+        dest_params["cache_type"] = "lru_cache"
+    # Remove the following once write-prepared/write-unprepared with/without
+    # unordered write supports timestamped snapshots
+    if dest_params.get("create_timestamped_snapshot_one_in", 0) > 0:
+        dest_params["txn_write_policy"] = 0
+        dest_params["unordered_write"] = 0
+
     return dest_params
 
 def gen_cmd_params(args):
@@ -547,42 +592,6 @@ def gen_cmd(params, unknown_params):
     return cmd
 
 
-# Inject inconsistency to db directory.
-def inject_inconsistencies_to_db_dir(dir_path):
-    files = os.listdir(dir_path)
-    file_num_rgx = re.compile(r'(?P<number>[0-9]{6})')
-    largest_fnum = 0
-    for f in files:
-        m = file_num_rgx.search(f)
-        if m and not f.startswith('LOG'):
-            largest_fnum = max(largest_fnum, int(m.group('number')))
-
-    candidates = [
-        f for f in files if re.search(r'[0-9]+\.sst', f)
-    ]
-    deleted = 0
-    corrupted = 0
-    for f in candidates:
-        rnd = random.randint(0, 99)
-        f_path = os.path.join(dir_path, f)
-        if rnd < 10:
-            os.unlink(f_path)
-            deleted = deleted + 1
-        elif 10 <= rnd and rnd < 30:
-            with open(f_path, "a") as fd:
-                fd.write('12345678')
-            corrupted = corrupted + 1
-    print('Removed %d table files' % deleted)
-    print('Corrupted %d table files' % corrupted)
-
-    # Add corrupted MANIFEST and SST
-    for num in range(largest_fnum + 1, largest_fnum + 10):
-        rnd = random.randint(0, 1)
-        fname = ("MANIFEST-%06d" % num) if rnd == 0 else ("%06d.sst" % num)
-        print('Write %s' % fname)
-        with open(os.path.join(dir_path, fname), "w") as fd:
-            fd.write("garbage")
-
 def execute_cmd(cmd, timeout):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE,
                              stdout=subprocess.PIPE)
@@ -635,9 +644,6 @@ def blackbox_crash_main(args, unknown_args):
                 print('***' + line + '***')
 
         time.sleep(1)  # time to stabilize before the next run
-
-        if args.test_best_efforts_recovery:
-            inject_inconsistencies_to_db_dir(dbname)
 
         time.sleep(1)  # time to stabilize before the next run
 

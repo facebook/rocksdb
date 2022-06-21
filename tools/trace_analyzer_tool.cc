@@ -190,7 +190,7 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, uint64_t op2) {
   if (op1 == 0 || op2 == 0) {
     return 0;
   }
-  if (port::kMaxUint64 / op1 < op2) {
+  if (std::numeric_limits<uint64_t>::max() / op1 < op2) {
     return op1;
   }
   return (op1 * op2);
@@ -1054,7 +1054,8 @@ Status TraceAnalyzer::ReProcessing() {
         LineFileReader lf_reader(
             std::move(file), whole_key_path,
             kTraceFileReadaheadSize /* filereadahead_size */);
-        for (cfs_[cf_id].w_count = 0; lf_reader.ReadLine(&get_key);
+        for (cfs_[cf_id].w_count = 0; lf_reader.ReadLine(
+                 &get_key, Env::IO_TOTAL /* rate_limiter_priority */);
              ++cfs_[cf_id].w_count) {
           input_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(get_key);
           for (int type = 0; type < kTaTypeNum; type++) {

@@ -191,6 +191,24 @@ class LDBTestCase(unittest.TestCase):
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
 
+    def testBlobStartingLevel(self):
+        print("Running testBlobStartingLevel...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put --create_if_missing --enable_blob_files --blob_file_starting_level=10 x1 y1", "OK")
+        self.assertRunOK("get x1", "y1")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) == 0)
+
+        self.assertRunOK("put --enable_blob_files --blob_file_starting_level=0 x2 y2", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("get x2", "y2")
+        self.assertRunFAIL("get x3")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
     def testCountDelimDump(self):
         print("Running testCountDelimDump...")
         self.assertRunOK("batchput x.1 x1 --create_if_missing", "OK")
@@ -488,7 +506,7 @@ class LDBTestCase(unittest.TestCase):
             dbPath += "/"
 
         # Call the dump_live_files function with the edited dbPath name.
-        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index" % dbPath, dumpFilePath))
+        self.assertTrue(self.dumpLiveFiles("--db=%s --decode_blob_index --dump_uncompressed_blobs" % dbPath, dumpFilePath))
 
         # Investigate the output
         with open(dumpFilePath, "r") as tmp:
@@ -496,13 +514,22 @@ class LDBTestCase(unittest.TestCase):
 
         # Check that all the SST filenames have a correct full path (no multiple '/').
         sstFileList = re.findall(r"%s.*\d+.sst" % dbPath, data)
+        self.assertTrue(len(sstFileList) >= 1)
         for sstFilename in sstFileList:
             filenumber = re.findall(r"\d+.sst", sstFilename)[0]
             self.assertEqual(sstFilename, dbPath+filenumber)
 
+        # Check that all the Blob filenames have a correct full path (no multiple '/').
+        blobFileList = re.findall(r"%s.*\d+.blob" % dbPath, data)
+        self.assertTrue(len(blobFileList) >= 1)
+        for blobFilename in blobFileList:
+            filenumber = re.findall(r"\d+.blob", blobFilename)[0]
+            self.assertEqual(blobFilename, dbPath+filenumber)
+
         # Check that all the manifest filenames
         # have a correct full path (no multiple '/').
         manifestFileList = re.findall(r"%s.*MANIFEST-\d+" % dbPath, data)
+        self.assertTrue(len(manifestFileList) >= 1)
         for manifestFilename in manifestFileList:
             filenumber = re.findall(r"(?<=MANIFEST-)\d+", manifestFilename)[0]
             self.assertEqual(manifestFilename, dbPath+"MANIFEST-"+filenumber)

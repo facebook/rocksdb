@@ -136,9 +136,15 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
     }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
-    if (!ZSTD_TrainDictionarySupported()) {
+    if (cf_options.compression_opts.use_zstd_dict_trainer) {
+      if (!ZSTD_TrainDictionarySupported()) {
+        return Status::InvalidArgument(
+            "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+            "is not linked with the binary.");
+      }
+    } else if (!ZSTD_FinalizeDictionarySupported()) {
       return Status::InvalidArgument(
-          "zstd dictionary trainer cannot be used because ZSTD 1.1.3+ "
+          "zstd finalizeDictionary cannot be used because ZSTD 1.4.5+ "
           "is not linked with the binary.");
     }
     if (cf_options.compression_opts.max_dict_bytes == 0) {
@@ -501,7 +507,8 @@ std::vector<std::string> ColumnFamilyData::GetDbPaths() const {
   return paths;
 }
 
-const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId = port::kMaxUint32;
+const uint32_t ColumnFamilyData::kDummyColumnFamilyDataId =
+    std::numeric_limits<uint32_t>::max();
 
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
@@ -612,6 +619,26 @@ ColumnFamilyData::ColumnFamilyData(
   }
 
   RecalculateWriteStallConditions(mutable_cf_options_);
+
+  if (cf_options.table_factory->IsInstanceOf(
+          TableFactory::kBlockBasedTableName()) &&
+      cf_options.table_factory->GetOptions<BlockBasedTableOptions>()) {
+    const BlockBasedTableOptions* bbto =
+        cf_options.table_factory->GetOptions<BlockBasedTableOptions>();
+    const auto& options_overrides = bbto->cache_usage_options.options_overrides;
+    const auto file_metadata_charged =
+        options_overrides.at(CacheEntryRole::kFileMetadata).charged;
+    if (bbto->block_cache &&
+        file_metadata_charged == CacheEntryRoleOptions::Decision::kEnabled) {
+      // TODO(hx235): Add a `ConcurrentCacheReservationManager` at DB scope
+      // responsible for reservation of `ObsoleteFileInfo` so that we can keep
+      // this `file_metadata_cache_res_mgr_` nonconcurrent
+      file_metadata_cache_res_mgr_.reset(new ConcurrentCacheReservationManager(
+          std::make_shared<
+              CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>>(
+              bbto->block_cache)));
+    }
+  }
 }
 
 // DB mutex held
@@ -666,6 +693,19 @@ ColumnFamilyData::~ColumnFamilyData() {
           ioptions_.logger,
           "Failed to unregister data paths of column family (id: %d, name: %s)",
           id_, name_.c_str());
+    }
+  }
+
+  if (data_dirs_.size()) {  // Explicitly close data directories
+    Status s = Status::OK();
+    for (auto& data_dir_ptr : data_dirs_) {
+      if (data_dir_ptr) {
+        s = data_dir_ptr->Close(IOOptions(), nullptr);
+        if (!s.ok()) {
+          // TODO(zichen): add `Status Close()` and `CloseDirectories()
+          s.PermitUncheckedError();
+        }
+      }
     }
   }
 }
@@ -826,8 +866,8 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
   // condition.
   // Or twice as compaction trigger, if it is smaller.
   int64_t res = std::min(twice_level0_trigger, one_fourth_trigger_slowdown);
-  if (res >= port::kMaxInt32) {
-    return port::kMaxInt32;
+  if (res >= std::numeric_limits<int32_t>::max()) {
+    return std::numeric_limits<int32_t>::max();
   } else {
     // res fits in int
     return static_cast<int>(res);

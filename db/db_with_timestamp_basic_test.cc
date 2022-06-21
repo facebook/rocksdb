@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/db_test_util.h"
+#include "db/db_with_timestamp_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
@@ -20,176 +20,6 @@
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
-class DBBasicTestWithTimestampBase : public DBTestBase {
- public:
-  explicit DBBasicTestWithTimestampBase(const std::string& dbname)
-      : DBTestBase(dbname, /*env_do_fsync=*/true) {}
-
- protected:
-  static std::string Key1(uint64_t k) {
-    std::string ret;
-    PutFixed64(&ret, k);
-    std::reverse(ret.begin(), ret.end());
-    return ret;
-  }
-
-  static std::string KeyWithPrefix(std::string prefix, uint64_t k) {
-    std::string ret;
-    PutFixed64(&ret, k);
-    std::reverse(ret.begin(), ret.end());
-    return prefix + ret;
-  }
-
-  static std::vector<Slice> ConvertStrToSlice(
-      std::vector<std::string>& strings) {
-    std::vector<Slice> ret;
-    for (const auto& s : strings) {
-      ret.emplace_back(s);
-    }
-    return ret;
-  }
-
-  class TestComparator : public Comparator {
-   private:
-    const Comparator* cmp_without_ts_;
-
-   public:
-    explicit TestComparator(size_t ts_sz)
-        : Comparator(ts_sz), cmp_without_ts_(nullptr) {
-      cmp_without_ts_ = BytewiseComparator();
-    }
-
-    const char* Name() const override { return "TestComparator"; }
-
-    void FindShortSuccessor(std::string*) const override {}
-
-    void FindShortestSeparator(std::string*, const Slice&) const override {}
-
-    int Compare(const Slice& a, const Slice& b) const override {
-      int r = CompareWithoutTimestamp(a, b);
-      if (r != 0 || 0 == timestamp_size()) {
-        return r;
-      }
-      return -CompareTimestamp(
-          Slice(a.data() + a.size() - timestamp_size(), timestamp_size()),
-          Slice(b.data() + b.size() - timestamp_size(), timestamp_size()));
-    }
-
-    using Comparator::CompareWithoutTimestamp;
-    int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
-                                bool b_has_ts) const override {
-      if (a_has_ts) {
-        assert(a.size() >= timestamp_size());
-      }
-      if (b_has_ts) {
-        assert(b.size() >= timestamp_size());
-      }
-      Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, timestamp_size()) : a;
-      Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, timestamp_size()) : b;
-      return cmp_without_ts_->Compare(lhs, rhs);
-    }
-
-    int CompareTimestamp(const Slice& ts1, const Slice& ts2) const override {
-      if (!ts1.data() && !ts2.data()) {
-        return 0;
-      } else if (ts1.data() && !ts2.data()) {
-        return 1;
-      } else if (!ts1.data() && ts2.data()) {
-        return -1;
-      }
-      assert(ts1.size() == ts2.size());
-      uint64_t low1 = 0;
-      uint64_t low2 = 0;
-      uint64_t high1 = 0;
-      uint64_t high2 = 0;
-      const size_t kSize = ts1.size();
-      std::unique_ptr<char[]> ts1_buf(new char[kSize]);
-      memcpy(ts1_buf.get(), ts1.data(), ts1.size());
-      std::unique_ptr<char[]> ts2_buf(new char[kSize]);
-      memcpy(ts2_buf.get(), ts2.data(), ts2.size());
-      Slice ts1_copy = Slice(ts1_buf.get(), kSize);
-      Slice ts2_copy = Slice(ts2_buf.get(), kSize);
-      auto* ptr1 = const_cast<Slice*>(&ts1_copy);
-      auto* ptr2 = const_cast<Slice*>(&ts2_copy);
-      if (!GetFixed64(ptr1, &low1) || !GetFixed64(ptr1, &high1) ||
-          !GetFixed64(ptr2, &low2) || !GetFixed64(ptr2, &high2)) {
-        assert(false);
-      }
-      if (high1 < high2) {
-        return -1;
-      } else if (high1 > high2) {
-        return 1;
-      }
-      if (low1 < low2) {
-        return -1;
-      } else if (low1 > low2) {
-        return 1;
-      }
-      return 0;
-    }
-  };
-
-  std::string Timestamp(uint64_t low, uint64_t high) {
-    std::string ts;
-    PutFixed64(&ts, low);
-    PutFixed64(&ts, high);
-    return ts;
-  }
-
-  void CheckIterUserEntry(const Iterator* it, const Slice& expected_key,
-                          ValueType expected_value_type,
-                          const Slice& expected_value,
-                          const Slice& expected_ts) const {
-    ASSERT_TRUE(it->Valid());
-    ASSERT_OK(it->status());
-    ASSERT_EQ(expected_key, it->key());
-    if (kTypeValue == expected_value_type) {
-      ASSERT_EQ(expected_value, it->value());
-    }
-    ASSERT_EQ(expected_ts, it->timestamp());
-  }
-
-  void CheckIterEntry(const Iterator* it, const Slice& expected_ukey,
-                      SequenceNumber expected_seq, ValueType expected_val_type,
-                      const Slice& expected_value, const Slice& expected_ts) {
-    ASSERT_TRUE(it->Valid());
-    ASSERT_OK(it->status());
-    std::string ukey_and_ts;
-    ukey_and_ts.assign(expected_ukey.data(), expected_ukey.size());
-    ukey_and_ts.append(expected_ts.data(), expected_ts.size());
-    ParsedInternalKey parsed_ikey;
-    ASSERT_OK(
-        ParseInternalKey(it->key(), &parsed_ikey, true /* log_err_key */));
-    ASSERT_EQ(ukey_and_ts, parsed_ikey.user_key);
-    ASSERT_EQ(expected_val_type, parsed_ikey.type);
-    ASSERT_EQ(expected_seq, parsed_ikey.sequence);
-    if (expected_val_type == kTypeValue) {
-      ASSERT_EQ(expected_value, it->value());
-    }
-    ASSERT_EQ(expected_ts, it->timestamp());
-  }
-
-  void CheckIterEntry(const Iterator* it, const Slice& expected_ukey,
-                      ValueType expected_val_type, const Slice& expected_value,
-                      const Slice& expected_ts) {
-    ASSERT_TRUE(it->Valid());
-    ASSERT_OK(it->status());
-    std::string ukey_and_ts;
-    ukey_and_ts.assign(expected_ukey.data(), expected_ukey.size());
-    ukey_and_ts.append(expected_ts.data(), expected_ts.size());
-
-    ParsedInternalKey parsed_ikey;
-    ASSERT_OK(
-        ParseInternalKey(it->key(), &parsed_ikey, true /* log_err_key */));
-    ASSERT_EQ(expected_val_type, parsed_ikey.type);
-    ASSERT_EQ(Slice(ukey_and_ts), parsed_ikey.user_key);
-    if (expected_val_type == kTypeValue) {
-      ASSERT_EQ(expected_value, it->value());
-    }
-    ASSERT_EQ(expected_ts, it->timestamp());
-  }
-};
-
 class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
  public:
   DBBasicTestWithTimestamp()
@@ -400,6 +230,10 @@ TEST_F(DBBasicTestWithTimestamp, GcPreserveLatestVersionBelowFullHistoryLow) {
   ASSERT_OK(s);
   ASSERT_EQ("v1", value);
 
+  std::string key_ts;
+  ASSERT_TRUE(db_->Get(ropts, "k3", &value, &key_ts).IsNotFound());
+  ASSERT_EQ(Timestamp(2, 0), key_ts);
+
   Close();
 }
 
@@ -438,7 +272,6 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   }
   ASSERT_OK(Flush());
 
-  // TODO return a non-ok for read ts < current_ts_low and test it.
   for (int i = 0; i < 10; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
@@ -446,8 +279,8 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
     read_opts.timestamp = &ts;
     std::string value;
     Status status = db_->Get(read_opts, kKey, &value);
-    if (i < current_ts_low - 1) {
-      ASSERT_TRUE(status.IsNotFound());
+    if (i < current_ts_low) {
+      ASSERT_TRUE(status.IsInvalidArgument());
     } else {
       ASSERT_OK(status);
       ASSERT_TRUE(value.compare(Key(i)) == 0);
@@ -471,7 +304,6 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   result_ts_low = cfd->GetFullHistoryTsLow();
   ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low, result_ts_low) == 0);
 
-  // TODO return a non-ok for read ts < current_ts_low and test it.
   for (int i = current_ts_low; i < 20; i++) {
     ReadOptions read_opts;
     std::string ts_str = Timestamp(i, 0);
@@ -713,15 +545,20 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   options.comparator = &test_cmp;
   DestroyAndReopen(options);
   auto check_value_by_ts = [](DB* db, Slice key, std::string readTs,
-                              Status status, std::string checkValue) {
+                              Status status, std::string checkValue,
+                              std::string expected_ts) {
     ReadOptions ropts;
     Slice ts = readTs;
     ropts.timestamp = &ts;
     std::string value;
-    Status s = db->Get(ropts, key, &value);
+    std::string key_ts;
+    Status s = db->Get(ropts, key, &value, &key_ts);
     ASSERT_TRUE(s == status);
     if (s.ok()) {
       ASSERT_EQ(checkValue, value);
+    }
+    if (s.ok() || s.IsNotFound()) {
+      ASSERT_EQ(expected_ts, key_ts);
     }
   };
   // Construct data of different versions with different ts
@@ -729,7 +566,8 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(4, 0), "v2"));
   ASSERT_OK(db_->Delete(WriteOptions(), "k1", Timestamp(5, 0)));
   ASSERT_OK(db_->Put(WriteOptions(), "k1", Timestamp(6, 0), "v3"));
-  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v3");
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v3",
+                    Timestamp(6, 0));
   ASSERT_OK(Flush());
   Close();
 
@@ -742,13 +580,15 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   // Trim data whose version > Timestamp(5, 0), read(k1, ts(7)) <- NOT_FOUND.
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(5, 0)));
-  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::NotFound(), "");
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::NotFound(), "",
+                    Timestamp(5, 0));
   Close();
 
   // Trim data whose timestamp > Timestamp(4, 0), read(k1, ts(7)) <- v2
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(4, 0)));
-  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v2");
+  check_value_by_ts(db_, "k1", Timestamp(7, 0), Status::OK(), "v2",
+                    Timestamp(4, 0));
   Close();
 }
 
@@ -1380,12 +1220,27 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
   std::vector<Status> statuses(batch_size);
+  std::vector<std::string> timestamps(batch_size);
   keys[0] = "foo";
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
-                statuses.data());
+                timestamps.data(), statuses.data(), true);
 
   ASSERT_OK(statuses[0]);
+  ASSERT_EQ(Timestamp(1, 0), timestamps[0]);
+  for (auto& elem : values) {
+    elem.Reset();
+  }
+
+  ASSERT_OK(db_->SingleDelete(WriteOptions(), "foo", Timestamp(2, 0)));
+  ts = Timestamp(3, 0);
+  read_ts = ts;
+  read_opts.timestamp = &read_ts;
+  db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
+                timestamps.data(), statuses.data(), true);
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_EQ(Timestamp(2, 0), timestamps[0]);
+
   Close();
 }
 
@@ -1421,12 +1276,31 @@ TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetWithPrefix) {
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
   std::vector<Status> statuses(batch_size);
+  std::vector<std::string> timestamps(batch_size);
   keys[0] = "foo";
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
-                statuses.data());
+                timestamps.data(), statuses.data(), true);
 
   ASSERT_OK(statuses[0]);
+  ASSERT_EQ(Timestamp(1, 0), timestamps[0]);
+  for (auto& elem : values) {
+    elem.Reset();
+  }
+
+  ASSERT_OK(db_->SingleDelete(WriteOptions(), "foo", Timestamp(2, 0)));
+  // TODO re-enable after fixing a bug of kHashSearch
+  if (GetParam() != BlockBasedTableOptions::IndexType::kHashSearch) {
+    ASSERT_OK(Flush());
+  }
+
+  ts = Timestamp(3, 0);
+  read_ts = ts;
+  db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
+                timestamps.data(), statuses.data(), true);
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  ASSERT_EQ(Timestamp(2, 0), timestamps[0]);
+
   Close();
 }
 
@@ -1492,8 +1366,8 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
 
   // random data
   for (int i = 0; i < 3; i++) {
-    auto key = ToString(i * 10);
-    auto value = ToString(i * 10);
+    auto key = std::to_string(i * 10);
+    auto value = std::to_string(i * 10);
     Slice key_slice = key;
     Slice value_slice = value;
     ASSERT_OK(db_->Put(write_opts, key_slice, ts, value_slice));
@@ -1677,8 +1551,10 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   ts = Timestamp(3, 0);
   read_ts = ts;
   read_opts.timestamp = &read_ts;
-  s = db_->Get(read_opts, "a", &value);
+  std::string key_ts;
+  s = db_->Get(read_opts, "a", &value, &key_ts);
   ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ(Timestamp(3, 0), key_ts);
 
   // Time-travel to the past before deletion
   ts = Timestamp(2, 0);
@@ -1783,9 +1659,8 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
       std::unique_ptr<Iterator> it1(db_->NewIterator(read_opts));
       ASSERT_NE(nullptr, it1);
       ASSERT_OK(it1->status());
-      // TODO(zjay) Fix seek with prefix
-      // it1->Seek(keys[i]);
-      // ASSERT_TRUE(it1->Valid());
+      it1->Seek(keys[i]);
+      ASSERT_TRUE(it1->Valid());
     }
 
     for (int i = 2; i < 4; i++) {
@@ -1824,8 +1699,8 @@ class DataVisibilityTest : public DBBasicTestWithTimestampBase {
   DataVisibilityTest() : DBBasicTestWithTimestampBase("data_visibility_test") {
     // Initialize test data
     for (int i = 0; i < kTestDataSize; i++) {
-      test_data_[i].key = "key" + ToString(i);
-      test_data_[i].value = "value" + ToString(i);
+      test_data_[i].key = "key" + std::to_string(i);
+      test_data_[i].value = "value" + std::to_string(i);
       test_data_[i].timestamp = Timestamp(i, 0);
       test_data_[i].ts = i;
       test_data_[i].seq_num = kMaxSequenceNumber;
@@ -2570,12 +2445,18 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
     ropts.timestamp = &ts;
     for (uint64_t i = 0; i != static_cast<uint64_t>(kNumKeysPerFile); ++i) {
       std::string value;
-      Status s = db_->Get(ropts, Key1(i), &value);
+      std::string key_ts;
+      Status s = db_->Get(ropts, Key1(i), &value, &key_ts);
       if ((i % 3) == 2) {
         ASSERT_OK(s);
         ASSERT_EQ("new_value_2", value);
+        ASSERT_EQ(Timestamp(5, 0), key_ts);
+      } else if ((i % 3) == 1) {
+        ASSERT_TRUE(s.IsNotFound());
+        ASSERT_EQ(Timestamp(5, 0), key_ts);
       } else {
         ASSERT_TRUE(s.IsNotFound());
+        ASSERT_EQ(Timestamp(3, 0), key_ts);
       }
     }
   }
@@ -3140,6 +3021,48 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
             BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
+
+class UpdateFullHistoryTsLowTest : public DBBasicTestWithTimestampBase {
+ public:
+  UpdateFullHistoryTsLowTest()
+      : DBBasicTestWithTimestampBase("/update_full_history_ts_low_test") {}
+};
+
+TEST_F(UpdateFullHistoryTsLowTest, ConcurrentUpdate) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  std::string lower_ts_low = Timestamp(10, 0);
+  std::string higher_ts_low = Timestamp(25, 0);
+  const size_t kTimestampSize = lower_ts_low.size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+
+  DestroyAndReopen(options);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  // This workaround swaps `lower_ts_low` originally used for update by the
+  // caller to `higher_ts_low` after its writer is queued to make sure
+  // the caller will always get a TryAgain error.
+  // It mimics cases where two threads update full_history_ts_low concurrently
+  // with one thread writing a higher ts_low and one thread writing a lower
+  // ts_low.
+  VersionEdit* version_edit;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
+      [&](void* arg) { version_edit = reinterpret_cast<VersionEdit*>(arg); });
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:BeforeWriterWaiting",
+      [&](void* /*arg*/) { version_edit->SetFullHistoryTsLow(higher_ts_low); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_TRUE(
+      db_->IncreaseFullHistoryTsLow(db_->DefaultColumnFamily(), lower_ts_low)
+          .IsTryAgain());
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  Close();
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

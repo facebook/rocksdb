@@ -289,7 +289,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
     threads.push_back(port::Thread(
         [&](int index) {
           // All threads should fail.
-          auto res = Put("key" + ToString(index), "value");
+          auto res = Put("key" + std::to_string(index), "value");
           if (options.manual_wal_flush) {
             ASSERT_TRUE(res.ok());
             // we should see fs error when we do the flush
@@ -322,16 +322,51 @@ TEST_P(DBWriteTest, ManualWalFlushInEffect) {
   Options options = GetOptions();
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+}
+
+TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
+  // Repro race condition bug where unflushed WAL data extended the synced size
+  // recorded to MANIFEST despite being unrecoverable.
+  Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_env.get();
+  options.manual_wal_flush = true;
+  options.track_and_verify_wals_in_manifest = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "val1"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWAL:Begin",
+      [this](void* /* arg */) { ASSERT_OK(Put("key2", "val2")); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->FlushWAL(true /* sync */));
+
+  // Ensure callback ran.
+  ASSERT_EQ("val2", Get("key2"));
+
+  Close();
+
+  // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
+  // DB WAL.
+  fault_env->DropUnsyncedFileData();
+
+  Reopen(options);
+
+  // Need to close before `fault_env` goes out of scope.
+  Close();
 }
 
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
@@ -344,7 +379,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
     // Forcibly fail WAL write for the first Put only. Subsequent Puts should
     // fail due to read-only mode
     mock_env->SetFilesystemActive(i != 0);
-    auto res = Put("key" + ToString(i), "value");
+    auto res = Put("key" + std::to_string(i), "value");
     // TSAN reports a false alarm for lock-order-inversion but Open and
     // FlushWAL are not run concurrently. Disabling this until TSAN is
     // fixed.
@@ -398,14 +433,14 @@ TEST_P(DBWriteTest, LockWalInEffect) {
   Options options = GetOptions();
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_OK(Put("key" + std::to_string(0), "value"));
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_OK(dbfull()->LockWAL());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_OK(Put("key" + std::to_string(0), "value"));
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_OK(dbfull()->LockWAL());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));

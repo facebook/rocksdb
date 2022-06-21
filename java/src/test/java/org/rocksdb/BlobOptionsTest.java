@@ -89,6 +89,7 @@ public class BlobOptionsTest {
       assertThat(options.setBlobGarbageCollectionAgeCutoff(0.89)).isEqualTo(options);
       assertThat(options.setBlobGarbageCollectionForceThreshold(0.80)).isEqualTo(options);
       assertThat(options.setBlobCompactionReadaheadSize(262144L)).isEqualTo(options);
+      assertThat(options.setBlobFileStartingLevel(0)).isEqualTo(options);
 
       assertThat(options.enableBlobFiles()).isEqualTo(true);
       assertThat(options.minBlobSize()).isEqualTo(132768L);
@@ -98,6 +99,7 @@ public class BlobOptionsTest {
       assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
       assertThat(options.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
       assertThat(options.blobCompactionReadaheadSize()).isEqualTo(262144L);
+      assertThat(options.blobFileStartingLevel()).isEqualTo(0);
     }
   }
 
@@ -127,6 +129,7 @@ public class BlobOptionsTest {
           .isEqualTo(columnFamilyOptions);
       assertThat(columnFamilyOptions.setBlobCompactionReadaheadSize(262144L))
           .isEqualTo(columnFamilyOptions);
+      assertThat(columnFamilyOptions.setBlobFileStartingLevel(0)).isEqualTo(columnFamilyOptions);
 
       assertThat(columnFamilyOptions.enableBlobFiles()).isEqualTo(true);
       assertThat(columnFamilyOptions.minBlobSize()).isEqualTo(132768L);
@@ -137,6 +140,7 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
       assertThat(columnFamilyOptions.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
       assertThat(columnFamilyOptions.blobCompactionReadaheadSize()).isEqualTo(262144L);
+      assertThat(columnFamilyOptions.blobFileStartingLevel()).isEqualTo(0);
     }
   }
 
@@ -151,7 +155,8 @@ public class BlobOptionsTest {
         .setEnableBlobGarbageCollection(true)
         .setBlobGarbageCollectionAgeCutoff(0.89)
         .setBlobGarbageCollectionForceThreshold(0.80)
-        .setBlobCompactionReadaheadSize(262144);
+        .setBlobCompactionReadaheadSize(262144)
+        .setBlobFileStartingLevel(1);
 
     assertThat(builder.enableBlobFiles()).isEqualTo(true);
     assertThat(builder.minBlobSize()).isEqualTo(1024);
@@ -161,6 +166,7 @@ public class BlobOptionsTest {
     assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.89);
     assertThat(builder.blobGarbageCollectionForceThreshold()).isEqualTo(0.80);
     assertThat(builder.blobCompactionReadaheadSize()).isEqualTo(262144);
+    assertThat(builder.blobFileStartingLevel()).isEqualTo(1);
 
     builder.setEnableBlobFiles(false)
         .setMinBlobSize(4096)
@@ -169,7 +175,8 @@ public class BlobOptionsTest {
         .setEnableBlobGarbageCollection(false)
         .setBlobGarbageCollectionAgeCutoff(0.91)
         .setBlobGarbageCollectionForceThreshold(0.96)
-        .setBlobCompactionReadaheadSize(1024);
+        .setBlobCompactionReadaheadSize(1024)
+        .setBlobFileStartingLevel(0);
 
     assertThat(builder.enableBlobFiles()).isEqualTo(false);
     assertThat(builder.minBlobSize()).isEqualTo(4096);
@@ -179,16 +186,17 @@ public class BlobOptionsTest {
     assertThat(builder.blobGarbageCollectionAgeCutoff()).isEqualTo(0.91);
     assertThat(builder.blobGarbageCollectionForceThreshold()).isEqualTo(0.96);
     assertThat(builder.blobCompactionReadaheadSize()).isEqualTo(1024);
+    assertThat(builder.blobFileStartingLevel()).isEqualTo(0);
 
     final MutableColumnFamilyOptions options = builder.build();
     assertThat(options.getKeys())
         .isEqualTo(new String[] {"enable_blob_files", "min_blob_size", "blob_file_size",
             "blob_compression_type", "enable_blob_garbage_collection",
             "blob_garbage_collection_age_cutoff", "blob_garbage_collection_force_threshold",
-            "blob_compaction_readahead_size"});
+            "blob_compaction_readahead_size", "blob_file_starting_level"});
     assertThat(options.getValues())
         .isEqualTo(new String[] {
-            "false", "4096", "2048", "LZ4_COMPRESSION", "false", "0.91", "0.96", "1024"});
+            "false", "4096", "2048", "LZ4_COMPRESSION", "false", "0.91", "0.96", "1024", "0"});
   }
 
   /**

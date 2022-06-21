@@ -31,8 +31,6 @@
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
-using std::string;
-
 namespace ROCKSDB_NAMESPACE {
 
 INSTANTIATE_TEST_CASE_P(
@@ -333,7 +331,7 @@ TEST_P(TransactionTest, WaitingTxn) {
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
-  string value;
+  std::string value;
   Status s;
 
   txn_options.lock_timeout = 1;
@@ -574,8 +572,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   for (uint32_t i = 0; i < 31; i++) {
     txns[i] = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txns[i]);
-    auto s = txns[i]->GetForUpdate(read_options, ToString((i + 1) / 2), nullptr,
-                                   false /* exclusive */);
+    auto s = txns[i]->GetForUpdate(read_options, std::to_string((i + 1) / 2),
+                                   nullptr, false /* exclusive */);
     ASSERT_OK(s);
   }
 
@@ -589,8 +587,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   std::vector<port::Thread> threads;
   for (uint32_t i = 0; i < 15; i++) {
     std::function<void()> blocking_thread = [&, i] {
-      auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr,
-                                     true /* exclusive */);
+      auto s = txns[i]->GetForUpdate(read_options, std::to_string(i + 1),
+                                     nullptr, true /* exclusive */);
       ASSERT_OK(s);
       ASSERT_OK(txns[i]->Rollback());
       delete txns[i];
@@ -641,7 +639,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
       ASSERT_EQ(dl_node.m_cf_id, 0U);
-      ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
+      ASSERT_EQ(dl_node.m_waiting_key, std::to_string(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 
       if (curr_waiting_key == 0) {
@@ -708,7 +706,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   for (uint32_t i = 0; i < 2; i++) {
     txns_shared[i] = db->BeginTransaction(write_options, txn_options);
     ASSERT_TRUE(txns_shared[i]);
-    auto s = txns_shared[i]->GetForUpdate(read_options, ToString(i), nullptr);
+    auto s =
+        txns_shared[i]->GetForUpdate(read_options, std::to_string(i), nullptr);
     ASSERT_OK(s);
   }
 
@@ -721,8 +720,8 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   std::vector<port::Thread> threads_shared;
   for (uint32_t i = 0; i < 1; i++) {
     std::function<void()> blocking_thread = [&, i] {
-      auto s =
-          txns_shared[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
+      auto s = txns_shared[i]->GetForUpdate(read_options, std::to_string(i + 1),
+                                            nullptr);
       ASSERT_OK(s);
       ASSERT_OK(txns_shared[i]->Rollback());
       delete txns_shared[i];
@@ -781,7 +780,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     for (uint32_t i = 0; i < len; i++) {
       txns[i] = db->BeginTransaction(write_options, txn_options);
       ASSERT_TRUE(txns[i]);
-      auto s = txns[i]->GetForUpdate(read_options, ToString(i), nullptr);
+      auto s = txns[i]->GetForUpdate(read_options, std::to_string(i), nullptr);
       ASSERT_OK(s);
     }
 
@@ -796,7 +795,8 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     std::vector<port::Thread> threads;
     for (uint32_t i = 0; i + 1 < len; i++) {
       std::function<void()> blocking_thread = [&, i] {
-        auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
+        auto s =
+            txns[i]->GetForUpdate(read_options, std::to_string(i + 1), nullptr);
         ASSERT_OK(s);
         ASSERT_OK(txns[i]->Rollback());
         delete txns[i];
@@ -848,7 +848,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
       auto dl_node = *it;
       ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
       ASSERT_EQ(dl_node.m_cf_id, 0u);
-      ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
+      ASSERT_EQ(dl_node.m_waiting_key, std::to_string(curr_waiting_key));
       ASSERT_EQ(dl_node.m_exclusive, true);
 
       curr_txn_id--;
@@ -871,7 +871,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
 TEST_P(TransactionStressTest, DeadlockStress) {
   const uint32_t NUM_TXN_THREADS = 10;
   const uint32_t NUM_KEYS = 100;
-  const uint32_t NUM_ITERS = 10000;
+  const uint32_t NUM_ITERS = 1000;
 
   WriteOptions write_options;
   ReadOptions read_options;
@@ -882,8 +882,8 @@ TEST_P(TransactionStressTest, DeadlockStress) {
   std::vector<std::string> keys;
 
   for (uint32_t i = 0; i < NUM_KEYS; i++) {
-    ASSERT_OK(db->Put(write_options, Slice(ToString(i)), Slice("")));
-    keys.push_back(ToString(i));
+    ASSERT_OK(db->Put(write_options, Slice(std::to_string(i)), Slice("")));
+    keys.push_back(std::to_string(i));
   }
 
   size_t tid = std::hash<std::thread::id>()(std::this_thread::get_id());
@@ -959,8 +959,8 @@ TEST_P(TransactionTest, LogMarkLeakTest) {
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
   for (size_t i = 0; i < 100; i++) {
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
-    ASSERT_OK(txn->SetName("xid" + ToString(i)));
-    ASSERT_OK(txn->Put(Slice("foo" + ToString(i)), Slice("bar")));
+    ASSERT_OK(txn->SetName("xid" + std::to_string(i)));
+    ASSERT_OK(txn->Put(Slice("foo" + std::to_string(i)), Slice("bar")));
     ASSERT_OK(txn->Prepare());
     ASSERT_GT(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
     if (rnd.OneIn(5)) {
@@ -992,7 +992,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     TransactionOptions txn_options;
     txn_options.use_only_the_last_commit_time_batch_for_recovery = cwb4recovery;
 
-    string value;
+    std::string value;
     Status s;
 
     DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
@@ -2163,7 +2163,7 @@ TEST_P(TransactionTest, WriteOptionsTest) {
 TEST_P(TransactionTest, WriteConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
   Status s;
 
   ASSERT_OK(db->Put(write_options, "foo", "A"));
@@ -2368,7 +2368,7 @@ TEST_P(TransactionTest, FlushTest2) {
     WriteOptions write_options;
     ReadOptions read_options, snapshot_read_options;
     TransactionOptions txn_options;
-    string value;
+    std::string value;
 
     DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
 
@@ -2645,7 +2645,7 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   TransactionOptions txn_options;
-  string value;
+  std::string value;
   Status s;
 
   ColumnFamilyHandle *cfa, *cfb;
@@ -2812,7 +2812,7 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   TransactionOptions txn_options;
-  string value;
+  std::string value;
   Status s;
 
   ColumnFamilyHandle* cf;
@@ -2902,7 +2902,7 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
 TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  string value;
+  std::string value;
   Status s;
 
   ColumnFamilyHandle* cf;
@@ -3035,7 +3035,7 @@ TEST_P(TransactionTest, MultiGetSnapshot) {
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  string value;
+  std::string value;
   Status s;
 
   ColumnFamilyHandle *one, *two;
@@ -3111,7 +3111,7 @@ TEST_P(TransactionTest, ColumnFamiliesTest2) {
 TEST_P(TransactionTest, EmptyTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
   Status s;
 
   s = db->Put(write_options, "aaa", "aaa");
@@ -3154,7 +3154,7 @@ TEST_P(TransactionTest, PredicateManyPreceders) {
   WriteOptions write_options;
   ReadOptions read_options1, read_options2;
   TransactionOptions txn_options;
-  string value;
+  std::string value;
   Status s;
 
   txn_options.set_snapshot = true;
@@ -3398,7 +3398,7 @@ TEST_P(TransactionTest, ExpiredTransaction) {
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
-  string value;
+  std::string value;
   Status s;
 
   // Set txn expiration timeout to 0 microseconds (expires instantly)
@@ -3587,7 +3587,7 @@ TEST_P(TransactionTest, LockLimitTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   TransactionOptions txn_options;
-  string value;
+  std::string value;
   Status s;
 
   delete db;
@@ -5412,7 +5412,7 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   ASSERT_OK(s);
 
   ReadOptions read_options;
-  string value;
+  std::string value;
   s = db->Get(read_options, "X", &value);
   ASSERT_OK(s);
   ASSERT_EQ("1", value);
@@ -5469,12 +5469,16 @@ Status TransactionStressTestInserter(
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   // Small write buffer to trigger more compactions
   options.write_buffer_size = 1024;
+  txn_db_options.rollback_deletion_type_callback =
+      [](TransactionDB*, ColumnFamilyHandle*, const Slice& key) {
+        return RandomTransactionInserter::RollbackDeletionTypeCallback(key);
+      };
   ASSERT_OK(ReOpenNoDelete());
   constexpr size_t num_workers = 4;        // worker threads count
   constexpr size_t num_checkers = 2;       // checker threads count
   constexpr size_t num_slow_checkers = 2;  // checker threads emulating backups
   constexpr size_t num_slow_workers = 1;   // slow worker threads count
-  constexpr size_t num_transactions_per_thread = 10000;
+  constexpr size_t num_transactions_per_thread = 1000;
   constexpr uint16_t num_sets = 3;
   constexpr size_t num_keys_per_set = 100;
   // Setting the key-space to be 100 keys should cause enough write-conflicts
@@ -6015,7 +6019,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(batch.Merge(cf_handle, Slice("key"), Slice("4")));
     ASSERT_OK(db->Write(write_options, &batch));
     ReadOptions read_options;
-    string value;
+    std::string value;
     ASSERT_OK(db->Get(read_options, cf_handle, "key", &value));
     ASSERT_EQ(value, "value,1,2,3,4");
     delete cf_handle;

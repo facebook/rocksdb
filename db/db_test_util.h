@@ -104,6 +104,9 @@ struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
   // These will be used only if filter_policy is set
   bool partition_filters = false;
+  // Force using a default block cache. (Setting to false allows ASAN build
+  // use a trivially small block cache for better UAF error detection.)
+  bool full_block_cache = false;
   uint64_t metadata_block_size = 1024;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
@@ -585,6 +588,7 @@ class SpecialEnv : public EnvWrapper {
         ~NoopDirectory() {}
 
         Status Fsync() override { return Status::OK(); }
+        Status Close() override { return Status::OK(); }
       };
 
       result->reset(new NoopDirectory());
@@ -949,6 +953,51 @@ class CacheWrapper : public Cache {
   std::shared_ptr<Cache> target_;
 };
 
+/*
+ * A cache wrapper that tracks certain CacheEntryRole's cache charge, its
+ * peaks and increments
+ *
+ *        p0
+ *       / \   p1
+ *      /   \  /\
+ *     /     \/  \
+ *  a /       b   \
+ * peaks = {p0, p1}
+ * increments = {p1-a, p2-b}
+ */
+template <CacheEntryRole R>
+class TargetCacheChargeTrackingCache : public CacheWrapper {
+ public:
+  explicit TargetCacheChargeTrackingCache(std::shared_ptr<Cache> target);
+
+  using Cache::Insert;
+  Status Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override;
+
+  using Cache::Release;
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override;
+
+  std::size_t GetCacheCharge() { return cur_cache_charge_; }
+
+  std::deque<std::size_t> GetChargedCachePeaks() { return cache_charge_peaks_; }
+
+  std::size_t GetChargedCacheIncrementSum() {
+    return cache_charge_increments_sum_;
+  }
+
+ private:
+  static const Cache::DeleterFn kNoopDeleter;
+
+  std::size_t cur_cache_charge_;
+  std::size_t cache_charge_peak_;
+  std::size_t cache_charge_increment_;
+  bool last_peak_tracked_;
+  std::deque<std::size_t> cache_charge_peaks_;
+  std::size_t cache_charge_increments_sum_;
+};
+
 class DBTestBase : public testing::Test {
  public:
   // Sequence of option configurations to try
@@ -1151,10 +1200,12 @@ class DBTestBase : public testing::Test {
   std::vector<std::string> MultiGet(std::vector<int> cfs,
                                     const std::vector<std::string>& k,
                                     const Snapshot* snapshot,
-                                    const bool batched);
+                                    const bool batched,
+                                    const bool async = false);
 
   std::vector<std::string> MultiGet(const std::vector<std::string>& k,
-                                    const Snapshot* snapshot = nullptr);
+                                    const Snapshot* snapshot = nullptr,
+                                    const bool async = false);
 
   uint64_t GetNumSnapshots();
 

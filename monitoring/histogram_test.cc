@@ -225,6 +225,12 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
   ASSERT_EQ(histogramWindowing.max(), 5);
 }
 
+TEST_F(HistogramTest, LargeStandardDeviation) {
+  HistogramImpl histogram;
+  PopulateHistogram(histogram, 1, 1000000);
+  ASSERT_LT(fabs(histogram.StandardDeviation() - 288675), 1);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
