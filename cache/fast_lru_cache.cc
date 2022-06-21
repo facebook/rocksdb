@@ -334,7 +334,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                 std::to_string(kCacheKeySize) + "B");
   }
 
-  LRUHandle *tmp = new LRUHandle();
+  LRUHandle* tmp = new LRUHandle();
   tmp->value = value;
   tmp->deleter = deleter;
   tmp->hash = hash;
