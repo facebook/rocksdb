@@ -252,14 +252,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       case kTypeBlobIndex:
       case kTypeWideColumnEntity:
         assert(state_ == kNotFound || state_ == kMerge);
-        if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
-          // Blob value not supported. Stop.
-          state_ = kUnexpectedBlobIndex;
+        if (type == kTypeBlobIndex) {
+          if (is_blob_index_ == nullptr) {
+            // Blob value not supported. Stop.
+            state_ = kUnexpectedBlobIndex;
+            return false;
+          }
+        } else if (type == kTypeWideColumnEntity) {
+          state_ = kUnexpectedWideColumnEntity;
           return false;
         }
+
         if (is_blob_index_ != nullptr) {
           *is_blob_index_ = (type == kTypeBlobIndex);
         }
+
         if (kNotFound == state_) {
           state_ = kFound;
           if (do_merge_) {
