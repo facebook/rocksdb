@@ -2160,6 +2160,16 @@ Status CompactionJob::InstallCompactionResults(
                              stats.GetBytes());
   }
 
+  if (compaction->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
+      compaction->immutable_options()->compaction_pri == kRoundRobin) {
+    int start_level = compaction->start_level();
+    if (start_level > 0) {
+      auto vstorage = compaction->input_version()->storage_info();
+      edit->AddCompactCursor(start_level,
+                             vstorage->GetNextCompactCursor(start_level));
+    }
+  }
+
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, edit, db_mutex_,
                                 db_directory_);

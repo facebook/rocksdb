@@ -122,7 +122,7 @@ class Repairer {
         vset_(dbname_, &immutable_db_options_, file_options_,
               raw_table_cache_.get(), &wb_, &wc_,
               /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-              db_session_id_),
+              /*db_id=*/"", db_session_id_),
         next_file_number_(1),
         db_lock_(nullptr),
         closed_(false) {
