@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <string>
+#include <array>
 
 #include "cache/cache_key.h"
 #include "cache/sharded_cache.h"
