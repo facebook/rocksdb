@@ -1144,10 +1144,15 @@ class VersionBuilder::Rep {
 
   // Save the current state in *vstorage.
   Status SaveTo(VersionStorageInfo* vstorage) const {
-    Status s = CheckConsistency(base_vstorage_);
+    Status s;
+
+#ifndef NDEBUG
+    // The same check is done within Apply() so we skip it in release mode.
+    s = CheckConsistency(base_vstorage_);
     if (!s.ok()) {
       return s;
     }
+#endif  // NDEBUG
 
     s = CheckConsistency(vstorage);
     if (!s.ok()) {
