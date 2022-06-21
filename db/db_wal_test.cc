@@ -1497,6 +1497,8 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   // The following make sure there are two bg flush threads.
   options.max_background_jobs = 8;
 
+  DestroyAndReopen(options);
+
   const std::string cf1_name("cf1");
   CreateAndReopenWithCF({cf1_name}, options);
   assert(handles_.size() == 2);
@@ -1512,10 +1514,13 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "foo", "value"));
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
 
-  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[1]));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[1]));
 
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
-  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[0]));
+
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[0]));
 
   bool called = false;
   SyncPoint::GetInstance()->DisableProcessing();
