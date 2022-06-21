@@ -177,9 +177,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     size_t& req_idx = req_idx_for_block[valid_batch_idx];
     size_t& req_offset = req_offset_for_block[valid_batch_idx];
     valid_batch_idx++;
-    if (mget_iter->get_context) {
-      ++(mget_iter->get_context->get_context_stats_.num_data_read);
-    }
     FSReadRequest& req = read_reqs[req_idx];
     Status s = req.status;
     if (s.ok()) {
@@ -732,7 +729,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         iiter->Next();
       } while (iiter->Valid());
 
-      if (matched && filter != nullptr && !filter->IsBlockBased()) {
+      if (matched && filter != nullptr) {
         RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
         PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                   rep_->level);

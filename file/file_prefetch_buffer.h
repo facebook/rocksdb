@@ -65,7 +65,7 @@ class FilePrefetchBuffer {
   FilePrefetchBuffer(size_t readahead_size = 0, size_t max_readahead_size = 0,
                      bool enable = true, bool track_min_offset = false,
                      bool implicit_auto_readahead = false,
-                     bool async_io = false, FileSystem* fs = nullptr,
+                     uint64_t num_file_reads = 0, FileSystem* fs = nullptr,
                      SystemClock* clock = nullptr, Statistics* stats = nullptr)
       : curr_(0),
         readahead_size_(readahead_size),
@@ -77,19 +77,20 @@ class FilePrefetchBuffer {
         implicit_auto_readahead_(implicit_auto_readahead),
         prev_offset_(0),
         prev_len_(0),
-        num_file_reads_(kMinNumFileReadsToStartAutoReadahead + 1),
+        num_file_reads_(num_file_reads),
         io_handle_(nullptr),
         del_fn_(nullptr),
         async_read_in_progress_(false),
-        async_io_(async_io),
+        async_request_submitted_(false),
         fs_(fs),
         clock_(clock),
         stats_(stats) {
+    assert((num_file_reads_ >= kMinNumFileReadsToStartAutoReadahead + 1) ||
+           (num_file_reads_ == 0));
     // If async_io_ is enabled, data is asynchronously filled in second buffer
     // while curr_ is being consumed. If data is overlapping in two buffers,
     // data is copied to third buffer to return continuous buffer.
     bufs_.resize(3);
-    (void)async_io_;
   }
 
   ~FilePrefetchBuffer() {
@@ -262,6 +263,7 @@ class FilePrefetchBuffer {
     readahead_size_ = initial_auto_readahead_size_;
   }
 
+  // Called in case of implicit auto prefetching.
   bool IsEligibleForPrefetch(uint64_t offset, size_t n) {
     // Prefetch only if this read is sequential otherwise reset readahead_size_
     // to initial value.
@@ -271,6 +273,13 @@ class FilePrefetchBuffer {
       return false;
     }
     num_file_reads_++;
+
+    // Since async request was submitted in last call directly by calling
+    // PrefetchAsync, it skips num_file_reads_ check as this call is to poll the
+    // data submitted in previous call.
+    if (async_request_submitted_) {
+      return true;
+    }
     if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
       UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
       return false;
@@ -301,14 +310,21 @@ class FilePrefetchBuffer {
   bool implicit_auto_readahead_;
   uint64_t prev_offset_;
   size_t prev_len_;
-  int64_t num_file_reads_;
+  // num_file_reads_ is only used when implicit_auto_readahead_ is set.
+  uint64_t num_file_reads_;
 
   // io_handle_ is allocated and used by underlying file system in case of
   // asynchronous reads.
   void* io_handle_;
   IOHandleDeleter del_fn_;
   bool async_read_in_progress_;
-  bool async_io_;
+
+  // If async_request_submitted_ is set then it indicates RocksDB called
+  // PrefetchAsync to submit request. It needs to TryReadFromCacheAsync to poll
+  // the submitted request without checking if data is sequential and
+  // num_file_reads_.
+  bool async_request_submitted_;
+
   FileSystem* fs_;
   SystemClock* clock_;
   Statistics* stats_;

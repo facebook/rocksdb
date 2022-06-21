@@ -37,16 +37,7 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
     return BlockBasedTableOptions().filter_policy;
   }
   const FilterPolicy* new_policy;
-  if (FLAGS_use_block_based_filter) {
-    if (FLAGS_ribbon_starting_level < 999) {
-      fprintf(
-          stderr,
-          "Cannot combine use_block_based_filter and ribbon_starting_level\n");
-      exit(1);
-    } else {
-      new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, true);
-    }
-  } else if (FLAGS_ribbon_starting_level >= 999) {
+  if (FLAGS_ribbon_starting_level >= 999) {
     // Use Bloom API
     new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, false);
   } else {
@@ -628,6 +619,7 @@ void StressTest::OperateDb(ThreadState* thread) {
     write_opts.sync = true;
   }
   write_opts.disableWAL = FLAGS_disable_wal;
+  write_opts.protection_bytes_per_key = FLAGS_batch_protection_bytes_per_key;
   const int prefix_bound = static_cast<int>(FLAGS_readpercent) +
                            static_cast<int>(FLAGS_prefixpercent);
   const int write_bound = prefix_bound + static_cast<int>(FLAGS_writepercent);
@@ -2768,6 +2760,11 @@ void InitializeOptionsFromFlags(
        {/*.charged = */ FLAGS_charge_table_reader
             ? CacheEntryRoleOptions::Decision::kEnabled
             : CacheEntryRoleOptions::Decision::kDisabled}});
+  block_based_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kFileMetadata,
+       {/*.charged = */ FLAGS_charge_file_metadata
+            ? CacheEntryRoleOptions::Decision::kEnabled
+            : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
       static_cast<uint32_t>(FLAGS_format_version);
   block_based_options.index_block_restart_interval =
@@ -2928,6 +2925,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);
   }
+
+  options.allow_data_in_errors = FLAGS_allow_data_in_errors;
 }
 
 void InitializeOptionsGeneral(

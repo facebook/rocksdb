@@ -20,7 +20,6 @@ enum class BlockType : uint8_t {
   kData,
   kFilter,  // for second level partitioned filters and full filters
   kFilterPartitionIndex,  // for top-level index of filter partitions
-  kDeprecatedFilter,      // for old, deprecated block-based filter
   kProperties,
   kCompressionDictionary,
   kRangeDeletion,

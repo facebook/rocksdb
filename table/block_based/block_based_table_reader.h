@@ -38,7 +38,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 class FilterBlockReader;
-class BlockBasedFilterBlockReader;
 class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
@@ -67,7 +66,7 @@ using KVPairBlock = std::vector<std::pair<std::string, std::string>>;
 // loaded blocks in the memory.
 class BlockBasedTable : public TableReader {
  public:
-  static const std::string kFilterBlockPrefix;
+  static const std::string kObsoleteFilterBlockPrefix;
   static const std::string kFullFilterBlockPrefix;
   static const std::string kPartitionedFilterBlockPrefix;
 
@@ -114,11 +113,11 @@ class BlockBasedTable : public TableReader {
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
 
-  bool PrefixMayMatch(const Slice& internal_key,
-                      const ReadOptions& read_options,
-                      const SliceTransform* options_prefix_extractor,
-                      const bool need_upper_bound_check,
-                      BlockCacheLookupContext* lookup_context) const;
+  bool PrefixRangeMayMatch(const Slice& internal_key,
+                           const ReadOptions& read_options,
+                           const SliceTransform* options_prefix_extractor,
+                           const bool need_upper_bound_check,
+                           BlockCacheLookupContext* lookup_context) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -585,7 +584,6 @@ struct BlockBasedTable::Rep {
   enum class FilterType {
     kNoFilter,
     kFullFilter,
-    kBlockFilter,
     kPartitionedFilter,
   };
   FilterType filter_type;
@@ -662,21 +660,21 @@ struct BlockBasedTable::Rep {
                                 size_t max_readahead_size,
                                 std::unique_ptr<FilePrefetchBuffer>* fpb,
                                 bool implicit_auto_readahead,
-                                bool async_io) const {
+                                uint64_t num_file_reads) const {
     fpb->reset(new FilePrefetchBuffer(
         readahead_size, max_readahead_size,
         !ioptions.allow_mmap_reads /* enable */, false /* track_min_offset */,
-        implicit_auto_readahead, async_io, ioptions.fs.get(), ioptions.clock,
-        ioptions.stats));
+        implicit_auto_readahead, num_file_reads, ioptions.fs.get(),
+        ioptions.clock, ioptions.stats));
   }
 
   void CreateFilePrefetchBufferIfNotExists(
       size_t readahead_size, size_t max_readahead_size,
       std::unique_ptr<FilePrefetchBuffer>* fpb, bool implicit_auto_readahead,
-      bool async_io) const {
+      uint64_t num_file_reads) const {
     if (!(*fpb)) {
       CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb,
-                               implicit_auto_readahead, async_io);
+                               implicit_auto_readahead, num_file_reads);
     }
   }
 

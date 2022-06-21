@@ -9,8 +9,8 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
-#include "utilities/fault_injection_fs.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 class NonBatchedOpsStressTest : public StressTest {
@@ -391,6 +391,8 @@ class NonBatchedOpsStressTest : public StressTest {
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
+    readoptionscopy.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
 
     // To appease clang analyzer
     const bool use_txn = FLAGS_use_txn;

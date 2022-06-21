@@ -44,6 +44,7 @@ default_params = {
     "charge_compression_dictionary_building_buffer": lambda: random.choice([0, 1]),
     "charge_filter_construction": lambda: random.choice([0, 1]),
     "charge_table_reader": lambda: random.choice([0, 1]),
+    "charge_file_metadata": lambda: random.choice([0, 1]),
     "checkpoint_one_in": 1000000,
     "compression_type": lambda: random.choice(
         ["none", "snappy", "zlib", "lz4", "lz4hc", "xpress", "zstd"]),
@@ -113,12 +114,12 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["fast_lru_cache", "lru_cache"]),   # clock_cache is broken
+    "cache_type": "lru_cache",  # clock_cache is broken
+                                # fast_lru_cache is currently incompatible with stress tests, because they use strict_capacity_limit = false
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
-    "use_block_based_filter": lambda: random.randint(0, 1),
     "value_size_mult": 32,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
@@ -178,6 +179,7 @@ default_params = {
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
     "secondary_cache_uri": lambda: random.choice(
         ["", "compressed_secondary_cache://capacity=8388608"]),
+    "allow_data_in_errors": True,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -357,7 +359,6 @@ ts_params = {
     "use_blob_db": 0,
     "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
-    "use_block_based_filter": 0,
 }
 
 multiops_txn_default_params = {
@@ -496,10 +497,6 @@ def finalize_and_sanitize(src_params):
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0
-        else:
-            dest_params["use_block_based_filter"] = 0
-    if dest_params["ribbon_starting_level"] < 999:
-        dest_params["use_block_based_filter"] = 0
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
@@ -519,8 +516,6 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
-    if dest_params.get("test_batches_snapshots") == 0:
-        dest_params["batch_protection_bytes_per_key"] = 0
     if (dest_params.get("prefix_size") == -1 and
         dest_params.get("memtable_whole_key_filtering") == 0):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0

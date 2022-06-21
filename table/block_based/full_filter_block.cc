@@ -125,14 +125,8 @@ FullFilterBlockReader::FullFilterBlockReader(
 }
 
 bool FullFilterBlockReader::KeyMayMatch(
-    const Slice& key, const SliceTransform* /*prefix_extractor*/,
-    uint64_t block_offset, const bool no_io,
-    const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
+    const Slice& key, const bool no_io, const Slice* const /*const_ikey_ptr*/,
+    GetContext* get_context, BlockCacheLookupContext* lookup_context) {
   if (!whole_key_filtering()) {
     return true;
   }
@@ -167,14 +161,9 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(
-    const Slice& prefix, const SliceTransform* /* prefix_extractor */,
-    uint64_t block_offset, const bool no_io,
+    const Slice& prefix, const bool no_io,
     const Slice* const /*const_ikey_ptr*/, GetContext* get_context,
     BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
   return MayMatch(prefix, no_io, get_context, lookup_context);
 }
 
@@ -204,17 +193,12 @@ bool FullFilterBlockReader::MayMatch(
       return false;
     }
   }
-  return true;  // remain the same with block_based filter
+  return true;
 }
 
 void FullFilterBlockReader::KeysMayMatch(
-    MultiGetRange* range, const SliceTransform* /*prefix_extractor*/,
-    uint64_t block_offset, const bool no_io,
+    MultiGetRange* range, const bool no_io,
     BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
   if (!whole_key_filtering()) {
     // Simply return. Don't skip any key - consider all keys as likely to be
     // present
@@ -225,12 +209,7 @@ void FullFilterBlockReader::KeysMayMatch(
 
 void FullFilterBlockReader::PrefixesMayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor,
-    uint64_t block_offset, const bool no_io,
-    BlockCacheLookupContext* lookup_context) {
-#ifdef NDEBUG
-  (void)block_offset;
-#endif
-  assert(block_offset == kNotValid);
+    const bool no_io, BlockCacheLookupContext* lookup_context) {
   MayMatch(range, no_io, prefix_extractor, lookup_context);
 }
 

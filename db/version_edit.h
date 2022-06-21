@@ -19,6 +19,7 @@
 #include "db/dbformat.h"
 #include "db/wal_edit.h"
 #include "memory/arena.h"
+#include "port/malloc.h"
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
@@ -35,7 +36,7 @@ enum Tag : uint32_t {
   kLogNumber = 2,
   kNextFileNumber = 3,
   kLastSequence = 4,
-  kCompactPointer = 5,
+  kCompactCursor = 5,
   kDeletedFile = 6,
   kNewFile = 7,
   // 8 was used for large value refs
@@ -293,6 +294,25 @@ struct FileMetaData {
     }
     return kUnknownFileCreationTime;
   }
+
+  // WARNING: manual update to this function is needed
+  // whenever a new string property is added to FileMetaData
+  // to reduce approximation error.
+  //
+  // TODO: eliminate the need of manually updating this function
+  // for new string properties
+  size_t ApproximateMemoryUsage() const {
+    size_t usage = 0;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    usage += malloc_usable_size(const_cast<FileMetaData*>(this));
+#else
+    usage += sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    usage += smallest.size() + largest.size() + file_checksum.size() +
+             file_checksum_func_name.size() + min_timestamp.size() +
+             max_timestamp.size();
+    return usage;
+  }
 };
 
 // A compressed copy of file meta data that just contain minimum data needed
@@ -442,6 +462,24 @@ class VersionEdit {
   // Retrieve the table files added as well as their associated levels.
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
+
+  // Retrieve all the compact cursors
+  using CompactCursors = std::vector<std::pair<int, InternalKey>>;
+  const CompactCursors& GetCompactCursors() const { return compact_cursors_; }
+  void AddCompactCursor(int level, const InternalKey& cursor) {
+    compact_cursors_.push_back(std::make_pair(level, cursor));
+  }
+  void SetCompactCursors(
+      const std::vector<InternalKey>& compact_cursors_by_level) {
+    compact_cursors_.clear();
+    compact_cursors_.reserve(compact_cursors_by_level.size());
+    for (int i = 0; i < (int)compact_cursors_by_level.size(); i++) {
+      if (compact_cursors_by_level[i].Valid()) {
+        compact_cursors_.push_back(
+            std::make_pair(i, compact_cursors_by_level[i]));
+      }
+    }
+  }
 
   // Add a new blob file.
   void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
@@ -614,6 +652,9 @@ class VersionEdit {
   bool has_max_column_family_ = false;
   bool has_min_log_number_to_keep_ = false;
   bool has_last_sequence_ = false;
+
+  // Compaction cursors for round-robin compaction policy
+  CompactCursors compact_cursors_;
 
   DeletedFiles deleted_files_;
   NewFiles new_files_;

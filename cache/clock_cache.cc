@@ -39,7 +39,7 @@ std::shared_ptr<Cache> NewClockCache(
 #include "port/port.h"
 #include "tbb/concurrent_hash_map.h"
 #include "util/autovector.h"
-#include "util/mutexlock.h"
+#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -368,7 +368,7 @@ class ClockCacheShard final : public CacheShard {
 
   // Guards list_, head_, and recycle_. In addition, updating table_ also has
   // to hold the mutex, to avoid the cache being in inconsistent state.
-  mutable port::Mutex mutex_;
+  mutable DMutex mutex_;
 
   // The circular list of cache handles. Initially the list is empty. Once a
   // handle is needed by insertion, and no more handles are available in
@@ -431,7 +431,7 @@ void ClockCacheShard::ApplyToSomeEntries(
                              DeleterFn deleter)>& callback,
     uint32_t average_entries_per_lock, uint32_t* state) {
   assert(average_entries_per_lock > 0);
-  MutexLock lock(&mutex_);
+  DMutexLock l(mutex_);
 
   // Figure out the range to iterate, update `state`
   size_t list_size = list_.size();
@@ -532,7 +532,7 @@ bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
     pinned_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     // Cleanup if it is the last reference.
     if (!InCache(flags)) {
-      MutexLock l(&mutex_);
+      DMutexLock l(mutex_);
       RecycleHandle(handle, context);
     }
   }
@@ -598,7 +598,7 @@ bool ClockCacheShard::EvictFromCache(size_t charge, CleanupContext* context) {
 void ClockCacheShard::SetCapacity(size_t capacity) {
   CleanupContext context;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
     capacity_.store(capacity, std::memory_order_relaxed);
     EvictFromCache(0, &context);
   }
@@ -618,7 +618,7 @@ CacheHandle* ClockCacheShard::Insert(
   uint32_t meta_charge =
       CacheHandle::CalcMetadataCharge(key, metadata_charge_policy_);
   size_t total_charge = charge + meta_charge;
-  MutexLock l(&mutex_);
+  DMutexLock l(mutex_);
   bool success = EvictFromCache(total_charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
   if (!success && (strict || !hold_reference)) {
@@ -744,7 +744,7 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
 
 bool ClockCacheShard::EraseAndConfirm(const Slice& key, uint32_t hash,
                                       CleanupContext* context) {
-  MutexLock l(&mutex_);
+  DMutexLock l(mutex_);
   HashTable::accessor accessor;
   bool erased = false;
   if (table_.find(accessor, ClockCacheKey(key, hash))) {
@@ -758,7 +758,7 @@ bool ClockCacheShard::EraseAndConfirm(const Slice& key, uint32_t hash,
 void ClockCacheShard::EraseUnRefEntries() {
   CleanupContext context;
   {
-    MutexLock l(&mutex_);
+    DMutexLock l(mutex_);
     table_.clear();
     for (auto& handle : list_) {
       UnsetInCache(&handle, &context);
