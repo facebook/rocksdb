@@ -321,10 +321,12 @@ class CacheBench {
     Random64 rnd(1);
     KeyGen keygen;
     char *value = createValue(rnd);
-    Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), value,
-                      &helper1, FLAGS_value_bytes);
-    if (s != Status::OK()) {
-      delete value;
+    for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
+      Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), value,
+                        &helper1, FLAGS_value_bytes);
+      if (s != Status::OK()) {
+        delete value;
+      }
     }
   }
 
