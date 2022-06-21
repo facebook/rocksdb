@@ -451,11 +451,71 @@ TEST_P(DBWriteTest, ConcurrentlyDisabledWAL) {
     ASSERT_LE(bytes_num, 1024 * 100);
 }
 
+TEST_P(DBWriteTest, MultiThreadWrite) {
+  Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> mock_env(
+      new FaultInjectionTestEnv(env_));
+  if (!options.enable_multi_batch_write) {
+    return;
+  }
+  constexpr int kNumThreads = 4;
+  constexpr int kNumWrite = 4;
+  constexpr int kNumBatch = 8;
+  constexpr int kBatchSize = 16;
+  options.env = mock_env.get();
+  options.write_buffer_size = 1024 * 128;
+  Reopen(options);
+  std::vector<port::Thread> threads;
+  for (int t = 0; t < kNumThreads; t++) {
+    threads.push_back(port::Thread(
+        [&](int index) {
+          WriteOptions opt;
+          std::vector<WriteBatch> data(kNumBatch);
+          for (int j = 0; j < kNumWrite; j++) {
+            std::vector<WriteBatch*> batches;
+            for (int i = 0; i < kNumBatch; i++) {
+              WriteBatch* batch = &data[i];
+              batch->Clear();
+              for (int k = 0; k < kBatchSize; k++) {
+                batch->Put("key_" + ToString(index) + "_" + ToString(j) + "_" +
+                               ToString(i) + "_" + ToString(k),
+                           "value" + ToString(k));
+              }
+              batches.push_back(batch);
+            }
+            dbfull()->MultiBatchWrite(opt, std::move(batches));
+          }
+        },
+        t));
+  }
+  for (int i = 0; i < kNumThreads; i++) {
+    threads[i].join();
+  }
+  ReadOptions opt;
+  for (int t = 0; t < kNumThreads; t++) {
+    std::string value;
+    for (int i = 0; i < kNumWrite; i++) {
+      for (int j = 0; j < kNumBatch; j++) {
+        for (int k = 0; k < kBatchSize; k++) {
+          ASSERT_OK(dbfull()->Get(opt,
+                                  "key_" + ToString(t) + "_" + ToString(i) +
+                                      "_" + ToString(j) + "_" + ToString(k),
+                                  &value));
+          std::string expected_value = "value" + ToString(k);
+          ASSERT_EQ(expected_value, value);
+        }
+      }
+    }
+  }
+
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
                                         DBTestBase::kConcurrentWALWrites,
                                         DBTestBase::kPipelinedWrite,
-                                        DBTestBase::kCommitPipeline));
+                                        DBTestBase::kMultiBatchWrite));
 
 }  // namespace ROCKSDB_NAMESPACE
 

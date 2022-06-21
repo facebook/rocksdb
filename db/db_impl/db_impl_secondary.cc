@@ -270,7 +270,7 @@ Status DBImplSecondary::RecoverLogFiles(
         status = WriteBatchInternal::InsertInto(
             &batch, column_family_memtables_.get(),
             nullptr /* flush_scheduler */, nullptr /* trim_history_scheduler*/,
-            true, log_number, this, false /* concurrent_memtable_writes */,
+            true, log_number, 0, this, false /* concurrent_memtable_writes */,
             next_sequence, &has_valid_writes, seq_per_batch_, batch_per_txn_);
       }
       // If column family was not found, it might mean that the WAL write

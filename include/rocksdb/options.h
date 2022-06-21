@@ -1093,11 +1093,18 @@ struct DBOptions {
   // to the head of the queue becomes write batch group leader and responsible
   // for writing to WAL.
   //
-  // If enable_pipelined_commit is true, RocksDB will apply WriteBatch to
-  // memtable out of order but commit them in order.
+  // If enable_multi_batch_write is true, RocksDB will apply WriteBatch to
+  // memtable out of order but commit them in order. (We borrow the idea from
+  // https://github.com/cockroachdb/pebble/blob/master/docs/rocksdb.md#commit-pipeline.
+  // On this basis, we split the WriteBatch into smaller-grained WriteBatch
+  // vector,
+  // and when the WriteBatch sizes of multiple writers are not balanced, writers
+  // that finish first need to help the front writer finish writing the
+  // remaining
+  // WriteBatch to increase cpu usage and reduce overall latency).
   //
   // Default: false
-  bool enable_pipelined_commit = false;
+  bool enable_multi_batch_write = false;
 
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it

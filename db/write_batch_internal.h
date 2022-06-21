@@ -132,6 +132,8 @@ class WriteBatchInternal {
   // Return the number of entries in the batch.
   static uint32_t Count(const WriteBatch* batch);
 
+  static uint32_t Count(const std::vector<WriteBatch*> batch);
+
   // Set the count for the number of entries in the batch.
   static void SetCount(WriteBatch* batch, uint32_t n);
 
@@ -152,6 +154,14 @@ class WriteBatchInternal {
 
   static size_t ByteSize(const WriteBatch* batch) {
     return batch->rep_.size();
+  }
+
+  static size_t ByteSize(const std::vector<WriteBatch*> batch) {
+    size_t count = 0;
+    for (auto w : batch) {
+      count += w->rep_.size();
+    }
+    return count;
   }
 
   static Status SetContents(WriteBatch* batch, const Slice& contents);
@@ -191,7 +201,8 @@ class WriteBatchInternal {
       FlushScheduler* flush_scheduler,
       TrimHistoryScheduler* trim_history_scheduler,
       bool ignore_missing_column_families = false, uint64_t log_number = 0,
-      DB* db = nullptr, bool concurrent_memtable_writes = false,
+      uint64_t log_ref = 0, DB* db = nullptr,
+      bool concurrent_memtable_writes = false,
       SequenceNumber* next_seq = nullptr, bool* has_valid_writes = nullptr,
       bool seq_per_batch = false, bool batch_per_txn = true);
 

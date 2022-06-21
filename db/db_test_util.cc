@@ -555,8 +555,8 @@ Options DBTestBase::GetOptions(
       options.enable_pipelined_write = true;
       break;
     }
-    case kCommitPipeline: {
-      options.enable_pipelined_commit = true;
+    case kMultiBatchWrite: {
+      options.enable_multi_batch_write = true;
       options.enable_pipelined_write = false;
       options.two_write_queues = false;
       break;

@@ -319,8 +319,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, enable_pipelined_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {"enable_pipelined_commit",
-         {offsetof(struct ImmutableDBOptions, enable_pipelined_commit),
+        {"enable_multi_batch_write",
+         {offsetof(struct ImmutableDBOptions, enable_multi_batch_write),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"unordered_write",
@@ -707,7 +707,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       enable_thread_tracking(options.enable_thread_tracking),
       enable_pipelined_write(options.enable_pipelined_write),
       unordered_write(options.unordered_write),
-      enable_pipelined_commit(options.enable_pipelined_commit),
+      enable_multi_batch_write(options.enable_multi_batch_write),
       allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       enable_write_thread_adaptive_yield(
           options.enable_write_thread_adaptive_yield),
@@ -860,8 +860,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    enable_pipelined_write);
   ROCKS_LOG_HEADER(log, "                 Options.unordered_write: %d",
                    unordered_write);
-  ROCKS_LOG_HEADER(log, "              Options.enable_pipelined_commit: %d",
-                   enable_pipelined_commit);
+  ROCKS_LOG_HEADER(log, "              Options.enable_multi_batch_write: %d",
+                   enable_multi_batch_write);
   ROCKS_LOG_HEADER(log, "        Options.allow_concurrent_memtable_write: %d",
                    allow_concurrent_memtable_write);
   ROCKS_LOG_HEADER(log, "     Options.enable_write_thread_adaptive_yield: %d",

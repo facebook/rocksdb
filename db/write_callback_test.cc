@@ -160,7 +160,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     if (options.enable_pipelined_write && options.two_write_queues) {
       continue;
     }
-    if (options.enable_pipelined_commit && options.two_write_queues) {
+    if (options.enable_multi_batch_write && options.two_write_queues) {
       continue;
     }
     if (options.unordered_write && !options.allow_concurrent_memtable_write) {
@@ -169,7 +169,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     if (options.unordered_write && options.enable_pipelined_write) {
       continue;
     }
-    if (options.unordered_write && options.enable_pipelined_commit) {
+    if (options.unordered_write && options.enable_multi_batch_write) {
       continue;
     }
 

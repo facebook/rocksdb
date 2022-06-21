@@ -1723,11 +1723,11 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(ExternalSSTFileTest, WithCommitPipeline) {
+TEST_F(ExternalSSTFileTest, WithMultiBatchWrite) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::WriteImpl:CommitAfterWriteWAL",
-        "ExternalSSTFileTest::WithCommitPipeline:WaitWriteWAL"},
+        "ExternalSSTFileTest::WithMultiBatchWrite:WaitWriteWAL"},
        {"DBImpl::WaitForPendingWrites:BeforeBlock",
         "DBImpl::WriteImpl:BeforePipelineWriteMemtable"}});
   SyncPoint::GetInstance()->SetCallBack(
@@ -1737,13 +1737,13 @@ TEST_F(ExternalSSTFileTest, WithCommitPipeline) {
 
   Options options = CurrentOptions();
   options.unordered_write = false;
-  options.enable_pipelined_commit = true;
+  options.enable_multi_batch_write = true;
   DestroyAndReopen(options);
   Put("foo", "v1");
   SyncPoint::GetInstance()->EnableProcessing();
   port::Thread writer([&]() { Put("bar", "v2"); });
 
-  TEST_SYNC_POINT("ExternalSSTFileTest::WithCommitPipeline:WaitWriteWAL");
+  TEST_SYNC_POINT("ExternalSSTFileTest::WithMultiBatchWrite:WaitWriteWAL");
   ASSERT_OK(GenerateAndAddExternalFile(options, {{"bar", "v3"}}, -1,
                                        true /* allow_global_seqno */));
   ASSERT_EQ(Get("bar"), "v3");

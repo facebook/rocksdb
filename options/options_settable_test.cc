@@ -317,7 +317,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "advise_random_on_open=true;"
                              "fail_if_options_file_error=false;"
                              "enable_pipelined_write=false;"
-                             "enable_pipelined_commit=false;"
+                             "enable_multi_batch_write=false;"
                              "unordered_write=false;"
                              "allow_concurrent_memtable_write=true;"
                              "wal_recovery_mode=kPointInTimeRecovery;"
