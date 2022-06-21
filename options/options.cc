@@ -417,6 +417,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "         Options.blob_compaction_readahead_size: %" PRIu64,
         blob_compaction_readahead_size);
+    ROCKS_LOG_HEADER(log, "               Options.blob_file_starting_level: %d",
                      blob_file_starting_level);
     if (blob_cache) {
       ROCKS_LOG_HEADER(log, "                          Options.blob_cache: %s",
@@ -425,11 +426,13 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                        blob_cache->GetPrintableOptions().c_str());
     }
     ROCKS_LOG_HEADER(log, "Options.experimental_mempurge_threshold: %f",
+                     experimental_mempurge_threshold);
 }  // ColumnFamilyOptions::Dump
 
+void Options::Dump(Logger* log) const {
   DBOptions::Dump(log);
   ColumnFamilyOptions::Dump(log);
-}   // Options::Dump
+}  // Options::Dump
 
 void Options::DumpCFOptions(Logger* log) const {
   ColumnFamilyOptions::Dump(log);
