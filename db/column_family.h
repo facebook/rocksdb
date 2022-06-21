@@ -47,6 +47,7 @@ class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
 class BlobFileCache;
+class BlobSource;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -376,7 +377,7 @@ class ColumnFamilyData {
                          SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
-  BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
+  BlobSource* blob_source() const { return blob_source_.get(); }
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
@@ -539,7 +540,7 @@ class ColumnFamilyData {
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer,
                    const std::shared_ptr<IOTracer>& io_tracer,
-                   const std::string& db_session_id);
+                   const std::string& db_id, const std::string& db_session_id);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -563,6 +564,7 @@ class ColumnFamilyData {
 
   std::unique_ptr<TableCache> table_cache_;
   std::unique_ptr<BlobFileCache> blob_file_cache_;
+  std::unique_ptr<BlobSource> blob_source_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 
@@ -673,7 +675,7 @@ class ColumnFamilySet {
                   WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  const std::string& db_session_id);
+                  const std::string& db_id, const std::string& db_session_id);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -735,6 +737,7 @@ class ColumnFamilySet {
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;
+  const std::string& db_id_;
   std::string db_session_id_;
 };
 

@@ -42,6 +42,13 @@ class BlobSource {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
+  inline Status GetBlobFileReader(
+      uint64_t blob_file_number,
+      CacheHandleGuard<BlobFileReader>* blob_file_reader) {
+    return blob_file_cache_->GetBlobFileReader(blob_file_number,
+                                               blob_file_reader);
+  }
+
   bool TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
                         uint64_t offset) const;
 
@@ -73,8 +80,8 @@ class BlobSource {
                                priority);
   }
 
-  const std::string db_id_;
-  const std::string db_session_id_;
+  const std::string& db_id_;
+  const std::string& db_session_id_;
 
   Statistics* statistics_;
 

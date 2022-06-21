@@ -25,6 +25,7 @@
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_source.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/file_pri.h"
 #include "db/dbformat.h"
@@ -1833,7 +1834,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->logger),
       db_statistics_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->stats),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
-      blob_file_cache_(cfd_ ? cfd_->blob_file_cache() : nullptr),
+      blob_source_(cfd_ ? cfd_->blob_source() : nullptr),
       merge_operator_(
           (cfd_ == nullptr) ? nullptr : cfd_->ioptions()->merge_operator.get()),
       storage_info_(
@@ -1880,34 +1881,22 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         PinnableSlice* value, uint64_t* bytes_read) const {
   assert(value);
 
-  if (read_options.read_tier == kBlockCacheTier) {
-    return Status::Incomplete("Cannot read blob: no disk I/O allowed");
-  }
-
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
 
   const uint64_t blob_file_number = blob_index.file_number();
 
-  if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
+  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  if (!blob_file_meta) {
     return Status::Corruption("Invalid blob file number");
   }
 
-  CacheHandleGuard<BlobFileReader> blob_file_reader;
-
-  {
-    assert(blob_file_cache_);
-    const Status s = blob_file_cache_->GetBlobFileReader(blob_file_number,
-                                                         &blob_file_reader);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  assert(blob_file_reader.GetValue());
-  const Status s = blob_file_reader.GetValue()->GetBlob(
-      read_options, user_key, blob_index.offset(), blob_index.size(),
+  assert(blob_source_);
+  value->Reset();
+  const Status s = blob_source_->GetBlob(
+      read_options, user_key, blob_file_number, blob_index.offset(),
+      blob_file_meta->GetBlobFileSize(), blob_index.size(),
       blob_index.compression(), prefetch_buffer, value, bytes_read);
 
   return s;
@@ -1948,9 +1937,9 @@ void Version::MultiGetBlob(
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    assert(blob_file_cache_);
-    status = blob_file_cache_->GetBlobFileReader(blob_file_number,
-                                                 &blob_file_reader);
+    assert(blob_source_);
+    status =
+        blob_source_->GetBlobFileReader(blob_file_number, &blob_file_reader);
     assert(!status.ok() || blob_file_reader.GetValue());
 
     auto& blobs_in_file = elem.second;
@@ -4118,11 +4107,12 @@ VersionSet::VersionSet(const std::string& dbname,
                        WriteController* write_controller,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
+                       const std::string& db_id,
                        const std::string& db_session_id)
-    : column_family_set_(
-          new ColumnFamilySet(dbname, _db_options, storage_options, table_cache,
-                              write_buffer_manager, write_controller,
-                              block_cache_tracer, io_tracer, db_session_id)),
+    : column_family_set_(new ColumnFamilySet(
+          dbname, _db_options, storage_options, table_cache,
+          write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
+          db_id, db_session_id)),
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
@@ -4164,9 +4154,13 @@ void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
+    // db_id becomes the source of truth after DBImpl::Recover():
+    // https://github.com/facebook/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
+    // Note: we may not be able to recover db_id from MANIFEST if
+    // options.write_dbid_to_manifest is false (default).
     column_family_set_.reset(new ColumnFamilySet(
         dbname_, db_options_, file_options_, table_cache_, wbm, wc,
-        block_cache_tracer_, io_tracer_, db_session_id_));
+        block_cache_tracer_, io_tracer_, db_id_, db_session_id_));
   }
   db_id_.clear();
   next_file_number_.store(2);
@@ -5219,6 +5213,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   WriteBufferManager wb(options->db_write_buffer_size);
   VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
+                      /*db_id*/ "",
                       /*db_session_id*/ "");
   Status status;
 
@@ -6152,7 +6147,7 @@ ReactiveVersionSet::ReactiveVersionSet(
     const std::shared_ptr<IOTracer>& io_tracer)
     : VersionSet(dbname, _db_options, _file_options, table_cache,
                  write_buffer_manager, write_controller,
-                 /*block_cache_tracer=*/nullptr, io_tracer,
+                 /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "") {}
 
 ReactiveVersionSet::~ReactiveVersionSet() {}
