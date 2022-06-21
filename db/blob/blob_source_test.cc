@@ -290,6 +290,209 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   }
 }
 
+TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
+  Options options;
+  options.env = env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(env_, "BlobSourceTest_MultiGetBlobsFromCache"), 0);
+  options.enable_blob_files = true;
+
+  LRUCacheOptions co;
+  co.capacity = 2048;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  options.blob_cache = NewLRUCache(co);
+  options.lowest_used_cache_tier = CacheTier::kVolatileTier;
+
+  Reopen(options);
+
+  std::string db_id;
+  ASSERT_OK(db_->GetDbIdentity(db_id));
+
+  std::string db_session_id;
+  ASSERT_OK(db_->GetDbSessionId(db_session_id));
+
+  ImmutableOptions immutable_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr size_t num_blobs = 16;
+
+  std::vector<std::string> key_strs;
+  std::vector<std::string> blob_strs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    key_strs.push_back("key" + std::to_string(i));
+    blob_strs.push_back("blob" + std::to_string(i));
+  }
+
+  std::vector<Slice> keys;
+  std::vector<Slice> blobs;
+
+  uint64_t file_size = BlobLogHeader::kSize;
+  for (size_t i = 0; i < num_blobs; ++i) {
+    keys.push_back({key_strs[i]});
+    blobs.push_back({blob_strs[i]});
+    file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
+  }
+  file_size += BlobLogFooter::kSize;
+
+  std::vector<uint64_t> blob_offsets(keys.size());
+  std::vector<uint64_t> blob_sizes(keys.size());
+
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, blob_file_number, keys, blobs, kNoCompression,
+                blob_offsets, blob_sizes);
+
+  constexpr size_t capacity = 10;
+  std::shared_ptr<Cache> backing_cache =
+      NewLRUCache(capacity);  // Blob file cache
+
+  FileOptions file_options;
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      blob_file_read_hist, nullptr /*IOTracer*/));
+
+  BlobSource blob_source(&immutable_options, db_id, db_session_id,
+                         blob_file_cache.get());
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+
+  {
+    // MultiGetBlob
+    uint64_t bytes_read = 0;
+
+    autovector<std::reference_wrapper<const Slice>> key_refs;
+    autovector<uint64_t> offsets;
+    autovector<uint64_t> sizes;
+    std::array<Status, num_blobs> statuses_buf;
+    autovector<Status*> statuses;
+    std::array<PinnableSlice, num_blobs> value_buf;
+    autovector<PinnableSlice*> values;
+
+    for (size_t i = 0; i < num_blobs; i += 2) {  // even index
+      key_refs.emplace_back(std::cref(keys[i]));
+      offsets.push_back(blob_offsets[i]);
+      sizes.push_back(blob_sizes[i]);
+      statuses.push_back(&statuses_buf[i]);
+      values.push_back(&value_buf[i]);
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                blob_offsets[i]));
+    }
+
+    read_options.fill_cache = true;
+    read_options.read_tier = ReadTier::kReadAllTier;
+
+    // Get half of blobs
+    blob_source.MultiGetBlob(read_options, key_refs, blob_file_number,
+                             file_size, offsets, sizes, statuses, values,
+                             &bytes_read);
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      if (i % 2 == 0) {
+        ASSERT_OK(statuses_buf[i]);
+        ASSERT_EQ(value_buf[i], blobs[i]);
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                 blob_offsets[i]));
+      } else {
+        statuses_buf[i].PermitUncheckedError();
+        ASSERT_TRUE(value_buf[i].empty());
+        ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                  blob_offsets[i]));
+      }
+    }
+
+    // Get the rest of blobs
+    for (size_t i = 1; i < num_blobs; i += 2) {  // odd index
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                blob_offsets[i]));
+
+      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
+                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    kNoCompression, prefetch_buffer,
+                                    &value_buf[i], &bytes_read));
+      ASSERT_EQ(value_buf[i], blobs[i]);
+      ASSERT_EQ(bytes_read,
+                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                               blob_offsets[i]));
+    }
+
+    // Cache-only MultiGetBlob
+    read_options.read_tier = ReadTier::kBlockCacheTier;
+
+    key_refs.clear();
+    offsets.clear();
+    sizes.clear();
+    statuses.clear();
+    values.clear();
+    for (size_t i = 0; i < num_blobs; ++i) {
+      key_refs.emplace_back(std::cref(keys[i]));
+      offsets.push_back(blob_offsets[i]);
+      sizes.push_back(blob_sizes[i]);
+      statuses.push_back(&statuses_buf[i]);
+      values.push_back(&value_buf[i]);
+    }
+
+    blob_source.MultiGetBlob(read_options, key_refs, blob_file_number,
+                             file_size, offsets, sizes, statuses, values,
+                             &bytes_read);
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_OK(statuses_buf[i]);
+      ASSERT_EQ(value_buf[i], blobs[i]);
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                               blob_offsets[i]));
+    }
+  }
+
+  options.blob_cache->EraseUnRefEntries();
+
+  {
+    // Cache-only MultiGetBlob
+    uint64_t bytes_read = 0;
+    read_options.read_tier = ReadTier::kBlockCacheTier;
+
+    autovector<std::reference_wrapper<const Slice>> key_refs;
+    autovector<uint64_t> offsets;
+    autovector<uint64_t> sizes;
+    std::array<Status, num_blobs> statuses_buf;
+    autovector<Status*> statuses;
+    std::array<PinnableSlice, num_blobs> value_buf;
+    autovector<PinnableSlice*> values;
+
+    for (size_t i = 0; i < num_blobs; i++) {
+      key_refs.emplace_back(std::cref(keys[i]));
+      offsets.push_back(blob_offsets[i]);
+      sizes.push_back(blob_sizes[i]);
+      statuses.push_back(&statuses_buf[i]);
+      values.push_back(&value_buf[i]);
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                blob_offsets[i]));
+    }
+
+    blob_source.MultiGetBlob(read_options, key_refs, blob_file_number,
+                             file_size, offsets, sizes, statuses, values,
+                             &bytes_read);
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      statuses_buf[i].PermitUncheckedError();
+      ASSERT_NOK(statuses_buf[i]);
+      ASSERT_TRUE(value_buf[i].empty());
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                blob_offsets[i]));
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
