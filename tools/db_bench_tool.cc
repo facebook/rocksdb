@@ -1074,6 +1074,19 @@ DEFINE_int32(
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
     "[Integrated BlobDB] The starting level for blob files.");
 
+DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
+
+DEFINE_bool(
+    use_shared_block_and_blob_cache, true,
+    "[Integrated BlobDB] Use a shared backing cache for both block "
+    "cache and blob cache. It only takes effect if use_blob_cache is enabled.");
+
+DEFINE_int64(
+    blob_cache_size, FLAGS_cache_size,
+    "[Integrated BlobDB] Number of bytes to use as a cache of blobs. It only "
+    "takes effect if the block cache and blob cache are different "
+    "(use_shared_block_and_blob_cache = false).");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -4476,8 +4489,21 @@ class Benchmark {
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
-    if (FLAGS_cache_size > 0) {
-      options.blob_cache = cache_;
+    if (FLAGS_use_blob_cache) {
+      if (FLAGS_use_shared_block_and_blob_cache) {
+        options.blob_cache = cache_;
+      } else {
+        if (FLAGS_blob_cache_size <= 0) {
+          fprintf(stderr,
+                  "Unable to create a standalone blob cache if blob_cache_size "
+                  "<= 0.\n");
+          exit(1);
+        }
+        LRUCacheOptions co;
+        co.capacity = FLAGS_blob_cache_size;
+        co.num_shard_bits = FLAGS_cache_numshardbits;
+        options.blob_cache = NewLRUCache(co);
+      }
     }
 
 #ifndef ROCKSDB_LITE

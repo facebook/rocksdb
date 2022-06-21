@@ -450,6 +450,19 @@ DEFINE_int32(
     "[Integrated BlobDB] Enable writing blob files during flushes and "
     "compactions starting from the specified level.");
 
+DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
+
+DEFINE_bool(
+    use_shared_block_and_blob_cache, true,
+    "[Integrated BlobDB] Use a shared backing cache for both block "
+    "cache and blob cache. It only takes effect if use_blob_cache is enabled.");
+
+DEFINE_int64(
+    blob_cache_size, FLAGS_cache_size,
+    "[Integrated BlobDB] Number of bytes to use as a cache of blobs. It only "
+    "takes effect if the block cache and blob cache are different "
+    "(use_shared_block_and_blob_cache = false).");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
