@@ -4143,7 +4143,7 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
 
   Status s = TryReopen(options);
   ASSERT_EQ(nullptr, options.info_log);
-  ASSERT_TRUE(s.IsAborted());
+  ASSERT_TRUE(s.IsIOError());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
