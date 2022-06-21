@@ -293,8 +293,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               Slice blob_value(pin_val);
               push_operand(blob_value, nullptr);
             } else if (type == kTypeWideColumnEntity) {
-              // TODO: support wide-column entities
-              state_ = kCorrupt;
+              state_ = kUnexpectedWideColumnEntity;
               return false;
             } else {
               assert(type == kTypeValue);
@@ -319,8 +318,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               push_operand(blob_value, nullptr);
             }
           } else if (type == kTypeWideColumnEntity) {
-            // TODO: support wide-column entities
-            state_ = kCorrupt;
+            state_ = kUnexpectedWideColumnEntity;
             return false;
           } else {
             assert(type == kTypeValue);
