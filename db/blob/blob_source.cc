@@ -174,8 +174,10 @@ void BlobSource::MultiGetBlob(
   }
 #endif  // !NDEBUG
 
+  using Mask = uint64_t;
+  Mask cache_hit_mask_ = 0;
+
   Status s;
-  uint64_t cache_hit_mask_ = 0;
   uint64_t total_bytes = 0;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
                                           file_size);
@@ -201,7 +203,7 @@ void BlobSource::MultiGetBlob(
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
         total_bytes += value_sizes[i];
-        cache_hit_mask_ |= (1 << i);  // cache hit
+        cache_hit_mask_ |= (Mask{1} << i);  // cache hit
       }
     }
 
@@ -217,7 +219,7 @@ void BlobSource::MultiGetBlob(
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
     for (size_t i = 0; i < num_blobs; ++i) {
-      if (!(cache_hit_mask_ & (1 << i))) {
+      if (!(cache_hit_mask_ & (Mask{1} << i))) {
         assert(statuses[i]);
         *statuses[i] =
             Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
@@ -236,7 +238,7 @@ void BlobSource::MultiGetBlob(
     uint64_t _bytes_read = 0;
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      if (!(cache_hit_mask_ & (1 << i))) {
+      if (!(cache_hit_mask_ & (Mask{1} << i))) {
         _user_keys.emplace_back(user_keys[i]);
         _offsets.push_back(offsets[i]);
         _value_sizes.push_back(value_sizes[i]);
