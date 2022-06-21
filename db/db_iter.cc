@@ -211,7 +211,7 @@ bool DBIter::SetWideColumnValueIfNeeded(const Slice& /* wide_columns_slice */) {
   assert(!is_blob_);
 
   // TODO: support wide-column entities
-  status_ = Status::Corruption("Encountered unexpected wide-column entity");
+  status_ = Status::NotSupported("Encountered unexpected wide-column entity");
   valid_ = false;
   return false;
 }
