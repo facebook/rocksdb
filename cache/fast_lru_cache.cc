@@ -46,7 +46,7 @@ LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange(
       [](LRUHandle* h) {
         if (!h->HasRefs()) {
-          h->Free();
+          h->FreeData();
         }
       },
       0, uint32_t{1} << length_bits_);
@@ -217,7 +217,7 @@ void LRUCacheShard::EraseUnRefEntries() {
 
   // Free the entries here outside of mutex for performance reasons.
   for (auto& h : last_reference_list) {
-    h.Free();
+    h.FreeData();
   }
 }
 
@@ -297,7 +297,7 @@ uint8_t LRUCacheShard::CalcHashBits(
   LRUHandle* h = new LRUHandle();
   h->CalcTotalCharge(estimated_value_size, metadata_charge_policy);
   size_t num_entries = capacity / h->total_charge;
-  h->Free();
+  delete h;
   uint8_t num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
@@ -316,7 +316,7 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
 
   // Free the entries here outside of mutex for performance reasons.
   for (auto& h : last_reference_list) {
-    h.Free();
+    h.FreeData();
   }
 }
 
@@ -334,15 +334,13 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                 std::to_string(kCacheKeySize) + "B");
   }
 
-  LRUHandle tmp;
-  tmp.value = value;
-  tmp.deleter = deleter;
-  tmp.hash = hash;
-  tmp.refs = 0;
-  tmp.next = tmp.prev = nullptr;
-  tmp.CalcTotalCharge(charge, metadata_charge_policy_);
+  LRUHandle *tmp = new LRUHandle();
+  tmp->value = value;
+  tmp->deleter = deleter;
+  tmp->hash = hash;
+  tmp->CalcTotalCharge(charge, metadata_charge_policy_);
   for (int i = 0; i < kCacheKeySize; i++) {
-    tmp.key_data[i] = key.data()[i];
+    tmp->key_data[i] = key.data()[i];
   }
 
   Status s = Status::OK();
@@ -352,8 +350,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty.
-    EvictFromLRU(tmp.total_charge, &last_reference_list);
-    if ((usage_ + tmp.total_charge > capacity_ &&
+    EvictFromLRU(tmp->total_charge, &last_reference_list);
+    if ((usage_ + tmp->total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
         table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
       // Originally, when strict_capacity_limit_ == false and handle != nullptr
@@ -366,7 +364,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.
-        last_reference_list.push_back(tmp);
+        last_reference_list.push_back(*tmp);
       } else {
         s = Status::Incomplete("Insert failed due to LRU cache being full.");
       }
@@ -374,7 +372,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
       LRUHandle* old;
-      LRUHandle* h = table_.Insert(&tmp, &old);
+      LRUHandle* h = table_.Insert(tmp, &old);
       assert(h != nullptr);  // Insertions should never fail.
       usage_ += h->total_charge;
       if (old != nullptr) {
@@ -404,8 +402,10 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
   // Free the entries here outside of mutex for performance reasons.
   for (auto& h : last_reference_list) {
-    h.Free();
+    h.FreeData();
   }
+
+  delete tmp;
 
   return s;
 }
@@ -469,7 +469,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 
   // Free the entry here outside of mutex for performance reasons.
   if (last_reference) {
-    copy.Free();
+    copy.FreeData();
   }
   return last_reference;
 }
@@ -497,7 +497,7 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
   // Free the entry here outside of mutex for performance reasons.
   // last_reference will only be true if e != nullptr.
   if (last_reference) {
-    copy.Free();
+    copy.FreeData();
   }
 }
 

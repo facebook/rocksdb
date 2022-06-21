@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <array>
 #include <memory>
 #include <string>
-#include <array>
 
 #include "cache/cache_key.h"
 #include "cache/sharded_cache.h"
@@ -167,7 +167,7 @@ struct LRUHandle {
     }
   }
 
-  void Free() {
+  void FreeData() {
     assert(refs == 0);
     if (deleter) {
       (*deleter)(key(), value);
