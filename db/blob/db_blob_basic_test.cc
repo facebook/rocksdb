@@ -104,8 +104,7 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
     PinnableSlice result;
 
     read_options.read_tier = kReadAllTier;
-    ASSERT_TRUE(
-        db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
     ASSERT_EQ(result, blob_value);
 
     result.Reset();
@@ -113,8 +112,7 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
 
     // Try again with no I/O allowed. The table and the necessary blocks/blobs
     // should already be in their respective caches.
-    ASSERT_TRUE(
-        db_->Get(read_options, db_->DefaultColumnFamily(), key, &result).ok());
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
     ASSERT_EQ(result, blob_value);
   }
 }
