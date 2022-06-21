@@ -391,6 +391,22 @@ class MemTableList {
   void RemoveOldMemTables(uint64_t log_number,
                           autovector<MemTable*>* to_delete);
 
+  // @return vector of <memtable id, next_log_num, replication_sequence> in
+  // unflushed memtables
+  std::vector<std::tuple<uint64_t, uint64_t, std::string>>
+  TEST_GetNextLogNumAndReplSeq() const {
+    const auto& memlist = current_->memlist_;
+    std::vector<std::tuple<uint64_t, uint64_t, std::string>>
+        lognums_and_repl_seqs;
+    lognums_and_repl_seqs.reserve(memlist.size());
+    for (auto it = memlist.begin(); it != memlist.end(); it++) {
+      MemTable* mem = *it;
+      lognums_and_repl_seqs.emplace_back(mem->GetID(), mem->GetNextLogNumber(),
+                                         mem->GetReplicationSequence());
+    }
+    return lognums_and_repl_seqs;
+  }
+
  private:
   friend Status InstallMemtableAtomicFlushResults(
       const autovector<MemTableList*>* imm_lists,

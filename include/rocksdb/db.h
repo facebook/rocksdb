@@ -1232,6 +1232,7 @@ class DB {
   // REQUIRES: info needs to be provided, can't be nullptr.
   virtual Status ApplyReplicationLogRecord(
       ReplicationLogRecord record,
+      std::string replication_sequence,
       ApplyReplicationLogRecordInfo* info) = 0;
   // Returns the latest replication log sequence number (returned by
   // ReplicationLogListener::OnReplicationLogRecord()) that is persisted in the

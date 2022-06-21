@@ -940,6 +940,7 @@ set(SOURCES
         cloud/cloud_storage_provider.cc
         cloud/cloud_file_cache.cc
         db/db_impl/db_impl_remote_compaction.cc
+        db/db_impl/replication_codec.cc
         $<TARGET_OBJECTS:build_version>)
 
 list(APPEND SOURCES

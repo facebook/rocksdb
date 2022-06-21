@@ -13,6 +13,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
+#include "db/db_impl/replication_codec.h"
 #include "file/sst_file_manager_impl.h"
 #include "logging/logging.h"
 #include "monitoring/iostats_context_imp.h"
@@ -2012,7 +2013,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       // retry resume, it is possible that in some CFs,
       // cfd->imm()->NumNotFlushed() = 0. In this case, so no flush request will
       // be created and scheduled, status::OK() will be returned.
-      s = SwitchMemtable(cfd, &context, "");
+      s = SwitchMemtable(cfd, &context);
     }
     const uint64_t flush_memtable_id = port::kMaxUint64;
     if (s.ok()) {
@@ -2045,7 +2046,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                            "Force flushing stats CF with manual flush of %s "
                            "to avoid holding old logs",
                            cfd->GetName().c_str());
-            s = SwitchMemtable(cfd_stats, &context, "");
+            s = SwitchMemtable(cfd_stats, &context);
             FlushRequest req{{cfd_stats, flush_memtable_id}};
             flush_reqs.emplace_back(std::move(req));
             memtable_ids_to_wait.emplace_back(
@@ -2163,12 +2164,13 @@ Status DBImpl::AtomicFlushMemTables(
       }
     }
 
+    MemTableSwitchRecord mem_switch_record;
     std::string replication_sequence;
     if (immutable_db_options_.replication_log_listener) {
-        ReplicationLogRecord rlr;
-        rlr.type = ReplicationLogRecord::kMemtableSwitch;
-        replication_sequence = immutable_db_options_.replication_log_listener
-                                   ->OnReplicationLogRecord(std::move(rlr));
+      mem_switch_record.next_log_num = versions_->NewFileNumber();
+      replication_sequence = RecordMemTableSwitch(
+        immutable_db_options_.replication_log_listener,
+        mem_switch_record);
     }
 
     for (auto cfd : cfds) {
@@ -2177,12 +2179,19 @@ Status DBImpl::AtomicFlushMemTables(
         continue;
       }
       cfd->Ref();
-      s = SwitchMemtable(cfd, &context, replication_sequence);
+      if (immutable_db_options_.replication_log_listener) {
+        s = SwitchMemtableWithoutCreatingWAL(cfd, &context,
+                                             mem_switch_record.next_log_num,
+                                             replication_sequence);
+      } else {
+        s = SwitchMemtable(cfd, &context);
+      }
       cfd->UnrefAndTryDelete();
       if (!s.ok()) {
         break;
       }
     }
+
     if (s.ok()) {
       AssignAtomicFlushSeq(cfds);
       for (auto cfd : cfds) {

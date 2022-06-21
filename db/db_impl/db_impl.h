@@ -22,6 +22,7 @@
 #include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/compaction/compaction_job.h"
+#include "db/db_impl/replication_codec.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
@@ -86,6 +87,7 @@ class WriteCallback;
 struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
+struct MemTableLogNumAndReplSeq;
 
 // Class to maintain directories for all database paths other than main one.
 class Directories {
@@ -331,6 +333,7 @@ class DBImpl : public DB {
 
   Status ApplyReplicationLogRecord(
       ReplicationLogRecord record,
+      std::string replication_sequence,
       ApplyReplicationLogRecordInfo* info) override;
   Status GetPersistedReplicationSequence(std::string* out) override;
 
@@ -1717,8 +1720,23 @@ class DBImpl : public DB {
 
   Status TrimMemtableHistory(WriteContext* context);
 
-  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context,
-                        std::string replication_sequence);
+  // Switch memtable without creating new WAL. Also set the next_log_num and
+  // replication_sequence in switched memtable
+  //
+  // NOTE:
+  // - this function should only be used when WAL is disabled.
+  // - Unlike `SwitchMemtable`, the dbmutex will be held throughput the function
+  // call, unless there is listener on `OnMemTableSealed` event
+  //
+  // REQUIRES: mutex_ is held
+  // REQUIRES: this thread is currently at the front of the writer queue
+  // REQUIRES: this thread is currently at the front of the 2nd writer queue if
+  // two_write_queues_ is true (This is to simplify the reasoning.)
+  Status SwitchMemtableWithoutCreatingWAL(
+      ColumnFamilyData* cfd, WriteContext* context, uint64_t next_log_num,
+      const std::string& replication_sequence);
+
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   void SelectColumnFamiliesForAtomicFlush(autovector<ColumnFamilyData*>* cfds);
 

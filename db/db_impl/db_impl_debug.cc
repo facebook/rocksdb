@@ -136,10 +136,10 @@ Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
   if (two_write_queues_) {
     WriteThread::Writer nonmem_w;
     nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
-    s = SwitchMemtable(cfd, &write_context, "");
+    s = SwitchMemtable(cfd, &write_context);
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   } else {
-    s = SwitchMemtable(cfd, &write_context, "");
+    s = SwitchMemtable(cfd, &write_context);
   }
   TEST_EndWrite(writer);
   return s;
