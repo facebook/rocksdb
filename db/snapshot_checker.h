@@ -33,10 +33,9 @@ class DisableGCSnapshotChecker : public SnapshotChecker {
     // By returning kNotInSnapshot, we prevent all the values from being GCed
     return SnapshotCheckerResult::kNotInSnapshot;
   }
-  static DisableGCSnapshotChecker* Instance() { return &instance_; }
+  static DisableGCSnapshotChecker* Instance();
 
  protected:
-  static DisableGCSnapshotChecker instance_;
   explicit DisableGCSnapshotChecker() {}
 };
 

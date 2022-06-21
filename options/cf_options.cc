@@ -116,6 +116,15 @@ static Status ParseCompressionOptions(const std::string& value,
     compression_opts.max_dict_buffer_bytes = ParseUint64(field);
   }
 
+  // use_zstd_dict_trainer is optional for backwards compatibility
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.use_zstd_dict_trainer = ParseBoolean("", field);
+  }
+
   if (!field_stream.eof()) {
     return Status::InvalidArgument("unable to parse the specified CF option " +
                                    name);
@@ -155,6 +164,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"max_dict_buffer_bytes",
          {offsetof(struct CompressionOptions, max_dict_buffer_bytes),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"use_zstd_dict_trainer",
+         {offsetof(struct CompressionOptions, use_zstd_dict_trainer),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
 };
 
@@ -434,6 +447,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_compaction_readahead_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"blob_file_starting_level",
+         {offsetof(struct MutableCFOptions, blob_file_starting_level),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -596,10 +613,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* shared =
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
-                MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (factory && s.ok()) {
-              shared->reset(factory.release());
-            }
+                MemTableRepFactory::CreateFromString(opts, value, shared);
             return s;
           }}},
         {"memtable",
@@ -612,10 +626,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             auto* shared =
                 static_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
             Status s =
-                MemTableRepFactory::CreateFromString(opts, value, &factory);
-            if (factory && s.ok()) {
-              shared->reset(factory.release());
-            }
+                MemTableRepFactory::CreateFromString(opts, value, shared);
             return s;
           }}},
         {"table_factory",
@@ -1060,6 +1071,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_garbage_collection_force_threshold);
   ROCKS_LOG_INFO(log, "           blob_compaction_readahead_size: %" PRIu64,
                  blob_compaction_readahead_size);
+  ROCKS_LOG_INFO(log, "                 blob_file_starting_level: %d",
+                 blob_file_starting_level);
 
   ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
                  static_cast<int>(bottommost_temperature));

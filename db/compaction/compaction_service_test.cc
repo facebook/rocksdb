@@ -7,6 +7,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "table/unique_id_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -15,13 +16,17 @@ class MyTestCompactionService : public CompactionService {
   MyTestCompactionService(
       std::string db_path, Options& options,
       std::shared_ptr<Statistics>& statistics,
-      std::vector<std::shared_ptr<EventListener>>& listeners)
+      std::vector<std::shared_ptr<EventListener>>& listeners,
+      std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+          table_properties_collector_factories)
       : db_path_(std::move(db_path)),
         options_(options),
         statistics_(statistics),
         start_info_("na", "na", "na", 0, Env::TOTAL),
         wait_info_("na", "na", "na", 0, Env::TOTAL),
-        listeners_(listeners) {}
+        listeners_(listeners),
+        table_properties_collector_factories_(
+            std::move(table_properties_collector_factories)) {}
 
   static const char* kClassName() { return "MyTestCompactionService"; }
 
@@ -76,6 +81,11 @@ class MyTestCompactionService : public CompactionService {
     options_override.statistics = statistics_;
     if (!listeners_.empty()) {
       options_override.listeners = listeners_;
+    }
+
+    if (!table_properties_collector_factories_.empty()) {
+      options_override.table_properties_collector_factories =
+          table_properties_collector_factories_;
     }
 
     OpenAndCompactOptions options;
@@ -141,6 +151,8 @@ class MyTestCompactionService : public CompactionService {
   bool is_override_wait_result_ = false;
   std::string override_wait_result_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
+  std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+      table_properties_collector_factories_;
   std::atomic_bool canceled_{false};
 };
 
@@ -157,7 +169,8 @@ class CompactionServiceTest : public DBTestBase {
     compactor_statistics_ = CreateDBStatistics();
 
     compaction_service_ = std::make_shared<MyTestCompactionService>(
-        dbname_, *options, compactor_statistics_, remote_listeners);
+        dbname_, *options, compactor_statistics_, remote_listeners,
+        remote_table_properties_collector_factories);
     options->compaction_service = compaction_service_;
     DestroyAndReopen(*options);
   }
@@ -206,6 +219,8 @@ class CompactionServiceTest : public DBTestBase {
   }
 
   std::vector<std::shared_ptr<EventListener>> remote_listeners;
+  std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+      remote_table_properties_collector_factories;
 
  private:
   std::shared_ptr<Statistics> compactor_statistics_;
@@ -274,6 +289,16 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
         auto s = static_cast<Status*>(status);
         *s = Status::Aborted("MyTestCompactionService failed to compact!");
       });
+
+  // tracking success unique id verification
+  std::atomic_int verify_passed{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "Version::VerifySstUniqueIds::Passed", [&](void* arg) {
+        // override job status
+        auto id = static_cast<UniqueId64x2*>(arg);
+        assert(*id != kNullUniqueId64x2);
+        verify_passed++;
+      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Status s;
@@ -298,6 +323,12 @@ TEST_F(CompactionServiceTest, BasicCompactions) {
     }
   }
   ASSERT_TRUE(s.IsAborted());
+
+  // Test verification
+  ASSERT_EQ(verify_passed, 0);
+  options.verify_sst_unique_id_in_manifest = true;
+  Reopen(options);
+  ASSERT_GT(verify_passed, 0);
 }
 
 TEST_F(CompactionServiceTest, ManualCompaction) {
@@ -825,6 +856,96 @@ TEST_F(CompactionServiceTest, RemoteEventListener) {
       ASSERT_EQ(result, "value_new" + std::to_string(i));
     }
   }
+}
+
+TEST_F(CompactionServiceTest, TablePropertiesCollector) {
+  const static std::string kUserPropertyName = "TestCount";
+
+  class TablePropertiesCollectorTest : public TablePropertiesCollector {
+   public:
+    Status Finish(UserCollectedProperties* properties) override {
+      *properties = UserCollectedProperties{
+          {kUserPropertyName, std::to_string(count_)},
+      };
+      return Status::OK();
+    }
+
+    UserCollectedProperties GetReadableProperties() const override {
+      return UserCollectedProperties();
+    }
+
+    const char* Name() const override { return "TablePropertiesCollectorTest"; }
+
+    Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                      EntryType /*type*/, SequenceNumber /*seq*/,
+                      uint64_t /*file_size*/) override {
+      count_++;
+      return Status::OK();
+    }
+
+   private:
+    uint32_t count_ = 0;
+  };
+
+  class TablePropertiesCollectorFactoryTest
+      : public TablePropertiesCollectorFactory {
+   public:
+    TablePropertiesCollector* CreateTablePropertiesCollector(
+        TablePropertiesCollectorFactory::Context /*context*/) override {
+      return new TablePropertiesCollectorTest();
+    }
+
+    const char* Name() const override {
+      return "TablePropertiesCollectorFactoryTest";
+    }
+  };
+
+  auto factory = new TablePropertiesCollectorFactoryTest();
+  remote_table_properties_collector_factories.emplace_back(factory);
+
+  const int kNumSst = 3;
+  const int kLevel0Trigger = 4;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kLevel0Trigger;
+  ReopenWithCompactionService(&options);
+
+  // generate a few SSTs locally which should not have user property
+  for (int i = 0; i < kNumSst; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  TablePropertiesCollection fname_to_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&fname_to_props));
+  for (const auto& file_props : fname_to_props) {
+    auto properties = file_props.second->user_collected_properties;
+    auto it = properties.find(kUserPropertyName);
+    ASSERT_EQ(it, properties.end());
+  }
+
+  // trigger compaction
+  for (int i = kNumSst; i < kLevel0Trigger; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&fname_to_props));
+
+  bool has_user_property = false;
+  for (const auto& file_props : fname_to_props) {
+    auto properties = file_props.second->user_collected_properties;
+    auto it = properties.find(kUserPropertyName);
+    if (it != properties.end()) {
+      has_user_property = true;
+      ASSERT_GT(std::stoi(it->second), 0);
+    }
+  }
+  ASSERT_TRUE(has_user_property);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

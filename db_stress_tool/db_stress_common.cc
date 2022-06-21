@@ -148,6 +148,34 @@ void DbVerificationThread(void* v) {
   }
 }
 
+void SnapshotGcThread(void* v) {
+  assert(FLAGS_create_timestamped_snapshot_one_in > 0);
+  auto* thread = reinterpret_cast<ThreadState*>(v);
+  assert(thread);
+  SharedState* shared = thread->shared;
+  assert(shared);
+  StressTest* stress_test = shared->GetStressTest();
+  assert(stress_test);
+  while (true) {
+    {
+      MutexLock l(shared->GetMutex());
+      if (shared->ShouldStopBgThread()) {
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
+        return;
+      }
+    }
+
+    uint64_t now = db_stress_env->NowNanos();
+    constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
+    stress_test->ReleaseOldTimestampedSnapshots(now - time_diff);
+
+    db_stress_env->SleepForMicroseconds(1000 * 1000);
+  }
+}
+
 void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz) {
   if (!FLAGS_verbose) {
     return;

@@ -82,6 +82,7 @@ LIB_SOURCES =                                                   \
   db/version_set.cc                                             \
   db/wal_edit.cc                                                \
   db/wal_manager.cc                                             \
+  db/wide/wide_column_serialization.cc                          \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
@@ -211,6 +212,7 @@ LIB_SOURCES =                                                   \
   trace_replay/trace_replay.cc                                  \
   trace_replay/block_cache_tracer.cc                            \
   trace_replay/io_tracer.cc                                     \
+  util/async_file_reader.cc					\
   util/build_version.cc                                         \
   util/cleanable.cc                                             \
   util/coding.cc                                                \
@@ -364,6 +366,7 @@ STRESS_LIB_SOURCES =                                            \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
+  db/db_with_timestamp_test_util.cc                             \
   test_util/mock_time_env.cc                                    \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
@@ -429,7 +432,6 @@ TEST_MAIN_SOURCES =                                                     \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/db_basic_test.cc                                                   \
-  db/db_with_timestamp_basic_test.cc                                    \
   db/db_block_cache_test.cc                                             \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
@@ -437,6 +439,8 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
   db/db_flush_test.cc                                                   \
+  db/db_readonly_with_timestamp_test.cc                                 \
+  db/db_with_timestamp_basic_test.cc                                    \
   db/import_column_family_test.cc                                       \
   db/db_inplace_update_test.cc                                          \
   db/db_io_failure_test.cc                                              \
@@ -494,6 +498,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
   db/wal_manager_test.cc                                                \
+  db/wide/wide_column_serialization_test.cc                             \
   db/write_batch_test.cc                                                \
   db/write_callback_test.cc                                             \
   db/write_controller_test.cc                                           \
@@ -589,6 +594,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/transactions/write_unprepared_transaction_test.cc           \
   utilities/transactions/write_committed_transaction_ts_test.cc         \
+  utilities/transactions/timestamped_snapshot_test.cc                   \
   utilities/ttl/ttl_test.cc                                             \
   utilities/util_merge_operators_test.cc                                \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \

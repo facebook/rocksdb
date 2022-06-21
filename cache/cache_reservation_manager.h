@@ -36,6 +36,12 @@ class CacheReservationManager {
   };
   virtual ~CacheReservationManager() {}
   virtual Status UpdateCacheReservation(std::size_t new_memory_used) = 0;
+  // TODO(hx235): replace the usage of
+  // `UpdateCacheReservation(memory_used_delta, increase)` with
+  // `UpdateCacheReservation(new_memory_used)` so that we only have one
+  // `UpdateCacheReservation` function
+  virtual Status UpdateCacheReservation(std::size_t memory_used_delta,
+                                        bool increase) = 0;
   virtual Status MakeCacheReservation(
       std::size_t incremental_memory_used,
       std::unique_ptr<CacheReservationManager::CacheReservationHandle>
@@ -127,6 +133,11 @@ class CacheReservationManagerImpl
   //         On releasing dummy entries, it always returns Status::OK().
   //         On keeping dummy entries the same, it always returns Status::OK().
   Status UpdateCacheReservation(std::size_t new_memory_used) override;
+
+  Status UpdateCacheReservation(std::size_t /* memory_used_delta */,
+                                bool /* increase */) override {
+    return Status::NotSupported();
+  }
 
   // One of the two ways of reserving cache space and releasing is done through
   // destruction of CacheReservationHandle.
@@ -254,6 +265,23 @@ class ConcurrentCacheReservationManager
     std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
     return cache_res_mgr_->UpdateCacheReservation(new_memory_used);
   }
+
+  inline Status UpdateCacheReservation(std::size_t memory_used_delta,
+                                       bool increase) override {
+    std::lock_guard<std::mutex> lock(cache_res_mgr_mu_);
+    std::size_t total_mem_used = cache_res_mgr_->GetTotalMemoryUsed();
+    Status s;
+    if (!increase) {
+      assert(total_mem_used >= memory_used_delta);
+      s = cache_res_mgr_->UpdateCacheReservation(total_mem_used -
+                                                 memory_used_delta);
+    } else {
+      s = cache_res_mgr_->UpdateCacheReservation(total_mem_used +
+                                                 memory_used_delta);
+    }
+    return s;
+  }
+
   inline Status MakeCacheReservation(
       std::size_t incremental_memory_used,
       std::unique_ptr<CacheReservationManager::CacheReservationHandle> *handle)

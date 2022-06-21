@@ -89,6 +89,7 @@ class FilePrefetchBuffer {
     // while curr_ is being consumed. If data is overlapping in two buffers,
     // data is copied to third buffer to return continuous buffer.
     bufs_.resize(3);
+    (void)async_io_;
   }
 
   ~FilePrefetchBuffer() {
@@ -131,10 +132,21 @@ class FilePrefetchBuffer {
                   uint64_t offset, size_t n,
                   Env::IOPriority rate_limiter_priority);
 
+  // Request for reading the data from a file asynchronously.
+  // If data already exists in the buffer, result will be updated.
+  // reader                : the file reader.
+  // offset                : the file offset to start reading from.
+  // n                     : the number of bytes to read.
+  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
+  //                         bypass.
+  // result                : if data already exists in the buffer, result will
+  //                         be updated with the data.
+  //
+  // If data already exist in the buffer, it will return Status::OK, otherwise
+  // it will send asynchronous request and return Status::TryAgain.
   Status PrefetchAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                       uint64_t offset, size_t length, size_t readahead_size,
-                       Env::IOPriority rate_limiter_priority,
-                       bool& copy_to_third_buffer);
+                       uint64_t offset, size_t n,
+                       Env::IOPriority rate_limiter_priority, Slice* result);
 
   // Tries returning the data for a file read from this buffer if that data is
   // in the buffer.
@@ -159,8 +171,7 @@ class FilePrefetchBuffer {
   bool TryReadFromCacheAsync(const IOOptions& opts,
                              RandomAccessFileReader* reader, uint64_t offset,
                              size_t n, Slice* result, Status* status,
-                             Env::IOPriority rate_limiter_priority,
-                             bool for_compaction /* = false */);
+                             Env::IOPriority rate_limiter_priority);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.
@@ -207,22 +218,6 @@ class FilePrefetchBuffer {
     }
   }
 
-  bool IsEligibleForPrefetch(uint64_t offset, size_t n) {
-    // Prefetch only if this read is sequential otherwise reset readahead_size_
-    // to initial value.
-    if (!IsBlockSequential(offset)) {
-      UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
-      ResetValues();
-      return false;
-    }
-    num_file_reads_++;
-    if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
-      UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
-      return false;
-    }
-    return true;
-  }
-
   // Callback function passed to underlying FS in case of asynchronous reads.
   void PrefetchAsyncCallback(const FSReadRequest& req, void* cb_arg);
 
@@ -233,6 +228,17 @@ class FilePrefetchBuffer {
   void CalculateOffsetAndLen(size_t alignment, uint64_t offset,
                              size_t roundup_len, size_t index, bool refit_tail,
                              uint64_t& chunk_len);
+
+  // It calls Poll API if any there is any pending asynchronous request. It then
+  // checks if data is in any buffer. It clears the outdated data and swaps the
+  // buffers if required.
+  void PollAndUpdateBuffersIfNeeded(uint64_t offset);
+
+  Status PrefetchAsyncInternal(const IOOptions& opts,
+                               RandomAccessFileReader* reader, uint64_t offset,
+                               size_t length, size_t readahead_size,
+                               Env::IOPriority rate_limiter_priority,
+                               bool& copy_to_third_buffer);
 
   Status Read(const IOOptions& opts, RandomAccessFileReader* reader,
               Env::IOPriority rate_limiter_priority, uint64_t read_len,
@@ -254,6 +260,22 @@ class FilePrefetchBuffer {
   void ResetValues() {
     num_file_reads_ = 1;
     readahead_size_ = initial_auto_readahead_size_;
+  }
+
+  bool IsEligibleForPrefetch(uint64_t offset, size_t n) {
+    // Prefetch only if this read is sequential otherwise reset readahead_size_
+    // to initial value.
+    if (!IsBlockSequential(offset)) {
+      UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
+      ResetValues();
+      return false;
+    }
+    num_file_reads_++;
+    if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
+      UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
+      return false;
+    }
+    return true;
   }
 
   std::vector<BufferInfo> bufs_;

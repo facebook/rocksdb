@@ -31,6 +31,7 @@
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/coro_utils.h"
 #include "util/hash_containers.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -141,10 +142,11 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
-  void MultiGet(const ReadOptions& readOptions,
-                const MultiGetContext::Range* mget_range,
-                const SliceTransform* prefix_extractor,
-                bool skip_filters = false) override;
+  DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
+                                  const ReadOptions& readOptions,
+                                  const MultiGetContext::Range* mget_range,
+                                  const SliceTransform* prefix_extractor,
+                                  bool skip_filters = false);
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
@@ -273,11 +275,14 @@ class BlockBasedTable : public TableReader {
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
-  TBlockIter* NewDataBlockIterator(
-      const ReadOptions& ro, const BlockHandle& block_handle,
-      TBlockIter* input_iter, BlockType block_type, GetContext* get_context,
-      BlockCacheLookupContext* lookup_context, Status s,
-      FilePrefetchBuffer* prefetch_buffer, bool for_compaction = false) const;
+  TBlockIter* NewDataBlockIterator(const ReadOptions& ro,
+                                   const BlockHandle& block_handle,
+                                   TBlockIter* input_iter, BlockType block_type,
+                                   GetContext* get_context,
+                                   BlockCacheLookupContext* lookup_context,
+                                   FilePrefetchBuffer* prefetch_buffer,
+                                   bool for_compaction, bool async_read,
+                                   Status& s) const;
 
   // input_iter: if it is not null, update this one and return it as Iterator
   template <typename TBlockIter>
@@ -351,7 +356,7 @@ class BlockBasedTable : public TableReader {
       const bool wait, const bool for_compaction,
       CachableEntry<TBlocklike>* block_entry, BlockType block_type,
       GetContext* get_context, BlockCacheLookupContext* lookup_context,
-      BlockContents* contents) const;
+      BlockContents* contents, bool async_read) const;
 
   // Similar to the above, with one crucial difference: it will retrieve the
   // block from the file even if there are no caches configured (assuming the
@@ -363,16 +368,17 @@ class BlockBasedTable : public TableReader {
                        CachableEntry<TBlocklike>* block_entry,
                        BlockType block_type, GetContext* get_context,
                        BlockCacheLookupContext* lookup_context,
-                       bool for_compaction, bool use_cache,
-                       bool wait_for_cache) const;
+                       bool for_compaction, bool use_cache, bool wait_for_cache,
+                       bool async_read) const;
 
-  void RetrieveMultipleBlocks(
-      const ReadOptions& options, const MultiGetRange* batch,
+  DECLARE_SYNC_AND_ASYNC_CONST(
+      void, RetrieveMultipleBlocks, const ReadOptions& options,
+      const MultiGetRange* batch,
       const autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE>* handles,
       autovector<Status, MultiGetContext::MAX_BATCH_SIZE>* statuses,
       autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
           results,
-      char* scratch, const UncompressionDict& uncompression_dict) const;
+      char* scratch, const UncompressionDict& uncompression_dict);
 
   // Get the iterator from the index reader.
   //
@@ -590,12 +596,6 @@ struct BlockBasedTable::Rep {
   BlockBasedTableOptions::IndexType index_type;
   bool whole_key_filtering;
   bool prefix_filtering;
-  // TODO(kailiu) It is very ugly to use internal key in table, since table
-  // module should not be relying on db module. However to make things easier
-  // and compatible with existing code, we introduce a wrapper that allows
-  // block to extract prefix without knowing if a key is internal or not.
-  // null if no prefix_extractor is passed in when opening the table reader.
-  std::unique_ptr<SliceTransform> internal_prefix_transform;
   std::shared_ptr<const SliceTransform> table_prefix_extractor;
 
   std::shared_ptr<const FragmentedRangeTombstoneList> fragmented_range_dels;
@@ -635,7 +635,7 @@ struct BlockBasedTable::Rep {
       table_reader_cache_res_handle = nullptr;
 
   SequenceNumber get_global_seqno(BlockType block_type) const {
-    return (block_type == BlockType::kFilter ||
+    return (block_type == BlockType::kFilterPartitionIndex ||
             block_type == BlockType::kCompressionDictionary)
                ? kDisableGlobalSequenceNumber
                : global_seqno;

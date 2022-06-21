@@ -48,6 +48,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/math.h"
+#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/checkpoint/checkpoint_impl.h"
@@ -179,6 +180,61 @@ class BackupEngineImpl {
   ShareFilesNaming GetNamingFlags() const {
     return options_.share_files_with_checksum_naming &
            BackupEngineOptions::kMaskNamingFlags;
+  }
+
+  void TEST_SetDefaultRateLimitersClock(
+      const std::shared_ptr<SystemClock>& backup_rate_limiter_clock,
+      const std::shared_ptr<SystemClock>& restore_rate_limiter_clock) {
+    if (backup_rate_limiter_clock) {
+      assert(options_.backup_rate_limiter->IsInstanceOf(
+          GenericRateLimiter::kClassName()));
+      auto* backup_rate_limiter_options =
+          options_.backup_rate_limiter
+              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
+
+      assert(backup_rate_limiter_options);
+      RateLimiter::Mode backup_rate_limiter_mode;
+      if (!options_.backup_rate_limiter->IsRateLimited(
+              RateLimiter::OpType::kRead)) {
+        backup_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
+      } else if (!options_.backup_rate_limiter->IsRateLimited(
+                     RateLimiter::OpType::kWrite)) {
+        backup_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
+      } else {
+        backup_rate_limiter_mode = RateLimiter::Mode::kAllIo;
+      }
+      options_.backup_rate_limiter.reset(new GenericRateLimiter(
+          backup_rate_limiter_options->max_bytes_per_sec,
+          backup_rate_limiter_options->refill_period_us,
+          backup_rate_limiter_options->fairness, backup_rate_limiter_mode,
+          backup_rate_limiter_clock, backup_rate_limiter_options->auto_tuned));
+    }
+
+    if (restore_rate_limiter_clock) {
+      assert(options_.restore_rate_limiter->IsInstanceOf(
+          GenericRateLimiter::kClassName()));
+      auto* restore_rate_limiter_options =
+          options_.restore_rate_limiter
+              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
+      assert(restore_rate_limiter_options);
+
+      RateLimiter::Mode restore_rate_limiter_mode;
+      if (!options_.restore_rate_limiter->IsRateLimited(
+              RateLimiter::OpType::kRead)) {
+        restore_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
+      } else if (!options_.restore_rate_limiter->IsRateLimited(
+                     RateLimiter::OpType::kWrite)) {
+        restore_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
+      } else {
+        restore_rate_limiter_mode = RateLimiter::Mode::kAllIo;
+      }
+      options_.restore_rate_limiter.reset(new GenericRateLimiter(
+          restore_rate_limiter_options->max_bytes_per_sec,
+          restore_rate_limiter_options->refill_period_us,
+          restore_rate_limiter_options->fairness, restore_rate_limiter_mode,
+          restore_rate_limiter_clock,
+          restore_rate_limiter_options->auto_tuned));
+    }
   }
 
  private:
@@ -643,11 +699,11 @@ class BackupEngineImpl {
     CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
     CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
 
-    CopyOrCreateWorkItem(CopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+    CopyOrCreateWorkItem(CopyOrCreateWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 
-    CopyOrCreateWorkItem& operator=(CopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+    CopyOrCreateWorkItem& operator=(CopyOrCreateWorkItem&& o) noexcept {
       src_path = std::move(o.src_path);
       dst_path = std::move(o.dst_path);
       src_temperature = std::move(o.src_temperature);
@@ -716,13 +772,13 @@ class BackupEngineImpl {
         dst_path(""),
         dst_relative("") {}
 
-    BackupAfterCopyOrCreateWorkItem(BackupAfterCopyOrCreateWorkItem&& o)
-        ROCKSDB_NOEXCEPT {
+    BackupAfterCopyOrCreateWorkItem(
+        BackupAfterCopyOrCreateWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 
     BackupAfterCopyOrCreateWorkItem& operator=(
-        BackupAfterCopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+        BackupAfterCopyOrCreateWorkItem&& o) noexcept {
       result = std::move(o.result);
       shared = o.shared;
       needed_to_copy = o.needed_to_copy;
@@ -761,13 +817,13 @@ class BackupEngineImpl {
           from_file(_from_file),
           to_file(_to_file),
           checksum_hex(_checksum_hex) {}
-    RestoreAfterCopyOrCreateWorkItem(RestoreAfterCopyOrCreateWorkItem&& o)
-        ROCKSDB_NOEXCEPT {
+    RestoreAfterCopyOrCreateWorkItem(
+        RestoreAfterCopyOrCreateWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 
     RestoreAfterCopyOrCreateWorkItem& operator=(
-        RestoreAfterCopyOrCreateWorkItem&& o) ROCKSDB_NOEXCEPT {
+        RestoreAfterCopyOrCreateWorkItem&& o) noexcept {
       result = std::move(o.result);
       checksum_hex = std::move(o.checksum_hex);
       return *this;
@@ -940,6 +996,15 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   void TEST_SetBackupMetaSchemaOptions(
       const TEST_BackupMetaSchemaOptions& options) {
     impl_.schema_test_options_.reset(new TEST_BackupMetaSchemaOptions(options));
+  }
+
+  // Not public API but used in testing
+  void TEST_SetDefaultRateLimitersClock(
+      const std::shared_ptr<SystemClock>& backup_rate_limiter_clock = nullptr,
+      const std::shared_ptr<SystemClock>& restore_rate_limiter_clock =
+          nullptr) {
+    impl_.TEST_SetDefaultRateLimitersClock(backup_rate_limiter_clock,
+                                           restore_rate_limiter_clock);
   }
 
  private:
@@ -1857,7 +1922,7 @@ IOStatus BackupEngineImpl::RestoreDBFromBackup(
         GetAbsolutePath(file), dst, Temperature::kUnknown /* src_temp */,
         file_info->temp, "" /* contents */, backup_env_, db_env_,
         EnvOptions() /* src_env_options */, options_.sync,
-        options_.restore_rate_limiter.get(), 0 /* size_limit */,
+        options_.restore_rate_limiter.get(), file_info->size,
         nullptr /* stats */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(), file, dst,
@@ -2039,7 +2104,8 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     // Return back current temperature in FileSystem
     *src_temperature = src_file->GetTemperature();
 
-    src_reader.reset(new SequentialFileReader(std::move(src_file), src));
+    src_reader.reset(new SequentialFileReader(
+        std::move(src_file), src, nullptr /* io_tracer */, {}, rate_limiter));
     buf.reset(new char[buf_size]);
   }
 
@@ -2051,11 +2117,8 @@ IOStatus BackupEngineImpl::CopyOrCreateFile(
     if (!src.empty()) {
       size_t buffer_to_read =
           (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
-      io_s = src_reader->Read(buffer_to_read, &data, buf.get());
-      if (rate_limiter != nullptr) {
-        rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
-                              RateLimiter::OpType::kRead);
-      }
+      io_s = src_reader->Read(buffer_to_read, &data, buf.get(),
+                              Env::IO_LOW /* rate_limiter_priority */);
       *bytes_toward_next_callback += data.size();
     } else {
       data = contents;
@@ -2356,16 +2419,14 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
   std::unique_ptr<SequentialFileReader> src_reader;
   auto file_options = FileOptions(src_env_options);
   file_options.temperature = src_temperature;
-  IOStatus io_s = SequentialFileReader::Create(src_fs, src, file_options,
-                                               &src_reader, nullptr);
+  RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
+  IOStatus io_s = SequentialFileReader::Create(
+      src_fs, src, file_options, &src_reader, nullptr /* dbg */, rate_limiter);
   if (!io_s.ok()) {
     return io_s;
   }
 
-  RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
-  size_t buf_size =
-      rate_limiter ? static_cast<size_t>(rate_limiter->GetSingleBurstBytes())
-                   : kDefaultCopyFileBufferSize;
+  size_t buf_size = kDefaultCopyFileBufferSize;
   std::unique_ptr<char[]> buf(new char[buf_size]);
   Slice data;
 
@@ -2375,11 +2436,8 @@ IOStatus BackupEngineImpl::ReadFileAndComputeChecksum(
     }
     size_t buffer_to_read =
         (buf_size < size_limit) ? buf_size : static_cast<size_t>(size_limit);
-    io_s = src_reader->Read(buffer_to_read, &data, buf.get());
-    if (rate_limiter != nullptr) {
-      rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */,
-                            RateLimiter::OpType::kRead);
-    }
+    io_s = src_reader->Read(buffer_to_read, &data, buf.get(),
+                            Env::IO_LOW /* rate_limiter_priority */);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -2782,7 +2840,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   std::unique_ptr<LineFileReader> backup_meta_reader;
   {
     IOStatus io_s = LineFileReader::Create(fs_, meta_filename_, FileOptions(),
-                                           &backup_meta_reader, nullptr);
+                                           &backup_meta_reader,
+                                           nullptr /* dbg */, rate_limiter);
     if (!io_s.ok()) {
       return io_s;
     }
@@ -2794,12 +2853,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
 
   // Failures handled at the end
   std::string line;
-  if (backup_meta_reader->ReadLine(&line)) {
-    if (rate_limiter != nullptr) {
-      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
-                                 nullptr /* stats */,
-                                 RateLimiter::OpType::kRead);
-    }
+  if (backup_meta_reader->ReadLine(&line,
+                                   Env::IO_LOW /* rate_limiter_priority */)) {
     if (StartsWith(line, kSchemaVersionPrefix)) {
       std::string ver = line.substr(kSchemaVersionPrefix.size());
       if (ver == "2" || StartsWith(ver, "2.")) {
@@ -2815,29 +2870,17 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   }
   if (!line.empty()) {
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
-  } else if (backup_meta_reader->ReadLine(&line)) {
-    if (rate_limiter != nullptr) {
-      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
-                                 nullptr /* stats */,
-                                 RateLimiter::OpType::kRead);
-    }
+  } else if (backup_meta_reader->ReadLine(
+                 &line, Env::IO_LOW /* rate_limiter_priority */)) {
     timestamp_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
-  if (backup_meta_reader->ReadLine(&line)) {
-    if (rate_limiter != nullptr) {
-      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
-                                 nullptr /* stats */,
-                                 RateLimiter::OpType::kRead);
-    }
+  if (backup_meta_reader->ReadLine(&line,
+                                   Env::IO_LOW /* rate_limiter_priority */)) {
     sequence_number_ = std::strtoull(line.c_str(), nullptr, /*base*/ 10);
   }
   uint32_t num_files = UINT32_MAX;
-  while (backup_meta_reader->ReadLine(&line)) {
-    if (rate_limiter != nullptr) {
-      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
-                                 nullptr /* stats */,
-                                 RateLimiter::OpType::kRead);
-    }
+  while (backup_meta_reader->ReadLine(
+      &line, Env::IO_LOW /* rate_limiter_priority */)) {
     if (line.empty()) {
       return IOStatus::Corruption("Unexpected empty line");
     }
@@ -2876,12 +2919,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
   }
   std::vector<std::shared_ptr<FileInfo>> files;
   bool footer_present = false;
-  while (backup_meta_reader->ReadLine(&line)) {
-    if (rate_limiter != nullptr) {
-      LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
-                                 nullptr /* stats */,
-                                 RateLimiter::OpType::kRead);
-    }
+  while (backup_meta_reader->ReadLine(
+      &line, Env::IO_LOW /* rate_limiter_priority */)) {
     std::vector<std::string> components = StringSplit(line, ' ');
 
     if (components.size() < 1) {
@@ -2981,12 +3020,8 @@ IOStatus BackupEngineImpl::BackupMeta::LoadFromFile(
 
   if (footer_present) {
     assert(schema_major_version >= 2);
-    while (backup_meta_reader->ReadLine(&line)) {
-      if (rate_limiter != nullptr) {
-        LoopRateLimitRequestHelper(line.size(), rate_limiter, Env::IO_LOW,
-                                   nullptr /* stats */,
-                                   RateLimiter::OpType::kRead);
-      }
+    while (backup_meta_reader->ReadLine(
+        &line, Env::IO_LOW /* rate_limiter_priority */)) {
       if (line.empty()) {
         return IOStatus::Corruption("Unexpected empty line");
       }
@@ -3162,6 +3197,15 @@ void TEST_SetBackupMetaSchemaOptions(
   impl->TEST_SetBackupMetaSchemaOptions(options);
 }
 
+void TEST_SetDefaultRateLimitersClock(
+    BackupEngine* engine,
+    const std::shared_ptr<SystemClock>& backup_rate_limiter_clock,
+    const std::shared_ptr<SystemClock>& restore_rate_limiter_clock) {
+  BackupEngineImplThreadSafe* impl =
+      static_cast_with_check<BackupEngineImplThreadSafe>(engine);
+  impl->TEST_SetDefaultRateLimitersClock(backup_rate_limiter_clock,
+                                         restore_rate_limiter_clock);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

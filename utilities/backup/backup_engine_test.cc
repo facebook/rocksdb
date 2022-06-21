@@ -2598,80 +2598,119 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
   size_t const kMicrosPerSec = 1000 * 1000LL;
-
-  std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(1));
-  std::shared_ptr<RateLimiter> restoreThrottler(NewGenericRateLimiter(1));
-
-  bool makeThrottler = std::get<0>(GetParam());
-  if (makeThrottler) {
-    engine_options_->backup_rate_limiter = backupThrottler;
-    engine_options_->restore_rate_limiter = restoreThrottler;
-  }
-
+  const bool custom_rate_limiter = std::get<0>(GetParam());
   // iter 0 -- single threaded
   // iter 1 -- multi threaded
-  int iter = std::get<1>(GetParam());
+  const int iter = std::get<1>(GetParam());
   const std::pair<uint64_t, uint64_t> limit = std::get<2>(GetParam());
-
+  std::unique_ptr<Env> special_env(
+      new SpecialEnv(db_chroot_env_.get(), /*time_elapse_only_sleep*/ true));
   // destroy old data
-  DestroyDB(dbname_, Options());
-  if (makeThrottler) {
-    backupThrottler->SetBytesPerSecond(limit.first);
-    restoreThrottler->SetBytesPerSecond(limit.second);
+  Options options;
+  options.env = special_env.get();
+  DestroyDB(dbname_, options);
+
+  if (custom_rate_limiter) {
+    std::shared_ptr<RateLimiter> backup_rate_limiter =
+        std::make_shared<GenericRateLimiter>(
+            limit.first, 100 * 1000 /* refill_period_us */, 10 /* fairness */,
+            RateLimiter::Mode::kWritesOnly /* mode */,
+            special_env->GetSystemClock(), false /* auto_tuned */);
+    std::shared_ptr<RateLimiter> restore_rate_limiter =
+        std::make_shared<GenericRateLimiter>(
+            limit.second, 100 * 1000 /* refill_period_us */, 10 /* fairness */,
+            RateLimiter::Mode::kWritesOnly /* mode */,
+            special_env->GetSystemClock(), false /* auto_tuned */);
+    engine_options_->backup_rate_limiter = backup_rate_limiter;
+    engine_options_->restore_rate_limiter = restore_rate_limiter;
   } else {
     engine_options_->backup_rate_limit = limit.first;
     engine_options_->restore_rate_limit = limit.second;
   }
+
   engine_options_->max_background_operations = (iter == 0) ? 1 : 10;
   options_.compression = kNoCompression;
-  OpenDBAndBackupEngine(true);
-  size_t bytes_written = FillDB(db_.get(), 0, 100000);
 
-  auto start_backup = db_chroot_env_->NowMicros();
+  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
+  // `Env` to advance its time according to the fake wait duration. The
+  // workaround is to install a callback that advance the `Env`'s mock time.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
+        int64_t time_waited_us = *static_cast<int64_t*>(arg);
+        special_env->SleepForMicroseconds(static_cast<int>(time_waited_us));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenDBAndBackupEngine(true);
+  TEST_SetDefaultRateLimitersClock(backup_engine_.get(),
+                                   special_env->GetSystemClock());
+
+  size_t bytes_written = FillDB(db_.get(), 0, 10000);
+
+  auto start_backup = special_env->NowMicros();
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-  auto backup_time = db_chroot_env_->NowMicros() - start_backup;
+  auto backup_time = special_env->NowMicros() - start_backup;
+  CloseDBAndBackupEngine();
   auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) / limit.first;
   ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
 
-  CloseDBAndBackupEngine();
-
   OpenBackupEngine();
-  auto start_restore = db_chroot_env_->NowMicros();
+  TEST_SetDefaultRateLimitersClock(backup_engine_.get(),
+                                   special_env->GetSystemClock());
+
+  auto start_restore = special_env->NowMicros();
   ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-  auto restore_time = db_chroot_env_->NowMicros() - start_restore;
+  auto restore_time = special_env->NowMicros() - start_restore;
   CloseBackupEngine();
   auto rate_limited_restore_time =
       (bytes_written * kMicrosPerSec) / limit.second;
   ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
 
-  AssertBackupConsistency(0, 0, 100000, 100010);
+  AssertBackupConsistency(0, 0, 10000, 10100);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostTimedWait");
 }
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
   const std::size_t kMicrosPerSec = 1000 * 1000LL;
-  std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(
-      1, 100 * 1000 /* refill_period_us */, 10 /* fairness */,
-      RateLimiter::Mode::kAllIo /* mode */));
-
-  bool makeThrottler = std::get<0>(GetParam());
-  if (makeThrottler) {
-    engine_options_->backup_rate_limiter = backupThrottler;
-  }
-
-  bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
-  engine_options_->max_background_operations = is_single_threaded ? 1 : 10;
-
+  const bool custom_rate_limiter = std::get<0>(GetParam());
   const std::uint64_t backup_rate_limiter_limit = std::get<2>(GetParam()).first;
-  if (makeThrottler) {
-    engine_options_->backup_rate_limiter->SetBytesPerSecond(
-        backup_rate_limiter_limit);
+  const bool is_single_threaded = std::get<1>(GetParam()) == 0 ? true : false;
+  std::unique_ptr<Env> special_env(
+      new SpecialEnv(db_chroot_env_.get(), /*time_elapse_only_sleep*/ true));
+
+  if (custom_rate_limiter) {
+    std::shared_ptr<RateLimiter> backup_rate_limiter =
+        std::make_shared<GenericRateLimiter>(
+            backup_rate_limiter_limit, 100 * 1000 /* refill_period_us */,
+            10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */,
+            special_env->GetSystemClock(), false /* auto_tuned */);
+    engine_options_->backup_rate_limiter = backup_rate_limiter;
   } else {
     engine_options_->backup_rate_limit = backup_rate_limiter_limit;
   }
 
-  DestroyDB(dbname_, Options());
+  engine_options_->max_background_operations = is_single_threaded ? 1 : 10;
+
+  Options options;
+  options.env = special_env.get();
+  DestroyDB(dbname_, options);
+  // Rate limiter uses `CondVar::TimedWait()`, which does not have access to the
+  // `Env` to advance its time according to the fake wait duration. The
+  // workaround is to install a callback that advance the `Env`'s mock time.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:PostTimedWait", [&](void* arg) {
+        int64_t time_waited_us = *static_cast<int64_t*>(arg);
+        special_env->SleepForMicroseconds(static_cast<int>(time_waited_us));
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   OpenDBAndBackupEngine(true /* destroy_old_data */);
-  FillDB(db_.get(), 0, 100000);
+  TEST_SetDefaultRateLimitersClock(backup_engine_.get(),
+                                   special_env->GetSystemClock(), nullptr);
+  FillDB(db_.get(), 0, 10000);
+
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
                                             false /* flush_before_backup */));
 
@@ -2688,21 +2727,24 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingVerifyBackup) {
   for (BackupFileInfo backup_file_info : backup_info.file_details) {
     bytes_read_during_verify_backup += backup_file_info.size;
   }
-
-  auto start_verify_backup = db_chroot_env_->NowMicros();
+  auto start_verify_backup = special_env->NowMicros();
   ASSERT_OK(
       backup_engine_->VerifyBackup(backup_id, true /* verify_with_checksum */));
-  auto verify_backup_time = db_chroot_env_->NowMicros() - start_verify_backup;
+  auto verify_backup_time = special_env->NowMicros() - start_verify_backup;
   auto rate_limited_verify_backup_time =
       (bytes_read_during_verify_backup * kMicrosPerSec) /
       backup_rate_limiter_limit;
-
-  if (makeThrottler) {
+  if (custom_rate_limiter) {
     EXPECT_GE(verify_backup_time, 0.8 * rate_limited_verify_backup_time);
   }
+
   CloseDBAndBackupEngine();
-  AssertBackupConsistency(backup_id, 0, 100000, 100010);
-  DestroyDB(dbname_, Options());
+  AssertBackupConsistency(backup_id, 0, 10000, 10010);
+  DestroyDB(dbname_, options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearCallBack(
+      "GenericRateLimiter::Request:PostTimedWait");
 }
 
 TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
@@ -3024,7 +3066,7 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   db = nullptr;
 
   // Now try opening read-write and make sure it fails, for safety.
-  ASSERT_TRUE(DB::Open(opts, name, &db).IsIOError());
+  ASSERT_TRUE(DB::Open(opts, name, &db).IsAborted());
 }
 
 TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {

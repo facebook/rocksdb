@@ -53,15 +53,7 @@ class SharedState {
   // local variable updated via sync points to keep track of errors injected
   // while reading filter blocks in order to ignore the Get/MultiGet result
   // for those calls
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-#if defined(OS_SOLARIS)
-  static __thread bool ignore_read_error;
-#else
   static thread_local bool ignore_read_error;
-#endif // OS_SOLARIS
-#else
-  static bool ignore_read_error;
-#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
   SharedState(Env* /*env*/, StressTest* stress_test)
       : cv_(&mu_),

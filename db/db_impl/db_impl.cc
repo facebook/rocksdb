@@ -511,6 +511,19 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   WaitForBackgroundWork();
 }
 
+Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
+  size_t num_snapshots = 0;
+  ReleaseTimestampedSnapshotsOlderThan(std::numeric_limits<uint64_t>::max(),
+                                       &num_snapshots);
+
+  // If there is unreleased snapshot, fail the close call
+  if (num_snapshots > 0) {
+    return Status::Aborted("Cannot close DB with unreleased snapshot.");
+  }
+
+  return Status::OK();
+}
+
 Status DBImpl::CloseHelper() {
   // Guarantee that there is no background error recovery in progress before
   // continuing with the shutdown
@@ -714,12 +727,17 @@ Status DBImpl::CloseHelper() {
     write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
   }
 
+  IOStatus io_s = directories_.Close(IOOptions(), nullptr /* dbg */);
+  if (!io_s.ok()) {
+    ret = io_s;
+  }
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
     // retry. In this case, we wrap this exception to something else.
     return Status::Incomplete(ret.ToString());
   }
+
   return ret;
 }
 
@@ -727,11 +745,19 @@ Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
-  if (!closed_) {
-    closed_ = true;
-    closing_status_ = CloseHelper();
-    closing_status_.PermitUncheckedError();
+  if (closed_) {
+    return;
   }
+
+  closed_ = true;
+
+  {
+    const Status s = MaybeReleaseTimestampedSnapshotsAndCheck();
+    s.PermitUncheckedError();
+  }
+
+  closing_status_ = CloseImpl();
+  closing_status_.PermitUncheckedError();
 }
 
 void DBImpl::MaybeIgnoreError(Status* s) const {
@@ -1441,12 +1467,13 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
     assert(wal.getting_synced);
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        wal.writer->file()->GetFileSize() > 0) {
+      synced_wals.AddWal(wal.number,
+                         WalMetadata(wal.writer->file()->GetFileSize()));
+    }
+
     if (logs_.size() > 1) {
-      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-          wal.writer->file()->GetFileSize() > 0) {
-        synced_wals.AddWal(wal.number,
-                           WalMetadata(wal.writer->file()->GetFileSize()));
-      }
       logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
@@ -1723,17 +1750,6 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
-namespace {
-class GetWithTimestampReadCallback : public ReadCallback {
- public:
-  explicit GetWithTimestampReadCallback(SequenceNumber seq)
-      : ReadCallback(seq) {}
-  bool IsVisibleFullCheck(SequenceNumber seq) override {
-    return seq <= max_visible_seq_;
-  }
-};
-}  // namespace
-
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
@@ -1742,8 +1758,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   assert(get_impl_options.column_family);
 
   if (read_options.timestamp) {
-    const Status s = FailIfTsSizesMismatch(get_impl_options.column_family,
-                                           *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(get_impl_options.column_family,
+                                        *(read_options.timestamp),
+                                        /*ts_for_read=*/true);
     if (!s.ok()) {
       return s;
     }
@@ -1752,6 +1769,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     if (!s.ok()) {
       return s;
     }
+  }
+
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  if (get_impl_options.timestamp) {
+    get_impl_options.timestamp->clear();
   }
 
   GetWithTimestampReadCallback read_cb(0);  // Will call Refresh
@@ -1795,11 +1818,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     // data for the snapshot, so the reader would see neither data that was be
     // visible to the snapshot before compaction nor the newer data inserted
     // afterwards.
-    if (last_seq_same_as_publish_seq_) {
-      snapshot = versions_->LastSequence();
-    } else {
-      snapshot = versions_->LastPublishedSequence();
-    }
+    snapshot = GetLastPublishedSequence();
     if (get_impl_options.callback) {
       // The unprep_seqs are not published for write unprepared, so it could be
       // that max_visible_seq is larger. Seek to the std::max of the two.
@@ -1967,8 +1986,8 @@ std::vector<Status> DBImpl::MultiGet(
   for (size_t i = 0; i < num_keys; ++i) {
     assert(column_family[i]);
     if (read_options.timestamp) {
-      stat_list[i] =
-          FailIfTsSizesMismatch(column_family[i], *(read_options.timestamp));
+      stat_list[i] = FailIfTsMismatchCf(
+          column_family[i], *(read_options.timestamp), /*ts_for_read=*/true);
       if (!stat_list[i].ok()) {
         should_fail = true;
       }
@@ -2192,11 +2211,7 @@ bool DBImpl::MultiCFSnapshot(
       // version because a flush happening in between may compact away data for
       // the snapshot, but the snapshot is earlier than the data overwriting it,
       // so users may see wrong results.
-      if (last_seq_same_as_publish_seq_) {
-        *snapshot = versions_->LastSequence();
-      } else {
-        *snapshot = versions_->LastPublishedSequence();
-      }
+      *snapshot = GetLastPublishedSequence();
     }
   } else {
     // If we end up with the same issue of memtable geting sealed during 2
@@ -2227,11 +2242,7 @@ bool DBImpl::MultiCFSnapshot(
           // acquire the lock so we're sure to succeed
           mutex_.Lock();
         }
-        if (last_seq_same_as_publish_seq_) {
-          *snapshot = versions_->LastSequence();
-        } else {
-          *snapshot = versions_->LastPublishedSequence();
-        }
+        *snapshot = GetLastPublishedSequence();
       } else {
         *snapshot =
             static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
@@ -2302,7 +2313,8 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
     ColumnFamilyHandle* cfh = column_families[i];
     assert(cfh);
     if (read_options.timestamp) {
-      statuses[i] = FailIfTsSizesMismatch(cfh, *(read_options.timestamp));
+      statuses[i] = FailIfTsMismatchCf(cfh, *(read_options.timestamp),
+                                       /*ts_for_read=*/true);
       if (!statuses[i].ok()) {
         should_fail = true;
       }
@@ -2571,6 +2583,16 @@ Status DBImpl::MultiGetImpl(
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
 
+  assert(sorted_keys);
+  // Clear the timestamps for returning results so that we can distinguish
+  // between tombstone or key that has never been written
+  for (auto* kctx : *sorted_keys) {
+    assert(kctx);
+    if (kctx->timestamp) {
+      kctx->timestamp->clear();
+    }
+  }
+
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
@@ -2590,7 +2612,8 @@ Status DBImpl::MultiGetImpl(
                             ? MultiGetContext::MAX_BATCH_SIZE
                             : keys_left;
     MultiGetContext ctx(sorted_keys, start_key + num_keys - keys_left,
-                        batch_size, snapshot, read_options);
+                        batch_size, snapshot, read_options, GetFileSystem(),
+                        stats_);
     MultiGetRange range = ctx.GetMultiGetRange();
     range.AddValueSize(curr_value_size);
     bool lookup_current = false;
@@ -2782,7 +2805,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
-      single_column_family_mode_ = false;
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
@@ -2952,8 +2974,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   assert(column_family);
 
   if (read_options.timestamp) {
-    const Status s =
-        FailIfTsSizesMismatch(column_family, *(read_options.timestamp));
+    const Status s = FailIfTsMismatchCf(
+        column_family, *(read_options.timestamp), /*ts_for_read=*/true);
     if (!s.ok()) {
       return NewErrorIterator(s);
     }
@@ -3094,7 +3116,8 @@ Status DBImpl::NewIterators(
   if (read_options.timestamp) {
     for (auto* cf : column_families) {
       assert(cf);
-      const Status s = FailIfTsSizesMismatch(cf, *(read_options.timestamp));
+      const Status s = FailIfTsMismatchCf(cf, *(read_options.timestamp),
+                                          /*ts_for_read=*/true);
       if (!s.ok()) {
         return s;
       }
@@ -3156,6 +3179,48 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 }
 #endif  // ROCKSDB_LITE
 
+std::pair<Status, std::shared_ptr<const Snapshot>>
+DBImpl::CreateTimestampedSnapshot(SequenceNumber snapshot_seq, uint64_t ts) {
+  assert(ts != std::numeric_limits<uint64_t>::max());
+
+  auto ret = CreateTimestampedSnapshotImpl(snapshot_seq, ts, /*lock=*/true);
+  return ret;
+}
+
+std::shared_ptr<const SnapshotImpl> DBImpl::GetTimestampedSnapshot(
+    uint64_t ts) const {
+  InstrumentedMutexLock lock_guard(&mutex_);
+  return timestamped_snapshots_.GetSnapshot(ts);
+}
+
+void DBImpl::ReleaseTimestampedSnapshotsOlderThan(uint64_t ts,
+                                                  size_t* remaining_total_ss) {
+  autovector<std::shared_ptr<const SnapshotImpl>> snapshots_to_release;
+  {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    timestamped_snapshots_.ReleaseSnapshotsOlderThan(ts, snapshots_to_release);
+  }
+  snapshots_to_release.clear();
+
+  if (remaining_total_ss) {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    *remaining_total_ss = static_cast<size_t>(snapshots_.count());
+  }
+}
+
+Status DBImpl::GetTimestampedSnapshots(
+    uint64_t ts_lb, uint64_t ts_ub,
+    std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots) const {
+  if (ts_lb >= ts_ub) {
+    return Status::InvalidArgument(
+        "timestamp lower bound must be smaller than upper bound");
+  }
+  timestamped_snapshots.clear();
+  InstrumentedMutexLock lock_guard(&mutex_);
+  timestamped_snapshots_.GetSnapshots(ts_lb, ts_ub, timestamped_snapshots);
+  return Status::OK();
+}
+
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
   int64_t unix_time = 0;
@@ -3165,6 +3230,8 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
 
   if (lock) {
     mutex_.Lock();
+  } else {
+    mutex_.AssertHeld();
   }
   // returns null if the underlying memtable does not support snapshot.
   if (!is_snapshot_supported_) {
@@ -3174,15 +3241,122 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
     delete s;
     return nullptr;
   }
-  auto snapshot_seq = last_seq_same_as_publish_seq_
-                          ? versions_->LastSequence()
-                          : versions_->LastPublishedSequence();
+  auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
   if (lock) {
     mutex_.Unlock();
   }
   return snapshot;
+}
+
+std::pair<Status, std::shared_ptr<const SnapshotImpl>>
+DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
+                                      bool lock) {
+  int64_t unix_time = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
+  SnapshotImpl* s = new SnapshotImpl;
+
+  const bool need_update_seq = (snapshot_seq != kMaxSequenceNumber);
+
+  if (lock) {
+    mutex_.Lock();
+  } else {
+    mutex_.AssertHeld();
+  }
+  // returns null if the underlying memtable does not support snapshot.
+  if (!is_snapshot_supported_) {
+    if (lock) {
+      mutex_.Unlock();
+    }
+    delete s;
+    return std::make_pair(
+        Status::NotSupported("Memtable does not support snapshot"), nullptr);
+  }
+
+  // Caller is not write thread, thus didn't provide a valid snapshot_seq.
+  // Obtain seq from db.
+  if (!need_update_seq) {
+    snapshot_seq = GetLastPublishedSequence();
+  }
+
+  std::shared_ptr<const SnapshotImpl> latest =
+      timestamped_snapshots_.GetSnapshot(std::numeric_limits<uint64_t>::max());
+
+  // If there is already a latest timestamped snapshot, then we need to do some
+  // checks.
+  if (latest) {
+    uint64_t latest_snap_ts = latest->GetTimestamp();
+    SequenceNumber latest_snap_seq = latest->GetSequenceNumber();
+    assert(latest_snap_seq <= snapshot_seq);
+    bool needs_create_snap = true;
+    Status status;
+    std::shared_ptr<const SnapshotImpl> ret;
+    if (latest_snap_ts > ts) {
+      // A snapshot created later cannot have smaller timestamp than a previous
+      // timestamped snapshot.
+      needs_create_snap = false;
+      std::ostringstream oss;
+      oss << "snapshot exists with larger timestamp " << latest_snap_ts << " > "
+          << ts;
+      status = Status::InvalidArgument(oss.str());
+    } else if (latest_snap_ts == ts) {
+      if (latest_snap_seq == snapshot_seq) {
+        // We are requesting the same sequence number and timestamp, thus can
+        // safely reuse (share) the current latest timestamped snapshot.
+        needs_create_snap = false;
+        ret = latest;
+      } else if (latest_snap_seq < snapshot_seq) {
+        // There may have been writes to the database since the latest
+        // timestamped snapshot, yet we are still requesting the same
+        // timestamp. In this case, we cannot create the new timestamped
+        // snapshot.
+        needs_create_snap = false;
+        std::ostringstream oss;
+        oss << "Allocated seq is " << snapshot_seq
+            << ", while snapshot exists with smaller seq " << latest_snap_seq
+            << " but same timestamp " << ts;
+        status = Status::InvalidArgument(oss.str());
+      }
+    }
+    if (!needs_create_snap) {
+      if (lock) {
+        mutex_.Unlock();
+      }
+      delete s;
+      return std::make_pair(status, ret);
+    } else {
+      status.PermitUncheckedError();
+    }
+  }
+
+  SnapshotImpl* snapshot =
+      snapshots_.New(s, snapshot_seq, unix_time,
+                     /*is_write_conflict_boundary=*/true, ts);
+
+  std::shared_ptr<const SnapshotImpl> ret(
+      snapshot,
+      std::bind(&DBImpl::ReleaseSnapshot, this, std::placeholders::_1));
+  timestamped_snapshots_.AddSnapshot(ret);
+
+  // Caller is from write thread, and we need to update database's sequence
+  // number.
+  if (need_update_seq) {
+    assert(versions_);
+    if (last_seq_same_as_publish_seq_) {
+      versions_->SetLastSequence(snapshot_seq);
+    } else {
+      // TODO: support write-prepared/write-unprepared transactions with two
+      // write queues.
+      assert(false);
+    }
+  }
+
+  if (lock) {
+    mutex_.Unlock();
+  }
+  return std::make_pair(Status::OK(), ret);
 }
 
 namespace {
@@ -3210,11 +3384,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
-      if (last_seq_same_as_publish_seq_) {
-        oldest_snapshot = versions_->LastSequence();
-      } else {
-        oldest_snapshot = versions_->LastPublishedSequence();
-      }
+      oldest_snapshot = GetLastPublishedSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }
@@ -4105,13 +4275,14 @@ Status DBImpl::Close() {
   if (closed_) {
     return closing_status_;
   }
+
   {
-    InstrumentedMutexLock l(&mutex_);
-    // If there is unreleased snapshot, fail the close call
-    if (!snapshots_.empty()) {
-      return Status::Aborted("Cannot close DB with unreleased snapshot.");
+    const Status s = MaybeReleaseTimestampedSnapshotsAndCheck();
+    if (!s.ok()) {
+      return s;
     }
   }
+
   closing_status_ = CloseImpl();
   closed_ = true;
   return closing_status_;
@@ -4393,6 +4564,19 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
       s = dir_obj->FsyncWithDirOptions(IOOptions(), nullptr,
                                        DirFsyncOptions(options_file_name));
     }
+    if (s.ok()) {
+      Status temp_s = dir_obj->Close(IOOptions(), nullptr);
+      // The default Close() could return "NotSupproted" and we bypass it
+      // if it is not impelmented. Detailed explanations can be found in
+      // db/db_impl/db_impl.h
+      if (!temp_s.ok()) {
+        if (temp_s.IsNotSupported()) {
+          temp_s.PermitUncheckedError();
+        } else {
+          s = temp_s;
+        }
+      }
+    }
   }
   if (s.ok()) {
     InstrumentedMutexLock l(&mutex_);
@@ -4519,6 +4703,8 @@ Status DBImpl::GetLatestSequenceForKey(
           *timestamp != std::string(ts_sz, '\xff')) ||
          (*seq == kMaxSequenceNumber && timestamp->empty()));
 
+  TEST_SYNC_POINT_CALLBACK("DBImpl::GetLatestSequenceForKey:mem", timestamp);
+
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check immutable memtables
     *found_record_for_key = true;
@@ -4583,6 +4769,7 @@ Status DBImpl::GetLatestSequenceForKey(
          (*seq != kMaxSequenceNumber &&
           *timestamp != std::string(ts_sz, '\xff')) ||
          (*seq == kMaxSequenceNumber && timestamp->empty()));
+
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check SST files
     assert(0 == ts_sz || *timestamp != std::string(ts_sz, '\xff'));
@@ -4819,19 +5006,6 @@ Status DBImpl::IngestExternalFiles(
       }
     }
     if (status.ok()) {
-      int consumed_seqno_count =
-          ingestion_jobs[0].ConsumedSequenceNumbersCount();
-      for (size_t i = 1; i != num_cfs; ++i) {
-        consumed_seqno_count =
-            std::max(consumed_seqno_count,
-                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
-      }
-      if (consumed_seqno_count > 0) {
-        const SequenceNumber last_seqno = versions_->LastSequence();
-        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
-        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
-      }
       autovector<ColumnFamilyData*> cfds_to_commit;
       autovector<const MutableCFOptions*> mutable_cf_options_list;
       autovector<autovector<VersionEdit*>> edit_lists;
@@ -4861,6 +5035,27 @@ Status DBImpl::IngestExternalFiles(
       status =
           versions_->LogAndApply(cfds_to_commit, mutable_cf_options_list,
                                  edit_lists, &mutex_, directories_.GetDbDir());
+      // It is safe to update VersionSet last seqno here after LogAndApply since
+      // LogAndApply persists last sequence number from VersionEdits,
+      // which are from file's largest seqno and not from VersionSet.
+      //
+      // It is necessary to update last seqno here since LogAndApply releases
+      // mutex when persisting MANIFEST file, and the snapshots taken during
+      // that period will not be stable if VersionSet last seqno is updated
+      // before LogAndApply.
+      int consumed_seqno_count =
+          ingestion_jobs[0].ConsumedSequenceNumbersCount();
+      for (size_t i = 1; i != num_cfs; ++i) {
+        consumed_seqno_count =
+            std::max(consumed_seqno_count,
+                     ingestion_jobs[i].ConsumedSequenceNumbersCount());
+      }
+      if (consumed_seqno_count > 0) {
+        const SequenceNumber last_seqno = versions_->LastSequence();
+        versions_->SetLastAllocatedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastPublishedSequence(last_seqno + consumed_seqno_count);
+        versions_->SetLastSequence(last_seqno + consumed_seqno_count);
+      }
     }
 
     if (status.ok()) {
