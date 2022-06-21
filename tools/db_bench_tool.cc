@@ -4509,6 +4509,7 @@ class Benchmark {
                   "<= 0.\n");
           exit(1);
         }
+      }
     }
 
 #ifndef ROCKSDB_LITE
