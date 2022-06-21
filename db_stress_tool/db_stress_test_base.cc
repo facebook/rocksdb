@@ -2887,16 +2887,17 @@ void InitializeOptionsFromFlags(
     if (FLAGS_use_shared_block_and_blob_cache) {
       options.blob_cache = cache;
     } else {
-      if (FLAGS_blob_cache_size <= 0) {
+      if (FLAGS_blob_cache_size > 0) {
+        LRUCacheOptions co;
+        co.capacity = FLAGS_blob_cache_size;
+        co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+        options.blob_cache = NewLRUCache(co);
+      } else {
         fprintf(stderr,
                 "Unable to create a standalone blob cache if blob_cache_size "
                 "<= 0.\n");
         exit(1);
       }
-      LRUCacheOptions co;
-      co.capacity = FLAGS_blob_cache_size;
-      co.num_shard_bits = FLAGS_blob_cache_numshardbits;
-      options.blob_cache = NewLRUCache(co);
     }
   }
 
