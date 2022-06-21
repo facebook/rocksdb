@@ -114,7 +114,8 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["fast_lru_cache", "lru_cache"]),   # clock_cache is broken
+    "cache_type": "lru_cache",  # clock_cache is broken
+                                # fast_lru_cache is currently incompatible with stress tests, because they use strict_capacity_limit = false
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
