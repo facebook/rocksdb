@@ -130,6 +130,36 @@ class VersionStorageInfo {
 
   void AddFile(int level, FileMetaData* f);
 
+  // Resize/Initialize the space for compact_cursor_
+  void ResizeCompactCursors(int level) {
+    compact_cursor_.resize(level, InternalKey());
+  }
+
+  const std::vector<InternalKey>& GetCompactCursors() const {
+    return compact_cursor_;
+  }
+
+  // REQUIRES: ResizeCompactCursors has been called
+  void AddCursorForOneLevel(int level,
+                            const InternalKey& smallest_uncompacted_key) {
+    compact_cursor_[level] = smallest_uncompacted_key;
+  }
+
+  // REQUIRES: lock is held
+  // Update the compact cursor and advance the file index so that it can point
+  // to the next cursor
+  const InternalKey& GetNextCompactCursor(int level) {
+    int cmp_idx = next_file_to_compact_by_size_[level] + 1;
+    // TODO(zichen): may need to update next_file_to_compact_by_size_
+    // for parallel compaction.
+    InternalKey new_cursor;
+    if (cmp_idx >= (int)files_by_compaction_pri_[level].size()) {
+      cmp_idx = 0;
+    }
+    // TODO(zichen): rethink if this strategy gives us some good guarantee
+    return files_[level][files_by_compaction_pri_[level][cmp_idx]]->smallest;
+  }
+
   void ReserveBlob(size_t size) { blob_files_.reserve(size); }
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
@@ -657,6 +687,9 @@ class VersionStorageInfo {
   int l0_delay_trigger_count_ = 0;  // Count used to trigger slow down and stop
                                     // for number of L0 files.
 
+  // Compact cursors for round-robin compactions in each level
+  std::vector<InternalKey> compact_cursor_;
+
   // the following are the sampled temporary stats.
   // the current accumulated size of sampled files.
   uint64_t accumulated_file_size_;
@@ -699,8 +732,13 @@ struct ObsoleteFileInfo {
 
   ObsoleteFileInfo() noexcept
       : metadata(nullptr), only_delete_metadata(false) {}
-  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
-      : metadata(f), path(file_path), only_delete_metadata(false) {}
+  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path,
+                   std::shared_ptr<CacheReservationManager>
+                       file_metadata_cache_res_mgr_arg = nullptr)
+      : metadata(f),
+        path(file_path),
+        only_delete_metadata(false),
+        file_metadata_cache_res_mgr(file_metadata_cache_res_mgr_arg) {}
 
   ObsoleteFileInfo(const ObsoleteFileInfo&) = delete;
   ObsoleteFileInfo& operator=(const ObsoleteFileInfo&) = delete;
@@ -713,13 +751,23 @@ struct ObsoleteFileInfo {
     path = std::move(rhs.path);
     metadata = rhs.metadata;
     rhs.metadata = nullptr;
+    file_metadata_cache_res_mgr = rhs.file_metadata_cache_res_mgr;
+    rhs.file_metadata_cache_res_mgr = nullptr;
 
     return *this;
   }
   void DeleteMetadata() {
+    if (file_metadata_cache_res_mgr) {
+      Status s = file_metadata_cache_res_mgr->UpdateCacheReservation(
+          metadata->ApproximateMemoryUsage(), false /* increase */);
+      s.PermitUncheckedError();
+    }
     delete metadata;
     metadata = nullptr;
   }
+
+ private:
+  std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr;
 };
 
 class ObsoleteBlobFileInfo {
@@ -943,13 +991,13 @@ class Version {
       int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
       std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs,
       uint64_t& num_filter_read, uint64_t& num_index_read,
-      uint64_t& num_data_read, uint64_t& num_sst_read);
+      uint64_t& num_sst_read);
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
   Statistics* db_statistics_;
   TableCache* table_cache_;
-  BlobFileCache* blob_file_cache_;
+  BlobSource* blob_source_;
   const MergeOperator* merge_operator_;
 
   VersionStorageInfo storage_info_;
@@ -1010,7 +1058,7 @@ class VersionSet {
              WriteController* write_controller,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_session_id);
+             const std::string& db_id, const std::string& db_session_id);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;

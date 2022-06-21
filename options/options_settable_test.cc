@@ -377,7 +377,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 // test is not updated accordingly.
 // After adding an option, we need to make sure it is settable by
 // GetColumnFamilyOptionsFromString() and add the option to the input
-// string passed to GetColumnFamilyOptionsFromString()in this test.
+// string passed to GetColumnFamilyOptionsFromString() in this test.
 // If it is a complicated type, you also need to add the field to
 // kColumnFamilyOptionsExcluded, and maybe add customized verification
 // for it.
@@ -400,6 +400,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offsetof(struct ColumnFamilyOptions, blob_cache),
+       sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
@@ -523,8 +525,11 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_file_starting_level=1;"
       "bottommost_temperature=kWarm;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;age_for_warm=1;};",
+      "compaction=false;age_for_warm=1;};"
+      "blob_cache=1M;",
       new_options));
+
+  ASSERT_NE(new_options->blob_cache.get(), nullptr);
 
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),

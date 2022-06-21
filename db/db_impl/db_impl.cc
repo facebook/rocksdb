@@ -101,6 +101,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
+#include "util/distributed_mutex.h"
 #include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -145,6 +146,8 @@ void DumpSupportInfo(Logger* logger) {
   }
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
                    crc32c::IsFastCrc32Supported().c_str());
+
+  ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
 }
 }  // namespace
 
@@ -260,7 +263,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_session_id_));
+                                 io_tracer_, db_id_, db_session_id_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -812,8 +815,9 @@ Status DBImpl::StartPeriodicWorkScheduler() {
   return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
-#endif  // !ROCKSDB_LITE
+#else
   return Status::OK();
+#endif  // !ROCKSDB_LITE
 }
 
 // esitmate the total size of stats_history_
@@ -1363,6 +1367,7 @@ Status DBImpl::FlushWAL(bool sync) {
 }
 
 Status DBImpl::SyncWAL() {
+  TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
   autovector<log::Writer*, 1> logs_to_sync;
   bool need_log_dir_sync;
   uint64_t current_log_number;
@@ -1375,7 +1380,7 @@ Status DBImpl::SyncWAL() {
     current_log_number = logfile_number_;
 
     while (logs_.front().number <= current_log_number &&
-           logs_.front().getting_synced) {
+           logs_.front().IsSyncing()) {
       log_sync_cv_.Wait();
     }
     // First check that logs are safe to sync in background.
@@ -1392,8 +1397,7 @@ Status DBImpl::SyncWAL() {
     for (auto it = logs_.begin();
          it != logs_.end() && it->number <= current_log_number; ++it) {
       auto& log = *it;
-      assert(!log.getting_synced);
-      log.getting_synced = true;
+      log.PrepareForSync();
       logs_to_sync.push_back(log.writer);
     }
 
@@ -1466,11 +1470,10 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
-    assert(wal.getting_synced);
+    assert(wal.IsSyncing());
     if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.writer->file()->GetFileSize() > 0) {
-      synced_wals.AddWal(wal.number,
-                         WalMetadata(wal.writer->file()->GetFileSize()));
+        wal.GetPreSyncSize() > 0) {
+      synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
     }
 
     if (logs_.size() > 1) {
@@ -1479,12 +1482,12 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
       InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
-      wal.getting_synced = false;
+      wal.FinishSync();
       ++it;
     }
   }
   assert(logs_.empty() || logs_[0].number > up_to ||
-         (logs_.size() == 1 && !logs_[0].getting_synced));
+         (logs_.size() == 1 && !logs_[0].IsSyncing()));
 
   Status s;
   if (synced_wals.IsWalAddition()) {
@@ -1504,8 +1507,7 @@ void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
-    assert(wal.getting_synced);
-    wal.getting_synced = false;
+    wal.FinishSync();
   }
   log_sync_cv_.SignalAll();
 }
@@ -1742,6 +1744,8 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
+  assert(value != nullptr);
+  value->Reset();
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
@@ -2349,6 +2353,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    values[i].Reset();
     key_context.emplace_back(column_families[i], keys[i], &values[i],
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
@@ -2495,6 +2500,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    values[i].Reset();
     key_context.emplace_back(column_family, keys[i], &values[i],
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);

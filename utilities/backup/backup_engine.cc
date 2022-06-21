@@ -296,6 +296,9 @@ class BackupEngineImpl {
     }
   };
 
+  // TODO: deprecate this function once we migrate all BackupEngine's rate
+  // limiting to lower-level ones (i.e, ones in file access wrapper level like
+  // `WritableFileWriter`)
   static void LoopRateLimitRequestHelper(const size_t total_bytes_to_request,
                                          RateLimiter* rate_limiter,
                                          const Env::IOPriority pri,

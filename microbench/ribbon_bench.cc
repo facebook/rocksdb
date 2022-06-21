@@ -52,7 +52,9 @@ struct KeyMaker {
 // 2. average data key length
 // 3. data entry number
 static void CustomArguments(benchmark::internal::Benchmark *b) {
-  for (int filter_impl : {0, 2, 3}) {
+  const auto kImplCount =
+      static_cast<int>(BloomLikeFilterPolicy::GetAllFixedImpls().size());
+  for (int filter_impl = 0; filter_impl < kImplCount; ++filter_impl) {
     for (int bits_per_key : {10, 20}) {
       for (int key_len_avg : {10, 100}) {
         for (int64_t entry_num : {1 << 10, 1 << 20}) {
@@ -69,7 +71,7 @@ static void FilterBuild(benchmark::State &state) {
   auto filter = BloomLikeFilterPolicy::Create(
       BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
       static_cast<double>(state.range(1)));
-  auto tester = new mock::MockBlockBasedTableTester(filter);
+  auto tester = std::make_unique<mock::MockBlockBasedTableTester>(filter);
   KeyMaker km(state.range(2));
   std::unique_ptr<const char[]> owner;
   const int64_t kEntryNum = state.range(3);
@@ -92,7 +94,7 @@ static void FilterQueryPositive(benchmark::State &state) {
   auto filter = BloomLikeFilterPolicy::Create(
       BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
       static_cast<double>(state.range(1)));
-  auto tester = new mock::MockBlockBasedTableTester(filter);
+  auto tester = std::make_unique<mock::MockBlockBasedTableTester>(filter);
   KeyMaker km(state.range(2));
   std::unique_ptr<const char[]> owner;
   const int64_t kEntryNum = state.range(3);
@@ -103,7 +105,7 @@ static void FilterQueryPositive(benchmark::State &state) {
     builder->AddKey(km.Get(filter_num, i));
   }
   auto data = builder->Finish(&owner);
-  auto reader = filter->GetFilterBitsReader(data);
+  std::unique_ptr<FilterBitsReader> reader{filter->GetFilterBitsReader(data)};
 
   // run test
   uint32_t i = 0;
@@ -120,7 +122,7 @@ static void FilterQueryNegative(benchmark::State &state) {
   auto filter = BloomLikeFilterPolicy::Create(
       BloomLikeFilterPolicy::GetAllFixedImpls().at(state.range(0)),
       static_cast<double>(state.range(1)));
-  auto tester = new mock::MockBlockBasedTableTester(filter);
+  auto tester = std::make_unique<mock::MockBlockBasedTableTester>(filter);
   KeyMaker km(state.range(2));
   std::unique_ptr<const char[]> owner;
   const int64_t kEntryNum = state.range(3);
@@ -131,7 +133,7 @@ static void FilterQueryNegative(benchmark::State &state) {
     builder->AddKey(km.Get(filter_num, i));
   }
   auto data = builder->Finish(&owner);
-  auto reader = filter->GetFilterBitsReader(data);
+  std::unique_ptr<FilterBitsReader> reader{filter->GetFilterBitsReader(data)};
 
   // run test
   uint32_t i = 0;

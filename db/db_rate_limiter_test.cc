@@ -139,8 +139,6 @@ TEST_P(DBRateLimiterOnReadTest, Get) {
 }
 
 TEST_P(DBRateLimiterOnReadTest, NewMultiGet) {
-  // The new void-returning `MultiGet()` APIs use `MultiRead()`, which does not
-  // yet support rate limiting.
   if (use_direct_io_ && !IsDirectIOSupported()) {
     return;
   }
@@ -149,6 +147,7 @@ TEST_P(DBRateLimiterOnReadTest, NewMultiGet) {
   ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 
   const int kNumKeys = kNumFiles * kNumKeysPerFile;
+  int64_t expected = 0;
   {
     std::vector<std::string> key_bufs;
     key_bufs.reserve(kNumKeys);
@@ -160,13 +159,19 @@ TEST_P(DBRateLimiterOnReadTest, NewMultiGet) {
     }
     std::vector<Status> statuses(kNumKeys);
     std::vector<PinnableSlice> values(kNumKeys);
+    const int64_t prev_total_rl_req = options_.rate_limiter->GetTotalRequests();
     db_->MultiGet(GetReadOptions(), dbfull()->DefaultColumnFamily(), kNumKeys,
                   keys.data(), values.data(), statuses.data());
+    const int64_t cur_total_rl_req = options_.rate_limiter->GetTotalRequests();
     for (int i = 0; i < kNumKeys; ++i) {
-      ASSERT_TRUE(statuses[i].IsNotSupported());
+      ASSERT_TRUE(statuses[i].ok());
     }
+    ASSERT_GT(cur_total_rl_req, prev_total_rl_req);
+    ASSERT_EQ(cur_total_rl_req - prev_total_rl_req,
+              options_.rate_limiter->GetTotalRequests(Env::IO_USER));
   }
-  ASSERT_EQ(0, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
+  expected += kNumKeys;
+  ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
 TEST_P(DBRateLimiterOnReadTest, OldMultiGet) {

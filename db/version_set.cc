@@ -25,6 +25,7 @@
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_source.h"
 #include "db/compaction/compaction.h"
 #include "db/compaction/file_pri.h"
 #include "db/dbformat.h"
@@ -775,7 +776,8 @@ Version::~Version() {
         uint32_t path_id = f->fd.GetPathId();
         assert(path_id < cfd_->ioptions()->cf_paths.size());
         vset_->obsolete_files_.push_back(
-            ObsoleteFileInfo(f, cfd_->ioptions()->cf_paths[path_id].path));
+            ObsoleteFileInfo(f, cfd_->ioptions()->cf_paths[path_id].path,
+                             cfd_->GetFileMetadataCacheReservationManager()));
       }
     }
   }
@@ -1796,6 +1798,7 @@ VersionStorageInfo::VersionStorageInfo(
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
       l0_delay_trigger_count_(0),
+      compact_cursor_(num_levels_),
       accumulated_file_size_(0),
       accumulated_raw_key_size_(0),
       accumulated_raw_value_size_(0),
@@ -1818,6 +1821,8 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_deletions_ = ref_vstorage->current_num_deletions_;
     current_num_samples_ = ref_vstorage->current_num_samples_;
     oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
+    compact_cursor_ = ref_vstorage->compact_cursor_;
+    compact_cursor_.resize(num_levels_);
   }
 }
 
@@ -1832,7 +1837,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->logger),
       db_statistics_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->stats),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
-      blob_file_cache_(cfd_ ? cfd_->blob_file_cache() : nullptr),
+      blob_source_(cfd_ ? cfd_->blob_source() : nullptr),
       merge_operator_(
           (cfd_ == nullptr) ? nullptr : cfd_->ioptions()->merge_operator.get()),
       storage_info_(
@@ -1879,34 +1884,22 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         PinnableSlice* value, uint64_t* bytes_read) const {
   assert(value);
 
-  if (read_options.read_tier == kBlockCacheTier) {
-    return Status::Incomplete("Cannot read blob: no disk I/O allowed");
-  }
-
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
 
   const uint64_t blob_file_number = blob_index.file_number();
 
-  if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
+  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
+  if (!blob_file_meta) {
     return Status::Corruption("Invalid blob file number");
   }
 
-  CacheHandleGuard<BlobFileReader> blob_file_reader;
-
-  {
-    assert(blob_file_cache_);
-    const Status s = blob_file_cache_->GetBlobFileReader(blob_file_number,
-                                                         &blob_file_reader);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  assert(blob_file_reader.GetValue());
-  const Status s = blob_file_reader.GetValue()->GetBlob(
-      read_options, user_key, blob_index.offset(), blob_index.size(),
+  assert(blob_source_);
+  value->Reset();
+  const Status s = blob_source_->GetBlob(
+      read_options, user_key, blob_file_number, blob_index.offset(),
+      blob_file_meta->GetBlobFileSize(), blob_index.size(),
       blob_index.compression(), prefetch_buffer, value, bytes_read);
 
   return s;
@@ -1947,9 +1940,9 @@ void Version::MultiGetBlob(
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    assert(blob_file_cache_);
-    status = blob_file_cache_->GetBlobFileReader(blob_file_number,
-                                                 &blob_file_reader);
+    assert(blob_source_);
+    status =
+        blob_source_->GetBlobFileReader(blob_file_number, &blob_file_reader);
     assert(!status.ok() || blob_file_reader.GetValue());
 
     auto& blobs_in_file = elem.second;
@@ -2251,8 +2244,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   Status s;
   uint64_t num_index_read = 0;
   uint64_t num_filter_read = 0;
-  uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
+  uint64_t num_level_read = 0;
 
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
   // blob_file => [[blob_idx, it], ...]
@@ -2274,7 +2267,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
                             fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
                             blob_rqs, num_filter_read, num_index_read,
-                            num_data_read, num_sst_read);
+                            num_sst_read);
         if (fp.GetHitFileLevel() == 0) {
           dump_stats_for_l0_file = true;
         }
@@ -2289,13 +2282,14 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
             read_options, fp.CurrentFileRange(), fp.GetHitFileLevel(),
             fp.IsHitFileLastInLevel(), f, blob_rqs, num_filter_read,
-            num_index_read, num_data_read, num_sst_read));
+            num_index_read, num_sst_read));
         if (fp.KeyMaySpanNextFile()) {
           break;
         }
         f = fp.GetNextFileInLevel();
       }
       if (mget_tasks.size() > 0) {
+        RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
         // Collect all results so far
         std::vector<Status> statuses = folly::coro::blockingWait(
             folly::coro::collectAllRange(std::move(mget_tasks))
@@ -2327,18 +2321,18 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           (prev_level != 0 && prev_level != (int)fp.GetHitFileLevel())) {
         // Dump the stats if the search has moved to the next level and
         // reset for next level.
-        if (num_sst_read || (num_filter_read + num_index_read)) {
+        if (num_filter_read + num_index_read) {
           RecordInHistogram(db_statistics_,
                             NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
                             num_index_read + num_filter_read);
-          RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                            num_data_read);
+        }
+        if (num_sst_read) {
           RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL,
                             num_sst_read);
+          num_level_read++;
         }
         num_filter_read = 0;
         num_index_read = 0;
-        num_data_read = 0;
         num_sst_read = 0;
       }
       prev_level = fp.GetHitFileLevel();
@@ -2346,11 +2340,19 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
 
   // Dump stats for most recent level
-  RecordInHistogram(db_statistics_, NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                    num_index_read + num_filter_read);
-  RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                    num_data_read);
-  RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+  if (num_filter_read + num_index_read) {
+    RecordInHistogram(db_statistics_,
+                      NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                      num_index_read + num_filter_read);
+  }
+  if (num_sst_read) {
+    RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+    num_level_read++;
+  }
+  if (num_level_read) {
+    RecordInHistogram(db_statistics_, NUM_LEVEL_READ_PER_MULTIGET,
+                      num_level_read);
+  }
 
   if (s.ok() && !blob_rqs.empty()) {
     MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
@@ -3193,6 +3195,60 @@ void SortFileByOverlappingRatio(
                      file_to_order[f2.file->fd.GetNumber()];
             });
 }
+
+void SortFileByRoundRobin(const InternalKeyComparator& icmp,
+                          std::vector<InternalKey>* compact_cursor,
+                          bool level0_non_overlapping, int level,
+                          std::vector<Fsize>* temp) {
+  if (level == 0 && !level0_non_overlapping) {
+    // Using kOldestSmallestSeqFirst when level === 0, since the
+    // files may overlap (not fully sorted)
+    std::sort(temp->begin(), temp->end(),
+              [](const Fsize& f1, const Fsize& f2) -> bool {
+                return f1.file->fd.smallest_seqno < f2.file->fd.smallest_seqno;
+              });
+    return;
+  }
+
+  bool should_move_files =
+      compact_cursor->at(level).Valid() && temp->size() > 1;
+
+  // The iterator points to the Fsize with smallest key larger than or equal to
+  // the given cursor
+  std::vector<Fsize>::iterator current_file_iter;
+  if (should_move_files) {
+    // Find the file of which the smallest key is larger than or equal to
+    // the cursor (the smallest key in the successor file of the last
+    // chosen file), skip this if the cursor is invalid or there is only
+    // one file in this level
+    current_file_iter = std::lower_bound(
+        temp->begin(), temp->end(), compact_cursor->at(level),
+        [&](const Fsize& f, const InternalKey& cursor) -> bool {
+          return icmp.Compare(cursor, f.file->smallest) > 0;
+        });
+
+    should_move_files = current_file_iter != temp->end();
+  }
+  if (should_move_files) {
+    // Construct a local temporary vector
+    std::vector<Fsize> local_temp;
+    local_temp.reserve(temp->size());
+    // Move the selected File into the first position and its successors
+    // into the second, third, ..., positions
+    for (auto iter = current_file_iter; iter != temp->end(); iter++) {
+      local_temp.push_back(*iter);
+    }
+    // Move the origin predecessors of the selected file in a round-robin
+    // manner
+    for (auto iter = temp->begin(); iter != current_file_iter; iter++) {
+      local_temp.push_back(*iter);
+    }
+    // Replace all the items in temp
+    for (size_t i = 0; i < local_temp.size(); i++) {
+      temp->at(i) = local_temp[i];
+    }
+  }
+}
 }  // namespace
 
 void VersionStorageInfo::UpdateFilesByCompactionPri(
@@ -3244,6 +3300,10 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
         SortFileByOverlappingRatio(*internal_comparator_, files_[level],
                                    files_[level + 1], ioptions.clock, level,
                                    num_non_empty_levels_, options.ttl, &temp);
+        break;
+      case kRoundRobin:
+        SortFileByRoundRobin(*internal_comparator_, &compact_cursor_,
+                             level0_non_overlapping_, level, &temp);
         break;
       default:
         assert(false);
@@ -4108,11 +4168,12 @@ VersionSet::VersionSet(const std::string& dbname,
                        WriteController* write_controller,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
+                       const std::string& db_id,
                        const std::string& db_session_id)
-    : column_family_set_(
-          new ColumnFamilySet(dbname, _db_options, storage_options, table_cache,
-                              write_buffer_manager, write_controller,
-                              block_cache_tracer, io_tracer, db_session_id)),
+    : column_family_set_(new ColumnFamilySet(
+          dbname, _db_options, storage_options, table_cache,
+          write_buffer_manager, write_controller, block_cache_tracer, io_tracer,
+          db_id, db_session_id)),
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
@@ -4154,9 +4215,13 @@ void VersionSet::Reset() {
   if (column_family_set_) {
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
+    // db_id becomes the source of truth after DBImpl::Recover():
+    // https://github.com/facebook/rocksdb/blob/v7.3.1/db/db_impl/db_impl_open.cc#L527
+    // Note: we may not be able to recover db_id from MANIFEST if
+    // options.write_dbid_to_manifest is false (default).
     column_family_set_.reset(new ColumnFamilySet(
         dbname_, db_options_, file_options_, table_cache_, wbm, wc,
-        block_cache_tracer_, io_tracer_, db_session_id_));
+        block_cache_tracer_, io_tracer_, db_id_, db_session_id_));
   }
   db_id_.clear();
   next_file_number_.store(2);
@@ -5209,6 +5274,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   WriteBufferManager wb(options->db_write_buffer_size);
   VersionSet versions(dbname, &db_options, file_options, tc.get(), &wb, &wc,
                       nullptr /*BlockCacheTracer*/, nullptr /*IOTracer*/,
+                      /*db_id*/ "",
                       /*db_session_id*/ "");
   Status status;
 
@@ -5280,6 +5346,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   delete[] vstorage -> files_;
   vstorage->files_ = new_files_list;
   vstorage->num_levels_ = new_levels;
+  vstorage->ResizeCompactCursors(new_levels);
 
   MutableCFOptions mutable_cf_options(*options);
   VersionEdit ve;
@@ -5514,6 +5581,8 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->max_timestamp, f->unique_id);
         }
       }
+
+      edit.SetCompactCursors(vstorage->GetCompactCursors());
 
       const auto& blob_files = vstorage->GetBlobFiles();
       for (const auto& meta : blob_files) {
@@ -6142,7 +6211,7 @@ ReactiveVersionSet::ReactiveVersionSet(
     const std::shared_ptr<IOTracer>& io_tracer)
     : VersionSet(dbname, _db_options, _file_options, table_cache,
                  write_buffer_manager, write_controller,
-                 /*block_cache_tracer=*/nullptr, io_tracer,
+                 /*block_cache_tracer=*/nullptr, io_tracer, /*db_id*/ "",
                  /*db_session_id*/ "") {}
 
 ReactiveVersionSet::~ReactiveVersionSet() {}

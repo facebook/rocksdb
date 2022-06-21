@@ -194,7 +194,7 @@ else()
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
   endif()
   if(MINGW)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
     add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -587,6 +587,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 if(USE_FOLLY)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
+  list(APPEND THIRDPARTY_LIBS glog)
 endif()
 find_package(Threads REQUIRED)
 
@@ -614,6 +615,7 @@ set(SOURCES
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
+        db/blob/blob_source.cc
         db/blob/prefetch_buffer_collection.cc
         db/builder.cc
         db/c.cc
@@ -738,7 +740,6 @@ set(SOURCES
         table/adaptive/adaptive_table_factory.cc
         table/block_based/binary_search_index_reader.cc
         table/block_based/block.cc
-        table/block_based/block_based_filter_block.cc
         table/block_based/block_based_table_builder.cc
         table/block_based/block_based_table_factory.cc
         table/block_based/block_based_table_iterator.cc
@@ -976,9 +977,13 @@ endif()
 if(USE_FOLLY)
   list(APPEND SOURCES
     third-party/folly/folly/container/detail/F14Table.cpp
+    third-party/folly/folly/detail/Futex.cpp
     third-party/folly/folly/lang/SafeAssert.cpp
     third-party/folly/folly/lang/ToAscii.cpp
-    third-party/folly/folly/ScopeGuard.cpp)
+    third-party/folly/folly/ScopeGuard.cpp
+    third-party/folly/folly/synchronization/AtomicNotification.cpp
+    third-party/folly/folly/synchronization/DistributedMutex.cpp
+    third-party/folly/folly/synchronization/ParkingLot.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -1213,6 +1218,7 @@ if(WITH_TESTS)
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
         db/blob/blob_garbage_meter_test.cc
+        db/blob/blob_source_test.cc
         db/blob/db_blob_basic_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc
@@ -1321,7 +1327,6 @@ if(WITH_TESTS)
         options/customizable_test.cc
         options/options_settable_test.cc
         options/options_test.cc
-        table/block_based/block_based_filter_block_test.cc
         table/block_based/block_based_table_reader_test.cc
         table/block_based/block_test.cc
         table/block_based/data_block_hash_index_test.cc
