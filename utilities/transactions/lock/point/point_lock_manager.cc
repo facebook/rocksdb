@@ -139,7 +139,7 @@ void PointLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cf) {
   {
     InstrumentedMutexLock l(&lock_map_mutex_);
     if (!lock_maps_.erase(cf->GetID())) {
-      return; // note existed and erase did nothing, return immediately
+      return;  // note existed and erase did nothing, return immediately
     }
   }  // lock_map_mutex_
 
@@ -154,8 +154,7 @@ void PointLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cf) {
 // Look up the LockMap std::shared_ptr for a given column_family_id.
 // Note:  The LockMap is only valid as long as the caller is still holding on
 //   to the returned std::shared_ptr.
-LockMap* PointLockManager::GetLockMap(
-    ColumnFamilyId column_family_id) {
+LockMap* PointLockManager::GetLockMap(ColumnFamilyId column_family_id) {
   // First check thread-local cache
   auto lock_maps_cache = static_cast<LockMaps*>(lock_maps_cache_->Get());
   if (lock_maps_cache == nullptr) {
