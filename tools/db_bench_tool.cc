@@ -1081,11 +1081,16 @@ DEFINE_bool(
     "[Integrated BlobDB] Use a shared backing cache for both block "
     "cache and blob cache. It only takes effect if use_blob_cache is enabled.");
 
-DEFINE_int64(
+DEFINE_uint64(
     blob_cache_size, FLAGS_cache_size,
     "[Integrated BlobDB] Number of bytes to use as a cache of blobs. It only "
     "takes effect if the block cache and blob cache are different "
     "(use_shared_block_and_blob_cache = false).");
+
+DEFINE_int32(blob_cache_numshardbits, FLAGS_cache_numshardbits,
+             "Number of shards for the blob cache is 2 ** "
+             "blob_cache_numshardbits. Negative means use default settings. "
+             "This is applied only if FLAGS_blob_cache_size is non-negative.");
 
 #ifndef ROCKSDB_LITE
 
@@ -4501,7 +4506,7 @@ class Benchmark {
         }
         LRUCacheOptions co;
         co.capacity = FLAGS_blob_cache_size;
-        co.num_shard_bits = FLAGS_cache_numshardbits;
+        co.num_shard_bits = FLAGS_blob_cache_numshardbits;
         options.blob_cache = NewLRUCache(co);
       }
     }

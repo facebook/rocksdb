@@ -58,6 +58,7 @@ function display_usage() {
   echo -e "\tUSE_BLOB_CACHE\t\t\tEnable blob cache. (default: 1)"
   echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache. (default: 1)"
   echo -e "\tBLOB_CACHE_SIZE\t\t\tSize of the blob cache (default: 16GB)"
+  echo -e "\tBLOB_CACHE_NUMSHARDBITS\t\t\tNumber of shards for the blob cache is 2 ** blob_cache_numshardbits (default: 6)"
   echo -e "\tTARGET_FILE_SIZE_BASE\t\tTarget SST file size for compactions (default: write buffer size, scaled down if blob files are enabled)"
   echo -e "\tMAX_BYTES_FOR_LEVEL_BASE\tMaximum size for the base level (default: 8 * target SST file size)"
 }
@@ -120,7 +121,8 @@ blob_compaction_readahead_size=${BLOB_COMPACTION_READAHEAD_SIZE:-0}
 blob_file_starting_level=${BLOB_FILE_STARTING_LEVEL:-0}
 use_blob_cache=${USE_BLOB_CACHE:-1}
 use_shared_block_and_blob_cache=${USE_SHARED_BLOCK_AND_BLOB_CACHE:-1}
-blob_cache_size=${BLOB_CACHE_SIZE:-$((17179869184))}
+blob_cache_size=${BLOB_CACHE_SIZE:-$((16 * G))}
+blob_cache_numshardbits=${BLOB_CACHE_NUMSHARDBITS:-6}
 
 if [ "$enable_blob_files" == "1" ]; then
   target_file_size_base=${TARGET_FILE_SIZE_BASE:-$((32 * write_buffer_size / value_size))}
@@ -154,6 +156,7 @@ echo -e "Blob file starting level:\t\t$blob_file_starting_level"
 echo -e "Blob cache enabled:\t\t\t$use_blob_cache"
 echo -e "Blob cache and block cache shared:\t\t\t$use_shared_block_and_blob_cache"
 echo -e "Blob cache size:\t\t$blob_cache_size"
+echo -e "Blob cache number of shard bits:\t\t$blob_cache_numshardbits"
 echo -e "Target SST file size:\t\t\t$target_file_size_base"
 echo -e "Maximum size of base level:\t\t$max_bytes_for_level_base"
 echo "================================================================="
@@ -183,6 +186,7 @@ PARAMS="\
   --use_blob_cache=$use_blob_cache \
   --use_shared_block_and_blob_cache=$use_shared_block_and_blob_cache \
   --blob_cache_size=$blob_cache_size \
+  --blob_cache_numshardbits=$blob_cache_numshardbits \
   --write_buffer_size=$write_buffer_size \
   --target_file_size_base=$target_file_size_base \
   --max_bytes_for_level_base=$max_bytes_for_level_base"

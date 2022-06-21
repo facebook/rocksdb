@@ -53,6 +53,7 @@ function display_usage() {
   echo -e "\tMB_WRITE_PER_SEC\t\t\tRate limit for background writer"
   echo -e "\tNUM_NEXTS_PER_SEEK\t\t(default: 10)"
   echo -e "\tCACHE_SIZE\t\t\tSize of the block cache (default: 16GB)"
+  echo -e "\tCACHE_NUMSHARDBITS\t\t\tNumber of shards for the block cache is 2 ** cache_numshardbits (default: 6)"
   echo -e "\tCOMPRESSION_MAX_DICT_BYTES"
   echo -e "\tCOMPRESSION_TYPE\t\tDefault compression(default: zstd)"
   echo -e "\tBOTTOMMOST_COMPRESSION\t\t(default: none)"
@@ -89,6 +90,11 @@ function display_usage() {
   echo -e "\tBLOB_COMPRESSION_TYPE\tValue for blob_compression_type"
   echo -e "\tBLOB_GC_AGE_CUTOFF\tValue for blob_garbage_collection_age_cutoff"
   echo -e "\tBLOB_GC_FORCE_THRESHOLD\tValue for blob_garbage_collection_force_threshold"
+  echo -e "\tBLOB_FILE_STARTING_LEVEL\t\tBlob file starting level. Default is 0."
+  echo -e "\tUSE_BLOB_CACHE\t\t\tEnable blob cache. Default is 1."
+  echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache. Default is 1."
+  echo -e "\tBLOB_CACHE_SIZE\t\t\tSize of the blob cache. Default is same to CACHE_SIZE."
+  echo -e "\tBLOB_CACHE_NUMSHARDBITS\t\t\tNumber of shards for the blob cache is 2 ** blob_cache_numshardbits. Default is same to CACHE_NUMSHARDBITS."
 }
 
 if [ $# -lt 1 ]; then
@@ -157,6 +163,7 @@ mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
 # Only for tests that do range scans
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}
 cache_size=${CACHE_SIZE:-$((17179869184))}
+cache_numshardbits=${CACHE_NUMSHARDBITS:-6}
 compression_max_dict_bytes=${COMPRESSION_MAX_DICT_BYTES:-0}
 compression_type=${COMPRESSION_TYPE:-zstd}
 min_level_to_compress=${MIN_LEVEL_TO_COMPRESS:-"-1"}
@@ -227,6 +234,11 @@ blob_file_size=${BLOB_FILE_SIZE:-$(( 256 * $M ))}
 blob_compression_type=${BLOB_COMPRESSION_TYPE:-${compression_type}}
 blob_gc_age_cutoff=${BLOB_GC_AGE_CUTOFF:-"0.25"}
 blob_gc_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1}
+blob_file_starting_level=${BLOB_FILE_STARTING_LEVEL:-0}
+use_blob_cache=${USE_BLOB_CACHE:-1}
+use_shared_block_and_blob_cache=${USE_SHARED_BLOCK_AND_BLOB_CACHE:-1}
+blob_cache_size=${BLOB_CACHE_SIZE:-${cache_size}}
+blob_cache_numshardbits=${BLOB_CACHE_NUMSHARDBITS:-${cache_numshardbits}}
 
 const_params_base="
   --db=$DB_DIR \
@@ -288,6 +300,11 @@ blob_const_params="
   --enable_blob_garbage_collection=true \
   --blob_garbage_collection_age_cutoff=$blob_gc_age_cutoff \
   --blob_garbage_collection_force_threshold=$blob_gc_force_threshold \
+  --blob_file_starting_level=$blob_file_starting_level \
+  --use_blob_cache=$use_blob_cache \
+  --use_shared_block_and_blob_cache=$use_shared_block_and_blob_cache \
+  --blob_cache_size=$blob_cache_size \
+  --blob_cache_numshardbits=$blob_cache_numshardbits \
 "
 
 # TODO:

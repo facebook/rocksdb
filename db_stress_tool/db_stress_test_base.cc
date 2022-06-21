@@ -265,12 +265,6 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
                         std::vector<std::string>{"0", "1", "2"});
-    options_tbl.emplace("use_blob_cache",
-                        std::vector<std::string>{"false", "true"});
-    options_tbl.emplace("use_shared_block_and_blob_cache",
-                        std::vector<std::string>{"false", "true"});
-    options_tbl.emplace("blob_cache_size",
-                        std::vector<std::string>{"8M", "16M", "64M"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -2901,7 +2895,7 @@ void InitializeOptionsFromFlags(
       }
       LRUCacheOptions co;
       co.capacity = FLAGS_blob_cache_size;
-      co.num_shard_bits = FLAGS_cache_numshardbits;
+      co.num_shard_bits = FLAGS_blob_cache_numshardbits;
       options.blob_cache = NewLRUCache(co);
     }
   }
