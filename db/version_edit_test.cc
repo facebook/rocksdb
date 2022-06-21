@@ -11,6 +11,7 @@
 
 #include "db/blob/blob_index.h"
 #include "rocksdb/advanced_options.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -43,7 +44,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
                  kBig + 500 + i, kBig + 600 + i, false, Temperature::kUnknown,
                  kInvalidBlobFileNumber, 888, 678, "234", "crc32c", "123",
-                 "345");
+                 "345", kNullUniqueId64x2);
     edit.DeleteFile(4, kBig + 700 + i);
   }
 
@@ -62,26 +63,25 @@ TEST_F(VersionEditTest, EncodeDecodeNewFile4) {
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "123",
-               "234");
+               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "123", "234",
+               kNullUniqueId64x2);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
                kBig + 601, false, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "345",
-               "543");
+               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "345", "543",
+               kNullUniqueId64x2);
   edit.AddFile(5, 302, 0, 100, InternalKey("foo", kBig + 502, kTypeValue),
                InternalKey("zoo", kBig + 602, kTypeDeletion), kBig + 502,
                kBig + 602, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                666, 888, kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-               "456", "567");
+               "456", "567", kNullUniqueId64x2);
   edit.AddFile(5, 303, 0, 100, InternalKey("foo", kBig + 503, kTypeBlobIndex),
                InternalKey("zoo", kBig + 603, kTypeBlobIndex), kBig + 503,
                kBig + 603, true, Temperature::kUnknown, 1001,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "678",
-               "789");
-  ;
+               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "678", "789",
+               kNullUniqueId64x2);
 
   edit.DeleteFile(4, 700);
 
@@ -129,13 +129,13 @@ TEST_F(VersionEditTest, ForwardCompatibleNewFile4) {
                InternalKey("zoo", kBig + 600, kTypeDeletion), kBig + 500,
                kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "123",
-               "234");
+               kUnknownFileChecksum, kUnknownFileChecksumFuncName, "123", "234",
+               kNullUniqueId64x2);
   edit.AddFile(4, 301, 3, 100, InternalKey("foo", kBig + 501, kTypeValue),
                InternalKey("zoo", kBig + 601, kTypeDeletion), kBig + 501,
                kBig + 601, false, Temperature::kUnknown, kInvalidBlobFileNumber,
                686, 868, "234", "crc32c", kDisableUserTimestamp,
-               kDisableUserTimestamp);
+               kDisableUserTimestamp, kNullUniqueId64x2);
   edit.DeleteFile(4, 700);
 
   edit.SetComparatorName("foo");
@@ -188,7 +188,7 @@ TEST_F(VersionEditTest, NewFile4NotSupportedField) {
                kBig + 600, true, Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
                kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-               kDisableUserTimestamp, kDisableUserTimestamp);
+               kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
 
   edit.SetComparatorName("foo");
   edit.SetLogNumber(kBig + 100);
@@ -219,7 +219,7 @@ TEST_F(VersionEditTest, EncodeEmptyFile) {
                Temperature::kUnknown, kInvalidBlobFileNumber,
                kUnknownOldestAncesterTime, kUnknownFileCreationTime,
                kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-               kDisableUserTimestamp, kDisableUserTimestamp);
+               kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
   std::string buffer;
   ASSERT_TRUE(!edit.EncodeTo(&buffer));
 }

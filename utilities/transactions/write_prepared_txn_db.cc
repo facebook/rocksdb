@@ -26,6 +26,18 @@
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
+// This function is for testing only. If it returns true, then all entries in
+// the commit cache will be evicted. Unit and/or stress tests (db_stress)
+// can implement this function and customize how frequently commit cache
+// eviction occurs.
+// TODO: remove this function once we can configure commit cache to be very
+// small so that eviction occurs very frequently. This requires the commit
+// cache entry to be able to encode prepare and commit sequence numbers so that
+// the commit sequence number does not have to be within a certain range of
+// prepare sequence number.
+extern "C" bool rocksdb_write_prepared_TEST_ShouldClearCommitCache(void)
+    __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 
 Status WritePreparedTxnDB::Initialize(
@@ -154,6 +166,15 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
     // increased for this batch.
     return Status::OK();
   }
+
+  if (write_options_orig.protection_bytes_per_key > 0) {
+    auto s = WriteBatchInternal::UpdateProtectionInfo(
+        batch, write_options_orig.protection_bytes_per_key);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   if (batch_cnt == 0) {  // not provided, then compute it
     // TODO(myabandeh): add an option to allow user skipping this cost
     SubBatchCounter counter(*GetCFComparatorMap());
@@ -505,6 +526,12 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
         // legit when a commit entry in a write batch overwrite the previous one
         max_evicted_seq = evicted.commit_seq;
       }
+#ifdef OS_LINUX
+      if (rocksdb_write_prepared_TEST_ShouldClearCommitCache &&
+          rocksdb_write_prepared_TEST_ShouldClearCommitCache()) {
+        max_evicted_seq = last;
+      }
+#endif  // OS_LINUX
       ROCKS_LOG_DETAILS(info_log_,
                         "%lu Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64
                         " => %lu",
@@ -708,9 +735,10 @@ SnapshotImpl* WritePreparedTxnDB::GetSnapshotInternal(
     assert(snap_impl->GetSequenceNumber() > max);
     if (snap_impl->GetSequenceNumber() <= max) {
       throw std::runtime_error(
-          "Snapshot seq " + ToString(snap_impl->GetSequenceNumber()) +
-          " after " + ToString(retry) +
-          " retries is still less than futre_max_evicted_seq_" + ToString(max));
+          "Snapshot seq " + std::to_string(snap_impl->GetSequenceNumber()) +
+          " after " + std::to_string(retry) +
+          " retries is still less than futre_max_evicted_seq_" +
+          std::to_string(max));
     }
   }
   EnhanceSnapshot(snap_impl, min_uncommitted);

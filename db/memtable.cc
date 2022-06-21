@@ -140,8 +140,8 @@ size_t MemTable::ApproximateMemoryUsage() {
   for (size_t usage : usages) {
     // If usage + total_usage >= kMaxSizet, return kMaxSizet.
     // the following variation is to avoid numeric overflow.
-    if (usage >= port::kMaxSizet - total_usage) {
-      return port::kMaxSizet;
+    if (usage >= std::numeric_limits<size_t>::max() - total_usage) {
+      return std::numeric_limits<size_t>::max();
     }
     total_usage += usage;
   }
@@ -813,6 +813,10 @@ static bool SaveValue(void* arg, const char* entry) {
           }
         } else {
           *(s->status) = Status::NotFound();
+          if (ts_sz > 0 && s->timestamp != nullptr) {
+            Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+            s->timestamp->assign(ts.data(), ts.size());
+          }
         }
         *(s->found_final_value) = true;
         return false;
@@ -1155,6 +1159,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
               if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
                 // shift the value buffer as well.
                 memcpy(p, prev_buffer, new_prev_size);
+                prev_buffer = p;
               }
             }
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);

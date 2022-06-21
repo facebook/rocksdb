@@ -154,6 +154,30 @@ jlong Java_org_rocksdb_CompressionOptions_maxDictBufferBytes(JNIEnv*, jobject,
   auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::CompressionOptions*>(jhandle);
   return static_cast<jlong>(opt->max_dict_buffer_bytes);
 }
+
+/*
+ * Class:     org_rocksdb_CompressionOptions
+ * Method:    setZstdMaxTrainBytes
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_CompressionOptions_setUseZstdDictTrainer(
+    JNIEnv*, jobject, jlong jhandle, jboolean juse_zstd_dict_trainer) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::CompressionOptions*>(jhandle);
+  opt->use_zstd_dict_trainer = juse_zstd_dict_trainer == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_CompressionOptions
+ * Method:    zstdMaxTrainBytes
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_CompressionOptions_useZstdDictTrainer(JNIEnv*,
+                                                                jobject,
+                                                                jlong jhandle) {
+  auto* opt = reinterpret_cast<ROCKSDB_NAMESPACE::CompressionOptions*>(jhandle);
+  return static_cast<bool>(opt->use_zstd_dict_trainer);
+}
+
 /*
  * Class:     org_rocksdb_CompressionOptions
  * Method:    setEnabled

@@ -88,14 +88,13 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
   autovector<log::Writer*, 1> logs_to_sync;
   uint64_t current_log_number = logfile_number_;
   while (logs_.front().number < current_log_number &&
-         logs_.front().getting_synced) {
+         logs_.front().IsSyncing()) {
     log_sync_cv_.Wait();
   }
   for (auto it = logs_.begin();
        it != logs_.end() && it->number < current_log_number; ++it) {
     auto& log = *it;
-    assert(!log.getting_synced);
-    log.getting_synced = true;
+    log.PrepareForSync();
     logs_to_sync.push_back(log.writer);
   }
 
@@ -188,7 +187,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // a memtable without knowing such snapshot(s).
   uint64_t max_memtable_id = needs_to_sync_closed_wals
                                  ? cfd->imm()->GetLatestMemTableID()
-                                 : port::kMaxUint64;
+                                 : std::numeric_limits<uint64_t>::max();
 
   // If needs_to_sync_closed_wals is false, then the flush job will pick ALL
   // existing memtables of the column family when PickMemTable() is called
@@ -952,6 +951,8 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   VersionEdit edit;
   edit.SetColumnFamily(cfd->GetID());
   edit.SetFullHistoryTsLow(ts_low);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::IncreaseFullHistoryTsLowImpl:BeforeEdit",
+                           &edit);
 
   InstrumentedMutexLock l(&mutex_);
   std::string current_ts_low = cfd->GetFullHistoryTsLow();
@@ -959,12 +960,25 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   assert(ucmp->timestamp_size() == ts_low.size() && !ts_low.empty());
   if (!current_ts_low.empty() &&
       ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
-    return Status::InvalidArgument(
-        "Cannot decrease full_history_timestamp_low");
+    return Status::InvalidArgument("Cannot decrease full_history_ts_low");
   }
 
-  return versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
-                                &mutex_);
+  Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                    &edit, &mutex_);
+  if (!s.ok()) {
+    return s;
+  }
+  current_ts_low = cfd->GetFullHistoryTsLow();
+  if (!current_ts_low.empty() &&
+      ucmp->CompareTimestamp(current_ts_low, ts_low) > 0) {
+    std::stringstream oss;
+    oss << "full_history_ts_low: " << Slice(current_ts_low).ToString(true)
+        << " is set to be higher than the requested "
+           "timestamp: "
+        << Slice(ts_low).ToString(true) << std::endl;
+    return Status::TryAgain(oss.str());
+  }
+  return Status::OK();
 }
 
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
@@ -1041,7 +1055,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             final_output_level, options, begin, end, exclusive,
-                            false, port::kMaxUint64, trim_ts);
+                            false, std::numeric_limits<uint64_t>::max(),
+                            trim_ts);
   } else {
     int first_overlapped_level = kInvalidLevel;
     int max_overlapped_level = kInvalidLevel;
@@ -1078,7 +1093,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     if (s.ok() && first_overlapped_level != kInvalidLevel) {
       // max_file_num_to_ignore can be used to filter out newly created SST
       // files, useful for bottom level compaction in a manual compaction
-      uint64_t max_file_num_to_ignore = port::kMaxUint64;
+      uint64_t max_file_num_to_ignore = std::numeric_limits<uint64_t>::max();
       uint64_t next_file_number = versions_->current_next_file_number();
       final_output_level = max_overlapped_level;
       int output_level;
@@ -1216,6 +1231,10 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
 
   // Perform CompactFiles
   TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile2");
+  TEST_SYNC_POINT_CALLBACK(
+      "TestCompactFiles:PausingManualCompaction:3",
+      reinterpret_cast<void*>(
+          const_cast<std::atomic<int>*>(&manual_compaction_paused_)));
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -1371,7 +1390,7 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
-      &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
+      kManualCompactionCanceledFalse_, db_id_, db_session_id_,
       c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
       &blob_callback_);
 
@@ -1650,7 +1669,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->smallest, f->largest, f->fd.smallest_seqno, f->fd.largest_seqno,
           f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
           f->oldest_ancester_time, f->file_creation_time, f->file_checksum,
-          f->file_checksum_func_name, f->min_timestamp, f->max_timestamp);
+          f->file_checksum_func_name, f->min_timestamp, f->max_timestamp,
+          f->unique_id);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -1836,8 +1856,7 @@ Status DBImpl::RunManualCompaction(
     // and `CompactRangeOptions::canceled` might not work well together.
     while (bg_bottom_compaction_scheduled_ > 0 ||
            bg_compaction_scheduled_ > 0) {
-      if (manual_compaction_paused_ > 0 ||
-          (manual.canceled != nullptr && *manual.canceled == true)) {
+      if (manual_compaction_paused_ > 0 || manual.canceled == true) {
         // Pretend the error came from compaction so the below cleanup/error
         // handling code can process it.
         manual.done = true;
@@ -1855,11 +1874,12 @@ Status DBImpl::RunManualCompaction(
     }
   }
 
-  ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                 "[%s] Manual compaction starting", cfd->GetName().c_str());
-
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
+
+  ROCKS_LOG_BUFFER(&log_buffer, "[%s] Manual compaction starting",
+                   cfd->GetName().c_str());
+
   // We don't check bg_error_ here, because if we get the error in compaction,
   // the compaction will set manual.status to bg_error_ and set manual.done to
   // true.
@@ -2013,7 +2033,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       // be created and scheduled, status::OK() will be returned.
       s = SwitchMemtable(cfd, &context);
     }
-    const uint64_t flush_memtable_id = port::kMaxUint64;
+    const uint64_t flush_memtable_id = std::numeric_limits<uint64_t>::max();
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
@@ -2373,9 +2393,17 @@ Status DBImpl::EnableAutoCompaction(
   return s;
 }
 
+// NOTE: Calling DisableManualCompaction() may overwrite the
+// user-provided canceled variable in CompactRangeOptions
 void DBImpl::DisableManualCompaction() {
   InstrumentedMutexLock l(&mutex_);
   manual_compaction_paused_.fetch_add(1, std::memory_order_release);
+
+  // Mark the canceled as true when the cancellation is triggered by
+  // manual_compaction_paused (may overwrite user-provided `canceled`)
+  for (const auto& manual_compaction : manual_compaction_dequeue_) {
+    manual_compaction->canceled = true;
+  }
 
   // Wake up manual compactions waiting to start.
   bg_cv_.SignalAll();
@@ -2389,6 +2417,11 @@ void DBImpl::DisableManualCompaction() {
   }
 }
 
+// NOTE: In contrast to DisableManualCompaction(), calling
+// EnableManualCompaction() does NOT overwrite the user-provided *canceled
+// variable to be false since there is NO CHANCE a canceled compaction
+// is uncanceled. In other words, a canceled compaction must have been
+// dropped out of the manual compaction queue, when we disable it.
 void DBImpl::EnableManualCompaction() {
   InstrumentedMutexLock l(&mutex_);
   assert(manual_compaction_paused_ > 0);
@@ -3034,10 +3067,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (shutting_down_.load(std::memory_order_acquire)) {
       status = Status::ShutdownInProgress();
     } else if (is_manual &&
-               manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
-      status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
-    } else if (is_manual && manual_compaction->canceled &&
-               manual_compaction->canceled->load(std::memory_order_acquire)) {
+               manual_compaction->canceled.load(std::memory_order_acquire)) {
       status = Status::Incomplete(Status::SubCode::kManualCompactionPaused);
     }
   } else {
@@ -3275,7 +3305,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
             f->oldest_blob_file_number, f->oldest_ancester_time,
             f->file_creation_time, f->file_checksum, f->file_checksum_func_name,
-            f->min_timestamp, f->max_timestamp);
+            f->min_timestamp, f->max_timestamp, f->unique_id);
 
         ROCKS_LOG_BUFFER(
             log_buffer,
@@ -3354,6 +3384,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     GetSnapshotContext(job_context, &snapshot_seqs,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
+
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         mutable_db_options_, file_options_for_compaction_, versions_.get(),
@@ -3365,9 +3396,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri, io_tracer_,
-        is_manual ? &manual_compaction_paused_ : nullptr,
-        is_manual ? manual_compaction->canceled : nullptr, db_id_,
-        db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
+        is_manual ? manual_compaction->canceled
+                  : kManualCompactionCanceledFalse_,
+        db_id_, db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
         c->trim_ts(), &blob_callback_);
     compaction_job.Prepare();
 

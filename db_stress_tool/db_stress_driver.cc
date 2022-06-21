@@ -58,15 +58,16 @@ void ThreadBody(void* v) {
 
 bool RunStressTest(StressTest* stress) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
-  stress->InitDb();
   SharedState shared(db_stress_env, stress);
+  stress->InitDb(&shared);
   stress->FinishInitDb(&shared);
 
-#ifndef NDEBUG
   if (FLAGS_sync_fault_injection) {
     fault_fs_guard->SetFilesystemDirectWritable(false);
   }
-#endif
+  if (FLAGS_write_fault_one_in) {
+    fault_fs_guard->EnableWriteErrorInjection();
+  }
 
   uint32_t n = FLAGS_threads;
   uint64_t now = clock->NowMicros();
@@ -80,6 +81,10 @@ bool RunStressTest(StressTest* stress) {
   }
 
   if (FLAGS_continuous_verification_interval > 0) {
+    shared.IncBgThreads();
+  }
+
+  if (FLAGS_create_timestamped_snapshot_one_in > 0) {
     shared.IncBgThreads();
   }
 
@@ -98,6 +103,11 @@ bool RunStressTest(StressTest* stress) {
   if (FLAGS_continuous_verification_interval > 0) {
     db_stress_env->StartThread(DbVerificationThread,
                                &continuous_verification_thread);
+  }
+
+  ThreadState snapshots_gc_thread(0, &shared);
+  if (FLAGS_create_timestamped_snapshot_one_in > 0) {
+    db_stress_env->StartThread(SnapshotGcThread, &snapshots_gc_thread);
   }
 
   // Each thread goes through the following states:
@@ -168,16 +178,13 @@ bool RunStressTest(StressTest* stress) {
   stress->PrintStatistics();
 
   if (FLAGS_compaction_thread_pool_adjust_interval > 0 ||
-      FLAGS_continuous_verification_interval > 0) {
+      FLAGS_continuous_verification_interval > 0 ||
+      FLAGS_create_timestamped_snapshot_one_in > 0) {
     MutexLock l(shared.GetMutex());
     shared.SetShouldStopBgThread();
     while (!shared.BgThreadsFinished()) {
       shared.GetCondVar()->Wait();
     }
-  }
-
-  if (!stress->VerifySecondaries()) {
-    return false;
   }
 
   if (shared.HasVerificationFailedYet()) {

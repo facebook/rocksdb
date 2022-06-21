@@ -270,9 +270,6 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
 IOStatus RandomAccessFileReader::MultiRead(
     const IOOptions& opts, FSReadRequest* read_reqs, size_t num_reqs,
     AlignedBuf* aligned_buf, Env::IOPriority rate_limiter_priority) const {
-  if (rate_limiter_priority != Env::IO_TOTAL) {
-    return IOStatus::NotSupported("Unable to rate limit MultiRead()");
-  }
   (void)aligned_buf;  // suppress warning of unused variable in LITE mode
   assert(num_reqs > 0);
 
@@ -283,7 +280,7 @@ IOStatus RandomAccessFileReader::MultiRead(
 #endif  // !NDEBUG
 
   // To be paranoid modify scratch a little bit, so in case underlying
-  // FileSystem doesn't fill the buffer but return succee and `scratch` returns
+  // FileSystem doesn't fill the buffer but return success and `scratch` returns
   // contains a previous block, returned value will not pass checksum.
   // This byte might not change anything for direct I/O case, but it's OK.
   for (size_t i = 0; i < num_reqs; i++) {
@@ -359,6 +356,30 @@ IOStatus RandomAccessFileReader::MultiRead(
 
     {
       IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
+      if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
+        // TODO: ideally we should call `RateLimiter::RequestToken()` for
+        // allowed bytes to multi-read and then consume those bytes by
+        // satisfying as many requests in `MultiRead()` as possible, instead of
+        // what we do here, which can cause burst when the
+        // `total_multi_read_size` is big.
+        size_t total_multi_read_size = 0;
+        assert(fs_reqs != nullptr);
+        for (size_t i = 0; i < num_fs_reqs; ++i) {
+          FSReadRequest& req = fs_reqs[i];
+          total_multi_read_size += req.len;
+        }
+        size_t remaining_bytes = total_multi_read_size;
+        size_t request_bytes = 0;
+        while (remaining_bytes > 0) {
+          request_bytes = std::min(
+              static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()),
+              remaining_bytes);
+          rate_limiter_->Request(request_bytes, rate_limiter_priority,
+                                 nullptr /* stats */,
+                                 RateLimiter::OpType::kRead);
+          remaining_bytes -= request_bytes;
+        }
+      }
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }
 
@@ -457,9 +478,16 @@ IOStatus RandomAccessFileReader::ReadAsync(
 
   IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
                                 io_handle, del_fn, nullptr /*dbg*/);
+// Suppress false positive clang analyzer warnings.
+// Memory is not released if file_->ReadAsync returns !s.ok(), because
+// ReadAsyncCallback is never called in that case. If ReadAsyncCallback is
+// called then ReadAsync should always return IOStatus::OK().
+#ifndef __clang_analyzer__
   if (!s.ok()) {
     delete read_async_info;
   }
+#endif  // __clang_analyzer__
+
   return s;
 }
 

@@ -79,16 +79,16 @@ Status PersistRocksDBOptions(const ConfigOptions& config_options_in,
 
   std::string options_file_content;
 
-  s = writable->Append(option_file_header + "[" +
-                       opt_section_titles[kOptionSectionVersion] +
-                       "]\n"
-                       "  rocksdb_version=" +
-                       ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR) +
-                       "." + ToString(ROCKSDB_PATCH) + "\n");
+  s = writable->Append(
+      option_file_header + "[" + opt_section_titles[kOptionSectionVersion] +
+      "]\n"
+      "  rocksdb_version=" +
+      std::to_string(ROCKSDB_MAJOR) + "." + std::to_string(ROCKSDB_MINOR) +
+      "." + std::to_string(ROCKSDB_PATCH) + "\n");
   if (s.ok()) {
     s = writable->Append(
-        "  options_file_version=" + ToString(ROCKSDB_OPTION_FILE_MAJOR) + "." +
-        ToString(ROCKSDB_OPTION_FILE_MINOR) + "\n");
+        "  options_file_version=" + std::to_string(ROCKSDB_OPTION_FILE_MAJOR) +
+        "." + std::to_string(ROCKSDB_OPTION_FILE_MINOR) + "\n");
   }
   if (s.ok()) {
     s = writable->Append("\n[" + opt_section_titles[kOptionSectionDBOptions] +
@@ -216,7 +216,7 @@ Status RocksDBOptionsParser::InvalidArgument(const int line_num,
                                              const std::string& message) {
   return Status::InvalidArgument(
       "[RocksDBOptionsParser Error] ",
-      message + " (at line " + ToString(line_num) + ")");
+      message + " (at line " + std::to_string(line_num) + ")");
 }
 
 Status RocksDBOptionsParser::ParseStatement(std::string* name,
@@ -271,7 +271,7 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
   std::unordered_map<std::string, std::string> opt_map;
   std::string line;
   // we only support single-lined statement.
-  while (lf_reader.ReadLine(&line)) {
+  while (lf_reader.ReadLine(&line, Env::IO_TOTAL /* rate_limiter_priority */)) {
     int line_num = static_cast<int>(lf_reader.GetLineNumber());
     line = TrimAndRemoveComment(line);
     if (line.empty()) {
@@ -453,12 +453,13 @@ Status RocksDBOptionsParser::EndSection(
           section_arg);
     }
     // Ignore error as table factory deserialization is optional
+    cf_opt->table_factory.reset();
     s = TableFactory::CreateFromString(
         config_options,
         section_title.substr(
             opt_section_titles[kOptionSectionTableOptions].size()),
         &(cf_opt->table_factory));
-    if (s.ok()) {
+    if (s.ok() && cf_opt->table_factory != nullptr) {
       s = cf_opt->table_factory->ConfigureFromMap(config_options, opt_map);
       // Translate any errors (NotFound, NotSupported, to InvalidArgument
       if (s.ok() || s.IsInvalidArgument()) {
@@ -590,7 +591,7 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
       return Status::InvalidArgument(
           "[RocksDBOptionParser Error] The persisted options and the db"
           "instance does not have the same name for column family ",
-          ToString(i));
+          std::to_string(i));
     }
   }
 

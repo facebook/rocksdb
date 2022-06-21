@@ -62,6 +62,8 @@ struct Posix_IOHandle {
   size_t len;
   char* scratch;
   bool is_finished = false;
+  // req_count is used by AbortIO API to keep track of number of requests.
+  uint32_t req_count = 0;
 };
 
 inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
@@ -187,8 +189,7 @@ class PosixSequentialFile : public FSSequentialFile {
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* file, int fd,
-                      size_t logical_block_size,
-                      const EnvOptions& options);
+                      size_t logical_block_size, const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
   virtual IOStatus Read(size_t n, const IOOptions& opts, Slice* result,
@@ -353,10 +354,10 @@ class PosixMmapReadableFile : public FSRandomAccessFile {
   PosixMmapReadableFile(const int fd, const std::string& fname, void* base,
                         size_t length, const EnvOptions& options);
   virtual ~PosixMmapReadableFile();
-  virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts,
-                        Slice* result, char* scratch,
-                        IODebugContext* dbg) const override;
-  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& opts, Slice* result,
+                char* scratch, IODebugContext* dbg) const override;
+  void Hint(AccessPattern pattern) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
 };
 
 class PosixMmapFile : public FSWritableFile {
@@ -451,9 +452,11 @@ struct PosixMemoryMappedFileBuffer : public MemoryMappedFileBuffer {
 
 class PosixDirectory : public FSDirectory {
  public:
-  explicit PosixDirectory(int fd);
+  explicit PosixDirectory(int fd, const std::string& directory_name);
   ~PosixDirectory();
   virtual IOStatus Fsync(const IOOptions& opts, IODebugContext* dbg) override;
+
+  virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
 
   virtual IOStatus FsyncWithDirOptions(
       const IOOptions&, IODebugContext*,
@@ -462,6 +465,7 @@ class PosixDirectory : public FSDirectory {
  private:
   int fd_;
   bool is_btrfs_;
+  const std::string directory_name_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

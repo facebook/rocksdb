@@ -228,6 +228,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    track_and_verify_wals_in_manifest),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"verify_sst_unique_id_in_manifest",
+         {offsetof(struct ImmutableDBOptions, verify_sst_unique_id_in_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"skip_log_error_on_recovery",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -439,22 +443,36 @@ static std::unordered_map<std::string, OptionTypeInfo>
                 static_cast<int64_t>(ParseUint64(value))));
             return Status::OK();
           }}},
-        {"env",
-         {offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
-          OptionVerificationType::kNormal,
-          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever),
-          // Parse the input value as an Env
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, void* addr) {
-            auto old_env = static_cast<Env**>(addr);       // Get the old value
-            Env* new_env = *old_env;                       // Set new to old
-            Status s = Env::CreateFromString(opts, value,
-                                             &new_env);    // Update new value
-            if (s.ok()) {                                  // It worked
-              *old_env = new_env;                          // Update the old one
-            }
-            return s;
-          }}},
+        {"env",  //**TODO: Should this be kCustomizable?
+         OptionTypeInfo(
+             offsetof(struct ImmutableDBOptions, env), OptionType::kUnknown,
+             OptionVerificationType::kNormal,
+             (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever))
+             .SetParseFunc([](const ConfigOptions& opts,
+                              const std::string& /*name*/,
+                              const std::string& value, void* addr) {
+               // Parse the input value as an Env
+               auto old_env = static_cast<Env**>(addr);  // Get the old value
+               Env* new_env = *old_env;                  // Set new to old
+               Status s = Env::CreateFromString(opts, value,
+                                                &new_env);  // Update new value
+               if (s.ok()) {                                // It worked
+                 *old_env = new_env;  // Update the old one
+               }
+               return s;
+             })
+             .SetPrepareFunc([](const ConfigOptions& opts,
+                                const std::string& /*name*/, void* addr) {
+               auto env = static_cast<Env**>(addr);
+               return (*env)->PrepareOptions(opts);
+             })
+             .SetValidateFunc([](const DBOptions& db_opts,
+                                 const ColumnFamilyOptions& cf_opts,
+                                 const std::string& /*name*/,
+                                 const void* addr) {
+               const auto env = static_cast<const Env* const*>(addr);
+               return (*env)->ValidateOptions(db_opts, cf_opts);
+             })},
         {"allow_data_in_errors",
          {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -538,6 +556,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          OptionTypeInfo::Enum<CacheTier>(
              offsetof(struct ImmutableDBOptions, lowest_used_cache_tier),
              &cache_tier_string_map, OptionTypeFlags::kNone)},
+        {"enforce_single_del_contracts",
+         {offsetof(struct ImmutableDBOptions, enforce_single_del_contracts),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -662,6 +684,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       flush_verify_memtable_count(options.flush_verify_memtable_count),
       track_and_verify_wals_in_manifest(
           options.track_and_verify_wals_in_manifest),
+      verify_sst_unique_id_in_manifest(
+          options.verify_sst_unique_id_in_manifest),
       env(options.env),
       rate_limiter(options.rate_limiter),
       sst_file_manager(options.sst_file_manager),
@@ -736,7 +760,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_host_id(options.db_host_id),
       checksum_handoff_file_types(options.checksum_handoff_file_types),
       lowest_used_cache_tier(options.lowest_used_cache_tier),
-      compaction_service(options.compaction_service) {
+      compaction_service(options.compaction_service),
+      enforce_single_del_contracts(options.enforce_single_del_contracts) {
   fs = env->GetFileSystem();
   clock = env->GetSystemClock().get();
   logger = info_log.get();
@@ -756,6 +781,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    "                              "
                    "Options.track_and_verify_wals_in_manifest: %d",
                    track_and_verify_wals_in_manifest);
+  ROCKS_LOG_HEADER(log, "       Options.verify_sst_unique_id_in_manifest: %d",
+                   verify_sst_unique_id_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
@@ -907,6 +934,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    allow_data_in_errors);
   ROCKS_LOG_HEADER(log, "            Options.db_host_id: %s",
                    db_host_id.c_str());
+  ROCKS_LOG_HEADER(log, "            Options.enforce_single_del_contracts: %s",
+                   enforce_single_del_contracts ? "true" : "false");
 }
 
 bool ImmutableDBOptions::IsWalDirSameAsDBPath() const {
