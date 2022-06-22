@@ -208,14 +208,14 @@ class autovector {
       vect_.resize(n - kSize);
       while (num_stack_items_ < kSize) {
         new ((void*)(&values_[num_stack_items_])) value_type();
-        num_stack_items_++; // exception-safe: inc after cons finish
+        num_stack_items_++;  // exception-safe: inc after cons finish
       }
       num_stack_items_ = kSize;
     } else {
       vect_.clear();
       while (num_stack_items_ < n) {
         new ((void*)(&values_[num_stack_items_])) value_type();
-        num_stack_items_++; // exception-safe: inc after cons finish
+        num_stack_items_++;  // exception-safe: inc after cons finish
       }
       while (num_stack_items_ > n) {
         values_[--num_stack_items_].~value_type();
@@ -367,7 +367,9 @@ class autovector {
   // used only if there are more than `kSize` items.
   std::vector<T> vect_;
   size_type num_stack_items_ = 0;  // current number of items
-  union { value_type values_[kSize]; };
+  union {
+    value_type values_[kSize];
+  };
 };
 
 template <class T, size_t kSize>
@@ -393,7 +395,7 @@ autovector<T, kSize>& autovector<T, kSize>::operator=(
   num_stack_items_ = n;
   other.num_stack_items_ = 0;
   for (size_t i = 0; i < n; ++i) {
-    new(&values_[i])value_type(std::move(other.values_[i]));
+    new (&values_[i]) value_type(std::move(other.values_[i]));
   }
   return *this;
 }
