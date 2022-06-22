@@ -31,7 +31,7 @@ class autovector : public std::vector<T> {
 
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic ignored "-Wuninitialized"
 #endif
 
 // A vector that leverages pre-allocated stack-based array to achieve better
@@ -399,9 +399,7 @@ autovector<T, kSize>& autovector<T, kSize>::operator=(
   size_t n = other.num_stack_items_;
   num_stack_items_ = n;
   other.num_stack_items_ = 0;
-  for (size_t i = 0; i < n; ++i) {
-    new (&values_[i]) value_type(std::move(other.values_[i]));
-  }
+  std::uninitialized_move_n(other.values_, n, values_);
   return *this;
 }
 
