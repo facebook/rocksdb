@@ -333,10 +333,6 @@ Status CreateLoggerFromOptions(const std::string& dbname,
       if (s.IsNotFound()) {
         s = Status::OK();
       }
-    } else if (!s.ok()) {
-      fprintf(stderr, "code=%d subcode=%d %s\n", (int)s.code(), (int)s.subcode(), s.ToString().c_str());
-      fflush(stderr);
-      assert(false);
     }
   } else if (s.IsNotFound()) {
     // "LOG" is not required to exist since this could be a new DB.
