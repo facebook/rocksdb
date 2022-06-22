@@ -190,14 +190,11 @@ void BlobSource::MultiGetBlob(
       const Slice key = cache_key.AsSlice();
 
       s = GetBlobFromCache(key, &blob_entry);
-      if (!s.ok()) {
+      if (s.ok() && blob_entry.GetValue()) {
         assert(statuses[i]);
-        *statuses[i] = s;
-        continue;
-      }
-
-      if (blob_entry.GetValue()) {
         assert(blob_entry.GetValue()->size() == value_sizes[i]);
+
+        *statuses[i] = s;
         blobs[i]->PinSelf(*blob_entry.GetValue());
 
         // Update the counter for the number of valid blobs read from the cache.
