@@ -119,6 +119,8 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
 }
 
 TEST_F(DBWideBasicTest, PutEntityTimestampError) {
+  // Note: timestamps are currently not supported
+
   Options options = GetDefaultOptions();
   options.comparator = test::BytewiseComparatorWithU64TsWrapper();
 
@@ -144,6 +146,8 @@ TEST_F(DBWideBasicTest, PutEntityTimestampError) {
 }
 
 TEST_F(DBWideBasicTest, PutEntitySerializationError) {
+  // Make sure duplicate columns are caught
+
   Options options = GetDefaultOptions();
 
   // Use the DB::PutEntity API
