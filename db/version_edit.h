@@ -316,7 +316,7 @@ struct FileMetaData {
 };
 
 // A compressed copy of file meta data that just contain minimum data needed
-// to server read operations, while still keeping the pointer to full metadata
+// to serve read operations, while still keeping the pointer to full metadata
 // of the file in case it is needed.
 struct FdWithKeyRange {
   FileDescriptor fd;
