@@ -181,10 +181,9 @@ class autovector {
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  autovector() : values_(reinterpret_cast<pointer>(buf_)) {}
+  autovector() {}
 
-  autovector(std::initializer_list<T> init_list)
-      : values_(reinterpret_cast<pointer>(buf_)) {
+  autovector(std::initializer_list<T> init_list) {
     for (const T& item : init_list) {
       push_back(item);
     }
@@ -207,13 +206,15 @@ class autovector {
     if (n > kSize) {
       vect_.resize(n - kSize);
       while (num_stack_items_ < kSize) {
-        new ((void*)(&values_[num_stack_items_++])) value_type();
+        new ((void*)(&values_[num_stack_items_])) value_type();
+        num_stack_items_++; // exception-safe: inc after cons finish
       }
       num_stack_items_ = kSize;
     } else {
       vect_.clear();
       while (num_stack_items_ < n) {
-        new ((void*)(&values_[num_stack_items_++])) value_type();
+        new ((void*)(&values_[num_stack_items_])) value_type();
+        num_stack_items_++; // exception-safe: inc after cons finish
       }
       while (num_stack_items_ > n) {
         values_[--num_stack_items_].~value_type();
@@ -356,25 +357,21 @@ class autovector {
   }
 
  private:
-  size_type num_stack_items_ = 0;  // current number of items
-  alignas(alignof(
-      value_type)) char buf_[kSize *
-                             sizeof(value_type)];  // the first `kSize` items
-  pointer values_;
   // used only if there are more than `kSize` items.
   std::vector<T> vect_;
+  size_type num_stack_items_ = 0;  // current number of items
+  union { value_type values_[kSize]; };
 };
 
 template <class T, size_t kSize>
 autovector<T, kSize>& autovector<T, kSize>::assign(
     const autovector<T, kSize>& other) {
-  values_ = reinterpret_cast<pointer>(buf_);
   // copy the internal vector
   vect_.assign(other.vect_.begin(), other.vect_.end());
 
   // copy array
   num_stack_items_ = other.num_stack_items_;
-  std::copy(other.values_, other.values_ + num_stack_items_, values_);
+  std::copy_n(other.values_, num_stack_items_, values_);
 
   return *this;
 }
@@ -382,7 +379,6 @@ autovector<T, kSize>& autovector<T, kSize>::assign(
 template <class T, size_t kSize>
 autovector<T, kSize>& autovector<T, kSize>::operator=(
     autovector<T, kSize>&& other) {
-  values_ = reinterpret_cast<pointer>(buf_);
   vect_ = std::move(other.vect_);
   size_t n = other.num_stack_items_;
   num_stack_items_ = n;
