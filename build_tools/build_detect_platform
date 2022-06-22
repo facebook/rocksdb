@@ -373,6 +373,7 @@ EOF
         $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o test.o 2>/dev/null  <<EOF
           #include <lz4.h>
           #include <lz4hc.h>
+          #include <lz4frame.h>
           int main() {}
 EOF
         if [ "$?" = 0 ]; then
