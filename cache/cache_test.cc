@@ -650,6 +650,10 @@ TEST_P(CacheTest, ReleaseWithoutErase) {
 }
 
 TEST_P(CacheTest, SetCapacity) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache doesn't support capacity adjustments.");
+    return;
+  }
   // test1: increase capacity
   // lets create a cache with capacity 5,
   // then, insert 5 elements, then increase capacity
@@ -698,6 +702,12 @@ TEST_P(CacheTest, SetCapacity) {
 }
 
 TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS(
+        "FastLRUCache doesn't support an unbounded number of inserts beyond "
+        "capacity.");
+    return;
+  }
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
   std::shared_ptr<Cache> cache = NewCache(5, 0, false);
@@ -749,6 +759,10 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 }
 
 TEST_P(CacheTest, OverCapacity) {
+  if (GetParam() == kFast) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache doesn't support capacity adjustments.");
+    return;
+  }
   size_t n = 10;
 
   // a LRUCache with n entries and one shard only

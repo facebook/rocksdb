@@ -1248,6 +1248,7 @@ class DBImpl : public DB {
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
+  Status init_logger_creation_s_;
   const DBOptions initial_db_options_;
   Env* const env_;
   std::shared_ptr<IOTracer> io_tracer_;
@@ -1516,6 +1517,16 @@ class DBImpl : public DB {
   // should be called when RocksDB writes to a first new MANIFEST since this
   // recovery.
   Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
+
+  void InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap();
+
+  // Return true to proceed with current WAL record whose content is stored in
+  // `batch`. Return false to skip current WAL record.
+  bool InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
+                                          const std::string& wal_fname,
+                                          log::Reader::Reporter& reporter,
+                                          Status& status, bool& stop_replay,
+                                          WriteBatch& batch);
 
  private:
   friend class DB;
@@ -2590,10 +2601,12 @@ class GetWithTimestampReadCallback : public ReadCallback {
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,
-                               bool read_only = false);
+                               bool read_only = false,
+                               Status* logger_creation_s = nullptr);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
-                                 bool read_only = false);
+                                 bool read_only = false,
+                                 Status* logger_creation_s = nullptr);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
