@@ -88,22 +88,17 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #endif
 }
 
-int FadviseForHint(int fd, FSRandomAccessFile::AccessPattern pattern) {
-  switch (pattern) {
-    case FSRandomAccessFile::AccessPattern::kNormal:
-      return Fadvise(fd, 0, 0, POSIX_FADV_NORMAL);
-    case FSRandomAccessFile::AccessPattern::kRandom:
-      return Fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
-    case FSRandomAccessFile::AccessPattern::kSequential:
-      return Fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
-    case FSRandomAccessFile::AccessPattern::kWillNeed:
-      return Fadvise(fd, 0, 0, POSIX_FADV_WILLNEED);
-    case FSRandomAccessFile::AccessPattern::kWontNeed:
-      return Fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
-    default:
-      assert(false);
-      return 1;
-  }
+// A wrapper for fadvise, if the platform doesn't support fadvise,
+// it will simply return 0.
+int Madvise(void* addr, size_t len, int advice) {
+#ifdef OS_LINUX
+  return posix_madvise(addr, len, advice);
+#else
+  (void)addr;
+  (void)len;
+  (void)advice;
+  return 0;  // simply do nothing.
+#endif
 }
 
 namespace {
@@ -839,7 +834,26 @@ void PosixRandomAccessFile::Hint(AccessPattern pattern) {
   if (use_direct_io()) {
     return;
   }
-  FadviseForHint(fd_, pattern);
+  switch (pattern) {
+    case kNormal:
+      Fadvise(fd_, 0, 0, POSIX_FADV_NORMAL);
+      break;
+    case kRandom:
+      Fadvise(fd_, 0, 0, POSIX_FADV_RANDOM);
+      break;
+    case kSequential:
+      Fadvise(fd_, 0, 0, POSIX_FADV_SEQUENTIAL);
+      break;
+    case kWillNeed:
+      Fadvise(fd_, 0, 0, POSIX_FADV_WILLNEED);
+      break;
+    case kWontNeed:
+      Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 IOStatus PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
@@ -982,7 +996,26 @@ IOStatus PosixMmapReadableFile::Read(uint64_t offset, size_t n,
 }
 
 void PosixMmapReadableFile::Hint(AccessPattern pattern) {
-  FadviseForHint(fd_, pattern);
+  switch (pattern) {
+    case kNormal:
+      Madvise(mmapped_region_, length_, POSIX_MADV_NORMAL);
+      break;
+    case kRandom:
+      Madvise(mmapped_region_, length_, POSIX_MADV_RANDOM);
+      break;
+    case kSequential:
+      Madvise(mmapped_region_, length_, POSIX_MADV_SEQUENTIAL);
+      break;
+    case kWillNeed:
+      Madvise(mmapped_region_, length_, POSIX_MADV_WILLNEED);
+      break;
+    case kWontNeed:
+      Madvise(mmapped_region_, length_, POSIX_MADV_DONTNEED);
+      break;
+    default:
+      assert(false);
+      break;
+  }
 }
 
 IOStatus PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {

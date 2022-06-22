@@ -579,52 +579,81 @@ TEST_F(DBBasicTest, ManifestRollOver) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBBasicTest, IdentityAcrossRestarts1) {
+TEST_F(DBBasicTest, IdentityAcrossRestarts) {
+  constexpr size_t kMinIdSize = 10;
   do {
-    std::string id1;
-    ASSERT_OK(db_->GetDbIdentity(id1));
+    for (bool with_manifest : {false, true}) {
+      std::string idfilename = IdentityFileName(dbname_);
+      std::string id1, tmp;
+      ASSERT_OK(db_->GetDbIdentity(id1));
+      ASSERT_GE(id1.size(), kMinIdSize);
 
-    Options options = CurrentOptions();
-    Reopen(options);
-    std::string id2;
-    ASSERT_OK(db_->GetDbIdentity(id2));
-    // id1 should match id2 because identity was not regenerated
-    ASSERT_EQ(id1.compare(id2), 0);
+      Options options = CurrentOptions();
+      options.write_dbid_to_manifest = with_manifest;
+      Reopen(options);
+      std::string id2;
+      ASSERT_OK(db_->GetDbIdentity(id2));
+      // id2 should match id1 because identity was not regenerated
+      ASSERT_EQ(id1, id2);
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id2);
 
-    std::string idfilename = IdentityFileName(dbname_);
-    ASSERT_OK(env_->DeleteFile(idfilename));
-    Reopen(options);
-    std::string id3;
-    ASSERT_OK(db_->GetDbIdentity(id3));
-    if (options.write_dbid_to_manifest) {
-      ASSERT_EQ(id1.compare(id3), 0);
-    } else {
-      // id1 should NOT match id3 because identity was regenerated
-      ASSERT_NE(id1.compare(id3), 0);
+      // Recover from deleted/missing IDENTITY
+      ASSERT_OK(env_->DeleteFile(idfilename));
+      Reopen(options);
+      std::string id3;
+      ASSERT_OK(db_->GetDbIdentity(id3));
+      if (with_manifest) {
+        // id3 should match id1 because identity was restored from manifest
+        ASSERT_EQ(id1, id3);
+      } else {
+        // id3 should NOT match id1 because identity was regenerated
+        ASSERT_NE(id1, id3);
+        ASSERT_GE(id3.size(), kMinIdSize);
+      }
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id3);
+
+      // Recover from truncated IDENTITY
+      {
+        std::unique_ptr<WritableFile> w;
+        ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
+        ASSERT_OK(w->Close());
+      }
+      Reopen(options);
+      std::string id4;
+      ASSERT_OK(db_->GetDbIdentity(id4));
+      if (with_manifest) {
+        // id4 should match id1 because identity was restored from manifest
+        ASSERT_EQ(id1, id4);
+      } else {
+        // id4 should NOT match id1 because identity was regenerated
+        ASSERT_NE(id1, id4);
+        ASSERT_GE(id4.size(), kMinIdSize);
+      }
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id4);
+
+      // Recover from overwritten IDENTITY
+      std::string silly_id = "asdf123456789";
+      {
+        std::unique_ptr<WritableFile> w;
+        ASSERT_OK(env_->NewWritableFile(idfilename, &w, EnvOptions()));
+        ASSERT_OK(w->Append(silly_id));
+        ASSERT_OK(w->Close());
+      }
+      Reopen(options);
+      std::string id5;
+      ASSERT_OK(db_->GetDbIdentity(id5));
+      if (with_manifest) {
+        // id4 should match id1 because identity was restored from manifest
+        ASSERT_EQ(id1, id5);
+      } else {
+        ASSERT_EQ(id5, silly_id);
+      }
+      ASSERT_OK(ReadFileToString(env_, idfilename, &tmp));
+      ASSERT_EQ(tmp, id5);
     }
-  } while (ChangeCompactOptions());
-}
-
-TEST_F(DBBasicTest, IdentityAcrossRestarts2) {
-  do {
-    std::string id1;
-    ASSERT_OK(db_->GetDbIdentity(id1));
-
-    Options options = CurrentOptions();
-    options.write_dbid_to_manifest = true;
-    Reopen(options);
-    std::string id2;
-    ASSERT_OK(db_->GetDbIdentity(id2));
-    // id1 should match id2 because identity was not regenerated
-    ASSERT_EQ(id1.compare(id2), 0);
-
-    std::string idfilename = IdentityFileName(dbname_);
-    ASSERT_OK(env_->DeleteFile(idfilename));
-    Reopen(options);
-    std::string id3;
-    ASSERT_OK(db_->GetDbIdentity(id3));
-    // id1 should NOT match id3 because identity was regenerated
-    ASSERT_EQ(id1, id3);
   } while (ChangeCompactOptions());
 }
 
@@ -2192,6 +2221,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
   // No async IO in this case since we don't do parallel lookup in L0
   ASSERT_EQ(multiget_io_batch_size.count, 0);
   ASSERT_EQ(multiget_io_batch_size.max, 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 }
 
 TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
@@ -2228,6 +2258,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
 
 TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
@@ -2378,27 +2409,37 @@ TEST_F(DBBasicTest, MultiGetStats) {
                 values.data(), s.data(), false);
 
   ASSERT_EQ(values.size(), kMultiGetBatchSize);
-  HistogramData hist_data_blocks;
+  HistogramData hist_level;
   HistogramData hist_index_and_filter_blocks;
   HistogramData hist_sst;
 
-  options.statistics->histogramData(NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                                    &hist_data_blocks);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
   options.statistics->histogramData(NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
                                     &hist_index_and_filter_blocks);
   options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
 
   // Maximum number of blocks read from a file system in a level.
-  ASSERT_EQ(hist_data_blocks.max, 32);
+  ASSERT_EQ(hist_level.max, 1);
   ASSERT_GT(hist_index_and_filter_blocks.max, 0);
   // Maximum number of sst files read from file system in a level.
   ASSERT_EQ(hist_sst.max, 2);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 4);
+  ASSERT_EQ(hist_level.min, 1);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
   ASSERT_EQ(hist_sst.min, 1);
+
+  for (PinnableSlice& value : values) {
+    value.Reset();
+  }
+  for (Status& status : s) {
+    status = Status::OK();
+  }
+  db_->MultiGet(read_opts, handles_[1], kMultiGetBatchSize, &keys[950],
+                values.data(), s.data(), false);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
+  ASSERT_EQ(hist_level.max, 2);
 }
 
 // Test class for batched MultiGet with prefix extractor
@@ -4102,7 +4143,7 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
 
   Status s = TryReopen(options);
   ASSERT_EQ(nullptr, options.info_log);
-  ASSERT_TRUE(s.IsAborted());
+  ASSERT_TRUE(s.IsIOError());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

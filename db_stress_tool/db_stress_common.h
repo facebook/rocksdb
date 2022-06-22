@@ -152,12 +152,12 @@ DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
-DECLARE_bool(use_block_based_filter);
 DECLARE_int32(ribbon_starting_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_bool(detect_filter_construct_corruption);
 DECLARE_int32(index_type);
+DECLARE_int32(data_block_index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
@@ -297,6 +297,8 @@ DECLARE_string(wal_compression);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
 
 DECLARE_int32(create_timestamped_snapshot_one_in);
+
+DECLARE_bool(allow_data_in_errors);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

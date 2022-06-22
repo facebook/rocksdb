@@ -1153,7 +1153,10 @@ class PosixFileSystem : public FileSystem {
       // Prepare the cancel request.
       struct io_uring_sqe* sqe;
       sqe = io_uring_get_sqe(iu);
-      io_uring_prep_cancel(sqe, (void*)(unsigned long)1, 0);
+      // prep_cancel changed API in liburing, but we need to support both old
+      // and new versions so do it by hand
+      io_uring_prep_cancel(sqe, 0, 0);
+      sqe->addr = reinterpret_cast<uint64_t>(posix_handle);
       io_uring_sqe_set_data(sqe, posix_handle);
 
       // submit the request.

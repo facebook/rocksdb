@@ -214,12 +214,15 @@ class CfConsistencyStressTest : public StressTest {
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    ReadOptions readoptionscopy = read_opts;
+    readoptionscopy.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
 
     for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
     }
-    db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+    db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                   statuses.data());
     for (auto s : statuses) {
       if (s.ok()) {

@@ -469,10 +469,6 @@ DEFINE_double(bloom_bits, 10,
               "Bloom filter bits per key. "
               "Negative means use default settings.");
 
-DEFINE_bool(use_block_based_filter, false,
-            "use block based filter"
-            "instead of full filter for block based table");
-
 DEFINE_int32(
     ribbon_starting_level, 999,
     "Use Bloom filter on levels below specified and Ribbon beginning on level "
@@ -497,8 +493,14 @@ DEFINE_bool(
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(
-        ROCKSDB_NAMESPACE::BlockBasedTableOptions::kBinarySearch),
+        ROCKSDB_NAMESPACE::BlockBasedTableOptions().index_type),
     "Type of block-based table index (see `enum IndexType` in table.h)");
+
+DEFINE_int32(
+    data_block_index_type,
+    static_cast<int32_t>(
+        ROCKSDB_NAMESPACE::BlockBasedTableOptions().data_block_index_type),
+    "Index type for data blocks (see `enum DataBlockIndexType` in table.h)");
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
@@ -975,5 +977,9 @@ DEFINE_bool(
 DEFINE_int32(
     create_timestamped_snapshot_one_in, 0,
     "On non-zero, create timestamped snapshots upon transaction commits.");
+
+DEFINE_bool(allow_data_in_errors,
+            ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
+            "If true, allow logging data, e.g. key, value in LOG files.");
 
 #endif  // GFLAGS

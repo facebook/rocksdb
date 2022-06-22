@@ -1248,6 +1248,7 @@ class DBImpl : public DB {
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
+  Status init_logger_creation_s_;
   const DBOptions initial_db_options_;
   Env* const env_;
   std::shared_ptr<IOTracer> io_tracer_;
@@ -1479,8 +1480,10 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
-  // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId(bool read_only, RecoveryContext* recovery_ctx);
+  // Setup DB identity file, and write DB ID to manifest if necessary.
+  Status SetupDBId(bool read_only, RecoveryContext* recovery_ctx);
+  // Assign db_id_ and write DB ID to manifest if necessary.
+  void SetDBId(std::string&& id, bool read_only, RecoveryContext* recovery_ctx);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1514,6 +1517,16 @@ class DBImpl : public DB {
   // should be called when RocksDB writes to a first new MANIFEST since this
   // recovery.
   Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
+
+  void InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap();
+
+  // Return true to proceed with current WAL record whose content is stored in
+  // `batch`. Return false to skip current WAL record.
+  bool InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
+                                          const std::string& wal_fname,
+                                          log::Reader::Reporter& reporter,
+                                          Status& status, bool& stop_replay,
+                                          WriteBatch& batch);
 
  private:
   friend class DB;
@@ -1591,12 +1604,38 @@ class DBImpl : public DB {
       return s;
     }
 
+    bool IsSyncing() { return getting_synced; }
+
+    uint64_t GetPreSyncSize() {
+      assert(getting_synced);
+      return pre_sync_size;
+    }
+
+    void PrepareForSync() {
+      assert(!getting_synced);
+      // Size is expected to be monotonically increasing.
+      assert(writer->file()->GetFlushedSize() >= pre_sync_size);
+      getting_synced = true;
+      pre_sync_size = writer->file()->GetFlushedSize();
+    }
+
+    void FinishSync() {
+      assert(getting_synced);
+      getting_synced = false;
+    }
+
     uint64_t number;
     // Visual Studio doesn't support deque's member to be noncopyable because
     // of a std::unique_ptr as a member.
     log::Writer* writer;  // own
+
+   private:
     // true for some prefix of logs_
     bool getting_synced = false;
+    // The size of the file before the sync happens. This amount is guaranteed
+    // to be persisted even if appends happen during sync so it can be used for
+    // tracking the synced size in MANIFEST.
+    uint64_t pre_sync_size = 0;
   };
 
   // PurgeFileInfo is a structure to hold information of files to be deleted in
@@ -1915,9 +1954,12 @@ class DBImpl : public DB {
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
                          WriteContext* write_context);
 
-  WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
-                         WriteBatch* tmp_batch, size_t* write_with_wal,
-                         WriteBatch** to_be_cached_state);
+  // Merge write batches in the write group into merged_batch.
+  // Returns OK if merge is successful.
+  // Returns Corruption if corruption in write batch is detected.
+  Status MergeBatch(const WriteThread::WriteGroup& write_group,
+                    WriteBatch* tmp_batch, WriteBatch** merged_batch,
+                    size_t* write_with_wal, WriteBatch** to_be_cached_state);
 
   // rate_limiter_priority is used to charge `DBOptions::rate_limiter`
   // for automatic WAL flush (`Options::manual_wal_flush` == false)
@@ -2559,10 +2601,12 @@ class GetWithTimestampReadCallback : public ReadCallback {
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,
-                               bool read_only = false);
+                               bool read_only = false,
+                               Status* logger_creation_s = nullptr);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
-                                 bool read_only = false);
+                                 bool read_only = false,
+                                 Status* logger_creation_s = nullptr);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
