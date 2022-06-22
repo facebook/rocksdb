@@ -96,6 +96,26 @@ TEST_F(DBWideBasicTest, PutAndReadEntity) {
   verify();
 }
 
+TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"corinthian"}, options);
+
+  // Use the DB::PutEntity API
+  constexpr char first_key[] = "first";
+  WideColumns first_columns{{"foo", "bar"}, {"hello", "world"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), handles_[1], first_key, first_columns));
+
+  // Use WriteBatch
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{"one", "two"}, {"three", "four"}};
+
+  WriteBatch batch;
+  ASSERT_OK(batch.PutEntity(handles_[1], second_key, second_columns));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+}
+
 TEST_F(DBWideBasicTest, PutEntityError) {
   Options options = GetDefaultOptions();
 
