@@ -1291,6 +1291,9 @@ struct DBOptions {
   // invalid (missing/file-mismatch) table and blob files.
   // It is possible that the database can be restored to an empty state with no
   // table or blob files.
+  // Regardless of this option, the IDENTITY file is updated if needed during
+  // recovery to match the DB ID in the MANIFEST (if previously using
+  // write_dbid_to_manifest) or to be in some valid state (non-empty DB ID).
   // Currently, not compatible with atomic flush. Furthermore, WAL files will
   // not be used for recovery if best_efforts_recovery is true.
   // Also requires either 1) LOCK file exists or 2) underlying env's LockFile()
