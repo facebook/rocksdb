@@ -4,9 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <array>
+#include <memory>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -116,7 +118,32 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
-TEST_F(DBWideBasicTest, PutEntityError) {
+TEST_F(DBWideBasicTest, PutEntityTimestampError) {
+  Options options = GetDefaultOptions();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+
+  ColumnFamilyHandle* handle = nullptr;
+  ASSERT_OK(db_->CreateColumnFamily(options, "corinthian", &handle));
+  std::unique_ptr<ColumnFamilyHandle> handle_guard(handle);
+
+  // Use the DB::PutEntity API
+  constexpr char first_key[] = "first";
+  WideColumns first_columns{{"foo", "bar"}, {"hello", "world"}};
+
+  ASSERT_TRUE(db_->PutEntity(WriteOptions(), handle, first_key, first_columns)
+                  .IsInvalidArgument());
+
+  // Use WriteBatch
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{"doric", "column"}, {"ionic", "column"}};
+
+  WriteBatch batch;
+  ASSERT_TRUE(
+      batch.PutEntity(handle, second_key, second_columns).IsInvalidArgument());
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+}
+
+TEST_F(DBWideBasicTest, PutEntitySerializationError) {
   Options options = GetDefaultOptions();
 
   // Use the DB::PutEntity API
