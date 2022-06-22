@@ -156,7 +156,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
+      init_logger_creation_s_(),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only,
+                                          &init_logger_creation_s_)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -747,6 +749,9 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  // TODO: remove this.
+  init_logger_creation_s_.PermitUncheckedError();
+
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return;
