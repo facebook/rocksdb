@@ -192,8 +192,7 @@ LRUCacheShard::LRUCacheShard(size_t capacity, size_t estimated_value_size,
     : capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       table_(
-          CalcHashBits(capacity, estimated_value_size, metadata_charge_policy) +
-          static_cast<uint8_t>(ceil(log2(1.0 / kLoadFactor)))),
+          CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)),
       usage_(0),
       lru_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -300,7 +299,7 @@ uint8_t LRUCacheShard::CalcHashBits(
     CacheMetadataChargePolicy metadata_charge_policy) {
   LRUHandle h;
   h.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
-  size_t num_entries = capacity / h.total_charge;
+  size_t num_entries = static_cast<size_t>(capacity / (kLoadFactor * h.total_charge));
   uint8_t num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
