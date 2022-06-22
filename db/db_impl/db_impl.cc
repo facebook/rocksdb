@@ -749,6 +749,9 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  // TODO: remove this.
+  init_logger_creation_s_.PermitUncheckedError();
+
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return;
