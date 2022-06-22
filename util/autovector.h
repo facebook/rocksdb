@@ -381,7 +381,7 @@ autovector<T, kSize>& autovector<T, kSize>::assign(
   destory(values_, num_stack_items_);
   // copy array
   num_stack_items_ = other.num_stack_items_;
-  std::uninitialized_fill_n(other.values_, num_stack_items_, values_);
+  std::uninitialized_copy_n(other.values_, num_stack_items_, values_);
 
   return *this;
 }
