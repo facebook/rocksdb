@@ -493,8 +493,14 @@ DEFINE_bool(
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(
-        ROCKSDB_NAMESPACE::BlockBasedTableOptions::kBinarySearch),
+        ROCKSDB_NAMESPACE::BlockBasedTableOptions().index_type),
     "Type of block-based table index (see `enum IndexType` in table.h)");
+
+DEFINE_int32(
+    data_block_index_type,
+    static_cast<int32_t>(
+        ROCKSDB_NAMESPACE::BlockBasedTableOptions().data_block_index_type),
+    "Index type for data blocks (see `enum DataBlockIndexType` in table.h)");
 
 DEFINE_string(db, "", "Use the db with the following name.");
 

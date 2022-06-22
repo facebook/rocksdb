@@ -55,6 +55,11 @@ enum CompactionPri : char {
   // and its size is the smallest. It in many cases can optimize write
   // amplification.
   kMinOverlappingRatio = 0x3,
+  // Keeps a cursor(s) of the successor of the file (key range) was/were
+  // compacted before, and always picks the next files (key range) in that
+  // level. The file picking process will cycle through all the files in a
+  // round-robin manner.
+  kRoundRobin = 0x4,
 };
 
 struct CompactionOptionsFIFO {

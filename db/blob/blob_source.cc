@@ -111,7 +111,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
-    return Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
+    return s;
   }
 
   // Can't find the blob from the cache. Since I/O is allowed, read from the

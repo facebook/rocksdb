@@ -5219,7 +5219,76 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(CompactionPri::kByCompensatedSize,
                       CompactionPri::kOldestLargestSeqFirst,
                       CompactionPri::kOldestSmallestSeqFirst,
-                      CompactionPri::kMinOverlappingRatio));
+                      CompactionPri::kMinOverlappingRatio,
+                      CompactionPri::kRoundRobin));
+
+TEST_F(DBCompactionTest, PersistRoundRobinCompactCursor) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 16 * 1024;
+  options.max_bytes_for_level_base = 64 * 1024;
+  options.level0_file_num_compaction_trigger = 4;
+  options.compaction_pri = CompactionPri::kRoundRobin;
+  options.max_bytes_for_level_multiplier = 4;
+  options.num_levels = 3;
+  options.compression = kNoCompression;
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  // 30 Files in L0 to trigger compactions between L1 and L2
+  for (int i = 0; i < 30; i++) {
+    for (int j = 0; j < 16; j++) {
+      ASSERT_OK(Put(rnd.RandomString(24), rnd.RandomString(1000)));
+    }
+  }
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+
+  Version* const current = cfd->current();
+  ASSERT_NE(current, nullptr);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  ASSERT_NE(storage_info, nullptr);
+
+  const std::vector<InternalKey> compact_cursors =
+      storage_info->GetCompactCursors();
+
+  Reopen(options);
+
+  VersionSet* const reopened_versions = dbfull()->GetVersionSet();
+  assert(reopened_versions);
+
+  ColumnFamilyData* const reopened_cfd =
+      reopened_versions->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(reopened_cfd, nullptr);
+
+  Version* const reopened_current = reopened_cfd->current();
+  ASSERT_NE(reopened_current, nullptr);
+
+  const VersionStorageInfo* const reopened_storage_info =
+      reopened_current->storage_info();
+  ASSERT_NE(reopened_storage_info, nullptr);
+
+  const std::vector<InternalKey> reopened_compact_cursors =
+      reopened_storage_info->GetCompactCursors();
+  const auto icmp = reopened_storage_info->InternalComparator();
+  ASSERT_EQ(compact_cursors.size(), reopened_compact_cursors.size());
+  for (size_t i = 0; i < compact_cursors.size(); i++) {
+    if (compact_cursors[i].Valid()) {
+      ASSERT_EQ(0,
+                icmp->Compare(compact_cursors[i], reopened_compact_cursors[i]));
+    } else {
+      ASSERT_TRUE(!reopened_compact_cursors[i].Valid());
+    }
+  }
+}
 
 class NoopMergeOperator : public MergeOperator {
  public:
