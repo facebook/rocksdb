@@ -1082,15 +1082,17 @@ DEFINE_bool(
     "cache and blob cache. It only takes effect if use_blob_cache is enabled.");
 
 DEFINE_uint64(
-    blob_cache_size, FLAGS_cache_size,
+    blob_cache_size, 8 << 20,
     "[Integrated BlobDB] Number of bytes to use as a cache of blobs. It only "
-    "takes effect if the block cache and blob cache are different "
+    "takes effect if the block and blob caches are different "
     "(use_shared_block_and_blob_cache = false).");
 
-DEFINE_int32(blob_cache_numshardbits, FLAGS_cache_numshardbits,
-             "Number of shards for the blob cache is 2 ** "
+DEFINE_int32(blob_cache_numshardbits, 6,
+             "[Integrated BlobDB] Number of shards for the blob cache is 2 ** "
              "blob_cache_numshardbits. Negative means use default settings. "
-             "This is applied only if FLAGS_blob_cache_size is non-negative.");
+             "It only takes effect if blob_cache_size is greater than 0, and "
+             "the block and blob caches are different "
+             "(use_shared_block_and_blob_cache = false).");
 
 #ifndef ROCKSDB_LITE
 

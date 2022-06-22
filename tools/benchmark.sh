@@ -90,11 +90,11 @@ function display_usage() {
   echo -e "\tBLOB_COMPRESSION_TYPE\tValue for blob_compression_type"
   echo -e "\tBLOB_GC_AGE_CUTOFF\tValue for blob_garbage_collection_age_cutoff"
   echo -e "\tBLOB_GC_FORCE_THRESHOLD\tValue for blob_garbage_collection_force_threshold"
-  echo -e "\tBLOB_FILE_STARTING_LEVEL\t\tBlob file starting level. Default is 0."
-  echo -e "\tUSE_BLOB_CACHE\t\t\tEnable blob cache. Default is 1."
-  echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache. Default is 1."
-  echo -e "\tBLOB_CACHE_SIZE\t\t\tSize of the blob cache. Default is same to CACHE_SIZE."
-  echo -e "\tBLOB_CACHE_NUMSHARDBITS\t\t\tNumber of shards for the blob cache is 2 ** blob_cache_numshardbits. Default is same to CACHE_NUMSHARDBITS."
+  echo -e "\tBLOB_FILE_STARTING_LEVEL\t\tBlob file starting level (default: 0)"
+  echo -e "\tUSE_BLOB_CACHE\t\t\tEnable blob cache (default: 1)"
+  echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache (default: 1)"
+  echo -e "\tBLOB_CACHE_SIZE\t\t\tSize of the blob cache (default: 16GB)"
+  echo -e "\tBLOB_CACHE_NUMSHARDBITS\t\t\tNumber of shards for the blob cache is 2 ** blob_cache_numshardbits (default: 6)"
 }
 
 if [ $# -lt 1 ]; then
@@ -162,7 +162,7 @@ num_threads=${NUM_THREADS:-64}
 mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
 # Only for tests that do range scans
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}
-cache_size=${CACHE_SIZE:-$((17179869184))}
+cache_size=${CACHE_SIZE:-$(( 16 * $G ))}
 cache_numshardbits=${CACHE_NUMSHARDBITS:-6}
 compression_max_dict_bytes=${COMPRESSION_MAX_DICT_BYTES:-0}
 compression_type=${COMPRESSION_TYPE:-zstd}
@@ -237,8 +237,8 @@ blob_gc_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1}
 blob_file_starting_level=${BLOB_FILE_STARTING_LEVEL:-0}
 use_blob_cache=${USE_BLOB_CACHE:-1}
 use_shared_block_and_blob_cache=${USE_SHARED_BLOCK_AND_BLOB_CACHE:-1}
-blob_cache_size=${BLOB_CACHE_SIZE:-${cache_size}}
-blob_cache_numshardbits=${BLOB_CACHE_NUMSHARDBITS:-${cache_numshardbits}}
+blob_cache_size=${BLOB_CACHE_SIZE:-$(( 16 * $G ))}
+blob_cache_numshardbits=${BLOB_CACHE_NUMSHARDBITS:-6}
 
 const_params_base="
   --db=$DB_DIR \
