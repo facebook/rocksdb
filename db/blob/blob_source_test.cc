@@ -117,6 +117,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   options.cf_paths.emplace_back(
       test::PerThreadDBPath(env_, "BlobSourceTest_GetBlobsFromCache"), 0);
   options.enable_blob_files = true;
+  options.create_if_missing = true;
 
   LRUCacheOptions co;
   co.capacity = 2048;
@@ -125,7 +126,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   options.blob_cache = NewLRUCache(co);
   options.lowest_used_cache_tier = CacheTier::kVolatileTier;
 
-  Reopen(options);
+  DestroyAndReopen(options);
 
   std::string db_id;
   ASSERT_OK(db_->GetDbIdentity(db_id));
@@ -277,14 +278,43 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
 
-      ASSERT_NOK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                     blob_offsets[i], file_size, blob_sizes[i],
-                                     kNoCompression, prefetch_buffer,
-                                     &values[i], &bytes_read));
+      ASSERT_TRUE(blob_source
+                      .GetBlob(read_options, keys[i], blob_file_number,
+                               blob_offsets[i], file_size, blob_sizes[i],
+                               kNoCompression, prefetch_buffer, &values[i],
+                               &bytes_read)
+                      .IsIncomplete());
       ASSERT_TRUE(values[i].empty());
       ASSERT_EQ(bytes_read, 0);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                blob_offsets[i]));
+    }
+  }
+
+  {
+    // GetBlob from non-existing file
+    std::vector<PinnableSlice> values(keys.size());
+    uint64_t bytes_read = 0;
+    uint64_t file_number = 100;  // non-existing file
+
+    read_options.read_tier = ReadTier::kReadAllTier;
+    read_options.fill_cache = true;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                                blob_offsets[i]));
+
+      ASSERT_TRUE(blob_source
+                      .GetBlob(read_options, keys[i], file_number,
+                               blob_offsets[i], file_size, blob_sizes[i],
+                               kNoCompression, prefetch_buffer, &values[i],
+                               &bytes_read)
+                      .IsIOError());
+      ASSERT_TRUE(values[i].empty());
+      ASSERT_EQ(bytes_read, 0);
+
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                 blob_offsets[i]));
     }
   }
@@ -296,6 +326,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   options.cf_paths.emplace_back(
       test::PerThreadDBPath(env_, "BlobSourceTest_MultiGetBlobsFromCache"), 0);
   options.enable_blob_files = true;
+  options.create_if_missing = true;
 
   LRUCacheOptions co;
   co.capacity = 2048;
@@ -304,7 +335,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   options.blob_cache = NewLRUCache(co);
   options.lowest_used_cache_tier = CacheTier::kVolatileTier;
 
-  Reopen(options);
+  DestroyAndReopen(options);
 
   std::string db_id;
   ASSERT_OK(db_->GetDbIdentity(db_id));
@@ -484,10 +515,44 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                              &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      statuses_buf[i].PermitUncheckedError();
-      ASSERT_NOK(statuses_buf[i]);
+      ASSERT_TRUE(statuses_buf[i].IsIncomplete());
       ASSERT_TRUE(value_buf[i].empty());
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
+                                                blob_offsets[i]));
+    }
+  }
+
+  {
+    // MultiGetBlob from non-existing file
+    uint64_t bytes_read = 0;
+    uint64_t file_number = 100;  // non-existing file
+    read_options.read_tier = ReadTier::kReadAllTier;
+
+    autovector<std::reference_wrapper<const Slice>> key_refs;
+    autovector<uint64_t> offsets;
+    autovector<uint64_t> sizes;
+    std::array<Status, num_blobs> statuses_buf;
+    autovector<Status*> statuses;
+    std::array<PinnableSlice, num_blobs> value_buf;
+    autovector<PinnableSlice*> values;
+
+    for (size_t i = 0; i < num_blobs; i++) {
+      key_refs.emplace_back(std::cref(keys[i]));
+      offsets.push_back(blob_offsets[i]);
+      sizes.push_back(blob_sizes[i]);
+      statuses.push_back(&statuses_buf[i]);
+      values.push_back(&value_buf[i]);
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                                blob_offsets[i]));
+    }
+
+    blob_source.MultiGetBlob(read_options, key_refs, file_number, file_size,
+                             offsets, sizes, statuses, values, &bytes_read);
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_TRUE(statuses_buf[i].IsIOError());
+      ASSERT_TRUE(value_buf[i].empty());
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                 blob_offsets[i]));
     }
   }
