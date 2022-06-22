@@ -28,6 +28,12 @@ class autovector : public std::vector<T> {
   }
 };
 #else
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 // A vector that leverages pre-allocated stack-based array to achieve better
 // performance for array with small amount of items.
 //
@@ -388,6 +394,10 @@ autovector<T, kSize>& autovector<T, kSize>::operator=(
   }
   return *this;
 }
+
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
