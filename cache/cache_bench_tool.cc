@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "cache_key.h"
 #ifdef GFLAGS
 #include <cinttypes>
 #include <cstddef>
@@ -214,7 +215,7 @@ struct KeyGen {
     EncodeFixed64(key_data + 10, key);
     key_data[18] = char{4};
     EncodeFixed64(key_data + 19, key);
-    return Slice(&key_data[off], 16);
+    return Slice(&key_data[off], kCacheKeySize);
   }
 };
 
@@ -320,13 +321,11 @@ class CacheBench {
   void PopulateCache() {
     Random64 rnd(1);
     KeyGen keygen;
-    char *value = createValue(rnd);
     for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
+      char *value = createValue(rnd);
       Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), value,
                         &helper1, FLAGS_value_bytes);
-      if (s != Status::OK()) {
-        delete value;
-      }
+      assert(s == Status::OK());
     }
   }
 
@@ -549,9 +548,7 @@ class CacheBench {
           char *value = createValue(thread->rnd);
           Status s = cache_->Insert(key, value, &helper2,
                           FLAGS_value_bytes, &handle);
-          if (s != Status::OK()) {
-            delete value;
-          }
+          assert(s == Status::OK());
         }
       } else if (random_op < insert_threshold_) {
         if (handle) {
@@ -562,9 +559,7 @@ class CacheBench {
         char *value = createValue(thread->rnd);
         Status s = cache_->Insert(key, value, &helper3,
                         FLAGS_value_bytes, &handle);
-        if (s != Status::OK()) {
-          delete value;
-        }
+        assert(s == Status::OK());
       } else if (random_op < lookup_threshold_) {
         if (handle) {
           cache_->Release(handle);
