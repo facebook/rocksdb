@@ -66,7 +66,9 @@ enum ValueType : unsigned char {
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
   kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
-  kMaxValue = 0x7F                    // Not used for storing records.
+  kTypeWideColumnEntity = 0x16,
+  kTypeColumnFamilyWideColumnEntity = 0x17,  // WAL only
+  kMaxValue = 0x7F                           // Not used for storing records.
 };
 
 // Defined in dbformat.cc
@@ -76,8 +78,8 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex ||
-         kTypeDeletionWithTimestamp == t;
+  return t <= kTypeMerge || kTypeSingleDeletion == t || kTypeBlobIndex == t ||
+         kTypeDeletionWithTimestamp == t || kTypeWideColumnEntity == t;
 }
 
 // Checks whether a type is from user operation

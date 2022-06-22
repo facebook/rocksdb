@@ -1517,6 +1517,16 @@ class DBImpl : public DB {
   // recovery.
   Status LogAndApplyForRecovery(const RecoveryContext& recovery_ctx);
 
+  void InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap();
+
+  // Return true to proceed with current WAL record whose content is stored in
+  // `batch`. Return false to skip current WAL record.
+  bool InvokeWalFilterIfNeededOnWalRecord(uint64_t wal_number,
+                                          const std::string& wal_fname,
+                                          log::Reader::Reporter& reporter,
+                                          Status& status, bool& stop_replay,
+                                          WriteBatch& batch);
+
  private:
   friend class DB;
   friend class ErrorHandler;

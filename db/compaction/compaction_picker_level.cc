@@ -448,6 +448,14 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     // do not pick a file to compact if it is being compacted
     // from n-1 level.
     if (f->being_compacted) {
+      if (ioptions_.compaction_pri == kRoundRobin) {
+        // TODO(zichen): this file may be involved in one compaction from
+        // an upper level, cannot advance the cursor for round-robin policy.
+        // Currently, we do not pick any file to compact in this case. We
+        // should fix this later to ensure a compaction is picked but the
+        // cursor shall not be advanced.
+        return false;
+      }
       continue;
     }
 
@@ -460,6 +468,13 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       // A locked (pending compaction) input-level file was pulled in due to
       // user-key overlap.
       start_level_inputs_.clear();
+
+      // To ensure every file is selcted in a round-robin manner, we cannot
+      // skip the current file. So we return false and wait for the next time
+      // we can pick this file to compact
+      if (ioptions_.compaction_pri == kRoundRobin) {
+        return false;
+      }
       continue;
     }
 
@@ -479,6 +494,10 @@ bool LevelCompactionBuilder::PickFileToCompact() {
         !compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
                                                     &output_level_inputs)) {
       start_level_inputs_.clear();
+      // The same reason as above to ensure the round-robin compaction
+      if (ioptions_.compaction_pri == kRoundRobin) {
+        return false;
+      }
       continue;
     }
     base_index_ = index;
@@ -486,8 +505,9 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   }
 
   // store where to start the iteration in the next call to PickCompaction
-  vstorage_->SetNextCompactionIndex(start_level_, cmp_idx);
-
+  if (ioptions_.compaction_pri != kRoundRobin) {
+    vstorage_->SetNextCompactionIndex(start_level_, cmp_idx);
+  }
   return start_level_inputs_.size() > 0;
 }
 
