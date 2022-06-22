@@ -2334,6 +2334,17 @@ void StressTest::Open(SharedState* shared) {
           options_.blob_compaction_readahead_size,
           options_.blob_file_starting_level);
 
+  if (FLAGS_use_blob_cache) {
+    fprintf(stdout,
+            "Integrated BlobDB: blob cache enabled, block abd blob caches "
+            "shared: %d, blob cache size %" PRIu64
+            ", blob cache num shard bits: %d\n",
+            FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+            FLAGS_blob_cache_numshardbits);
+  } else {
+    fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+  }
+
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
   Status s;

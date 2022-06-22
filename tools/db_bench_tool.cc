@@ -4512,6 +4512,14 @@ class Benchmark {
           exit(1);
         }
       }
+      fprintf(stdout,
+              "Integrated BlobDB: blob cache enabled, block and blob caches "
+              "shared: %d, blob cache size %" PRIu64
+              ", blob cache num shard bits: %d\n",
+              FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+              FLAGS_blob_cache_numshardbits);
+    } else {
+      fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
     }
 
 #ifndef ROCKSDB_LITE
