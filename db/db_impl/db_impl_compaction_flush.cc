@@ -2237,7 +2237,7 @@ Status DBImpl::AtomicFlushMemTables(
 // This method tries to avoid write stall (similar to CompactRange() behavior)
 // it emulates how the SuperVersion / LSM would change if flush happens, checks
 // it against various constrains and delays flush if it'd cause write stall.
-// Called should check status and flush_needed to see if flush already happened.
+// Caller should check status and flush_needed to see if flush already happened.
 Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                                                  bool* flush_needed) {
   {
