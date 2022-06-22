@@ -2879,12 +2879,18 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
     src_flags = src->content_flags_.load(std::memory_order_relaxed);
   }
 
-  if (dst->prot_info_ != nullptr) {
+  if (src->prot_info_ != nullptr) {
+    if (dst->prot_info_ == nullptr) {
+      dst->prot_info_.reset(new WriteBatch::ProtectionInfo());
+    }
     std::copy(src->prot_info_->entries_.begin(),
               src->prot_info_->entries_.begin() + src_count,
               std::back_inserter(dst->prot_info_->entries_));
-  } else if (src->prot_info_ != nullptr) {
-    dst->prot_info_.reset(new WriteBatch::ProtectionInfo(*src->prot_info_));
+  } else if (dst->prot_info_ != nullptr) {
+    // dst has empty prot_info->entries
+    // In this special case, we allow write batch without prot_info to
+    // be appende to write batch with empty prot_info
+    dst->prot_info_ = nullptr;
   }
   SetCount(dst, Count(dst) + src_count);
   assert(src->rep_.size() >= WriteBatchInternal::kHeader);

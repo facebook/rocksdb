@@ -5,6 +5,7 @@
 
 #include <array>
 #include <sstream>
+#include <string>
 
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
@@ -46,6 +47,177 @@ TEST_F(DBBlobBasicTest, GetBlob) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
                   .IsIncomplete());
+}
+
+TEST_F(DBBlobBasicTest, GetBlobFromCache) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 2048;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+
+  read_options.fill_cache = false;
+
+  {
+    PinnableSlice result;
+
+    read_options.read_tier = kReadAllTier;
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, blob_value);
+
+    result.Reset();
+    read_options.read_tier = kBlockCacheTier;
+
+    // Try again with no I/O allowed. Since we didn't re-fill the cache, the
+    // blob itself can only be read from the blob file, so the read should
+    // return Incomplete.
+    ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
+                    .IsIncomplete());
+    ASSERT_TRUE(result.empty());
+  }
+
+  read_options.fill_cache = true;
+
+  {
+    PinnableSlice result;
+
+    read_options.read_tier = kReadAllTier;
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, blob_value);
+
+    result.Reset();
+    read_options.read_tier = kBlockCacheTier;
+
+    // Try again with no I/O allowed. The table and the necessary blocks/blobs
+    // should already be in their respective caches.
+    ASSERT_OK(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result));
+    ASSERT_EQ(result, blob_value);
+  }
+}
+
+TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 2048;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  Reopen(options);
+
+  int num_blobs = 5;
+  std::vector<std::string> keys;
+  std::vector<std::string> blobs;
+
+  for (int i = 0; i < num_blobs; ++i) {
+    keys.push_back("key" + std::to_string(i));
+    blobs.push_back("blob" + std::to_string(i));
+    ASSERT_OK(Put(keys[i], blobs[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+
+  {
+    read_options.fill_cache = false;
+    read_options.read_tier = kReadAllTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key().ToString(), keys[i]);
+      ASSERT_EQ(iter->value().ToString(), blobs[i]);
+      ++i;
+    }
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    // Try again with no I/O allowed. Since we didn't re-fill the cache,
+    // the blob itself can only be read from the blob file, so iter->Valid()
+    // should be false.
+    iter->SeekToFirst();
+    ASSERT_NOK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+  }
+
+  {
+    read_options.fill_cache = true;
+    read_options.read_tier = kReadAllTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    // Read blobs from the file and refill the cache.
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key().ToString(), keys[i]);
+      ASSERT_EQ(iter->value().ToString(), blobs[i]);
+      ++i;
+    }
+    ASSERT_EQ(i, num_blobs);
+  }
+
+  {
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    ASSERT_OK(iter->status());
+
+    // Try again with no I/O allowed. The table and the necessary blocks/blobs
+    // should already be in their respective caches.
+    int i = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key().ToString(), keys[i]);
+      ASSERT_EQ(iter->value().ToString(), blobs[i]);
+      ++i;
+    }
+    ASSERT_EQ(i, num_blobs);
+  }
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
