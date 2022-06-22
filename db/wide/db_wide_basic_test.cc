@@ -16,7 +16,7 @@ class DBWideBasicTest : public DBTestBase {
       : DBTestBase("db_wide_basic_test", /* env_do_fsync */ false) {}
 };
 
-TEST_F(DBWideBasicTest, Entity) {
+TEST_F(DBWideBasicTest, PutAndReadEntity) {
   Options options = GetDefaultOptions();
 
   constexpr size_t num_keys = 2;
@@ -94,6 +94,28 @@ TEST_F(DBWideBasicTest, Entity) {
   ASSERT_OK(Flush());
 
   verify();
+}
+
+TEST_F(DBWideBasicTest, PutEntityError) {
+  Options options = GetDefaultOptions();
+
+  // Use the DB::PutEntity API
+  constexpr char first_key[] = "first";
+  WideColumns first_columns{{"foo", "bar"}, {"foo", "baz"}};
+
+  ASSERT_TRUE(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                             first_key, first_columns)
+                  .IsCorruption());
+
+  // Use WriteBatch
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{"column", "doric"}, {"column", "ionic"}};
+
+  WriteBatch batch;
+  ASSERT_TRUE(
+      batch.PutEntity(db_->DefaultColumnFamily(), second_key, second_columns)
+          .IsCorruption());
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
