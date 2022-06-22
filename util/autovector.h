@@ -29,11 +29,6 @@ class autovector : public std::vector<T> {
 };
 #else
 
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
 // A vector that leverages pre-allocated stack-based array to achieve better
 // performance for array with small amount of items.
 //
@@ -363,6 +358,12 @@ class autovector {
   }
 
  private:
+  static void destory(value_type* p, size_t n) {
+    if (!std::is_trivially_destructible<value_type>::value) {
+      while (n) p[--n].~value_type();
+    }
+  }
+
   // used only if there are more than `kSize` items.
   std::vector<T> vect_;
   size_type num_stack_items_ = 0;  // current number of items
@@ -375,9 +376,10 @@ autovector<T, kSize>& autovector<T, kSize>::assign(
   // copy the internal vector
   vect_.assign(other.vect_.begin(), other.vect_.end());
 
+  destory(values_, num_stack_items_);
   // copy array
   num_stack_items_ = other.num_stack_items_;
-  std::copy_n(other.values_, num_stack_items_, values_);
+  std::uninitialized_fill_n(other.values_, num_stack_items_, values_);
 
   return *this;
 }
@@ -386,18 +388,15 @@ template <class T, size_t kSize>
 autovector<T, kSize>& autovector<T, kSize>::operator=(
     autovector<T, kSize>&& other) {
   vect_ = std::move(other.vect_);
+  destory(values_, num_stack_items_);
   size_t n = other.num_stack_items_;
   num_stack_items_ = n;
   other.num_stack_items_ = 0;
   for (size_t i = 0; i < n; ++i) {
-    values_[i] = std::move(other.values_[i]);
+    new(&values_[i])value_type(std::move(other.values_[i]));
   }
   return *this;
 }
-
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
 
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
