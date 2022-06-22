@@ -27,8 +27,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src,
-                        bool read_only) {
-  auto db_options = SanitizeOptions(dbname, DBOptions(src), read_only);
+                        bool read_only, Status* logger_creation_s) {
+  auto db_options =
+      SanitizeOptions(dbname, DBOptions(src), read_only, logger_creation_s);
   ImmutableDBOptions immutable_db_options(db_options);
   auto cf_options =
       SanitizeOptions(immutable_db_options, ColumnFamilyOptions(src));
@@ -36,7 +37,7 @@ Options SanitizeOptions(const std::string& dbname, const Options& src,
 }
 
 DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
-                          bool read_only) {
+                          bool read_only, Status* logger_creation_s) {
   DBOptions result(src);
 
   if (result.env == nullptr) {
@@ -59,6 +60,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     if (!s.ok()) {
       // No place suitable for logging
       result.info_log = nullptr;
+      if (logger_creation_s) {
+        *logger_creation_s = s;
+      }
     }
   }
 
@@ -1747,9 +1751,11 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
   if (!impl->immutable_db_options_.info_log) {
-    s = Status::Aborted("Failed to create logger");
+    s = impl->init_logger_creation_s_;
     delete impl;
     return s;
+  } else {
+    assert(impl->init_logger_creation_s_.ok());
   }
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.GetWalDir());
   if (s.ok()) {

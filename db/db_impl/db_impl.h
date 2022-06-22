@@ -1248,6 +1248,7 @@ class DBImpl : public DB {
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
+  Status init_logger_creation_s_;
   const DBOptions initial_db_options_;
   Env* const env_;
   std::shared_ptr<IOTracer> io_tracer_;
@@ -2590,10 +2591,12 @@ class GetWithTimestampReadCallback : public ReadCallback {
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,
-                               bool read_only = false);
+                               bool read_only = false,
+                               Status* logger_creation_s = nullptr);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
-                                 bool read_only = false);
+                                 bool read_only = false,
+                                 Status* logger_creation_s = nullptr);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
