@@ -785,7 +785,8 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
     ret.append(table_options_.block_cache->GetPrintableOptions());
     if (std::strcmp(table_options_.block_cache->Name(), "LRUCache") == 0) {
       ret.append("  secondary cache:\n");
-      ret.append(std::dynamic_pointer_cast<LRUCache>(table_options_.block_cache)
+      ret.append(std::static_cast<std::shared_ptr<LRUCache>>(
+                     table_options_.block_cache)
                      ->GetSecondaryCache()
                      ->GetPrintableOptions());
     }
