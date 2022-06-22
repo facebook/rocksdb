@@ -503,24 +503,24 @@ function summarize_result {
 
   # For RocksDB version 4.x there are fewer fields but this still parses correctly
   # Cumulative writes: 242M writes, 242M keys, 18M commit groups, 12.9 writes per commit group, ingest: 95.96 GB, 54.69 MB/s
-  cum_writes_gb=$( grep "^Cumulative writes" $test_out | tail -1 | awk '{ for (x=1; x<=NF; x++) { if ($x == "ingest:") { printf "%.1f", $(x+1) } } }' )
+  cum_writes_gb_orig=$( grep "^Cumulative writes" $test_out | tail -1 | awk '{ for (x=1; x<=NF; x++) { if ($x == "ingest:") { printf "%.1f", $(x+1) } } }' )
   cum_writes_units=$( grep "^Cumulative writes" $test_out | tail -1 | awk '{ for (x=1; x<=NF; x++) { if ($x == "ingest:") { print $(x+2) } } }' | sed 's/,//g' )
-  cum_writes_gb=$( units_as_gb $cum_writes_gb $cum_writes_units )
+  cum_writes_gb=$( units_as_gb $cum_writes_gb_orig $cum_writes_units )
 
   # Cumulative compaction: 1159.74 GB write, 661.03 MB/s write, 1108.89 GB read, 632.04 MB/s read, 6284.3 seconds
   cmb_ps=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $6 }' )
-  sum_wgb=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
+  sum_wgb_orig=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
   sum_wgb_units=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ print $4 }' )
-  sum_wgb=$( units_as_gb $sum_wgb $sum_wgb_units )
+  sum_wgb=$( units_as_gb $sum_wgb_orig $sum_wgb_units )
 
   # Flush(GB): cumulative 97.193, interval 1.247
   flush_wgb=$( grep "^Flush(GB)" $test_out | tail -1 | awk '{ print $3 }' | tr ',' ' ' | awk '{ print $1 }' )
 
   if [[ "$sum_wgb" == "NA" || \
         "$cum_writes_gb" == "NA" || \
-        "$cum_writes_gb" == "0.00" || \
-        "$cum_writes_gb" == "" || \
-        "$flush_wgb" == "" ]]; then
+        "$cum_writes_gb_orig" == "0.0" || \
+        -z "$cum_writes_gb_orig" || \
+        -z "$flush_wgb" ]]; then
     wamp="NA"
   else
     wamp=$( echo "( $sum_wgb + $flush_wgb ) / $cum_writes_gb" | bc -l | awk '{ printf "%.1f", $1 }' )
