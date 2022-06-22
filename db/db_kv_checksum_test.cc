@@ -15,6 +15,7 @@ enum class WriteBatchOpType {
   kSingleDelete,
   kDeleteRange,
   kMerge,
+  kPutEntity,
   kNum,
 };
 
@@ -61,6 +62,9 @@ std::pair<WriteBatch, Status> GetWriteBatch(ColumnFamilyHandle* cf_handle,
       break;
     case WriteBatchOpType::kMerge:
       s = wb.Merge(cf_handle, "key", "val");
+      break;
+    case WriteBatchOpType::kPutEntity:
+      s = wb.PutEntity(cf_handle, "key", {{"foo", "bar"}, {"hello", "world"}});
       break;
     case WriteBatchOpType::kNum:
       assert(false);
@@ -135,10 +139,10 @@ std::string GetOpTypeString(const WriteBatchOpType& op_type) {
       return "SingleDelete";
     case WriteBatchOpType::kDeleteRange:
       return "DeleteRange";
-      break;
     case WriteBatchOpType::kMerge:
       return "Merge";
-      break;
+    case WriteBatchOpType::kPutEntity:
+      return "PutEntity";
     case WriteBatchOpType::kNum:
       assert(false);
   }
