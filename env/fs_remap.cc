@@ -268,6 +268,9 @@ IOStatus RemapFileSystem::RenameFile(const std::string& src,
                                      IODebugContext* dbg) {
   auto status_and_src_enc_path = EncodePath(src);
   if (!status_and_src_enc_path.first.ok()) {
+    fprintf(stderr, "y7jin %s %s\n", status_and_src_enc_path.first.ToString().c_str(), status_and_src_enc_path.second.c_str());
+    fflush(stderr);
+    assert(false);
     return status_and_src_enc_path.first;
   }
   auto status_and_dest_enc_path = EncodePathWithNewBasename(dest);
