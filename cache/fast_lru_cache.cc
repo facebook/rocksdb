@@ -299,7 +299,8 @@ uint8_t LRUCacheShard::CalcHashBits(
     CacheMetadataChargePolicy metadata_charge_policy) {
   LRUHandle h;
   h.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
-  size_t num_entries = static_cast<size_t>(capacity / (kLoadFactor * h.total_charge));
+  size_t num_entries =
+      static_cast<size_t>(capacity / (kLoadFactor * h.total_charge));
   uint8_t num_hash_bits = 0;
   while (num_entries >>= 1) {
     ++num_hash_bits;
