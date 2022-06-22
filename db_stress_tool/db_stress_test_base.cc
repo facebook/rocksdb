@@ -2334,6 +2334,17 @@ void StressTest::Open(SharedState* shared) {
           options_.blob_compaction_readahead_size,
           options_.blob_file_starting_level);
 
+  if (FLAGS_use_blob_cache) {
+    fprintf(stdout,
+            "Integrated BlobDB: blob cache enabled, block and blob caches "
+            "shared: %d, blob cache size %" PRIu64
+            ", blob cache num shard bits: %d\n",
+            FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+            FLAGS_blob_cache_numshardbits);
+  } else {
+    fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+  }
+
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
   Status s;
@@ -2885,6 +2896,24 @@ void InitializeOptionsFromFlags(
       FLAGS_blob_garbage_collection_force_threshold;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+
+  if (FLAGS_use_blob_cache) {
+    if (FLAGS_use_shared_block_and_blob_cache) {
+      options.blob_cache = cache;
+    } else {
+      if (FLAGS_blob_cache_size > 0) {
+        LRUCacheOptions co;
+        co.capacity = FLAGS_blob_cache_size;
+        co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+        options.blob_cache = NewLRUCache(co);
+      } else {
+        fprintf(stderr,
+                "Unable to create a standalone blob cache if blob_cache_size "
+                "<= 0.\n");
+        exit(1);
+      }
+    }
+  }
 
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
