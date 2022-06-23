@@ -876,7 +876,7 @@ class WritableFile {
   virtual ~WritableFile();
 
   // Append data to the end of the file
-  // Note: A WriteableFile object must support either Append or
+  // Note: A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
 

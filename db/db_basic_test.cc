@@ -2467,7 +2467,6 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   SetPerfLevel(kEnableCount);
   get_perf_context()->Reset();
 
-  // First key is not in the prefix_extractor domain
   ASSERT_OK(Put("k", "v0"));
   ASSERT_OK(Put("kk1", "v1"));
   ASSERT_OK(Put("kk2", "v2"));
@@ -2480,6 +2479,8 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   std::vector<std::string> values;
   values = MultiGet(keys, nullptr);
   ASSERT_EQ(values, expected);
+  // One key ("k") is not queried against the filter because it is outside
+  // the prefix_extractor domain, leaving 6 keys with queried prefixes.
   ASSERT_EQ(get_perf_context()->bloom_memtable_miss_count, 2);
   ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 4);
   ASSERT_OK(Flush());
@@ -2487,7 +2488,6 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   get_perf_context()->Reset();
   values = MultiGet(keys, nullptr);
   ASSERT_EQ(values, expected);
-  // Filter hits for 4 in-domain keys
   ASSERT_EQ(get_perf_context()->bloom_sst_miss_count, 2);
   ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
 

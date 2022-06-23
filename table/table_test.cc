@@ -1246,7 +1246,7 @@ class FileChecksumTestHelper {
   }
   ~FileChecksumTestHelper() {}
 
-  void CreateWriteableFile() {
+  void CreateWritableFile() {
     sink_ = new test::StringSink();
     std::unique_ptr<FSWritableFile> holder(sink_);
     file_writer_.reset(new WritableFileWriter(
@@ -3739,7 +3739,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   std::string column_family_name;
 
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
@@ -3774,7 +3774,7 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
   f.SetFileChecksumGenerator(checksum_crc32c_gen1.release());
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
@@ -3876,7 +3876,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   std::string column_family_name;
   int unknown_level = -1;
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
@@ -3915,7 +3915,7 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
   f.SetFileChecksumGenerator(checksum_crc32c_gen1.release());
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
