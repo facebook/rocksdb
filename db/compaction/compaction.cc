@@ -279,6 +279,28 @@ Compaction::Compaction(
   }
 
   GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
+
+  // Every compaction regardless of any compaction reason may respect the
+  // existing compact cursor in the output level to split output files
+  InternalKey temp_split_key = InternalKey();
+  if (immutable_options_.compaction_style == kCompactionStyleLevel &&
+      immutable_options_.compaction_pri == kRoundRobin) {
+    const InternalKey cursor =
+        input_vstorage_->GetCompactCursors()[output_level_];
+    if (cursor.Valid()) {
+      const Slice& cursor_user_key = ExtractUserKey(cursor.Encode());
+      auto ucmp = vstorage->InternalComparator()->user_comparator();
+      // May split output files according to the cursor if it in the user-key
+      // range
+      if (ucmp->CompareWithoutTimestamp(cursor_user_key, smallest_user_key_) >
+              0 &&
+          ucmp->CompareWithoutTimestamp(cursor_user_key, largest_user_key_) <=
+              0) {
+        temp_split_key = cursor;
+      }
+    }
+  }
+  output_split_key_ = temp_split_key;
 }
 
 Compaction::~Compaction() {
