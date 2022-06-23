@@ -99,8 +99,11 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_entry);
     if (s.ok() && blob_entry.GetValue()) {
+      // DO NOT REPLACE blob entry size with value_size
+      // The cache entry size might not match value size because value size can
+      // include the on-disk (possibly compressed) size.
       if (bytes_read) {
-        *bytes_read = value_size;
+        *bytes_read = blob_entry.GetValue()->size();
       }
       value->PinSelf(*blob_entry.GetValue());
       return s;
@@ -191,13 +194,15 @@ void BlobSource::MultiGetBlob(
       s = GetBlobFromCache(key, &blob_entry);
       if (s.ok() && blob_entry.GetValue()) {
         assert(statuses[i]);
-
         *statuses[i] = s;
         blobs[i]->PinSelf(*blob_entry.GetValue());
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
-        total_bytes += value_sizes[i];
+        // DO NOT REPLACE blob entry size with value_sizes[i]
+        // The cache entry size might not match value size because value size
+        // can include the on-disk (possibly compressed) size.
+        total_bytes += blob_entry.GetValue()->size();
         cache_hit_mask |= (Mask{1} << i);  // cache hit
       }
     }
