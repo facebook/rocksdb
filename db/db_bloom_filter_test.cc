@@ -3119,17 +3119,17 @@ class BackwardBytewiseComparator : public Comparator {
   const char* Name() const override { return "BackwardBytewiseComparator"; }
 
   int Compare(const Slice& a, const Slice& b) const override {
-    size_t min_size = std::min(a.size(), b.size());
+    int min_size_neg = -static_cast<int>(std::min(a.size(), b.size()));
     const char* a_end = a.data() + a.size();
     const char* b_end = b.data() + b.size();
-    for (size_t i = 1; i <= min_size; ++i) {
-      if (a_end[-i] == b_end[-i]) {
-        continue;
-      } else if (static_cast<unsigned char>(a_end[-i]) <
-                 static_cast<unsigned char>(b_end[-i])) {
-        return -1;
-      } else {
-        return 1;
+    for (int i = -1; i >= min_size_neg; --i) {
+      if (a_end[i] != b_end[i]) {
+        if (static_cast<unsigned char>(a_end[i]) <
+            static_cast<unsigned char>(b_end[i])) {
+          return -1;
+        } else {
+          return 1;
+        }
       }
     }
     return static_cast<int>(a.size()) - static_cast<int>(b.size());
