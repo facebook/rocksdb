@@ -41,7 +41,7 @@ static std::unordered_map<std::string, ValueType> value_type_string_map = {
     {"TypeColumnFamilyWideColumnEntity",
      ValueType::kTypeColumnFamilyWideColumnEntity}};
 
-std::string KeyVersion::GetTypeName() {
+std::string KeyVersion::GetTypeName() const {
   std::string type_name;
   if (SerializeEnum<ValueType>(value_type_string_map,
                                static_cast<ValueType>(type), &type_name)) {

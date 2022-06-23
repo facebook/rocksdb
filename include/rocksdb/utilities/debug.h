@@ -26,7 +26,7 @@ struct KeyVersion {
   std::string value;
   SequenceNumber sequence;
   int type;
-  std::string GetTypeName();
+  std::string GetTypeName() const;
 };
 
 // Returns listing of all versions of keys in the provided user key range.
