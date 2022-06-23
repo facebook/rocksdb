@@ -22,10 +22,11 @@
 #include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 namespace fast_lru_cache {
 
 // LRU cache implementation using an open-address hash table.
-
+//
 // Every slot in the hash table is an LRUHandle. Because handles can be
 // referenced externally, we can't discard them immediately once they are
 // deleted (via a delete or an LRU eviction) or replaced by a new version
@@ -51,7 +52,7 @@ namespace fast_lru_cache {
 // - Not R --> R: When an unreferenced element becomes referenced. This can only
 //    happen if the element is V, since references to an element can only be
 //    created when it's visible.
-
+//
 // Internally, the cache uses an open-addressed hash table to index the handles.
 // We use tombstone counters to keep track of displacements.
 // Because of the tombstones and the two possible visibility states of an
@@ -69,9 +70,6 @@ namespace fast_lru_cache {
 // tombstone or an empty slot, depending on the number of displacements of the
 // slot. In any case, the slot becomes available. When a handle is inserted
 // into that slot, it becomes a visible element again.
-
-constexpr uint8_t kCacheKeySize =
-    static_cast<uint8_t>(sizeof(ROCKSDB_NAMESPACE::CacheKey));
 
 // The load factor p is a real number in (0, 1) such that at all
 // times at most a fraction p of all slots, without counting tombstones,
