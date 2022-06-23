@@ -314,14 +314,15 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // We're just cleaning up for DB::Write().
   assert(job_context->logs_to_free.empty());
   job_context->logs_to_free = logs_to_free_;
-  if (!job_context->HaveSomethingToDelete()) {
-    --pending_purge_obsolete_files_;
-  }
+
   logs_to_free_.clear();
   log_write_mutex_.Unlock();
   mutex_.Lock();
   job_context->log_recycle_files.assign(log_recycle_files_.begin(),
                                         log_recycle_files_.end());
+  if (!job_context->HaveSomethingToDelete()) {
+    --pending_purge_obsolete_files_;
+  }
 }
 
 namespace {
