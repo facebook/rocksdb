@@ -256,6 +256,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // pending_purge_obsolete_files_ so that another thread executing
   // `GetSortedWals` will wait until this thread finishes execution since the
   // other thread will be waiting for `pending_purge_obsolete_files_`.
+  // pending_purge_obsolete_files_ MUST be decremented if there is nothing to
+  // delete.
   ++pending_purge_obsolete_files_;
 
   // logs_ is empty when called during recovery, in which case there can't yet
