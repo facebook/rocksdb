@@ -193,6 +193,7 @@ bool StressTest::BuildOptionsTable() {
       {"memtable_huge_page_size", {"0", std::to_string(2 * 1024 * 1024)}},
       {"max_successive_merges", {"0", "2", "4"}},
       {"inplace_update_num_locks", {"100", "200", "300"}},
+      {"experimental_mempurge_threshold", {"0.0", "1.0"}},
       // TODO(ljin): enable test for this option
       // {"disable_auto_compactions", {"100", "200", "300"}},
       {"level0_file_num_compaction_trigger",
