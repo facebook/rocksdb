@@ -4407,10 +4407,6 @@ Status VersionSet::ProcessManifestWrites(
       } else if (db_options_->replication_log_listener) {
         // No manifest update sequence, this is the leader, set it.
         e->SetManifestUpdateSequence(manifest_update_sequence_);
-      } else {
-        // Follower and no manifest update sequence set, not great.
-        s = Status::Corruption(
-            "ManifestUpdateSequence missing on the follower");
       }
     }
     if (!s.ok()) {
