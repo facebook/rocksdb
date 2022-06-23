@@ -322,8 +322,8 @@ class CacheBench {
     Random64 rnd(1);
     KeyGen keygen;
     for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
-      Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), createValue(rnd),
-                                &helper1, FLAGS_value_bytes);
+      Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_),
+                                createValue(rnd), &helper1, FLAGS_value_bytes);
       assert(s == Status::OK());
     }
   }
@@ -544,8 +544,8 @@ class CacheBench {
                              FLAGS_value_bytes);
         } else {
           // do insert
-          Status s =
-              cache_->Insert(key, createValue(thread->rnd), &helper2, FLAGS_value_bytes, &handle);
+          Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
+                                    FLAGS_value_bytes, &handle);
           assert(s == Status::OK());
         }
       } else if (random_op < insert_threshold_) {
@@ -554,8 +554,8 @@ class CacheBench {
           handle = nullptr;
         }
         // do insert
-        Status s =
-            cache_->Insert(key, createValue(thread->rnd), &helper3, FLAGS_value_bytes, &handle);
+        Status s = cache_->Insert(key, createValue(thread->rnd), &helper3,
+                                  FLAGS_value_bytes, &handle);
         assert(s == Status::OK());
       } else if (random_op < lookup_threshold_) {
         if (handle) {
