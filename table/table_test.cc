@@ -138,9 +138,7 @@ std::string Reverse(const Slice& key) {
 
 class ReverseKeyComparator : public Comparator {
  public:
-  const char* Name() const override {
-    return "rocksdb.ReverseKeyComparator";
-  }
+  const char* Name() const override { return "rocksdb.ReverseKeyComparator"; }
 
   int Compare(const Slice& a, const Slice& b) const override {
     return BytewiseComparator()->Compare(Reverse(a), Reverse(b));
