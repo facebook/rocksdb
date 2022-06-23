@@ -244,18 +244,20 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // groups called "prefixes". These prefixes are used to place one
   // representative entry for the group into the Bloom filter
   // rather than an entry for each key (see whole_key_filtering).
-  // Under certain conditions, this enables optimizing some range scans
-  // in addition to some point lookups.
+  // Under certain conditions, this enables optimizing some range queries
+  // (Iterators) in addition to some point lookups (Get/MultiGet).
   //
   // Together `prefix_extractor` and `comparator` must satisfy one essential
-  // property for prefix filtering:
+  // property for valid prefix filtering of range queries:
   //   If Compare(k1, k2) <= 0 and Compare(k2, k3) <= 0 and
   //      InDomain(k1) and InDomain(k3) and prefix(k1) == prefix(k3),
   //   Then InDomain(k2) and prefix(k2) == prefix(k1)
   //
   // In other words, all keys with the same prefix must be in a contiguous
   // group by comparator order, and cannot be interrupted by keys with no
-  // prefix ("out of domain").
+  // prefix ("out of domain"). (This makes it valid to conclude that no
+  // entries within some bounds are present if the upper and lower bounds
+  // have a common prefix and no entries with that same prefix are present.)
   //
   // Some other properties are recommended but not strictly required. Under
   // most sensible comparators, the following will need to hold true to
