@@ -391,7 +391,10 @@ static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
   CheckGet(db, roptions, "bar", NULL);
   CheckGet(db, roptions, "baz", "newbazvalue");
 
+  rocksdb_suggest_compact_range(db, "bar", 3, "foo", 3, &err);
   GetAndCheckMetaData(db);
+  CheckNoError(err);
+
   return db;
 }
 
@@ -1383,6 +1386,9 @@ int main(int argc, char** argv) {
     rocksdb_put_cf(db, woptions, handles[1], "foobar3", 7, "hello3", 6, &err);
     CheckNoError(err);
     rocksdb_put_cf(db, woptions, handles[1], "foobar4", 7, "hello4", 6, &err);
+    CheckNoError(err);
+    rocksdb_suggest_compact_range_cf(db, handles[1], "foo", 3, "foobar9", 7,
+                                     &err);
     CheckNoError(err);
 
     rocksdb_flushoptions_t *flush_options = rocksdb_flushoptions_create();
