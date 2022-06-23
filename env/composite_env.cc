@@ -392,15 +392,26 @@ Status CompositeEnv::NewDirectory(const std::string& name,
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
-    {"target",
+    {Customizable::kTargetPropName(),
      OptionTypeInfo(0, OptionType::kUnknown, OptionVerificationType::kByName,
-                    OptionTypeFlags::kDontSerialize)
+                    OptionTypeFlags::kNone)
          .SetParseFunc([](const ConfigOptions& opts,
                           const std::string& /*name*/, const std::string& value,
                           void* addr) {
            auto target = static_cast<EnvWrapper::Target*>(addr);
            return Env::CreateFromString(opts, value, &(target->env),
                                         &(target->guard));
+         })
+         .SetSerializeFunc([](const ConfigOptions& opts,
+                              const std::string& /*name*/, const void* addr,
+                              std::string* value) {
+           const auto target = static_cast<const EnvWrapper::Target*>(addr);
+           if (target->env == nullptr || target->env == Env::Default()) {
+             *value = "";
+           } else {
+             *value = target->env->ToString(opts);
+           }
+           return Status::OK();
          })
          .SetEqualsFunc([](const ConfigOptions& opts,
                            const std::string& /*name*/, const void* addr1,
@@ -438,18 +449,18 @@ static std::unordered_map<std::string, OptionTypeInfo> env_wrapper_type_info = {
 static std::unordered_map<std::string, OptionTypeInfo>
     composite_fs_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
-        {"file_system",
-         OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
-             0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+        {"file_system", OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
+                            0, OptionVerificationType::kByName,
+                            OptionTypeFlags::kDontSerialize)},
 #endif  // ROCKSDB_LITE
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
     composite_clock_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
-        {"clock",
-         OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
-             0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+        {"clock", OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
+                      0, OptionVerificationType::kByName,
+                      OptionTypeFlags::kDontSerialize)},
 #endif  // ROCKSDB_LITE
 };
 
@@ -489,14 +500,54 @@ Status CompositeEnvWrapper::PrepareOptions(const ConfigOptions& options) {
 }
 
 #ifndef ROCKSDB_LITE
+Status CompositeEnvWrapper::ParseOption(const ConfigOptions& config_options,
+                                        const OptionTypeInfo& opt_info,
+                                        const std::string& opt_name,
+                                        const std::string& opt_value,
+                                        void* opt_ptr) {
+  Status s = CompositeEnv::ParseOption(config_options, opt_info, opt_name,
+                                       opt_value, opt_ptr);
+  if (s.ok() && target_.env != nullptr &&
+      opt_name == Customizable::kTargetPropName()) {
+    file_system_ = target_.env->GetFileSystem();
+    system_clock_ = target_.env->GetSystemClock();
+  }
+  return s;
+}
+
 std::string CompositeEnvWrapper::SerializeOptions(
     const ConfigOptions& config_options, const std::string& header) const {
-  auto options = CompositeEnv::SerializeOptions(config_options, header);
-  if (target_.env != nullptr && target_.env != Env::Default()) {
-    options.append("target=");
-    options.append(target_.env->ToString(config_options));
+  std::string parent = CompositeEnv::SerializeOptions(config_options, header);
+  std::string result = header;
+
+  if (file_system_ != nullptr) {
+    if ((target_.env != nullptr &&
+         file_system_ != target_.env->GetFileSystem()) ||
+        (target_.env == nullptr && file_system_ != FileSystem::Default())) {
+      result.append("file_system=");
+      result.append(file_system_->ToString(config_options));
+      result.append(config_options.delimiter);
+    }
   }
-  return options;
+  if (system_clock_ != nullptr) {
+    if ((target_.env != nullptr &&
+         system_clock_ != target_.env->GetSystemClock()) ||
+        (target_.env == nullptr && system_clock_ != SystemClock::Default())) {
+      result.append("clock=");
+      result.append(system_clock_->ToString(config_options));
+      result.append(config_options.delimiter);
+    }
+  }
+  if (!parent.empty()) {
+    if (!StartsWith(parent, OptionTypeInfo::kIdPropName())) {
+      result.append(OptionTypeInfo::kIdPropName()).append("=");
+    }
+    result.append(parent);
+    if (!EndsWith(result, config_options.delimiter)) {
+      result.append(config_options.delimiter);
+    }
+  }
+  return result;
 }
 #endif  // ROCKSDB_LITE
 
@@ -535,7 +586,9 @@ std::string EnvWrapper::SerializeOptions(const ConfigOptions& config_options,
     if (!EndsWith(result, config_options.delimiter)) {
       result.append(config_options.delimiter);
     }
-    result.append("target=").append(target_.env->ToString(config_options));
+    result.append(Customizable::kTargetPropName())
+        .append("=")
+        .append(target_.env->ToString(config_options));
     return result;
   }
 }

@@ -203,6 +203,9 @@ class Customizable : public Configurable {
   // method in order to get CheckedCast to function properly.
   virtual const Customizable* Inner() const { return nullptr; }
 
+  constexpr static const char* kTargetPropName() { return "target"; }
+  constexpr static const char* kInnerPropName() { return "inner"; }
+
  protected:
   // Generates a ID specific for this instance of the customizable.
   // The unique ID is of the form <name>:<addr>#pid, where:

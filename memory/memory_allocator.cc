@@ -16,8 +16,9 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> ma_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
-    {"target", OptionTypeInfo::AsCustomSharedPtr<MemoryAllocator>(
-                   0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
+    {Customizable::kTargetPropName(),
+     OptionTypeInfo::AsCustomSharedPtr<MemoryAllocator>(
+         0, OptionVerificationType::kByName, OptionTypeFlags::kNone)},
 #endif  // ROCKSDB_LITE
 };
 

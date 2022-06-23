@@ -1190,7 +1190,7 @@ const std::shared_ptr<SystemClock>& Env::GetSystemClock() const {
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> sc_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
-    {"target",
+    {Customizable::kTargetPropName(),
      OptionTypeInfo::AsCustomSharedPtr<SystemClock>(
          0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
 #endif  // ROCKSDB_LITE
@@ -1225,7 +1225,9 @@ std::string SystemClockWrapper::SerializeOptions(
     if (!EndsWith(result, config_options.delimiter)) {
       result.append(config_options.delimiter);
     }
-    result.append("target=").append(target_->ToString(config_options));
+    result.append(kTargetPropName())
+        .append("=")
+        .append(target_->ToString(config_options));
     return result;
   }
 }

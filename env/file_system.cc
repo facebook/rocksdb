@@ -217,7 +217,7 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
 namespace {
 static std::unordered_map<std::string, OptionTypeInfo> fs_wrapper_type_info = {
 #ifndef ROCKSDB_LITE
-    {"target",
+    {Customizable::kTargetPropName(),
      OptionTypeInfo::AsCustomSharedPtr<FileSystem>(
          0, OptionVerificationType::kByName, OptionTypeFlags::kDontSerialize)},
 #endif  // ROCKSDB_LITE
@@ -251,7 +251,9 @@ std::string FileSystemWrapper::SerializeOptions(
     if (!EndsWith(result, config_options.delimiter)) {
       result.append(config_options.delimiter);
     }
-    result.append("target=").append(target_->ToString(config_options));
+    result.append(kTargetPropName())
+        .append("=")
+        .append(target_->ToString(config_options));
     return result;
   }
 }

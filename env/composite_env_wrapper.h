@@ -292,6 +292,10 @@ class CompositeEnvWrapper : public CompositeEnv {
 #ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& config_options,
                                const std::string& header) const override;
+  Status ParseOption(const ConfigOptions& config_options,
+                     const OptionTypeInfo& opt_info,
+                     const std::string& opt_name, const std::string& opt_value,
+                     void* opt_ptr) override;
 #endif  // ROCKSDB_LITE
 
   // Return the target to which this Env forwards all calls

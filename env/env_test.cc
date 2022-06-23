@@ -3071,6 +3071,7 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
       std::make_shared<EmulatedSystemClock>(SystemClock::Default());
 
   opt_str = base->ToString(options);
+  printf("MJR: Base=[%s]\n", opt_str.c_str());
   ASSERT_NOK(Env::CreateFromString(options, opt_str, &env));
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
   ASSERT_NE(env, nullptr);
@@ -3080,6 +3081,7 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
 
   base = NewCompositeEnv(timed_fs);
   opt_str = base->ToString(options);
+  printf("MJR: TimedFS Composite=[%s]\n", opt_str.c_str());
   ASSERT_NOK(Env::CreateFromString(options, opt_str, &env));
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &guard));
   ASSERT_NE(env, nullptr);
@@ -3090,9 +3092,14 @@ TEST_F(CreateEnvTest, CreateCompositeEnv) {
   env = nullptr;
   guard.reset(new CompositeEnvWrapper(wrapped.get(), timed_fs));
   opt_str = guard->ToString(options);
+  printf("MJR: Wrapped=[%s] clock=%s fs=%s\n", opt_str.c_str(),
+         guard->GetSystemClock()->Name(), guard->GetFileSystem()->Name());
   ASSERT_OK(Env::CreateFromString(options, opt_str, &env, &copy));
   ASSERT_NE(env, nullptr);
   ASSERT_NE(env, Env::Default());
+  bool mjr = guard->AreEquivalent(options, copy.get(), &mismatch);
+  printf("MJR: Equivalent=[%d/%s] clock %s fs=%s\n", mjr, mismatch.c_str(),
+         copy->GetSystemClock()->Name(), copy->GetFileSystem()->Name());
   ASSERT_TRUE(guard->AreEquivalent(options, copy.get(), &mismatch));
 
   env = nullptr;
