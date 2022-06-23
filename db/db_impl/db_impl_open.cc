@@ -711,7 +711,7 @@ Status DBImpl::VerifySstUniqueIdInManifest() {
       "Verifying SST unique id between MANIFEST and SST file table properties");
   Status status;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped()) {
+    if (!cfd->IsDropped() && status.ok()) {
       auto version = cfd->current();
       version->Ref();
       mutex_.Unlock();
