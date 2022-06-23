@@ -22,8 +22,6 @@ class DBWideBasicTest : public DBTestBase {
 TEST_F(DBWideBasicTest, PutEntity) {
   Options options = GetDefaultOptions();
 
-  constexpr size_t num_keys = 2;
-
   // Use the DB::PutEntity API
   constexpr char first_key[] = "first";
   WideColumns first_columns{{"foo", "bar"}, {"hello", "world"}};
@@ -57,6 +55,8 @@ TEST_F(DBWideBasicTest, PutEntity) {
     }
 
     {
+      constexpr size_t num_keys = 2;
+
       std::array<Slice, num_keys> keys{{first_key, second_key}};
       std::array<PinnableSlice, num_keys> values;
       std::array<Status, num_keys> statuses;
