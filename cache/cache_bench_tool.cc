@@ -215,6 +215,7 @@ struct KeyGen {
     EncodeFixed64(key_data + 10, key);
     key_data[18] = char{4};
     EncodeFixed64(key_data + 19, key);
+    assert(27 >= kCacheKeySize);
     return Slice(&key_data[off], kCacheKeySize);
   }
 };
