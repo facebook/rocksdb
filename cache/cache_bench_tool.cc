@@ -325,7 +325,7 @@ class CacheBench {
     for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
       Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_),
                                 createValue(rnd), &helper1, FLAGS_value_bytes);
-      assert(s == Status::OK());
+      assert(s.ok());
     }
   }
 
@@ -547,7 +547,7 @@ class CacheBench {
           // do insert
           Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
                                     FLAGS_value_bytes, &handle);
-          assert(s == Status::OK());
+          assert(s.ok());
         }
       } else if (random_op < insert_threshold_) {
         if (handle) {
@@ -557,7 +557,7 @@ class CacheBench {
         // do insert
         Status s = cache_->Insert(key, createValue(thread->rnd), &helper3,
                                   FLAGS_value_bytes, &handle);
-        assert(s == Status::OK());
+        assert(s.ok());
       } else if (random_op < lookup_threshold_) {
         if (handle) {
           cache_->Release(handle);
