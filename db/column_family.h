@@ -526,6 +526,10 @@ class ColumnFamilyData {
 
   static const uint32_t kDummyColumnFamilyDataId;
 
+  // Keep track of whether the mempurge feature was ever used.
+  void SetMempurgeUsed() { mempurge_used_ = true; }
+  bool GetMempurgeUsed() { return mempurge_used_; }
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -626,6 +630,7 @@ class ColumnFamilyData {
   // For charging memory usage of file metadata created for newly added files to
   // a Version associated with this CFD
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+  bool mempurge_used_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

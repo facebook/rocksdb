@@ -3350,11 +3350,6 @@ unsigned char rocksdb_options_get_advise_random_on_open(
   return opt->rep.advise_random_on_open;
 }
 
-void rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t* opt,
-                                                         double v) {
-  opt->rep.experimental_mempurge_threshold = v;
-}
-
 void rocksdb_options_set_access_hint_on_compaction_start(
     rocksdb_options_t* opt, int v) {
   switch(v) {
@@ -3538,6 +3533,16 @@ void rocksdb_options_set_max_background_flushes(rocksdb_options_t* opt, int n) {
 
 int rocksdb_options_get_max_background_flushes(rocksdb_options_t* opt) {
   return opt->rep.max_background_flushes;
+}
+
+void rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t* opt,
+                                                         double v) {
+  opt->rep.experimental_mempurge_threshold = v;
+}
+
+double rocksdb_options_get_experimental_mempurge_threshold(
+    rocksdb_options_t* opt) {
+  return opt->rep.experimental_mempurge_threshold;
 }
 
 void rocksdb_options_set_max_log_file_size(rocksdb_options_t* opt, size_t v) {

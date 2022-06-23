@@ -1502,6 +1502,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_report_bg_io_stats(
     rocksdb_options_t*);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t*, double);
+extern ROCKSDB_LIBRARY_API double
+rocksdb_options_get_experimental_mempurge_threshold(rocksdb_options_t*);
+
 enum {
   rocksdb_tolerate_corrupted_tail_records_recovery = 0,
   rocksdb_absolute_consistency_recovery = 1,

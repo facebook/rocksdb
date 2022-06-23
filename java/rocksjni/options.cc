@@ -3103,6 +3103,29 @@ void Java_org_rocksdb_Options_setMemtablePrefixBloomSizeRatio(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    experimentalMempurgeThreshold
+ * Signature: (J)I
+ */
+jdouble Java_org_rocksdb_Options_experimentalMempurgeThreshold(JNIEnv*, jobject,
+                                                               jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->experimental_mempurge_threshold;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setExperimentalMempurgeThreshold
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setExperimentalMempurgeThreshold(
+    JNIEnv*, jobject, jlong jhandle, jdouble jexperimental_mempurge_threshold) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle)
+      ->experimental_mempurge_threshold =
+      static_cast<double>(jexperimental_mempurge_threshold);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    memtableWholeKeyFiltering
  * Signature: (J)Z
  */
@@ -4953,6 +4976,29 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMemtablePrefixBloomSizeRatio(
   reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
       ->memtable_prefix_bloom_size_ratio =
       static_cast<double>(jmemtable_prefix_bloom_size_ratio);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    experimentalMempurgeThreshold
+ * Signature: (J)I
+ */
+jdouble Java_org_rocksdb_ColumnFamilyOptions_experimentalMempurgeThreshold(
+    JNIEnv*, jobject, jlong jhandle) {
+  return reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->experimental_mempurge_threshold;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setExperimentalMempurgeThreshold
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setExperimentalMempurgeThreshold(
+    JNIEnv*, jobject, jlong jhandle, jdouble jexperimental_mempurge_threshold) {
+  reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle)
+      ->experimental_mempurge_threshold =
+      static_cast<double>(jexperimental_mempurge_threshold);
 }
 
 /*
