@@ -599,6 +599,7 @@ bool DBIter::MergeValuesNewToOld() {
       }
       return true;
     } else if (kTypeWideColumnEntity == ikey.type) {
+      // TODO: support wide-column entities
       status_ = Status::NotSupported(
           "Merge currently not supported for wide-column entities");
       valid_ = false;
@@ -953,6 +954,7 @@ bool DBIter::FindValueForCurrentKey() {
         is_blob_ = false;
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
+        // TODO: support wide-column entities
         status_ = Status::NotSupported(
             "Merge currently not supported for wide-column entities");
         valid_ = false;
@@ -1150,6 +1152,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       is_blob_ = false;
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
+      // TODO: support wide-column entities
       status_ = Status::NotSupported(
           "Merge currently not supported for wide-column entities");
       valid_ = false;

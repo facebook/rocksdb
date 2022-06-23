@@ -218,6 +218,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
            !range_del_agg->ShouldDelete(
                ikey, RangeDelPositioningMode::kForwardTraversal))) {
         if (ikey.type == kTypeWideColumnEntity) {
+          // TODO: support wide-column entities
           return Status::NotSupported(
               "Merge currently not supported for wide-column entities");
         } else if (ikey.type == kTypeBlobIndex) {
