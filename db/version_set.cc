@@ -3189,21 +3189,15 @@ void SortFileByOverlappingRatio(
                                           ttl_boost_score;
   }
 
-  // We are going to find the files with highest score. Since we are going
-  // to pick files fro highest score to lower, it's unlikely that we would
-  // need to pick many files, so we limit files for this partial order.
-  // In case we use up all the sorted files, we are essentially pick files
-  // in random order, but it should be rare.
-  const size_t kTotalSortedElements = 8;
-  size_t num_to_sort =
-      temp->size() > kTotalSortedElements ? kTotalSortedElements : temp->size();
-  auto comp_func = [&](const Fsize& f1, const Fsize& f2) -> bool {
-    return file_to_order[f1.file->fd.GetNumber()] <
-           file_to_order[f2.file->fd.GetNumber()];
-  };
-  std::nth_element(temp->begin(), temp->begin() + num_to_sort, temp->end(),
-                   comp_func);
-  std::sort(temp->begin(), temp->begin() + num_to_sort, comp_func);
+  size_t num_to_sort = temp->size() > VersionStorageInfo::kNumberFilesToSort
+                           ? VersionStorageInfo::kNumberFilesToSort
+                           : temp->size();
+
+  std::partial_sort(temp->begin(), temp->begin() + num_to_sort, temp->end(),
+                    [&](const Fsize& f1, const Fsize& f2) -> bool {
+                      return file_to_order[f1.file->fd.GetNumber()] <
+                             file_to_order[f2.file->fd.GetNumber()];
+                    });
 }
 
 void SortFileByRoundRobin(const InternalKeyComparator& icmp,
