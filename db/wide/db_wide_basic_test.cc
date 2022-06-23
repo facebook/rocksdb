@@ -9,6 +9,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "test_util/testutil.h"
+#include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -18,7 +19,7 @@ class DBWideBasicTest : public DBTestBase {
       : DBTestBase("db_wide_basic_test", /* env_do_fsync */ false) {}
 };
 
-TEST_F(DBWideBasicTest, PutAndReadEntity) {
+TEST_F(DBWideBasicTest, PutEntity) {
   Options options = GetDefaultOptions();
 
   constexpr size_t num_keys = 2;
@@ -87,6 +88,7 @@ TEST_F(DBWideBasicTest, PutAndReadEntity) {
   verify();
 
   // Try reading after recovery
+  Close();
   options.avoid_flush_during_recovery = true;
   Reopen(options);
 
@@ -95,6 +97,38 @@ TEST_F(DBWideBasicTest, PutAndReadEntity) {
   // Try reading from storage
   ASSERT_OK(Flush());
 
+  verify();
+
+  // Add a couple of merge operands
+  Close();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  constexpr char merge_operand[] = "bla";
+
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
+                       merge_operand));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
+                       merge_operand));
+
+  // Try reading from memtable
+  verify();
+
+  // Try reading from storage
+  ASSERT_OK(Flush());
+
+  verify();
+
+  // Do it again, with the Put and the Merge in the same memtable
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           first_key, first_columns));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
+                       merge_operand));
+  ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
+                       merge_operand));
+
+  // Try reading from memtable
   verify();
 }
 
