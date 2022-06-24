@@ -288,8 +288,6 @@ void BlobSource::MultiGetBlob(
     if (bytes_read) {
       *bytes_read = total_bytes;
     }
-
-    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, _bytes_read);
   }
 }
 
