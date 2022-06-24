@@ -133,10 +133,9 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
-    uint64_t _bytes_read = 0;
-    s = blob_file_reader.GetValue()->GetBlob(
-        read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, value, &_bytes_read);
+    s = blob_file_reader.GetValue()->GetBlob(read_options, user_key, offset,
+                                             value_size, compression_type,
+                                             prefetch_buffer, value);
     if (!s.ok()) {
       return s;
     }
