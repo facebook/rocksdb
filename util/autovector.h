@@ -190,6 +190,7 @@ class autovector {
   autovector() {}
 
   autovector(std::initializer_list<T> init_list) {
+    this->reserve(init_list.size());
     for (const T& item : init_list) {
       push_back(item);
     }
@@ -334,12 +335,19 @@ class autovector {
   // -- Copy and Assignment
   autovector& assign(const autovector& other);
 
-  autovector(const autovector& other) { assign(other); }
+  autovector(const autovector& other) : vect_(other.vect_) {
+    num_stack_items_ = other.num_stack_items_;
+    std::uninitialized_copy_n(other.values_, other.num_stack_items_, values_);
+  }
 
   autovector& operator=(const autovector& other) { return assign(other); }
 
-  autovector(autovector&& other) noexcept { *this = std::move(other); }
-  autovector& operator=(autovector&& other);
+  autovector(autovector&& other) noexcept : vect_(std::move(other.vect_)) {
+    num_stack_items_ = other.num_stack_items_;
+    std::uninitialized_move_n(other.values_, other.num_stack_items_, values_);
+    other.num_stack_items_ = 0;
+  }
+  autovector& operator=(autovector&& other) noexcept;
 
   // -- Iterator Operations
   iterator begin() { return iterator(this, 0); }
@@ -378,7 +386,7 @@ class autovector {
 };
 
 template <class T, size_t kSize>
-autovector<T, kSize>& autovector<T, kSize>::assign(
+inline autovector<T, kSize>& autovector<T, kSize>::assign(
     const autovector<T, kSize>& other) {
   // copy the internal vector
   vect_.assign(other.vect_.begin(), other.vect_.end());
@@ -392,8 +400,8 @@ autovector<T, kSize>& autovector<T, kSize>::assign(
 }
 
 template <class T, size_t kSize>
-autovector<T, kSize>& autovector<T, kSize>::operator=(
-    autovector<T, kSize>&& other) {
+inline autovector<T, kSize>& autovector<T, kSize>::operator=(
+    autovector<T, kSize>&& other) noexcept {
   vect_ = std::move(other.vect_);
   destroy(values_, num_stack_items_);
   size_t n = other.num_stack_items_;
