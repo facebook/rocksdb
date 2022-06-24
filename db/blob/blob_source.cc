@@ -144,8 +144,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     if (bytes_read) {
       *bytes_read = value->size();  // uncompressed blob size
     }
-
-    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, _bytes_read);
   }
 
   if (blob_cache_ && read_options.fill_cache) {
