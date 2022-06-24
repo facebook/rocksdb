@@ -363,7 +363,7 @@ class autovector {
   }
 
  private:
-  static void destory(value_type* p, size_t n) {
+  static void destroy(value_type* p, size_t n) {
     if (!std::is_trivially_destructible<value_type>::value) {
       while (n) p[--n].~value_type();
     }
@@ -383,7 +383,7 @@ autovector<T, kSize>& autovector<T, kSize>::assign(
   // copy the internal vector
   vect_.assign(other.vect_.begin(), other.vect_.end());
 
-  destory(values_, num_stack_items_);
+  destroy(values_, num_stack_items_);
   // copy array
   num_stack_items_ = other.num_stack_items_;
   std::uninitialized_copy_n(other.values_, num_stack_items_, values_);
@@ -395,7 +395,7 @@ template <class T, size_t kSize>
 autovector<T, kSize>& autovector<T, kSize>::operator=(
     autovector<T, kSize>&& other) {
   vect_ = std::move(other.vect_);
-  destory(values_, num_stack_items_);
+  destroy(values_, num_stack_items_);
   size_t n = other.num_stack_items_;
   num_stack_items_ = n;
   other.num_stack_items_ = 0;
