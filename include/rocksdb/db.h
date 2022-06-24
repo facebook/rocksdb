@@ -471,7 +471,11 @@ class DB {
   // options.sync=true.
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
-  virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
+  virtual Status Write(const WriteOptions& options, WriteBatch* updates,
+                       uint64_t* seq) = 0;
+  virtual Status Write(const WriteOptions& options, WriteBatch* updates) {
+    return Write(options, updates, nullptr);
+  }
 
   virtual Status MultiBatchWrite(const WriteOptions& /*options*/,
                                  std::vector<WriteBatch*>&& /*updates*/) {

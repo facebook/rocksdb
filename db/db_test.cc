@@ -3020,7 +3020,9 @@ class ModelDB : public DB {
     delete reinterpret_cast<const ModelSnapshot*>(snapshot);
   }
 
-  Status Write(const WriteOptions& /*options*/, WriteBatch* batch) override {
+  using DB::Write;
+  Status Write(const WriteOptions& /*options*/, WriteBatch* batch,
+               uint64_t* /*seq*/) override {
     class Handler : public WriteBatch::Handler {
      public:
       KVMap* map_;

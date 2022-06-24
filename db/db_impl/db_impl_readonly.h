@@ -63,8 +63,9 @@ class DBImplReadOnly : public DBImpl {
                               const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
-  virtual Status Write(const WriteOptions& /*options*/,
-                       WriteBatch* /*updates*/) override {
+  using DBImpl::Write;
+  virtual Status Write(const WriteOptions& /*options*/, WriteBatch* /*updates*/,
+                       uint64_t* /*seq*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::CompactRange;

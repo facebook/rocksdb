@@ -105,9 +105,11 @@ void DBImpl::SetRecoverableStatePreReleaseCallback(
   recoverable_state_pre_release_callback_.reset(callback);
 }
 
-Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
+Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch,
+                     uint64_t* seq) {
   return WriteImpl(write_options, my_batch, /*callback=*/nullptr,
-                   /*log_used=*/nullptr);
+                   /*log_used=*/nullptr, /*log_ref=*/0,
+                   /*disable_memtable=*/false, seq);
 }
 
 #ifndef ROCKSDB_LITE

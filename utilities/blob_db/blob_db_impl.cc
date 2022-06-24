@@ -997,7 +997,8 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
   void LogData(const Slice& blob) override { batch_.PutLogData(blob); }
 };
 
-Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
+Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates,
+                         uint64_t* seq) {
   StopWatch write_sw(clock_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
@@ -1015,7 +1016,7 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   if (!s.ok()) {
     return s;
   }
-  return db_->Write(options, blob_inserter.batch());
+  return db_->Write(options, blob_inserter.batch(), seq);
 }
 
 Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,

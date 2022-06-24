@@ -55,12 +55,13 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
 
   // Range deletions also must not be snuck into `WriteBatch`es as they are
   // incompatible with `OptimisticTransactionDB`.
-  virtual Status Write(const WriteOptions& write_opts,
-                       WriteBatch* batch) override {
+  using OptimisticTransactionDB::Write;
+  virtual Status Write(const WriteOptions& write_opts, WriteBatch* batch,
+                       uint64_t* seq) override {
     if (batch->HasDeleteRange()) {
       return Status::NotSupported();
     }
-    return OptimisticTransactionDB::Write(write_opts, batch);
+    return OptimisticTransactionDB::Write(write_opts, batch, seq);
   }
 
   size_t GetLockBucketsSize() const { return bucketed_locks_.size(); }

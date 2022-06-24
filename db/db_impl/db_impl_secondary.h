@@ -135,8 +135,9 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
-  Status Write(const WriteOptions& /*options*/,
-               WriteBatch* /*updates*/) override {
+  using DBImpl::Write;
+  Status Write(const WriteOptions& /*options*/, WriteBatch* /*updates*/,
+               uint64_t* /*seq*/) override {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
