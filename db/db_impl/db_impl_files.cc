@@ -335,19 +335,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                                         log_recycle_files_.end());
 }
 
-namespace {
-bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
-                          const JobContext::CandidateFileInfo& second) {
-  if (first.file_name > second.file_name) {
-    return true;
-  } else if (first.file_name < second.file_name) {
-    return false;
-  } else {
-    return (first.file_path > second.file_path);
-  }
-}
-}  // namespace
-
 // Delete obsolete files and log status and information of file deletion
 void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                                     const std::string& path_to_sync,
@@ -452,7 +439,16 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   // dedup state.candidate_files so we don't try to delete the same
   // file twice
   std::sort(candidate_files.begin(), candidate_files.end(),
-            CompareCandidateFile);
+            [](const JobContext::CandidateFileInfo& lhs,
+               const JobContext::CandidateFileInfo& rhs) {
+              if (lhs.file_name > rhs.file_name) {
+                return true;
+              } else if (lhs.file_name < rhs.file_name) {
+                return false;
+              } else {
+                return (lhs.file_path > rhs.file_path);
+              }
+            });
   candidate_files.erase(
       std::unique(candidate_files.begin(), candidate_files.end()),
       candidate_files.end());
