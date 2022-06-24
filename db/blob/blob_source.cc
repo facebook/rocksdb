@@ -133,12 +133,19 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
+    uint64_t _bytes_read = 0;
     s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, value, bytes_read);
+        prefetch_buffer, value, &_bytes_read);
     if (!s.ok()) {
       return s;
     }
+
+    if (bytes_read) {
+      *bytes_read = value->size();  // uncompressed blob size
+    }
+
+    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, _bytes_read);
   }
 
   if (blob_cache_ && read_options.fill_cache) {
@@ -263,11 +270,11 @@ void BlobSource::MultiGetBlob(
                                               _offsets, _value_sizes, _statuses,
                                               _blobs, &_bytes_read);
 
-    if (read_options.fill_cache) {
-      // If filling cache is allowed and a cache is configured, try to put
-      // the blob(s) to the cache.
-      for (size_t i = 0; i < _blobs.size(); ++i) {
-        if (_statuses[i]->ok()) {
+    for (size_t i = 0; i < _blobs.size(); ++i) {
+      if (_statuses[i]->ok()) {
+        if (read_options.fill_cache) {
+          // If filling cache is allowed and a cache is configured, try to put
+          // the blob(s) to the cache.
           CachableEntry<std::string> blob_entry;
           const CacheKey cache_key = base_cache_key.WithOffset(_offsets[i]);
           const Slice key = cache_key.AsSlice();
@@ -277,10 +284,10 @@ void BlobSource::MultiGetBlob(
             *_statuses[i] = s;
           }
         }
+        total_bytes += _blobs.size();  // uncompressed blob size
       }
     }
 
-    total_bytes += _bytes_read;
     if (bytes_read) {
       *bytes_read = total_bytes;
     }

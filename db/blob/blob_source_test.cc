@@ -205,8 +205,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+      ASSERT_EQ(bytes_read, blob_sizes[i]);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
@@ -223,8 +222,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+      ASSERT_EQ(bytes_read, blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
@@ -411,8 +409,7 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                     &values[i], &bytes_read));
       ASSERT_EQ(values[i].size(), blobs[i].size() /*uncompressed size*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
-      ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+      ASSERT_EQ(bytes_read, blobs[i].size());
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[i]));
@@ -561,8 +558,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer,
                                     &value_buf[i], &bytes_read));
       ASSERT_EQ(value_buf[i], blobs[i]);
-      ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+      ASSERT_EQ(bytes_read, blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
