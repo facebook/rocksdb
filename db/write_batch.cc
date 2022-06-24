@@ -984,6 +984,11 @@ Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
 
 Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
                              const Slice& key, const WideColumns& columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call this method without a column family handle");
+  }
+
   Status s;
   uint32_t cf_id = 0;
   size_t ts_sz = 0;
