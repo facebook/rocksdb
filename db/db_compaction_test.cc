@@ -5225,7 +5225,8 @@ INSTANTIATE_TEST_CASE_P(
 TEST_F(DBCompactionTest, PersistRoundRobinCompactCursor) {
   Options options = CurrentOptions();
   options.write_buffer_size = 16 * 1024;
-  options.max_bytes_for_level_base = 64 * 1024;
+  options.max_bytes_for_level_base = 128 * 1024;
+  options.target_file_size_base = 64 * 1024;
   options.level0_file_num_compaction_trigger = 4;
   options.compaction_pri = CompactionPri::kRoundRobin;
   options.max_bytes_for_level_multiplier = 4;
@@ -5241,6 +5242,7 @@ TEST_F(DBCompactionTest, PersistRoundRobinCompactCursor) {
     for (int j = 0; j < 16; j++) {
       ASSERT_OK(Put(rnd.RandomString(24), rnd.RandomString(1000)));
     }
+    ASSERT_OK(Flush());
   }
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
