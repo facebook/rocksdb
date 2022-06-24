@@ -54,7 +54,8 @@ class BlobSource {
   // If successful, returns ok and sets "*blobs" to the newly retrieved
   // uncompressed blobs, and "*bytes_read" is set as the total size of
   // uncompressed blobs. If there was an error while fetching one of blobs,
-  // sets its corresponding "blobs[i]" to empty and returns a non-ok status.
+  // sets its corresponding "blobs[i]" to empty and sets "statuses[i]" to
+  // a non-ok status.
   //
   // Note: Offsets must be sorted in ascending order by caller.
   void MultiGetBlob(
