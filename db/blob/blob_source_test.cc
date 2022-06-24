@@ -372,9 +372,9 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   std::vector<PinnableSlice> values(keys.size());
 
   {
-    // ZSTD Compression
+    // Snappy Compression
     const uint64_t file_number = 1;
-    const CompressionType compression = kZSTD;
+    const CompressionType compression = kSnappyCompression;
 
     read_options.read_tier = ReadTier::kReadAllTier;
 
