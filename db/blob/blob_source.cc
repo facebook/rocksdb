@@ -99,7 +99,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_entry);
     if (s.ok() && blob_entry.GetValue()) {
-      assert(blob_entry.GetValue()->size() == value_size);
       if (bytes_read) {
         *bytes_read = value_size;
       }
@@ -192,7 +191,6 @@ void BlobSource::MultiGetBlob(
       s = GetBlobFromCache(key, &blob_entry);
       if (s.ok() && blob_entry.GetValue()) {
         assert(statuses[i]);
-        assert(blob_entry.GetValue()->size() == value_sizes[i]);
 
         *statuses[i] = s;
         blobs[i]->PinSelf(*blob_entry.GetValue());
