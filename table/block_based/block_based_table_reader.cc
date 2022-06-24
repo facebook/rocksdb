@@ -1902,7 +1902,8 @@ bool BlockBasedTable::PrefixRangeMayMatch(
     may_match = filter->RangeMayExist(
         read_options.iterate_upper_bound, user_key_without_ts, prefix_extractor,
         rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-        &filter_checked, need_upper_bound_check, no_io, lookup_context);
+        &filter_checked, need_upper_bound_check, no_io, lookup_context,
+        read_options.rate_limiter_priority);
   }
 
   if (filter_checked) {
@@ -1974,7 +1975,8 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
 bool BlockBasedTable::FullFilterKeyMayMatch(
     FilterBlockReader* filter, const Slice& internal_key, const bool no_io,
     const SliceTransform* prefix_extractor, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context) const {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) const {
   if (filter == nullptr) {
     return true;
   }
@@ -1984,13 +1986,15 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   size_t ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
   Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
   if (rep_->whole_key_filtering) {
-    may_match = filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
-                                    get_context, lookup_context);
+    may_match =
+        filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
+                            get_context, lookup_context, rate_limiter_priority);
   } else if (!PrefixExtractorChanged(prefix_extractor) &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts), no_io,
-                 const_ikey_ptr, get_context, lookup_context)) {
+                 const_ikey_ptr, get_context, lookup_context,
+                 rate_limiter_priority)) {
     // FIXME ^^^: there should be no reason for Get() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
     may_match = false;
@@ -2005,14 +2009,15 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
 void BlockBasedTable::FullFilterKeysMayMatch(
     FilterBlockReader* filter, MultiGetRange* range, const bool no_io,
     const SliceTransform* prefix_extractor,
-    BlockCacheLookupContext* lookup_context) const {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) const {
   if (filter == nullptr) {
     return;
   }
   uint64_t before_keys = range->KeysLeft();
   assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
-    filter->KeysMayMatch(range, no_io, lookup_context);
+    filter->KeysMayMatch(range, no_io, lookup_context, rate_limiter_priority);
     uint64_t after_keys = range->KeysLeft();
     if (after_keys) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE, after_keys);
@@ -2028,7 +2033,8 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   } else if (!PrefixExtractorChanged(prefix_extractor)) {
     // FIXME ^^^: there should be no reason for MultiGet() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
-    filter->PrefixesMayMatch(range, prefix_extractor, false, lookup_context);
+    filter->PrefixesMayMatch(range, prefix_extractor, false, lookup_context,
+                             rate_limiter_priority);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
     uint64_t after_keys = range->KeysLeft();
     uint64_t filtered_keys = before_keys - after_keys;
@@ -2065,7 +2071,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   }
   TEST_SYNC_POINT("BlockBasedTable::Get:BeforeFilterMatch");
   const bool may_match = FullFilterKeyMayMatch(
-      filter, key, no_io, prefix_extractor, get_context, &lookup_context);
+      filter, key, no_io, prefix_extractor, get_context, &lookup_context,
+      read_options.rate_limiter_priority);
   TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
   if (!may_match) {
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);

@@ -20,6 +20,7 @@ int main() {
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/env.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -150,6 +151,7 @@ using ROCKSDB_NAMESPACE::Cache;
 using ROCKSDB_NAMESPACE::CacheEntryRole;
 using ROCKSDB_NAMESPACE::CacheEntryRoleOptions;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
+using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
@@ -726,7 +728,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
                 batch_slices[i],
                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
-                /*lookup_context=*/nullptr);
+                /*lookup_context=*/nullptr, Env::IO_TOTAL);
           }
         } else {
           if (dry_run) {
