@@ -1,5 +1,18 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
+
+### Public API changes
+* Add metadata related structs and functions in C API, including
+  * `rocksdb_get_column_family_metadata()` and `rocksdb_get_column_family_metadata_cf()` to obtain `rocksdb_column_family_metadata_t`.
+  * `rocksdb_column_family_metadata_t` and its get functions & destroy function.
+  * `rocksdb_level_metadata_t` and its and its get functions & destroy function.
+  * `rocksdb_file_metadata_t` and its and get functions & destroy functions.
+* Add suggest_compact_range() and suggest_compact_range_cf() to C API.
+
+### Bug Fixes
+* Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.
 
 ## 7.4.0 (06/19/2022)
 ### Bug Fixes

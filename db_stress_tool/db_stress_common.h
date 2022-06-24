@@ -267,6 +267,10 @@ DECLARE_double(blob_garbage_collection_age_cutoff);
 DECLARE_double(blob_garbage_collection_force_threshold);
 DECLARE_uint64(blob_compaction_readahead_size);
 DECLARE_int32(blob_file_starting_level);
+DECLARE_bool(use_blob_cache);
+DECLARE_bool(use_shared_block_and_blob_cache);
+DECLARE_uint64(blob_cache_size);
+DECLARE_int32(blob_cache_numshardbits);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);

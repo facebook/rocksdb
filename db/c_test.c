@@ -272,6 +272,92 @@ static rocksdb_compactionfilter_t* CFilterCreate(
                                          CFilterName);
 }
 
+void CheckMetaData(rocksdb_column_family_metadata_t* cf_meta,
+                   const char* expected_cf_name) {
+  char* cf_name = rocksdb_column_family_metadata_get_name(cf_meta);
+  assert(strcmp(cf_name, expected_cf_name) == 0);
+  rocksdb_free(cf_name);
+
+  size_t cf_size = rocksdb_column_family_metadata_get_size(cf_meta);
+  assert(cf_size > 0);
+  size_t cf_file_count = rocksdb_column_family_metadata_get_size(cf_meta);
+  assert(cf_file_count > 0);
+
+  uint64_t total_level_size = 0;
+  size_t total_file_count = 0;
+  size_t level_count = rocksdb_column_family_metadata_get_level_count(cf_meta);
+  assert(level_count > 0);
+  for (size_t l = 0; l < level_count; ++l) {
+    rocksdb_level_metadata_t* level_meta =
+        rocksdb_column_family_metadata_get_level_metadata(cf_meta, l);
+    assert(level_meta);
+    assert(rocksdb_level_metadata_get_level(level_meta) >= (int)l);
+    uint64_t level_size = rocksdb_level_metadata_get_size(level_meta);
+    uint64_t file_size_in_level = 0;
+
+    size_t file_count = rocksdb_level_metadata_get_file_count(level_meta);
+    total_file_count += file_count;
+    for (size_t f = 0; f < file_count; ++f) {
+      rocksdb_sst_file_metadata_t* file_meta =
+          rocksdb_level_metadata_get_sst_file_metadata(level_meta, f);
+      assert(file_meta);
+
+      uint64_t file_size = rocksdb_sst_file_metadata_get_size(file_meta);
+      assert(file_size > 0);
+      file_size_in_level += file_size;
+
+      char* file_name =
+          rocksdb_sst_file_metadata_get_relative_filename(file_meta);
+      assert(file_name);
+      assert(strlen(file_name) > 0);
+      rocksdb_free(file_name);
+
+      size_t smallest_key_len;
+      char* smallest_key = rocksdb_sst_file_metadata_get_smallestkey(
+          file_meta, &smallest_key_len);
+      assert(smallest_key);
+      assert(smallest_key_len > 0);
+      size_t largest_key_len;
+      char* largest_key =
+          rocksdb_sst_file_metadata_get_largestkey(file_meta, &largest_key_len);
+      assert(largest_key);
+      assert(largest_key_len > 0);
+      rocksdb_free(smallest_key);
+      rocksdb_free(largest_key);
+
+      rocksdb_sst_file_metadata_destroy(file_meta);
+    }
+    assert(level_size == file_size_in_level);
+    total_level_size += level_size;
+    rocksdb_level_metadata_destroy(level_meta);
+  }
+  assert(total_file_count > 0);
+  assert(cf_size == total_level_size);
+}
+
+void GetAndCheckMetaData(rocksdb_t* db) {
+  rocksdb_column_family_metadata_t* cf_meta =
+      rocksdb_get_column_family_metadata(db);
+
+  CheckMetaData(cf_meta, "default");
+
+  rocksdb_column_family_metadata_destroy(cf_meta);
+}
+
+void GetAndCheckMetaDataCf(rocksdb_t* db,
+                           rocksdb_column_family_handle_t* handle,
+                           const char* cf_name) {
+  // Compact to make sure we have at least one sst file to obtain datadata.
+  rocksdb_compact_range_cf(db, handle, NULL, 0, NULL, 0);
+
+  rocksdb_column_family_metadata_t* cf_meta =
+      rocksdb_get_column_family_metadata_cf(db, handle);
+
+  CheckMetaData(cf_meta, cf_name);
+
+  rocksdb_column_family_metadata_destroy(cf_meta);
+}
+
 static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
                                   rocksdb_readoptions_t* roptions,
                                   rocksdb_writeoptions_t* woptions) {
@@ -304,6 +390,11 @@ static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
   CheckGet(db, roptions, "foo", "foovalue");
   CheckGet(db, roptions, "bar", NULL);
   CheckGet(db, roptions, "baz", "newbazvalue");
+
+  rocksdb_suggest_compact_range(db, "bar", 3, "foo", 3, &err);
+  GetAndCheckMetaData(db);
+  CheckNoError(err);
+
   return db;
 }
 
@@ -1296,6 +1387,9 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_put_cf(db, woptions, handles[1], "foobar4", 7, "hello4", 6, &err);
     CheckNoError(err);
+    rocksdb_suggest_compact_range_cf(db, handles[1], "foo", 3, "foobar9", 7,
+                                     &err);
+    CheckNoError(err);
 
     rocksdb_flushoptions_t *flush_options = rocksdb_flushoptions_create();
     rocksdb_flushoptions_set_wait(flush_options, 1);
@@ -1442,6 +1536,8 @@ int main(int argc, char** argv) {
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
+
+    GetAndCheckMetaDataCf(db, handles[1], cf_names[1]);
 
     rocksdb_drop_column_family(db, handles[1], &err);
     CheckNoError(err);
@@ -1831,6 +1927,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_wal_compression(o, 1);
     CheckCondition(1 == rocksdb_options_get_wal_compression(o));
 
+    rocksdb_options_set_experimental_mempurge_threshold(o, 29.0);
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(o));
+
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
@@ -1961,6 +2061,8 @@ int main(int argc, char** argv) {
     CheckCondition(4 == rocksdb_options_get_bottommost_compression(copy));
     CheckCondition(2 == rocksdb_options_get_compaction_style(copy));
     CheckCondition(1 == rocksdb_options_get_atomic_flush(copy));
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(copy));
 
     // Copies should be independent.
     rocksdb_options_set_allow_ingest_behind(copy, 0);
@@ -2308,6 +2410,12 @@ int main(int argc, char** argv) {
     rocksdb_options_set_atomic_flush(copy, 0);
     CheckCondition(0 == rocksdb_options_get_atomic_flush(copy));
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
+
+    rocksdb_options_set_experimental_mempurge_threshold(copy, 229.0);
+    CheckCondition(229.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(copy));
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(o));
 
     rocksdb_options_destroy(copy);
     rocksdb_options_destroy(o);
