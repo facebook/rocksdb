@@ -11,6 +11,9 @@
   * `rocksdb_file_metadata_t` and its and get functions & destroy functions.
 * Add suggest_compact_range() and suggest_compact_range_cf() to C API.
 
+### Bug Fixes
+* Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.
+
 ## 7.4.0 (06/19/2022)
 ### Bug Fixes
 * Fixed a bug in calculating key-value integrity protection for users of in-place memtable updates. In particular, the affected users would be those who configure `protection_bytes_per_key > 0` on `WriteBatch` or `WriteOptions`, and configure `inplace_callback != nullptr`.
