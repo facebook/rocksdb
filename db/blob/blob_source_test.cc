@@ -323,6 +323,12 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
 }
 
 TEST_F(BlobSourceTest, GetCompressedBlobs) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  const CompressionType compression = kSnappyCompression;
+
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(env_, "BlobSourceTest_GetCompressedBlobs"), 0);
 
@@ -374,7 +380,6 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   {
     // Snappy Compression
     const uint64_t file_number = 1;
-    const CompressionType compression = kSnappyCompression;
 
     read_options.read_tier = ReadTier::kReadAllTier;
 
