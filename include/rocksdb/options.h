@@ -865,23 +865,6 @@ struct DBOptions {
   // Default: true
   bool advise_random_on_open = true;
 
-  // [experimental]
-  // Used to activate or deactive the Mempurge feature (memtable garbage
-  // collection). (deactivated by default). At every flush, the total useful
-  // payload (total entries minus garbage entries) is estimated as a ratio
-  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
-  // compared to this `threshold` value:
-  //     - if ratio<threshold: the flush is replaced by a mempurge operation
-  //     - else: a regular flush operation takes place.
-  // Threshold values:
-  //   0.0: mempurge deactivated (default).
-  //   1.0: recommended threshold value.
-  //   >1.0 : aggressive mempurge.
-  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
-  //   ratios.
-  // [experimental]
-  double experimental_mempurge_threshold = 0.0;
-
   // Amount of data to build up in memtables across all column
   // families before writing to disk.
   //
@@ -1274,13 +1257,30 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
 
-  // By default, RocksDB recovery fails if any table file referenced in
-  // MANIFEST are missing after scanning the MANIFEST.
-  // Best-efforts recovery is another recovery mode that
-  // tries to restore the database to the most recent point in time without
-  // missing file.
-  // Currently not compatible with atomic flush. Furthermore, WAL files will
+  // By default, RocksDB recovery fails if any table/blob file referenced in
+  // MANIFEST are missing after scanning the MANIFEST pointed to by the
+  // CURRENT file.
+  // Best-efforts recovery is another recovery mode that tolerates missing or
+  // corrupted table or blob files.
+  // Best-efforts recovery does not need a valid CURRENT file, and tries to
+  // recover the database using one of the available MANIFEST files in the db
+  // directory.
+  // Best-efforts recovery recovers database to a state in which the database
+  // includes only table and blob files whose actual sizes match the
+  // information in the chosen MANIFEST without holes in the history.
+  // Best-efforts recovery tries the available MANIFEST files from high file
+  // numbers (newer) to low file numbers (older), and stops after finding the
+  // first MANIFEST file from which the db can be recovered to a state without
+  // invalid (missing/file-mismatch) table and blob files.
+  // It is possible that the database can be restored to an empty state with no
+  // table or blob files.
+  // Regardless of this option, the IDENTITY file is updated if needed during
+  // recovery to match the DB ID in the MANIFEST (if previously using
+  // write_dbid_to_manifest) or to be in some valid state (non-empty DB ID).
+  // Currently, not compatible with atomic flush. Furthermore, WAL files will
   // not be used for recovery if best_efforts_recovery is true.
+  // Also requires either 1) LOCK file exists or 2) underlying env's LockFile()
+  // call returns ok even for non-existing LOCK file.
   // Default: false
   bool best_efforts_recovery = false;
 
