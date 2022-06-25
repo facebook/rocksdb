@@ -269,22 +269,22 @@ class autovector {
 
   reference front() {
     assert(!empty());
-    return *begin();
+    return values_[0];
   }
 
   const_reference front() const {
     assert(!empty());
-    return *begin();
+    return values_[0];
   }
 
   reference back() {
     assert(!empty());
-    return *(end() - 1);
+    return vect_.empty() ? values_[num_stack_items_-1] : vect_.back();
   }
 
   const_reference back() const {
     assert(!empty());
-    return *(end() - 1);
+    return vect_.empty() ? values_[num_stack_items_-1] : vect_.back();
   }
 
   // -- Mutable Operations
