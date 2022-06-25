@@ -740,21 +740,33 @@ static bool SaveValue(void* arg, const char* entry) {
 
     s->seq = seq;
 
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
+         type == kTypeWideColumnEntity) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
       case kTypeBlobIndex:
-        if (s->is_blob_index == nullptr) {
-          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
-          *(s->status) = Status::NotSupported(
-              "Encounter unsupported blob value. Please open DB with "
-              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        } else if (*(s->merge_in_progress)) {
+      case kTypeWideColumnEntity:
+        if (*(s->merge_in_progress)) {
+          *(s->status) = Status::NotSupported("Merge operator not supported");
+        } else if (!s->do_merge) {
+          *(s->status) = Status::NotSupported("GetMergeOperands not supported");
+        } else if (type == kTypeBlobIndex) {
+          if (s->is_blob_index == nullptr) {
+            ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
+            *(s->status) = Status::NotSupported(
+                "Encounter unsupported blob value. Please open DB with "
+                "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
+          }
+        } else {
+          assert(type == kTypeWideColumnEntity);
+
+          // TODO: support wide-column entities
           *(s->status) =
-              Status::NotSupported("Blob DB does not support merge operator.");
+              Status::NotSupported("Encountered unexpected wide-column entity");
         }
+
         if (!s->status->ok()) {
           *(s->found_final_value) = true;
           return false;

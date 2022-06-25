@@ -37,6 +37,17 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   return DB::Put(o, column_family, key, ts, val);
 }
 
+Status DBImpl::PutEntity(const WriteOptions& options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         const WideColumns& columns) {
+  const Status s = FailIfCfHasTs(column_family);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return DB::PutEntity(options, column_family, key, columns);
+}
+
 Status DBImpl::Merge(const WriteOptions& o, ColumnFamilyHandle* column_family,
                      const Slice& key, const Slice& val) {
   const Status s = FailIfCfHasTs(column_family);
@@ -2234,6 +2245,27 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
     return s;
   }
   return Write(opt, &batch);
+}
+
+Status DB::PutEntity(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const WideColumns& columns) {
+  const ColumnFamilyHandle* const default_cf = DefaultColumnFamily();
+  assert(default_cf);
+
+  const Comparator* const default_cf_ucmp = default_cf->GetComparator();
+  assert(default_cf_ucmp);
+
+  WriteBatch batch(/* reserved_bytes */ 0, /* max_bytes */ 0,
+                   options.protection_bytes_per_key,
+                   default_cf_ucmp->timestamp_size());
+
+  const Status s = batch.PutEntity(column_family, key, columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return Write(options, &batch);
 }
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,

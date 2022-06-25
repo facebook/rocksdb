@@ -307,10 +307,11 @@ void MetaBlockIter::SeekImpl(const Slice& target) {
 // target = "seek_user_key @ type | seqno".
 //
 // For any type other than kTypeValue, kTypeDeletion, kTypeSingleDeletion,
-// or kTypeBlobIndex, this function behaves identically as Seek().
+// kTypeBlobIndex, or kTypeWideColumnEntity, this function behaves identically
+// to Seek().
 //
 // For any type in kTypeValue, kTypeDeletion, kTypeSingleDeletion,
-// or kTypeBlobIndex:
+// kTypeBlobIndex, or kTypeWideColumnEntity:
 //
 // If the return value is FALSE, iter location is undefined, and it means:
 // 1) there is no key in this block falling into the range:
@@ -412,7 +413,8 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   if (value_type != ValueType::kTypeValue &&
       value_type != ValueType::kTypeDeletion &&
       value_type != ValueType::kTypeSingleDeletion &&
-      value_type != ValueType::kTypeBlobIndex) {
+      value_type != ValueType::kTypeBlobIndex &&
+      value_type != ValueType::kTypeWideColumnEntity) {
     SeekImpl(target);
     return true;
   }

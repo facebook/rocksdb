@@ -119,6 +119,14 @@ class DBImplSecondary : public DBImpl {
     return Status::NotSupported("Not supported operation in secondary mode.");
   }
 
+  using DBImpl::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported("Not supported operation in secondary mode.");
+  }
+
   using DBImpl::Merge;
   Status Merge(const WriteOptions& /*options*/,
                ColumnFamilyHandle* /*column_family*/, const Slice& /*key*/,
