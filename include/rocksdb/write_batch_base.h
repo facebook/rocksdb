@@ -42,6 +42,7 @@ class WriteBatchBase {
                      const SliceParts& value);
   virtual Status Put(const SliceParts& key, const SliceParts& value);
 
+  // UNDER CONSTRUCTION -- DO NOT USE
   virtual Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns) = 0;
 

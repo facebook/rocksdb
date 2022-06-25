@@ -407,6 +407,7 @@ class DB {
     return Put(options, DefaultColumnFamily(), key, ts, value);
   }
 
+  // UNDER CONSTRUCTION -- DO NOT USE
   virtual Status PutEntity(const WriteOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            const WideColumns& columns) = 0;

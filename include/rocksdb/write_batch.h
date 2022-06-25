@@ -100,6 +100,7 @@ class WriteBatch : public WriteBatchBase {
     return Put(nullptr, key, value);
   }
 
+  // UNDER CONSTRUCTION -- DO NOT USE
   using WriteBatchBase::PutEntity;
   Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
                    const WideColumns& columns) override;
