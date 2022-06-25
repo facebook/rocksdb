@@ -247,7 +247,7 @@ class WriteBatch : public WriteBatchBase {
     virtual Status PutEntityCF(uint32_t /* column_family_id */,
                                const Slice& /* key */,
                                const Slice& /* entity */) {
-      return Status::InvalidArgument("PutEntityCF not implemented");
+      return Status::NotSupported("PutEntityCF not implemented");
     }
 
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
