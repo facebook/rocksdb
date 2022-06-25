@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBWideBasicTest : public DBTestBase {
  protected:
-  DBWideBasicTest()
+  explicit DBWideBasicTest()
       : DBTestBase("db_wide_basic_test", /* env_do_fsync */ false) {}
 };
 
