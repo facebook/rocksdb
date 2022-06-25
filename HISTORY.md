@@ -1,5 +1,18 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
+
+### Public API changes
+* Add metadata related structs and functions in C API, including
+  * `rocksdb_get_column_family_metadata()` and `rocksdb_get_column_family_metadata_cf()` to obtain `rocksdb_column_family_metadata_t`.
+  * `rocksdb_column_family_metadata_t` and its get functions & destroy function.
+  * `rocksdb_level_metadata_t` and its and its get functions & destroy function.
+  * `rocksdb_file_metadata_t` and its and get functions & destroy functions.
+* Add suggest_compact_range() and suggest_compact_range_cf() to C API.
+
+### Bug Fixes
+* Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.
 
 ## 7.4.0 (06/19/2022)
 ### Bug Fixes
@@ -29,11 +42,6 @@
   * `rocksdb_comparator_with_ts_create` to create timestamp aware comparator
   * Put, Get, Delete, SingleDelete, MultiGet APIs has corresponding timestamp aware APIs with suffix `with_ts`
   * And Add C API's for Transaction, SstFileWriter, Compaction as mentioned [here](https://github.com/facebook/rocksdb/wiki/User-defined-Timestamp-(Experimental))
-* Add metadata related structs and functions in C API, including
-  * `rocksdb_get_column_family_metadata()` and `rocksdb_get_column_family_metadata_cf()` to obtain `rocksdb_column_family_metadata_t`.
-  * `rocksdb_column_family_metadata_t` and its get functions & destroy function.
-  * `rocksdb_level_metadata_t` and its and its get functions & destroy function.
-  * `rocksdb_file_metadata_t` and its and get functions & destroy functions.
 * The contract for implementations of Comparator::IsSameLengthImmediateSuccessor has been updated to work around a design bug in `auto_prefix_mode`.
 * The API documentation for `auto_prefix_mode` now notes some corner cases in which it returns different results than `total_order_seek`, due to design bugs that are not easily fixed. Users using built-in comparators and keys at least the size of a fixed prefix length are not affected.
 * Obsoleted the NUM_DATA_BLOCKS_READ_PER_LEVEL stat and introduced the NUM_LEVEL_READ_PER_MULTIGET and MULTIGET_COROUTINE_COUNT stats
@@ -55,6 +63,9 @@
 
 ### Performance Improvements
 * When compiled with folly (Meta-internal integration; experimental in open source build), improve the locking performance (CPU efficiency) of LRUCache by using folly DistributedMutex in place of standard mutex.
+
+### Performance Improvements
+* Rather than doing total sort against all files in a level, SortFileByOverlappingRatio() to only find the top 50 files based on score. This can improve write throughput for the use cases where data is loaded in increasing key order and there are a lot of files in one LSM-tree, where applying compaction results is the bottleneck.
 
 ## 7.3.0 (05/20/2022)
 ### Bug Fixes

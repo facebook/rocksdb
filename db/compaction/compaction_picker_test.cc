@@ -1349,6 +1349,61 @@ TEST_F(CompactionPickerTest, CompactionPriRoundRobin) {
   }
 }
 
+TEST_F(CompactionPickerTest, CompactionPriMinOverlappingManyFiles) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  ioptions_.compaction_pri = kMinOverlappingRatio;
+  mutable_cf_options_.max_bytes_for_level_base = 15000000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+
+  // file 7 and 8 over lap with the same file, but file 8 is smaller so
+  // it will be picked.
+  Add(2, 13U, "010", "011",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 14U, "020", "021",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 15U, "030", "031",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 16U, "040", "041",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 17U, "050", "051",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 18U, "060", "061",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 19U, "070", "071",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 20U, "080", "081",
+      6100U);  // Overlaps with a large file. Not picked
+
+  Add(2, 6U, "150", "167", 60000000U);  // Overlaps with file 26, 27
+  Add(2, 7U, "168", "169", 60000000U);  // Overlaps with file 27
+  Add(2, 8U, "201", "300", 61000000U);  // Overlaps with file 28, but the file
+                                        // itself is larger. Should be picked.
+  Add(2, 9U, "610", "611",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 10U, "620", "621",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 11U, "630", "631",
+      6100U);  // Overlaps with a large file. Not picked
+  Add(2, 12U, "640", "641",
+      6100U);  // Overlaps with a large file. Not picked
+
+  Add(3, 31U, "001", "100", 260000000U);
+  Add(3, 26U, "160", "165", 260000000U);
+  Add(3, 27U, "166", "170", 260000000U);
+  Add(3, 28U, "180", "400", 260000000U);
+  Add(3, 29U, "401", "500", 260000000U);
+  Add(3, 30U, "601", "700", 260000000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  // Picking file 8 because overlapping ratio is the biggest.
+  ASSERT_EQ(8U, compaction->input(0, 0)->fd.GetNumber());
+}
+
 // This test exhibits the bug where we don't properly reset parent_index in
 // PickCompaction()
 TEST_F(CompactionPickerTest, ParentIndexResetBug) {
