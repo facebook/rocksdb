@@ -64,7 +64,8 @@ std::pair<WriteBatch, Status> GetWriteBatch(ColumnFamilyHandle* cf_handle,
       s = wb.Merge(cf_handle, "key", "val");
       break;
     case WriteBatchOpType::kPutEntity:
-      s = wb.PutEntity(cf_handle, "key", {{"foo", "bar"}, {"hello", "world"}});
+      s = wb.PutEntity(cf_handle, "key",
+                       {{"attr_name1", "foo"}, {"attr_name2", "bar"}});
       break;
     case WriteBatchOpType::kNum:
       assert(false);

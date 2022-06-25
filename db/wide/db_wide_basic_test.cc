@@ -24,14 +24,14 @@ TEST_F(DBWideBasicTest, PutEntity) {
 
   // Use the DB::PutEntity API
   constexpr char first_key[] = "first";
-  WideColumns first_columns{{"foo", "bar"}, {"hello", "world"}};
+  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
 
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                            first_key, first_columns));
 
   // Use WriteBatch
   constexpr char second_key[] = "second";
-  WideColumns second_columns{{"one", "two"}, {"three", "four"}};
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
 
   WriteBatch batch;
   ASSERT_OK(
@@ -138,14 +138,14 @@ TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
 
   // Use the DB::PutEntity API
   constexpr char first_key[] = "first";
-  WideColumns first_columns{{"foo", "bar"}, {"hello", "world"}};
+  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
 
   ASSERT_OK(
       db_->PutEntity(WriteOptions(), handles_[1], first_key, first_columns));
 
   // Use WriteBatch
   constexpr char second_key[] = "second";
-  WideColumns second_columns{{"one", "two"}, {"three", "four"}};
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
 
   WriteBatch batch;
   ASSERT_OK(batch.PutEntity(handles_[1], second_key, second_columns));
@@ -164,7 +164,7 @@ TEST_F(DBWideBasicTest, PutEntityTimestampError) {
 
   // Use the DB::PutEntity API
   constexpr char first_key[] = "first";
-  WideColumns first_columns{{"foo", "bar"}, {"hello", "world"}};
+  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
 
   ASSERT_TRUE(db_->PutEntity(WriteOptions(), handle, first_key, first_columns)
                   .IsInvalidArgument());
