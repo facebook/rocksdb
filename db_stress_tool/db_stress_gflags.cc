@@ -200,6 +200,10 @@ DEFINE_int32(
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
 
+DEFINE_int32(compaction_pri, ROCKSDB_NAMESPACE::Options().compaction_pri,
+             "Which file from a level should be picked to merge to the next "
+             "level in level-based compaction");
+
 DEFINE_int32(num_levels, ROCKSDB_NAMESPACE::Options().num_levels,
              "Number of levels in the DB");
 
