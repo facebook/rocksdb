@@ -2697,10 +2697,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     exit(1);
   }
 #endif  // !ROCKSDB_LITE
-  if (FLAGS_enable_compaction_filter) {
-    fprintf(stderr, "CompactionFilter not supported with timestamp.\n");
-    exit(1);
-  }
   if (FLAGS_test_cf_consistency || FLAGS_test_batches_snapshots) {
     fprintf(stderr,
             "Due to per-key ts-seq ordering constraint, only the (default) "

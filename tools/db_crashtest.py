@@ -361,7 +361,6 @@ ts_params = {
     "use_txn": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
-    "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
 }
 
