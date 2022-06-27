@@ -244,7 +244,7 @@ class FastLRUCacheTest : public testing::Test {
 
   size_t CalcHandleCharge(size_t estimated_value_size, CacheMetadataChargePolicy metadata_charge_policy) {
     LRUHandle h;
-    h.CalcTotalCharge(estimated_value_size, kDontChargeCacheMetadata);
+    h.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
     return h.total_charge;
   }
 
@@ -308,7 +308,7 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
 
   // Large capacity.
   capacity = 31924172;
-  estimated_value_size = 1;
+  estimated_value_size = 321;
   metadata_charge_policy = kDefaultCacheMetadataChargePolicy;
   max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
   hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size, metadata_charge_policy);
