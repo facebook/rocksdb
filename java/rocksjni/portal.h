@@ -5010,95 +5010,95 @@ class TickerTypeJni {
         return -0x07;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED:
         return -0x08;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS:
-        return -0x09;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT:
-        return -0x0A;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD:
-        return -0x0B;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES:
-        return -0x0C;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ:
-        return -0x0D;
-      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE:
-        return -0x0E;
       case ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD:
-        return -0x0F;
+        return -0x09;
       case ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD:
-        return -0x10;
+        return -0x0A;
       case ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD:
-        return -0x11;
+        return -0x0B;
       case ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD:
-        return -0x12;
+        return -0x0C;
       case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
-        return -0x13;
+        return -0x0D;
       case ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH:
-        return -0x14;
+        return -0x0E;
       case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY:
-        return -0X15;
+        return -0X0F;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED:
-        return -0x16;
+        return -0x10;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC:
-        return -0x17;
+        return -0x11;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL:
-        return -0x18;
+        return -0x12;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED:
-        return -0x19;
+        return -0x13;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC:
-        return -0x1A;
+        return -0x14;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
-        return -0x1B;
+        return -0x15;
       case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT:
-        return -0x1C;
+        return -0x16;
       case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT:
-        return -0x1D;
+        return -0x17;
       case ROCKSDB_NAMESPACE::Tickers::
           ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT:
-        return -0x1E;
+        return -0x18;
       case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT:
-        return -0x1F;
+        return -0x19;
       case ROCKSDB_NAMESPACE::Tickers::
           ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT:
-        return -0x20;
+        return -0x1A;
       case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT:
-        return -0x21;
+        return -0x1B;
       case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH:
-        return -0x22;
+        return -0x1C;
       case ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH:
-        return -0x23;
+        return -0x1D;
       case ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS:
-        return -0x24;
+        return -0x1E;
       case ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES:
-        return -0x25;
+        return -0x1F;
       case ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES:
-        return -0x26;
+        return -0x20;
       case ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES:
-        return -0x27;
+        return -0x21;
       case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES:
-        return -0x28;
+        return -0x22;
       case ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES:
-        return -0x29;
+        return -0x23;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES:
-        return -0x2A;
+        return -0x24;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES:
-        return -0x2B;
+        return -0x25;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES:
-        return -0x2C;
+        return -0x26;
       case ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT:
-        return -0x2D;
+        return -0x27;
       case ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT:
-        return -0x2E;
+        return -0x28;
       case ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT:
-        return -0x2F;
+        return -0x29;
       case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES:
-        return -0x30;
+        return -0x2A;
       case ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT:
-        return -0x31;
+        return -0x2B;
       case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES:
-        return -0x32;
+        return -0x2C;
       case ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT:
-        return -0x33;
+        return -0x2D;
       case ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT:
+        return -0x2E;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS:
+        return -0x2F;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT:
+        return -0x30;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD:
+        return -0x31;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES:
+        return -0x32;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ:
+        return -0x33;
+      case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE:
         return -0x34;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
@@ -5393,96 +5393,96 @@ class TickerTypeJni {
       case -0x08:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_FIFO_BYTES_EVICTED;
       case -0x09:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS;
-      case -0x0A:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT;
-      case -0x0B:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD;
-      case -0x0C:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES;
-      case -0x0D:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ;
-      case -0x0E:
-        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE;
-      case -0x0F:
         return ROCKSDB_NAMESPACE::Tickers::TXN_PREPARE_MUTEX_OVERHEAD;
-      case -0x10:
+      case -0x0A:
         return ROCKSDB_NAMESPACE::Tickers::TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD;
-      case -0x11:
+      case -0x0B:
         return ROCKSDB_NAMESPACE::Tickers::TXN_DUPLICATE_KEY_OVERHEAD;
-      case -0x12:
+      case -0x0C:
         return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
-      case -0x13:
+      case -0x0D:
         return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
-      case -0x14:
+      case -0x0E:
         return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
-      case -0x15:
+      case -0x0F:
         return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
-      case -0x16:
+      case -0x10:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED;
-      case -0x17:
+      case -0x11:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC;
-      case -0x18:
+      case -0x12:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL;
-      case -0x19:
+      case -0x13:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED;
-      case -0x1A:
+      case -0x14:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC;
-      case -0x1B:
+      case -0x15:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL;
-      case -0x1C:
+      case -0x16:
         return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT;
-      case -0x1D:
+      case -0x17:
         return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT;
-      case -0x1E:
+      case -0x18:
         return ROCKSDB_NAMESPACE::Tickers::
             ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT;
-      case -0x1F:
+      case -0x19:
         return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT;
-      case -0x20:
+      case -0x1A:
         return ROCKSDB_NAMESPACE::Tickers::
             ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT;
-      case -0x21:
+      case -0x1B:
         return ROCKSDB_NAMESPACE::Tickers::
             ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT;
-      case -0x22:
+      case -0x1C:
         return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_PAYLOAD_BYTES_AT_FLUSH;
-      case -0x23:
+      case -0x1D:
         return ROCKSDB_NAMESPACE::Tickers::MEMTABLE_GARBAGE_BYTES_AT_FLUSH;
-      case -0x24:
+      case -0x1E:
         return ROCKSDB_NAMESPACE::Tickers::SECONDARY_CACHE_HITS;
-      case -0x25:
+      case -0x1F:
         return ROCKSDB_NAMESPACE::Tickers::VERIFY_CHECKSUM_READ_BYTES;
-      case -0x26:
+      case -0x20:
         return ROCKSDB_NAMESPACE::Tickers::BACKUP_READ_BYTES;
-      case -0x27:
+      case -0x21:
         return ROCKSDB_NAMESPACE::Tickers::BACKUP_WRITE_BYTES;
-      case -0x28:
+      case -0x22:
         return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_READ_BYTES;
-      case -0x29:
+      case -0x23:
         return ROCKSDB_NAMESPACE::Tickers::REMOTE_COMPACT_WRITE_BYTES;
-      case -0x2A:
+      case -0x24:
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_BYTES;
-      case -0x2B:
+      case -0x25:
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_BYTES;
-      case -0x2C:
+      case -0x26:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_BYTES;
-      case -0x2D:
+      case -0x27:
         return ROCKSDB_NAMESPACE::Tickers::HOT_FILE_READ_COUNT;
-      case -0x2E:
+      case -0x28:
         return ROCKSDB_NAMESPACE::Tickers::WARM_FILE_READ_COUNT;
-      case -0x2F:
+      case -0x29:
         return ROCKSDB_NAMESPACE::Tickers::COLD_FILE_READ_COUNT;
-      case -0x30:
+      case -0x2A:
         return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_BYTES;
-      case -0x31:
+      case -0x2B:
         return ROCKSDB_NAMESPACE::Tickers::LAST_LEVEL_READ_COUNT;
-      case -0x32:
+      case -0x2C:
         return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_BYTES;
-      case -0x33:
+      case -0x2D:
         return ROCKSDB_NAMESPACE::Tickers::NON_LAST_LEVEL_READ_COUNT;
-      case -0x34:
+      case -0x2E:
         return ROCKSDB_NAMESPACE::Tickers::BLOCK_CHECKSUM_COMPUTE_COUNT;
+      case -0x2F:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_MISS;
+      case -0x30:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_HIT;
+      case -0x31:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD;
+      case -0x32:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_ADD_FAILURES;
+      case -0x33:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ;
+      case -0x34:
+        return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep

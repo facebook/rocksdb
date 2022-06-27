@@ -696,91 +696,61 @@ public enum TickerType {
     BLOB_DB_FIFO_BYTES_EVICTED((byte) -0x08),
 
     /**
-     * # of times cache miss when accessing blob from blob cache.
-     */
-    BLOB_DB_CACHE_MISS((byte) -0x09),
-
-    /**
-     * # of times cache hit when accessing blob from blob cache.
-     */
-    BLOB_DB_CACHE_HIT((byte) -0x0A),
-
-    /**
-     * # of data blocks added to blob cache.
-     */
-    BLOB_DB_CACHE_ADD((byte) -0x0B),
-
-    /**
-     * # # of failures when adding blobs to blob cache.
-     */
-    BLOB_DB_CACHE_ADD_FAILURES((byte) -0x0C),
-
-    /**
-     * # of bytes read from blob cache.
-     */
-    BLOB_DB_CACHE_BYTES_READ((byte) -0x0D),
-
-    /**
-     * # of bytes written into blob cache.
-     */
-    BLOB_DB_CACHE_BYTES_WRITE((byte) -0x0E),
-
-    /**
      * These counters indicate a performance issue in WritePrepared transactions.
      * We should not seem them ticking them much.
      * # of times prepare_mutex_ is acquired in the fast path.
      */
-    TXN_PREPARE_MUTEX_OVERHEAD((byte) -0x0F),
+    TXN_PREPARE_MUTEX_OVERHEAD((byte) -0x09),
 
     /**
      * # of times old_commit_map_mutex_ is acquired in the fast path.
      */
-    TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD((byte) -0x10),
+    TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD((byte) -0x0A),
 
     /**
      * # of times we checked a batch for duplicate keys.
      */
-    TXN_DUPLICATE_KEY_OVERHEAD((byte) -0x11),
+    TXN_DUPLICATE_KEY_OVERHEAD((byte) -0x0B),
 
     /**
      * # of times snapshot_mutex_ is acquired in the fast path.
      */
-    TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x12),
+    TXN_SNAPSHOT_MUTEX_OVERHEAD((byte) -0x0C),
 
     /**
      * # of times ::Get returned TryAgain due to expired snapshot seq
      */
-    TXN_GET_TRY_AGAIN((byte) -0x13),
+    TXN_GET_TRY_AGAIN((byte) -0x0D),
 
     /**
      * # of files marked as trash by delete scheduler
      */
-    FILES_MARKED_TRASH((byte) -0x14),
+    FILES_MARKED_TRASH((byte) -0x0E),
 
     /**
      * # of files deleted immediately by delete scheduler
      */
-    FILES_DELETED_IMMEDIATELY((byte) -0x15),
+    FILES_DELETED_IMMEDIATELY((byte) -0x0f),
 
     /**
      * Compaction read and write statistics broken down by CompactionReason
      */
-    COMPACT_READ_BYTES_MARKED((byte) -0x16),
-    COMPACT_READ_BYTES_PERIODIC((byte) -0x17),
-    COMPACT_READ_BYTES_TTL((byte) -0x18),
-    COMPACT_WRITE_BYTES_MARKED((byte) -0x19),
-    COMPACT_WRITE_BYTES_PERIODIC((byte) -0x1A),
-    COMPACT_WRITE_BYTES_TTL((byte) -0x1B),
+    COMPACT_READ_BYTES_MARKED((byte) -0x10),
+    COMPACT_READ_BYTES_PERIODIC((byte) -0x11),
+    COMPACT_READ_BYTES_TTL((byte) -0x12),
+    COMPACT_WRITE_BYTES_MARKED((byte) -0x13),
+    COMPACT_WRITE_BYTES_PERIODIC((byte) -0x14),
+    COMPACT_WRITE_BYTES_TTL((byte) -0x15),
 
     /**
      * DB error handler statistics
      */
-    ERROR_HANDLER_BG_ERROR_COUNT((byte) -0x1C),
-    ERROR_HANDLER_BG_IO_ERROR_COUNT((byte) -0x1D),
-    ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT((byte) -0x1E),
-    ERROR_HANDLER_AUTORESUME_COUNT((byte) -0x1F),
-    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT((byte) -0x20),
-    ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x21),
+    ERROR_HANDLER_BG_ERROR_COUNT((byte) -0x16),
+    ERROR_HANDLER_BG_IO_ERROR_COUNT((byte) -0x17),
+    ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT((byte) -0x18),
+    ERROR_HANDLER_AUTORESUME_COUNT((byte) -0x19),
+    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT((byte) -0x1A),
+    ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x1B),
 
     /**
      * Bytes of raw data (payload) found on memtable at flush time.
@@ -788,53 +758,83 @@ public enum TickerType {
      * at flush time) and useful payload (bytes of data that will
      * eventually be written to SSTable).
      */
-    MEMTABLE_PAYLOAD_BYTES_AT_FLUSH((byte) -0x22),
+    MEMTABLE_PAYLOAD_BYTES_AT_FLUSH((byte) -0x1C),
     /**
      * Outdated bytes of data present on memtable at flush time.
      */
-    MEMTABLE_GARBAGE_BYTES_AT_FLUSH((byte) -0x23),
+    MEMTABLE_GARBAGE_BYTES_AT_FLUSH((byte) -0x1D),
 
     /**
      * Number of secondary cache hits
      */
-    SECONDARY_CACHE_HITS((byte) -0x24),
+    SECONDARY_CACHE_HITS((byte) -0x1E),
 
     /**
      * Bytes read by `VerifyChecksum()` and `VerifyFileChecksums()` APIs.
      */
-    VERIFY_CHECKSUM_READ_BYTES((byte) -0x25),
+    VERIFY_CHECKSUM_READ_BYTES((byte) -0x1F),
 
     /**
      * Bytes read/written while creating backups
      */
-    BACKUP_READ_BYTES((byte) -0x26),
-    BACKUP_WRITE_BYTES((byte) -0x27),
+    BACKUP_READ_BYTES((byte) -0x20),
+    BACKUP_WRITE_BYTES((byte) -0x21),
 
     /**
      * Remote compaction read/write statistics
      */
-    REMOTE_COMPACT_READ_BYTES((byte) -0x28),
-    REMOTE_COMPACT_WRITE_BYTES((byte) -0x29),
+    REMOTE_COMPACT_READ_BYTES((byte) -0x22),
+    REMOTE_COMPACT_WRITE_BYTES((byte) -0x23),
 
     /**
      * Tiered storage related statistics
      */
-    HOT_FILE_READ_BYTES((byte) -0x2A),
-    WARM_FILE_READ_BYTES((byte) -0x2B),
-    COLD_FILE_READ_BYTES((byte) -0x2C),
-    HOT_FILE_READ_COUNT((byte) -0x2D),
-    WARM_FILE_READ_COUNT((byte) -0x2E),
-    COLD_FILE_READ_COUNT((byte) -0x2F),
+    HOT_FILE_READ_BYTES((byte) -0x24),
+    WARM_FILE_READ_BYTES((byte) -0x25),
+    COLD_FILE_READ_BYTES((byte) -0x26),
+    HOT_FILE_READ_COUNT((byte) -0x27),
+    WARM_FILE_READ_COUNT((byte) -0x28),
+    COLD_FILE_READ_COUNT((byte) -0x29),
 
     /**
      * (non-)last level read statistics
      */
-    LAST_LEVEL_READ_BYTES((byte) -0x30),
-    LAST_LEVEL_READ_COUNT((byte) -0x31),
-    NON_LAST_LEVEL_READ_BYTES((byte) -0x32),
-    NON_LAST_LEVEL_READ_COUNT((byte) -0x33),
+    LAST_LEVEL_READ_BYTES((byte) -0x2A),
+    LAST_LEVEL_READ_COUNT((byte) -0x2B),
+    NON_LAST_LEVEL_READ_BYTES((byte) -0x2C),
+    NON_LAST_LEVEL_READ_COUNT((byte) -0x2D),
 
-    BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x34),
+    BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x2E),
+
+    /**
+     * # of times cache miss when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_MISS((byte) -0x2F),
+
+    /**
+     * # of times cache hit when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_HIT((byte) -0x30),
+
+    /**
+     * # of data blocks added to blob cache.
+     */
+    BLOB_DB_CACHE_ADD((byte) -0x31),
+
+    /**
+     * # # of failures when adding blobs to blob cache.
+     */
+    BLOB_DB_CACHE_ADD_FAILURES((byte) -0x32),
+
+    /**
+     * # of bytes read from blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_READ((byte) -0x33),
+
+    /**
+     * # of bytes written into blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
 
     TICKER_ENUM_MAX((byte) 0x5F);
 
