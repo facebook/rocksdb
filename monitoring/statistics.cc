@@ -167,12 +167,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_FIFO_NUM_FILES_EVICTED, "rocksdb.blobdb.fifo.num.files.evicted"},
     {BLOB_DB_FIFO_NUM_KEYS_EVICTED, "rocksdb.blobdb.fifo.num.keys.evicted"},
     {BLOB_DB_FIFO_BYTES_EVICTED, "rocksdb.blobdb.fifo.bytes.evicted"},
-    {BLOB_DB_CACHE_MISS, "rocksdb.blobdb.cache.miss"},
-    {BLOB_DB_CACHE_HIT, "rocksdb.blobdb.cache.hit"},
-    {BLOB_DB_CACHE_ADD, "rocksdb.blobdb.cache.add"},
-    {BLOB_DB_CACHE_ADD_FAILURES, "rocksdb.blobdb.cache.add.failures"},
-    {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
-    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"},
     {TXN_PREPARE_MUTEX_OVERHEAD, "rocksdb.txn.overhead.mutex.prepare"},
     {TXN_OLD_COMMIT_MAP_MUTEX_OVERHEAD,
      "rocksdb.txn.overhead.mutex.old.commit.map"},
@@ -233,7 +227,13 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
     {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
     {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"},
-    {MULTIGET_COROUTINE_COUNT, "rocksdb.multiget.coroutine.count"}};
+    {MULTIGET_COROUTINE_COUNT, "rocksdb.multiget.coroutine.count"},
+    {BLOB_DB_CACHE_MISS, "rocksdb.blobdb.cache.miss"},
+    {BLOB_DB_CACHE_HIT, "rocksdb.blobdb.cache.hit"},
+    {BLOB_DB_CACHE_ADD, "rocksdb.blobdb.cache.add"},
+    {BLOB_DB_CACHE_ADD_FAILURES, "rocksdb.blobdb.cache.add.failures"},
+    {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
+    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},
