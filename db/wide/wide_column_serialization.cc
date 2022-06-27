@@ -17,12 +17,6 @@ namespace ROCKSDB_NAMESPACE {
 
 Status WideColumnSerialization::Serialize(const WideColumns& columns,
                                           std::string& output) {
-  // Column names should be strictly ascending
-  assert(std::adjacent_find(columns.cbegin(), columns.cend(),
-                            [](const WideColumn& lhs, const WideColumn& rhs) {
-                              return lhs.name().compare(rhs.name()) > 0;
-                            }) == columns.cend());
-
   if (columns.size() >
       static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
     return Status::InvalidArgument("Too many wide columns");
@@ -32,11 +26,16 @@ Status WideColumnSerialization::Serialize(const WideColumns& columns,
 
   PutVarint32(&output, static_cast<uint32_t>(columns.size()));
 
-  for (const auto& column : columns) {
+  for (size_t i = 0; i < columns.size(); ++i) {
+    const WideColumn& column = columns[i];
+
     const Slice& name = column.name();
     if (name.size() >
         static_cast<size_t>(std::numeric_limits<uint32_t>::max())) {
       return Status::InvalidArgument("Wide column name too long");
+    }
+    if (i > 0 && columns[i - 1].name().compare(name) >= 0) {
+      return Status::Corruption("Wide columns out of order");
     }
 
     const Slice& value = column.value();

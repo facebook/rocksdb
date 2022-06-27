@@ -275,7 +275,8 @@ whitebox_default_params = {
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
-    "experimental_mempurge_threshold": lambda: 10.0*random.random(),
+    # TODO: re-enable once internal task T124324915 is fixed.
+    # "experimental_mempurge_threshold": lambda: 10.0*random.random(),
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
@@ -344,6 +345,9 @@ blob_params = {
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
     "blob_file_starting_level": lambda: random.choice([0] * 4 + [1] * 3 + [2] * 2 + [3]),
+    "use_blob_cache": lambda: random.randint(0, 1),
+    "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
+    "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
 }
 
 ts_params = {

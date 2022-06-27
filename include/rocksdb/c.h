@@ -630,6 +630,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf(
     const char* start_key, size_t start_key_len, const char* limit_key,
     size_t limit_key_len);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_suggest_compact_range(
+    rocksdb_t* db, const char* start_key, size_t start_key_len,
+    const char* limit_key, size_t limit_key_len, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_suggest_compact_range_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    const char* start_key, size_t start_key_len, const char* limit_key,
+    size_t limit_key_len, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_opt(
     rocksdb_t* db, rocksdb_compactoptions_t* opt, const char* start_key,
     size_t start_key_len, const char* limit_key, size_t limit_key_len);
@@ -1501,6 +1510,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_report_bg_io_stats(
     rocksdb_options_t*);
+
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t*, double);
+extern ROCKSDB_LIBRARY_API double
+rocksdb_options_get_experimental_mempurge_threshold(rocksdb_options_t*);
 
 enum {
   rocksdb_tolerate_corrupted_tail_records_recovery = 0,

@@ -49,6 +49,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.max_write_buffer_size_to_maintain),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
+      experimental_mempurge_threshold(options.experimental_mempurge_threshold),
       inplace_callback(options.inplace_callback),
       memtable_prefix_bloom_size_ratio(
           options.memtable_prefix_bloom_size_ratio),
@@ -424,12 +425,14 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
       ROCKS_LOG_HEADER(log, "                          blob_cache options: %s",
                        blob_cache->GetPrintableOptions().c_str());
     }
+    ROCKS_LOG_HEADER(log, "Options.experimental_mempurge_threshold: %f",
+                     experimental_mempurge_threshold);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
   DBOptions::Dump(log);
   ColumnFamilyOptions::Dump(log);
-}   // Options::Dump
+}  // Options::Dump
 
 void Options::DumpCFOptions(Logger* log) const {
   ColumnFamilyOptions::Dump(log);

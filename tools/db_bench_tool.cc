@@ -1074,6 +1074,26 @@ DEFINE_int32(
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
     "[Integrated BlobDB] The starting level for blob files.");
 
+DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
+
+DEFINE_bool(
+    use_shared_block_and_blob_cache, true,
+    "[Integrated BlobDB] Use a shared backing cache for both block "
+    "cache and blob cache. It only takes effect if use_blob_cache is enabled.");
+
+DEFINE_uint64(
+    blob_cache_size, 8 << 20,
+    "[Integrated BlobDB] Number of bytes to use as a cache of blobs. It only "
+    "takes effect if the block and blob caches are different "
+    "(use_shared_block_and_blob_cache = false).");
+
+DEFINE_int32(blob_cache_numshardbits, 6,
+             "[Integrated BlobDB] Number of shards for the blob cache is 2 ** "
+             "blob_cache_numshardbits. Negative means use default settings. "
+             "It only takes effect if blob_cache_size is greater than 0, and "
+             "the block and blob caches are different "
+             "(use_shared_block_and_blob_cache = false).");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -4475,6 +4495,32 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+
+    if (FLAGS_use_blob_cache) {
+      if (FLAGS_use_shared_block_and_blob_cache) {
+        options.blob_cache = cache_;
+      } else {
+        if (FLAGS_blob_cache_size > 0) {
+          LRUCacheOptions co;
+          co.capacity = FLAGS_blob_cache_size;
+          co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+          options.blob_cache = NewLRUCache(co);
+        } else {
+          fprintf(stderr,
+                  "Unable to create a standalone blob cache if blob_cache_size "
+                  "<= 0.\n");
+          exit(1);
+        }
+      }
+      fprintf(stdout,
+              "Integrated BlobDB: blob cache enabled, block and blob caches "
+              "shared: %d, blob cache size %" PRIu64
+              ", blob cache num shard bits: %d\n",
+              FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+              FLAGS_blob_cache_numshardbits);
+    } else {
+      fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+    }
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {

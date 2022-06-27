@@ -1624,6 +1624,17 @@ public class Options extends RocksObject
   }
 
   @Override
+  public double experimentalMempurgeThreshold() {
+    return experimentalMempurgeThreshold(nativeHandle_);
+  }
+
+  @Override
+  public Options setExperimentalMempurgeThreshold(final double experimentalMempurgeThreshold) {
+    setExperimentalMempurgeThreshold(nativeHandle_, experimentalMempurgeThreshold);
+    return this;
+  }
+
+  @Override
   public boolean memtableWholeKeyFiltering() {
     return memtableWholeKeyFiltering(nativeHandle_);
   }
@@ -2420,6 +2431,9 @@ public class Options extends RocksObject
   private native void setMemtablePrefixBloomSizeRatio(
       long handle, double memtablePrefixBloomSizeRatio);
   private native double memtablePrefixBloomSizeRatio(long handle);
+  private native void setExperimentalMempurgeThreshold(
+      long handle, double experimentalMempurgeThreshold);
+  private native double experimentalMempurgeThreshold(long handle);
   private native void setMemtableWholeKeyFiltering(long handle, boolean memtableWholeKeyFiltering);
   private native boolean memtableWholeKeyFiltering(long handle);
   private native void setBloomLocality(

@@ -391,7 +391,10 @@ static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
   CheckGet(db, roptions, "bar", NULL);
   CheckGet(db, roptions, "baz", "newbazvalue");
 
+  rocksdb_suggest_compact_range(db, "bar", 3, "foo", 3, &err);
   GetAndCheckMetaData(db);
+  CheckNoError(err);
+
   return db;
 }
 
@@ -1384,6 +1387,9 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_put_cf(db, woptions, handles[1], "foobar4", 7, "hello4", 6, &err);
     CheckNoError(err);
+    rocksdb_suggest_compact_range_cf(db, handles[1], "foo", 3, "foobar9", 7,
+                                     &err);
+    CheckNoError(err);
 
     rocksdb_flushoptions_t *flush_options = rocksdb_flushoptions_create();
     rocksdb_flushoptions_set_wait(flush_options, 1);
@@ -1921,6 +1927,10 @@ int main(int argc, char** argv) {
     rocksdb_options_set_wal_compression(o, 1);
     CheckCondition(1 == rocksdb_options_get_wal_compression(o));
 
+    rocksdb_options_set_experimental_mempurge_threshold(o, 29.0);
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(o));
+
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
     CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
@@ -2051,6 +2061,8 @@ int main(int argc, char** argv) {
     CheckCondition(4 == rocksdb_options_get_bottommost_compression(copy));
     CheckCondition(2 == rocksdb_options_get_compaction_style(copy));
     CheckCondition(1 == rocksdb_options_get_atomic_flush(copy));
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(copy));
 
     // Copies should be independent.
     rocksdb_options_set_allow_ingest_behind(copy, 0);
@@ -2398,6 +2410,12 @@ int main(int argc, char** argv) {
     rocksdb_options_set_atomic_flush(copy, 0);
     CheckCondition(0 == rocksdb_options_get_atomic_flush(copy));
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
+
+    rocksdb_options_set_experimental_mempurge_threshold(copy, 229.0);
+    CheckCondition(229.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(copy));
+    CheckCondition(29.0 ==
+                   rocksdb_options_get_experimental_mempurge_threshold(o));
 
     rocksdb_options_destroy(copy);
     rocksdb_options_destroy(o);

@@ -23,6 +23,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
@@ -1749,6 +1750,29 @@ void rocksdb_compact_range_cf(
       (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
 }
 
+void rocksdb_suggest_compact_range(rocksdb_t* db, const char* start_key,
+                                   size_t start_key_len, const char* limit_key,
+                                   size_t limit_key_len, char** errptr) {
+  Slice a, b;
+  Status s = ROCKSDB_NAMESPACE::experimental::SuggestCompactRange(
+      db->rep,
+      (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
+  SaveError(errptr, s);
+}
+
+void rocksdb_suggest_compact_range_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    const char* start_key, size_t start_key_len, const char* limit_key,
+    size_t limit_key_len, char** errptr) {
+  Slice a, b;
+  Status s = db->rep->SuggestCompactRange(
+      column_family->rep,
+      (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
+  SaveError(errptr, s);
+}
+
 void rocksdb_compact_range_opt(rocksdb_t* db, rocksdb_compactoptions_t* opt,
                                const char* start_key, size_t start_key_len,
                                const char* limit_key, size_t limit_key_len) {
@@ -3350,11 +3374,6 @@ unsigned char rocksdb_options_get_advise_random_on_open(
   return opt->rep.advise_random_on_open;
 }
 
-void rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t* opt,
-                                                         double v) {
-  opt->rep.experimental_mempurge_threshold = v;
-}
-
 void rocksdb_options_set_access_hint_on_compaction_start(
     rocksdb_options_t* opt, int v) {
   switch(v) {
@@ -3538,6 +3557,16 @@ void rocksdb_options_set_max_background_flushes(rocksdb_options_t* opt, int n) {
 
 int rocksdb_options_get_max_background_flushes(rocksdb_options_t* opt) {
   return opt->rep.max_background_flushes;
+}
+
+void rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t* opt,
+                                                         double v) {
+  opt->rep.experimental_mempurge_threshold = v;
+}
+
+double rocksdb_options_get_experimental_mempurge_threshold(
+    rocksdb_options_t* opt) {
+  return opt->rep.experimental_mempurge_threshold;
 }
 
 void rocksdb_options_set_max_log_file_size(rocksdb_options_t* opt, size_t v) {

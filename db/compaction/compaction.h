@@ -177,6 +177,12 @@ class Compaction {
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
 
+  // The split user key in the output level if this compaction is required to
+  // split the output files according to the existing cursor in the output
+  // level under round-robin compaction policy. Empty indicates no required
+  // splitting key
+  const InternalKey GetOutputSplitKey() const { return output_split_key_; }
+
   // If true, then the compaction can be done by simply deleting input files.
   bool deletion_compaction() const { return deletion_compaction_; }
 
@@ -379,6 +385,8 @@ class Compaction {
   Temperature output_temperature_;
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
+  // should it split the output file using the compact cursor?
+  InternalKey output_split_key_;
 
   // Compaction input files organized by level. Constant after construction
   const std::vector<CompactionInputFiles> inputs_;

@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -41,6 +42,15 @@ class BlobSource {
                  uint64_t value_size, CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
+
+  // Offsets must be sorted in ascending order by caller.
+  void MultiGetBlob(
+      const ReadOptions& read_options,
+      const autovector<std::reference_wrapper<const Slice>>& user_keys,
+      uint64_t file_number, uint64_t file_size,
+      const autovector<uint64_t>& offsets,
+      const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
+      autovector<PinnableSlice*>& blobs, uint64_t* bytes_read);
 
   inline Status GetBlobFileReader(
       uint64_t blob_file_number,

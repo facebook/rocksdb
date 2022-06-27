@@ -191,7 +191,7 @@ struct CompactionJob::SubcompactionState {
   // The number of bytes overlapping between the current output and
   // grandparent files used in ShouldStopBefore().
   uint64_t overlapped_bytes = 0;
-  // A flag determine whether the key has been seen in ShouldStopBefore()
+  // A flag determines whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
   // sub compaction job id, which is used to identify different sub-compaction
   // within the same compaction job.
@@ -200,6 +200,9 @@ struct CompactionJob::SubcompactionState {
   // Notify on sub-compaction completion only if listener was notified on
   // sub-compaction begin.
   bool notify_on_subcompaction_completion = false;
+
+  // A flag determines if this subcompaction has been split by the cursor
+  bool is_split = false;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size,
                      uint32_t _sub_job_id)
@@ -234,6 +237,23 @@ struct CompactionJob::SubcompactionState {
         &compaction->column_family_data()->internal_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
 
+    const InternalKey output_split_key = compaction->GetOutputSplitKey();
+    if (output_split_key.Valid() && !is_split) {
+      // Invalid output_split_key indicates that we do not need to split
+      if ((end == nullptr || icmp->user_comparator()->Compare(
+                                 ExtractUserKey(output_split_key.Encode()),
+                                 ExtractUserKey(*end)) < 0) &&
+          (start == nullptr || icmp->user_comparator()->Compare(
+                                   ExtractUserKey(output_split_key.Encode()),
+                                   ExtractUserKey(*start)) > 0)) {
+        // We may only split the output when the cursor is in the range. Split
+        // occurs when the next key is larger than/equal to the cursor
+        if (icmp->Compare(internal_key, output_split_key.Encode()) >= 0) {
+          is_split = true;
+          return true;
+        }
+      }
+    }
     bool grandparant_file_switched = false;
     // Scan to find earliest grandparent file that contains key.
     while (grandparent_index < grandparents.size() &&
@@ -621,6 +641,16 @@ void CompactionJob::GenSubcompactionBoundaries() {
     }
   }
 
+  Slice output_split_user_key;
+  const InternalKey output_split_key = c->GetOutputSplitKey();
+  if (output_split_key.Valid()) {
+    output_split_user_key = ExtractUserKey(output_split_key.Encode());
+    bounds.emplace_back(output_split_key.Encode());
+  } else {
+    // Empty user key indicates that splitting is not required here
+    output_split_user_key = Slice();
+  }
+
   std::sort(bounds.begin(), bounds.end(),
             [cfd_comparator](const Slice& a, const Slice& b) -> bool {
               return cfd_comparator->Compare(ExtractUserKey(a),
@@ -691,7 +721,10 @@ void CompactionJob::GenSubcompactionBoundaries() {
         // need to put an end boundary
         continue;
       }
-      if (sum >= mean) {
+      if (sum >= mean ||
+          (!output_split_user_key.empty() &&
+           cfd_comparator->Compare(ExtractUserKey(ranges[i].range.limit),
+                                   output_split_user_key) == 0)) {
         boundaries_.emplace_back(ExtractUserKey(ranges[i].range.limit));
         sizes_.emplace_back(sum);
         subcompactions--;
