@@ -1990,7 +1990,7 @@ class MemTableInserter : public WriteBatch::Handler {
     } else if (moptions->inplace_callback == nullptr ||
                value_type != kTypeValue) {
       assert(!concurrent_memtable_writes_);
-      ret_status = mem->Update(sequence_, key, value, value_type, kv_prot_info);
+      ret_status = mem->Update(sequence_, value_type, key, value, kv_prot_info);
     } else {
       assert(!concurrent_memtable_writes_);
       assert(value_type == kTypeValue);

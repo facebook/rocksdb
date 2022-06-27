@@ -1058,8 +1058,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 }
 
-Status MemTable::Update(SequenceNumber seq, const Slice& key,
-                        const Slice& value, ValueType value_type,
+Status MemTable::Update(SequenceNumber seq, ValueType value_type,
+                        const Slice& key, const Slice& value,
                         const ProtectionInfoKVOS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
