@@ -3909,22 +3909,6 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->multiget_read_bytes;
     case rocksdb_iter_read_bytes:
       return rep->iter_read_bytes;
-    case rocksdb_blob_cache_hit_count:
-      return rep->blob_cache_hit_count;
-    case rocksdb_blob_read_count:
-      return rep->blob_read_count;
-    case rocksdb_blob_read_byte:
-      return rep->blob_read_byte;
-    case rocksdb_blob_read_time:
-      return rep->blob_read_time;
-    case rocksdb_blob_checksum_time:
-      return rep->blob_checksum_time;
-    case rocksdb_blob_decompress_time:
-      return rep->blob_decompress_time;
-    case rocksdb_getblob_read_bytes:
-      return rep->getblob_read_bytes;
-    case rocksdb_multigetblob_read_bytes:
-      return rep->multigetblob_read_bytes;
     case rocksdb_internal_key_skipped_count:
       return rep->internal_key_skipped_count;
     case rocksdb_internal_delete_skipped_count:
@@ -4043,6 +4027,22 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->env_new_logger_nanos;
     case rocksdb_number_async_seek:
       return rep->number_async_seek;
+    case rocksdb_blob_cache_hit_count:
+      return rep->blob_cache_hit_count;
+    case rocksdb_blob_read_count:
+      return rep->blob_read_count;
+    case rocksdb_blob_read_byte:
+      return rep->blob_read_byte;
+    case rocksdb_blob_read_time:
+      return rep->blob_read_time;
+    case rocksdb_blob_checksum_time:
+      return rep->blob_checksum_time;
+    case rocksdb_blob_decompress_time:
+      return rep->blob_decompress_time;
+    case rocksdb_getblob_read_bytes:
+      return rep->getblob_read_bytes;
+    case rocksdb_multigetblob_read_bytes:
+      return rep->multigetblob_read_bytes;
     default:
       break;
   }

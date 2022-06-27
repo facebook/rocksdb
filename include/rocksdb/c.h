@@ -1609,14 +1609,6 @@ enum {
   rocksdb_get_read_bytes,
   rocksdb_multiget_read_bytes,
   rocksdb_iter_read_bytes,
-  rocksdb_blob_cache_hit_count,
-  rocksdb_blob_read_count,
-  rocksdb_blob_read_byte,
-  rocksdb_blob_read_time,
-  rocksdb_blob_checksum_time,
-  rocksdb_blob_decompress_time,
-  rocksdb_getblob_read_bytes,
-  rocksdb_multigetblob_read_bytes,
   rocksdb_internal_key_skipped_count,
   rocksdb_internal_delete_skipped_count,
   rocksdb_internal_recent_skipped_count,
@@ -1676,7 +1668,15 @@ enum {
   rocksdb_env_unlock_file_nanos,
   rocksdb_env_new_logger_nanos,
   rocksdb_number_async_seek,
-  rocksdb_total_metric_count = 69
+  rocksdb_blob_cache_hit_count,
+  rocksdb_blob_read_count,
+  rocksdb_blob_read_byte,
+  rocksdb_blob_read_time,
+  rocksdb_blob_checksum_time,
+  rocksdb_blob_decompress_time,
+  rocksdb_getblob_read_bytes,
+  rocksdb_multigetblob_read_bytes,
+  rocksdb_total_metric_count = 77
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
