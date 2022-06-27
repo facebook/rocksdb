@@ -54,15 +54,16 @@ class BlobSource {
 
   // Read multiple blobs from the underlying cache or storage.
   //
-  // If successful, returns ok and sets "*blobs" to the newly retrieved
-  // uncompressed blobs. If there was an error while fetching one of blobs,
-  // sets its corresponding "blobs[i]" to empty and sets "statuses[i]" to
+  // If successful, returns ok and sets the elements of blobs to the newly
+  // retrieved uncompressed blobs. If there was an error while fetching one of
+  // blobs, sets its corresponding "blobs[i]" to empty and sets "statuses[i]" to
   // a non-ok status.
   //
   // Note:
   //  - Offsets must be sorted in ascending order by caller.
   //  - For consistency, whether the blob is found in the cache or on disk, sets
-  //  "*bytes_read" to the size of on-disk (possibly compressed) blob records.
+  //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
+  //  records.
   void MultiGetBlob(
       const ReadOptions& read_options,
       const autovector<std::reference_wrapper<const Slice>>& user_keys,

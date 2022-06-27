@@ -411,7 +411,7 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                     blob_offsets[i], file_size, blob_sizes[i],
                                     compression, nullptr /*prefetch_buffer*/,
                                     &values[i], &bytes_read));
-      ASSERT_EQ(values[i].size(), blobs[i].size() /*uncompressed size*/);
+      ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
@@ -431,8 +431,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                     blob_offsets[i], file_size, blob_sizes[i],
                                     compression, nullptr /*prefetch_buffer*/,
                                     &values[i], &bytes_read));
+      ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
-      ASSERT_EQ(values[i].size(), blobs[i].size() /*uncompressed size*/);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
