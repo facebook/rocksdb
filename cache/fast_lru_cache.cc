@@ -294,18 +294,30 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
-uint8_t LRUCacheShard::CalcHashBits(
-    size_t capacity, size_t estimated_value_size,
+size_t LRUCacheShard::CalcEstimatedHandleCharge(
+    size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
   LRUHandle h;
   h.CalcTotalCharge(estimated_value_size, metadata_charge_policy);
+  return h.total_charge;
+}
+
+uint8_t LRUCacheShard::CalcHashBits(
+    size_t capacity, size_t estimated_value_size,
+    CacheMetadataChargePolicy metadata_charge_policy) {
+  size_t handle_charge =
+      CalcEstimatedHandleCharge(estimated_value_size, metadata_charge_policy);
   size_t num_entries =
-      static_cast<size_t>(capacity / (kLoadFactor * h.total_charge));
+      static_cast<size_t>(capacity / (kLoadFactor * handle_charge));
   uint8_t num_hash_bits = 0;
-  while (num_entries >>= 1) {
+  size_t num_entries_copy = num_entries;
+  while (num_entries_copy >>= 1) {
     ++num_hash_bits;
   }
-  return num_hash_bits;
+  // Compute the ceiling of log2(num_entries). If num_entries == 0, return 1.
+  return static_cast<size_t>(1 << num_hash_bits) < num_entries
+             ? num_hash_bits + 1
+             : num_hash_bits;
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
