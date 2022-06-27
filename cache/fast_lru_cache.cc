@@ -310,7 +310,7 @@ uint8_t LRUCacheShard::CalcHashBits(
   size_t num_entries =
       static_cast<size_t>(capacity / (kLoadFactor * handle_charge));
 
-  // Compute the ceiling of log2(num_entries). If num_entries == 0, return 1.
+  // Compute the ceiling of log2(num_entries).
   uint8_t num_hash_bits = 0;
   size_t num_entries_copy = num_entries;
   while (num_entries_copy >>= 1) {
