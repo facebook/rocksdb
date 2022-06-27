@@ -80,7 +80,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntity) {
     constexpr int num_values = 10;
     for (int i = num_values; i > 0; --i) {
       constexpr char key[] = "key";
-      WideColumns wide_columns{{"attr", DummyString(i, 'a')}};
+      const std::string value = DummyString(i, 'a');
+      WideColumns wide_columns{{"attr", value}};
 
       ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[1], key, wide_columns));
       // TODO: use Get to check entity once it's supported
@@ -106,7 +107,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntityLargeNewValue) {
     constexpr int num_values = 10;
     for (int i = 0; i < num_values; ++i) {
       constexpr char key[] = "key";
-      WideColumns wide_columns{{"attr", DummyString(i, 'a')}};
+      const std::string value = DummyString(i, 'a');
+      WideColumns wide_columns{{"attr", value}};
 
       ASSERT_OK(db_->PutEntity(WriteOptions(), handles_[1], key, wide_columns));
       // TODO: use Get to check entity once it's supported
