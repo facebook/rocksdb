@@ -8,11 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#ifdef GFLAGS
+
 #include <exception>
 #include <memory>
 
-#include "util/compression.h"
-#ifdef GFLAGS
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
@@ -27,6 +27,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
+#include "util/compression.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
