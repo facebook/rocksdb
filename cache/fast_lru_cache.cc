@@ -315,9 +315,8 @@ uint8_t LRUCacheShard::CalcHashBits(
     ++num_hash_bits;
   }
   // Compute the ceiling of log2(num_entries). If num_entries == 0, return 1.
-  return static_cast<size_t>(1 << num_hash_bits) < num_entries
-             ? num_hash_bits + 1
-             : num_hash_bits;
+  return size_t{1} << num_hash_bits < num_entries ? num_hash_bits + 1
+                                                  : num_hash_bits;
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
