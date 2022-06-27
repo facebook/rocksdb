@@ -44,7 +44,7 @@ class BlobFileReader {
                  uint64_t offset, uint64_t value_size,
                  CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
-                 uint64_t* bytes_read = nullptr) const;
+                 uint64_t* bytes_read) const;
 
   // offsets must be sorted in ascending order by caller.
   void MultiGetBlob(
@@ -52,7 +52,7 @@ class BlobFileReader {
       const autovector<std::reference_wrapper<const Slice>>& user_keys,
       const autovector<uint64_t>& offsets,
       const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
-      autovector<PinnableSlice*>& values, uint64_t* bytes_read = nullptr) const;
+      autovector<PinnableSlice*>& values, uint64_t* bytes_read) const;
 
   CompressionType GetCompressionType() const { return compression_type_; }
 

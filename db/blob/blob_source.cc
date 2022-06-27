@@ -9,6 +9,7 @@
 #include <string>
 
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_log_format.h"
 #include "options/cf_options.h"
 #include "table/multiget_context.h"
 
@@ -99,11 +100,16 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_entry);
     if (s.ok() && blob_entry.GetValue()) {
-      // DO NOT REPLACE blob entry size with value_size
-      // The cache entry size might not match value size because value size can
-      // include the on-disk (possibly compressed) size.
+      // For consistency, the size of on-disk (possibly compressed) blob record
+      // is assigned to bytes_read.
       if (bytes_read) {
-        *bytes_read = blob_entry.GetValue()->size();
+        uint64_t adjustment =
+            read_options.verify_checksums
+                ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                      user_key.size())
+                : 0;
+        assert(offset >= adjustment);
+        *bytes_read = value_size + adjustment;
       }
       value->PinSelf(*blob_entry.GetValue());
       return s;
@@ -133,15 +139,11 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
-    s = blob_file_reader.GetValue()->GetBlob(read_options, user_key, offset,
-                                             value_size, compression_type,
-                                             prefetch_buffer, value);
+    s = blob_file_reader.GetValue()->GetBlob(
+        read_options, user_key, offset, value_size, compression_type,
+        prefetch_buffer, value, bytes_read);
     if (!s.ok()) {
       return s;
-    }
-
-    if (bytes_read) {
-      *bytes_read = value->size();  // uncompressed blob size
     }
   }
 
@@ -203,10 +205,15 @@ void BlobSource::MultiGetBlob(
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
-        // DO NOT REPLACE blob entry size with value_sizes[i]
-        // The cache entry size might not match value size because value size
-        // can include the on-disk (possibly compressed) size.
-        total_bytes += blob_entry.GetValue()->size();
+        // For consistency, the size of each on-disk (possibly compressed) blob
+        // record is accumulated to total_bytes.
+        uint64_t adjustment =
+            read_options.verify_checksums
+                ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                      user_keys[i].get().size())
+                : 0;
+        assert(offsets[i] >= adjustment);
+        total_bytes += value_sizes[i] + adjustment;
         cache_hit_mask |= (Mask{1} << i);  // cache hit
       }
     }
@@ -267,24 +274,23 @@ void BlobSource::MultiGetBlob(
                                               _offsets, _value_sizes, _statuses,
                                               _blobs, &_bytes_read);
 
-    for (size_t i = 0; i < _blobs.size(); ++i) {
-      if (_statuses[i]->ok()) {
-        if (read_options.fill_cache) {
-          // If filling cache is allowed and a cache is configured, try to put
-          // the blob(s) to the cache.
+    if (read_options.fill_cache) {
+      // If filling cache is allowed and a cache is configured, try to put
+      // the blob(s) to the cache.
+      for (size_t i = 0; i < _blobs.size(); ++i) {
+        if (_statuses[i]->ok()) {
           CachableEntry<std::string> blob_entry;
           const CacheKey cache_key = base_cache_key.WithOffset(_offsets[i]);
           const Slice key = cache_key.AsSlice();
-
           s = PutBlobIntoCache(key, &blob_entry, _blobs[i]);
           if (!s.ok()) {
             *_statuses[i] = s;
           }
         }
-        total_bytes += _blobs.size();  // uncompressed blob size
       }
     }
 
+    total_bytes += _bytes_read;
     if (bytes_read) {
       *bytes_read = total_bytes;
     }

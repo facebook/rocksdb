@@ -205,7 +205,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
@@ -222,7 +223,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
@@ -239,7 +241,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
@@ -257,7 +260,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
@@ -409,7 +413,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                     &values[i], &bytes_read));
       ASSERT_EQ(values[i].size(), blobs[i].size() /*uncompressed size*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
-      ASSERT_EQ(bytes_read, blobs[i].size());
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[i]));
@@ -428,16 +433,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                     &values[i], &bytes_read));
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
       ASSERT_EQ(values[i].size(), blobs[i].size() /*uncompressed size*/);
-      ASSERT_EQ(bytes_read, blobs[i].size() /*uncompressed size*/);
-
-      // Uncompressed blob size is passed in GetBlob
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], file_number,
-                                    blob_offsets[i], file_size, blobs[i].size(),
-                                    compression, nullptr /*prefetch_buffer*/,
-                                    &values[i], &bytes_read));
-      ASSERT_EQ(values[i].size(), blobs[i].size() /*uncompressed size*/);
-      ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
-      ASSERT_EQ(bytes_read, blobs[i].size() /*uncompressed size*/);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[i]));
@@ -558,7 +555,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer,
                                     &value_buf[i], &bytes_read));
       ASSERT_EQ(value_buf[i], blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));

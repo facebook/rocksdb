@@ -453,21 +453,24 @@ void BlobFileReader::MultiGetBlob(
     if (req.status.ok() && record_slice.size() != req.len) {
       req.status = IOStatus::Corruption("Failed to read data from blob file");
     }
+
     *statuses[i] = req.status;
+    if (!statuses[i]->ok()) {
+      continue;
+    }
 
     // Verify checksums if enabled
-    if (statuses[i]->ok() && read_options.verify_checksums) {
+    if (read_options.verify_checksums) {
       *statuses[i] = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
+      if (!statuses[i]->ok()) {
+        continue;
+      }
     }
 
     // Uncompress blob if needed
-    if (statuses[i]->ok()) {
-      const Slice value_slice(record_slice.data() + adjustments[i],
-                              value_sizes[i]);
-      *statuses[i] = UncompressBlobIfNeeded(value_slice, compression_type_,
-                                            clock_, statistics_, values[i]);
-    }
-
+    Slice value_slice(record_slice.data() + adjustments[i], value_sizes[i]);
+    *statuses[i] = UncompressBlobIfNeeded(value_slice, compression_type_,
+                                          clock_, statistics_, values[i]);
     if (statuses[i]->ok()) {
       total_bytes += record_slice.size();
     }
