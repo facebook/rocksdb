@@ -430,6 +430,8 @@ void BlobFileReader::MultiGetBlob(
     }
   }
   TEST_SYNC_POINT("BlobFileReader::MultiGetBlob:ReadFromFile");
+  PERF_COUNTER_ADD(blob_read_count, num_blobs);
+  PERF_COUNTER_ADD(blob_read_byte, total_len);
   s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
                               direct_io ? &aligned_buf : nullptr,
                               read_options.rate_limiter_priority);

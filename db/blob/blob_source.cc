@@ -263,6 +263,7 @@ void BlobSource::MultiGetBlob(
       if (bytes_read) {
         *bytes_read = total_bytes;
       }
+      PERF_COUNTER_ADD(multigetblob_read_bytes, total_bytes);
       return;
     }
   }
@@ -334,6 +335,8 @@ void BlobSource::MultiGetBlob(
     if (bytes_read) {
       *bytes_read = total_bytes;
     }
+
+    PERF_COUNTER_ADD(multigetblob_read_bytes, total_bytes);
   }
 }
 
