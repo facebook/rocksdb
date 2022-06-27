@@ -368,7 +368,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
  private:
   friend class LRUCache;
-  friend class ROCKSDB_NAMESPACE::fast_lru_cache::FastLRUCacheTest;
+  friend class FastLRUCacheTest;
 
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
