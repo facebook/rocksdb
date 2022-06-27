@@ -254,8 +254,12 @@ class FastLRUCacheTest : public testing::Test {
   }
 
   void ExpectTableSizeRoughlyMaxOccupancy(uint8_t hash_bits, double max_occupancy) {
-    EXPECT_GT(1 << hash_bits, max_occupancy);
-    EXPECT_LT(1 << (hash_bits - 1), max_occupancy);
+    if (hash_bits == 0) {
+      EXPECT_EQ(max_occupancy, 0);
+    } else {
+      EXPECT_GE(1 << hash_bits, max_occupancy);
+      EXPECT_LE(1 << (hash_bits - 1), max_occupancy);
+    }
   }
 
  private:
@@ -283,18 +287,17 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
 
   capacity = 1024;
   estimated_value_size = 1;
-  metadata_charge_policy = kDefaultCacheMetadataChargePolicy;
+  metadata_charge_policy = kFullChargeCacheMetadata;
   max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
   hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size, metadata_charge_policy);
   ExpectTableSizeRoughlyMaxOccupancy(hash_bits, max_occupancy);
 
-  // Capacity below the size of a handle. No elements fit in the cache.
-  capacity = 1;
+  // No elements fit in cache.
+  capacity = 0;
   estimated_value_size = 1;
   metadata_charge_policy = kDontChargeCacheMetadata;
-  max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
   hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size, metadata_charge_policy);
-  ExpectTableSizeRoughlyMaxOccupancy(hash_bits, max_occupancy);
+  ExpectTableSizeRoughlyMaxOccupancy(hash_bits, 0);
 
   // Capacity below the size of a handle, but because the load factor is < 100%
   // at least one handle will fit.
@@ -309,7 +312,7 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
   // Large capacity.
   capacity = 31924172;
   estimated_value_size = 321;
-  metadata_charge_policy = kDefaultCacheMetadataChargePolicy;
+  metadata_charge_policy = kFullChargeCacheMetadata;
   max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
   hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size, metadata_charge_policy);
   ExpectTableSizeRoughlyMaxOccupancy(hash_bits, max_occupancy);
