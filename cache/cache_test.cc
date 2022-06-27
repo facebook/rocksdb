@@ -77,7 +77,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
   static std::string type_;
 
   static void Deleter(const Slice& key, void* v) {
-    if (type_ == kFast) {
+    if (type_ == kFast || type_ == kClock) {
       current_->deleted_keys_.push_back(DecodeKey16Bytes(key));
     } else {
       current_->deleted_keys_.push_back(DecodeKey32Bits(key));
@@ -111,7 +111,9 @@ class CacheTest : public testing::TestWithParam<std::string> {
       return NewLRUCache(capacity);
     }
     if (type == kClock) {
-      return NewClockCache(capacity);
+      return NewClockCache(
+          capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     }
     if (type == kFast) {
       return NewFastLRUCache(
@@ -135,8 +137,9 @@ class CacheTest : public testing::TestWithParam<std::string> {
       return NewLRUCache(co);
     }
     if (type == kClock) {
-      return NewClockCache(capacity, num_shard_bits, strict_capacity_limit,
-                           charge_policy);
+      return NewClockCache(capacity, 1 /*estimated_value_size*/,
+                             num_shard_bits, strict_capacity_limit,
+                             charge_policy);
     }
     if (type == kFast) {
       return NewFastLRUCache(capacity, 1 /*estimated_value_size*/,
@@ -152,7 +155,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
   // LRUCache and ClockCache don't, so the encoding depends on
   // the cache type.
   std::string EncodeKey(int k) {
-    if (GetParam() == kFast) {
+    auto type = GetParam();
+    if (type == kFast || type == kClock) {
       return EncodeKey16Bytes(k);
     } else {
       return EncodeKey32Bits(k);
@@ -160,7 +164,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
   }
 
   int DecodeKey(const Slice& k) {
-    if (GetParam() == kFast) {
+    auto type = GetParam();
+    if (type == kFast || type == kClock) {
       return DecodeKey16Bytes(k);
     } else {
       return DecodeKey32Bits(k);
@@ -217,8 +222,9 @@ std::string CacheTest::type_;
 class LRUCacheTest : public CacheTest {};
 
 TEST_P(CacheTest, UsageTest) {
-  if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+  auto type = GetParam();
+  if (type == kFast || type == kClock) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
     return;
   }
 
@@ -266,8 +272,9 @@ TEST_P(CacheTest, UsageTest) {
 }
 
 TEST_P(CacheTest, PinnedUsageTest) {
-  if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+  auto type = GetParam();
+  if (type == kFast || type == kClock) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
     return;
   }
 
@@ -523,8 +530,9 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 }
 
 TEST_P(CacheTest, EvictEmptyCache) {
-  if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+  auto type = GetParam();
+  if (type == kFast || type == kClock) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
     return;
   }
 
@@ -534,8 +542,9 @@ TEST_P(CacheTest, EvictEmptyCache) {
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
-  if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache requires 16 byte keys.");
+  auto type = GetParam();
+  if (type == kFast || type == kClock) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
     return;
   }
 
@@ -650,8 +659,9 @@ TEST_P(CacheTest, ReleaseWithoutErase) {
 }
 
 TEST_P(CacheTest, SetCapacity) {
-  if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache doesn't support capacity adjustments.");
+  auto type = GetParam();
+  if (type == kFast || type == kClock) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache don't support capacity adjustments.");
     return;
   }
   // test1: increase capacity
@@ -702,9 +712,10 @@ TEST_P(CacheTest, SetCapacity) {
 }
 
 TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
-  if (GetParam() == kFast) {
+  auto type = GetParam();
+  if (type == kFast || type == kClock) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache doesn't support an unbounded number of inserts beyond "
+        "FastLRUCache and ClockCache don't support an unbounded number of inserts beyond "
         "capacity.");
     return;
   }
@@ -759,8 +770,9 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 }
 
 TEST_P(CacheTest, OverCapacity) {
-  if (GetParam() == kFast) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache doesn't support capacity adjustments.");
+  auto type = GetParam();
+  if (type == kFast || type == kClock) {
+    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache don't support capacity adjustments.");
     return;
   }
   size_t n = 10;
@@ -940,7 +952,7 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
 
 #ifdef SUPPORT_CLOCK_CACHE
 std::shared_ptr<Cache> (*new_clock_cache_func)(
-    size_t, int, bool, CacheMetadataChargePolicy) = NewClockCache;
+    size_t, size_t, int, bool, CacheMetadataChargePolicy) = NewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
                         testing::Values(kLRU, kClock, kFast));
 #else

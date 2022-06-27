@@ -223,13 +223,7 @@ struct LRUHandle {
   }
 };
 
-// TODO(Guido) Update the following comment.
 
-// We provide our own simple hash table since it removes a whole bunch
-// of porting hacks and is also faster than some of the built-in hash
-// table implementations in some of the compiler/runtime combinations
-// we have tested.  E.g., readrandom speeds up by ~5% over the g++
-// 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
   explicit LRUHandleTable(uint8_t hash_bits);
@@ -369,7 +363,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   void LRU_Insert(LRUHandle* e);
 
   // Free some space following strict LRU policy until enough space
-  // to hold (usage_ + charge) is freed or the lru list is empty
+  // to hold (usage_ + charge) is freed or the LRU list is empty
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle>* deleted);
