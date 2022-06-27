@@ -369,7 +369,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         // into cache and get evicted immediately.
         last_reference_list.push_back(tmp);
       } else {
-        s = Status::Incomplete("Insert failed due to LRU cache being full.");
+        s = Status::MemoryLimit("Insert failed due to LRU cache being full.");
       }
     } else {
       // Insert into the cache. Note that the cache might get larger than its

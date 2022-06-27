@@ -10,6 +10,7 @@
   * `rocksdb_level_metadata_t` and its and its get functions & destroy function.
   * `rocksdb_file_metadata_t` and its and get functions & destroy functions.
 * Add suggest_compact_range() and suggest_compact_range_cf() to C API.
+* `Cache::Insert()` now returns Status code kAborted subcode kMemoryLimit on failure due to strict capacity limit (`strict_capacity_limit=true`). This only affects custom implementation of `Cache` or direct users of `Cache` (both rare).
 
 ### Bug Fixes
 * Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.

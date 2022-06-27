@@ -307,8 +307,8 @@ DEFINE_int32(cache_numshardbits, 6,
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is greater than 0.");
 
-DEFINE_bool(cache_index_and_filter_blocks, false,
-            "True if indexes/filters should be cached in block cache.");
+DEFINE_bool(cache_strict_capacity_limit, false,
+            "True if block cache capacity limit should be strictly enforced.");
 
 DEFINE_bool(charge_compression_dictionary_building_buffer, false,
             "Setting for "

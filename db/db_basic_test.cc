@@ -3306,7 +3306,7 @@ class DBBasicTestMultiGet : public DBTestBase {
     const BlockBuilder& data_block_builder_;
   };
 
-  class MyBlockCache : public CacheWrapper {
+  class MyBlockCache : public test::CacheWrapper {
    public:
     explicit MyBlockCache(std::shared_ptr<Cache> target)
         : CacheWrapper(target),

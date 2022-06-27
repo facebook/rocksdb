@@ -686,6 +686,86 @@ class StringFS : public FileSystemWrapper {
   std::unordered_map<std::string, std::string> files_;
 };
 
+// A wrapper around Cache that can easily be extended with instrumentation,
+// etc.
+class CacheWrapper : public Cache {
+ public:
+  explicit CacheWrapper(std::shared_ptr<Cache> target)
+      : target_(std::move(target)) {}
+
+  const char* Name() const override { return target_->Name(); }
+
+  using Cache::Insert;
+  Status Insert(const Slice& key, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override {
+    return target_->Insert(key, value, charge, deleter, handle, priority);
+  }
+
+  using Cache::Lookup;
+  Handle* Lookup(const Slice& key, Statistics* stats = nullptr) override {
+    return target_->Lookup(key, stats);
+  }
+
+  bool Ref(Handle* handle) override { return target_->Ref(handle); }
+
+  using Cache::Release;
+  bool Release(Handle* handle, bool erase_if_last_ref = false) override {
+    return target_->Release(handle, erase_if_last_ref);
+  }
+
+  void* Value(Handle* handle) override { return target_->Value(handle); }
+
+  void Erase(const Slice& key) override { target_->Erase(key); }
+  uint64_t NewId() override { return target_->NewId(); }
+
+  void SetCapacity(size_t capacity) override { target_->SetCapacity(capacity); }
+
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
+    target_->SetStrictCapacityLimit(strict_capacity_limit);
+  }
+
+  bool HasStrictCapacityLimit() const override {
+    return target_->HasStrictCapacityLimit();
+  }
+
+  size_t GetCapacity() const override { return target_->GetCapacity(); }
+
+  size_t GetUsage() const override { return target_->GetUsage(); }
+
+  size_t GetUsage(Handle* handle) const override {
+    return target_->GetUsage(handle);
+  }
+
+  size_t GetPinnedUsage() const override { return target_->GetPinnedUsage(); }
+
+  size_t GetCharge(Handle* handle) const override {
+    return target_->GetCharge(handle);
+  }
+
+  DeleterFn GetDeleter(Handle* handle) const override {
+    return target_->GetDeleter(handle);
+  }
+
+  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                              bool thread_safe) override {
+    target_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      const ApplyToAllEntriesOptions& opts) override {
+    target_->ApplyToAllEntries(callback, opts);
+  }
+
+  void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
+
+ protected:
+  std::shared_ptr<Cache> target_;
+};
+
 // Randomly initialize the given DBOptions
 void RandomInitDBOptions(DBOptions* db_opt, Random* rnd);
 

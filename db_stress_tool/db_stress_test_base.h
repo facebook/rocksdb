@@ -24,7 +24,7 @@ class StressTest {
 
   virtual ~StressTest();
 
-  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
+  std::shared_ptr<Cache> CreateCache();
 
   static std::vector<std::string> GetBlobCompressionTags();
 
@@ -122,9 +122,11 @@ class StressTest {
 
   // Calculate a hash value for all keys in range [start_key, end_key]
   // at a certain snapshot.
-  uint32_t GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
-                        ColumnFamilyHandle* column_family,
-                        const Slice& start_key, const Slice& end_key);
+  std::optional<uint32_t> GetRangeHash(ThreadState* thread,
+                                       const Snapshot* snapshot,
+                                       ColumnFamilyHandle* column_family,
+                                       const Slice& start_key,
+                                       const Slice& end_key);
 
   // Return a column family handle that mirrors what is pointed by
   // `column_family_id`, which will be used to validate data to be correct.
@@ -228,8 +230,18 @@ class StressTest {
   virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
+  void VerifyOneOpMemoryLimit(const Status& s, ThreadState* state);
 
   std::shared_ptr<Cache> cache_;
+  // WIP: Each failed block cache insertion is only allowed to cause one
+  // DB operation to fail, after that failed insertion. This atomic keeps
+  // a running tally of the balance of failed insertions *minus* DB operations
+  // that have failed with MemoryLimit. If this ever goes negative, that is a
+  // bug. In practice, this value may go positive without ever returning to
+  // zero, which could lead to false negatives, but should ensure MemoryLimit
+  // results are reasonable: never before first failed block cache insertion
+  // and never more than number of already failed insertions.
+  std::atomic<int64_t> cache_failed_insertion_balance_{};
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
