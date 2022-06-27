@@ -1122,7 +1122,7 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
 }
 
 Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
-                                const Slice& delta, ValueType value_type,
+                                const Slice& delta,
                                 const ProtectionInfoKVOS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
@@ -1151,7 +1151,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
       ValueType type;
       uint64_t existing_seq;
       UnPackSequenceAndType(tag, &existing_seq, &type);
-      if (type == value_type) {
+      if (type == kTypeValue) {
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
 
@@ -1192,10 +1192,10 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
           if (kv_prot_info != nullptr) {
             ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
             updated_kv_prot_info.UpdateV(delta, str_value);
-            s = Add(seq, value_type, key, Slice(str_value),
+            s = Add(seq, kTypeValue, key, Slice(str_value),
                     &updated_kv_prot_info);
           } else {
-            s = Add(seq, value_type, key, Slice(str_value),
+            s = Add(seq, kTypeValue, key, Slice(str_value),
                     nullptr /* kv_prot_info */);
           }
           RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
@@ -1210,7 +1210,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
       }
     }
   }
-  // The latest value is not value_type or key doesn't exist
+  // The latest value is not `kTypeValue` or key doesn't exist
   return Status::NotFound();
 }
 

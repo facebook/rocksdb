@@ -1987,13 +1987,14 @@ class MemTableInserter : public WriteBatch::Handler {
           mem->Add(sequence_, value_type, key, value, kv_prot_info,
                    concurrent_memtable_writes_, get_post_process_info(mem),
                    hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
-    } else if (moptions->inplace_callback == nullptr) {
+    } else if (moptions->inplace_callback == nullptr ||
+               value_type != kTypeValue) {
       assert(!concurrent_memtable_writes_);
       ret_status = mem->Update(sequence_, key, value, value_type, kv_prot_info);
     } else {
       assert(!concurrent_memtable_writes_);
-      ret_status =
-          mem->UpdateCallback(sequence_, key, value, value_type, kv_prot_info);
+      assert(value_type == kTypeValue);
+      ret_status = mem->UpdateCallback(sequence_, key, value, kv_prot_info);
       if (ret_status.IsNotFound()) {
         // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
