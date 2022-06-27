@@ -65,7 +65,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateLargeNewValue) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntity) {
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntitySmallerNewValue) {
   do {
     Options options = CurrentOptions();
     options.create_if_missing = true;
@@ -92,7 +92,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntity) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntityLargeNewValue) {
+TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntityLargerNewValue) {
   do {
     Options options = CurrentOptions();
     options.create_if_missing = true;
@@ -103,7 +103,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateEntityLargeNewValue) {
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    // Update key with values of smaller size
+    // Update key with values of larger size
     constexpr int num_values = 10;
     for (int i = 0; i < num_values; ++i) {
       constexpr char key[] = "key";
