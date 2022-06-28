@@ -443,50 +443,40 @@ void BlobFileReader::MultiGetBlob(
   }
 
   assert(s.ok());
+
+  uint64_t total_bytes = 0;
   for (size_t i = 0; i < num_blobs; ++i) {
     auto& req = read_reqs[i];
+    const auto& record_slice = req.result;
+
     assert(statuses[i]);
-    if (req.status.ok() && req.result.size() != req.len) {
+    if (req.status.ok() && record_slice.size() != req.len) {
       req.status = IOStatus::Corruption("Failed to read data from blob file");
     }
+
     *statuses[i] = req.status;
-  }
-
-  if (read_options.verify_checksums) {
-    for (size_t i = 0; i < num_blobs; ++i) {
-      assert(statuses[i]);
-      if (!statuses[i]->ok()) {
-        continue;
-      }
-      const Slice& record_slice = read_reqs[i].result;
-      s = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
-      if (!s.ok()) {
-        assert(statuses[i]);
-        *statuses[i] = s;
-      }
-    }
-  }
-
-  for (size_t i = 0; i < num_blobs; ++i) {
-    assert(statuses[i]);
     if (!statuses[i]->ok()) {
       continue;
     }
-    const Slice& record_slice = read_reqs[i].result;
-    const Slice value_slice(record_slice.data() + adjustments[i],
-                            value_sizes[i]);
-    s = UncompressBlobIfNeeded(value_slice, compression_type_, clock_,
-                               statistics_, values[i]);
-    if (!s.ok()) {
-      *statuses[i] = s;
+
+    // Verify checksums if enabled
+    if (read_options.verify_checksums) {
+      *statuses[i] = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
+      if (!statuses[i]->ok()) {
+        continue;
+      }
+    }
+
+    // Uncompress blob if needed
+    Slice value_slice(record_slice.data() + adjustments[i], value_sizes[i]);
+    *statuses[i] = UncompressBlobIfNeeded(value_slice, compression_type_,
+                                          clock_, statistics_, values[i]);
+    if (statuses[i]->ok()) {
+      total_bytes += record_slice.size();
     }
   }
 
   if (bytes_read) {
-    uint64_t total_bytes = 0;
-    for (const auto& req : read_reqs) {
-      total_bytes += req.result.size();
-    }
     *bytes_read = total_bytes;
   }
 }

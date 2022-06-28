@@ -9,6 +9,7 @@
 #include <string>
 
 #include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_log_format.h"
 #include "options/cf_options.h"
 #include "table/multiget_context.h"
 
@@ -99,8 +100,16 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_entry);
     if (s.ok() && blob_entry.GetValue()) {
+      // For consistency, the size of on-disk (possibly compressed) blob record
+      // is assigned to bytes_read.
       if (bytes_read) {
-        *bytes_read = value_size;
+        uint64_t adjustment =
+            read_options.verify_checksums
+                ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                      user_key.size())
+                : 0;
+        assert(offset >= adjustment);
+        *bytes_read = value_size + adjustment;
       }
       value->PinSelf(*blob_entry.GetValue());
       return s;
@@ -191,13 +200,20 @@ void BlobSource::MultiGetBlob(
       s = GetBlobFromCache(key, &blob_entry);
       if (s.ok() && blob_entry.GetValue()) {
         assert(statuses[i]);
-
         *statuses[i] = s;
         blobs[i]->PinSelf(*blob_entry.GetValue());
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
-        total_bytes += value_sizes[i];
+        // For consistency, the size of each on-disk (possibly compressed) blob
+        // record is accumulated to total_bytes.
+        uint64_t adjustment =
+            read_options.verify_checksums
+                ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                      user_keys[i].get().size())
+                : 0;
+        assert(offsets[i] >= adjustment);
+        total_bytes += value_sizes[i] + adjustment;
         cache_hit_mask |= (Mask{1} << i);  // cache hit
       }
     }
@@ -266,7 +282,6 @@ void BlobSource::MultiGetBlob(
           CachableEntry<std::string> blob_entry;
           const CacheKey cache_key = base_cache_key.WithOffset(_offsets[i]);
           const Slice key = cache_key.AsSlice();
-
           s = PutBlobIntoCache(key, &blob_entry, _blobs[i]);
           if (!s.ok()) {
             *_statuses[i] = s;
@@ -279,8 +294,6 @@ void BlobSource::MultiGetBlob(
     if (bytes_read) {
       *bytes_read = total_bytes;
     }
-
-    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, _bytes_read);
   }
 }
 
