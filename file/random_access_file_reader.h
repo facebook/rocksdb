@@ -101,7 +101,8 @@ class RandomAccessFileReader {
           user_scratch_(nullptr),
           user_aligned_buf_(nullptr),
           user_offset_(0),
-          user_len_(0) {}
+          user_len_(0),
+          is_aligned_(false) {}
 
     std::function<void(const FSReadRequest&, void*)> cb_;
     void* cb_arg_;
@@ -117,6 +118,7 @@ class RandomAccessFileReader {
     Slice user_result_;
     // Used in case of direct_io
     AlignedBuffer buf_;
+    bool is_aligned_;
   };
 
  public:

@@ -464,9 +464,13 @@ IOStatus RandomAccessFileReader::ReadAsync(
   }
 #endif
 
-  if (use_direct_io()) {
-    // Create aligned FSReadRequest.
-    size_t alignment = file_->GetRequiredBufferAlignment();
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  bool is_aligned = (req.offset & (alignment - 1)) == 0 &&
+                    (req.len & (alignment - 1)) == 0 &&
+                    uintptr_t(req.scratch) % alignment == 0;
+  read_async_info->is_aligned_ = is_aligned;
+
+  if (use_direct_io() && is_aligned == false) {
     FSReadRequest aligned_req = Align(req, alignment);
 
     // Allocate aligned buffer.
@@ -511,7 +515,7 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   assert(read_async_info);
   assert(read_async_info->cb_);
 
-  if (use_direct_io()) {
+  if (use_direct_io() && read_async_info->is_aligned_ == false) {
     // Create FSReadRequest with user provided fields.
     FSReadRequest user_req;
     user_req.scratch = read_async_info->user_scratch_;
