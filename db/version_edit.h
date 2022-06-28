@@ -356,7 +356,7 @@ class VersionEdit {
   uint64_t GetLogNumber() const { return log_number_; }
 
   // Replication sequence is used for the purpose of physical replication. It
-  // points to the latest kManifestSwitch that was succesfully flushed and
+  // points to the latest kMemtableSwitch that was succesfully flushed and
   // persisted in the manifest. All of the replication events after the
   // persisted replication sequence will need to be reapplied on recovery.
   // The replication log sequence is an opaque blob of data encoded by the
