@@ -115,7 +115,7 @@ class BlobSourceTest : public DBTestBase {
     options_.create_if_missing = true;
 
     LRUCacheOptions co;
-    co.capacity = 2048;
+    co.capacity = 8 << 20;
     co.num_shard_bits = 2;
     co.metadata_charge_policy = kDontChargeCacheMetadata;
     options_.blob_cache = NewLRUCache(co);
