@@ -108,7 +108,7 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
 }
 
 void ClockHandleTable::Remove(ClockHandle* h) {
-  assert(h->GetPriority() == ClockHandle::ClockPriority::NONE);  // Already off the clock list.
+  assert(!h->IsInClockList());  // Already off the clock list.
   int probe = 0;
   FindSlot(
       h->key(), [&h](ClockHandle* e) { return e == h; }, probe,
@@ -206,7 +206,7 @@ void ClockCacheShard::EraseUnRefEntries() {
     do {
       slot++;
       ClockHandle* old = &(table_.array_[slot]);
-      if (old->GetPriority() == ClockHandle::ClockPriority::NONE) {
+      if (!old->IsInClockList()) {
         continue;
       }
       ClockRemove(old);
@@ -259,14 +259,14 @@ void ClockCacheShard::ApplyToSomeEntries(
 }
 
 void ClockCacheShard::ClockRemove(ClockHandle* h) {
-  assert(h->GetPriority() != ClockHandle::ClockPriority::NONE);
+  assert(h->IsInClockList());
   h->SetPriority(ClockHandle::ClockPriority::NONE);
   assert(clock_usage_ >= h->total_charge);
   clock_usage_ -= h->total_charge;
 }
 
 void ClockCacheShard::ClockInsert(ClockHandle* h) {
-  assert(h->GetPriority() == ClockHandle::ClockPriority::NONE);
+  assert(!h->IsInClockList());
   h->SetPriority(ClockHandle::ClockPriority::HIGH);
   clock_usage_ += h->total_charge;
 }
@@ -278,7 +278,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
     ClockHandle* old = &table_.array_[clock_pointer_];
     clock_pointer_ = BinaryMod(clock_pointer_ + 1, table_.GetLengthBits());
     // Clock list contains only elements which can be evicted.
-    if (old->GetPriority() == ClockHandle::ClockPriority::NONE) {
+    if (!old->IsInClockList()) {
       continue;
     }
     if (old->GetPriority() == ClockHandle::ClockPriority::LOW) {
@@ -338,7 +338,7 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status ClockCacheShard::Insert(const Slice& key, uint32_t /* hash */, void* value,
+Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                              size_t charge, Cache::DeleterFn deleter,
                              Cache::Handle** handle,
                              Cache::Priority /*priority*/) {
@@ -350,6 +350,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t /* hash */, void* valu
   ClockHandle tmp;
   tmp.value = value;
   tmp.deleter = deleter;
+  tmp.hash = hash;
   tmp.CalcTotalCharge(charge, metadata_charge_policy_);
   for (int i = 0; i < kCacheKeySize; i++) {
     tmp.key_data[i] = key.data()[i];
@@ -385,14 +386,14 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t /* hash */, void* valu
       // capacity if not enough space was freed up.
       ClockHandle* old;
       ClockHandle* h = table_.Insert(&tmp, &old);
-      assert(h != nullptr);  // Insertions should never fail.
+      assert(h != nullptr);  // We're below occupancy, so this insertion should never fail.
       usage_ += h->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
         assert(old->IsVisible());
         table_.Exclude(old);
         if (!old->HasRefs()) {
-          // old is on clock because it's in cache and its reference count is 0.
+          // old is in clock because it's in cache and its reference count is 0.
           ClockRemove(old);
           table_.Remove(old);
           assert(usage_ >= old->total_charge);
@@ -428,7 +429,7 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t /* hash */) {
     if (h != nullptr) {
       assert(h->IsVisible());
       if (!h->HasRefs()) {
-        // The entry is in clock since it's in the hash table and has no external references
+        // The entry is in clock since it's in the hash table and has no external references.
         ClockRemove(h);
       }
       h->Ref();
@@ -453,6 +454,7 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   ClockHandle* h = reinterpret_cast<ClockHandle*>(handle);
   ClockHandle copy;
   bool last_reference = false;
+  assert(!h->IsInClockList());
   {
     DMutexLock l(mutex_);
     last_reference = h->Unref();

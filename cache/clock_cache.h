@@ -194,6 +194,10 @@ struct ClockHandle {
     return static_cast<ClockPriority>(flags & Flags::CLOCK_PRIORITY);
   }
 
+  bool IsInClockList() const {
+    return GetPriority() != ClockHandle::ClockPriority::NONE;
+  }
+
   void SetPriority(ClockPriority priority) {
     flags &= ~Flags::CLOCK_PRIORITY;
     flags |= priority;
