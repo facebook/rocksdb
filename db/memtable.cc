@@ -1058,8 +1058,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 }
 
-Status MemTable::Update(SequenceNumber seq, const Slice& key,
-                        const Slice& value,
+Status MemTable::Update(SequenceNumber seq, ValueType value_type,
+                        const Slice& key, const Slice& value,
                         const ProtectionInfoKVOS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
@@ -1089,7 +1089,7 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
       SequenceNumber existing_seq;
       UnPackSequenceAndType(tag, &existing_seq, &type);
       assert(existing_seq != seq);
-      if (type == kTypeValue) {
+      if (type == value_type) {
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
         uint32_t new_size = static_cast<uint32_t>(value.size());
@@ -1117,8 +1117,8 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
     }
   }
 
-  // The latest value is not `kTypeValue` or key doesn't exist
-  return Add(seq, kTypeValue, key, value, kv_prot_info);
+  // The latest value is not value_type or key doesn't exist
+  return Add(seq, value_type, key, value, kv_prot_info);
 }
 
 Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
@@ -1151,66 +1151,62 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
       ValueType type;
       uint64_t existing_seq;
       UnPackSequenceAndType(tag, &existing_seq, &type);
-      switch (type) {
-        case kTypeValue: {
-          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+      if (type == kTypeValue) {
+        Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
+        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
 
-          char* prev_buffer = const_cast<char*>(prev_value.data());
-          uint32_t new_prev_size = prev_size;
+        char* prev_buffer = const_cast<char*>(prev_value.data());
+        uint32_t new_prev_size = prev_size;
 
-          std::string str_value;
-          WriteLock wl(GetLock(lkey.user_key()));
-          auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
-                                                   delta, &str_value);
-          if (status == UpdateStatus::UPDATED_INPLACE) {
-            // Value already updated by callback.
-            assert(new_prev_size <= prev_size);
-            if (new_prev_size < prev_size) {
-              // overwrite the new prev_size
-              char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                       new_prev_size);
-              if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
-                // shift the value buffer as well.
-                memcpy(p, prev_buffer, new_prev_size);
-                prev_buffer = p;
-              }
+        std::string str_value;
+        WriteLock wl(GetLock(lkey.user_key()));
+        auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
+                                                 delta, &str_value);
+        if (status == UpdateStatus::UPDATED_INPLACE) {
+          // Value already updated by callback.
+          assert(new_prev_size <= prev_size);
+          if (new_prev_size < prev_size) {
+            // overwrite the new prev_size
+            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                     new_prev_size);
+            if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
+              // shift the value buffer as well.
+              memcpy(p, prev_buffer, new_prev_size);
+              prev_buffer = p;
             }
-            RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
-            UpdateFlushState();
-            if (kv_prot_info != nullptr) {
-              ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
-              // `seq` is swallowed and `existing_seq` prevails.
-              updated_kv_prot_info.UpdateS(seq, existing_seq);
-              updated_kv_prot_info.UpdateV(delta,
-                                           Slice(prev_buffer, new_prev_size));
-              Slice encoded(entry, prev_buffer + new_prev_size - entry);
-              return VerifyEncodedEntry(encoded, updated_kv_prot_info);
-            }
-            return Status::OK();
-          } else if (status == UpdateStatus::UPDATED) {
-            Status s;
-            if (kv_prot_info != nullptr) {
-              ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
-              updated_kv_prot_info.UpdateV(delta, str_value);
-              s = Add(seq, kTypeValue, key, Slice(str_value),
-                      &updated_kv_prot_info);
-            } else {
-              s = Add(seq, kTypeValue, key, Slice(str_value),
-                      nullptr /* kv_prot_info */);
-            }
-            RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
-            UpdateFlushState();
-            return s;
-          } else if (status == UpdateStatus::UPDATE_FAILED) {
-            // `UPDATE_FAILED` is named incorrectly. It indicates no update
-            // happened. It does not indicate a failure happened.
-            UpdateFlushState();
-            return Status::OK();
           }
+          RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+          UpdateFlushState();
+          if (kv_prot_info != nullptr) {
+            ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
+            // `seq` is swallowed and `existing_seq` prevails.
+            updated_kv_prot_info.UpdateS(seq, existing_seq);
+            updated_kv_prot_info.UpdateV(delta,
+                                         Slice(prev_buffer, new_prev_size));
+            Slice encoded(entry, prev_buffer + new_prev_size - entry);
+            return VerifyEncodedEntry(encoded, updated_kv_prot_info);
+          }
+          return Status::OK();
+        } else if (status == UpdateStatus::UPDATED) {
+          Status s;
+          if (kv_prot_info != nullptr) {
+            ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
+            updated_kv_prot_info.UpdateV(delta, str_value);
+            s = Add(seq, kTypeValue, key, Slice(str_value),
+                    &updated_kv_prot_info);
+          } else {
+            s = Add(seq, kTypeValue, key, Slice(str_value),
+                    nullptr /* kv_prot_info */);
+          }
+          RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
+          UpdateFlushState();
+          return s;
+        } else if (status == UpdateStatus::UPDATE_FAILED) {
+          // `UPDATE_FAILED` is named incorrectly. It indicates no update
+          // happened. It does not indicate a failure happened.
+          UpdateFlushState();
+          return Status::OK();
         }
-        default:
-          break;
       }
     }
   }
