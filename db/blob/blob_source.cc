@@ -134,19 +134,22 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_entry);
     if (s.ok() && blob_entry.GetValue()) {
+      value->PinSelf(*blob_entry.GetValue());
+
       // For consistency, the size of on-disk (possibly compressed) blob record
       // is assigned to bytes_read.
+      uint64_t adjustment =
+          read_options.verify_checksums
+              ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                    user_key.size())
+              : 0;
+      assert(offset >= adjustment);
+
+      uint64_t record_size = value_size + adjustment;
       if (bytes_read) {
-        uint64_t adjustment =
-            read_options.verify_checksums
-                ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
-                      user_key.size())
-                : 0;
-        assert(offset >= adjustment);
-        *bytes_read = value_size + adjustment;
+        *bytes_read = record_size;
       }
-      value->PinSelf(*blob_entry.GetValue());
-      PERF_COUNTER_ADD(getblob_read_bytes, value_size);
+      PERF_COUNTER_ADD(getblob_read_bytes, record_size);
       return s;
     }
   }

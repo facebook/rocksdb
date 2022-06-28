@@ -278,6 +278,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
 
     read_options.fill_cache = true;
     total_bytes = 0;
+    blob_bytes = 0;
     get_perf_context()->Reset();
     statistics->Reset().PermitUncheckedError();
 
@@ -295,7 +296,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
-      total_bytes += bytes_read;
+      total_bytes += bytes_read;    // on-disk blob record size
+      blob_bytes += blob_sizes[i];  // cached blob value size
     }
 
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs * 3);
@@ -307,12 +309,13 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), num_blobs * 3);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ),
-              total_bytes * 3);
+              blob_bytes * 3);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
 
     // Cache-only GetBlob
     read_options.read_tier = ReadTier::kBlockCacheTier;
     total_bytes = 0;
+    blob_bytes = 0;
     get_perf_context()->Reset();
     statistics->Reset().PermitUncheckedError();
 
@@ -331,6 +334,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
       total_bytes += bytes_read;
+      blob_bytes += blob_sizes[i];
     }
 
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs * 3);
@@ -342,7 +346,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), num_blobs * 3);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ),
-              total_bytes * 3);
+              blob_bytes * 3);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
   }
 
@@ -395,6 +399,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
 
     read_options.read_tier = ReadTier::kReadAllTier;
     read_options.fill_cache = true;
+    get_perf_context()->Reset();
+    statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
@@ -412,6 +418,17 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                 blob_offsets[i]));
     }
+
+    ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
+    ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);
+    ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);
+    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, 0);
+
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS), num_blobs * 3);
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), 0);
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ), 0);
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
   }
 }
 
@@ -494,6 +511,7 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
 
     read_options.fill_cache = true;
     read_options.read_tier = ReadTier::kReadAllTier;
+    get_perf_context()->Reset();
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
@@ -511,7 +529,10 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                                blob_offsets[i]));
     }
 
+    ASSERT_GT((int)get_perf_context()->blob_decompress_time, 0);
+
     read_options.read_tier = ReadTier::kBlockCacheTier;
+    get_perf_context()->Reset();
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
@@ -530,6 +551,8 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[i]));
     }
+
+    ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
   }
 }
 
@@ -705,11 +728,13 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                              file_size, offsets, sizes, statuses, values,
                              &bytes_read);
 
+    uint64_t blob_bytes = 0;
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_OK(statuses_buf[i]);
       ASSERT_EQ(value_buf[i], blobs[i]);
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
+      blob_bytes += blob_sizes[i];
     }
 
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs * 2);
@@ -724,7 +749,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), num_blobs * 2);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ),
-              bytes_read * 2);
+              blob_bytes * 2);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
   }
 
