@@ -116,7 +116,7 @@ TEST_F(SimCacheTest, SimCache) {
   simCache->SetStrictCapacityLimit(true);
   iter = db_->NewIterator(read_options);
   iter->Seek(std::to_string(kNumBlocks * 2 - 1));
-  ASSERT_TRUE(iter->status().IsIncomplete());
+  ASSERT_TRUE(iter->status().IsMemoryLimit());
   CheckCacheCounters(options, 1, 0, 0, 1);
   delete iter;
   iter = nullptr;

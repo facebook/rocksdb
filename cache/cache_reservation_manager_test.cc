@@ -147,7 +147,7 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
 
   std::size_t new_mem_used = kSmallCacheCapacity + 1;
   Status s = test_cache_rev_mng->UpdateCacheReservation(new_mem_used);
-  EXPECT_EQ(s, Status::Incomplete())
+  EXPECT_EQ(s, Status::MemoryLimit())
       << "Failed to return status to indicate failure of dummy entry insertion "
          "during cache reservation on full cache";
   EXPECT_GE(test_cache_rev_mng->GetTotalReservedCacheSize(),
@@ -192,7 +192,7 @@ TEST(CacheReservationManagerIncreaseReservcationOnFullCacheTest,
   // Create cache full again for subsequent tests
   new_mem_used = kSmallCacheCapacity + 1;
   s = test_cache_rev_mng->UpdateCacheReservation(new_mem_used);
-  EXPECT_EQ(s, Status::Incomplete())
+  EXPECT_EQ(s, Status::MemoryLimit())
       << "Failed to return status to indicate failure of dummy entry insertion "
          "during cache reservation on full cache";
   EXPECT_GE(test_cache_rev_mng->GetTotalReservedCacheSize(),

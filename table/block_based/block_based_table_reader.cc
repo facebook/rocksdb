@@ -743,7 +743,7 @@ Status BlockBasedTable::Open(
     std::size_t mem_usage = new_table->ApproximateMemoryUsage();
     s = table_reader_cache_res_mgr->MakeCacheReservation(
         mem_usage, &(rep->table_reader_cache_res_handle));
-    if (s.IsIncomplete()) {
+    if (s.IsMemoryLimit()) {
       s = Status::MemoryLimit(
           "Can't allocate " +
           kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
