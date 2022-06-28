@@ -335,7 +335,20 @@ class NonBatchedOpsStressTest : public StressTest {
       fault_fs_guard->EnableErrorInjection();
       SharedState::ignore_read_error = false;
     }
-    Status s = db_->Get(read_opts, cfh, key, &from_db);
+
+    ReadOptions read_opts_copy = read_opts;
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
+      const SharedState* const shared = thread->shared;
+      assert(shared);
+      uint64_t read_ts = shared->GetStartTimestamp();
+      PutFixed64(&read_ts_str, read_ts);
+      read_ts_slice = read_ts_str;
+      read_opts_copy.timestamp = &read_ts_slice;
+    }
+
+    Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
     if (fault_fs_guard) {
       error_count = fault_fs_guard->GetAndResetErrorCount();
     }
@@ -391,6 +404,18 @@ class NonBatchedOpsStressTest : public StressTest {
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
+
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
+      const SharedState* const shared = thread->shared;
+      assert(shared);
+      uint64_t read_ts = shared->GetStartTimestamp();
+      PutFixed64(&read_ts_str, read_ts);
+      read_ts_slice = read_ts_str;
+      readoptionscopy.timestamp = &read_ts_slice;
+    }
+
     readoptionscopy.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
 
@@ -589,6 +614,17 @@ class NonBatchedOpsStressTest : public StressTest {
       // For half of the time, set the upper bound to the next prefix
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
+    }
+
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
+      const SharedState* const shared = thread->shared;
+      assert(shared);
+      uint64_t read_ts = shared->GetStartTimestamp();
+      PutFixed64(&read_ts_str, read_ts);
+      read_ts_slice = read_ts_str;
+      ro_copy.timestamp = &read_ts_slice;
     }
 
     Iterator* iter = db_->NewIterator(ro_copy, cfh);

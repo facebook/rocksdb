@@ -304,6 +304,8 @@ class SharedState {
     printing_verification_results_.store(false, std::memory_order_relaxed);
   }
 
+  uint64_t GetStartTimestamp() const { return start_timestamp_; }
+
  private:
   static void IgnoreReadErrorCallback(void*) {
     ignore_read_error = true;

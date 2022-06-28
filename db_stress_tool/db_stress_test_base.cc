@@ -1004,6 +1004,17 @@ Status StressTest::TestIterate(ThreadState* thread,
   ReadOptions readoptionscopy = read_opts;
   readoptionscopy.snapshot = snapshot;
 
+  std::string read_ts_str;
+  Slice read_ts_slice;
+  if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
+    const SharedState* const shared = thread->shared;
+    assert(shared);
+    uint64_t read_ts = shared->GetStartTimestamp();
+    PutFixed64(&read_ts_str, read_ts);
+    read_ts_slice = read_ts_str;
+    readoptionscopy.timestamp = &read_ts_slice;
+  }
+
   bool expect_total_order = false;
   if (thread->rand.OneIn(16)) {
     // When prefix extractor is used, it's useful to cover total order seek.
