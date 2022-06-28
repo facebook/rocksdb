@@ -83,8 +83,8 @@ namespace clock_cache {
 // times at most a fraction p of all slots, without counting tombstones,
 // are occupied by elements. This means that the probability that a
 // random probe hits an empty slot is at most p, and thus at most 1/p probes
-// are required on average. We use p = 70%, so between 1 and 2 probes are
-// needed on average.
+// are required on average. For example, p = 70% implies that between 1 and 2
+// probes are needed on average.
 // Because the size of the hash table is always rounded up to the next
 // power of 2, p is really an upper bound on the actual load factor---the
 // actual load factor is anywhere between p/2 and p. This is a bit wasteful,
@@ -103,24 +103,35 @@ constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
 struct ClockHandle {
   void* value;
   Cache::DeleterFn deleter;
-  ClockHandle* next;
-  ClockHandle* prev;
   uint32_t hash;
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   // The number of external refs to this entry. The cache itself is not counted.
   uint32_t refs;
-  // clock_pri is an integer representing how close the element
-  // is from being evictable. If clock_pri == 0, the element
-  // is evictable.
-  uint8_t clock_pri;
+
+  static constexpr int kIsVisibleOffset = 0;
+  static constexpr int kIsElementOffset = 1;
+  static constexpr int kClockPriorityOffset = 2;
 
   enum Flags : uint8_t {
     // Whether the handle is visible to Lookups.
-    IS_VISIBLE = (1 << 0),
+    IS_VISIBLE      = (1 << kIsVisibleOffset),
     // Whether the slot is in use by an element.
-    IS_ELEMENT = (1 << 1),
+    IS_ELEMENT      = (1 << kIsElementOffset),
+    // Clock priorities. Represents how close a handle is from
+    // being evictable.
+    CLOCK_PRIORITY  = (3 << kClockPriorityOffset),
   };
   uint8_t flags;
+
+  enum ClockPriority : uint8_t {
+    NONE   = (0 << kClockPriorityOffset),    // Not an element in the eyes of clock.
+    LOW    = (1 << kClockPriorityOffset),    // Immediately evictable.
+    MEDIUM = (2 << kClockPriorityOffset),
+    HIGH   = (3 << kClockPriorityOffset)
+    // Priority is CLOCK_NONE if and only if
+    // (i) the handle is not an element, or
+    // (ii) the handle is an element but it is being referenced.
+  };
 
   // The number of elements that hash to this slot or a lower one,
   // but wind up in a higher slot.
@@ -131,13 +142,13 @@ struct ClockHandle {
   ClockHandle() {
     value = nullptr;
     deleter = nullptr;
-    next = nullptr;
-    prev = nullptr;
     hash = 0;
-    clock_pri = 0;
     total_charge = 0;
     refs = 0;
     flags = 0;
+    SetIsVisible(false);
+    SetIsElement(false);
+    SetPriority(ClockPriority::NONE);
     displacements = 0;
     key_data.fill(0);
   }
@@ -155,7 +166,9 @@ struct ClockHandle {
   }
 
   // Return true if there are external refs, false otherwise.
-  bool HasRefs() const { return refs > 0; }
+  bool HasRefs() const {
+    return refs > 0;
+  }
 
   bool IsVisible() const { return flags & IS_VISIBLE; }
 
@@ -175,6 +188,24 @@ struct ClockHandle {
     } else {
       flags &= ~IS_ELEMENT;
     }
+  }
+
+  ClockPriority GetPriority() const {
+    return static_cast<ClockPriority>(flags & Flags::CLOCK_PRIORITY);
+  }
+
+  void SetPriority(ClockPriority priority) {
+    flags &= ~Flags::CLOCK_PRIORITY;
+    flags |= priority;
+  }
+
+  void DecreasePriority() {
+    uint8_t p = static_cast<uint8_t>(flags & Flags::CLOCK_PRIORITY) >> kClockPriorityOffset;
+    assert(p > 0);
+    p--;
+    flags &= ~Flags::CLOCK_PRIORITY;
+    ClockPriority new_priority = static_cast<ClockPriority>(p << kClockPriorityOffset);
+    flags |= new_priority;
   }
 
   void FreeData() {
@@ -232,7 +263,7 @@ struct ClockHandle {
   inline bool Matches(const Slice& some_key) {
     return this->IsElement() && this->key() == some_key;
   }
-};
+};  // struct ClockHandle
 
 
 class ClockHandleTable {
@@ -276,6 +307,8 @@ class ClockHandleTable {
   uint32_t GetOccupancy() const { return occupancy_; }
 
  private:
+  friend class ClockCacheShard;
+
   int FindVisibleElement(const Slice& key, int& probe,
                          int displacement);
 
@@ -303,7 +336,8 @@ class ClockHandleTable {
   uint32_t occupancy_;
 
   std::unique_ptr<ClockHandle[]> array_;
-};
+}; // class ClockHandleTable
+
 
 // A single shard of sharded cache.
 class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
@@ -370,14 +404,19 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
  private:
   friend class ClockCache;
-  void Clock_Remove(ClockHandle* e);
-  void Clock_Insert(ClockHandle* e);
+  void ClockRemove(ClockHandle* e);
+  void ClockInsert(ClockHandle* e);
 
   // Free some space following strict clock policy until enough space
   // to hold (usage_ + charge) is freed or the clock list is empty
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromClock(size_t charge, autovector<ClockHandle>* deleted);
+
+  // Returns the charge of a single handle.
+  static size_t CalcEstimatedHandleCharge(
+      size_t estimated_value_size,
+      CacheMetadataChargePolicy metadata_charge_policy);
 
   // Returns the number of bits used to hash an element in the hash
   // table.
@@ -390,14 +429,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   // Whether to reject insertion if cache reaches its full capacity.
   bool strict_capacity_limit_;
 
-  // TODO(Guido) Replace by a pointer into the clock list.
-  // Dummy head of LRU list.
-  // lru.prev is newest entry, lru.next is oldest entry.
-  // LRU contains items which can be evicted, ie reference only by cache
-  ClockHandle clock_;
-
-  // Pointer to head of low-pri pool in LRU list.
-  ClockHandle* clock_low_pri_;
+  uint32_t clock_pointer_;
 
   // ------------^^^^^^^^^^^^^-----------
   // Not frequently modified data members
@@ -415,14 +447,15 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   // Memory size for entries residing in the cache.
   size_t usage_;
 
-  // Memory size for entries residing only in the clock list.
+  // Memory size for unpinned entries in the clock list.
   size_t clock_usage_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
   mutable DMutex mutex_;
-};
+}; // class ClockCacheShard
+
 
 class ClockCache
 #ifdef NDEBUG
@@ -447,7 +480,8 @@ class ClockCache
  private:
   ClockCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
-};
+}; // class ClockCache
+
 }  // namespace clock_cache
 
 }  // namespace ROCKSDB_NAMESPACE
