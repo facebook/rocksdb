@@ -240,18 +240,36 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int level0_file_num_compaction_trigger = 4;
 
-  // If non-nullptr, use the specified function to determine the
-  // prefixes for keys.  These prefixes will be placed in the filter.
-  // Depending on the workload, this can reduce the number of read-IOP
-  // cost for scans when a prefix is passed via ReadOptions to
-  // db.NewIterator().  For prefix filtering to work properly,
-  // "prefix_extractor" and "comparator" must be such that the following
-  // properties hold:
+  // If non-nullptr, use the specified function to put keys in contiguous
+  // groups called "prefixes". These prefixes are used to place one
+  // representative entry for the group into the Bloom filter
+  // rather than an entry for each key (see whole_key_filtering).
+  // Under certain conditions, this enables optimizing some range queries
+  // (Iterators) in addition to some point lookups (Get/MultiGet).
   //
-  // 1) key.starts_with(prefix(key))
-  // 2) Compare(prefix(key), key) <= 0.
-  // 3) If Compare(k1, k2) <= 0, then Compare(prefix(k1), prefix(k2)) <= 0
-  // 4) prefix(prefix(key)) == prefix(key)
+  // Together `prefix_extractor` and `comparator` must satisfy one essential
+  // property for valid prefix filtering of range queries:
+  //   If Compare(k1, k2) <= 0 and Compare(k2, k3) <= 0 and
+  //      InDomain(k1) and InDomain(k3) and prefix(k1) == prefix(k3),
+  //   Then InDomain(k2) and prefix(k2) == prefix(k1)
+  //
+  // In other words, all keys with the same prefix must be in a contiguous
+  // group by comparator order, and cannot be interrupted by keys with no
+  // prefix ("out of domain"). (This makes it valid to conclude that no
+  // entries within some bounds are present if the upper and lower bounds
+  // have a common prefix and no entries with that same prefix are present.)
+  //
+  // Some other properties are recommended but not strictly required. Under
+  // most sensible comparators, the following will need to hold true to
+  // satisfy the essential property above:
+  // * "Prefix is a prefix": key.starts_with(prefix(key))
+  // * "Prefixes preserve ordering": If Compare(k1, k2) <= 0, then
+  //   Compare(prefix(k1), prefix(k2)) <= 0
+  //
+  // The next two properties ensure that seeking to a prefix allows
+  // enumerating all entries with that prefix:
+  // * "Prefix starts the group": Compare(prefix(key), key) <= 0
+  // * "Prefix idempotent": prefix(prefix(key)) == prefix(key)
   //
   // Default: nullptr
   std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;

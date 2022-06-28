@@ -3113,6 +3113,382 @@ TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
   it.reset();
 }
 
+namespace {
+class BackwardBytewiseComparator : public Comparator {
+ public:
+  const char* Name() const override { return "BackwardBytewiseComparator"; }
+
+  int Compare(const Slice& a, const Slice& b) const override {
+    int min_size_neg = -static_cast<int>(std::min(a.size(), b.size()));
+    const char* a_end = a.data() + a.size();
+    const char* b_end = b.data() + b.size();
+    for (int i = -1; i >= min_size_neg; --i) {
+      if (a_end[i] != b_end[i]) {
+        if (static_cast<unsigned char>(a_end[i]) <
+            static_cast<unsigned char>(b_end[i])) {
+          return -1;
+        } else {
+          return 1;
+        }
+      }
+    }
+    return static_cast<int>(a.size()) - static_cast<int>(b.size());
+  }
+
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
+
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+
+const BackwardBytewiseComparator kBackwardBytewiseComparator{};
+
+class FixedSuffix4Transform : public SliceTransform {
+  const char* Name() const override { return "FixedSuffixTransform"; }
+
+  Slice Transform(const Slice& src) const override {
+    return Slice(src.data() + src.size() - 4, 4);
+  }
+
+  bool InDomain(const Slice& src) const override { return src.size() >= 4; }
+};
+
+std::pair<uint64_t, uint64_t> GetBloomStat(const Options& options, bool sst) {
+  if (sst) {
+    return {
+        options.statistics->getAndResetTickerCount(BLOOM_FILTER_PREFIX_CHECKED),
+        options.statistics->getAndResetTickerCount(BLOOM_FILTER_PREFIX_USEFUL)};
+  } else {
+    auto hit = std::exchange(get_perf_context()->bloom_memtable_hit_count, 0);
+    auto miss = std::exchange(get_perf_context()->bloom_memtable_miss_count, 0);
+    return {hit + miss, miss};
+  }
+}
+
+std::pair<uint64_t, uint64_t> CheckedAndUseful(uint64_t checked,
+                                               uint64_t useful) {
+  return {checked, useful};
+}
+}  // namespace
+
+// This uses a prefix_extractor + comparator combination that violates
+// one of the old obsolete, unnecessary axioms of prefix extraction:
+// * key.starts_with(prefix(key))
+// This axiom is not really needed, and we validate that here.
+TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter1) {
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+
+  Options options = CurrentOptions();
+  options.comparator = &kBackwardBytewiseComparator;
+  options.prefix_extractor = std::make_shared<FixedSuffix4Transform>();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.statistics = CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("321aaaa", "val1"));
+  ASSERT_OK(Put("112aaaa", "val2"));
+  ASSERT_OK(Put("009aaaa", "val3"));
+  ASSERT_OK(Put("baa", "val4"));  // out of domain
+  ASSERT_OK(Put("321abaa", "val5"));
+  ASSERT_OK(Put("zzz", "val6"));  // out of domain
+
+  for (auto flushed : {false, true}) {
+    SCOPED_TRACE("flushed=" + std::to_string(flushed));
+    if (flushed) {
+      ASSERT_OK(Flush());
+    }
+    ReadOptions read_options;
+    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+      read_options.auto_prefix_mode = true;
+    }
+    EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+    {
+      Slice ub("999aaaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa"), 3);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("999abaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "abaa"), 1);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("999acaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "acaa"), 0);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 1));
+    }
+    {
+      Slice ub("zzzz");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "baa"), 3);
+      if (flushed) {  // TODO: fix memtable case
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+    }
+  }
+}
+
+// This uses a prefix_extractor + comparator combination that violates
+// one of the old obsolete, unnecessary axioms of prefix extraction:
+// * Compare(prefix(key), key) <= 0
+// This axiom is not really needed, and we validate that here.
+TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter2) {
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+
+  Options options = CurrentOptions();
+  options.comparator = ReverseBytewiseComparator();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.statistics = CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("aaaa123", "val1"));
+  ASSERT_OK(Put("aaaa211", "val2"));
+  ASSERT_OK(Put("aaaa900", "val3"));
+  ASSERT_OK(Put("aab", "val4"));  // out of domain
+  ASSERT_OK(Put("aaba123", "val5"));
+  ASSERT_OK(Put("qqqq123", "val7"));
+  ASSERT_OK(Put("qqqq", "val8"));
+  ASSERT_OK(Put("zzz", "val8"));  // out of domain
+
+  for (auto flushed : {false, true}) {
+    SCOPED_TRACE("flushed=" + std::to_string(flushed));
+    if (flushed) {
+      ASSERT_OK(Flush());
+    }
+    ReadOptions read_options;
+    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+      read_options.auto_prefix_mode = true;
+    } else {
+      // TODO: why needed?
+      get_perf_context()->bloom_memtable_hit_count = 0;
+      get_perf_context()->bloom_memtable_miss_count = 0;
+    }
+    EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+    {
+      Slice ub("aaaa000");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa999"), 3);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      // Note: prefix does work as upper bound
+      Slice ub("aaaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa999"), 3);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      // Note: prefix does not work here as seek key
+      Slice ub("aaaa500");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa"), 0);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("aaba000");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaba999"), 1);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("aaca000");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaca999"), 0);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 1));
+    }
+    {
+      Slice ub("aaaz");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "zzz"), 5);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+    }
+    {
+      // Note: prefix does work here as seek key, but only finds key equal
+      // to prefix (others with same prefix are less)
+      read_options.auto_prefix_mode = false;
+      read_options.iterate_upper_bound = nullptr;
+      read_options.prefix_same_as_start = true;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "qqqq"), 1);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+  }
+}
+
+namespace {
+// A weird comparator that in combination with NonIdempotentFixed4Transform
+// breaks an old axiom of prefix filtering.
+class WeirdComparator : public Comparator {
+ public:
+  const char* Name() const override { return "WeirdComparator"; }
+
+  int Compare(const Slice& a, const Slice& b) const override {
+    bool a_in = a.size() >= 5;
+    bool b_in = b.size() >= 5;
+    if (a_in != b_in) {
+      // Order keys after prefixes
+      return a_in - b_in;
+    }
+    if (a_in) {
+      return BytewiseComparator()->Compare(a, b);
+    } else {
+      // Different ordering on the prefixes
+      return ReverseBytewiseComparator()->Compare(a, b);
+    }
+  }
+
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
+
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+const WeirdComparator kWeirdComparator{};
+
+// Non-idempotentent because prefix is always 4 bytes, but this is
+// out-of-domain for keys to be assigned prefixes (>= 5 bytes)
+class NonIdempotentFixed4Transform : public SliceTransform {
+  const char* Name() const override { return "NonIdempotentFixed4Transform"; }
+
+  Slice Transform(const Slice& src) const override {
+    return Slice(src.data(), 4);
+  }
+
+  bool InDomain(const Slice& src) const override { return src.size() >= 5; }
+};
+}  // namespace
+
+// This uses a prefix_extractor + comparator combination that violates
+// two of the old obsolete, unnecessary axioms of prefix extraction:
+// * prefix(prefix(key)) == prefix(key)
+// * If Compare(k1, k2) <= 0, then Compare(prefix(k1), prefix(k2)) <= 0
+// This axiom is not really needed, and we validate that here.
+TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+
+  Options options = CurrentOptions();
+  options.prefix_extractor = std::make_shared<NonIdempotentFixed4Transform>();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.statistics = CreateDBStatistics();
+
+  for (auto weird_comparator : {false, true}) {
+    if (weird_comparator) {
+      options.comparator = &kWeirdComparator;
+    }
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("aaaa123", "val1"));
+    ASSERT_OK(Put("aaaa211", "val2"));
+    ASSERT_OK(Put("aaaa900", "val3"));
+    ASSERT_OK(Put("aab", "val4"));  // out of domain
+    ASSERT_OK(Put("aaba123", "val5"));
+    ASSERT_OK(Put("qqqq123", "val7"));
+    ASSERT_OK(Put("qqqq", "val8"));  // out of domain
+    ASSERT_OK(Put("zzzz", "val8"));  // out of domain
+
+    for (auto flushed : {false, true}) {
+      SCOPED_TRACE("flushed=" + std::to_string(flushed));
+      if (flushed) {
+        ASSERT_OK(Flush());
+      }
+      ReadOptions read_options;
+      if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+        read_options.auto_prefix_mode = true;
+      } else {
+        // TODO: why needed?
+        get_perf_context()->bloom_memtable_hit_count = 0;
+        get_perf_context()->bloom_memtable_miss_count = 0;
+      }
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      {
+        Slice ub("aaaa999");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaaa000"), 3);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+      }
+      {
+        // Note: prefix as seek key is not bloom-optimized
+        // Note: the count works with weird_comparator because "aaaa" is
+        // ordered as the last of the prefixes
+        Slice ub("aaaa999");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaaa"), 3);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+      {
+        Slice ub("aaba9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaba0"), 1);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+      }
+      {
+        Slice ub("aaca9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaca0"), 0);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 1));
+      }
+      {
+        Slice ub("qqqq9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "qqqq0"), 1);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+      }
+      {
+        // Note: prefix as seek key is not bloom-optimized
+        Slice ub("qqqq9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "qqqq"), weird_comparator ? 7 : 2);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+      {
+        // Note: prefix as seek key is not bloom-optimized
+        Slice ub("zzzz9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "zzzz"), weird_comparator ? 8 : 1);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+      {
+        Slice ub("zzzz9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aab"), weird_comparator ? 6 : 5);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+    }
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
