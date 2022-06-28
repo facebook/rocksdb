@@ -4039,10 +4039,6 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->blob_checksum_time;
     case rocksdb_blob_decompress_time:
       return rep->blob_decompress_time;
-    case rocksdb_getblob_read_bytes:
-      return rep->getblob_read_bytes;
-    case rocksdb_multigetblob_read_bytes:
-      return rep->multigetblob_read_bytes;
     default:
       break;
   }

@@ -1875,7 +1875,7 @@ TEST_F(DBPropertiesTest, BlobCacheProperties) {
   Cache::Handle* blob3 = nullptr;
   ASSERT_OK(blob_cache->Insert("blob3", nullptr /*value*/, kSize3,
                                nullptr /*deleter*/, &blob3));
-  ASSERT_NE(nullptr, blob2);
+  ASSERT_NE(nullptr, blob3);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlobCacheUsage, &value));

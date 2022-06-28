@@ -91,9 +91,6 @@ struct PerfContext {
   uint64_t blob_checksum_time;    // total nanos spent on blob checksum
   uint64_t blob_decompress_time;  // total nanos spent on blob decompression
 
-  uint64_t getblob_read_bytes;       // bytes for vals returned by GetBlob
-  uint64_t multigetblob_read_bytes;  // bytes for vals returned by MultiGetBlob
-
   // total number of internal keys skipped over during iteration.
   // There are several reasons for it:
   // 1. when calling Next(), the iterator is in the position of the previous

@@ -1674,8 +1674,6 @@ enum {
   rocksdb_blob_read_time,
   rocksdb_blob_checksum_time,
   rocksdb_blob_decompress_time,
-  rocksdb_getblob_read_bytes,
-  rocksdb_multigetblob_read_bytes,
   rocksdb_total_metric_count = 77
 };
 

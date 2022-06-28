@@ -54,8 +54,6 @@ PerfContext::PerfContext(const PerfContext& other) {
   blob_read_time = other.blob_read_time;
   blob_checksum_time = other.blob_checksum_time;
   blob_decompress_time = other.blob_decompress_time;
-  getblob_read_bytes = other.getblob_read_bytes;
-  multigetblob_read_bytes = other.multigetblob_read_bytes;
 
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
@@ -163,8 +161,6 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   blob_read_time = other.blob_read_time;
   blob_checksum_time = other.blob_checksum_time;
   blob_decompress_time = other.blob_decompress_time;
-  getblob_read_bytes = other.getblob_read_bytes;
-  multigetblob_read_bytes = other.multigetblob_read_bytes;
 
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
@@ -274,8 +270,6 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   blob_read_time = other.blob_read_time;
   blob_checksum_time = other.blob_checksum_time;
   blob_decompress_time = other.blob_decompress_time;
-  getblob_read_bytes = other.getblob_read_bytes;
-  multigetblob_read_bytes = other.multigetblob_read_bytes;
 
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
@@ -382,8 +376,6 @@ void PerfContext::Reset() {
   blob_read_time = 0;
   blob_checksum_time = 0;
   blob_decompress_time = 0;
-  getblob_read_bytes = 0;
-  multigetblob_read_bytes = 0;
 
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
@@ -513,8 +505,6 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(blob_read_time);
   PERF_CONTEXT_OUTPUT(blob_checksum_time);
   PERF_CONTEXT_OUTPUT(blob_decompress_time);
-  PERF_CONTEXT_OUTPUT(getblob_read_bytes);
-  PERF_CONTEXT_OUTPUT(multigetblob_read_bytes);
   PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);

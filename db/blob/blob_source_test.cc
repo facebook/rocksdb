@@ -220,10 +220,11 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       total_bytes += bytes_read;
     }
 
+    // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
+    // GetBlob, and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, num_blobs);
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, total_bytes);
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, total_bytes);
     ASSERT_GE((int)get_perf_context()->blob_checksum_time, 0);
     ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
 
@@ -300,10 +301,11 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       blob_bytes += blob_sizes[i];  // cached blob value size
     }
 
+    // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
+    // GetBlob, and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs * 3);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);  // without i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);   // without i/o
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, total_bytes);
 
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), num_blobs * 3);
@@ -337,10 +339,11 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       blob_bytes += blob_sizes[i];
     }
 
+    // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
+    // GetBlob, and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs * 3);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);  // without i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);   // without i/o
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, total_bytes);
 
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), num_blobs * 3);
@@ -379,10 +382,11 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                                 blob_offsets[i]));
     }
 
+    // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
+    // GetBlob, and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, 0);
 
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS), num_blobs * 3);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), 0);
@@ -419,10 +423,11 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                                 blob_offsets[i]));
     }
 
+    // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
+    // GetBlob, and TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, 0);
 
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS), num_blobs * 3);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT), 0);
@@ -657,6 +662,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       if (i % 2 == 0) {
         ASSERT_OK(statuses_buf[i]);
         ASSERT_EQ(value_buf[i], blobs[i]);
+        fs_read_bytes +=
+            blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize;
         ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                  blob_offsets[i]));
         ca_read_bytes += blob_sizes[i];
@@ -665,19 +672,15 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
         ASSERT_TRUE(value_buf[i].empty());
         ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                   blob_offsets[i]));
-        fs_read_bytes +=
-            blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize;
       }
     }
 
-    int num_even_blobs = (num_blobs + 1) / 2;
+    constexpr int num_even_blobs = num_blobs / 2;
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_even_blobs);
     ASSERT_EQ((int)get_perf_context()->blob_read_count,
               num_even_blobs);  // blocking i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte,
               fs_read_bytes);  // blocking i/o
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, 0);
-    ASSERT_EQ((int)get_perf_context()->multigetblob_read_bytes, bytes_read);
     ASSERT_GE((int)get_perf_context()->blob_checksum_time, 0);
     ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
 
@@ -737,11 +740,11 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       blob_bytes += blob_sizes[i];
     }
 
+    // Retrieved the blob cache num_blobs * 2 times via GetBlob and
+    // TEST_BlobInCache.
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, num_blobs * 2);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);  // blocking i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);   // blocking i/o
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, 0);
-    ASSERT_EQ((int)get_perf_context()->multigetblob_read_bytes, bytes_read);
     ASSERT_GE((int)get_perf_context()->blob_checksum_time, 0);
     ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
 
@@ -795,8 +798,6 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);  // blocking i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);   // blocking i/o
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, 0);
-    ASSERT_EQ((int)get_perf_context()->multigetblob_read_bytes, 0);
     ASSERT_EQ((int)get_perf_context()->blob_checksum_time, 0);
     ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
 
@@ -847,8 +848,6 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
     ASSERT_EQ((int)get_perf_context()->blob_read_count, 0);  // blocking i/o
     ASSERT_EQ((int)get_perf_context()->blob_read_byte, 0);   // blocking i/o
-    ASSERT_EQ((int)get_perf_context()->getblob_read_bytes, 0);
-    ASSERT_EQ((int)get_perf_context()->multigetblob_read_bytes, 0);
     ASSERT_EQ((int)get_perf_context()->blob_checksum_time, 0);
     ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
 

@@ -149,7 +149,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       if (bytes_read) {
         *bytes_read = record_size;
       }
-      PERF_COUNTER_ADD(getblob_read_bytes, record_size);
       return s;
     }
   }
@@ -187,7 +186,6 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     if (bytes_read) {
       *bytes_read = read_size;
     }
-    PERF_COUNTER_ADD(getblob_read_bytes, read_size);
   }
 
   if (blob_cache_ && read_options.fill_cache) {
@@ -266,7 +264,6 @@ void BlobSource::MultiGetBlob(
       if (bytes_read) {
         *bytes_read = total_bytes;
       }
-      PERF_COUNTER_ADD(multigetblob_read_bytes, total_bytes);
       return;
     }
   }
@@ -338,8 +335,6 @@ void BlobSource::MultiGetBlob(
     if (bytes_read) {
       *bytes_read = total_bytes;
     }
-
-    PERF_COUNTER_ADD(multigetblob_read_bytes, total_bytes);
   }
 }
 
