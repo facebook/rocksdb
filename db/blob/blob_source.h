@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
+#include "table/multiget_context.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -37,7 +38,7 @@ class BlobSource {
 
   ~BlobSource();
 
-  // Read a blob from the underlying cache or storage.
+  // Read a blob from the underlying cache or one on-disk blob file.
   //
   // If successful, returns ok and sets "*value" to the newly retrieved
   // uncompressed blob. If there was an error while fetching the blob, sets
@@ -52,25 +53,45 @@ class BlobSource {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
-  // Read multiple blobs from the underlying cache or storage.
+  // Read multiple blobs from the underlying cache or on-disk blob file(s).
   //
-  // If successful, returns ok and sets the elements of blobs to the newly
+  // If successful, returns ok and sets the elements of "blob_reqs" to the newly
   // retrieved uncompressed blobs. If there was an error while fetching one of
-  // blobs, sets its corresponding "blobs[i]" to empty and sets "statuses[i]" to
-  // a non-ok status.
+  // blobs, sets its corresponding "blob_reqs[i].result" to empty and sets
+  // "blob_reqs[i].status" to a non-ok status.
   //
   // Note:
-  //  - Offsets must be sorted in ascending order by caller.
+  //  - The main difference between this function and MultiGetBlobFromOneFile is
+  //    that this function can read multiple blobs from multiple blob files.
+  //
   //  - For consistency, whether the blob is found in the cache or on disk, sets
   //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
   //  records.
-  void MultiGetBlob(
-      const ReadOptions& read_options,
-      const autovector<std::reference_wrapper<const Slice>>& user_keys,
-      uint64_t file_number, uint64_t file_size,
-      const autovector<uint64_t>& offsets,
-      const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
-      autovector<PinnableSlice*>& blobs, uint64_t* bytes_read);
+  void MultiGetBlob(const ReadOptions& read_options,
+                    std::unordered_map</*blob file number*/ uint64_t,
+                                       autovector<BlobReadRequest>>& blob_reqs,
+                    uint64_t* bytes_read);
+
+  // Read multiple blobs from the underlying cache or one on-disk blob file.
+  //
+  // If successful, returns ok and sets the elements of "blob_reqs" to the newly
+  // retrieved uncompressed blobs. If there was an error while fetching one of
+  // blobs, sets its corresponding "blob_reqs[i].result" to empty and sets
+  // "blob_reqs[i].status" to a non-ok status.
+  //
+  // Note:
+  //  - The main difference between this function and MultiGetBlob is that this
+  //  function is only used for the case where the demanded blobs are stored in
+  //  one blob file. MultiGetBlob will call this function multiple times if the
+  //  demanded blobs are stored in multiple blob files.
+  //
+  //  - For consistency, whether the blob is found in the cache or on disk, sets
+  //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
+  //  records.
+  void MultiGetBlobFromOneFile(const ReadOptions& read_options,
+                               uint64_t file_number, uint64_t file_size,
+                               autovector<BlobReadRequest*>& blob_reqs,
+                               uint64_t* bytes_read);
 
   inline Status GetBlobFileReader(
       uint64_t blob_file_number,

@@ -374,22 +374,16 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   return Status::OK();
 }
 
-void BlobFileReader::MultiGetBlob(
-    const ReadOptions& read_options,
-    const autovector<std::reference_wrapper<const Slice>>& user_keys,
-    const autovector<uint64_t>& offsets,
-    const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
-    autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
-  const size_t num_blobs = user_keys.size();
+void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
+                                  autovector<BlobReadRequest*>& blob_reqs,
+                                  uint64_t* bytes_read) const {
+  const size_t num_blobs = blob_reqs.size();
   assert(num_blobs > 0);
-  assert(num_blobs == offsets.size());
-  assert(num_blobs == value_sizes.size());
-  assert(num_blobs == statuses.size());
-  assert(num_blobs == values.size());
+  assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
 
 #ifndef NDEBUG
-  for (size_t i = 0; i < offsets.size() - 1; ++i) {
-    assert(offsets[i] <= offsets[i + 1]);
+  for (size_t i = 0; i < num_blobs - 1; ++i) {
+    assert(blob_reqs[i]->offset <= blob_reqs[i + 1]->offset);
   }
 #endif  // !NDEBUG
 
@@ -397,16 +391,17 @@ void BlobFileReader::MultiGetBlob(
   autovector<uint64_t> adjustments;
   uint64_t total_len = 0;
   for (size_t i = 0; i < num_blobs; ++i) {
-    const size_t key_size = user_keys[i].get().size();
-    assert(IsValidBlobOffset(offsets[i], key_size, value_sizes[i], file_size_));
+    const size_t key_size = blob_reqs[i]->user_key->size();
+    assert(IsValidBlobOffset(blob_reqs[i]->offset, key_size, blob_reqs[i]->len,
+                             file_size_));
     const uint64_t adjustment =
         read_options.verify_checksums
             ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
             : 0;
-    assert(offsets[i] >= adjustment);
+    assert(blob_reqs[i]->offset >= adjustment);
     adjustments.push_back(adjustment);
-    read_reqs[i].offset = offsets[i] - adjustment;
-    read_reqs[i].len = value_sizes[i] + adjustment;
+    read_reqs[i].offset = blob_reqs[i]->offset - adjustment;
+    read_reqs[i].len = blob_reqs[i]->len + adjustment;
     total_len += read_reqs[i].len;
   }
 
@@ -439,9 +434,9 @@ void BlobFileReader::MultiGetBlob(
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();
     }
-    for (size_t i = 0; i < num_blobs; ++i) {
-      assert(statuses[i]);
-      *statuses[i] = s;
+    for (auto& req : blob_reqs) {
+      assert(req->status);
+      *req->status = s;
     }
     return;
   }
@@ -453,29 +448,31 @@ void BlobFileReader::MultiGetBlob(
     auto& req = read_reqs[i];
     const auto& record_slice = req.result;
 
-    assert(statuses[i]);
+    assert(blob_reqs[i]->status);
     if (req.status.ok() && record_slice.size() != req.len) {
       req.status = IOStatus::Corruption("Failed to read data from blob file");
     }
 
-    *statuses[i] = req.status;
-    if (!statuses[i]->ok()) {
+    *blob_reqs[i]->status = req.status;
+    if (!blob_reqs[i]->status->ok()) {
       continue;
     }
 
     // Verify checksums if enabled
     if (read_options.verify_checksums) {
-      *statuses[i] = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
-      if (!statuses[i]->ok()) {
+      *blob_reqs[i]->status =
+          VerifyBlob(record_slice, *blob_reqs[i]->user_key, blob_reqs[i]->len);
+      if (!blob_reqs[i]->status->ok()) {
         continue;
       }
     }
 
     // Uncompress blob if needed
-    Slice value_slice(record_slice.data() + adjustments[i], value_sizes[i]);
-    *statuses[i] = UncompressBlobIfNeeded(value_slice, compression_type_,
-                                          clock_, statistics_, values[i]);
-    if (statuses[i]->ok()) {
+    Slice value_slice(record_slice.data() + adjustments[i], blob_reqs[i]->len);
+    *blob_reqs[i]->status =
+        UncompressBlobIfNeeded(value_slice, compression_type_, clock_,
+                               statistics_, blob_reqs[i]->result);
+    if (blob_reqs[i]->status->ok()) {
       total_bytes += record_slice.size();
     }
   }
