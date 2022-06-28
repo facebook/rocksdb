@@ -2161,6 +2161,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             "Encounter unexpected blob index. Please open DB with "
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         return;
+      case GetContext::kUnexpectedWideColumnEntity:
+        *status =
+            Status::NotSupported("Encountered unexpected wide-column entity");
+        return;
     }
     f = fp.GetNextFile();
   }
@@ -3189,11 +3193,15 @@ void SortFileByOverlappingRatio(
                                           ttl_boost_score;
   }
 
-  std::sort(temp->begin(), temp->end(),
-            [&](const Fsize& f1, const Fsize& f2) -> bool {
-              return file_to_order[f1.file->fd.GetNumber()] <
-                     file_to_order[f2.file->fd.GetNumber()];
-            });
+  size_t num_to_sort = temp->size() > VersionStorageInfo::kNumberFilesToSort
+                           ? VersionStorageInfo::kNumberFilesToSort
+                           : temp->size();
+
+  std::partial_sort(temp->begin(), temp->begin() + num_to_sort, temp->end(),
+                    [&](const Fsize& f1, const Fsize& f2) -> bool {
+                      return file_to_order[f1.file->fd.GetNumber()] <
+                             file_to_order[f2.file->fd.GetNumber()];
+                    });
 }
 
 void SortFileByRoundRobin(const InternalKeyComparator& icmp,
