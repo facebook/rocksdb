@@ -1316,9 +1316,18 @@ void ColumnFamilyData::InstallSuperVersion(
   super_version_ = new_superversion;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
-  super_version_->write_stall_condition =
-      RecalculateWriteStallConditions(mutable_cf_options);
-
+  if (old_superversion == nullptr || old_superversion->current != current() ||
+      old_superversion->mem != mem_ ||
+      old_superversion->imm != imm_.current()) {
+    // Should not recalculate slow down condition if nothing has changed, since
+    // currently RecalculateWriteStallConditions() treats it as further slowing
+    // down is needed.
+    super_version_->write_stall_condition =
+        RecalculateWriteStallConditions(mutable_cf_options);
+  } else {
+    super_version_->write_stall_condition =
+        old_superversion->write_stall_condition;
+  }
   if (old_superversion != nullptr) {
     // Reset SuperVersions cached in thread local storage.
     // This should be done before old_superversion->Unref(). That's to ensure
