@@ -481,7 +481,7 @@ TEST_P(CacheTest, ExternalRefPinsEntries) {
   ASSERT_EQ(-1, Lookup(100));
 }
 
-TEST_P(CacheTest, LRUEvictionOrder) {
+TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(100, 101);
   Insert(101, 102);
   Insert(102, 103);
@@ -500,12 +500,7 @@ TEST_P(CacheTest, LRUEvictionOrder) {
   Insert(303, 104);
 
   // Insert entries much more than Cache capacity.
-  for (int i = 0; i < kCacheSize * 2; i++) {
-    Insert(1000 + i, 2000 + i);
-  }
-
-  // Insert them another time to make sure that old entries are deleted.
-  for (int i = 0; i < kCacheSize * 2; i++) {
+  for (int i = 0; i < kCacheSize * 4; i++) {
     Insert(1000 + i, 2000 + i);
   }
 
