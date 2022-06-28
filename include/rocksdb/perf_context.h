@@ -84,6 +84,13 @@ struct PerfContext {
   uint64_t multiget_read_bytes;  // bytes for vals returned by MultiGet
   uint64_t iter_read_bytes;      // bytes for keys/vals decoded by iterator
 
+  uint64_t blob_cache_hit_count;  // total number of blob cache hits
+  uint64_t blob_read_count;       // total number of blob reads (with IO)
+  uint64_t blob_read_byte;        // total number of bytes from blob reads
+  uint64_t blob_read_time;        // total nanos spent on blob reads
+  uint64_t blob_checksum_time;    // total nanos spent on blob checksum
+  uint64_t blob_decompress_time;  // total nanos spent on blob decompression
+
   // total number of internal keys skipped over during iteration.
   // There are several reasons for it:
   // 1. when calling Next(), the iterator is in the position of the previous

@@ -335,7 +335,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   if (!prefetched) {
     TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
-
+    PERF_COUNTER_ADD(blob_read_count, 1);
+    PERF_COUNTER_ADD(blob_read_byte, record_size);
+    PERF_TIMER_GUARD(blob_read_time);
     const Status s = ReadFromFile(file_reader_.get(), record_offset,
                                   static_cast<size_t>(record_size), statistics_,
                                   &record_slice, &buf, &aligned_buf,
@@ -428,6 +430,8 @@ void BlobFileReader::MultiGetBlob(
     }
   }
   TEST_SYNC_POINT("BlobFileReader::MultiGetBlob:ReadFromFile");
+  PERF_COUNTER_ADD(blob_read_count, num_blobs);
+  PERF_COUNTER_ADD(blob_read_byte, total_len);
   s = file_reader_->MultiRead(IOOptions(), read_reqs.data(), read_reqs.size(),
                               direct_io ? &aligned_buf : nullptr,
                               read_options.rate_limiter_priority);
@@ -483,6 +487,8 @@ void BlobFileReader::MultiGetBlob(
 
 Status BlobFileReader::VerifyBlob(const Slice& record_slice,
                                   const Slice& user_key, uint64_t value_size) {
+  PERF_TIMER_GUARD(blob_checksum_time);
+
   BlobLogRecord record;
 
   const Slice header_slice(record_slice.data(), BlobLogRecord::kHeaderSize);
@@ -547,6 +553,7 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
   CacheAllocationPtr output;
 
   {
+    PERF_TIMER_GUARD(blob_decompress_time);
     StopWatch stop_watch(clock, statistics, BLOB_DB_DECOMPRESSION_MICROS);
     output = UncompressData(info, value_slice.data(), value_slice.size(),
                             &uncompressed_size, compression_format_version,

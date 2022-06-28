@@ -806,6 +806,36 @@ public enum TickerType {
 
     BLOCK_CHECKSUM_COMPUTE_COUNT((byte) -0x2E),
 
+    /**
+     * # of times cache miss when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_MISS((byte) -0x2F),
+
+    /**
+     * # of times cache hit when accessing blob from blob cache.
+     */
+    BLOB_DB_CACHE_HIT((byte) -0x30),
+
+    /**
+     * # of data blocks added to blob cache.
+     */
+    BLOB_DB_CACHE_ADD((byte) -0x31),
+
+    /**
+     * # # of failures when adding blobs to blob cache.
+     */
+    BLOB_DB_CACHE_ADD_FAILURES((byte) -0x32),
+
+    /**
+     * # of bytes read from blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_READ((byte) -0x33),
+
+    /**
+     * # of bytes written into blob cache.
+     */
+    BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

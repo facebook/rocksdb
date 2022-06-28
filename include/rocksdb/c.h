@@ -1668,7 +1668,13 @@ enum {
   rocksdb_env_unlock_file_nanos,
   rocksdb_env_new_logger_nanos,
   rocksdb_number_async_seek,
-  rocksdb_total_metric_count = 69
+  rocksdb_blob_cache_hit_count,
+  rocksdb_blob_read_count,
+  rocksdb_blob_read_byte,
+  rocksdb_blob_read_time,
+  rocksdb_blob_checksum_time,
+  rocksdb_blob_decompress_time,
+  rocksdb_total_metric_count = 77
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);

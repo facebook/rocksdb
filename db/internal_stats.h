@@ -500,7 +500,8 @@ class InternalStats {
   void DumpCFStatsNoFileHistogram(std::string* value);
   void DumpCFFileHistogram(std::string* value);
 
-  bool GetBlockCacheForStats(Cache** block_cache);
+  Cache* GetBlockCacheForStats();
+  Cache* GetBlobCacheForStats();
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[kIntStatsNumMax];
@@ -693,6 +694,10 @@ class InternalStats {
   bool HandleLiveBlobFileSize(uint64_t* value, DBImpl* db, Version* version);
   bool HandleLiveBlobFileGarbageSize(uint64_t* value, DBImpl* db,
                                      Version* version);
+  bool HandleBlobCacheCapacity(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleBlobCacheUsage(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleBlobCachePinnedUsage(uint64_t* value, DBImpl* db,
+                                  Version* version);
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
