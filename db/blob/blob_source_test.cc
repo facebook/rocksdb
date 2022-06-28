@@ -529,7 +529,7 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
                                                blob_offsets[i]));
     }
 
-    ASSERT_GT((int)get_perf_context()->blob_decompress_time, 0);
+    ASSERT_GE((int)get_perf_context()->blob_decompress_time, 0);
 
     read_options.read_tier = ReadTier::kBlockCacheTier;
     get_perf_context()->Reset();
