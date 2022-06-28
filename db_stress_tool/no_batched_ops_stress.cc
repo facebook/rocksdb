@@ -26,7 +26,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GenerateTimestampForRead();
+      ts_str = GetNowNanos();
       ts = ts_str;
       options.timestamp = &ts;
     }
@@ -216,7 +216,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GenerateTimestampForRead();
+      ts_str = GetNowNanos();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }

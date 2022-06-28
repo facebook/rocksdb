@@ -274,8 +274,6 @@ std::string GetNowNanos() {
   return ret;
 }
 
-std::string GenerateTimestampForRead() { return GetNowNanos(); }
-
 namespace {
 
 class MyXXH64Checksum : public FileChecksumGenerator {

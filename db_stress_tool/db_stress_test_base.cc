@@ -856,7 +856,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       Slice read_ts;
       Slice write_ts;
       if (ShouldAcquireMutexOnKey() && FLAGS_user_timestamp_size > 0) {
-        read_ts_str = GenerateTimestampForRead();
+        read_ts_str = GetNowNanos();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
         write_ts_str = GetNowNanos();
@@ -1558,7 +1558,7 @@ Status StressTest::TestBackupRestore(
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GenerateTimestampForRead();
+      ts_str = GetNowNanos();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
@@ -1749,7 +1749,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       Slice ts;
       ReadOptions read_opts;
       if (FLAGS_user_timestamp_size > 0) {
-        ts_str = GenerateTimestampForRead();
+        ts_str = GetNowNanos();
         ts = ts_str;
         read_opts.timestamp = &ts;
       }
@@ -1976,7 +1976,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GenerateTimestampForRead();
+    ts_str = GetNowNanos();
     ts = ts_str;
     ropt.timestamp = &ts;
   }
@@ -2129,7 +2129,7 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GenerateTimestampForRead();
+    ts_str = GetNowNanos();
     ts = ts_str;
     ro.timestamp = &ts;
   }
