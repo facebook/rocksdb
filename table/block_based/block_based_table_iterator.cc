@@ -263,8 +263,7 @@ void BlockBasedTableIterator::InitDataBlock() {
         read_options_, data_block_handle, &block_iter_, BlockType::kData,
         /*get_context=*/nullptr, &lookup_context_,
         block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction, /*no_sequential_checking=*/false,
-        s);
+        /*for_compaction=*/is_for_compaction, /*async_read=*/false, s);
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
   }
