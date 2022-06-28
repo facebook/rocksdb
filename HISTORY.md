@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 7.4.1 (06/28/2022)
+### Bug Fixes
+* Pass `rate_limiter_priority` through filter block reader functions to `FileSystem`.
+
 ## 7.4.0 (06/19/2022)
 ### Bug Fixes
 * Fixed a bug in calculating key-value integrity protection for users of in-place memtable updates. In particular, the affected users would be those who configure `protection_bytes_per_key > 0` on `WriteBatch` or `WriteOptions`, and configure `inplace_callback != nullptr`.
@@ -14,6 +18,7 @@
 * Fixed a possible corruption for users of `manual_wal_flush` and/or `FlushWAL(true /* sync */)`, together with `track_and_verify_wals_in_manifest == true`. For those users, losing unsynced data (e.g., due to power loss) could make future DB opens fail with a `Status::Corruption` complaining about missing WAL data.
 * Fixed a bug in `WriteBatchInternal::Append()` where WAL termination point in write batch was not considered and the function appends an incorrect number of checksums.
 * Fixed a crash bug introduced in 7.3.0 affecting users of MultiGet with `kDataBlockBinaryAndHash`.
+* Add some fixes in async_io which was doing extra prefetching in shorter scans.
 
 ### Public API changes
 * Add new API GetUnixTime in Snapshot class which returns the unix time at which Snapshot is taken.
