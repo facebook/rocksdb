@@ -274,7 +274,7 @@ class MemTable {
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback);
 
-  // If `key` exists in current memtable with type `kTypeValue` and the existing
+  // If `key` exists in current memtable with type value_type and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
   // adds the new value to the memtable out-of-place.
   //
@@ -284,8 +284,8 @@ class MemTable {
   //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  Status Update(SequenceNumber seq, const Slice& key, const Slice& value,
-                const ProtectionInfoKVOS64* kv_prot_info);
+  Status Update(SequenceNumber seq, ValueType value_type, const Slice& key,
+                const Slice& value, const ProtectionInfoKVOS64* kv_prot_info);
 
   // If `key` exists in current memtable with type `kTypeValue` and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise

@@ -25,6 +25,9 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace fast_lru_cache {
 
+// Forward declaration of friend class.
+class FastLRUCacheTest;
+
 // LRU cache implementation using an open-address hash table.
 //
 // Every slot in the hash table is an LRUHandle. Because handles can be
@@ -365,6 +368,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
  private:
   friend class LRUCache;
+  friend class FastLRUCacheTest;
+
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 
@@ -373,6 +378,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle>* deleted);
+
+  // Returns the charge of a single handle.
+  static size_t CalcEstimatedHandleCharge(
+      size_t estimated_value_size,
+      CacheMetadataChargePolicy metadata_charge_policy);
 
   // Returns the number of bits used to hash an element in the hash
   // table.

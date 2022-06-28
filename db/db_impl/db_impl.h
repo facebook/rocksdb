@@ -217,6 +217,11 @@ class DBImpl : public DB {
   Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, const Slice& ts, const Slice& value) override;
 
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns) override;
+
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) override;

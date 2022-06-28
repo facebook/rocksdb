@@ -206,6 +206,7 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
+namespace fast_lru_cache {
 // TODO(guido) Consolidate the following FastLRUCache tests with
 // that of LRUCache.
 class FastLRUCacheTest : public testing::Test {
@@ -238,6 +239,38 @@ class FastLRUCacheTest : public testing::Test {
 
   Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
 
+  size_t CalcEstimatedHandleChargeWrapper(
+      size_t estimated_value_size,
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    return fast_lru_cache::LRUCacheShard::CalcEstimatedHandleCharge(
+        estimated_value_size, metadata_charge_policy);
+  }
+
+  uint8_t CalcHashBitsWrapper(
+      size_t capacity, size_t estimated_value_size,
+      CacheMetadataChargePolicy metadata_charge_policy) {
+    return fast_lru_cache::LRUCacheShard::CalcHashBits(
+        capacity, estimated_value_size, metadata_charge_policy);
+  }
+
+  // Maximum number of items that a shard can hold.
+  double CalcMaxOccupancy(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy) {
+    size_t handle_charge =
+        fast_lru_cache::LRUCacheShard::CalcEstimatedHandleCharge(
+            estimated_value_size, metadata_charge_policy);
+    return capacity / (fast_lru_cache::kLoadFactor * handle_charge);
+  }
+
+  bool TableSizeIsAppropriate(uint8_t hash_bits, double max_occupancy) {
+    if (hash_bits == 0) {
+      return max_occupancy <= 1;
+    } else {
+      return (1 << hash_bits >= max_occupancy) &&
+             (1 << (hash_bits - 1) <= max_occupancy);
+    }
+  }
+
  private:
   fast_lru_cache::LRUCacheShard* cache_ = nullptr;
 };
@@ -252,6 +285,62 @@ TEST_F(FastLRUCacheTest, ValidateKeySize) {
   EXPECT_NOK(Insert('e', 11));
   EXPECT_NOK(Insert('f', 0));
 }
+
+TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
+  size_t capacity = 1024;
+  size_t estimated_value_size = 1;
+  CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
+  double max_occupancy =
+      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
+  uint8_t hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                          metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+
+  capacity = 1024;
+  estimated_value_size = 1;
+  metadata_charge_policy = kFullChargeCacheMetadata;
+  max_occupancy =
+      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+
+  // No elements fit in cache.
+  capacity = 0;
+  estimated_value_size = 1;
+  metadata_charge_policy = kDontChargeCacheMetadata;
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+
+  // Set the capacity just below a single handle. Because the load factor is <
+  // 100% at least one handle will fit in the table.
+  estimated_value_size = 1;
+  size_t handle_charge = CalcEstimatedHandleChargeWrapper(
+      8192 /* estimated_value_size */, kDontChargeCacheMetadata);
+  capacity = handle_charge - 1;
+  // The load factor should be bounded away from 100%.
+  assert(static_cast<size_t>(capacity / fast_lru_cache::kLoadFactor) >
+         handle_charge);
+  metadata_charge_policy = kDontChargeCacheMetadata;
+  max_occupancy =
+      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+
+  // Large capacity.
+  capacity = 31924172;
+  estimated_value_size = 321;
+  metadata_charge_policy = kFullChargeCacheMetadata;
+  max_occupancy =
+      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+}
+
+}  // namespace fast_lru_cache
 
 class TestSecondaryCache : public SecondaryCache {
  public:

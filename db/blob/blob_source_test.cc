@@ -12,6 +12,7 @@
 #include <string>
 
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
 #include "db/db_test_util.h"
@@ -108,33 +109,34 @@ class BlobSourceTest : public DBTestBase {
  protected:
  public:
   explicit BlobSourceTest()
-      : DBTestBase("blob_source_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("blob_source_test", /*env_do_fsync=*/true) {
+    options_.env = env_;
+    options_.enable_blob_files = true;
+    options_.create_if_missing = true;
+
+    LRUCacheOptions co;
+    co.capacity = 2048;
+    co.num_shard_bits = 2;
+    co.metadata_charge_policy = kDontChargeCacheMetadata;
+    options_.blob_cache = NewLRUCache(co);
+    options_.lowest_used_cache_tier = CacheTier::kVolatileTier;
+
+    assert(db_->GetDbIdentity(db_id_).ok());
+    assert(db_->GetDbSessionId(db_session_id_).ok());
+  }
+
+  Options options_;
+  std::string db_id_;
+  std::string db_session_id_;
 };
 
 TEST_F(BlobSourceTest, GetBlobsFromCache) {
-  Options options;
-  options.env = env_;
-  options.cf_paths.emplace_back(
+  options_.cf_paths.emplace_back(
       test::PerThreadDBPath(env_, "BlobSourceTest_GetBlobsFromCache"), 0);
-  options.enable_blob_files = true;
-  options.create_if_missing = true;
 
-  LRUCacheOptions co;
-  co.capacity = 2048;
-  co.num_shard_bits = 2;
-  co.metadata_charge_policy = kDontChargeCacheMetadata;
-  options.blob_cache = NewLRUCache(co);
-  options.lowest_used_cache_tier = CacheTier::kVolatileTier;
+  DestroyAndReopen(options_);
 
-  DestroyAndReopen(options);
-
-  std::string db_id;
-  ASSERT_OK(db_->GetDbIdentity(db_id));
-
-  std::string db_session_id;
-  ASSERT_OK(db_->GetDbSessionId(db_session_id));
-
-  ImmutableOptions immutable_options(options);
+  ImmutableOptions immutable_options(options_);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -179,7 +181,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       backing_cache.get(), &immutable_options, &file_options, column_family_id,
       blob_file_read_hist, nullptr /*IOTracer*/));
 
-  BlobSource blob_source(&immutable_options, db_id, db_session_id,
+  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
 
   ReadOptions read_options;
@@ -204,7 +206,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
@@ -222,7 +224,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
@@ -239,7 +241,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
@@ -257,14 +260,15 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
-      ASSERT_EQ(bytes_read, blob_sizes[i]);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
     }
   }
 
-  options.blob_cache->EraseUnRefEntries();
+  options_.blob_cache->EraseUnRefEntries();
 
   {
     // Cache-only GetBlob
@@ -320,30 +324,131 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   }
 }
 
+TEST_F(BlobSourceTest, GetCompressedBlobs) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  const CompressionType compression = kSnappyCompression;
+
+  options_.cf_paths.emplace_back(
+      test::PerThreadDBPath(env_, "BlobSourceTest_GetCompressedBlobs"), 0);
+
+  DestroyAndReopen(options_);
+
+  ImmutableOptions immutable_options(options_);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr size_t num_blobs = 256;
+
+  std::vector<std::string> key_strs;
+  std::vector<std::string> blob_strs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    key_strs.push_back("key" + std::to_string(i));
+    blob_strs.push_back("blob" + std::to_string(i));
+  }
+
+  std::vector<Slice> keys;
+  std::vector<Slice> blobs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    keys.push_back({key_strs[i]});
+    blobs.push_back({blob_strs[i]});
+  }
+
+  std::vector<uint64_t> blob_offsets(keys.size());
+  std::vector<uint64_t> blob_sizes(keys.size());
+
+  constexpr size_t capacity = 1024;
+  auto backing_cache = NewLRUCache(capacity);  // Blob file cache
+
+  FileOptions file_options;
+  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      nullptr /*HistogramImpl*/, nullptr /*IOTracer*/));
+
+  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
+                         blob_file_cache.get());
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+
+  uint64_t bytes_read = 0;
+  std::vector<PinnableSlice> values(keys.size());
+
+  {
+    // Snappy Compression
+    const uint64_t file_number = 1;
+
+    read_options.read_tier = ReadTier::kReadAllTier;
+
+    WriteBlobFile(immutable_options, column_family_id, has_ttl,
+                  expiration_range, expiration_range, file_number, keys, blobs,
+                  compression, blob_offsets, blob_sizes);
+
+    CacheHandleGuard<BlobFileReader> blob_file_reader;
+    ASSERT_OK(blob_source.GetBlobFileReader(file_number, &blob_file_reader));
+    ASSERT_NE(blob_file_reader.GetValue(), nullptr);
+
+    const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
+    ASSERT_EQ(blob_file_reader.GetValue()->GetCompressionType(), compression);
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_NE(blobs[i].size() /*uncompressed size*/,
+                blob_sizes[i] /*compressed size*/);
+    }
+
+    read_options.fill_cache = true;
+    read_options.read_tier = ReadTier::kReadAllTier;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                                blob_offsets[i]));
+      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], file_number,
+                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    compression, nullptr /*prefetch_buffer*/,
+                                    &values[i], &bytes_read));
+      ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
+      ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
+
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[i]));
+    }
+
+    read_options.read_tier = ReadTier::kBlockCacheTier;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[i]));
+
+      // Compressed blob size is passed in GetBlob
+      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], file_number,
+                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    compression, nullptr /*prefetch_buffer*/,
+                                    &values[i], &bytes_read));
+      ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
+      ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
+      ASSERT_EQ(bytes_read,
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
+
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[i]));
+    }
+  }
+}
+
 TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
-  Options options;
-  options.env = env_;
-  options.cf_paths.emplace_back(
+  options_.cf_paths.emplace_back(
       test::PerThreadDBPath(env_, "BlobSourceTest_MultiGetBlobsFromCache"), 0);
-  options.enable_blob_files = true;
-  options.create_if_missing = true;
 
-  LRUCacheOptions co;
-  co.capacity = 2048;
-  co.num_shard_bits = 2;
-  co.metadata_charge_policy = kDontChargeCacheMetadata;
-  options.blob_cache = NewLRUCache(co);
-  options.lowest_used_cache_tier = CacheTier::kVolatileTier;
+  DestroyAndReopen(options_);
 
-  DestroyAndReopen(options);
-
-  std::string db_id;
-  ASSERT_OK(db_->GetDbIdentity(db_id));
-
-  std::string db_session_id;
-  ASSERT_OK(db_->GetDbSessionId(db_session_id));
-
-  ImmutableOptions immutable_options(options);
+  ImmutableOptions immutable_options(options_);
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
@@ -388,7 +493,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       backing_cache.get(), &immutable_options, &file_options, column_family_id,
       blob_file_read_hist, nullptr /*IOTracer*/));
 
-  BlobSource blob_source(&immutable_options, db_id, db_session_id,
+  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
 
   ReadOptions read_options;
@@ -451,7 +556,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                                     &value_buf[i], &bytes_read));
       ASSERT_EQ(value_buf[i], blobs[i]);
       ASSERT_EQ(bytes_read,
-                blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize);
+                BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
@@ -485,7 +590,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     }
   }
 
-  options.blob_cache->EraseUnRefEntries();
+  options_.blob_cache->EraseUnRefEntries();
 
   {
     // Cache-only MultiGetBlob

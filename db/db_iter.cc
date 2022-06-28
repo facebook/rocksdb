@@ -207,6 +207,15 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   return true;
 }
 
+bool DBIter::SetWideColumnValueIfNeeded(const Slice& /* wide_columns_slice */) {
+  assert(!is_blob_);
+
+  // TODO: support wide-column entities
+  status_ = Status::NotSupported("Encountered unexpected wide-column entity");
+  valid_ = false;
+  return false;
+}
+
 // PRE: saved_key_ has the current user key if skipping_saved_key
 // POST: saved_key_ should have the next user key if valid_,
 //       if the current entry is a result of merge
@@ -341,11 +350,16 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             break;
           case kTypeValue:
           case kTypeBlobIndex:
+          case kTypeWideColumnEntity:
             if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
 
               if (ikey_.type == kTypeBlobIndex) {
                 if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  return false;
+                }
+              } else if (ikey_.type == kTypeWideColumnEntity) {
+                if (!SetWideColumnValueIfNeeded(iter_.value())) {
                   return false;
                 }
               }
@@ -367,6 +381,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               } else {
                 if (ikey_.type == kTypeBlobIndex) {
                   if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
+                } else if (ikey_.type == kTypeWideColumnEntity) {
+                  if (!SetWideColumnValueIfNeeded(iter_.value())) {
                     return false;
                   }
                 }
@@ -580,6 +598,12 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
       return true;
+    } else if (kTypeWideColumnEntity == ikey.type) {
+      // TODO: support wide-column entities
+      status_ = Status::NotSupported(
+          "Merge currently not supported for wide-column entities");
+      valid_ = false;
+      return false;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
@@ -783,7 +807,8 @@ bool DBIter::FindValueForCurrentKey() {
   merge_context_.Clear();
   current_entry_is_merged_ = false;
   // last entry before merge (could be kTypeDeletion,
-  // kTypeDeletionWithTimestamp, kTypeSingleDeletion or kTypeValue)
+  // kTypeDeletionWithTimestamp, kTypeSingleDeletion, kTypeValue,
+  // kTypeBlobIndex, or kTypeWideColumnEntity)
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
@@ -831,6 +856,7 @@ bool DBIter::FindValueForCurrentKey() {
     switch (last_key_entry_type) {
       case kTypeValue:
       case kTypeBlobIndex:
+      case kTypeWideColumnEntity:
         if (range_del_agg_.ShouldDelete(
                 ikey, RangeDelPositioningMode::kBackwardTraversal)) {
           last_key_entry_type = kTypeRangeDeletion;
@@ -927,6 +953,12 @@ bool DBIter::FindValueForCurrentKey() {
         }
         is_blob_ = false;
         return true;
+      } else if (last_not_merge_type == kTypeWideColumnEntity) {
+        // TODO: support wide-column entities
+        status_ = Status::NotSupported(
+            "Merge currently not supported for wide-column entities");
+        valid_ = false;
+        return false;
       } else {
         assert(last_not_merge_type == kTypeValue);
         s = Merge(&pinned_value_, saved_key_.GetUserKey());
@@ -941,6 +973,11 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     case kTypeBlobIndex:
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
+        return false;
+      }
+      break;
+    case kTypeWideColumnEntity:
+      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
         return false;
       }
       break;
@@ -1034,11 +1071,16 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     Slice ts = ExtractTimestampFromUserKey(ikey.user_key, timestamp_size_);
     saved_timestamp_.assign(ts.data(), ts.size());
   }
-  if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
+  if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex ||
+      ikey.type == kTypeWideColumnEntity) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
     if (ikey.type == kTypeBlobIndex) {
       if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
+        return false;
+      }
+    } else if (ikey_.type == kTypeWideColumnEntity) {
+      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
         return false;
       }
     }
@@ -1109,6 +1151,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       }
       is_blob_ = false;
       return true;
+    } else if (ikey.type == kTypeWideColumnEntity) {
+      // TODO: support wide-column entities
+      status_ = Status::NotSupported(
+          "Merge currently not supported for wide-column entities");
+      valid_ = false;
+      return false;
     } else {
       valid_ = false;
       status_ = Status::Corruption(
