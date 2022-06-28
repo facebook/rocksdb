@@ -474,7 +474,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
           std::string ts_str;
           Slice ts;
           if (FLAGS_user_timestamp_size > 0) {
-            ts_str = NowNanosStr();
+            ts_str = GetNowNanos();
             ts = ts_str;
             s = db_->Put(write_opts, cfh, key, ts, v);
           } else {
@@ -859,7 +859,7 @@ void StressTest::OperateDb(ThreadState* thread) {
         read_ts_str = GenerateTimestampForRead();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
-        write_ts_str = NowNanosStr();
+        write_ts_str = GetNowNanos();
         write_ts = write_ts_str;
       }
 

@@ -630,12 +630,12 @@ class NonBatchedOpsStressTest : public StressTest {
       lock.reset(
           new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
       if (FLAGS_user_timestamp_size > 0) {
-        write_ts_str = NowNanosStr();
+        write_ts_str = GetNowNanos();
         write_ts = write_ts_str;
       }
     }
     if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
-      write_ts_str = NowNanosStr();
+      write_ts_str = GetNowNanos();
       write_ts = write_ts_str;
     }
 
@@ -723,7 +723,7 @@ class NonBatchedOpsStressTest : public StressTest {
     auto shared = thread->shared;
 
     // OPERATION delete
-    std::string write_ts_str = NowNanosStr();
+    std::string write_ts_str = GetNowNanos();
     Slice write_ts = write_ts_str;
 
     std::string key_str = Key(rand_key);
