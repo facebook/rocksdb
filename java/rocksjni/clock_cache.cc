@@ -27,8 +27,8 @@ jlong Java_org_rocksdb_ClockCache_newClockCache(
           static_cast<size_t>(jcapacity),
           static_cast<size_t>(jestimated_value_size),
           static_cast<int>(jnum_shard_bits),
-          static_cast<bool>(jstrict_capacity_limit)),
-      rocksdb::kDefaultCacheMetadataChargePolicy);
+          static_cast<bool>(jstrict_capacity_limit),
+      rocksdb::kDefaultCacheMetadataChargePolicy));
   return GET_CPLUSPLUS_POINTER(sptr_clock_cache);
 }
 
