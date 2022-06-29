@@ -19,12 +19,12 @@
  * Signature: (JIZ)J
  */
 jlong Java_org_rocksdb_ClockCache_newClockCache(
-    JNIEnv* /*env*/, jclass /*jcls*/, jlong jcapacity, jint jnum_shard_bits,
+    JNIEnv* /*env*/, jclass /*jcls*/, jlong jcapacity, jlong jestimated_value_size, jint jnum_shard_bits,
     jboolean jstrict_capacity_limit) {
   auto* sptr_clock_cache = new std::shared_ptr<ROCKSDB_NAMESPACE::Cache>(
       ROCKSDB_NAMESPACE::NewClockCache(
-          static_cast<size_t>(jcapacity), static_cast<int>(jnum_shard_bits),
-          static_cast<bool>(jstrict_capacity_limit)));
+          static_cast<size_t>(jcapacity), static_cast<size_t>(jestimated_value_size), static_cast<int>(jnum_shard_bits),
+          static_cast<bool>(jstrict_capacity_limit)), rocksdb::kDefaultCacheMetadataChargePolicy);
   return GET_CPLUSPLUS_POINTER(sptr_clock_cache);
 }
 
