@@ -415,8 +415,6 @@ void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
   uint64_t total_len = 0;
   for (size_t i = 0; i < num_blobs; ++i) {
     const size_t key_size = blob_reqs[i]->user_key->size();
-    assert(IsValidBlobOffset(blob_reqs[i]->offset, key_size, blob_reqs[i]->len,
-                             file_size_));
     const uint64_t adjustment =
         read_options.verify_checksums
             ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
