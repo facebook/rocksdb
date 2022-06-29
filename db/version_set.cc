@@ -1936,7 +1936,7 @@ void Version::MultiGetBlob(
 
       blob_reqs[blob_file_number].push_back(BlobReadRequest(
           key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
-          blob_index.compression(), key_context.value, key_context.s));
+          key_context.value, key_context.s, blob_index.compression()));
     }
   }
 

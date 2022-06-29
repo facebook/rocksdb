@@ -68,9 +68,6 @@ struct BlobReadRequest {
   // Length to read in bytes
   size_t len;
 
-  // Blob compression type
-  CompressionType compression;
-
   // Output parameter set by MultiGetBlob() to point to the data buffer, and
   // the number of valid bytes
   PinnableSlice* result;
@@ -78,17 +75,38 @@ struct BlobReadRequest {
   // Status of read
   Status* status;
 
+  // Blob compression type
+  CompressionType compression;
+
   BlobReadRequest(const Slice& _user_key, uint64_t _offset, size_t _len,
-                  CompressionType _compression, PinnableSlice* _result,
-                  Status* _status)
+                  PinnableSlice* _result, Status* _status,
+                  CompressionType _compression = kNoCompression)
       : user_key(&_user_key),
         offset(_offset),
         len(_len),
-        compression(_compression),
         result(_result),
-        status(_status) {}
+        status(_status),
+        compression(_compression) {}
 
   BlobReadRequest() = default;
+
+  BlobReadRequest(const BlobReadRequest& other)
+      : user_key(other.user_key),
+        offset(other.offset),
+        len(other.len),
+        result(other.result),
+        status(other.status),
+        compression(other.compression) {}
+
+  BlobReadRequest& operator=(const BlobReadRequest& other) {
+    user_key = other.user_key;
+    offset = other.offset;
+    len = other.len;
+    result = other.result;
+    status = other.status;
+    compression = other.compression;
+    return *this;
+  }
 };
 
 // The MultiGetContext class is a container for the sorted list of keys that
