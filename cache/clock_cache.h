@@ -228,7 +228,7 @@ struct ClockHandle {
 
 class ClockHandleTable {
  public:
-  explicit ClockHandleTable(uint8_t hash_bits);
+  explicit ClockHandleTable(int hash_bits);
   ~ClockHandleTable();
 
   // Returns a pointer to a visible element matching the key/hash, or
@@ -262,7 +262,7 @@ class ClockHandleTable {
     }
   }
 
-  uint8_t GetLengthBits() const { return length_bits_; }
+  int GetLengthBits() const { return length_bits_; }
 
   uint32_t GetOccupancy() const { return occupancy_; }
 
@@ -292,7 +292,7 @@ class ClockHandleTable {
 
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
-  uint8_t length_bits_;
+  int length_bits_;
 
   const uint32_t length_bits_mask_;
 
@@ -383,8 +383,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
   // Returns the number of bits used to hash an element in the hash
   // table.
-  static uint8_t CalcHashBits(size_t capacity, size_t estimated_value_size,
-                              CacheMetadataChargePolicy metadata_charge_policy);
+  static int CalcHashBits(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy);
 
   // Initialized before use.
   size_t capacity_;

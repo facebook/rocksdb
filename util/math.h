@@ -6,8 +6,6 @@
 #pragma once
 
 #include <assert.h>
-
-#include <climits>
 #ifdef _MSC_VER
 #include <intrin.h>
 #endif

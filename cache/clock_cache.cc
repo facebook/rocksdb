@@ -26,11 +26,11 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
 
-ClockHandleTable::ClockHandleTable(uint8_t hash_bits)
+ClockHandleTable::ClockHandleTable(int hash_bits)
     : length_bits_(hash_bits),
       length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_(0),
-      array_(new ClockHandle[size_t{1} << length_bits_]) {
+      array_(new ClockHandle[uint32_t{1} << length_bits_]) {
   assert(hash_bits <= 32);
 }
 
@@ -283,19 +283,19 @@ size_t ClockCacheShard::CalcEstimatedHandleCharge(
   return h.total_charge;
 }
 
-uint8_t ClockCacheShard::CalcHashBits(
+int ClockCacheShard::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
   size_t handle_charge =
       CalcEstimatedHandleCharge(estimated_value_size, metadata_charge_policy);
-  size_t num_entries =
-      static_cast<size_t>(capacity / (kLoadFactor * handle_charge));
+  uint32_t num_entries =
+      static_cast<uint32_t>(capacity / (kLoadFactor * handle_charge));
 
   if (num_entries == 0) {
     return 0;
   }
-  uint8_t num_hash_bits = static_cast<uint8_t>(FloorLog2<size_t>(num_entries));
-  return num_hash_bits + (size_t{1} << num_hash_bits < num_entries ? 1 : 0);
+  int hash_bits = FloorLog2(num_entries);
+  return hash_bits + (size_t{1} << hash_bits < num_entries ? 1 : 0);
 }
 
 void ClockCacheShard::SetCapacity(size_t capacity) {
@@ -346,13 +346,15 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     EvictFromClock(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
-        table_.GetOccupancy() == static_cast<uint32_t>((size_t{1} << table_.GetLengthBits()) / kStrictLoadFactor)) {
+        table_.GetOccupancy() ==
+            static_cast<uint32_t>((uint32_t{1} << table_.GetLengthBits()) /
+                                  kStrictLoadFactor)) {
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.
         last_reference_list.push_back(tmp);
       } else {
-        if (table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
+        if (table_.GetOccupancy() == uint32_t{1} << table_.GetLengthBits()) {
           s = Status::Incomplete(
               "Insert failed because all slots in the hash table are full.");
           // TODO(Guido) Use the correct statuses.
