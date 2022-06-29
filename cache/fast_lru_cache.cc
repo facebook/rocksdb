@@ -30,6 +30,7 @@ namespace fast_lru_cache {
 
 LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
     : length_bits_(hash_bits),
+      length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_(0),
       array_(new LRUHandle[size_t{1} << length_bits_]) {
   assert(hash_bits <= 32);
@@ -145,12 +146,10 @@ int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
 inline int LRUHandleTable::FindSlot(const Slice& key,
                                     std::function<bool(LRUHandle*)> cond,
                                     int& probe, int displacement) {
-  uint32_t base = BinaryMod<uint32_t>(
-      Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
-  uint32_t increment = BinaryMod<uint32_t>(
-      (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
-  uint32_t current =
-      BinaryMod<uint32_t>(base + probe * increment, length_bits_);
+  uint32_t base = ModTableLength(Hash(key.data(), key.size(), kProbingSeed1));
+  uint32_t increment =
+      ModTableLength((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
+  uint32_t current = ModTableLength(base + probe * increment);
   while (true) {
     LRUHandle* h = &array_[current];
     probe++;
@@ -167,7 +166,7 @@ inline int LRUHandleTable::FindSlot(const Slice& key,
       return -1;
     }
     h->displacements += displacement;
-    current = BinaryMod<uint32_t>(current + increment, length_bits_);
+    current = ModTableLength(current + increment);
   }
 }
 
@@ -350,7 +349,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     EvictFromLRU(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
-        table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
+        table_.GetOccupancy() == static_cast<uint32_t>((size_t{1} << table_.GetLengthBits()) / kStrictLoadFactor)) {
       // There are two measures of capacity:
       // - Space (or charge) capacity: The maximum possible sum of the charges
       //    of the elements.

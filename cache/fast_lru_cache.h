@@ -90,6 +90,11 @@ class FastLRUCacheTest;
 // usage by a tiny fraction.
 constexpr double kLoadFactor = 0.35;
 
+// The user can exceed kLoadFactor if the sizes of the inserted values don't
+// match estimated_value_size, or if strict_capacity_limit == false. To
+// avoid performance to plunge, we set a strict upper bound on the load factor.
+constexpr double kStrictLoadFactor = 0.7;
+
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
 constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
@@ -288,9 +293,16 @@ class LRUHandleTable {
   int FindSlot(const Slice& key, std::function<bool(LRUHandle*)> cond,
                int& probe, int displacement);
 
+  // Returns x mod 2^{length_bits_}.
+  inline uint32_t ModTableLength(uint32_t x) {
+    return x & length_bits_mask_;
+  }
+
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
   uint8_t length_bits_;
+
+  const uint32_t length_bits_mask_;
 
   // Number of elements in the table.
   uint32_t occupancy_;

@@ -30,6 +30,7 @@ namespace clock_cache {
 
 ClockHandleTable::ClockHandleTable(uint8_t hash_bits)
     : length_bits_(hash_bits),
+      length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_(0),
       array_(new ClockHandle[size_t{1} << length_bits_]) {
   assert(hash_bits <= 32);
@@ -144,12 +145,10 @@ int ClockHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
 inline int ClockHandleTable::FindSlot(const Slice& key,
                                       std::function<bool(ClockHandle*)> cond,
                                       int& probe, int displacement) {
-  uint32_t base = BinaryMod<uint32_t>(
-      Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
-  uint32_t increment = BinaryMod<uint32_t>(
-      (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
-  uint32_t current =
-      BinaryMod<uint32_t>(base + probe * increment, length_bits_);
+  uint32_t base = ModTableLength(Hash(key.data(), key.size(), kProbingSeed1));
+  uint32_t increment =
+      ModTableLength((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
+  uint32_t current = ModTableLength(base + probe * increment);
   while (true) {
     ClockHandle* h = &array_[current];
     probe++;
@@ -166,7 +165,7 @@ inline int ClockHandleTable::FindSlot(const Slice& key,
       return -1;
     }
     h->displacements += displacement;
-    current = BinaryMod<uint32_t>(current + increment, length_bits_);
+    current = ModTableLength(current + increment);
   }
 }
 
@@ -261,8 +260,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
   assert(charge <= capacity_);
   while (clock_usage_ > 0 && (usage_ + charge) > capacity_) {
     ClockHandle* old = &table_.array_[clock_pointer_];
-    clock_pointer_ =
-        BinaryMod<uint32_t>(clock_pointer_ + 1, table_.GetLengthBits());
+    clock_pointer_ = table_.ModTableLength(clock_pointer_ + 1);
     // Clock list contains only elements which can be evicted.
     if (!old->IsInClockList()) {
       continue;
@@ -350,7 +348,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     EvictFromClock(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
-        table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
+        table_.GetOccupancy() == static_cast<uint32_t>((size_t{1} << table_.GetLengthBits()) / kStrictLoadFactor)) {
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.

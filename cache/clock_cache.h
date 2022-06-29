@@ -36,7 +36,7 @@ namespace clock_cache {
 // collision using a probing strategy. Visibility and referenceability of
 // elements works as usual. See fast_lru_cache.h for a detailed description.
 //
-// The main difference with FastLRUCache is, of course, the eviction algorithm
+// The main difference with FastLRUCache is, not surprisingly, the eviction algorithm
 // ---instead of an LRU list, we maintain a circular list with the elements
 // available for eviction, which the clock algorithm traverses to pick the next
 // victim. The clock list is represented using the array of handles, and we
@@ -48,6 +48,8 @@ namespace clock_cache {
 // not immediately evictable, it decreases its priority.
 
 constexpr double kLoadFactor = 0.35;  // See fast_lru_cache.h.
+
+constexpr double kStrictLoadFactor = 0.7; // See fast_lru_cache.h.
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
@@ -285,9 +287,16 @@ class ClockHandleTable {
   int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> cond,
                int& probe, int displacement);
 
+  // Returns x mod 2^{length_bits_}.
+  inline uint32_t ModTableLength(uint32_t x) {
+    return x & length_bits_mask_;
+  }
+
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
   uint8_t length_bits_;
+
+  const uint32_t length_bits_mask_;
 
   // Number of elements in the table.
   uint32_t occupancy_;
