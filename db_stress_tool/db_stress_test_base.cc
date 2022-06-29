@@ -1006,14 +1006,8 @@ Status StressTest::TestIterate(ThreadState* thread,
 
   std::string read_ts_str;
   Slice read_ts_slice;
-  if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
-    const SharedState* const shared = thread->shared;
-    assert(shared);
-    uint64_t read_ts = shared->GetStartTimestamp();
-    PutFixed64(&read_ts_str, read_ts);
-    read_ts_slice = read_ts_str;
-    readoptionscopy.timestamp = &read_ts_slice;
-  }
+  MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
+                                     readoptionscopy);
 
   bool expect_total_order = false;
   if (thread->rand.OneIn(16)) {
@@ -2709,6 +2703,60 @@ void StressTest::Reopen(ThreadState* thread) {
       exit(1);
     }
   }
+}
+
+void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                                      std::string& ts_str,
+                                                      Slice& ts_slice,
+                                                      ReadOptions& read_opts) {
+  if (FLAGS_user_timestamp_size == 0) {
+    return;
+  }
+
+  assert(thread);
+  if (!thread->rand.OneInOpt(3)) {
+    return;
+  }
+
+  const SharedState* const shared = thread->shared;
+  assert(shared);
+  const uint64_t start_ts = shared->GetStartTimestamp();
+
+  uint64_t now = db_stress_env->NowNanos();
+
+  assert(now > start_ts);
+  uint64_t time_diff = now - start_ts;
+  uint64_t ts = start_ts + (thread->rand.Next64() % time_diff);
+  PutFixed64(&ts_str, ts);
+  ts_slice = ts_str;
+  read_opts.timestamp = &ts_slice;
+}
+
+void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                                    std::string& ts_str,
+                                                    Slice& ts_slice,
+                                                    ReadOptions& read_opts) {
+  if (FLAGS_user_timestamp_size == 0) {
+    return;
+  }
+
+  assert(thread);
+  if (!thread->rand.OneInOpt(3)) {
+    return;
+  }
+
+  const SharedState* const shared = thread->shared;
+  assert(shared);
+  const uint64_t start_ts = shared->GetStartTimestamp();
+
+  uint64_t now = db_stress_env->NowNanos();
+
+  assert(now > start_ts);
+  uint64_t time_diff = now - start_ts;
+  uint64_t ts = start_ts + (thread->rand.Next64() % time_diff);
+  PutFixed64(&ts_str, ts);
+  ts_slice = ts_str;
+  read_opts.timestamp = &ts_slice;
 }
 
 void CheckAndSetOptionsForUserTimestamp(Options& options) {

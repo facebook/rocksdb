@@ -339,14 +339,8 @@ class NonBatchedOpsStressTest : public StressTest {
     ReadOptions read_opts_copy = read_opts;
     std::string read_ts_str;
     Slice read_ts_slice;
-    if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
-      const SharedState* const shared = thread->shared;
-      assert(shared);
-      uint64_t read_ts = shared->GetStartTimestamp();
-      PutFixed64(&read_ts_str, read_ts);
-      read_ts_slice = read_ts_str;
-      read_opts_copy.timestamp = &read_ts_slice;
-    }
+    MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
+                                         read_opts_copy);
 
     Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
     if (fault_fs_guard) {
@@ -407,14 +401,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     std::string read_ts_str;
     Slice read_ts_slice;
-    if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
-      const SharedState* const shared = thread->shared;
-      assert(shared);
-      uint64_t read_ts = shared->GetStartTimestamp();
-      PutFixed64(&read_ts_str, read_ts);
-      read_ts_slice = read_ts_str;
-      readoptionscopy.timestamp = &read_ts_slice;
-    }
+    MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
+                                         readoptionscopy);
 
     readoptionscopy.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
@@ -618,14 +606,8 @@ class NonBatchedOpsStressTest : public StressTest {
 
     std::string read_ts_str;
     Slice read_ts_slice;
-    if (FLAGS_user_timestamp_size > 0 && thread->rand.OneInOpt(3)) {
-      const SharedState* const shared = thread->shared;
-      assert(shared);
-      uint64_t read_ts = shared->GetStartTimestamp();
-      PutFixed64(&read_ts_str, read_ts);
-      read_ts_slice = read_ts_str;
-      ro_copy.timestamp = &read_ts_slice;
-    }
+    MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
+                                       ro_copy);
 
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
     unsigned long count = 0;
