@@ -439,4 +439,9 @@ class ClockCache
 
 }  // namespace clock_cache
 
+std::shared_ptr<Cache> NewClockCache(
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy);
+
 }  // namespace ROCKSDB_NAMESPACE

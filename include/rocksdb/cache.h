@@ -174,7 +174,7 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
-// Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
+// Similar to NewLRUCache, but create a cache based on clock algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
 // more detail.
 //
