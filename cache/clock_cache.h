@@ -32,7 +32,8 @@ namespace clock_cache {
 // collision using a probing strategy. Visibility and referenceability of
 // elements works as usual. See fast_lru_cache.h for a detailed description.
 //
-// The main difference with FastLRUCache is, not surprisingly, the eviction algorithm
+// The main difference with FastLRUCache is, not surprisingly, the eviction
+// algorithm
 // ---instead of an LRU list, we maintain a circular list with the elements
 // available for eviction, which the clock algorithm traverses to pick the next
 // victim. The clock list is represented using the array of handles, and we
@@ -45,7 +46,7 @@ namespace clock_cache {
 
 constexpr double kLoadFactor = 0.35;  // See fast_lru_cache.h.
 
-constexpr double kStrictLoadFactor = 0.7; // See fast_lru_cache.h.
+constexpr double kStrictLoadFactor = 0.7;  // See fast_lru_cache.h.
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
