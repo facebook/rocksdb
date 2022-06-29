@@ -30,6 +30,8 @@ ClockHandleTable::ClockHandleTable(int hash_bits)
     : length_bits_(hash_bits),
       length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_(0),
+      occupancy_limit_(static_cast<uint32_t>((uint32_t{1} << length_bits_) *
+                                  kStrictLoadFactor)),
       array_(new ClockHandle[size_t{1} << length_bits_]) {
   assert(hash_bits <= 32);
 }
@@ -184,9 +186,8 @@ void ClockCacheShard::EraseUnRefEntries() {
   autovector<ClockHandle> last_reference_list;
   {
     DMutexLock l(mutex_);
-    int slot = -1;
+    uint32_t slot = 0;
     do {
-      slot++;
       ClockHandle* old = &(table_.array_[slot]);
       if (!old->IsInClockList()) {
         continue;
@@ -196,7 +197,8 @@ void ClockCacheShard::EraseUnRefEntries() {
       assert(usage_ >= old->total_charge);
       usage_ -= old->total_charge;
       last_reference_list.push_back(*old);
-    } while (slot < 1 << table_.GetLengthBits());
+      slot = table_.ModTableSize(slot + 1);
+    } while (slot != 0);
   }
 
   // Free the entries here outside of mutex for performance reasons.
@@ -214,7 +216,7 @@ void ClockCacheShard::ApplyToSomeEntries(
   // hash bits for table indexes.
   DMutexLock l(mutex_);
   uint32_t length_bits = table_.GetLengthBits();
-  uint32_t length = uint32_t{1} << length_bits;
+  uint32_t length = table_.GetTableSize();
 
   assert(average_entries_per_lock > 0);
   // Assuming we are called with same average_entries_per_lock repeatedly,
@@ -340,21 +342,19 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   autovector<ClockHandle> last_reference_list;
   {
     DMutexLock l(mutex_);
-
+    assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
     // Free the space following strict clock policy until enough space
     // is freed or the clock list is empty.
     EvictFromClock(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
-        table_.GetOccupancy() ==
-            static_cast<uint32_t>((uint32_t{1} << table_.GetLengthBits()) /
-                                  kStrictLoadFactor)) {
+        table_.GetOccupancy() == table_.GetOccupancyLimit()) {
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.
         last_reference_list.push_back(tmp);
       } else {
-        if (table_.GetOccupancy() == uint32_t{1} << table_.GetLengthBits()) {
+        if (table_.GetOccupancy() == table_.GetOccupancyLimit()) {
           s = Status::Incomplete(
               "Insert failed because all slots in the hash table are full.");
           // TODO(Guido) Use the correct statuses.

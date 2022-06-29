@@ -259,9 +259,16 @@ class ClockHandleTable {
     }
   }
 
+  uint32_t GetTableSize() const { return uint32_t{1} << length_bits_; }
+
   int GetLengthBits() const { return length_bits_; }
 
+  uint32_t GetOccupancyLimit() const { return occupancy_limit_; }
+
   uint32_t GetOccupancy() const { return occupancy_; }
+
+  // Returns x mod 2^{length_bits_}.
+  uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
 
  private:
   friend class ClockCacheShard;
@@ -284,9 +291,6 @@ class ClockHandleTable {
   int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> cond,
                int& probe, int displacement);
 
-  // Returns x mod 2^{length_bits_}.
-  inline uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
-
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
   int length_bits_;
@@ -295,6 +299,9 @@ class ClockHandleTable {
 
   // Number of elements in the table.
   uint32_t occupancy_;
+
+  // Maximum number of elements the user can store in the table.
+  uint32_t occupancy_limit_;
 
   std::unique_ptr<ClockHandle[]> array_;
 };  // class ClockHandleTable

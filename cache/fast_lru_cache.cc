@@ -31,6 +31,8 @@ LRUHandleTable::LRUHandleTable(int hash_bits)
     : length_bits_(hash_bits),
       length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_(0),
+      occupancy_limit_(static_cast<uint32_t>((uint32_t{1} << length_bits_) *
+                                  kStrictLoadFactor)),
       array_(new LRUHandle[size_t{1} << length_bits_]) {
   assert(hash_bits <= 32);
 }
@@ -216,7 +218,7 @@ void LRUCacheShard::ApplyToSomeEntries(
   // hash bits for table indexes.
   DMutexLock l(mutex_);
   uint32_t length_bits = table_.GetLengthBits();
-  uint32_t length = uint32_t{1} << length_bits;
+  uint32_t length = table_.GetTableSize();
 
   assert(average_entries_per_lock > 0);
   // Assuming we are called with same average_entries_per_lock repeatedly,
@@ -341,6 +343,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   Status s = Status::OK();
   autovector<LRUHandle> last_reference_list;
   {
+    assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
     DMutexLock l(mutex_);
 
     // Free the space following strict LRU policy until enough space
@@ -348,9 +351,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     EvictFromLRU(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
-        table_.GetOccupancy() ==
-            static_cast<uint32_t>((uint32_t{1} << table_.GetLengthBits()) /
-                                  kStrictLoadFactor)) {
+        table_.GetOccupancy() == table_.GetOccupancyLimit()) {
       // There are two measures of capacity:
       // - Space (or charge) capacity: The maximum possible sum of the charges
       //    of the elements.
@@ -371,7 +372,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         // into cache and get evicted immediately.
         last_reference_list.push_back(tmp);
       } else {
-        if (table_.GetOccupancy() == uint32_t{1} << table_.GetLengthBits()) {
+        if (table_.GetOccupancy() == table_.GetOccupancyLimit()) {
           s = Status::Incomplete(
               "Insert failed because all slots in the hash table are full.");
           // TODO(Guido) Use the correct statuses.

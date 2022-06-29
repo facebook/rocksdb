@@ -247,7 +247,7 @@ class FastLRUCacheTest : public testing::Test {
         estimated_value_size, metadata_charge_policy);
   }
 
-  uint8_t CalcHashBitsWrapper(
+  int CalcHashBitsWrapper(
       size_t capacity, size_t estimated_value_size,
       CacheMetadataChargePolicy metadata_charge_policy) {
     return fast_lru_cache::LRUCacheShard::CalcHashBits(
@@ -263,7 +263,7 @@ class FastLRUCacheTest : public testing::Test {
     return capacity / (fast_lru_cache::kLoadFactor * handle_charge);
   }
 
-  bool TableSizeIsAppropriate(uint8_t hash_bits, double max_occupancy) {
+  bool TableSizeIsAppropriate(int hash_bits, double max_occupancy) {
     if (hash_bits == 0) {
       return max_occupancy <= 1;
     } else {
