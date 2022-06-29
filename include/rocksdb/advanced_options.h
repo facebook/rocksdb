@@ -1024,6 +1024,21 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 
+  // Enable memtable per key-value checksum protection.
+  //
+  // Each entry in memtable will be suffixed by a per key-value checksum.
+  // This options determines the size of such checksums.
+  //
+  // It is suggested to turn on write batch per key-value
+  // checksum protection together with this option, so that the checksum
+  // computation is done outside of writer threads (memtable kv checksum can be
+  // computed from write batch checksum) See
+  // WriteOptions::protection_bytes_per_key for more detail.
+  //
+  // Default: 0 (no protection)
+  // Supported values: 0, 1, 2, 4, 8.
+  uint32_t memtable_protection_bytes_per_key = 0;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
