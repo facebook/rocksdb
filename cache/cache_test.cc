@@ -501,7 +501,7 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 
   // Insert entries much more than cache capacity.
   double load_factor = std::min(fast_lru_cache::kLoadFactor, clock_cache::kLoadFactor);
-  for (int i = 0; i < static_cast<int>(kCacheSize / load_factor); i++) {
+  for (int i = 0; i < 2 * static_cast<int>(kCacheSize / load_factor); i++) {
     Insert(1000 + i, 2000 + i);
   }
 
