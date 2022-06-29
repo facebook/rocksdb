@@ -447,24 +447,11 @@ class WriteBatch : public WriteBatchBase {
   // the WAL.
   SavePoint wal_term_point_;
 
-  // For HasXYZ.  Mutable to allow lazy computation of results
-  mutable std::atomic<uint32_t> content_flags_;
-
-  // Performs deferred computation of content_flags if necessary
-  uint32_t ComputeContentFlags() const;
-
-  // Maximum size of rep_.
-  size_t max_bytes_;
-
   // Is the content of the batch the application's latest state that meant only
   // to be used for recovery? Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for
   // more details.
   bool is_latest_persistent_state_ = false;
-
-  std::unique_ptr<ProtectionInfo> prot_info_;
-
-  size_t default_cf_ts_sz_ = 0;
 
   // False if all keys are from column families that disable user-defined
   // timestamp OR UpdateTimestamps() has been called at least once.
@@ -478,6 +465,19 @@ class WriteBatch : public WriteBatchBase {
   // True if the write batch contains at least one key from a column family
   // that enables user-defined timestamp.
   bool has_key_with_ts_ = false;
+
+  // For HasXYZ.  Mutable to allow lazy computation of results
+  mutable std::atomic<uint32_t> content_flags_;
+
+  // Performs deferred computation of content_flags if necessary
+  uint32_t ComputeContentFlags() const;
+
+  // Maximum size of rep_.
+  size_t max_bytes_;
+
+  std::unique_ptr<ProtectionInfo> prot_info_;
+
+  size_t default_cf_ts_sz_ = 0;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
