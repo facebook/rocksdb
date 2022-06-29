@@ -14,6 +14,7 @@
 
 ### Bug Fixes
 * Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.
+* Fix a bug where concurrent compactions might cause unnecessary further write stalling. In some cases, this might cause write rate to drop to minimum.
 
 ## 7.4.0 (06/19/2022)
 ### Bug Fixes
