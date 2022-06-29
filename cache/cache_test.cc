@@ -500,7 +500,7 @@ TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(303, 104);
 
   // Insert entries much more than Cache capacity.
-  for (int i = 0; i < kCacheSize * 4; i++) {
+  for (int i = 0; i < kCacheSize * 10; i++) {
     Insert(1000 + i, 2000 + i);
   }
 
