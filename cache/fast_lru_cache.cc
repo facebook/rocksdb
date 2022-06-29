@@ -354,15 +354,15 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
          (strict_capacity_limit_ || handle == nullptr)) ||
         table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
       // There are two measures of capacity:
-      // - Charge capacity: The sum of the charges (typically the number of
-      //    bytes) of the elements.
+      // - Space (or charge) capacity: The maximum possible sum of the charges
+      //    of the elements.
       // - Table capacity: The number of slots in the hash table.
       // These are incomparable, in the sense that one doesn't imply the other.
-      // Typically we will reach charge capacity before table capacity---
+      // Typically we will reach space capacity before table capacity---
       // if the user always inserts values with size equal to
       // estimated_value_size, then at most a kLoadFactor fraction of slots
       // will ever be occupied. But in some cases we may reach table capacity
-      // before charge capacity---if the user initially claims a very large
+      // before space capacity---if the user initially claims a very large
       // estimated_value_size but then inserts tiny values, more elements than
       // initially estimated will be inserted.
 
