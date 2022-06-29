@@ -206,6 +206,10 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
                               autovector<BlobFileReadRequests>& blob_reqs,
                               uint64_t* bytes_read) {
   assert(blob_reqs.size() > 0);
+
+  uint64_t total_bytes_read = 0;
+  uint64_t bytes_read_in_file = 0;
+
   for (auto& [file_number, file_size, blob_reqs_in_file] : blob_reqs) {
     // sort blob_reqs_in_file by file offset.
     std::sort(
@@ -213,8 +217,15 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
         [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) -> bool {
           return lhs.offset < rhs.offset;
         });
+
     MultiGetBlobFromOneFile(read_options, file_number, file_size,
-                            blob_reqs_in_file, bytes_read);
+                            blob_reqs_in_file, &bytes_read_in_file);
+
+    total_bytes_read += bytes_read_in_file;
+  }
+
+  if (bytes_read) {
+    *bytes_read = total_bytes_read;
   }
 }
 
