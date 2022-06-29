@@ -31,68 +31,23 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
 
-// TODO(Guido) Update comment.
-
-// LRU cache implementation using an open-address hash table.
+// Clock cache implementation. This is based on FastLRUCache's open-addressed
+// hash table. Importantly, it stores elements in an array, and resolves collision
+// using a probing strategy. Visibility and referenceability of elements works
+// as usual. See fast_lru_cache.h for a detailed description.
 //
-// Every slot in the hash table is an LRUHandle. Because handles can be
-// referenced externally, we can't discard them immediately once they are
-// deleted (via a delete or an LRU eviction) or replaced by a new version
-// (via an insert of the same key). The state of an element is defined by
-// the following two properties:
-// (R) Referenced: An element can be referenced externally (refs > 0), or not.
-//    Importantly, an element can be evicted if and only if it's not
-//    referenced. In particular, when an element becomes referenced, it's
-//    temporarily taken out of the LRU list until all references to it
-//    are dropped.
-// (V) Visible: An element can visible for lookups (IS_VISIBLE set), or not.
-//    Initially, every element is visible. An element that is not visible is
-//    called a ghost.
-// These properties induce 4 different states, with transitions defined as
-// follows:
-// - V --> not V: When a visible element is deleted or replaced by a new
-//    version.
-// - Not V --> V: This cannot happen. A ghost remains in that state until it's
-//    not referenced any more, at which point it's ready to be removed from the
-//    hash table. (A ghost simply waits to transition to the afterlife---it will
-//    never be visible again.)
-// - R --> not R: When all references to an element are dropped.
-// - Not R --> R: When an unreferenced element becomes referenced. This can only
-//    happen if the element is V, since references to an element can only be
-//    created when it's visible.
-//
-// Internally, the cache uses an open-addressed hash table to index the handles.
-// We use tombstone counters to keep track of displacements.
-// Because of the tombstones and the two possible visibility states of an
-// element, the table slots can be in 4 different states:
-// 1. Visible element (IS_ELEMENT set and IS_VISIBLE set): The slot contains a
-//    key-value element.
-// 2. Ghost element (IS_ELEMENT set and IS_VISIBLE unset): The slot contains an
-//    element that has been removed, but it's still referenced. It's invisible
-//    to lookups.
-// 3. Tombstone (IS_ELEMENT unset and displacements > 0): The slot contains a
-//    tombstone.
-// 4. Empty (IS_ELEMENT unset and displacements == 0): The slot is unused.
-//    A slot that is an element can further have IS_VISIBLE set or not.
-// When a ghost is removed from the table, it can either transition to being a
-// tombstone or an empty slot, depending on the number of displacements of the
-// slot. In any case, the slot becomes available. When a handle is inserted
-// into that slot, it becomes a visible element again.
+// The main difference with FastLRUCache is, of course, the eviction algorithm
+// ---instead of an LRU list, we maintain a circular list with the elements available
+// for eviction, which the clock algorithm traverses to pick the next victim.
+// The clock list is represented using the array of handles, and we simply mark
+// those elements that are present in the list. This is done using different
+// clock flags, namely NONE, LOW, MEDIUM, HIGH, that represent priorities:
+// NONE means that the element is not part of the clock list, and LOW to HIGH
+// represent how close an element is from being evictable (LOW being immediately
+// evictable). When the clock pointer steps on an element that is not immediately
+// evictable, it decreases its priority.
 
-// The load factor p is a real number in (0, 1) such that at all
-// times at most a fraction p of all slots, without counting tombstones,
-// are occupied by elements. This means that the probability that a
-// random probe hits an empty slot is at most p, and thus at most 1/p probes
-// are required on average. For example, p = 70% implies that between 1 and 2
-// probes are needed on average.
-// Because the size of the hash table is always rounded up to the next
-// power of 2, p is really an upper bound on the actual load factor---the
-// actual load factor is anywhere between p/2 and p. This is a bit wasteful,
-// but bear in mind that slots only hold metadata, not actual values.
-// Since space cost is dominated by the values (the LSM blocks),
-// overprovisioning the table with metadata only increases the total cache space
-// usage by a tiny fraction.
-constexpr double kLoadFactor = 0.35;
+constexpr double kLoadFactor = 0.35;    // See fast_lru_cache.h.
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
@@ -105,7 +60,7 @@ struct ClockHandle {
   Cache::DeleterFn deleter;
   uint32_t hash;
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
-  // The number of external refs to this entry. The cache itself is not counted.
+  // The number of external refs to this entry.
   uint32_t refs;
 
   static constexpr int kIsVisibleOffset = 0;

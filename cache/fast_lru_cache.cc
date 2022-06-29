@@ -21,19 +21,12 @@
 #include "port/lang.h"
 #include "util/distributed_mutex.h"
 #include "util/hash.h"
+#include "util/math.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace fast_lru_cache {
-
-namespace {
-// Returns x % 2^{bits}.
-inline uint32_t BinaryMod(uint32_t x, uint8_t bits) {
-  assert(bits <= 32);
-  return (x << (32 - bits)) >> (32 - bits);
-}
-}  // anonymous namespace
 
 LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
     : length_bits_(hash_bits),
@@ -162,10 +155,10 @@ inline int LRUHandleTable::FindSlot(const Slice& key,
                                     std::function<bool(LRUHandle*)> cond,
                                     int& probe, int displacement) {
   uint32_t base =
-      BinaryMod(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
-  uint32_t increment = BinaryMod(
+      BinaryMod<uint32_t>(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
+  uint32_t increment = BinaryMod<uint32_t>(
       (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
-  uint32_t current = BinaryMod(base + probe * increment, length_bits_);
+  uint32_t current = BinaryMod<uint32_t>(base + probe * increment, length_bits_);
   while (true) {
     LRUHandle* h = &array_[current];
     probe++;
@@ -182,7 +175,7 @@ inline int LRUHandleTable::FindSlot(const Slice& key,
       return -1;
     }
     h->displacements += displacement;
-    current = BinaryMod(current + increment, length_bits_);
+    current = BinaryMod<uint32_t>(current + increment, length_bits_);
   }
 }
 
@@ -310,14 +303,11 @@ uint8_t LRUCacheShard::CalcHashBits(
   size_t num_entries =
       static_cast<size_t>(capacity / (kLoadFactor * handle_charge));
 
-  // Compute the ceiling of log2(num_entries). If num_entries == 0, return 0.
-  uint8_t num_hash_bits = 0;
-  size_t num_entries_copy = num_entries;
-  while (num_entries_copy >>= 1) {
-    ++num_hash_bits;
+  if (num_entries == 0) {
+    return 0;
   }
-  num_hash_bits += size_t{1} << num_hash_bits < num_entries ? 1 : 0;
-  return num_hash_bits;
+  uint8_t num_hash_bits = static_cast<uint8_t>(FloorLog2<size_t>(num_entries));
+  return num_hash_bits + (size_t{1} << num_hash_bits < num_entries ? 1 : 0);
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
@@ -369,26 +359,39 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
         table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
-      // Originally, when strict_capacity_limit_ == false and handle != nullptr
-      // (i.e., the user wants to immediately get a reference to the new
-      // handle), the insertion would proceed even if the total charge already
-      // exceeds capacity. We can't do this now, because we can't physically
-      // insert a new handle when the table is at maximum occupancy.
+      // There are two measures of capacity:
+      // - Charge capacity: The sum of the charges (typically the number of
+      //    bytes) of the elements.
+      // - Table capacity: The number of slots in the hash table.
+      // These are incomparable, in the sense that one doesn't imply the other.
+      // Typically we will reach charge capacity before table capacity---
+      // if the user always inserts values with size equal to
+      // estimated_value_size, then at most a kLoadFactor fraction of slots
+      // will ever be occupied. But in some cases we may reach table capacity
+      // before charge capacity---if the user initially claims a very large
+      // estimated_value_size but then inserts tiny values, more elements than
+      // initially estimated will be inserted.
+
       // TODO(Guido) Some tests (at least two from cache_test, as well as the
-      // stress tests) currently assume the old behavior.
+      // stress tests) currently assume the table capacity is unbounded.
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.
         last_reference_list.push_back(tmp);
       } else {
-        s = Status::Incomplete("Insert failed due to LRU cache being full.");
+        if (table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
+          s = Status::Incomplete("Insert failed because all slots in the hash table are full.");
+          // TODO(Guido) Use the correct statuses.
+        } else {
+          s = Status::Incomplete("Insert failed because the total charge has exceeded the capacity.");
+        }
       }
     } else {
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
       LRUHandle* old;
       LRUHandle* h = table_.Insert(&tmp, &old);
-      assert(h != nullptr);  // Insertions should never fail.
+      assert(h != nullptr);  // We're below occupancy, so this insertion should never fail.
       usage_ += h->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
@@ -431,7 +434,7 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
     if (h != nullptr) {
       assert(h->IsVisible());
       if (!h->HasRefs()) {
-        // The entry is in LRU since it's in hash and has no external references
+        // The entry is in LRU since it's in hash and has no external references.
         LRU_Remove(h);
       }
       h->Ref();
@@ -497,7 +500,7 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
       table_.Exclude(h);
       if (!h->HasRefs()) {
         // The entry is in LRU since it's in cache and has no external
-        // references
+        // references.
         LRU_Remove(h);
         table_.Remove(h);
         assert(usage_ >= h->total_charge);

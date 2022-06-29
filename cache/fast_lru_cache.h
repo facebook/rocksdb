@@ -78,8 +78,9 @@ class FastLRUCacheTest;
 // times at most a fraction p of all slots, without counting tombstones,
 // are occupied by elements. This means that the probability that a
 // random probe hits an empty slot is at most p, and thus at most 1/p probes
-// are required on average. We use p = 70%, so between 1 and 2 probes are
-// needed on average.
+// are required on average. For example, p = 70% implies that between 1 and 2
+// probes are needed on average (bear in mind that this reasoning doesn't
+// consider the effects of clustering over time).
 // Because the size of the hash table is always rounded up to the next
 // power of 2, p is really an upper bound on the actual load factor---the
 // actual load factor is anywhere between p/2 and p. This is a bit wasteful,
@@ -87,7 +88,7 @@ class FastLRUCacheTest;
 // Since space cost is dominated by the values (the LSM blocks),
 // overprovisioning the table with metadata only increases the total cache space
 // usage by a tiny fraction.
-constexpr double kLoadFactor = 0.7;
+constexpr double kLoadFactor = 0.35;
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
@@ -103,7 +104,7 @@ struct LRUHandle {
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   // The hash of key(). Used for fast sharding and comparisons.
   uint32_t hash;
-  // The number of external refs to this entry. The cache itself is not counted.
+  // The number of external refs to this entry.
   uint32_t refs;
 
   enum Flags : uint8_t {

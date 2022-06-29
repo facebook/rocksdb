@@ -6,6 +6,7 @@
 #pragma once
 
 #include <assert.h>
+#include <climits>
 #ifdef _MSC_VER
 #include <intrin.h>
 #endif
@@ -248,6 +249,15 @@ inline T ReverseBits(T v) {
   r = ((r & (kEveryByte * 0x55)) << 1) | ((r >> 1) & (kEveryByte * 0x55));
 
   return r;
+}
+
+// Returns x % 2^b. Assumes the size of x's data type is
+// at least b bits.
+template<typename T>
+inline T BinaryMod(T x, uint8_t b) {
+  std::size_t size = sizeof(T) << 3;
+  assert(b <= size);
+  return (x << (size - b)) >> (size - b);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

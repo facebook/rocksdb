@@ -21,19 +21,12 @@
 #include "port/lang.h"
 #include "util/distributed_mutex.h"
 #include "util/hash.h"
+#include "util/math.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
-
-namespace {
-// Returns x % 2^{bits}.
-inline uint32_t BinaryMod(uint32_t x, uint8_t bits) {
-  assert(bits <= 32);
-  return (x << (32 - bits)) >> (32 - bits);
-}
-}  // anonymous namespace
 
 ClockHandleTable::ClockHandleTable(uint8_t hash_bits)
     : length_bits_(hash_bits),
@@ -162,10 +155,10 @@ inline int ClockHandleTable::FindSlot(const Slice& key,
                                     std::function<bool(ClockHandle*)> cond,
                                     int& probe, int displacement) {
   uint32_t base =
-      BinaryMod(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
-  uint32_t increment = BinaryMod(
+      BinaryMod<uint32_t>(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
+  uint32_t increment = BinaryMod<uint32_t>(
       (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
-  uint32_t current = BinaryMod(base + probe * increment, length_bits_);
+  uint32_t current = BinaryMod<uint32_t>(base + probe * increment, length_bits_);
   while (true) {
     ClockHandle* h = &array_[current];
     probe++;
@@ -182,7 +175,7 @@ inline int ClockHandleTable::FindSlot(const Slice& key,
       return -1;
     }
     h->displacements += displacement;
-    current = BinaryMod(current + increment, length_bits_);
+    current = BinaryMod<uint32_t>(current + increment, length_bits_);
   }
 }
 
@@ -276,7 +269,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
   assert(charge <= capacity_);
   while (clock_usage_ > 0 && (usage_ + charge) > capacity_) {
     ClockHandle* old = &table_.array_[clock_pointer_];
-    clock_pointer_ = BinaryMod(clock_pointer_ + 1, table_.GetLengthBits());
+    clock_pointer_ = BinaryMod<uint32_t>(clock_pointer_ + 1, table_.GetLengthBits());
     // Clock list contains only elements which can be evicted.
     if (!old->IsInClockList()) {
       continue;
@@ -308,14 +301,11 @@ uint8_t ClockCacheShard::CalcHashBits(
       CalcEstimatedHandleCharge(estimated_value_size, metadata_charge_policy);
   size_t num_entries = static_cast<size_t>(capacity / (kLoadFactor * handle_charge));
 
-  // Compute the ceiling of log2(num_entries). If num_entries == 0, return 0.
-  uint8_t num_hash_bits = 0;
-  size_t num_entries_copy = num_entries;
-  while (num_entries_copy >>= 1) {
-    ++num_hash_bits;
+  if (num_entries == 0) {
+    return 0;
   }
-  num_hash_bits += size_t{1} << num_hash_bits < num_entries ? 1 : 0;
-  return num_hash_bits;
+  uint8_t num_hash_bits = static_cast<uint8_t>(FloorLog2<size_t>(num_entries));
+  return num_hash_bits + (size_t{1} << num_hash_bits < num_entries ? 1 : 0);
 }
 
 void ClockCacheShard::SetCapacity(size_t capacity) {
@@ -361,25 +351,23 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   {
     DMutexLock l(mutex_);
 
-    // Free the space following strict Clock policy until enough space
+    // Free the space following strict clock policy until enough space
     // is freed or the clock list is empty.
     EvictFromClock(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
         table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
-      // Originally, when strict_capacity_limit_ == false and handle != nullptr
-      // (i.e., the user wants to immediately get a reference to the new
-      // handle), the insertion would proceed even if the total charge already
-      // exceeds capacity. We can't do this now, because we can't physically
-      // insert a new handle when the table is at maximum occupancy.
-      // TODO(Guido) Some tests (at least two from cache_test, as well as the
-      // stress tests) currently assume the old behavior.
       if (handle == nullptr) {
         // Don't insert the entry but still return ok, as if the entry inserted
         // into cache and get evicted immediately.
         last_reference_list.push_back(tmp);
       } else {
-        s = Status::Incomplete("Insert failed due to clock cache being full.");
+        if (table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
+          s = Status::Incomplete("Insert failed because all slots in the hash table are full.");
+          // TODO(Guido) Use the correct statuses.
+        } else {
+          s = Status::Incomplete("Insert failed because the total charge has exceeded the capacity.");
+        }
       }
     } else {
       // Insert into the cache. Note that the cache might get larger than its
@@ -496,7 +484,7 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t /* hash */) {
       table_.Exclude(h);
       if (!h->HasRefs()) {
         // The entry is in Clock since it's in cache and has no external
-        // references
+        // references.
         ClockRemove(h);
         table_.Remove(h);
         assert(usage_ >= h->total_charge);
