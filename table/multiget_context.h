@@ -78,15 +78,15 @@ struct BlobReadRequest {
   // Status of read
   Status* status;
 
-  BlobReadRequest(const Slice& user_key, uint64_t offset, size_t len,
-                  CompressionType compression, PinnableSlice* result,
-                  Status* status)
-      : user_key(&user_key),
-        offset(offset),
-        len(len),
-        compression(compression),
-        result(result),
-        status(status) {}
+  BlobReadRequest(const Slice& _user_key, uint64_t _offset, size_t _len,
+                  CompressionType _compression, PinnableSlice* _result,
+                  Status* _status)
+      : user_key(&_user_key),
+        offset(_offset),
+        len(_len),
+        compression(_compression),
+        result(_result),
+        status(_status) {}
 
   BlobReadRequest() = default;
 };
