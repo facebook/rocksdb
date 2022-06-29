@@ -218,8 +218,8 @@ void BlobSource::MultiGetBlob(
 
     auto& blob_reqs_in_file = batch_rqs.second;
     if (!s.ok()) {
-      for (const auto& blob : blob_reqs_in_file) {
-        *(blob.status) = s;
+      for (const auto& blob_req : blob_reqs_in_file) {
+        *blob_req.status = s;
       }
       continue;
     }
@@ -242,11 +242,11 @@ void BlobSource::MultiGetBlob(
       const uint64_t offset = blob_req.offset;
       const uint64_t value_size = blob_req.len;
       if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
-        *(blob_req.status) = Status::Corruption("Invalid blob offset");
+        *blob_req.status = Status::Corruption("Invalid blob offset");
         continue;
       }
       if (blob_req.compression != compression) {
-        *(blob_req.status) =
+        *blob_req.status =
             Status::Corruption("Compression type mismatch when reading a blob");
         continue;
       }

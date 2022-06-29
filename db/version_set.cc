@@ -1910,7 +1910,6 @@ void Version::MultiGetBlob(
     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs) {
   assert(!blob_ctxs.empty());
 
-  Status status;
   std::map<uint64_t, autovector<BlobReadRequest>> blob_reqs;
 
   for (auto& ctx : blob_ctxs) {
@@ -1924,12 +1923,12 @@ void Version::MultiGetBlob(
       const KeyContext& key_context = blob.second;
 
       if (!blob_file_meta) {
-        *(key_context.s) = Status::Corruption("Invalid blob file number");
+        *key_context.s = Status::Corruption("Invalid blob file number");
         continue;
       }
 
       if (blob_index.HasTTL() || blob_index.IsInlined()) {
-        *(key_context.s) =
+        *key_context.s =
             Status::Corruption("Unexpected TTL/inlined blob index");
         continue;
       }
@@ -1949,7 +1948,7 @@ void Version::MultiGetBlob(
       if (blob_req.status->ok()) {
         range.AddValueSize(blob_req.result->size());
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
-          *(blob_req.status) = Status::Aborted();
+          *blob_req.status = Status::Aborted();
         }
       }
     }
