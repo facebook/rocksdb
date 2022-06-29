@@ -9,8 +9,6 @@
 
 #include "cache/clock_cache.h"
 
-#include <math.h>
-
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -145,10 +143,10 @@ int ClockHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
 inline int ClockHandleTable::FindSlot(const Slice& key,
                                       std::function<bool(ClockHandle*)> cond,
                                       int& probe, int displacement) {
-  uint32_t base = ModTableLength(Hash(key.data(), key.size(), kProbingSeed1));
+  uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
   uint32_t increment =
-      ModTableLength((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
-  uint32_t current = ModTableLength(base + probe * increment);
+      ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
+  uint32_t current = ModTableSize(base + probe * increment);
   while (true) {
     ClockHandle* h = &array_[current];
     probe++;
@@ -165,7 +163,7 @@ inline int ClockHandleTable::FindSlot(const Slice& key,
       return -1;
     }
     h->displacements += displacement;
-    current = ModTableLength(current + increment);
+    current = ModTableSize(current + increment);
   }
 }
 
@@ -260,7 +258,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
   assert(charge <= capacity_);
   while (clock_usage_ > 0 && (usage_ + charge) > capacity_) {
     ClockHandle* old = &table_.array_[clock_pointer_];
-    clock_pointer_ = table_.ModTableLength(clock_pointer_ + 1);
+    clock_pointer_ = table_.ModTableSize(clock_pointer_ + 1);
     // Clock list contains only elements which can be evicted.
     if (!old->IsInClockList()) {
       continue;

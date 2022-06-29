@@ -9,8 +9,6 @@
 
 #include "cache/fast_lru_cache.h"
 
-#include <math.h>
-
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -146,10 +144,10 @@ int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
 inline int LRUHandleTable::FindSlot(const Slice& key,
                                     std::function<bool(LRUHandle*)> cond,
                                     int& probe, int displacement) {
-  uint32_t base = ModTableLength(Hash(key.data(), key.size(), kProbingSeed1));
+  uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
   uint32_t increment =
-      ModTableLength((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
-  uint32_t current = ModTableLength(base + probe * increment);
+      ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
+  uint32_t current = ModTableSize(base + probe * increment);
   while (true) {
     LRUHandle* h = &array_[current];
     probe++;
@@ -166,7 +164,7 @@ inline int LRUHandleTable::FindSlot(const Slice& key,
       return -1;
     }
     h->displacements += displacement;
-    current = ModTableLength(current + increment);
+    current = ModTableSize(current + increment);
   }
 }
 

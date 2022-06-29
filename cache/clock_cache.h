@@ -288,9 +288,7 @@ class ClockHandleTable {
                int& probe, int displacement);
 
   // Returns x mod 2^{length_bits_}.
-  inline uint32_t ModTableLength(uint32_t x) {
-    return x & length_bits_mask_;
-  }
+  inline uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
 
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
