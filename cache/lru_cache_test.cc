@@ -292,8 +292,8 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
   CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
   double max_occupancy =
       CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
-  uint8_t hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                          metadata_charge_policy);
+  int hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                      metadata_charge_policy);
   EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
 
   capacity = 1024;

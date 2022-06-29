@@ -37,8 +37,7 @@ ClockHandleTable::ClockHandleTable(int hash_bits)
 }
 
 ClockHandleTable::~ClockHandleTable() {
-  ApplyToEntriesRange([](ClockHandle* h) { h->FreeData(); }, 0,
-                      uint32_t{1} << length_bits_);
+  ApplyToEntriesRange([](ClockHandle* h) { h->FreeData(); }, 0, GetTableSize());
 }
 
 ClockHandle* ClockHandleTable::Lookup(const Slice& key) {

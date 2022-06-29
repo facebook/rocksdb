@@ -37,8 +37,7 @@ LRUHandleTable::LRUHandleTable(int hash_bits)
 }
 
 LRUHandleTable::~LRUHandleTable() {
-  ApplyToEntriesRange([](LRUHandle* h) { h->FreeData(); }, 0,
-                      uint32_t{1} << length_bits_);
+  ApplyToEntriesRange([](LRUHandle* h) { h->FreeData(); }, 0, GetTableSize());
 }
 
 LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
