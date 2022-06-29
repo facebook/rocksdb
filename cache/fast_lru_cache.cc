@@ -36,15 +36,9 @@ LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
 }
 
 LRUHandleTable::~LRUHandleTable() {
-  // TODO(Guido) If users still hold references to handles,
-  // those will become invalidated. And if we choose not to
-  // delete the data, it will become leaked.
   ApplyToEntriesRange(
       [](LRUHandle* h) {
-        // TODO(Guido) Remove the HasRefs() check?
-        if (!h->HasRefs()) {
-          h->FreeData();
-        }
+        h->FreeData();
       },
       0, uint32_t{1} << length_bits_);
 }
