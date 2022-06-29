@@ -1,6 +1,7 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
+#include <unordered_map>
 #include "cloud/manifest_reader.h"
 
 #include "cloud/cloud_manifest.h"
@@ -69,6 +70,10 @@ Status ManifestReader::GetLiveFilesAndCloudManifest(
   std::string scratch;
   int count = 0;
 
+
+  // keep track of live files for each CF
+  std::unordered_map<uint32_t, std::unordered_set<uint64_t>> cf_live_files;
+
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
@@ -81,15 +86,34 @@ Status ManifestReader::GetLiveFilesAndCloudManifest(
     std::vector<std::pair<int, FileMetaData>> new_files = edit.GetNewFiles();
     for (auto& one : new_files) {
       uint64_t num = one.second.fd.GetNumber();
+      cf_live_files[edit.GetColumnFamily()].insert(num);
       list->insert(num);
     }
     // delete the files that are removed by this transaction
     std::set<std::pair<int, uint64_t>> deleted_files = edit.GetDeletedFiles();
     for (auto& one : deleted_files) {
       uint64_t num = one.second;
+      // Deleted files should belong to some CF
+      auto it = cf_live_files.find(edit.GetColumnFamily());
+      if ((it == cf_live_files.end()) ||
+          (it->second.count(num) == 0)) {
+        return Status::Corruption(
+            "Corrupted Manifest file with unrecognized deleted file: " +
+            std::to_string(num));
+      }
+      it->second.erase(num);
       list->erase(num);
     }
+
+    // Removing the files from dropped CF, since we don't mark the files as
+    // deleted in Manifest when a CF is dropped,
+    if (edit.IsColumnFamilyDrop()) {
+      for (auto filenum: cf_live_files[edit.GetColumnFamily()]) {
+        list->erase(filenum);
+      }
+    }
   }
+
   file_reader.reset();
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[mn] manifest for db %s has %d entries %s", bucket_path.c_str(), count,

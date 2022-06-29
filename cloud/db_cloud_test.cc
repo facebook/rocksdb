@@ -22,6 +22,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "db/db_impl/db_impl.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -333,6 +334,10 @@ class CloudTest : public testing::Test {
     }
   }
 
+  DBImpl* GetDBImpl() {
+    return static_cast<DBImpl*>(db_->GetBaseDB());
+  }
+
  protected:
   std::string test_id_;
   Env* base_env_;
@@ -398,6 +403,47 @@ TEST_F(CloudTest, FindAllLiveFilesTest) {
   EXPECT_TRUE(aenv_->GetStorageProvider()
                   ->ExistsCloudObject(aenv_->GetSrcBucketName(), manifest)
                   .ok());
+}
+
+// Files of dropped CF should not be included in live files
+TEST_F(CloudTest, LiveFilesOfDroppedCFTest) {
+  std::vector<ColumnFamilyHandle*> handles;
+  OpenDB(&handles);
+
+  std::vector<std::string> tablefiles;
+  std::string manifest;
+  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
+                                    aenv_->GetSrcObjectPath(), &tablefiles,
+                                    &manifest));
+
+  EXPECT_TRUE(tablefiles.empty());
+  CreateColumnFamilies({"cf1"}, &handles);
+  auto db_impl = GetDBImpl();
+
+  // write to CF
+  ASSERT_OK(db_->Put(WriteOptions(), handles[1], "hello", "world"));
+  // flush cf1
+  ASSERT_OK(db_->Flush({}, handles[1]));
+
+  // wait until background flush job is done, so that the Manifest updates are
+  // synced to s3
+  db_impl->TEST_WaitForBackgroundWork();
+
+  tablefiles.clear();
+  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
+                                    aenv_->GetSrcObjectPath(), &tablefiles,
+                                    &manifest));
+  EXPECT_TRUE(tablefiles.size() == 1);
+
+  // Drop the CF
+  ASSERT_OK(db_->DropColumnFamily(handles[1]));
+  tablefiles.clear();
+  // make sure that files are not listed as live for dropped CF
+  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
+                                    aenv_->GetSrcObjectPath(), &tablefiles,
+                                    &manifest));
+  EXPECT_TRUE(tablefiles.empty());
+  CloseDB(&handles);
 }
 
 TEST_F(CloudTest, GetChildrenTest) {
