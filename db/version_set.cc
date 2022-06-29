@@ -1910,14 +1910,15 @@ void Version::MultiGetBlob(
     std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs) {
   assert(!blob_ctxs.empty());
 
-  std::map<uint64_t, autovector<BlobReadRequest>> blob_reqs;
+  autovector<BlobFileReadRequests> blob_reqs;
 
   for (auto& ctx : blob_ctxs) {
-    const uint64_t blob_file_number = ctx.first;
-    const auto blob_file_meta =
-        storage_info_.GetBlobFileMetaData(blob_file_number);
+    const auto file_number = ctx.first;
+    const auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
+    const auto file_size = blob_file_meta->GetBlobFileSize();
 
-    auto& blobs_in_file = ctx.second;
+    autovector<BlobReadRequest> blob_reqs_in_file;
+    BlobReadContexts& blobs_in_file = ctx.second;
     for (const auto& blob : blobs_in_file) {
       const BlobIndex& blob_index = blob.first;
       const KeyContext& key_context = blob.second;
@@ -1933,17 +1934,20 @@ void Version::MultiGetBlob(
         continue;
       }
 
-      blob_reqs[blob_file_number].push_back(BlobReadRequest(
+      blob_reqs_in_file.emplace_back(
           key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
-          key_context.value, key_context.s, blob_index.compression()));
+          blob_index.compression(), key_context.value, key_context.s);
     }
+
+    blob_reqs.emplace_back(file_number, file_size,
+                           std::move(blob_reqs_in_file));
   }
 
   blob_source_->MultiGetBlob(read_options, blob_reqs,
                              /*bytes_read=*/nullptr);
 
   for (const auto& req : blob_reqs) {
-    const auto& blob_reqs_in_file = req.second;
+    const auto& blob_reqs_in_file = std::get<2>(req);
     for (const auto& blob_req : blob_reqs_in_file) {
       if (blob_req.status->ok()) {
         range.AddValueSize(blob_req.result->size());

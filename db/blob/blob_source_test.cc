@@ -630,12 +630,13 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     std::array<Status, num_blobs> statuses_buf;
     std::array<PinnableSlice, num_blobs> value_buf;
     std::array<BlobReadRequest, num_blobs> requests_buf;
-    autovector<BlobReadRequest*> blob_reqs;
+    autovector<BlobReadRequest> blob_reqs;
 
     for (size_t i = 0; i < num_blobs; i += 2) {  // even index
-      requests_buf[i] = BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
-                                        &value_buf[i], &statuses_buf[i]);
-      blob_reqs.push_back(&requests_buf[i]);
+      requests_buf[i] =
+          BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+      blob_reqs.push_back(requests_buf[i]);
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
     }
@@ -709,9 +710,10 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
 
     blob_reqs.clear();
     for (size_t i = 0; i < num_blobs; ++i) {
-      requests_buf[i] = BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
-                                        &value_buf[i], &statuses_buf[i]);
-      blob_reqs.push_back(&requests_buf[i]);
+      requests_buf[i] =
+          BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+      blob_reqs.push_back(requests_buf[i]);
     }
 
     blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number,
@@ -752,12 +754,13 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     std::array<Status, num_blobs> statuses_buf;
     std::array<PinnableSlice, num_blobs> value_buf;
     std::array<BlobReadRequest, num_blobs> requests_buf;
-    autovector<BlobReadRequest*> blob_reqs;
+    autovector<BlobReadRequest> blob_reqs;
 
     for (size_t i = 0; i < num_blobs; i++) {
-      requests_buf[i] = BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
-                                        &value_buf[i], &statuses_buf[i]);
-      blob_reqs.push_back(&requests_buf[i]);
+      requests_buf[i] =
+          BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+      blob_reqs.push_back(requests_buf[i]);
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
     }
@@ -797,12 +800,13 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     std::array<Status, num_blobs> statuses_buf;
     std::array<PinnableSlice, num_blobs> value_buf;
     std::array<BlobReadRequest, num_blobs> requests_buf;
-    autovector<BlobReadRequest*> blob_reqs;
+    autovector<BlobReadRequest> blob_reqs;
 
     for (size_t i = 0; i < num_blobs; i++) {
-      requests_buf[i] = BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
-                                        &value_buf[i], &statuses_buf[i]);
-      blob_reqs.push_back(&requests_buf[i]);
+      requests_buf[i] =
+          BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+      blob_reqs.push_back(requests_buf[i]);
       ASSERT_FALSE(blob_source.TEST_BlobInCache(non_existing_file_number,
                                                 file_size, blob_offsets[i]));
     }

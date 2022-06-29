@@ -375,17 +375,40 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 }
 
 void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
-                                  autovector<BlobReadRequest*>& blob_reqs,
+                                  autovector<BlobReadRequest*>& requests,
                                   uint64_t* bytes_read) const {
-  const size_t num_blobs = blob_reqs.size();
+  size_t num_blobs = requests.size();
   assert(num_blobs > 0);
   assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
 
 #ifndef NDEBUG
   for (size_t i = 0; i < num_blobs - 1; ++i) {
-    assert(blob_reqs[i]->offset <= blob_reqs[i + 1]->offset);
+    assert(requests[i]->offset <= requests[i + 1]->offset);
   }
 #endif  // !NDEBUG
+
+  // Filter out invalid blob read requests.
+  autovector<BlobReadRequest*> blob_reqs;
+  for (auto& blob_req : requests) {
+    const uint64_t key_size = blob_req->user_key->size();
+    const uint64_t offset = blob_req->offset;
+    const uint64_t value_size = blob_req->len;
+    if (!IsValidBlobOffset(offset, key_size, value_size, file_size_)) {
+      *blob_req->status = Status::Corruption("Invalid blob offset");
+      continue;
+    }
+    if (blob_req->compression != compression_type_) {
+      *blob_req->status =
+          Status::Corruption("Compression type mismatch when reading a blob");
+      continue;
+    }
+    blob_reqs.push_back(blob_req);
+  }
+
+  num_blobs = blob_reqs.size();
+  if (num_blobs == 0) {
+    return;
+  }
 
   std::vector<FSReadRequest> read_reqs(num_blobs);
   autovector<uint64_t> adjustments;

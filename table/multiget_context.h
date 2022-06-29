@@ -56,59 +56,6 @@ struct KeyContext {
   KeyContext() = default;
 };
 
-// A read Blob request structure for use in BlobSource::MultiGetBlob and
-// BlobFileReader::MultiGetBlob.
-struct BlobReadRequest {
-  // User key to lookup the paired blob
-  const Slice* user_key;
-
-  // File offset in bytes
-  uint64_t offset;
-
-  // Length to read in bytes
-  size_t len;
-
-  // Output parameter set by MultiGetBlob() to point to the data buffer, and
-  // the number of valid bytes
-  PinnableSlice* result;
-
-  // Status of read
-  Status* status;
-
-  // Blob compression type
-  CompressionType compression;
-
-  BlobReadRequest(const Slice& _user_key, uint64_t _offset, size_t _len,
-                  PinnableSlice* _result, Status* _status,
-                  CompressionType _compression = kNoCompression)
-      : user_key(&_user_key),
-        offset(_offset),
-        len(_len),
-        result(_result),
-        status(_status),
-        compression(_compression) {}
-
-  BlobReadRequest() = default;
-
-  BlobReadRequest(const BlobReadRequest& other)
-      : user_key(other.user_key),
-        offset(other.offset),
-        len(other.len),
-        result(other.result),
-        status(other.status),
-        compression(other.compression) {}
-
-  BlobReadRequest& operator=(const BlobReadRequest& other) {
-    user_key = other.user_key;
-    offset = other.offset;
-    len = other.len;
-    result = other.result;
-    status = other.status;
-    compression = other.compression;
-    return *this;
-  }
-};
-
 // The MultiGetContext class is a container for the sorted list of keys that
 // we need to lookup in a batch. Its main purpose is to make batch execution
 // easier by allowing various stages of the MultiGet lookups to operate on

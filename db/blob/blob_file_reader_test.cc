@@ -201,8 +201,9 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     autovector<BlobReadRequest*> blob_reqs;
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      requests_buf[i] = BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
-                                        &value_buf[i], &statuses_buf[i]);
+      requests_buf[i] =
+          BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
       blob_reqs.push_back(&requests_buf[i]);
     }
 
@@ -303,16 +304,14 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     std::array<Status, num_blobs> statuses_buf;
     std::array<PinnableSlice, num_blobs> value_buf;
     std::array<BlobReadRequest, num_blobs> requests_buf;
+    autovector<BlobReadRequest*> blob_reqs;
 
-    requests_buf[0] = BlobReadRequest(key_refs[0], offsets[0], blob_sizes[0],
-                                      &value_buf[0], &statuses_buf[0]);
-    requests_buf[1] = BlobReadRequest(key_refs[1], offsets[1], blob_sizes[1],
-                                      &value_buf[1], &statuses_buf[1]);
-    requests_buf[2] = BlobReadRequest(key_refs[2], offsets[2], blob_sizes[2],
-                                      &value_buf[2], &statuses_buf[2]);
-
-    autovector<BlobReadRequest*> blob_reqs = {
-        &requests_buf[0], &requests_buf[1], &requests_buf[2]};
+    for (size_t i = 0; i < num_blobs; ++i) {
+      requests_buf[i] =
+          BlobReadRequest(key_refs[i], offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+      blob_reqs.push_back(&requests_buf[i]);
+    }
 
     reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
 
@@ -350,15 +349,11 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     std::array<PinnableSlice, num_blobs> value_buf;
     std::array<BlobReadRequest, num_blobs> requests_buf;
 
-    requests_buf[0] =
-        BlobReadRequest(key_refs[0], blob_offsets[0], blob_sizes[0],
-                        &value_buf[0], &statuses_buf[0]);
-    requests_buf[1] =
-        BlobReadRequest(key_refs[1], blob_offsets[1], blob_sizes[1],
-                        &value_buf[1], &statuses_buf[1]);
-    requests_buf[2] =
-        BlobReadRequest(key_refs[2], blob_offsets[2], blob_sizes[2],
-                        &value_buf[2], &statuses_buf[2]);
+    for (size_t i = 0; i < num_blobs; ++i) {
+      requests_buf[i] =
+          BlobReadRequest(key_refs[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+    }
 
     autovector<BlobReadRequest*> blob_reqs = {
         &requests_buf[0], &requests_buf[1], &requests_buf[2]};
@@ -366,7 +361,6 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      printf("%zu: %s\n", i, statuses_buf[i].ToString().c_str());
       if (i == num_blobs - 1) {
         ASSERT_TRUE(statuses_buf[i].IsCorruption());
       } else {
@@ -399,13 +393,13 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
     requests_buf[0] =
         BlobReadRequest(key_refs[0], blob_offsets[0], blob_sizes[0],
-                        &value_buf[0], &statuses_buf[0]);
+                        kNoCompression, &value_buf[0], &statuses_buf[0]);
     requests_buf[1] =
         BlobReadRequest(key_refs[1], blob_offsets[1], blob_sizes[1] + 1,
-                        &value_buf[1], &statuses_buf[1]);
+                        kNoCompression, &value_buf[1], &statuses_buf[1]);
     requests_buf[2] =
         BlobReadRequest(key_refs[2], blob_offsets[2], blob_sizes[2],
-                        &value_buf[2], &statuses_buf[2]);
+                        kNoCompression, &value_buf[2], &statuses_buf[2]);
 
     autovector<BlobReadRequest*> blob_reqs = {
         &requests_buf[0], &requests_buf[1], &requests_buf[2]};

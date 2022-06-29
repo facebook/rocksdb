@@ -202,32 +202,30 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
   return s;
 }
 
-void BlobSource::MultiGetBlob(
-    const ReadOptions& read_options,
-    std::map<uint64_t, autovector<BlobReadRequest>>& blob_reqs,
-    uint64_t* bytes_read) {
+void BlobSource::MultiGetBlob(const ReadOptions& read_options,
+                              autovector<BlobFileReadRequests>& blob_reqs,
+                              uint64_t* bytes_read) {
   assert(blob_reqs.size() > 0);
 
   Status s;
 
-  for (auto& batch_rqs : blob_reqs) {
-    const uint64_t file_number = batch_rqs.first;
-    CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = GetBlobFileReader(file_number, &blob_file_reader);
-    assert(!s.ok() || blob_file_reader.GetValue());
+  for (auto& batch_req : blob_reqs) {
+    auto& [file_number, file_size, blob_reqs_in_file] = batch_req;
+    // CacheHandleGuard<BlobFileReader> blob_file_reader;
+    // s = GetBlobFileReader(file_number, &blob_file_reader);
+    // assert(!s.ok() || blob_file_reader.GetValue());
 
-    auto& blob_reqs_in_file = batch_rqs.second;
-    if (!s.ok()) {
-      for (const auto& blob_req : blob_reqs_in_file) {
-        *blob_req.status = s;
-      }
-      continue;
-    }
+    // if (!s.ok()) {
+    //   for (const auto& blob_req : blob_reqs_in_file) {
+    //     *blob_req.status = s;
+    //   }
+    //   continue;
+    // }
 
-    assert(blob_file_reader.GetValue());
-    const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
-    const CompressionType compression =
-        blob_file_reader.GetValue()->GetCompressionType();
+    // assert(blob_file_reader.GetValue());
+    // const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
+    // const CompressionType compression =
+    //     blob_file_reader.GetValue()->GetCompressionType();
 
     // sort blob_reqs_in_file by file offset.
     std::sort(
@@ -236,38 +234,41 @@ void BlobSource::MultiGetBlob(
           return lhs.offset < rhs.offset;
         });
 
-    autovector<BlobReadRequest*> _batch_rqs;
-    for (auto& blob_req : blob_reqs_in_file) {
-      const uint64_t key_size = blob_req.user_key->size();
-      const uint64_t offset = blob_req.offset;
-      const uint64_t value_size = blob_req.len;
-      if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
-        *blob_req.status = Status::Corruption("Invalid blob offset");
-        continue;
-      }
-      if (blob_req.compression != compression) {
-        *blob_req.status =
-            Status::Corruption("Compression type mismatch when reading a blob");
-        continue;
-      }
-      _batch_rqs.push_back(&blob_req);
-    }
+    // autovector<BlobReadRequest*> _batch_reqs;
+    // for (auto& blob_req : blob_reqs_in_file) {
+    //   const uint64_t key_size = blob_req.user_key->size();
+    //   const uint64_t offset = blob_req.offset;
+    //   const uint64_t value_size = blob_req.len;
+    //   if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
+    //     *blob_req.status = Status::Corruption("Invalid blob offset");
+    //     continue;
+    //   }
+    //   if (blob_req.compression != compression) {
+    //     *blob_req.status =
+    //         Status::Corruption("Compression type mismatch when reading a
+    //         blob");
+    //     continue;
+    //   }
+    //   _batch_reqs.push_back(&blob_req);
+    // }
 
-    MultiGetBlobFromOneFile(read_options, file_number, file_size, _batch_rqs,
-                            bytes_read);
+    MultiGetBlobFromOneFile(read_options, file_number, file_size,
+                            blob_reqs_in_file, bytes_read);
   }
 }
 
-void BlobSource::MultiGetBlobFromOneFile(
-    const ReadOptions& read_options, uint64_t file_number, uint64_t file_size,
-    autovector<BlobReadRequest*>& blob_reqs, uint64_t* bytes_read) {
+void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
+                                         uint64_t file_number,
+                                         uint64_t file_size,
+                                         autovector<BlobReadRequest>& blob_reqs,
+                                         uint64_t* bytes_read) {
   const size_t num_blobs = blob_reqs.size();
   assert(num_blobs > 0);
   assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
 
 #ifndef NDEBUG
   for (size_t i = 0; i < num_blobs - 1; ++i) {
-    assert(blob_reqs[i]->offset <= blob_reqs[i + 1]->offset);
+    assert(blob_reqs[i].offset <= blob_reqs[i + 1].offset);
   }
 #endif  // !NDEBUG
 
@@ -285,15 +286,15 @@ void BlobSource::MultiGetBlobFromOneFile(
       auto& req = blob_reqs[i];
 
       CachableEntry<std::string> blob_entry;
-      const CacheKey cache_key = base_cache_key.WithOffset(req->offset);
+      const CacheKey cache_key = base_cache_key.WithOffset(req.offset);
       const Slice key = cache_key.AsSlice();
 
       s = GetBlobFromCache(key, &blob_entry);
 
       if (s.ok() && blob_entry.GetValue()) {
-        assert(req->status);
-        *req->status = s;
-        req->result->PinSelf(*blob_entry.GetValue());
+        assert(req.status);
+        *req.status = s;
+        req.result->PinSelf(*blob_entry.GetValue());
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
@@ -302,10 +303,10 @@ void BlobSource::MultiGetBlobFromOneFile(
         uint64_t adjustment =
             read_options.verify_checksums
                 ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
-                      req->user_key->size())
+                      req.user_key->size())
                 : 0;
-        assert(req->offset >= adjustment);
-        total_bytes += req->len + adjustment;
+        assert(req.offset >= adjustment);
+        total_bytes += req.len + adjustment;
         cache_hit_mask |= (Mask{1} << i);  // cache hit
       }
     }
@@ -323,8 +324,8 @@ void BlobSource::MultiGetBlobFromOneFile(
   if (no_io) {
     for (size_t i = 0; i < num_blobs; ++i) {
       if (!(cache_hit_mask & (Mask{1} << i))) {
-        assert(blob_reqs[i]->status);
-        *blob_reqs[i]->status =
+        assert(blob_reqs[i].status);
+        *blob_reqs[i].status =
             Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
       }
     }
@@ -338,7 +339,7 @@ void BlobSource::MultiGetBlobFromOneFile(
 
     for (size_t i = 0; i < num_blobs; ++i) {
       if (!(cache_hit_mask & (Mask{1} << i))) {
-        _blob_reqs.push_back(blob_reqs[i]);
+        _blob_reqs.push_back(&blob_reqs[i]);
       }
     }
 
