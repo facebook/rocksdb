@@ -204,7 +204,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
 void BlobSource::MultiGetBlob(
     const ReadOptions& read_options,
-    std::unordered_map<uint64_t, autovector<BlobReadRequest>>& blob_reqs,
+    std::map<uint64_t, autovector<BlobReadRequest>>& blob_reqs,
     uint64_t* bytes_read) {
   assert(blob_reqs.size() > 0);
 
@@ -357,7 +357,7 @@ void BlobSource::MultiGetBlobFromOneFile(
     blob_file_reader.GetValue()->MultiGetBlob(read_options, _blob_reqs,
                                               &_bytes_read);
 
-    if (read_options.fill_cache) {
+    if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put
       // the blob(s) to the cache.
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {

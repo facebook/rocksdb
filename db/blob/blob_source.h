@@ -68,8 +68,8 @@ class BlobSource {
   //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
   //  records.
   void MultiGetBlob(const ReadOptions& read_options,
-                    std::unordered_map</*blob file number*/ uint64_t,
-                                       autovector<BlobReadRequest>>& blob_reqs,
+                    std::map</*blob file number*/ uint64_t,
+                             autovector<BlobReadRequest>>& blob_reqs,
                     uint64_t* bytes_read);
 
   // Read multiple blobs from the underlying cache or one on-disk blob file.
