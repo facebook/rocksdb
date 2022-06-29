@@ -4636,6 +4636,11 @@ void rocksdb_lru_cache_options_set_capacity(rocksdb_lru_cache_options_t* opt,
   opt->rep.capacity = capacity;
 }
 
+void rocksdb_lru_cache_options_set_num_shard_bits(
+    rocksdb_lru_cache_options_t* opt, int num_shard_bits) {
+  opt->rep.num_shard_bits = num_shard_bits;
+}
+
 void rocksdb_lru_cache_options_set_memory_allocator(
     rocksdb_lru_cache_options_t* opt, rocksdb_memory_allocator_t* allocator) {
   opt->rep.memory_allocator = allocator->rep;

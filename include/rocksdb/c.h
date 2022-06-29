@@ -1945,6 +1945,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_destroy(
     rocksdb_lru_cache_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_capacity(
     rocksdb_lru_cache_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_num_shard_bits(
+    rocksdb_lru_cache_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_memory_allocator(
     rocksdb_lru_cache_options_t*, rocksdb_memory_allocator_t*);
 
