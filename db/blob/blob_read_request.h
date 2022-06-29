@@ -14,9 +14,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class Status;
-class Slice;
-
 // A read Blob request structure for use in BlobSource::MultiGetBlob and
 // BlobFileReader::MultiGetBlob.
 struct BlobReadRequest {
