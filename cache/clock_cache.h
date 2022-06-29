@@ -13,18 +13,18 @@
 #include <memory>
 #include <string>
 
-#include "rocksdb/cache.h"
 #include "cache/cache_key.h"
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
 #include "util/distributed_mutex.h"
 
 #if !defined(ROCKSDB_LITE)
-#define SUPPORT_CLOCK_CACHE // TODO(Guido) Do we need this?
+#define SUPPORT_CLOCK_CACHE  // TODO(Guido) Do we need this?
 #endif
 
 namespace ROCKSDB_NAMESPACE {
@@ -32,22 +32,22 @@ namespace ROCKSDB_NAMESPACE {
 namespace clock_cache {
 
 // Clock cache implementation. This is based on FastLRUCache's open-addressed
-// hash table. Importantly, it stores elements in an array, and resolves collision
-// using a probing strategy. Visibility and referenceability of elements works
-// as usual. See fast_lru_cache.h for a detailed description.
+// hash table. Importantly, it stores elements in an array, and resolves
+// collision using a probing strategy. Visibility and referenceability of
+// elements works as usual. See fast_lru_cache.h for a detailed description.
 //
 // The main difference with FastLRUCache is, of course, the eviction algorithm
-// ---instead of an LRU list, we maintain a circular list with the elements available
-// for eviction, which the clock algorithm traverses to pick the next victim.
-// The clock list is represented using the array of handles, and we simply mark
-// those elements that are present in the list. This is done using different
-// clock flags, namely NONE, LOW, MEDIUM, HIGH, that represent priorities:
-// NONE means that the element is not part of the clock list, and LOW to HIGH
-// represent how close an element is from being evictable (LOW being immediately
-// evictable). When the clock pointer steps on an element that is not immediately
-// evictable, it decreases its priority.
+// ---instead of an LRU list, we maintain a circular list with the elements
+// available for eviction, which the clock algorithm traverses to pick the next
+// victim. The clock list is represented using the array of handles, and we
+// simply mark those elements that are present in the list. This is done using
+// different clock flags, namely NONE, LOW, MEDIUM, HIGH, that represent
+// priorities: NONE means that the element is not part of the clock list, and
+// LOW to HIGH represent how close an element is from being evictable (LOW being
+// immediately evictable). When the clock pointer steps on an element that is
+// not immediately evictable, it decreases its priority.
 
-constexpr double kLoadFactor = 0.35;    // See fast_lru_cache.h.
+constexpr double kLoadFactor = 0.35;  // See fast_lru_cache.h.
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
@@ -69,20 +69,20 @@ struct ClockHandle {
 
   enum Flags : uint8_t {
     // Whether the handle is visible to Lookups.
-    IS_VISIBLE      = (1 << kIsVisibleOffset),
+    IS_VISIBLE = (1 << kIsVisibleOffset),
     // Whether the slot is in use by an element.
-    IS_ELEMENT      = (1 << kIsElementOffset),
+    IS_ELEMENT = (1 << kIsElementOffset),
     // Clock priorities. Represents how close a handle is from
     // being evictable.
-    CLOCK_PRIORITY  = (3 << kClockPriorityOffset),
+    CLOCK_PRIORITY = (3 << kClockPriorityOffset),
   };
   uint8_t flags;
 
   enum ClockPriority : uint8_t {
-    NONE   = (0 << kClockPriorityOffset),    // Not an element in the eyes of clock.
-    LOW    = (1 << kClockPriorityOffset),    // Immediately evictable.
+    NONE = (0 << kClockPriorityOffset),  // Not an element in the eyes of clock.
+    LOW = (1 << kClockPriorityOffset),   // Immediately evictable.
     MEDIUM = (2 << kClockPriorityOffset),
-    HIGH   = (3 << kClockPriorityOffset)
+    HIGH = (3 << kClockPriorityOffset)
     // Priority is CLOCK_NONE if and only if
     // (i) the handle is not an element, or
     // (ii) the handle is an element but it is being referenced.
@@ -121,9 +121,7 @@ struct ClockHandle {
   }
 
   // Return true if there are external refs, false otherwise.
-  bool HasRefs() const {
-    return refs > 0;
-  }
+  bool HasRefs() const { return refs > 0; }
 
   bool IsVisible() const { return flags & IS_VISIBLE; }
 
@@ -159,11 +157,13 @@ struct ClockHandle {
   }
 
   void DecreasePriority() {
-    uint8_t p = static_cast<uint8_t>(flags & Flags::CLOCK_PRIORITY) >> kClockPriorityOffset;
+    uint8_t p = static_cast<uint8_t>(flags & Flags::CLOCK_PRIORITY) >>
+                kClockPriorityOffset;
     assert(p > 0);
     p--;
     flags &= ~Flags::CLOCK_PRIORITY;
-    ClockPriority new_priority = static_cast<ClockPriority>(p << kClockPriorityOffset);
+    ClockPriority new_priority =
+        static_cast<ClockPriority>(p << kClockPriorityOffset);
     flags |= new_priority;
   }
 
@@ -224,7 +224,6 @@ struct ClockHandle {
   }
 };  // struct ClockHandle
 
-
 class ClockHandleTable {
  public:
   explicit ClockHandleTable(uint8_t hash_bits);
@@ -268,13 +267,12 @@ class ClockHandleTable {
  private:
   friend class ClockCacheShard;
 
-  int FindVisibleElement(const Slice& key, int& probe,
-                         int displacement);
+  int FindVisibleElement(const Slice& key, int& probe, int displacement);
 
   int FindAvailableSlot(const Slice& key, int& probe, int displacement);
 
-  int FindVisibleElementOrAvailableSlot(const Slice& key,
-                                        int& probe, int displacement);
+  int FindVisibleElementOrAvailableSlot(const Slice& key, int& probe,
+                                        int displacement);
 
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that cond(e) is true.
@@ -295,15 +293,14 @@ class ClockHandleTable {
   uint32_t occupancy_;
 
   std::unique_ptr<ClockHandle[]> array_;
-}; // class ClockHandleTable
-
+};  // class ClockHandleTable
 
 // A single shard of sharded cache.
 class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
  public:
   ClockCacheShard(size_t capacity, size_t estimated_value_size,
-                bool strict_capacity_limit,
-                CacheMetadataChargePolicy metadata_charge_policy);
+                  bool strict_capacity_limit,
+                  CacheMetadataChargePolicy metadata_charge_policy);
   ~ClockCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of ClockCache
@@ -413,8 +410,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
   mutable DMutex mutex_;
-}; // class ClockCacheShard
-
+};  // class ClockCacheShard
 
 class ClockCache
 #ifdef NDEBUG
@@ -423,9 +419,9 @@ class ClockCache
     : public ShardedCache {
  public:
   ClockCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
-           bool strict_capacity_limit,
-           CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata);
+             bool strict_capacity_limit,
+             CacheMetadataChargePolicy metadata_charge_policy =
+                 kDontChargeCacheMetadata);
   ~ClockCache() override;
   const char* Name() const override { return "ClockCache"; }
   CacheShard* GetShard(uint32_t shard) override;
@@ -439,7 +435,7 @@ class ClockCache
  private:
   ClockCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
-}; // class ClockCache
+};  // class ClockCache
 
 }  // namespace clock_cache
 

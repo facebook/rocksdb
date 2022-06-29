@@ -36,11 +36,8 @@ LRUHandleTable::LRUHandleTable(uint8_t hash_bits)
 }
 
 LRUHandleTable::~LRUHandleTable() {
-  ApplyToEntriesRange(
-      [](LRUHandle* h) {
-        h->FreeData();
-      },
-      0, uint32_t{1} << length_bits_);
+  ApplyToEntriesRange([](LRUHandle* h) { h->FreeData(); }, 0,
+                      uint32_t{1} << length_bits_);
 }
 
 LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
@@ -148,11 +145,12 @@ int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
 inline int LRUHandleTable::FindSlot(const Slice& key,
                                     std::function<bool(LRUHandle*)> cond,
                                     int& probe, int displacement) {
-  uint32_t base =
-      BinaryMod<uint32_t>(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
+  uint32_t base = BinaryMod<uint32_t>(
+      Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
   uint32_t increment = BinaryMod<uint32_t>(
       (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
-  uint32_t current = BinaryMod<uint32_t>(base + probe * increment, length_bits_);
+  uint32_t current =
+      BinaryMod<uint32_t>(base + probe * increment, length_bits_);
   while (true) {
     LRUHandle* h = &array_[current];
     probe++;
@@ -374,10 +372,13 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         last_reference_list.push_back(tmp);
       } else {
         if (table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
-          s = Status::Incomplete("Insert failed because all slots in the hash table are full.");
+          s = Status::Incomplete(
+              "Insert failed because all slots in the hash table are full.");
           // TODO(Guido) Use the correct statuses.
         } else {
-          s = Status::Incomplete("Insert failed because the total charge has exceeded the capacity.");
+          s = Status::Incomplete(
+              "Insert failed because the total charge has exceeded the "
+              "capacity.");
         }
       }
     } else {
@@ -385,7 +386,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // capacity if not enough space was freed up.
       LRUHandle* old;
       LRUHandle* h = table_.Insert(&tmp, &old);
-      assert(h != nullptr);  // We're below occupancy, so this insertion should never fail.
+      assert(h != nullptr);  // We're below occupancy, so this insertion should
+                             // never fail.
       usage_ += h->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
@@ -428,7 +430,8 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
     if (h != nullptr) {
       assert(h->IsVisible());
       if (!h->HasRefs()) {
-        // The entry is in LRU since it's in hash and has no external references.
+        // The entry is in LRU since it's in hash and has no external
+        // references.
         LRU_Remove(h);
       }
       h->Ref();

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <assert.h>
+
 #include <climits>
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -253,7 +254,7 @@ inline T ReverseBits(T v) {
 
 // Returns x % 2^b. Assumes the size of x's data type is
 // at least b bits.
-template<typename T>
+template <typename T>
 inline T BinaryMod(T x, uint8_t b) {
   std::size_t size = sizeof(T) << 3;
   assert(b <= size);

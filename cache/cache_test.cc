@@ -137,9 +137,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
       return NewLRUCache(co);
     }
     if (type == kClock) {
-      return NewClockCache(capacity, 1 /*estimated_value_size*/,
-                             num_shard_bits, strict_capacity_limit,
-                             charge_policy);
+      return NewClockCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
+                           strict_capacity_limit, charge_policy);
     }
     if (type == kFast) {
       return NewFastLRUCache(capacity, 1 /*estimated_value_size*/,
@@ -500,7 +499,8 @@ TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(303, 104);
 
   // Insert entries much more than cache capacity.
-  double load_factor = std::min(fast_lru_cache::kLoadFactor, clock_cache::kLoadFactor);
+  double load_factor =
+      std::min(fast_lru_cache::kLoadFactor, clock_cache::kLoadFactor);
   for (int i = 0; i < 2 * static_cast<int>(kCacheSize / load_factor); i++) {
     Insert(1000 + i, 2000 + i);
   }
@@ -662,7 +662,8 @@ TEST_P(CacheTest, ReleaseWithoutErase) {
 TEST_P(CacheTest, SetCapacity) {
   auto type = GetParam();
   if (type == kFast || type == kClock) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache don't support capacity adjustments.");
+    ROCKSDB_GTEST_BYPASS(
+        "FastLRUCache and ClockCache don't support capacity adjustments.");
     return;
   }
   // test1: increase capacity
@@ -716,7 +717,8 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   auto type = GetParam();
   if (type == kFast || type == kClock) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache don't support an unbounded number of inserts beyond "
+        "FastLRUCache and ClockCache don't support an unbounded number of "
+        "inserts beyond "
         "capacity.");
     return;
   }
@@ -773,7 +775,8 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 TEST_P(CacheTest, OverCapacity) {
   auto type = GetParam();
   if (type == kFast || type == kClock) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache don't support capacity adjustments.");
+    ROCKSDB_GTEST_BYPASS(
+        "FastLRUCache and ClockCache don't support capacity adjustments.");
     return;
   }
   size_t n = 10;

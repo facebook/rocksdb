@@ -3,13 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "cache/lru_cache.h"
+
 #include <string>
 #include <vector>
 
 #include "cache/cache_key.h"
 #include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
-#include "cache/lru_cache.h"
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
@@ -342,7 +343,6 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
 
 }  // namespace fast_lru_cache
 
-
 namespace clock_cache {
 
 class ClockCacheTest : public testing::Test {
@@ -362,16 +362,14 @@ class ClockCacheTest : public testing::Test {
     DeleteShard();
     shard_ = reinterpret_cast<ClockCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(ClockCacheShard)));
-    new (shard_) ClockCacheShard(
-        capacity, 1, true /*strict_capacity_limit*/,
-        kDontChargeCacheMetadata);
+    new (shard_) ClockCacheShard(capacity, 1, true /*strict_capacity_limit*/,
+                                 kDontChargeCacheMetadata);
   }
 
   Status Insert(const std::string& key,
-              Cache::Priority priority = Cache::Priority::LOW) {
+                Cache::Priority priority = Cache::Priority::LOW) {
     return shard_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
-                             nullptr /*deleter*/, nullptr /*handle*/,
-                             priority);
+                          nullptr /*deleter*/, nullptr /*handle*/, priority);
   }
 
   Status Insert(char key, Cache::Priority priority = Cache::Priority::LOW) {
@@ -395,31 +393,31 @@ class ClockCacheTest : public testing::Test {
 
   // void ValidateLRUList(std::vector<std::string> keys,
   //                      size_t num_high_pri_pool_keys = 0) {
-    // LRUHandle* lru;
-    // LRUHandle* lru_low_pri;
-    // cache_->TEST_GetLRUList(&lru, &lru_low_pri);
-    // LRUHandle* iter = lru;
-    // bool in_high_pri_pool = false;
-    // size_t high_pri_pool_keys = 0;
-    // if (iter == lru_low_pri) {
-    //   in_high_pri_pool = true;
-    // }
-    // for (const auto& key : keys) {
-    //   iter = iter->next;
-    //   ASSERT_NE(lru, iter);
-    //   ASSERT_EQ(key, iter->key().ToString());
-    //   ASSERT_EQ(in_high_pri_pool, iter->InHighPriPool());
-    //   if (in_high_pri_pool) {
-    //     high_pri_pool_keys++;
-    //   }
-    //   if (iter == lru_low_pri) {
-    //     ASSERT_FALSE(in_high_pri_pool);
-    //     in_high_pri_pool = true;
-    //   }
-    // }
-    // ASSERT_EQ(lru, iter->next);
-    // ASSERT_TRUE(in_high_pri_pool);
-    // ASSERT_EQ(num_high_pri_pool_keys, high_pri_pool_keys);
+  // LRUHandle* lru;
+  // LRUHandle* lru_low_pri;
+  // cache_->TEST_GetLRUList(&lru, &lru_low_pri);
+  // LRUHandle* iter = lru;
+  // bool in_high_pri_pool = false;
+  // size_t high_pri_pool_keys = 0;
+  // if (iter == lru_low_pri) {
+  //   in_high_pri_pool = true;
+  // }
+  // for (const auto& key : keys) {
+  //   iter = iter->next;
+  //   ASSERT_NE(lru, iter);
+  //   ASSERT_EQ(key, iter->key().ToString());
+  //   ASSERT_EQ(in_high_pri_pool, iter->InHighPriPool());
+  //   if (in_high_pri_pool) {
+  //     high_pri_pool_keys++;
+  //   }
+  //   if (iter == lru_low_pri) {
+  //     ASSERT_FALSE(in_high_pri_pool);
+  //     in_high_pri_pool = true;
+  //   }
+  // }
+  // ASSERT_EQ(lru, iter->next);
+  // ASSERT_TRUE(in_high_pri_pool);
+  // ASSERT_EQ(num_high_pri_pool_keys, high_pri_pool_keys);
   // }
 
  private:
@@ -439,25 +437,32 @@ TEST_F(ClockCacheTest, Validate) {
 
 TEST_F(ClockCacheTest, ClockPriorityTest) {
   clock_cache::ClockHandle handle;
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::NONE);
   handle.SetPriority(clock_cache::ClockHandle::ClockPriority::HIGH);
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::HIGH);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::HIGH);
   handle.DecreasePriority();
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::MEDIUM);
   handle.DecreasePriority();
   EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::LOW);
   handle.SetPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::MEDIUM);
   handle.SetPriority(clock_cache::ClockHandle::ClockPriority::NONE);
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::NONE);
   handle.SetPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::MEDIUM);
   handle.DecreasePriority();
   handle.DecreasePriority();
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::NONE);
 }
 
-} // clock_cache namespace
+}  // namespace clock_cache
 
 class TestSecondaryCache : public SecondaryCache {
  public:

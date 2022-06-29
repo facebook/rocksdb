@@ -36,11 +36,8 @@ ClockHandleTable::ClockHandleTable(uint8_t hash_bits)
 }
 
 ClockHandleTable::~ClockHandleTable() {
-  ApplyToEntriesRange(
-      [](ClockHandle* h) {
-        h->FreeData();
-      },
-      0, uint32_t{1} << length_bits_);
+  ApplyToEntriesRange([](ClockHandle* h) { h->FreeData(); }, 0,
+                      uint32_t{1} << length_bits_);
 }
 
 ClockHandle* ClockHandleTable::Lookup(const Slice& key) {
@@ -51,8 +48,8 @@ ClockHandle* ClockHandleTable::Lookup(const Slice& key) {
 
 ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
   int probe = 0;
-  int slot = FindVisibleElementOrAvailableSlot(h->key(), probe,
-                                               1 /*displacement*/);
+  int slot =
+      FindVisibleElementOrAvailableSlot(h->key(), probe, 1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
     return nullptr;
@@ -118,24 +115,23 @@ void ClockHandleTable::Assign(int slot, ClockHandle* h) {
 
 void ClockHandleTable::Exclude(ClockHandle* h) { h->SetIsVisible(false); }
 
-int ClockHandleTable::FindVisibleElement(const Slice& key,
-                                       int& probe, int displacement) {
+int ClockHandleTable::FindVisibleElement(const Slice& key, int& probe,
+                                         int displacement) {
   return FindSlot(
-      key,
-      [&](ClockHandle* h) { return h->Matches(key) && h->IsVisible(); },
+      key, [&](ClockHandle* h) { return h->Matches(key) && h->IsVisible(); },
       probe, displacement);
 }
 
 int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe,
-                                      int displacement) {
+                                        int displacement) {
   return FindSlot(
-      key, [](ClockHandle* h) { return h->IsEmpty() || h->IsTombstone(); }, probe,
-      displacement);
+      key, [](ClockHandle* h) { return h->IsEmpty() || h->IsTombstone(); },
+      probe, displacement);
 }
 
 int ClockHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
-                                                      int& probe,
-                                                      int displacement) {
+                                                        int& probe,
+                                                        int displacement) {
   return FindSlot(
       key,
       [&](ClockHandle* h) {
@@ -146,13 +142,14 @@ int ClockHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
 }
 
 inline int ClockHandleTable::FindSlot(const Slice& key,
-                                    std::function<bool(ClockHandle*)> cond,
-                                    int& probe, int displacement) {
-  uint32_t base =
-      BinaryMod<uint32_t>(Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
+                                      std::function<bool(ClockHandle*)> cond,
+                                      int& probe, int displacement) {
+  uint32_t base = BinaryMod<uint32_t>(
+      Hash(key.data(), key.size(), kProbingSeed1), length_bits_);
   uint32_t increment = BinaryMod<uint32_t>(
       (Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1, length_bits_);
-  uint32_t current = BinaryMod<uint32_t>(base + probe * increment, length_bits_);
+  uint32_t current =
+      BinaryMod<uint32_t>(base + probe * increment, length_bits_);
   while (true) {
     ClockHandle* h = &array_[current];
     probe++;
@@ -173,13 +170,14 @@ inline int ClockHandleTable::FindSlot(const Slice& key,
   }
 }
 
-ClockCacheShard::ClockCacheShard(size_t capacity, size_t estimated_value_size,
-                             bool strict_capacity_limit,
-                             CacheMetadataChargePolicy metadata_charge_policy)
+ClockCacheShard::ClockCacheShard(
+    size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy)
     : capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit),
       clock_pointer_(0),
-      table_(CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)),
+      table_(
+          CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)),
       usage_(0),
       clock_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -259,11 +257,12 @@ void ClockCacheShard::ClockInsert(ClockHandle* h) {
 }
 
 void ClockCacheShard::EvictFromClock(size_t charge,
-                                 autovector<ClockHandle>* deleted) {
+                                     autovector<ClockHandle>* deleted) {
   assert(charge <= capacity_);
   while (clock_usage_ > 0 && (usage_ + charge) > capacity_) {
     ClockHandle* old = &table_.array_[clock_pointer_];
-    clock_pointer_ = BinaryMod<uint32_t>(clock_pointer_ + 1, table_.GetLengthBits());
+    clock_pointer_ =
+        BinaryMod<uint32_t>(clock_pointer_ + 1, table_.GetLengthBits());
     // Clock list contains only elements which can be evicted.
     if (!old->IsInClockList()) {
       continue;
@@ -293,7 +292,8 @@ uint8_t ClockCacheShard::CalcHashBits(
     CacheMetadataChargePolicy metadata_charge_policy) {
   size_t handle_charge =
       CalcEstimatedHandleCharge(estimated_value_size, metadata_charge_policy);
-  size_t num_entries = static_cast<size_t>(capacity / (kLoadFactor * handle_charge));
+  size_t num_entries =
+      static_cast<size_t>(capacity / (kLoadFactor * handle_charge));
 
   if (num_entries == 0) {
     return 0;
@@ -323,9 +323,9 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
 }
 
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                             size_t charge, Cache::DeleterFn deleter,
-                             Cache::Handle** handle,
-                             Cache::Priority /*priority*/) {
+                               size_t charge, Cache::DeleterFn deleter,
+                               Cache::Handle** handle,
+                               Cache::Priority /*priority*/) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("ClockCache only supports key size " +
                                 std::to_string(kCacheKeySize) + "B");
@@ -357,10 +357,13 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         last_reference_list.push_back(tmp);
       } else {
         if (table_.GetOccupancy() == size_t{1} << table_.GetLengthBits()) {
-          s = Status::Incomplete("Insert failed because all slots in the hash table are full.");
+          s = Status::Incomplete(
+              "Insert failed because all slots in the hash table are full.");
           // TODO(Guido) Use the correct statuses.
         } else {
-          s = Status::Incomplete("Insert failed because the total charge has exceeded the capacity.");
+          s = Status::Incomplete(
+              "Insert failed because the total charge has exceeded the "
+              "capacity.");
         }
       }
     } else {
@@ -368,7 +371,8 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // capacity if not enough space was freed up.
       ClockHandle* old;
       ClockHandle* h = table_.Insert(&tmp, &old);
-      assert(h != nullptr);  // We're below occupancy, so this insertion should never fail.
+      assert(h != nullptr);  // We're below occupancy, so this insertion should
+                             // never fail.
       usage_ += h->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
@@ -411,7 +415,8 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t /* hash */) {
     if (h != nullptr) {
       assert(h->IsVisible());
       if (!h->HasRefs()) {
-        // The entry is in clock since it's in the hash table and has no external references.
+        // The entry is in clock since it's in the hash table and has no
+        // external references.
         ClockRemove(h);
       }
       h->Ref();
@@ -506,11 +511,13 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   return usage_ - clock_usage_;
 }
 
-std::string ClockCacheShard::GetPrintableOptions() const { return std::string{}; }
+std::string ClockCacheShard::GetPrintableOptions() const {
+  return std::string{};
+}
 
 ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
-                   int num_shard_bits, bool strict_capacity_limit,
-                   CacheMetadataChargePolicy metadata_charge_policy)
+                       int num_shard_bits, bool strict_capacity_limit,
+                       CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<ClockCacheShard*>(
@@ -519,7 +526,7 @@ ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i])
         ClockCacheShard(per_shard, estimated_value_size, strict_capacity_limit,
-                      metadata_charge_policy);
+                        metadata_charge_policy);
   }
 }
 
