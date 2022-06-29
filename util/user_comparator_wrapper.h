@@ -8,13 +8,11 @@
 
 #pragma once
 
-#include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-// Wrapper of user comparator, with auto increment to
-// perf_context.user_key_comparison_count.
+// Wrapper of user comparator
 class UserComparatorWrapper final : public Comparator {
  public:
   // `UserComparatorWrapper`s constructed with the default constructor are not
@@ -29,12 +27,10 @@ class UserComparatorWrapper final : public Comparator {
   const Comparator* user_comparator() const { return user_comparator_; }
 
   int Compare(const Slice& a, const Slice& b) const override {
-    PERF_COUNTER_ADD(user_key_comparison_count, 1);
     return user_comparator_->Compare(a, b);
   }
 
   bool Equal(const Slice& a, const Slice& b) const override {
-    PERF_COUNTER_ADD(user_key_comparison_count, 1);
     return user_comparator_->Equal(a, b);
   }
 
@@ -69,7 +65,6 @@ class UserComparatorWrapper final : public Comparator {
   using Comparator::CompareWithoutTimestamp;
   int CompareWithoutTimestamp(const Slice& a, bool a_has_ts, const Slice& b,
                               bool b_has_ts) const override {
-    PERF_COUNTER_ADD(user_key_comparison_count, 1);
     return user_comparator_->CompareWithoutTimestamp(a, a_has_ts, b, b_has_ts);
   }
 
