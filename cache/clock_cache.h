@@ -23,10 +23,6 @@
 #include "util/autovector.h"
 #include "util/distributed_mutex.h"
 
-#if !defined(ROCKSDB_LITE)
-#define SUPPORT_CLOCK_CACHE  // TODO(Guido) Do we need this?
-#endif
-
 namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
