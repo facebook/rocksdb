@@ -812,6 +812,10 @@ bool DBIter::FindValueForCurrentKey() {
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
+  // If false, it indicates that we have not seen any valid entry, even though
+  // last_key_entry_type is initialized to kTypeDeletion.
+  bool valid_entry_seen = false;
+
   // Temporarily pin blocks that hold (merge operands / the value)
   ReleaseTempPinnedData();
   TempPinData();
@@ -822,20 +826,33 @@ bool DBIter::FindValueForCurrentKey() {
       return false;
     }
 
+    if (!user_comparator_.EqualWithoutTimestamp(ikey.user_key,
+                                                saved_key_.GetUserKey())) {
+      // Found a smaller user key, thus we are done with current user key.
+      break;
+    }
+
     assert(ikey.user_key.size() >= timestamp_size_);
     Slice ts;
     if (timestamp_size_ > 0) {
       ts = Slice(ikey.user_key.data() + ikey.user_key.size() - timestamp_size_,
                  timestamp_size_);
     }
-    if (!IsVisible(ikey.sequence, ts) ||
-        !user_comparator_.EqualWithoutTimestamp(ikey.user_key,
-                                                saved_key_.GetUserKey())) {
+
+    bool visible = IsVisible(ikey.sequence, ts);
+    if (!visible &&
+        (timestamp_lb_ == nullptr ||
+         user_comparator_.CompareTimestamp(ts, *timestamp_ub_) > 0)) {
+      // Found an invisible version of the current user key, and it must have
+      // a higher sequence number or timestamp. Therefore, we are done with the
+      // current user key.
       break;
     }
+
     if (!ts.empty()) {
       saved_timestamp_.assign(ts.data(), ts.size());
     }
+
     if (TooManyInternalKeysSkipped()) {
       return false;
     }
@@ -852,6 +869,15 @@ bool DBIter::FindValueForCurrentKey() {
       return false;
     }
 
+    if (timestamp_lb_ != nullptr) {
+      // Only needed when timestamp_lb_ is not null
+      [[maybe_unused]] const bool ret = ParseKey(&ikey_);
+      saved_ikey_.assign(iter_.key().data(), iter_.key().size());
+      // Since the preceding ParseKey(&ikey) succeeds, so must this.
+      assert(ret);
+    }
+
+    valid_entry_seen = true;
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
       case kTypeValue:
@@ -908,11 +934,33 @@ bool DBIter::FindValueForCurrentKey() {
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
     iter_.Prev();
     ++num_skipped;
+
+    if (visible && timestamp_lb_ != nullptr) {
+      // If timestamp_lb_ is not nullptr, we do not have to look further for
+      // another internal key. We can return this current internal key. Yet we
+      // still keep the invariant that iter_ is positioned before the returned
+      // key.
+      break;
+    }
   }
 
   if (!iter_.status().ok()) {
     valid_ = false;
     return false;
+  }
+
+  if (!valid_entry_seen) {
+    // Since we haven't seen any valid entry, last_key_entry_type remains
+    // unchanged and the same as its initial value.
+    assert(last_key_entry_type == kTypeDeletion);
+    assert(last_not_merge_type == kTypeDeletion);
+    valid_ = false;
+    return true;
+  }
+
+  if (timestamp_lb_ != nullptr) {
+    assert(last_key_entry_type == ikey_.type ||
+           last_key_entry_type == kTypeRangeDeletion);
   }
 
   Status s;
@@ -923,7 +971,12 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeDeletionWithTimestamp:
     case kTypeSingleDeletion:
     case kTypeRangeDeletion:
-      valid_ = false;
+      if (timestamp_lb_ == nullptr) {
+        valid_ = false;
+      } else {
+        saved_key_.SetInternalKey(saved_ikey_);
+        valid_ = true;
+      }
       return true;
     case kTypeMerge:
       current_entry_is_merged_ = true;
@@ -970,6 +1023,9 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     case kTypeValue:
       // do nothing - we've already has value in pinned_value_
+      if (timestamp_lb_ != nullptr) {
+        saved_key_.SetInternalKey(saved_ikey_);
+      }
       break;
     case kTypeBlobIndex:
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
@@ -1015,7 +1071,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         &last_key,
         ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
                           kValueTypeForSeek),
-        *timestamp_ub_);
+        timestamp_lb_ == nullptr ? *timestamp_ub_ : *timestamp_lb_);
   }
   iter_.Seek(last_key);
   RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
@@ -1060,7 +1116,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       range_del_agg_.ShouldDelete(
           ikey, RangeDelPositioningMode::kBackwardTraversal) ||
       kTypeDeletionWithTimestamp == ikey.type) {
-    valid_ = false;
+    if (timestamp_lb_ == nullptr) {
+      valid_ = false;
+    } else {
+      valid_ = true;
+      saved_key_.SetInternalKey(ikey);
+    }
     return true;
   }
   if (!iter_.PrepareValue()) {
@@ -1083,6 +1144,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       if (!SetWideColumnValueIfNeeded(pinned_value_)) {
         return false;
       }
+    }
+
+    if (timestamp_lb_ != nullptr) {
+      saved_key_.SetInternalKey(ikey);
     }
 
     valid_ = true;
@@ -1214,8 +1279,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       return false;
     }
 
-    if (user_comparator_.CompareWithoutTimestamp(ikey.user_key,
-                                                 saved_key_.GetUserKey()) < 0) {
+    if (CompareKeyForSkip(ikey.user_key, saved_key_.GetUserKey()) < 0) {
       return true;
     }
 
@@ -1328,7 +1392,9 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   if (timestamp_size_ > 0) {
     const std::string kTsMin(timestamp_size_, '\0');
     Slice ts = kTsMin;
-    saved_key_.UpdateInternalKey(/*seq=*/0, kValueTypeForSeekForPrev, &ts);
+    saved_key_.UpdateInternalKey(
+        /*seq=*/0, kValueTypeForSeekForPrev,
+        timestamp_lb_ == nullptr ? &ts : timestamp_lb_);
   }
 
   if (iterate_upper_bound_ != nullptr &&
@@ -1341,8 +1407,9 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
     if (timestamp_size_ > 0) {
       const std::string kTsMax(timestamp_size_, '\xff');
       Slice ts = kTsMax;
-      saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
-                                   &ts);
+      saved_key_.UpdateInternalKey(
+          kMaxSequenceNumber, kValueTypeForSeekForPrev,
+          timestamp_lb_ != nullptr ? timestamp_lb_ : &ts);
     }
   }
 }
@@ -1543,11 +1610,21 @@ void DBIter::SeekToLast() {
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
-    if (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
-                            *iterate_upper_bound_, /*a_has_ts=*/false, key(),
-                            /*b_has_ts=*/false)) {
+    const bool is_ikey = (timestamp_size_ > 0 && timestamp_lb_ != nullptr);
+    Slice k = Valid() ? key() : Slice();
+    if (is_ikey) {
+      k.remove_suffix(kNumInternalBytes + timestamp_size_);
+    }
+    while (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
+                               *iterate_upper_bound_, /*a_has_ts=*/false, k,
+                               /*b_has_ts=*/false)) {
       ReleaseTempPinnedData();
       PrevInternal(nullptr);
+
+      k = key();
+      if (is_ikey) {
+        k.remove_suffix(kNumInternalBytes + timestamp_size_);
+      }
     }
     return;
   }

@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
+* Support backward iteration when `ReadOptions::iter_start_ts` is set.
 
 ### Public API changes
 * Add metadata related structs and functions in C API, including
