@@ -31,7 +31,7 @@ ClockHandleTable::ClockHandleTable(int hash_bits)
       length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_(0),
       occupancy_limit_(static_cast<uint32_t>((uint32_t{1} << length_bits_) *
-                                  kStrictLoadFactor)),
+                                             kStrictLoadFactor)),
       array_(new ClockHandle[size_t{1} << length_bits_]) {
   assert(hash_bits <= 32);
 }

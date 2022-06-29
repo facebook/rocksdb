@@ -247,9 +247,8 @@ class FastLRUCacheTest : public testing::Test {
         estimated_value_size, metadata_charge_policy);
   }
 
-  int CalcHashBitsWrapper(
-      size_t capacity, size_t estimated_value_size,
-      CacheMetadataChargePolicy metadata_charge_policy) {
+  int CalcHashBitsWrapper(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy) {
     return fast_lru_cache::LRUCacheShard::CalcHashBits(
         capacity, estimated_value_size, metadata_charge_policy);
   }
