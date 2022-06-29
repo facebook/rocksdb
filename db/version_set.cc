@@ -2800,7 +2800,8 @@ void VersionStorageInfo::ComputeCompactionScore(
           }
           score =
               std::max(score, static_cast<double>(total_size) / l0_target_size);
-          if (score > 1.0) {
+          if (immutable_options.level_compaction_dynamic_level_bytes &&
+              score > 1.0) {
             score *= kScoreScale;
           }
         }
