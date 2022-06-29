@@ -616,7 +616,9 @@ class NonBatchedOpsStressTest : public StressTest {
       ++count;
     }
 
-    assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+    if (ro_copy.iter_start_ts == nullptr) {
+      assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+    }
 
     Status s = iter->status();
     if (iter->status().ok()) {

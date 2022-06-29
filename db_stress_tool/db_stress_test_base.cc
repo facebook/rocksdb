@@ -1111,6 +1111,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions cmp_ro;
     cmp_ro.timestamp = readoptionscopy.timestamp;
+    cmp_ro.iter_start_ts = readoptionscopy.iter_start_ts;
     cmp_ro.snapshot = snapshot;
     cmp_ro.total_order_seek = true;
     ColumnFamilyHandle* cmp_cfh =
@@ -1218,6 +1219,14 @@ void StressTest::VerifyIterator(ThreadState* thread,
                                 const Slice& seek_key,
                                 const std::string& op_logs, bool* diverged) {
   if (*diverged) {
+    return;
+  }
+
+  if (ro.iter_start_ts != nullptr) {
+    assert(FLAGS_user_timestamp_size > 0);
+    // We currently do not verify iterator when dumping history of internal
+    // keys.
+    *diverged = true;
     return;
   }
 
@@ -2745,6 +2754,9 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
     return;
   }
 
+  const Slice* const saved_ts = read_opts.timestamp;
+  assert(saved_ts != nullptr);
+
   const SharedState* const shared = thread->shared;
   assert(shared);
   const uint64_t start_ts = shared->GetStartTimestamp();
@@ -2757,6 +2769,16 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
   PutFixed64(&ts_str, ts);
   ts_slice = ts_str;
   read_opts.timestamp = &ts_slice;
+
+  if (!thread->rand.OneInOpt(3)) {
+    return;
+  }
+
+  ts_str.clear();
+  PutFixed64(&ts_str, start_ts);
+  ts_slice = ts_str;
+  read_opts.iter_start_ts = &ts_slice;
+  read_opts.timestamp = saved_ts;
 }
 
 void CheckAndSetOptionsForUserTimestamp(Options& options) {
