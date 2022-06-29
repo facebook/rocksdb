@@ -1934,7 +1934,6 @@ void Version::MultiGetBlob(
         continue;
       }
 
-      printf("blob_file_number: %llu\n", blob_file_number);
       blob_reqs[blob_file_number].push_back(BlobReadRequest(
           key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
           key_context.value, key_context.s, blob_index.compression()));
@@ -1945,7 +1944,6 @@ void Version::MultiGetBlob(
                              /*bytes_read=*/nullptr);
 
   for (const auto& req : blob_reqs) {
-    printf("end blob_file_number: %llu\n", req.first);
     const auto& blob_reqs_in_file = req.second;
     for (const auto& blob_req : blob_reqs_in_file) {
       if (blob_req.status->ok()) {
