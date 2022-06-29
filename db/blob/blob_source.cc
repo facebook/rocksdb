@@ -206,52 +206,13 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
                               autovector<BlobFileReadRequests>& blob_reqs,
                               uint64_t* bytes_read) {
   assert(blob_reqs.size() > 0);
-
-  Status s;
-
-  for (auto& batch_req : blob_reqs) {
-    auto& [file_number, file_size, blob_reqs_in_file] = batch_req;
-    // CacheHandleGuard<BlobFileReader> blob_file_reader;
-    // s = GetBlobFileReader(file_number, &blob_file_reader);
-    // assert(!s.ok() || blob_file_reader.GetValue());
-
-    // if (!s.ok()) {
-    //   for (const auto& blob_req : blob_reqs_in_file) {
-    //     *blob_req.status = s;
-    //   }
-    //   continue;
-    // }
-
-    // assert(blob_file_reader.GetValue());
-    // const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
-    // const CompressionType compression =
-    //     blob_file_reader.GetValue()->GetCompressionType();
-
+  for (auto& [file_number, file_size, blob_reqs_in_file] : blob_reqs) {
     // sort blob_reqs_in_file by file offset.
     std::sort(
         blob_reqs_in_file.begin(), blob_reqs_in_file.end(),
         [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) -> bool {
           return lhs.offset < rhs.offset;
         });
-
-    // autovector<BlobReadRequest*> _batch_reqs;
-    // for (auto& blob_req : blob_reqs_in_file) {
-    //   const uint64_t key_size = blob_req.user_key->size();
-    //   const uint64_t offset = blob_req.offset;
-    //   const uint64_t value_size = blob_req.len;
-    //   if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
-    //     *blob_req.status = Status::Corruption("Invalid blob offset");
-    //     continue;
-    //   }
-    //   if (blob_req.compression != compression) {
-    //     *blob_req.status =
-    //         Status::Corruption("Compression type mismatch when reading a
-    //         blob");
-    //     continue;
-    //   }
-    //   _batch_reqs.push_back(&blob_req);
-    // }
-
     MultiGetBlobFromOneFile(read_options, file_number, file_size,
                             blob_reqs_in_file, bytes_read);
   }

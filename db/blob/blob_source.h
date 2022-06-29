@@ -14,7 +14,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
-#include "table/multiget_context.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {

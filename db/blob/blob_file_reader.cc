@@ -375,55 +375,49 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 }
 
 void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
-                                  autovector<BlobReadRequest*>& requests,
+                                  autovector<BlobReadRequest*>& blob_reqs,
                                   uint64_t* bytes_read) const {
-  size_t num_blobs = requests.size();
+  const size_t num_blobs = blob_reqs.size();
   assert(num_blobs > 0);
   assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
 
 #ifndef NDEBUG
   for (size_t i = 0; i < num_blobs - 1; ++i) {
-    assert(requests[i]->offset <= requests[i + 1]->offset);
+    assert(blob_reqs[i]->offset <= blob_reqs[i + 1]->offset);
   }
 #endif  // !NDEBUG
 
-  // Filter out invalid blob read requests.
-  autovector<BlobReadRequest*> blob_reqs;
-  for (auto& blob_req : requests) {
-    const uint64_t key_size = blob_req->user_key->size();
-    const uint64_t offset = blob_req->offset;
-    const uint64_t value_size = blob_req->len;
+  std::vector<FSReadRequest> read_reqs;
+  autovector<uint64_t> adjustments;
+  uint64_t total_len = 0;
+  read_reqs.reserve(num_blobs);
+  for (size_t i = 0; i < num_blobs; ++i) {
+    const size_t key_size = blob_reqs[i]->user_key->size();
+    const uint64_t offset = blob_reqs[i]->offset;
+    const uint64_t value_size = blob_reqs[i]->len;
+
     if (!IsValidBlobOffset(offset, key_size, value_size, file_size_)) {
-      *blob_req->status = Status::Corruption("Invalid blob offset");
+      *blob_reqs[i]->status = Status::Corruption("Invalid blob offset");
       continue;
     }
-    if (blob_req->compression != compression_type_) {
-      *blob_req->status =
+    if (blob_reqs[i]->compression != compression_type_) {
+      *blob_reqs[i]->status =
           Status::Corruption("Compression type mismatch when reading a blob");
       continue;
     }
-    blob_reqs.push_back(blob_req);
-  }
 
-  num_blobs = blob_reqs.size();
-  if (num_blobs == 0) {
-    return;
-  }
-
-  std::vector<FSReadRequest> read_reqs(num_blobs);
-  autovector<uint64_t> adjustments;
-  uint64_t total_len = 0;
-  for (size_t i = 0; i < num_blobs; ++i) {
-    const size_t key_size = blob_reqs[i]->user_key->size();
     const uint64_t adjustment =
         read_options.verify_checksums
             ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
             : 0;
     assert(blob_reqs[i]->offset >= adjustment);
     adjustments.push_back(adjustment);
-    read_reqs[i].offset = blob_reqs[i]->offset - adjustment;
-    read_reqs[i].len = blob_reqs[i]->len + adjustment;
-    total_len += read_reqs[i].len;
+
+    FSReadRequest read_req;
+    read_req.offset = blob_reqs[i]->offset - adjustment;
+    read_req.len = blob_reqs[i]->len + adjustment;
+    read_reqs.emplace_back(read_req);
+    total_len += read_req.len;
   }
 
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);

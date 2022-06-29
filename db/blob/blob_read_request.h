@@ -24,17 +24,17 @@ struct BlobReadRequest {
   uint64_t offset = 0;
 
   // Length to read in bytes
-  size_t len;
+  size_t len = 0;
 
   // Blob compression type
-  CompressionType compression;
+  CompressionType compression = kNoCompression;
 
   // Output parameter set by MultiGetBlob() to point to the data buffer, and
   // the number of valid bytes
-  PinnableSlice* result;
+  PinnableSlice* result = nullptr;
 
   // Status of read
-  Status* status;
+  Status* status = nullptr;
 
   BlobReadRequest(const Slice& _user_key, uint64_t _offset, size_t _len,
                   CompressionType _compression, PinnableSlice* _result,
