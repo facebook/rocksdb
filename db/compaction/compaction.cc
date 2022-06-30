@@ -337,7 +337,8 @@ bool Compaction::IsTrivialMove() const {
 
   // Check if start level have files with overlapping ranges
   if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false &&
-      l0_files_might_overlap_) {
+      (l0_files_might_overlap_ ||
+       cfd_->ioptions()->compaction_style == kCompactionStyleUniversal)) {
     // We cannot move files from L0 to L1 if the files are overlapping
     return false;
   }
