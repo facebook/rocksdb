@@ -23,7 +23,7 @@ Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
   if (prop_name == "rocksdb.iterator.super-version-number") {
     // First try to pass the value returned from inner iterator.
     if (!db_iter_->GetProperty(prop_name, prop).ok()) {
-      *prop = ToString(sv_number_);
+      *prop = std::to_string(sv_number_);
     }
     return Status::OK();
   }

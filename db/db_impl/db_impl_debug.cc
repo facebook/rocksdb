@@ -118,10 +118,11 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
        cfd->ioptions()->compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
-  return RunManualCompaction(cfd, level, output_level, CompactRangeOptions(),
-                             begin, end, true, disallow_trivial_move,
-                             port::kMaxUint64 /*max_file_num_to_ignore*/,
-                             "" /*trim_ts*/);
+  return RunManualCompaction(
+      cfd, level, output_level, CompactRangeOptions(), begin, end, true,
+      disallow_trivial_move,
+      std::numeric_limits<uint64_t>::max() /*max_file_num_to_ignore*/,
+      "" /*trim_ts*/);
 }
 
 Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {

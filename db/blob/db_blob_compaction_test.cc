@@ -415,16 +415,30 @@ TEST_F(DBBlobCompactionTest, CorruptedBlobIndex) {
       new ValueMutationFilter(""));
   options.compaction_filter = compaction_filter_guard.get();
   DestroyAndReopen(options);
-  // Mock a corrupted blob index
+
   constexpr char key[] = "key";
-  std::string blob_idx("blob_idx");
-  WriteBatch write_batch;
-  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&write_batch, 0, key, blob_idx));
-  ASSERT_OK(db_->Write(WriteOptions(), &write_batch));
+  constexpr char blob[] = "blob";
+
+  ASSERT_OK(Put(key, blob));
   ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::InvokeFilterIfNeeded::TamperWithBlobIndex",
+      [](void* arg) {
+        Slice* const blob_index = static_cast<Slice*>(arg);
+        assert(blob_index);
+        assert(!blob_index->empty());
+        blob_index->remove_prefix(1);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
   ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                                 /*end=*/nullptr)
                   .IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
   Close();
 }
 

@@ -9,10 +9,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-extern __thread PerfLevel perf_level;
-#else
-extern PerfLevel perf_level;
-#endif
+extern thread_local PerfLevel perf_level;
 
 }  // namespace ROCKSDB_NAMESPACE

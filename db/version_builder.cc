@@ -1144,7 +1144,7 @@ class VersionBuilder::Rep {
 
     size_t table_cache_capacity = table_cache_->get_cache()->GetCapacity();
     bool always_load = (table_cache_capacity == TableCache::kInfiniteCapacity);
-    size_t max_load = port::kMaxSizet;
+    size_t max_load = std::numeric_limits<size_t>::max();
 
     if (!always_load) {
       // If it is initial loading and not set to always loading all the

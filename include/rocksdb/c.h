@@ -63,6 +63,7 @@ extern "C" {
 #endif
 
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -437,6 +438,38 @@ extern ROCKSDB_LIBRARY_API void rocksdb_multi_get_cf(
     size_t num_keys, const char* const* keys_list,
     const size_t* keys_list_sizes, char** values_list,
     size_t* values_list_sizes, char** errs);
+
+// The MultiGet API that improves performance by batching operations
+// in the read path for greater efficiency. Currently, only the block based
+// table format with full filters are supported. Other table formats such
+// as plain table, block based table with block based filters and
+// partitioned indexes will still work, but will not get any performance
+// benefits.
+//
+// Note that all the keys passed to this API are restricted to a single
+// column family.
+//
+// Parameters -
+// db - the RocksDB instance.
+// options - ReadOptions
+// column_family - ColumnFamilyHandle* that the keys belong to. All the keys
+//                 passed to the API are restricted to a single column family
+// num_keys - Number of keys to lookup
+// keys_list - Pointer to C style array of keys with num_keys elements
+// keys_list_sizes - Pointer to C style array of the size of corresponding key
+//   in key_list with num_keys elements.
+// values - Pointer to C style array of PinnableSlices with num_keys elements
+// statuses - Pointer to C style array of Status with num_keys elements
+// sorted_input - If true, it means the input keys are already sorted by key
+//                order, so the MultiGet() API doesn't have to sort them
+//                again. If false, the keys will be copied and sorted
+//                internally by the API - the input array will not be
+//                modified
+extern ROCKSDB_LIBRARY_API void rocksdb_batched_multi_get_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, size_t num_keys,
+    const char* const* keys_list, const size_t* keys_list_sizes,
+    rocksdb_pinnableslice_t** values, char** errs, const bool sorted_input);
 
 // The value is only allocated (using malloc) and returned if it is found and
 // value_found isn't NULL. In that case the user is responsible for freeing it.
@@ -1008,6 +1041,12 @@ extern ROCKSDB_LIBRARY_API int
 rocksdb_options_get_compression_options_zstd_max_train_bytes(
     rocksdb_options_t* opt);
 extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt);
+extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_compression_options_parallel_threads(rocksdb_options_t*,
                                                          int);
 extern ROCKSDB_LIBRARY_API int
@@ -1025,6 +1064,12 @@ rocksdb_options_set_bottommost_compression_options(rocksdb_options_t*, int, int,
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
     rocksdb_options_t*, int, unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_bottommost_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t*, unsigned char, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_bottommost_compression_options_max_dict_buffer_bytes(
     rocksdb_options_t*, uint64_t, unsigned char);
@@ -1508,7 +1553,8 @@ enum {
   rocksdb_env_lock_file_nanos,
   rocksdb_env_unlock_file_nanos,
   rocksdb_env_new_logger_nanos,
-  rocksdb_total_metric_count = 68
+  rocksdb_number_async_seek,
+  rocksdb_total_metric_count = 69
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
@@ -1766,6 +1812,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_memory_allocator(
 
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru(
     size_t capacity);
+extern ROCKSDB_LIBRARY_API rocksdb_cache_t*
+rocksdb_cache_create_lru_with_strict_capacity_limit(size_t capacity);
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru_opts(
     rocksdb_lru_cache_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_destroy(rocksdb_cache_t* cache);

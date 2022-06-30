@@ -78,7 +78,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       range_del_agg_(&ioptions.internal_comparator, s),
       db_impl_(db_impl),
       cfd_(cfd),
-      start_seqnum_(0ULL),
       timestamp_ub_(read_options.timestamp),
       timestamp_lb_(read_options.iter_start_ts),
       timestamp_size_(timestamp_ub_ ? timestamp_ub_->size() : 0) {
@@ -328,25 +327,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeSingleDeletion:
             // Arrange to skip all upcoming entries for this key since
             // they are hidden by this deletion.
-            // if iterartor specified start_seqnum we
-            // 1) return internal key, including the type
-            // 2) return ikey only if ikey.seqnum >= start_seqnum_
-            // note that if deletion seqnum is < start_seqnum_ we
-            // just skip it like in normal iterator.
-            if (start_seqnum_ > 0) {
-              if (ikey_.sequence >= start_seqnum_) {
-                saved_key_.SetInternalKey(ikey_);
-                valid_ = true;
-                return true;
-              } else {
-                saved_key_.SetUserKey(
-                    ikey_.user_key,
-                    !pin_thru_lifetime_ ||
-                        !iter_.iter()->IsKeyPinned() /* copy */);
-                skipping_saved_key = true;
-                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              }
-            } else if (timestamp_lb_) {
+            if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
               valid_ = true;
               return true;
@@ -360,28 +341,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             break;
           case kTypeValue:
           case kTypeBlobIndex:
-            if (start_seqnum_ > 0) {
-              if (ikey_.sequence >= start_seqnum_) {
-                saved_key_.SetInternalKey(ikey_);
-
-                if (ikey_.type == kTypeBlobIndex) {
-                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
-                    return false;
-                  }
-                }
-
-                valid_ = true;
-                return true;
-              } else {
-                // this key and all previous versions shouldn't be included,
-                // skipping_saved_key
-                saved_key_.SetUserKey(
-                    ikey_.user_key,
-                    !pin_thru_lifetime_ ||
-                        !iter_.iter()->IsKeyPinned() /* copy */);
-                skipping_saved_key = true;
-              }
-            } else if (timestamp_lb_) {
+            if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
 
               if (ikey_.type == kTypeBlobIndex) {

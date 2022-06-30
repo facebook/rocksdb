@@ -78,7 +78,7 @@ class Arena : public Allocator {
   size_t BlockSize() const override { return kBlockSize; }
 
   bool IsInInlineBlock() const {
-    return blocks_.empty();
+    return blocks_.empty() && huge_blocks_.empty();
   }
 
  private:

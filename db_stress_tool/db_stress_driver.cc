@@ -58,15 +58,16 @@ void ThreadBody(void* v) {
 
 bool RunStressTest(StressTest* stress) {
   SystemClock* clock = db_stress_env->GetSystemClock().get();
-  stress->InitDb();
   SharedState shared(db_stress_env, stress);
+  stress->InitDb(&shared);
   stress->FinishInitDb(&shared);
 
-#ifndef NDEBUG
   if (FLAGS_sync_fault_injection) {
     fault_fs_guard->SetFilesystemDirectWritable(false);
   }
-#endif
+  if (FLAGS_write_fault_one_in) {
+    fault_fs_guard->EnableWriteErrorInjection();
+  }
 
   uint32_t n = FLAGS_threads;
   uint64_t now = clock->NowMicros();

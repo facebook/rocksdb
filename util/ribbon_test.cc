@@ -1128,8 +1128,7 @@ TYPED_TEST(RibbonTypeParamTest, FindOccupancy) {
     return;
   }
 
-  KeyGen cur(ROCKSDB_NAMESPACE::ToString(
-                 testing::UnitTest::GetInstance()->random_seed()),
+  KeyGen cur(std::to_string(testing::UnitTest::GetInstance()->random_seed()),
              0);
 
   Banding banding;
@@ -1247,8 +1246,7 @@ TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
     return;
   }
 
-  KeyGen cur(ROCKSDB_NAMESPACE::ToString(
-                 testing::UnitTest::GetInstance()->random_seed()),
+  KeyGen cur(std::to_string(testing::UnitTest::GetInstance()->random_seed()),
              0);
 
   Banding banding;

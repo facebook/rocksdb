@@ -54,7 +54,7 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
     return Status::InvalidArgument(
         "Output level for column family " + cf_meta.name +
         " must between [0, " +
-        ToString(cf_meta.levels[cf_meta.levels.size() - 1].level) + "].");
+        std::to_string(cf_meta.levels[cf_meta.levels.size() - 1].level) + "].");
   }
 
   auto max_output_level = cfd->compaction_picker()->MaxOutputLevel();
@@ -62,7 +62,7 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
     return Status::InvalidArgument(
         "Exceed the maximum output level defined by "
         "the current compaction algorithm --- " +
-        ToString(max_output_level));
+        std::to_string(max_output_level));
   }
 
   if (output_level < 0) {
@@ -131,16 +131,17 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_, mutable_db_options_,
       file_options_for_compaction_, versions_.get(), &shutting_down_,
-      preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
+      log_buffer, directories_.GetDbDir(),
       GetDataDir(c->column_family_data(), c->output_path_id()),
       GetDataDir(c->column_family_data(), 0), stats_, &mutex_, &error_handler_,
       existing_snapshots, earliest_write_conflict_snapshot, snapshot_checker,
-      table_cache_, &event_logger_,
+      job_context, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
       &manual_compaction_paused_, nullptr, db_id_, db_session_id_,
-      c->column_family_data()->GetFullHistoryTsLow());
+      c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
+      &blob_callback_);
 
   compaction_job.Prepare();
   mutex_.Unlock();

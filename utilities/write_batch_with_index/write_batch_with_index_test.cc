@@ -265,10 +265,10 @@ class WBWIBaseTest : public testing::Test {
         batch_->Delete(cf, key);
         result = "";
       } else if (key[i] == 'p') {
-        result = key + ToString(i);
+        result = key + std::to_string(i);
         batch_->Put(cf, key, result);
       } else if (key[i] == 'm') {
-        std::string value = key + ToString(i);
+        std::string value = key + std::to_string(i);
         batch_->Merge(cf, key, value);
         if (result.empty()) {
           result = value;
@@ -1192,11 +1192,11 @@ TEST_P(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
   std::string expected = "X";
 
   for (int i = 0; i < 5; i++) {
-    ASSERT_OK(batch_->Merge("x", ToString(i)));
-    expected = expected + "," + ToString(i);
+    ASSERT_OK(batch_->Merge("x", std::to_string(i)));
+    expected = expected + "," + std::to_string(i);
 
     if (i % 2 == 0) {
-      ASSERT_OK(batch_->Put("y", ToString(i / 2)));
+      ASSERT_OK(batch_->Put("y", std::to_string(i / 2)));
     }
 
     ASSERT_OK(batch_->Merge("z", "z"));
@@ -1207,7 +1207,7 @@ TEST_P(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
 
     s = batch_->GetFromBatch(column_family, options_, "y", &value);
     ASSERT_OK(s);
-    ASSERT_EQ(ToString(i / 2), value);
+    ASSERT_EQ(std::to_string(i / 2), value);
 
     s = batch_->GetFromBatch(column_family, options_, "z", &value);
     ASSERT_TRUE(s.IsMergeInProgress());

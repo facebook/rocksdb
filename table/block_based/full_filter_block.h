@@ -131,25 +131,12 @@ class FullFilterBlockReader
                         uint64_t block_offset, const bool no_io,
                         BlockCacheLookupContext* lookup_context) override;
   size_t ApproximateMemoryUsage() const override;
-  bool RangeMayExist(const Slice* iterate_upper_bound, const Slice& user_key,
-                     const SliceTransform* prefix_extractor,
-                     const Comparator* comparator,
-                     const Slice* const const_ikey_ptr, bool* filter_checked,
-                     bool need_upper_bound_check, bool no_io,
-                     BlockCacheLookupContext* lookup_context) override;
-
  private:
   bool MayMatch(const Slice& entry, bool no_io, GetContext* get_context,
                 BlockCacheLookupContext* lookup_context) const;
   void MayMatch(MultiGetRange* range, bool no_io,
                 const SliceTransform* prefix_extractor,
                 BlockCacheLookupContext* lookup_context) const;
-  bool IsFilterCompatible(const Slice* iterate_upper_bound, const Slice& prefix,
-                          const Comparator* comparator) const;
-
- private:
-  bool full_length_enabled_;
-  size_t prefix_extractor_full_length_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -7,7 +7,7 @@ endif()
 set(CMAKE_JAVA_COMPILE_FLAGS -source 7)
 
 set(JNI_NATIVE_SOURCES
-        rocksjni/backupablejni.cc
+        rocksjni/backup_engine_options.cc
         rocksjni/backupenginejni.cc
         rocksjni/cassandra_compactionfilterjni.cc
         rocksjni/cassandra_value_operator.cc

@@ -1163,6 +1163,43 @@ void rocksdb_multi_get_cf(
   }
 }
 
+void rocksdb_batched_multi_get_cf(rocksdb_t* db,
+                                  const rocksdb_readoptions_t* options,
+                                  rocksdb_column_family_handle_t* column_family,
+                                  size_t num_keys, const char* const* keys_list,
+                                  const size_t* keys_list_sizes,
+                                  rocksdb_pinnableslice_t** values, char** errs,
+                                  const bool sorted_input) {
+  Slice* key_slices = new Slice[num_keys];
+  PinnableSlice* value_slices = new PinnableSlice[num_keys];
+  Status* statuses = new Status[num_keys];
+  for (size_t i = 0; i < num_keys; ++i) {
+    key_slices[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+
+  db->rep->MultiGet(options->rep, column_family->rep, num_keys, key_slices,
+                    value_slices, statuses, sorted_input);
+
+  for (size_t i = 0; i < num_keys; ++i) {
+    if (statuses[i].ok()) {
+      values[i] = new (rocksdb_pinnableslice_t);
+      values[i]->rep = std::move(value_slices[i]);
+      errs[i] = nullptr;
+    } else {
+      values[i] = nullptr;
+      if (!statuses[i].IsNotFound()) {
+        errs[i] = strdup(statuses[i].ToString().c_str());
+      } else {
+        errs[i] = nullptr;
+      }
+    }
+  }
+
+  delete[] key_slices;
+  delete[] value_slices;
+  delete[] statuses;
+}
+
 unsigned char rocksdb_key_may_exist(rocksdb_t* db,
                                     const rocksdb_readoptions_t* options,
                                     const char* key, size_t key_len,
@@ -2818,6 +2855,20 @@ void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
   opt->rep.bottommost_compression_opts.enabled = enabled;
 }
 
+void rocksdb_options_set_bottommost_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer,
+    unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.use_zstd_dict_trainer =
+      use_zstd_dict_trainer;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
+unsigned char
+rocksdb_options_get_bottommost_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt) {
+  return opt->rep.bottommost_compression_opts.use_zstd_dict_trainer;
+}
+
 void rocksdb_options_set_bottommost_compression_options_max_dict_buffer_bytes(
     rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes,
     unsigned char enabled) {
@@ -2843,6 +2894,16 @@ void rocksdb_options_set_compression_options_zstd_max_train_bytes(
 int rocksdb_options_get_compression_options_zstd_max_train_bytes(
     rocksdb_options_t* opt) {
   return opt->rep.compression_opts.zstd_max_train_bytes;
+}
+
+void rocksdb_options_set_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt, unsigned char use_zstd_dict_trainer) {
+  opt->rep.compression_opts.use_zstd_dict_trainer = use_zstd_dict_trainer;
+}
+
+unsigned char rocksdb_options_get_compression_options_use_zstd_dict_trainer(
+    rocksdb_options_t* opt) {
+  return opt->rep.compression_opts.use_zstd_dict_trainer;
 }
 
 void rocksdb_options_set_compression_options_parallel_threads(
@@ -3636,6 +3697,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->env_unlock_file_nanos;
     case rocksdb_env_new_logger_nanos:
       return rep->env_new_logger_nanos;
+    case rocksdb_number_async_seek:
+      return rep->number_async_seek;
     default:
       break;
   }
@@ -4190,6 +4253,14 @@ void rocksdb_lru_cache_options_set_memory_allocator(
 rocksdb_cache_t* rocksdb_cache_create_lru(size_t capacity) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = NewLRUCache(capacity);
+  return c;
+}
+
+rocksdb_cache_t* rocksdb_cache_create_lru_with_strict_capacity_limit(
+    size_t capacity) {
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = NewLRUCache(capacity);
+  c->rep->SetStrictCapacityLimit(true);
   return c;
 }
 

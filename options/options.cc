@@ -211,6 +211,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         "        Options.bottommost_compression_opts.max_dict_buffer_bytes: "
         "%" PRIu64,
         bottommost_compression_opts.max_dict_buffer_bytes);
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.use_zstd_dict_trainer: %s",
+        bottommost_compression_opts.use_zstd_dict_trainer ? "true" : "false");
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
                      compression_opts.window_bits);
     ROCKS_LOG_HEADER(log, "                 Options.compression_opts.level: %d",
@@ -225,6 +229,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "        Options.compression_opts.zstd_max_train_bytes: "
                      "%" PRIu32,
                      compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(
+        log, "        Options.compression_opts.use_zstd_dict_trainer: %s",
+        compression_opts.use_zstd_dict_trainer ? "true" : "false");
     ROCKS_LOG_HEADER(log,
                      "        Options.compression_opts.parallel_threads: "
                      "%" PRIu32,

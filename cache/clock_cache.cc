@@ -286,8 +286,8 @@ class ClockCacheShard final : public CacheShard {
     return Lookup(key, hash);
   }
   bool Release(Cache::Handle* handle, bool /*useful*/,
-               bool force_erase) override {
-    return Release(handle, force_erase);
+               bool erase_if_last_ref) override {
+    return Release(handle, erase_if_last_ref);
   }
   bool IsReady(Cache::Handle* /*handle*/) override { return true; }
   void Wait(Cache::Handle* /*handle*/) override {}
@@ -297,7 +297,7 @@ class ClockCacheShard final : public CacheShard {
   //
   // Not necessary to hold mutex_ before being called.
   bool Ref(Cache::Handle* handle) override;
-  bool Release(Cache::Handle* handle, bool force_erase = false) override;
+  bool Release(Cache::Handle* handle, bool erase_if_last_ref = false) override;
   void Erase(const Slice& key, uint32_t hash) override;
   bool EraseAndConfirm(const Slice& key, uint32_t hash,
                        CleanupContext* context);
@@ -725,11 +725,11 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
   return reinterpret_cast<Cache::Handle*>(handle);
 }
 
-bool ClockCacheShard::Release(Cache::Handle* h, bool force_erase) {
+bool ClockCacheShard::Release(Cache::Handle* h, bool erase_if_last_ref) {
   CleanupContext context;
   CacheHandle* handle = reinterpret_cast<CacheHandle*>(h);
   bool erased = Unref(handle, true, &context);
-  if (force_erase && !erased) {
+  if (erase_if_last_ref && !erased) {
     erased = EraseAndConfirm(handle->key, handle->hash, &context);
   }
   Cleanup(context);

@@ -285,8 +285,8 @@ class HashIndexBuilder : public IndexBuilder {
       }
 
       // need a hard copy otherwise the underlying data changes all the time.
-      // TODO(kailiu) ToString() is expensive. We may speed up can avoid data
-      // copy.
+      // TODO(kailiu) std::to_string() is expensive. We may speed up can avoid
+      // data copy.
       pending_entry_prefix_ = key_prefix.ToString();
       pending_block_num_ = 1;
       pending_entry_index_ = static_cast<uint32_t>(current_restart_index_);

@@ -63,7 +63,7 @@ class SstFileWriterPropertiesCollector : public IntTblPropCollector {
   }
 
   virtual UserCollectedProperties GetReadableProperties() const override {
-    return {{ExternalSstFilePropertyNames::kVersion, ToString(version_)}};
+    return {{ExternalSstFilePropertyNames::kVersion, std::to_string(version_)}};
   }
 
  private:

@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.rocksdb.util.Environment;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 /**
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for
  * concurrent access from multiple threads without any external synchronization.
@@ -21,7 +23,7 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
-  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes();
+  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes(UTF_8);
   public static final int NOT_FOUND = -1;
 
   private enum LibraryState {

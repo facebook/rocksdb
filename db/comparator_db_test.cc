@@ -397,7 +397,7 @@ TEST_P(ComparatorDBTest, DoubleComparator) {
       for (uint32_t j = 0; j < divide_order; j++) {
         to_divide *= 10.0;
       }
-      source_strings.push_back(ToString(r / to_divide));
+      source_strings.push_back(std::to_string(r / to_divide));
     }
 
     DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);

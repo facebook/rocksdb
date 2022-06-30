@@ -181,6 +181,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
   Close();
 
   options.max_open_files = -1;
@@ -188,8 +189,8 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   auto cfh = db_secondary_->DefaultColumnFamily();
 
   CompactionServiceResult result;
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
-                                                                 &result));
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result));
 
   ASSERT_EQ(result.output_files.size(), 1);
   InternalKey smallest, largest;
@@ -212,20 +213,20 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   const int kRangeL2 = 10;
   const int kRangeL1 = 30;
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i * kRangeL2), "value" + ToString(i)));
-    ASSERT_OK(Put(Key((i + 1) * kRangeL2 - 1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * kRangeL2), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL2 - 1), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(2);
   for (int i = 0; i < 5; i++) {
-    ASSERT_OK(Put(Key(i * kRangeL1), "value" + ToString(i)));
-    ASSERT_OK(Put(Key((i + 1) * kRangeL1 - 1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * kRangeL1), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key((i + 1) * kRangeL1 - 1), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
   MoveFilesToLevel(1);
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put(Key(i * 30), "value" + ToString(i)));
-    ASSERT_OK(Put(Key(i * 30 + 50), "value" + ToString(i)));
+    ASSERT_OK(Put(Key(i * 30), "value" + std::to_string(i)));
+    ASSERT_OK(Put(Key(i * 30 + 50), "value" + std::to_string(i)));
     ASSERT_OK(Flush());
   }
 
@@ -241,6 +242,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   input1.input_files.push_back(meta.levels[1].files[2].name);
 
   input1.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input1.db_id));
 
   options.max_open_files = -1;
   Close();
@@ -248,8 +250,8 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   OpenSecondary(options);
   auto cfh = db_secondary_->DefaultColumnFamily();
   CompactionServiceResult result;
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input1,
-                                                                 &result));
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input1, &result));
   ASSERT_OK(result.status);
 
   // pick 2 files on level 1 for compaction, which has 6 overlap files on L2
@@ -261,8 +263,9 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   }
 
   input2.output_level = 2;
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
-                                                                 &result));
+  input2.db_id = input1.db_id;
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input2, &result));
   ASSERT_OK(result.status);
 
   CloseSecondary();
@@ -273,15 +276,15 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   }
   OpenSecondary(options);
   cfh = db_secondary_->DefaultColumnFamily();
-  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input2,
-                                                                  &result);
+  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input2, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(result.status);
 
   // TODO: L0 -> L1 compaction should success, currently version is not built
   // if files is missing.
-  //  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh,
-  //  input1, &result));
+  //  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(OpenAndCompactOptions(),
+  //  cfh, input1, &result));
 }
 
 TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
@@ -305,6 +308,7 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
 
   // trigger compaction to delete the files for secondary instance compaction
   ASSERT_OK(Put("foo", "foo_value" + std::to_string(3)));
@@ -319,8 +323,8 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   auto cfh = db_secondary_->DefaultColumnFamily();
 
   CompactionServiceResult result;
-  Status s =
-      db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
+  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(result.status);
 }
@@ -346,6 +350,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   ASSERT_EQ(input.input_files.size(), 3);
 
   input.output_level = 1;
+  ASSERT_OK(db_->GetDbIdentity(input.db_id));
 
   Close();
 
@@ -356,15 +361,15 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   auto cfh = db_secondary_->DefaultColumnFamily();
 
   CompactionServiceResult result;
-  Status s =
-      db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
+  Status s = db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result);
   ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(result.status);
 
   input.input_files.erase(input.input_files.begin());
 
-  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
-                                                                 &result));
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(
+      OpenAndCompactOptions(), cfh, input, &result));
   ASSERT_OK(result.status);
 }
 

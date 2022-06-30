@@ -187,7 +187,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
     DestroyAndReopen(options);
 
     for (int i = 0; i < 1024; i++) {
-      ASSERT_OK(Put("key" + ToString(i), DummyString(10)));
+      ASSERT_OK(Put("key" + std::to_string(i), DummyString(10)));
     }
 
     ASSERT_OK(Flush());
@@ -263,20 +263,20 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
   struct Handler : public WriteBatch::Handler {
     std::string seen;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
-      seen += "Put(" + ToString(cf) + ", " + key.ToString() + ", " +
-              ToString(value.size()) + ")";
+      seen += "Put(" + std::to_string(cf) + ", " + key.ToString() + ", " +
+              std::to_string(value.size()) + ")";
       return Status::OK();
     }
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
-      seen += "Merge(" + ToString(cf) + ", " + key.ToString() + ", " +
-              ToString(value.size()) + ")";
+      seen += "Merge(" + std::to_string(cf) + ", " + key.ToString() + ", " +
+              std::to_string(value.size()) + ")";
       return Status::OK();
     }
     void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
     Status DeleteCF(uint32_t cf, const Slice& key) override {
-      seen += "Delete(" + ToString(cf) + ", " + key.ToString() + ")";
+      seen += "Delete(" + std::to_string(cf) + ", " + key.ToString() + ")";
       return Status::OK();
     }
   } handler;

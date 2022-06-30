@@ -247,8 +247,9 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
       case kTypeNoop:
         break;
       default:
-        return Status::Corruption("unknown WriteBatch tag in ReBuildIndex",
-                                  ToString(static_cast<unsigned int>(tag)));
+        return Status::Corruption(
+            "unknown WriteBatch tag in ReBuildIndex",
+            std::to_string(static_cast<unsigned int>(tag)));
     }
   }
 

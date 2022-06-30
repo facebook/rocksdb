@@ -400,7 +400,7 @@ std::string GetFileName(uint64_t num) {
     FLAGS_file_dir = test::TmpDir();
   }
   return test::PerThreadDBPath(FLAGS_file_dir, "cuckoo_read_benchmark") +
-         ToString(num / 1000000) + "Mkeys";
+         std::to_string(num / 1000000) + "Mkeys";
 }
 
 // Create last level file as we are interested in measuring performance of

@@ -504,7 +504,7 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     return false;
   }
   return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
-                               port::kMaxUint64,
+                               std::numeric_limits<uint64_t>::max(),
                                mutable_cf_options_.max_compaction_bytes,
                                &start_level_inputs_, earliest_mem_seqno_);
 }

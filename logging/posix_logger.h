@@ -103,11 +103,11 @@ class PosixLogger : public Logger {
       char* p = base;
       char* limit = base + bufsize;
 
-      struct timeval now_tv;
-      gettimeofday(&now_tv, nullptr);
+      port::TimeVal now_tv;
+      port::GetTimeOfDay(&now_tv, nullptr);
       const time_t seconds = now_tv.tv_sec;
       struct tm t;
-      localtime_r(&seconds, &t);
+      port::LocalTimeR(&seconds, &t);
       p += snprintf(p, limit - p, "%04d/%02d/%02d-%02d:%02d:%02d.%06d %llu ",
                     t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour,
                     t.tm_min, t.tm_sec, static_cast<int>(now_tv.tv_usec),
