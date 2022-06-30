@@ -2816,7 +2816,8 @@ void VersionStorageInfo::ComputeCompactionScore(
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
-      if (level_bytes_no_compacting < MaxBytesForLevel(level)) {
+      if (!immutable_options.level_compaction_dynamic_level_bytes ||
+          level_bytes_no_compacting < MaxBytesForLevel(level)) {
         score = static_cast<double>(level_bytes_no_compacting) /
                 MaxBytesForLevel(level);
       } else {
