@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <memory>
 
 #include "cache/lru_cache.h"
@@ -79,6 +80,18 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override;
 
  private:
+  // TODO add CACHE_LINE_SIZE info.
+  // TODO what should be min and max size here.
+  static constexpr std::array<size_t, 10> malloc_bin_sizes_{
+      32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384};
+  struct CacheValueChunk {
+    void* chunk_ptr;
+    size_t size;
+    CacheValueChunk* next;
+  };
+
+  CacheValueChunk* SplitValueIntoChunks(const std::string& value);
+  std::string* MergeChunks(void* chunk, size_t size);
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
 };

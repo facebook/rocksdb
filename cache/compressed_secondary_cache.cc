@@ -48,7 +48,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   if (lru_handle == nullptr) {
     return handle;
   }
-
+  size_t value_size = cache_->GetCharge(lru_handle);
   CacheAllocationPtr* ptr =
       reinterpret_cast<CacheAllocationPtr*>(cache_->Value(lru_handle));
   void* value = nullptr;
@@ -144,6 +144,57 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
   ret.append(buffer);
   return ret;
 }
+
+CompressedSecondaryCache::CacheValueChunk*
+CompressedSecondaryCache::SplitValueIntoChunks(const std::string& value) {
+  assert(!value.empty());
+  // TODO how to deal with empty value
+  auto src_ptr = value.data();
+  // for proper size, memcpy chunks into CompressedSecondaryCacheValue
+  size_t src_size = value.size();
+  CacheAllocationPtr ptr;
+  CacheValueChunk* res = new CacheValueChunk();
+  CacheValueChunk* current_chunk = res;
+  while (src_size > 0) {
+    if (src_size <= malloc_bin_sizes_.front()) {
+      ptr = AllocateBlock(src_size, cache_options_.memory_allocator.get());
+      memcpy(ptr.get(), src_ptr, src_size);
+      current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+      current_chunk->size = src_size;
+      src_size = 0;
+    } else if (src_size >= malloc_bin_sizes_.back()) {
+      current_chunk->size = malloc_bin_sizes_.back();
+      ptr = AllocateBlock(current_chunk->size,
+                          cache_options_.memory_allocator.get());
+      memcpy(ptr.get(), src_ptr, current_chunk->size);
+      current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+      src_size -= current_chunk->size;
+      src_ptr += current_chunk->size;
+    } else {
+      for (size_t i = 0; i < malloc_bin_sizes_.size() - 1; ++i) {
+        if (src_size >= malloc_bin_sizes_[i] &&
+            src_size >= malloc_bin_sizes_[i + 1]) {
+          current_chunk->size = malloc_bin_sizes_[i];
+          ptr = AllocateBlock(current_chunk->size,
+                              cache_options_.memory_allocator.get());
+          memcpy(ptr.get(), src_ptr, current_chunk->size);
+          current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+          src_size -= current_chunk->size;
+          src_ptr += current_chunk->size;
+        }
+      }
+    }
+    if (src_size > 0) {
+      CacheValueChunk* next_chunk = new CacheValueChunk();
+      current_chunk->next = next_chunk;
+      current_chunk = next_chunk;
+    }
+  }
+
+  return res;
+}
+
+std::string* CompressedSecondaryCache::MergeChunks(void* chunk, size_t size) {}
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
