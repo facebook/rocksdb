@@ -1946,14 +1946,21 @@ void Version::MultiGetBlob(
   blob_source_->MultiGetBlob(read_options, blob_reqs,
                              /*bytes_read=*/nullptr);
 
-  for (const auto& req : blob_reqs) {
-    const auto& blob_reqs_in_file = std::get<2>(req);
-    for (const auto& blob_req : blob_reqs_in_file) {
-      if (blob_req.status->ok()) {
-        range.AddValueSize(blob_req.result->size());
+  for (auto& ctx : blob_ctxs) {
+    BlobReadContexts& blobs_in_file = ctx.second;
+    for (const auto& blob : blobs_in_file) {
+      const KeyContext& key_context = blob.second;
+      if (key_context.s->ok()) {
+        range.AddValueSize(key_context.value->size());
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
-          *blob_req.status = Status::Aborted();
+          *key_context.s = Status::Aborted();
         }
+      } else if (key_context.s->IsIncomplete()) {
+        // read_options.read_tier == kBlockCacheTier
+        // Cannot read blob(s): no disk I/O allowed
+        assert(key_context.get_context);
+        auto& get_context = *(key_context.get_context);
+        get_context.MarkKeyMayExist();
       }
     }
   }

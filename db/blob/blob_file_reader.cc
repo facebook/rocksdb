@@ -16,6 +16,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "table/multiget_context.h"
 #include "test_util/sync_point.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -451,7 +452,10 @@ void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
     }
     for (auto& req : blob_reqs) {
       assert(req->status);
-      *req->status = s;
+      if (!req->status->IsCorruption()) {
+        // Avoid overwriting corruption status.
+        *req->status = s;
+      }
     }
     return;
   }
@@ -459,11 +463,15 @@ void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
   assert(s.ok());
 
   uint64_t total_bytes = 0;
-  for (size_t i = 0; i < num_blobs; ++i) {
-    auto& req = read_reqs[i];
-    const auto& record_slice = req.result;
-
+  for (size_t i = 0, j = 0; i < num_blobs; ++i) {
     assert(blob_reqs[i]->status);
+    if (!blob_reqs[i]->status->ok()) {
+      continue;
+    }
+
+    assert(j < read_reqs.size());
+    auto& req = read_reqs[j++];
+    const auto& record_slice = req.result;
     if (req.status.ok() && record_slice.size() != req.len) {
       req.status = IOStatus::Corruption("Failed to read data from blob file");
     }

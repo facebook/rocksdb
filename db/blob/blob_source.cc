@@ -247,9 +247,6 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   using Mask = uint64_t;
   Mask cache_hit_mask = 0;
 
-  Status s;
-  s.PermitUncheckedError();
-
   uint64_t total_bytes = 0;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
                                           file_size);
@@ -263,7 +260,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
       const CacheKey cache_key = base_cache_key.WithOffset(req.offset);
       const Slice key = cache_key.AsSlice();
 
-      s = GetBlobFromCache(key, &blob_entry);
+      const Status s = GetBlobFromCache(key, &blob_entry);
 
       if (s.ok() && blob_entry.GetValue()) {
         assert(req.status);
@@ -318,7 +315,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     }
 
     CacheHandleGuard<BlobFileReader> blob_file_reader;
-    s = blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
+    Status s =
+        blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         assert(_blob_reqs[i]->status);
