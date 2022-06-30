@@ -118,10 +118,9 @@ class BlobSource {
                               size_t charge, Cache::Handle** cache_handle,
                               Cache::Priority priority) const;
 
-  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
+  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t /*file_size*/,
                               uint64_t offset) const {
-    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
-                                      file_size);
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
     return base_cache_key.WithOffset(offset);
   }
 

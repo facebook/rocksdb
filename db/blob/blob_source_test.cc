@@ -1168,8 +1168,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[1]));
 
-    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
-                                      file_size);
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
 
     // blob_cache here only looks at the primary cache since we didn't provide
     // the cache item helper for the secondary cache. However, since key0 is
@@ -1412,8 +1411,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   }
 
   {
-    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, kBlobFileNumber,
-                                      blob_file_size_);
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, kBlobFileNumber);
     size_t blob_bytes = options_.blob_cache->GetUsage();
 
     for (size_t i = 0; i < kNumBlobs; ++i) {

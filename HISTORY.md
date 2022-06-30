@@ -15,6 +15,9 @@
 * Fix a bug in `FIFOCompactionPicker::PickTTLCompaction` where total_size calculating might cause underflow
 * Fix data race bug in hash linked list memtable. With this bug, read request might temporarily miss an old record in the memtable in a race condition to the hash bucket.
 
+## Behavior Change
+* Block cache keys have changed, which will cause any persistent caches to miss between versions.
+
 ## 7.5.0 (07/15/2022)
 ### New Features
 * Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
@@ -22,7 +25,7 @@
 * Provide support for ReadOptions.async_io with direct_io to improve Seek latency by using async IO to parallelize child iterator seek and doing asynchronous prefetching on sequential scans.
 * Added support for blob caching in order to cache frequently used blobs for BlobDB.
   * User can configure the new ColumnFamilyOptions `blob_cache` to enable/disable blob caching.
-  * Either sharing the backend cache with the block cache or using a completely separate cache is supported. 
+  * Either sharing the backend cache with the block cache or using a completely separate cache is supported.
   * A new abstraction interface called `BlobSource` for blob read logic gives all users access to blobs, whether they are in the blob cache, secondary cache, or (remote) storage. Blobs can be potentially read both while handling user reads (`Get`, `MultiGet`, or iterator) and during compaction (while dealing with compaction filters, Merges, or garbage collection) but eventually all blob reads go through `Version::GetBlob` or, for MultiGet, `Version::MultiGetBlob` (and then get dispatched to the interface -- `BlobSource`).
 * Add experimental tiered compaction feature `AdvancedColumnFamilyOptions::preclude_last_level_data_seconds`, which makes sure the new data inserted within preclude_last_level_data_seconds won't be placed on cold tier (the feature is not complete).
 
