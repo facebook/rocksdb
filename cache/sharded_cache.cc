@@ -234,10 +234,10 @@ inline hash_t ShardedCache::HashSlice(const Slice& s) const {
   BijectiveHash2x64(in_high64, in_low64, &out_high64, &out_low64);
   hash_t hash;
 
-  hash[0] = out_high64 >> 32;
-  hash[1] = out_high64 & ((uint64_t{1} << 32) - 1);
-  hash[2] = out_low64 >> 32;
-  hash[3] = out_low64 & ((uint64_t{1} << 32) - 1);
+  hash[0] = Upper32of64(out_high64);
+  hash[1] = Lower32of64(out_high64);
+  hash[2] = Upper32of64(out_low64);
+  hash[3] = Lower32of64(out_low64);
 
   return hash;
 }
