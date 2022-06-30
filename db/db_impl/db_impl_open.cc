@@ -711,13 +711,19 @@ Status DBImpl::VerifySstUniqueIdInManifest() {
       "Verifying SST unique id between MANIFEST and SST file table properties");
   Status status;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped() && status.ok()) {
+    if (!cfd->IsDropped()) {
       auto version = cfd->current();
       version->Ref();
       mutex_.Unlock();
       status = version->VerifySstUniqueIds();
       mutex_.Lock();
       version->Unref();
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "SST unique id mismatch in column family \"%s\": %s",
+                       cfd->GetName().c_str(), status.ToString().c_str());
+        return status;
+      }
     }
   }
   return status;

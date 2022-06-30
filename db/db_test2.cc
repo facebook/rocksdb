@@ -7436,6 +7436,45 @@ TEST_F(DBTest2, SstUniqueIdVerify) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
+  const int kNumSst = 3;
+  const int kLevel0Trigger = 4;
+  auto options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kLevel0Trigger;
+
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  // generate good SSTs
+  for (int cf_num : {0, 2}) {
+    for (int i = 0; i < kNumSst; i++) {
+      for (int j = 0; j < 100; j++) {
+        ASSERT_OK(Put(cf_num, Key(i * 10 + j), "value"));
+      }
+      ASSERT_OK(Flush(cf_num));
+    }
+  }
+
+  // generate SSTs with bad unique id
+  SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
+        auto props = static_cast<TableProperties*>(props_vs);
+        // update table property session_id to a different one
+        props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  for (int i = 0; i < kNumSst; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(1, Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush(1));
+  }
+
+  // Reopen with verification should report corruption
+  options.verify_sst_unique_id_in_manifest = true;
+  auto s = TryReopenWithColumnFamilies({"default", "one", "two"}, options);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, GetLatestSeqAndTsForKey) {
   Destroy(last_options_);
