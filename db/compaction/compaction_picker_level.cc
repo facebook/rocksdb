@@ -358,7 +358,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       /* trim_ts */ "", start_level_score_, false /* deletion_compaction */,
-      /* all_level_non_overlapping */ start_level_ != 0 || is_l0_trivial_move_,
+      /* l0_files_might_overlap */ start_level_ == 0 && !is_l0_trivial_move_,
       compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0

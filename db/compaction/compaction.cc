@@ -214,7 +214,7 @@ Compaction::Compaction(
     CompressionOptions _compression_opts, Temperature _output_temperature,
     uint32_t _max_subcompactions, std::vector<FileMetaData*> _grandparents,
     bool _manual_compaction, const std::string& _trim_ts, double _score,
-    bool _deletion_compaction, bool all_level_non_overlapping,
+    bool _deletion_compaction, bool l0_files_might_overlap,
     CompactionReason _compaction_reason,
     BlobGarbageCollectionPolicy _blob_garbage_collection_policy,
     double _blob_garbage_collection_age_cutoff)
@@ -234,7 +234,7 @@ Compaction::Compaction(
       output_compression_opts_(_compression_opts),
       output_temperature_(_output_temperature),
       deletion_compaction_(_deletion_compaction),
-      all_level_non_overlapping_(all_level_non_overlapping),
+      l0_files_might_overlap_(l0_files_might_overlap),
       inputs_(PopulateWithAtomicBoundaries(vstorage, std::move(_inputs))),
       grandparents_(std::move(_grandparents)),
       score_(_score),
@@ -337,7 +337,7 @@ bool Compaction::IsTrivialMove() const {
 
   // Check if start level have files with overlapping ranges
   if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false &&
-      !all_level_non_overlapping_) {
+      l0_files_might_overlap_) {
     // We cannot move files from L0 to L1 if the files are overlapping
     return false;
   }

@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/options.h"
 #ifndef ROCKSDB_LITE
 
 #include <fcntl.h>
@@ -770,7 +771,9 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     ASSERT_OK(dbi->TEST_FlushMemTable());
     mock->SetCorruptionMode(mode);
-    s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    s = dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
     if (mode == mock::MockTableFactory::kCorruptNone) {
       ASSERT_OK(s);
     } else {
@@ -902,7 +905,10 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   ASSERT_OK(dbi->TEST_FlushMemTable());
-  Status s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  Status s =
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsCorruption());
 }

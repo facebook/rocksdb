@@ -81,7 +81,7 @@ class Compaction {
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, const std::string& trim_ts = "",
              double score = -1, bool deletion_compaction = false,
-             bool all_level_non_overlapping = false,
+             bool l0_files_might_overlap = true,
              CompactionReason compaction_reason = CompactionReason::kUnknown,
              BlobGarbageCollectionPolicy blob_garbage_collection_policy =
                  BlobGarbageCollectionPolicy::kUseDefault,
@@ -391,7 +391,7 @@ class Compaction {
 
   // If true, all levels in the compaction have non-overlapping files and are
   // sorted by keys.
-  bool all_level_non_overlapping_;
+  bool l0_files_might_overlap_;
 
   // Compaction input files organized by level. Constant after construction
   const std::vector<CompactionInputFiles> inputs_;
