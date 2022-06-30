@@ -248,6 +248,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   Mask cache_hit_mask = 0;
 
   Status s;
+  s.PermitUncheckedError();
+
   uint64_t total_bytes = 0;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
                                           file_size);
