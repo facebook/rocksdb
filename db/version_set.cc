@@ -1915,21 +1915,17 @@ void Version::MultiGetBlob(
   for (auto& ctx : blob_ctxs) {
     const auto file_number = ctx.first;
     const auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
-    if (!blob_file_meta) {
-      BlobReadContexts& blobs_in_file = ctx.second;
-      for (const auto& blob : blobs_in_file) {
-        const KeyContext& key_context = blob.second;
-        *key_context.s = Status::Corruption("Invalid blob file number");
-      }
-      continue;
-    }
-    const auto file_size = blob_file_meta->GetBlobFileSize();
 
     autovector<BlobReadRequest> blob_reqs_in_file;
     BlobReadContexts& blobs_in_file = ctx.second;
     for (const auto& blob : blobs_in_file) {
       const BlobIndex& blob_index = blob.first;
       const KeyContext& key_context = blob.second;
+
+      if (!blob_file_meta) {
+        *key_context.s = Status::Corruption("Invalid blob file number");
+        continue;
+      }
 
       if (blob_index.HasTTL() || blob_index.IsInlined()) {
         *key_context.s =
@@ -1941,9 +1937,10 @@ void Version::MultiGetBlob(
           key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
           blob_index.compression(), key_context.value, key_context.s);
     }
-
-    blob_reqs.emplace_back(file_number, file_size,
-                           std::move(blob_reqs_in_file));
+    if (blob_reqs_in_file.size() > 0) {
+      const auto file_size = blob_file_meta->GetBlobFileSize();
+      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file);
+    }
   }
 
   blob_source_->MultiGetBlob(read_options, blob_reqs,
