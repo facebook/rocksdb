@@ -389,8 +389,9 @@ class Compaction {
   // should it split the output file using the compact cursor?
   InternalKey output_split_key_;
 
-  // If true, all levels in the compaction have non-overlapping files and are
-  // sorted by keys.
+  // L0 files in LSM-tree might be overlapping. But the compaction picking
+  // logic might pick a subset of the files that aren't overlapping. if
+  // that is the case, set the value to false. Otherwise, set it true.
   bool l0_files_might_overlap_;
 
   // Compaction input files organized by level. Constant after construction

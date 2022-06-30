@@ -116,7 +116,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
       mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
-      /* is deletion compaction */ true, /* all_level_non_overlapping */ false,
+      /* is deletion compaction */ true, /* l0_files_might_overlap */ true,
       CompactionReason::kFIFOTtl);
   return c;
 }
@@ -161,7 +161,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
             0 /* max_subcompactions */, {}, /* is manual */ false,
             /* trim_ts */ "", vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
-            /* all_level_non_overlapping */ false,
+            /* l0_files_might_overlap */ true,
             CompactionReason::kFIFOReduceNumFiles);
         return c;
       }
@@ -212,7 +212,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
       /* is deletion compaction */ true,
-      /* all_level_non_overlapping */ false, CompactionReason::kFIFOMaxSize);
+      /* l0_files_might_overlap */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }
 
@@ -318,7 +318,7 @@ Compaction* FIFOCompactionPicker::PickCompactionToWarm(
       Temperature::kWarm,
       /* max_subcompactions */ 0, {}, /* is manual */ false, /* trim_ts */ "",
       vstorage->CompactionScore(0),
-      /* is deletion compaction */ false, /* all_level_non_overlapping */ false,
+      /* is deletion compaction */ false, /* l0_files_might_overlap */ true,
       CompactionReason::kChangeTemperature);
   return c;
 }

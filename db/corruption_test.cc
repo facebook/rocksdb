@@ -554,7 +554,10 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "hello"));
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   ASSERT_OK(dbi->TEST_FlushMemTable());
-  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  Status s =
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
 
   Corrupt(kDescriptorFile, 0, 1000);
   Status s = TryReopen();
@@ -809,7 +812,10 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
     } else {
       DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
       ASSERT_OK(dbi->TEST_FlushMemTable());
-      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      Status s =
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -845,7 +851,10 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
     } else {
       DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
       ASSERT_OK(dbi->TEST_FlushMemTable());
-      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      Status s =
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -878,7 +887,10 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
     } else {
       DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
       ASSERT_OK(dbi->TEST_FlushMemTable());
-      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      Status s =
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -934,7 +946,10 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
 
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptNone);
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
-  ASSERT_NOK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  Status s =
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
 }
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
@@ -981,7 +996,10 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo2", "v1"));
   ASSERT_OK(db_->Put(WriteOptions(), "foo4", "v1"));
   ASSERT_OK(dbi->TEST_FlushMemTable());
-  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  Status s =
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
