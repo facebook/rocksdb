@@ -65,7 +65,7 @@ class CacheKey {
   uint64_t offset_etc64_;
 };
 
-constexpr uint8_t kCacheKeySize = static_cast<uint8_t>(sizeof(CacheKey));
+constexpr int kCacheKeySize = static_cast<int>(sizeof(CacheKey));
 
 // A file-specific generator of cache keys, sometimes referred to as the
 // "base" cache key for a file because all the cache keys for various offsets
