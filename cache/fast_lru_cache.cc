@@ -341,8 +341,8 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   Status s = Status::OK();
   autovector<LRUHandle> last_reference_list;
   {
-    assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
     DMutexLock l(mutex_);
+    assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
 
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty.
