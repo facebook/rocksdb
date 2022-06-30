@@ -760,7 +760,7 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
 }
 
 inline hash_t LRUCache::HashSlice(const Slice& s) const  {
-  hash_t hash = {0, 0, 0, 0};
+  hash_t hash{0, 0, 0, 0};
   hash[0] = Lower32of64(GetSliceNPHash64(s));
   return hash;
 }
