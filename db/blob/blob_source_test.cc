@@ -741,16 +741,16 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
     ASSERT_GE((int)get_perf_context()->blob_checksum_time, 0);
     ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
 
-    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS),
-              num_blobs * 2);  // MultiGetBlob
+    // Fake blob requests: MultiGetBlob and TEST_BlobInCache
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS), num_blobs * 2);
+    // Real blob requests: MultiGetBlob and TEST_BlobInCache
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT),
-              num_blobs * blob_files * 2);  // TEST_BlobInCache
-    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD),
-              0);  // MultiGetBlob
+              num_blobs * blob_files * 2);
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+    // Real blob requests: MultiGetBlob and TEST_BlobInCache
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ),
-              blob_value_bytes * blob_files * 2);  // TEST_BlobInCache
-    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE),
-              0);  // MultiGetBlob
+              blob_value_bytes * blob_files * 2);
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
   }
 }
 
