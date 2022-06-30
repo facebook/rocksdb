@@ -276,13 +276,12 @@ class LRUHandleTable {
   uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
 
  private:
-  int FindVisibleElement(const hash_t& hash, int& probe,
-                         int displacement);
+  int FindVisibleElement(const hash_t& hash, int& probe, int displacement);
 
   int FindAvailableSlot(const hash_t& hash, int& probe, int displacement);
 
-  int FindVisibleElementOrAvailableSlot(const hash_t& hash,
-                                        int& probe, int displacement);
+  int FindVisibleElementOrAvailableSlot(const hash_t& hash, int& probe,
+                                        int displacement);
 
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that cond(e) is true.
@@ -331,8 +330,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // the LRU list. Older items are evicted as necessary. If the cache is full
   // and free_handle_on_fail is true, the item is deleted and handle is set to
   // nullptr.
-  Status Insert(const Slice& key, const hash_t& hash, void* value, size_t charge,
-                Cache::DeleterFn deleter, Cache::Handle** handle,
+  Status Insert(const Slice& key, const hash_t& hash, void* value,
+                size_t charge, Cache::DeleterFn deleter, Cache::Handle** handle,
                 Cache::Priority priority) override;
 
   Status Insert(const Slice& key, const hash_t& hash, void* value,

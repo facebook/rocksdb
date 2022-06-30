@@ -53,7 +53,7 @@ constexpr double kStrictLoadFactor = 0.7;  // See fast_lru_cache.h.
 struct ClockHandle {
   void* value;
   Cache::DeleterFn deleter;
-  hash_t hash;  // TODO(Guido) Store uint32_t[4]?
+  hash_t hash;          // TODO(Guido) Store uint32_t[4]?
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   // The number of external refs to this entry.
   uint32_t refs;
@@ -323,8 +323,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   // the clock list. Older items are evicted as necessary. If the cache is full
   // and free_handle_on_fail is true, the item is deleted and handle is set to
   // nullptr.
-  Status Insert(const Slice& key, const hash_t& hash, void* value, size_t charge,
-                Cache::DeleterFn deleter, Cache::Handle** handle,
+  Status Insert(const Slice& key, const hash_t& hash, void* value,
+                size_t charge, Cache::DeleterFn deleter, Cache::Handle** handle,
                 Cache::Priority priority) override;
 
   Status Insert(const Slice& key, const hash_t& hash, void* value,

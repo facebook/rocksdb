@@ -48,8 +48,8 @@ LRUHandle* LRUHandleTable::Lookup(const hash_t& hash) {
 
 LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
   int probe = 0;
-  int slot = FindVisibleElementOrAvailableSlot(h->hash, probe,
-                                               1 /*displacement*/);
+  int slot =
+      FindVisibleElementOrAvailableSlot(h->hash, probe, 1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
     return nullptr;
@@ -115,22 +115,22 @@ void LRUHandleTable::Assign(int slot, LRUHandle* h) {
 
 void LRUHandleTable::Exclude(LRUHandle* h) { h->SetIsVisible(false); }
 
-int LRUHandleTable::FindVisibleElement(const hash_t& hash,
-                                       int& probe, int displacement) {
+int LRUHandleTable::FindVisibleElement(const hash_t& hash, int& probe,
+                                       int displacement) {
   return FindSlot(
-      hash,
-      [&](LRUHandle* h) { return h->Matches(hash) && h->IsVisible(); },
+      hash, [&](LRUHandle* h) { return h->Matches(hash) && h->IsVisible(); },
       probe, displacement);
 }
 
 int LRUHandleTable::FindAvailableSlot(const hash_t& hash, int& probe,
                                       int displacement) {
   return FindSlot(
-      hash, [](LRUHandle* h) { return h->IsEmpty() || h->IsTombstone(); }, probe,
-      displacement);
+      hash, [](LRUHandle* h) { return h->IsEmpty() || h->IsTombstone(); },
+      probe, displacement);
 }
 
-int LRUHandleTable::FindVisibleElementOrAvailableSlot(const hash_t& hash, int& probe,
+int LRUHandleTable::FindVisibleElementOrAvailableSlot(const hash_t& hash,
+                                                      int& probe,
                                                       int displacement) {
   return FindSlot(
       hash,
@@ -419,7 +419,8 @@ Status LRUCacheShard::Insert(const Slice& key, const hash_t& hash, void* value,
   return s;
 }
 
-Cache::Handle* LRUCacheShard::Lookup(const Slice& /* key */, const hash_t& hash) {
+Cache::Handle* LRUCacheShard::Lookup(const Slice& /* key */,
+                                     const hash_t& hash) {
   LRUHandle* h = nullptr;
   {
     DMutexLock l(mutex_);

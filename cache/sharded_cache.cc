@@ -17,8 +17,8 @@
 
 #include "util/hash.h"
 #include "util/math.h"
-#include "util/mutexlock.h"
 #include "util/math128.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 

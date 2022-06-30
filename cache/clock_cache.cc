@@ -318,9 +318,9 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status ClockCacheShard::Insert(const Slice& key, const hash_t& hash, void* value,
-                               size_t charge, Cache::DeleterFn deleter,
-                               Cache::Handle** handle,
+Status ClockCacheShard::Insert(const Slice& key, const hash_t& hash,
+                               void* value, size_t charge,
+                               Cache::DeleterFn deleter, Cache::Handle** handle,
                                Cache::Priority /*priority*/) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("ClockCache only supports key size " +
@@ -403,7 +403,8 @@ Status ClockCacheShard::Insert(const Slice& key, const hash_t& hash, void* value
   return s;
 }
 
-Cache::Handle* ClockCacheShard::Lookup(const Slice& /* key */, const hash_t& hash) {
+Cache::Handle* ClockCacheShard::Lookup(const Slice& /* key */,
+                                       const hash_t& hash) {
   ClockHandle* h = nullptr;
   {
     DMutexLock l(mutex_);

@@ -321,14 +321,16 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                         size_t charge, Cache::DeleterFn deleter,
                         Cache::Handle** handle,
                         Cache::Priority priority) override {
-    return Insert(key, hash[0], value, charge, deleter, nullptr, handle, priority);
+    return Insert(key, hash[0], value, charge, deleter, nullptr, handle,
+                  priority);
   }
   virtual Status Insert(const Slice& key, const hash_t& hash, void* value,
                         const Cache::CacheItemHelper* helper, size_t charge,
                         Cache::Handle** handle,
                         Cache::Priority priority) override {
     assert(helper);
-    return Insert(key, hash[0], value, charge, nullptr, helper, handle, priority);
+    return Insert(key, hash[0], value, charge, nullptr, helper, handle,
+                  priority);
   }
   // If helper_cb is null, the values of the following arguments don't matter.
   virtual Cache::Handle* Lookup(const Slice& key, const hash_t& hash,
