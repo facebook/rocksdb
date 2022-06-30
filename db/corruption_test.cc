@@ -948,8 +948,8 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr)
-      .PermitUncheckedError();
+  ASSERT_NOK(
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
 }
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
@@ -998,9 +998,8 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(dbi->TEST_FlushMemTable());
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  Status s =
-      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
-  s.PermitUncheckedError();
+  ASSERT_OK(
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
