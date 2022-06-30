@@ -556,8 +556,8 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(dbi->TEST_FlushMemTable());
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  Status s =
-      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
+  ASSERT_OK(
+      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
 
   Corrupt(kDescriptorFile, 0, 1000);
   Status s = TryReopen();
@@ -814,8 +814,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
       ASSERT_OK(dbi->TEST_FlushMemTable());
       CompactRangeOptions cro;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-      Status s =
-          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
+      ASSERT_OK(
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -853,8 +853,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
       ASSERT_OK(dbi->TEST_FlushMemTable());
       CompactRangeOptions cro;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-      Status s =
-          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
+      ASSERT_OK(
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -889,8 +889,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
       ASSERT_OK(dbi->TEST_FlushMemTable());
       CompactRangeOptions cro;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-      Status s =
-          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
+      ASSERT_OK(
+          dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr));
     }
     db_->ReleaseSnapshot(snap);
   }
@@ -948,8 +948,8 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  Status s =
-      dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
+  dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr)
+      .PermitUncheckedError();
 }
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
@@ -1000,6 +1000,7 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   Status s =
       dbi->CompactRange(cro, dbi->DefaultColumnFamily(), nullptr, nullptr);
+  s.PermitUncheckedError();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
