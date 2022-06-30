@@ -410,14 +410,14 @@ void LRUCacheShard::Promote(LRUHandle* e) {
 }
 
 Cache::Handle* LRUCacheShard::Lookup(
-    const Slice& key, uint32_t hash,
+    const Slice& key, const hash_t& hash,
     const ShardedCache::CacheItemHelper* helper,
     const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
     bool wait, Statistics* stats) {
   LRUHandle* e = nullptr;
   {
     DMutexLock l(mutex_);
-    e = table_.Lookup(key, hash);
+    e = table_.Lookup(key, hash[0]);
     if (e != nullptr) {
       assert(e->InCache());
       if (!e->HasRefs()) {
@@ -451,7 +451,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->SetSecondaryCacheCompatible(true);
       e->info_.helper = helper;
       e->key_length = key.size();
-      e->hash = hash;
+      e->hash = hash[0];
       e->refs = 0;
       e->next = e->prev = nullptr;
       e->SetPriority(priority);
@@ -578,12 +578,12 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return InsertItem(e, handle, /* free_handle_on_fail */ true);
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
+void LRUCacheShard::Erase(const Slice& key, const hash_t& hash) {
   LRUHandle* e;
   bool last_reference = false;
   {
     DMutexLock l(mutex_);
-    e = table_.Remove(key, hash);
+    e = table_.Remove(key, hash[0]);
     if (e != nullptr) {
       assert(e->InCache());
       e->SetInCache(false);
@@ -699,8 +699,10 @@ Cache::DeleterFn LRUCache::GetDeleter(Handle* handle) const {
   }
 }
 
-uint32_t LRUCache::GetHash(Handle* handle) const {
-  return reinterpret_cast<const LRUHandle*>(handle)->hash;
+hash_t LRUCache::GetHash(Handle* handle) const {
+  hash_t hash = {0, 0, 0, 0};
+  hash[0] = reinterpret_cast<const LRUHandle*>(handle)->hash;
+  return hash;
 }
 
 void LRUCache::DisownData() {
@@ -750,11 +752,17 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
       if (!lru_handle->IsPending()) {
         continue;
       }
-      uint32_t hash = GetHash(handle);
+      hash_t hash = GetHash(handle);
       LRUCacheShard* shard = static_cast<LRUCacheShard*>(GetShard(Shard(hash)));
       shard->Promote(lru_handle);
     }
   }
+}
+
+inline hash_t LRUCache::HashSlice(const Slice& s) const  {
+  hash_t hash = {0, 0, 0, 0};
+  hash[0] = Lower32of64(GetSliceNPHash64(s));
+  return hash;
 }
 
 }  // namespace lru_cache

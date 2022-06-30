@@ -48,16 +48,12 @@ constexpr double kLoadFactor = 0.35;  // See fast_lru_cache.h.
 
 constexpr double kStrictLoadFactor = 0.7;  // See fast_lru_cache.h.
 
-// Arbitrary seeds.
-constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
-constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
-
 // An experimental (under development!) alternative to LRUCache
 
 struct ClockHandle {
   void* value;
   Cache::DeleterFn deleter;
-  uint32_t hash;
+  hash_t hash;  // TODO(Guido) Store uint32_t[4]?
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   // The number of external refs to this entry.
   uint32_t refs;
@@ -96,7 +92,7 @@ struct ClockHandle {
   ClockHandle() {
     value = nullptr;
     deleter = nullptr;
-    hash = 0;
+    hash.fill(0);
     total_charge = 0;
     refs = 0;
     flags = 0;
@@ -218,8 +214,8 @@ struct ClockHandle {
     return !this->IsElement() && this->displacements > 0;
   }
 
-  inline bool Matches(const Slice& some_key) {
-    return this->IsElement() && this->key() == some_key;
+  inline bool Matches(const hash_t& some_hash) {
+    return this->IsElement() && this->hash == some_hash;
   }
 };  // struct ClockHandle
 
@@ -230,7 +226,7 @@ class ClockHandleTable {
 
   // Returns a pointer to a visible element matching the key/hash, or
   // nullptr if not present.
-  ClockHandle* Lookup(const Slice& key);
+  ClockHandle* Lookup(const hash_t& hash);
 
   // Inserts a copy of h into the hash table.
   // Returns a pointer to the inserted handle, or nullptr if no slot
@@ -273,11 +269,11 @@ class ClockHandleTable {
  private:
   friend class ClockCacheShard;
 
-  int FindVisibleElement(const Slice& key, int& probe, int displacement);
+  int FindVisibleElement(const hash_t& hash, int& probe, int displacement);
 
-  int FindAvailableSlot(const Slice& key, int& probe, int displacement);
+  int FindAvailableSlot(const hash_t& hash, int& probe, int displacement);
 
-  int FindVisibleElementOrAvailableSlot(const Slice& key, int& probe,
+  int FindVisibleElementOrAvailableSlot(const hash_t& hash, int& probe,
                                         int displacement);
 
   // Returns the index of the first slot probed (hashing with
@@ -288,7 +284,7 @@ class ClockHandleTable {
   // The argument probe is modified such that consecutive calls
   // to FindSlot continue probing right after where the previous
   // call left.
-  int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> cond,
+  int FindSlot(const hash_t& hash, std::function<bool(ClockHandle*)> cond,
                int& probe, int displacement);
 
   // Number of hash bits used for table index.
@@ -327,24 +323,24 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   // the clock list. Older items are evicted as necessary. If the cache is full
   // and free_handle_on_fail is true, the item is deleted and handle is set to
   // nullptr.
-  Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
+  Status Insert(const Slice& key, const hash_t& hash, void* value, size_t charge,
                 Cache::DeleterFn deleter, Cache::Handle** handle,
                 Cache::Priority priority) override;
 
-  Status Insert(const Slice& key, uint32_t hash, void* value,
+  Status Insert(const Slice& key, const hash_t& hash, void* value,
                 const Cache::CacheItemHelper* helper, size_t charge,
                 Cache::Handle** handle, Cache::Priority priority) override {
     return Insert(key, hash, value, charge, helper->del_cb, handle, priority);
   }
 
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+  Cache::Handle* Lookup(const Slice& key, const hash_t& hash,
                         const Cache::CacheItemHelper* /*helper*/,
                         const Cache::CreateCallback& /*create_cb*/,
                         Cache::Priority /*priority*/, bool /*wait*/,
                         Statistics* /*stats*/) override {
     return Lookup(key, hash);
   }
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  Cache::Handle* Lookup(const Slice& key, const hash_t& hash) override;
 
   bool Release(Cache::Handle* handle, bool /*useful*/,
                bool erase_if_last_ref) override {
@@ -355,7 +351,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
   bool Ref(Cache::Handle* handle) override;
   bool Release(Cache::Handle* handle, bool erase_if_last_ref = false) override;
-  void Erase(const Slice& key, uint32_t hash) override;
+  void Erase(const Slice& key, const hash_t& hash) override;
 
   size_t GetUsage() const override;
   size_t GetPinnedUsage() const override;
@@ -439,7 +435,7 @@ class ClockCache
   const CacheShard* GetShard(uint32_t shard) const override;
   void* Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
-  uint32_t GetHash(Handle* handle) const override;
+  hash_t GetHash(Handle* handle) const override;
   DeleterFn GetDeleter(Handle* handle) const override;
   void DisownData() override;
 

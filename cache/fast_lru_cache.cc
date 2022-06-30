@@ -40,15 +40,15 @@ LRUHandleTable::~LRUHandleTable() {
   ApplyToEntriesRange([](LRUHandle* h) { h->FreeData(); }, 0, GetTableSize());
 }
 
-LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
+LRUHandle* LRUHandleTable::Lookup(const hash_t& hash) {
   int probe = 0;
-  int slot = FindVisibleElement(key, hash, probe, 0);
+  int slot = FindVisibleElement(hash, probe, 0);
   return (slot == -1) ? nullptr : &array_[slot];
 }
 
 LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
   int probe = 0;
-  int slot = FindVisibleElementOrAvailableSlot(h->key(), h->hash, probe,
+  int slot = FindVisibleElementOrAvailableSlot(h->hash, probe,
                                                1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
@@ -65,7 +65,7 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
     }
     // It used to be a tombstone, so there may already be a copy of the
     // key in the table.
-    slot = FindVisibleElement(h->key(), h->hash, probe, 0 /*displacement*/);
+    slot = FindVisibleElement(h->hash, probe, 0 /*displacement*/);
     if (slot == -1) {
       // No existing copy of the key.
       return new_entry;
@@ -77,13 +77,13 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
     *old = &array_[slot];
     // Find an available slot for the new element.
     array_[slot].displacements++;
-    slot = FindAvailableSlot(h->key(), probe, 1 /*displacement*/);
+    slot = FindAvailableSlot(h->hash, probe, 1 /*displacement*/);
     if (slot == -1) {
       // No available slots. Roll back displacements.
       probe = 0;
-      slot = FindVisibleElement(h->key(), h->hash, probe, -1);
+      slot = FindVisibleElement(h->hash, probe, -1);
       array_[slot].displacements--;
-      FindAvailableSlot(h->key(), probe, -1);
+      FindAvailableSlot(h->hash, probe, -1);
       return nullptr;
     }
     Assign(slot, h);
@@ -96,7 +96,7 @@ void LRUHandleTable::Remove(LRUHandle* h) {
          h->prev == nullptr);  // Already off the LRU list.
   int probe = 0;
   FindSlot(
-      h->key(), [&h](LRUHandle* e) { return e == h; }, probe,
+      h->hash, [&h](LRUHandle* e) { return e == h; }, probe,
       -1 /*displacement*/);
   h->SetIsVisible(false);
   h->SetIsElement(false);
@@ -115,39 +115,37 @@ void LRUHandleTable::Assign(int slot, LRUHandle* h) {
 
 void LRUHandleTable::Exclude(LRUHandle* h) { h->SetIsVisible(false); }
 
-int LRUHandleTable::FindVisibleElement(const Slice& key, uint32_t hash,
+int LRUHandleTable::FindVisibleElement(const hash_t& hash,
                                        int& probe, int displacement) {
   return FindSlot(
-      key,
-      [&](LRUHandle* h) { return h->Matches(key, hash) && h->IsVisible(); },
+      hash,
+      [&](LRUHandle* h) { return h->Matches(hash) && h->IsVisible(); },
       probe, displacement);
 }
 
-int LRUHandleTable::FindAvailableSlot(const Slice& key, int& probe,
+int LRUHandleTable::FindAvailableSlot(const hash_t& hash, int& probe,
                                       int displacement) {
   return FindSlot(
-      key, [](LRUHandle* h) { return h->IsEmpty() || h->IsTombstone(); }, probe,
+      hash, [](LRUHandle* h) { return h->IsEmpty() || h->IsTombstone(); }, probe,
       displacement);
 }
 
-int LRUHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
-                                                      uint32_t hash, int& probe,
+int LRUHandleTable::FindVisibleElementOrAvailableSlot(const hash_t& hash, int& probe,
                                                       int displacement) {
   return FindSlot(
-      key,
+      hash,
       [&](LRUHandle* h) {
         return h->IsEmpty() || h->IsTombstone() ||
-               (h->Matches(key, hash) && h->IsVisible());
+               (h->Matches(hash) && h->IsVisible());
       },
       probe, displacement);
 }
 
-inline int LRUHandleTable::FindSlot(const Slice& key,
+inline int LRUHandleTable::FindSlot(const hash_t& hash,
                                     std::function<bool(LRUHandle*)> cond,
                                     int& probe, int displacement) {
-  uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
-  uint32_t increment =
-      ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
+  uint32_t base = ModTableSize(hash[1]);
+  uint32_t increment = ModTableSize(hash[2] | 1);
   uint32_t current = ModTableSize(base + probe * increment);
   while (true) {
     LRUHandle* h = &array_[current];
@@ -320,7 +318,7 @@ void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
+Status LRUCacheShard::Insert(const Slice& key, const hash_t& hash, void* value,
                              size_t charge, Cache::DeleterFn deleter,
                              Cache::Handle** handle,
                              Cache::Priority /*priority*/) {
@@ -421,11 +419,11 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
+Cache::Handle* LRUCacheShard::Lookup(const Slice& /* key */, const hash_t& hash) {
   LRUHandle* h = nullptr;
   {
     DMutexLock l(mutex_);
-    h = table_.Lookup(key, hash);
+    h = table_.Lookup(hash);
     if (h != nullptr) {
       assert(h->IsVisible());
       if (!h->HasRefs()) {
@@ -486,12 +484,12 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   return last_reference;
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
+void LRUCacheShard::Erase(const Slice& /* key */, const hash_t& hash) {
   LRUHandle copy;
   bool last_reference = false;
   {
     DMutexLock l(mutex_);
-    LRUHandle* h = table_.Lookup(key, hash);
+    LRUHandle* h = table_.Lookup(hash);
     if (h != nullptr) {
       table_.Exclude(h);
       if (!h->HasRefs()) {
@@ -577,7 +575,7 @@ Cache::DeleterFn LRUCache::GetDeleter(Handle* handle) const {
   return h->deleter;
 }
 
-uint32_t LRUCache::GetHash(Handle* handle) const {
+hash_t LRUCache::GetHash(Handle* handle) const {
   return reinterpret_cast<const LRUHandle*>(handle)->hash;
 }
 

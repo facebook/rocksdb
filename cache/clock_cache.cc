@@ -40,16 +40,16 @@ ClockHandleTable::~ClockHandleTable() {
   ApplyToEntriesRange([](ClockHandle* h) { h->FreeData(); }, 0, GetTableSize());
 }
 
-ClockHandle* ClockHandleTable::Lookup(const Slice& key) {
+ClockHandle* ClockHandleTable::Lookup(const hash_t& hash) {
   int probe = 0;
-  int slot = FindVisibleElement(key, probe, 0);
+  int slot = FindVisibleElement(hash, probe, 0);
   return (slot == -1) ? nullptr : &array_[slot];
 }
 
 ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
   int probe = 0;
   int slot =
-      FindVisibleElementOrAvailableSlot(h->key(), probe, 1 /*displacement*/);
+      FindVisibleElementOrAvailableSlot(h->hash, probe, 1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
     return nullptr;
@@ -65,7 +65,7 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
     }
     // It used to be a tombstone, so there may already be a copy of the
     // key in the table.
-    slot = FindVisibleElement(h->key(), probe, 0 /*displacement*/);
+    slot = FindVisibleElement(h->hash, probe, 0 /*displacement*/);
     if (slot == -1) {
       // No existing copy of the key.
       return new_entry;
@@ -77,13 +77,13 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
     *old = &array_[slot];
     // Find an available slot for the new element.
     array_[slot].displacements++;
-    slot = FindAvailableSlot(h->key(), probe, 1 /*displacement*/);
+    slot = FindAvailableSlot(h->hash, probe, 1 /*displacement*/);
     if (slot == -1) {
       // No available slots. Roll back displacements.
       probe = 0;
-      slot = FindVisibleElement(h->key(), probe, -1);
+      slot = FindVisibleElement(h->hash, probe, -1);
       array_[slot].displacements--;
-      FindAvailableSlot(h->key(), probe, -1);
+      FindAvailableSlot(h->hash, probe, -1);
       return nullptr;
     }
     Assign(slot, h);
@@ -95,7 +95,7 @@ void ClockHandleTable::Remove(ClockHandle* h) {
   assert(!h->IsInClockList());  // Already off the clock list.
   int probe = 0;
   FindSlot(
-      h->key(), [&h](ClockHandle* e) { return e == h; }, probe,
+      h->hash, [&h](ClockHandle* e) { return e == h; }, probe,
       -1 /*displacement*/);
   h->SetIsVisible(false);
   h->SetIsElement(false);
@@ -115,38 +115,37 @@ void ClockHandleTable::Assign(int slot, ClockHandle* h) {
 
 void ClockHandleTable::Exclude(ClockHandle* h) { h->SetIsVisible(false); }
 
-int ClockHandleTable::FindVisibleElement(const Slice& key, int& probe,
+int ClockHandleTable::FindVisibleElement(const hash_t& hash, int& probe,
                                          int displacement) {
   return FindSlot(
-      key, [&](ClockHandle* h) { return h->Matches(key) && h->IsVisible(); },
+      hash, [&](ClockHandle* h) { return h->Matches(hash) && h->IsVisible(); },
       probe, displacement);
 }
 
-int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe,
+int ClockHandleTable::FindAvailableSlot(const hash_t& hash, int& probe,
                                         int displacement) {
   return FindSlot(
-      key, [](ClockHandle* h) { return h->IsEmpty() || h->IsTombstone(); },
+      hash, [](ClockHandle* h) { return h->IsEmpty() || h->IsTombstone(); },
       probe, displacement);
 }
 
-int ClockHandleTable::FindVisibleElementOrAvailableSlot(const Slice& key,
+int ClockHandleTable::FindVisibleElementOrAvailableSlot(const hash_t& hash,
                                                         int& probe,
                                                         int displacement) {
   return FindSlot(
-      key,
+      hash,
       [&](ClockHandle* h) {
         return h->IsEmpty() || h->IsTombstone() ||
-               (h->Matches(key) && h->IsVisible());
+               (h->Matches(hash) && h->IsVisible());
       },
       probe, displacement);
 }
 
-inline int ClockHandleTable::FindSlot(const Slice& key,
+inline int ClockHandleTable::FindSlot(const hash_t& hash,
                                       std::function<bool(ClockHandle*)> cond,
                                       int& probe, int displacement) {
-  uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
-  uint32_t increment =
-      ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
+  uint32_t base = ModTableSize(hash[1]);
+  uint32_t increment = ModTableSize(hash[2] | 1);
   uint32_t current = ModTableSize(base + probe * increment);
   while (true) {
     ClockHandle* h = &array_[current];
@@ -319,7 +318,7 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
+Status ClockCacheShard::Insert(const Slice& key, const hash_t& hash, void* value,
                                size_t charge, Cache::DeleterFn deleter,
                                Cache::Handle** handle,
                                Cache::Priority /*priority*/) {
@@ -404,11 +403,11 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t /* hash */) {
+Cache::Handle* ClockCacheShard::Lookup(const Slice& /* key */, const hash_t& hash) {
   ClockHandle* h = nullptr;
   {
     DMutexLock l(mutex_);
-    h = table_.Lookup(key);
+    h = table_.Lookup(hash);
     if (h != nullptr) {
       assert(h->IsVisible());
       if (!h->HasRefs()) {
@@ -470,12 +469,12 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   return last_reference;
 }
 
-void ClockCacheShard::Erase(const Slice& key, uint32_t /* hash */) {
+void ClockCacheShard::Erase(const Slice& /* key */, const hash_t& hash) {
   ClockHandle copy;
   bool last_reference = false;
   {
     DMutexLock l(mutex_);
-    ClockHandle* h = table_.Lookup(key);
+    ClockHandle* h = table_.Lookup(hash);
     if (h != nullptr) {
       table_.Exclude(h);
       if (!h->HasRefs()) {
@@ -563,7 +562,7 @@ Cache::DeleterFn ClockCache::GetDeleter(Handle* handle) const {
   return h->deleter;
 }
 
-uint32_t ClockCache::GetHash(Handle* handle) const {
+hash_t ClockCache::GetHash(Handle* handle) const {
   return reinterpret_cast<const ClockHandle*>(handle)->hash;
 }
 
