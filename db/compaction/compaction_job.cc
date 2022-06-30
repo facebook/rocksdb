@@ -641,16 +641,6 @@ void CompactionJob::GenSubcompactionBoundaries() {
     }
   }
 
-  Slice output_split_user_key;
-  const InternalKey output_split_key = c->GetOutputSplitKey();
-  if (output_split_key.Valid()) {
-    output_split_user_key = ExtractUserKey(output_split_key.Encode());
-    bounds.emplace_back(output_split_key.Encode());
-  } else {
-    // Empty user key indicates that splitting is not required here
-    output_split_user_key = Slice();
-  }
-
   std::sort(bounds.begin(), bounds.end(),
             [cfd_comparator](const Slice& a, const Slice& b) -> bool {
               return cfd_comparator->Compare(ExtractUserKey(a),
@@ -721,10 +711,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
         // need to put an end boundary
         continue;
       }
-      if (sum >= mean ||
-          (!output_split_user_key.empty() &&
-           cfd_comparator->Compare(ExtractUserKey(ranges[i].range.limit),
-                                   output_split_user_key) == 0)) {
+      if (sum >= mean) {
         boundaries_.emplace_back(ExtractUserKey(ranges[i].range.limit));
         sizes_.emplace_back(sum);
         subcompactions--;
