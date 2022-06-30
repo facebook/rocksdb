@@ -53,7 +53,7 @@ class LRUCacheTest : public testing::Test {
 
   void Insert(const std::string& key,
               Cache::Priority priority = Cache::Priority::LOW) {
-    EXPECT_OK(cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
+    EXPECT_OK(cache_->Insert(key, hash_t(), nullptr /*value*/, 1 /*charge*/,
                              nullptr /*deleter*/, nullptr /*handle*/,
                              priority));
   }
@@ -63,7 +63,7 @@ class LRUCacheTest : public testing::Test {
   }
 
   bool Lookup(const std::string& key) {
-    auto handle = cache_->Lookup(key, 0 /*hash*/);
+    auto handle = cache_->Lookup(key, hash_t());
     if (handle) {
       cache_->Release(handle);
       return true;
@@ -73,7 +73,7 @@ class LRUCacheTest : public testing::Test {
 
   bool Lookup(char key) { return Lookup(std::string(1, key)); }
 
-  void Erase(const std::string& key) { cache_->Erase(key, 0 /*hash*/); }
+  void Erase(const std::string& key) { cache_->Erase(key, hash_t()); }
 
   void ValidateLRUList(std::vector<std::string> keys,
                        size_t num_high_pri_pool_keys = 0) {
@@ -233,7 +233,7 @@ class FastLRUCacheTest : public testing::Test {
   }
 
   Status Insert(const std::string& key) {
-    return cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
+    return cache_->Insert(key, hash_t(), nullptr /*value*/, 1 /*charge*/,
                           nullptr /*deleter*/, nullptr /*handle*/,
                           Cache::Priority::LOW);
   }
@@ -367,7 +367,7 @@ class ClockCacheTest : public testing::Test {
 
   Status Insert(const std::string& key,
                 Cache::Priority priority = Cache::Priority::LOW) {
-    return shard_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
+    return shard_->Insert(key, hash_t(), nullptr /*value*/, 1 /*charge*/,
                           nullptr /*deleter*/, nullptr /*handle*/, priority);
   }
 
@@ -378,7 +378,7 @@ class ClockCacheTest : public testing::Test {
   Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
 
   bool Lookup(const std::string& key) {
-    auto handle = shard_->Lookup(key, 0 /*hash*/);
+    auto handle = shard_->Lookup(key, hash_t());
     if (handle) {
       shard_->Release(handle);
       return true;
@@ -388,7 +388,7 @@ class ClockCacheTest : public testing::Test {
 
   bool Lookup(char key) { return Lookup(std::string(kCacheKeySize, key)); }
 
-  void Erase(const std::string& key) { shard_->Erase(key, 0 /*hash*/); }
+  void Erase(const std::string& key) { shard_->Erase(key, hash_t()); }
 
   // void ValidateLRUList(std::vector<std::string> keys,
   //                      size_t num_high_pri_pool_keys = 0) {

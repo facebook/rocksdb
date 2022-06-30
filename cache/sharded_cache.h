@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <string>
+#include <array>
 
 #include "cache_key.h"
 #include "port/port.h"
