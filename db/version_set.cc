@@ -1933,6 +1933,7 @@ void Version::MultiGetBlob(
         continue;
       }
 
+      key_context.value->Reset();
       blob_reqs_in_file.emplace_back(
           key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
           blob_index.compression(), key_context.value, key_context.s);
