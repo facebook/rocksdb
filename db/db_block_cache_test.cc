@@ -932,7 +932,9 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        NewClockCache(capacity, num_shard_bits),
+        NewClockCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
+                      false /*strict_capacity_limit*/,
+                      kDefaultCacheMetadataChargePolicy),
         NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
                         false /*strict_capacity_limit*/,
                         kDefaultCacheMetadataChargePolicy)}) {
@@ -1288,11 +1290,10 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   const size_t capacity = size_t{1} << 25;
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
-    for (std::shared_ptr<Cache> cache :
-         {NewLRUCache(capacity), NewClockCache(capacity)}) {
-      // This test doesn't support FastLRUCache because the
+    for (std::shared_ptr<Cache> cache : {NewLRUCache(capacity)}) {
+      // This test doesn't support FastLRUCache nor ClockCache because the
       // keys used are not 16B long.
-      // TODO(guido) Add support for FastLRUCache.
+      // TODO(guido) Add support for FastLRUCache and ClockCache.
       if (!cache) {
         // Skip clock cache when not supported
         continue;

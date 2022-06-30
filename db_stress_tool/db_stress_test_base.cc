@@ -114,7 +114,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   }
 
   if (FLAGS_cache_type == "clock_cache") {
-    auto cache = NewClockCache((size_t)capacity);
+    auto cache = NewClockCache(static_cast<size_t>(capacity), FLAGS_block_size,
+                               num_shard_bits, false /*strict_capacity_limit*/,
+                               kDefaultCacheMetadataChargePolicy);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);

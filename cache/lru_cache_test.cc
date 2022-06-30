@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "cache/cache_key.h"
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_test_util.h"
 #include "file/sst_file_manager_impl.h"
@@ -207,8 +208,8 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
 }
 
 namespace fast_lru_cache {
-// TODO(guido) Consolidate the following FastLRUCache tests with
-// that of LRUCache.
+
+// TODO(guido) Replicate LRU policy tests from LRUCache here.
 class FastLRUCacheTest : public testing::Test {
  public:
   FastLRUCacheTest() {}
@@ -246,9 +247,8 @@ class FastLRUCacheTest : public testing::Test {
         estimated_value_size, metadata_charge_policy);
   }
 
-  uint8_t CalcHashBitsWrapper(
-      size_t capacity, size_t estimated_value_size,
-      CacheMetadataChargePolicy metadata_charge_policy) {
+  int CalcHashBitsWrapper(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy) {
     return fast_lru_cache::LRUCacheShard::CalcHashBits(
         capacity, estimated_value_size, metadata_charge_policy);
   }
@@ -262,7 +262,7 @@ class FastLRUCacheTest : public testing::Test {
     return capacity / (fast_lru_cache::kLoadFactor * handle_charge);
   }
 
-  bool TableSizeIsAppropriate(uint8_t hash_bits, double max_occupancy) {
+  bool TableSizeIsAppropriate(int hash_bits, double max_occupancy) {
     if (hash_bits == 0) {
       return max_occupancy <= 1;
     } else {
@@ -292,8 +292,8 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
   CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
   double max_occupancy =
       CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
-  uint8_t hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                          metadata_charge_policy);
+  int hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                      metadata_charge_policy);
   EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
 
   capacity = 1024;
@@ -341,6 +341,127 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
 }
 
 }  // namespace fast_lru_cache
+
+namespace clock_cache {
+
+class ClockCacheTest : public testing::Test {
+ public:
+  ClockCacheTest() {}
+  ~ClockCacheTest() override { DeleteShard(); }
+
+  void DeleteShard() {
+    if (shard_ != nullptr) {
+      shard_->~ClockCacheShard();
+      port::cacheline_aligned_free(shard_);
+      shard_ = nullptr;
+    }
+  }
+
+  void NewShard(size_t capacity) {
+    DeleteShard();
+    shard_ = reinterpret_cast<ClockCacheShard*>(
+        port::cacheline_aligned_alloc(sizeof(ClockCacheShard)));
+    new (shard_) ClockCacheShard(capacity, 1, true /*strict_capacity_limit*/,
+                                 kDontChargeCacheMetadata);
+  }
+
+  Status Insert(const std::string& key,
+                Cache::Priority priority = Cache::Priority::LOW) {
+    return shard_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
+                          nullptr /*deleter*/, nullptr /*handle*/, priority);
+  }
+
+  Status Insert(char key, Cache::Priority priority = Cache::Priority::LOW) {
+    return Insert(std::string(kCacheKeySize, key), priority);
+  }
+
+  Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
+
+  bool Lookup(const std::string& key) {
+    auto handle = shard_->Lookup(key, 0 /*hash*/);
+    if (handle) {
+      shard_->Release(handle);
+      return true;
+    }
+    return false;
+  }
+
+  bool Lookup(char key) { return Lookup(std::string(kCacheKeySize, key)); }
+
+  void Erase(const std::string& key) { shard_->Erase(key, 0 /*hash*/); }
+
+  // void ValidateLRUList(std::vector<std::string> keys,
+  //                      size_t num_high_pri_pool_keys = 0) {
+  // LRUHandle* lru;
+  // LRUHandle* lru_low_pri;
+  // cache_->TEST_GetLRUList(&lru, &lru_low_pri);
+  // LRUHandle* iter = lru;
+  // bool in_high_pri_pool = false;
+  // size_t high_pri_pool_keys = 0;
+  // if (iter == lru_low_pri) {
+  //   in_high_pri_pool = true;
+  // }
+  // for (const auto& key : keys) {
+  //   iter = iter->next;
+  //   ASSERT_NE(lru, iter);
+  //   ASSERT_EQ(key, iter->key().ToString());
+  //   ASSERT_EQ(in_high_pri_pool, iter->InHighPriPool());
+  //   if (in_high_pri_pool) {
+  //     high_pri_pool_keys++;
+  //   }
+  //   if (iter == lru_low_pri) {
+  //     ASSERT_FALSE(in_high_pri_pool);
+  //     in_high_pri_pool = true;
+  //   }
+  // }
+  // ASSERT_EQ(lru, iter->next);
+  // ASSERT_TRUE(in_high_pri_pool);
+  // ASSERT_EQ(num_high_pri_pool_keys, high_pri_pool_keys);
+  // }
+
+ private:
+  clock_cache::ClockCacheShard* shard_ = nullptr;
+};
+
+TEST_F(ClockCacheTest, Validate) {
+  NewShard(3);
+  EXPECT_OK(Insert('a', 16));
+  EXPECT_NOK(Insert('b', 15));
+  EXPECT_OK(Insert('b', 16));
+  EXPECT_NOK(Insert('c', 17));
+  EXPECT_NOK(Insert('d', 1000));
+  EXPECT_NOK(Insert('e', 11));
+  EXPECT_NOK(Insert('f', 0));
+}
+
+TEST_F(ClockCacheTest, ClockPriorityTest) {
+  clock_cache::ClockHandle handle;
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::NONE);
+  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::HIGH);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::HIGH);
+  handle.DecreasePriority();
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  handle.DecreasePriority();
+  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::LOW);
+  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::NONE);
+  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  handle.DecreasePriority();
+  handle.DecreasePriority();
+  EXPECT_EQ(handle.GetPriority(),
+            clock_cache::ClockHandle::ClockPriority::NONE);
+}
+
+}  // namespace clock_cache
 
 class TestSecondaryCache : public SecondaryCache {
  public:
