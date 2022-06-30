@@ -691,6 +691,66 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
               blob_value_bytes * blob_files);  // TEST_BlobInCache
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE),
               blob_value_bytes * blob_files);  // MultiGetBlob
+
+    get_perf_context()->Reset();
+    statistics->Reset().PermitUncheckedError();
+
+    autovector<BlobReadRequest> fake_blob_reqs_in_file;
+    std::array<PinnableSlice, num_blobs> fake_value_buf;
+    std::array<Status, num_blobs> fake_statuses_buf;
+
+    const uint64_t fake_file_number = 100;
+    for (size_t i = 0; i < num_blobs; ++i) {
+      fake_blob_reqs_in_file.emplace_back(
+          keys[i], blob_offsets[i], blob_sizes[i], kNoCompression,
+          &fake_value_buf[i], &fake_statuses_buf[i]);
+    }
+
+    // Add a fake multi-get blob request.
+    blob_reqs.emplace_back(fake_file_number, file_size, fake_blob_reqs_in_file);
+
+    blob_source.MultiGetBlob(read_options, blob_reqs, &bytes_read);
+
+    // Check the real blob read requests.
+    for (size_t i = 0; i < blob_files; ++i) {
+      const uint64_t file_number = i + 1;
+      for (size_t j = 0; j < num_blobs; ++j) {
+        ASSERT_OK(statuses_buf[i * num_blobs + j]);
+        ASSERT_EQ(value_buf[i * num_blobs + j], blobs[j]);
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                                 blob_offsets[j]));
+      }
+    }
+
+    // Check the fake blob request.
+    for (size_t i = 0; i < num_blobs; ++i) {
+      ASSERT_TRUE(fake_statuses_buf[i].IsIOError());
+      ASSERT_TRUE(fake_value_buf[i].empty());
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(fake_file_number, file_size,
+                                                blob_offsets[i]));
+    }
+
+    // Retrieved all blobs from 3 blob files (including the fake one) twice
+    // via MultiGetBlob and TEST_BlobInCache.
+    ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count,
+              num_blobs * blob_files * 2);
+    ASSERT_EQ((int)get_perf_context()->blob_read_count,
+              0);  // blocking i/o
+    ASSERT_EQ((int)get_perf_context()->blob_read_byte,
+              0);  // blocking i/o
+    ASSERT_GE((int)get_perf_context()->blob_checksum_time, 0);
+    ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
+
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS),
+              num_blobs * 2);  // MultiGetBlob
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT),
+              num_blobs * blob_files * 2);  // TEST_BlobInCache
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD),
+              0);  // MultiGetBlob
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ),
+              blob_value_bytes * blob_files * 2);  // TEST_BlobInCache
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE),
+              0);  // MultiGetBlob
   }
 }
 
