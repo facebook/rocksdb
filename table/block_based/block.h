@@ -10,6 +10,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -266,23 +267,6 @@ class Block {
 template <class TValue>
 class BlockIter : public InternalIteratorBase<TValue> {
  public:
-  void InitializeBase(const Comparator* raw_ucmp, const char* data,
-                      uint32_t restarts, uint32_t num_restarts,
-                      SequenceNumber global_seqno, bool block_contents_pinned) {
-    assert(data_ == nullptr);  // Ensure it is called only once
-    assert(num_restarts > 0);  // Ensure the param is valid
-
-    raw_ucmp_ = raw_ucmp;
-    data_ = data;
-    restarts_ = restarts;
-    num_restarts_ = num_restarts;
-    current_ = restarts_;
-    restart_index_ = num_restarts_;
-    global_seqno_ = global_seqno;
-    block_contents_pinned_ = block_contents_pinned;
-    cache_handle_ = nullptr;
-  }
-
   // Makes Valid() return false, status() return `s`, and Seek()/Prev()/etc do
   // nothing. Calls cleanup functions.
   virtual void Invalidate(const Status& s) {
@@ -371,6 +355,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
   Cache::Handle* cache_handle() { return cache_handle_; }
 
  protected:
+  std::unique_ptr<InternalKeyComparator> icmp_;
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array
 
@@ -405,11 +390,23 @@ class BlockIter : public InternalIteratorBase<TValue> {
   template <typename DecodeEntryFunc>
   inline bool ParseNextKey(bool* is_shared);
 
-  InternalKeyComparator icmp() {
-    return InternalKeyComparator(raw_ucmp_, false /* named */);
-  }
+  void InitializeBase(const Comparator* raw_ucmp, const char* data,
+                      uint32_t restarts, uint32_t num_restarts,
+                      SequenceNumber global_seqno, bool block_contents_pinned) {
+    assert(data_ == nullptr);  // Ensure it is called only once
+    assert(num_restarts > 0);  // Ensure the param is valid
 
-  UserComparatorWrapper ucmp() { return UserComparatorWrapper(raw_ucmp_); }
+    icmp_ =
+        std::make_unique<InternalKeyComparator>(raw_ucmp, false /* named */);
+    data_ = data;
+    restarts_ = restarts;
+    num_restarts_ = num_restarts;
+    current_ = restarts_;
+    restart_index_ = num_restarts_;
+    global_seqno_ = global_seqno;
+    block_contents_pinned_ = block_contents_pinned;
+    cache_handle_ = nullptr;
+  }
 
   // Must be called every time a key is found that needs to be returned to user,
   // and may be called when no key is found (as a no-op). Updates `key_`,
@@ -440,16 +437,15 @@ class BlockIter : public InternalIteratorBase<TValue> {
   int CompareCurrentKey(const Slice& other) {
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
-      return ucmp().Compare(raw_key_.GetUserKey(), other);
+      return icmp_->user_comparator()->Compare(raw_key_.GetUserKey(), other);
     } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
-      return icmp().Compare(raw_key_.GetInternalKey(), other);
+      return icmp_->Compare(raw_key_.GetInternalKey(), other);
     }
-    return icmp().Compare(raw_key_.GetInternalKey(), global_seqno_, other,
+    return icmp_->Compare(raw_key_.GetInternalKey(), global_seqno_, other,
                           kDisableGlobalSequenceNumber);
   }
 
  private:
-  const Comparator* raw_ucmp_;
   // Store the cache handle, if the block is cached. We need this since the
   // only other place the handle is stored is as an argument to the Cleanable
   // function callback, which is hard to retrieve. When multiple value

@@ -8,8 +8,8 @@ package org.rocksdb;
 import java.io.File;
 
 /**
- * <p>BackupEngineOptions to control the behavior of a backupable database.
- * It will be used during the creation of a {@link org.rocksdb.BackupEngine}.
+ * <p>BackupEngineOptions controls the behavior of a
+ * {@link org.rocksdb.BackupEngine}.
  * </p>
  * <p>Note that dispose() must be called before an Options instance
  * become out-of-scope to release the allocated memory in c++.</p>

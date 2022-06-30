@@ -24,9 +24,7 @@
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "rocksdb/convenience.h"
-#ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
-#endif
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -82,7 +80,6 @@ int db_stress_tool(int argc, char** argv) {
   dbsl_env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_listener_env = dbsl_env_wrapper_guard.get();
 
-#ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
       FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in ||
       FLAGS_open_write_fault_one_in || FLAGS_open_read_fault_one_in) {
@@ -98,18 +95,10 @@ int db_stress_tool(int argc, char** argv) {
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
   }
-  if (FLAGS_write_fault_one_in) {
-    SyncPoint::GetInstance()->SetCallBack(
-        "BuildTable:BeforeFinishBuildTable",
-        [&](void*) { fault_fs_guard->EnableWriteErrorInjection(); });
-    SyncPoint::GetInstance()->EnableProcessing();
-  }
-#endif
 
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
 
-#ifndef NDEBUG
   if (FLAGS_write_fault_one_in) {
     // In the write injection case, we need to use the FS interface and returns
     // the IOStatus with different error and flags. Therefore,
@@ -118,7 +107,6 @@ int db_stress_tool(int argc, char** argv) {
     // CompositeEnvWrapper of env and fault_fs.
     db_stress_env = raw_env;
   }
-#endif
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 

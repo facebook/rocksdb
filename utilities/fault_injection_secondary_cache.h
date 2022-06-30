@@ -32,8 +32,8 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
                 const Cache::CacheItemHelper* helper) override;
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
-      const Slice& key, const Cache::CreateCallback& create_cb,
-      bool wait) override;
+      const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
+      bool& is_in_sec_cache) override;
 
   void Erase(const Slice& /*key*/) override;
 

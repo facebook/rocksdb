@@ -11,6 +11,7 @@ foreach(ONE_BENCH_CPP ${ALL_BENCH_CPP})
   # add_test(Bench_${TARGET_NAME} ${TARGET_NAME})
   list(APPEND ALL_BENCH_TARGETS ${TARGET_NAME})
 endforeach()
-add_custom_target(microbench
+add_custom_target(microbench DEPENDS ${ALL_BENCH_TARGETS})
+add_custom_target(run_microbench
         COMMAND for t in ${ALL_BENCH_TARGETS}\; do \.\/$$t \|\| exit 1\; done
         DEPENDS ${ALL_BENCH_TARGETS})

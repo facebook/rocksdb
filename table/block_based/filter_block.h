@@ -84,7 +84,7 @@ class FilterBlockBuilder {
       Status* status, std::unique_ptr<const char[]>* filter_data = nullptr) = 0;
 
   // This is called when finishes using the FilterBitsBuilder
-  // in order to release memory usage and cache reservation
+  // in order to release memory usage and cache charge
   // associated with it timely
   virtual void ResetFilterBitsBuilder() {}
 
@@ -188,16 +188,7 @@ class FilterBlockReader {
                              const Slice* const const_ikey_ptr,
                              bool* filter_checked, bool need_upper_bound_check,
                              bool no_io,
-                             BlockCacheLookupContext* lookup_context) {
-    if (need_upper_bound_check) {
-      return true;
-    }
-    *filter_checked = true;
-    Slice prefix = prefix_extractor->Transform(user_key_without_ts);
-    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, no_io,
-                          const_ikey_ptr, /* get_context */ nullptr,
-                          lookup_context);
-  }
+                             BlockCacheLookupContext* lookup_context) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

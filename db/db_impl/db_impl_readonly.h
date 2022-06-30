@@ -27,6 +27,9 @@ class DBImplReadOnly : public DBImpl {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value,
+             std::string* timestamp) override;
 
   // TODO: Implement ReadOnly MultiGet?
 

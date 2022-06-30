@@ -1191,7 +1191,7 @@ TEST_F(CloudTest, TwoConcurrentWriters) {
     // manifest), my writes are applied to the shared space!
     openDB1();
     for (int j = 0; j < 5; ++j) {
-      auto key = ToString(i) + ToString(j) + "1";
+      auto key = std::to_string(i) + std::to_string(j) + "1";
       ASSERT_OK(db1->Put(WriteOptions(), key, "FirstDB"));
       ASSERT_OK(db1->Flush(FlushOptions()));
     }
@@ -1203,7 +1203,7 @@ TEST_F(CloudTest, TwoConcurrentWriters) {
     // manifest), my writes are applied to the shared space!
     openDB2();
     for (int j = 0; j < 5; ++j) {
-      auto key = ToString(i) + ToString(j) + "2";
+      auto key = std::to_string(i) + std::to_string(j) + "2";
       ASSERT_OK(db2->Put(WriteOptions(), key, "SecondDB"));
       ASSERT_OK(db2->Flush(FlushOptions()));
     }
@@ -1221,7 +1221,7 @@ TEST_F(CloudTest, TwoConcurrentWriters) {
   for (int i = 0; i < 5; ++i) {
     for (int j = 0; j < 5; ++j) {
       std::string val;
-      auto key = ToString(i) + ToString(j);
+      auto key = std::to_string(i) + std::to_string(j);
       ASSERT_OK(db1->Get(ReadOptions(), key + "1", &val));
       EXPECT_EQ(val, "FirstDB");
       ASSERT_OK(db1->Get(ReadOptions(), key + "2", &val));
@@ -1245,7 +1245,7 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
     db.reset(dbptr);
     // create 5 files
     for (int i = 0; i < 5; ++i) {
-      auto key = "key" + ToString(i);
+      auto key = "key" + std::to_string(i);
       ASSERT_OK(db->Put(WriteOptions(), key, key));
       ASSERT_OK(db->Flush(FlushOptions()));
     }
@@ -1262,13 +1262,13 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
   cloud_env_options_.validate_filesize = false;
   OpenDB();
   for (int i = 5; i < 10; ++i) {
-    auto key = "key" + ToString(i);
+    auto key = "key" + std::to_string(i);
     ASSERT_OK(db_->Put(WriteOptions(), key, key));
     ASSERT_OK(db_->Flush(FlushOptions()));
   }
 
   for (int i = 0; i < 10; ++i) {
-    auto key = "key" + ToString(i);
+    auto key = "key" + std::to_string(i);
     std::string value;
     ASSERT_OK(db_->Get(ReadOptions(), key, &value));
     ASSERT_EQ(value, key);

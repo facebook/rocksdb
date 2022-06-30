@@ -22,6 +22,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/unique_id_impl.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
 
@@ -144,6 +145,9 @@ Status ExternalSstFileIngestionJob::Prepare(
                  ingestion_options_.failed_move_fall_back_to_copy) {
         // Original file is on a different FS, use copy instead of hard linking.
         f.copy_file = true;
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Triy to link file %s but it's not supported : %s",
+                       path_outside_db.c_str(), status.ToString().c_str());
       }
     } else {
       f.copy_file = true;
@@ -448,8 +452,8 @@ Status ExternalSstFileIngestionJob::Run() {
         f.smallest_internal_key, f.largest_internal_key, f.assigned_seqno,
         f.assigned_seqno, false, f.file_temperature, kInvalidBlobFileNumber,
         oldest_ancester_time, current_time, f.file_checksum,
-        f.file_checksum_func_name, kDisableUserTimestamp,
-        kDisableUserTimestamp);
+        f.file_checksum_func_name, kDisableUserTimestamp, kDisableUserTimestamp,
+        f.unique_id);
     f_metadata.temperature = f.file_temperature;
     edit_.AddFile(f.picked_level, f_metadata);
   }
@@ -729,6 +733,16 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
   file_to_ingest->table_properties = *props;
 
+  auto s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                  props->orig_file_number,
+                                  &(file_to_ingest->unique_id));
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get SST unique id for file %s",
+                   file_to_ingest->internal_file_path.c_str());
+    file_to_ingest->unique_id = kNullUniqueId64x2;
+  }
+
   return status;
 }
 
@@ -741,6 +755,12 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   if (force_global_seqno) {
     *assigned_seqno = last_seqno + 1;
     if (compaction_style == kCompactionStyleUniversal || files_overlap_) {
+      if (ingestion_options_.fail_if_not_bottommost_level) {
+        status = Status::TryAgain(
+            "Files cannot be ingested to Lmax. Please make sure key range of "
+            "Lmax does not overlap with files to ingest.");
+        return status;
+      }
       file_to_ingest->picked_level = 0;
       return status;
     }
@@ -810,6 +830,15 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     target_level = 0;
     *assigned_seqno = last_seqno + 1;
   }
+
+  if (ingestion_options_.fail_if_not_bottommost_level &&
+      target_level < cfd_->NumberLevels() - 1) {
+    status = Status::TryAgain(
+        "Files cannot be ingested to Lmax. Please make sure key range of Lmax "
+        "does not overlap with files to ingest.");
+    return status;
+  }
+
  TEST_SYNC_POINT_CALLBACK(
       "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
       &overlap_with_db);

@@ -94,6 +94,8 @@ class FlushJob {
 #endif  // !ROCKSDB_LITE
 
  private:
+  friend class FlushJobTest_GetRateLimiterPriorityForWrite_Test;
+
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
@@ -121,6 +123,8 @@ class FlushJob {
   // process has not matured yet.
   Status MemPurge();
   bool MemPurgeDecider();
+  // The rate limiter priority (io_priority) is determined dynamically here.
+  Env::IOPriority GetRateLimiterPriorityForWrite();
 #ifndef ROCKSDB_LITE
   std::unique_ptr<FlushJobInfo> GetFlushJobInfo() const;
 #endif  // !ROCKSDB_LITE

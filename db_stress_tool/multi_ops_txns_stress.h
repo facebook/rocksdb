@@ -111,6 +111,7 @@ class MultiOpsTxnsStressTest : public StressTest {
  public:
   class Record {
    public:
+    static constexpr uint32_t kMetadataPrefix = 0;
     static constexpr uint32_t kPrimaryIndexId = 1;
     static constexpr uint32_t kSecondaryIndexId = 2;
 
@@ -261,6 +262,13 @@ class MultiOpsTxnsStressTest : public StressTest {
       ThreadState* thread,
       const std::vector<int>& rand_column_families) override;
 
+  void RegisterAdditionalListeners() override;
+
+#ifndef ROCKSDB_LITE
+  void PrepareTxnDbOptions(SharedState* /*shared*/,
+                           TransactionDBOptions& txn_db_opts) override;
+#endif  // !ROCKSDB_LITE
+
   Status PrimaryKeyUpdateTxn(ThreadState* thread, uint32_t old_a,
                              uint32_t old_a_pos, uint32_t new_a);
 
@@ -280,7 +288,17 @@ class MultiOpsTxnsStressTest : public StressTest {
     VerifyDb(thread);
   }
 
+  void VerifyPkSkFast(int job_id);
+
  protected:
+  class Counter {
+   public:
+    uint64_t Next() { return value_.fetch_add(1); }
+
+   private:
+    std::atomic<uint64_t> value_ = Env::Default()->NowNanos();
+  };
+
   using KeySet = std::set<uint32_t>;
   class KeyGenerator {
    public:
@@ -330,8 +348,20 @@ class MultiOpsTxnsStressTest : public StressTest {
 
   uint32_t GenerateNextC(ThreadState* thread);
 
+#ifndef ROCKSDB_LITE
+  // Some applications, e.g. MyRocks writes a KV pair to the database via
+  // commit-time-write-batch (ctwb) in additional to the transaction's regular
+  // write batch. The key is usually constant representing some system
+  // metadata, while the value is monoticailly increasing which represents the
+  // actual value of the metadata. Method WriteToCommitTimeWriteBatch()
+  // emulates this scenario.
+  Status WriteToCommitTimeWriteBatch(Transaction& txn);
+#endif  //! ROCKSDB_LITE
+
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_c_;
+
+  Counter counter_{};
 
  private:
   struct KeySpaces {
@@ -368,6 +398,39 @@ class InvariantChecker {
                 "MultiOpsTxnsStressTest::Record::b_ must be 4 bytes");
   static_assert(sizeof(MultiOpsTxnsStressTest::Record().c_) == sizeof(uint32_t),
                 "MultiOpsTxnsStressTest::Record::c_ must be 4 bytes");
+};
+
+class MultiOpsTxnsStressListener : public EventListener {
+ public:
+  explicit MultiOpsTxnsStressListener(MultiOpsTxnsStressTest* stress_test)
+      : stress_test_(stress_test) {
+    assert(stress_test_);
+  }
+
+#ifndef ROCKSDB_LITE
+  ~MultiOpsTxnsStressListener() override {}
+
+  void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    assert(db);
+#ifdef NDEBUG
+    (void)db;
+#endif
+    assert(info.cf_id == 0);
+    stress_test_->VerifyPkSkFast(info.job_id);
+  }
+
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& info) override {
+    assert(db);
+#ifdef NDEBUG
+    (void)db;
+#endif
+    assert(info.cf_id == 0);
+    stress_test_->VerifyPkSkFast(info.job_id);
+  }
+#endif  //! ROCKSDB_LITE
+
+ private:
+  MultiOpsTxnsStressTest* const stress_test_ = nullptr;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

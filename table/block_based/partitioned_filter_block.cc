@@ -323,7 +323,7 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
                              UncompressionDict::GetEmptyDict(), filter_block,
                              BlockType::kFilter, get_context, lookup_context,
                              /* for_compaction */ false, /* use_cache */ true,
-                             /* wait_for_cache */ true);
+                             /* wait_for_cache */ true, /* async_read */ false);
 
   return s;
 }
@@ -521,7 +521,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     s = table()->MaybeReadBlockAndLoadToCache(
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
         /* wait */ true, /* for_compaction */ false, &block, BlockType::kFilter,
-        nullptr /* get_context */, &lookup_context, nullptr /* contents */);
+        nullptr /* get_context */, &lookup_context, nullptr /* contents */,
+        false);
     if (!s.ok()) {
       return s;
     }

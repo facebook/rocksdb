@@ -21,6 +21,7 @@ int main() {
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/system_clock.h"
+#include "rocksdb/table.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
@@ -103,9 +104,10 @@ DEFINE_uint32(block_cache_capacity_MB, 8,
               "Setting for "
               "LRUCacheOptions::capacity");
 
-DEFINE_bool(reserve_table_builder_memory, false,
+DEFINE_bool(charge_filter_construction, false,
             "Setting for "
-            "BlockBasedTableOptions::reserve_table_builder_memory");
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kFilterConstruction");
 
 DEFINE_bool(strict_capacity_limit, false,
             "Setting for "
@@ -145,6 +147,8 @@ using ROCKSDB_NAMESPACE::BloomLikeFilterPolicy;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
 using ROCKSDB_NAMESPACE::Cache;
+using ROCKSDB_NAMESPACE::CacheEntryRole;
+using ROCKSDB_NAMESPACE::CacheEntryRoleOptions;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
@@ -321,8 +325,12 @@ struct FilterBench : public MockBlockBasedTableTester {
         FLAGS_optimize_filters_for_memory;
     table_options_.detect_filter_construct_corruption =
         FLAGS_detect_filter_construct_corruption;
-    if (FLAGS_reserve_table_builder_memory) {
-      table_options_.reserve_table_builder_memory = true;
+    table_options_.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kFilterConstruction,
+         {/*.charged = */ FLAGS_charge_filter_construction
+              ? CacheEntryRoleOptions::Decision::kEnabled
+              : CacheEntryRoleOptions::Decision::kDisabled}});
+    if (FLAGS_charge_filter_construction) {
       table_options_.no_block_cache = false;
       LRUCacheOptions lo;
       lo.capacity = FLAGS_block_cache_capacity_MB * 1024 * 1024;

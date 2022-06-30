@@ -30,7 +30,7 @@ class DeleteSchedulerTest : public testing::Test {
     for (size_t i = 0; i < kNumDataDirs; ++i) {
       dummy_files_dirs_.emplace_back(
           test::PerThreadDBPath(env_, "delete_scheduler_dummy_data_dir") +
-          ToString(i));
+          std::to_string(i));
       DestroyAndCreateDir(dummy_files_dirs_.back());
     }
     stats_ = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -153,7 +153,7 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
     // Create 100 dummy files, every file is 1 Kb
     std::vector<std::string> generated_files;
     for (int i = 0; i < num_files; i++) {
-      std::string file_name = "file" + ToString(i) + ".data";
+      std::string file_name = "file" + std::to_string(i) + ".data";
       generated_files.push_back(NewDummyFile(file_name, file_size));
     }
 
@@ -265,7 +265,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
     // Create 100 dummy files, every file is 1 Kb
     std::vector<std::string> generated_files;
     for (int i = 0; i < num_files * thread_cnt; i++) {
-      std::string file_name = "file" + ToString(i) + ".data";
+      std::string file_name = "file" + std::to_string(i) + ".data";
       generated_files.push_back(NewDummyFile(file_name, file_size));
     }
 
@@ -405,7 +405,7 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
 
   // Generate 10 dummy files and move them to trash
   for (int i = 0; i < 10; i++) {
-    std::string file_name = "data_" + ToString(i) + ".data";
+    std::string file_name = "data_" + std::to_string(i) + ".data";
     ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
   }
   ASSERT_EQ(CountNormalFiles(), 0);
@@ -415,7 +415,7 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   // BackgroundEmptyTrash since we already deleted the files it was
   // goind to delete
   for (int i = 0; i < 10; i++) {
-    std::string file_name = "data_" + ToString(i) + ".data.trash";
+    std::string file_name = "data_" + std::to_string(i) + ".data.trash";
     ASSERT_OK(env_->DeleteFile(dummy_files_dirs_[0] + "/" + file_name));
   }
 
@@ -455,7 +455,7 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
   for (int run = 1; run <= 5; run++) {
     // Generate kTestFileNum dummy files and move them to trash
     for (int i = 0; i < kTestFileNum; i++) {
-      std::string file_name = "data_" + ToString(i) + ".data";
+      std::string file_name = "data_" + std::to_string(i) + ".data";
       ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
     }
     ASSERT_EQ(CountNormalFiles(), 0);
@@ -555,7 +555,7 @@ TEST_F(DeleteSchedulerTest, DestructorWithNonEmptyQueue) {
   NewDeleteScheduler();
 
   for (int i = 0; i < 100; i++) {
-    std::string file_name = "data_" + ToString(i) + ".data";
+    std::string file_name = "data_" + std::to_string(i) + ".data";
     ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name), ""));
   }
 
@@ -610,7 +610,7 @@ TEST_F(DeleteSchedulerTest, DISABLED_DynamicRateLimiting1) {
     // Create 100 dummy files, every file is 1 Kb
     std::vector<std::string> generated_files;
     for (int i = 0; i < num_files; i++) {
-      std::string file_name = "file" + ToString(i) + ".data";
+      std::string file_name = "file" + std::to_string(i) + ".data";
       generated_files.push_back(NewDummyFile(file_name, file_size));
     }
 
@@ -671,7 +671,7 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
 
   std::vector<std::string> generated_files;
   for (int i = 0; i < num_files; i++) {
-    std::string file_name = "file" + ToString(i) + ".data";
+    std::string file_name = "file" + std::to_string(i) + ".data";
     generated_files.push_back(NewDummyFile(file_name, file_size));
   }
 

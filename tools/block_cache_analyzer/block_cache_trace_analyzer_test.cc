@@ -277,7 +277,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
     ASSERT_OK(env_->DeleteFile(mrc_path));
 
     const std::vector<std::string> time_units{"1", "60", "3600"};
-    expected_capacities.push_back(port::kMaxUint64);
+    expected_capacities.push_back(std::numeric_limits<uint64_t>::max());
     for (auto const& expected_capacity : expected_capacities) {
       for (auto const& time_unit : time_units) {
         const std::string miss_ratio_timeline_path =
@@ -293,7 +293,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           std::string substr;
           getline(ss, substr, ',');
           if (!read_header) {
-            if (expected_capacity == port::kMaxUint64) {
+            if (expected_capacity == std::numeric_limits<uint64_t>::max()) {
               ASSERT_EQ("trace", substr);
             } else {
               ASSERT_EQ("lru-1-0", substr);
@@ -321,7 +321,7 @@ TEST_F(BlockCacheTracerTest, BlockCacheAnalyzer) {
           std::string substr;
           getline(ss, substr, ',');
           if (num_misses == 0) {
-            if (expected_capacity == port::kMaxUint64) {
+            if (expected_capacity == std::numeric_limits<uint64_t>::max()) {
               ASSERT_EQ("trace", substr);
             } else {
               ASSERT_EQ("lru-1-0", substr);

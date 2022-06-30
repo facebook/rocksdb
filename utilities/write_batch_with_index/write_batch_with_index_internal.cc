@@ -514,7 +514,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
       break;
     default:
       return Status::Corruption("unknown WriteBatch tag ",
-                                ToString(static_cast<unsigned int>(tag)));
+                                std::to_string(static_cast<unsigned int>(tag)));
   }
   return Status::OK();
 }
@@ -700,7 +700,7 @@ WBWIIteratorImpl::Result WriteBatchWithIndexInternal::GetFromBatch(
   auto result = iter->FindLatestUpdate(key, context);
   if (result == WBWIIteratorImpl::kError) {
     (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                              ToString(iter->Entry().type));
+                              std::to_string(iter->Entry().type));
     return result;
   } else if (result == WBWIIteratorImpl::kNotFound) {
     return result;

@@ -604,10 +604,14 @@ TEST_F(StatsHistoryTest, ForceManualFlushStatsCF) {
   dbfull()->TEST_WaitForStatsDumpRun(
       [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
   // writing to all three cf, flush default cf
-  // LogNumbers: default: 14, stats: 4, pikachu: 4
+  // LogNumbers: default: 16, stats: 10, pikachu: 5
+  // Since in recovery process, cfd_stats column is created after WAL is
+  // created, synced and MANIFEST is persisted, its log number which depends on
+  // logfile_number_ will be different. Since "pikachu" is never flushed, thus
+  // its log_number should be the smallest of the three.
   ASSERT_OK(Flush());
-  ASSERT_EQ(cfd_stats->GetLogNumber(), cfd_test->GetLogNumber());
-  ASSERT_LT(cfd_stats->GetLogNumber(), cfd_default->GetLogNumber());
+  ASSERT_LT(cfd_test->GetLogNumber(), cfd_stats->GetLogNumber());
+  ASSERT_LT(cfd_test->GetLogNumber(), cfd_default->GetLogNumber());
 
   ASSERT_OK(Put("foo1", "v1"));
   ASSERT_OK(Put("bar1", "v1"));

@@ -105,6 +105,11 @@ Status WalManager::GetUpdatesSince(
     SequenceNumber seq, std::unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options,
     VersionSet* version_set) {
+  if (seq_per_batch_) {
+    return Status::NotSupported();
+  }
+
+  assert(!seq_per_batch_);
 
   //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.
@@ -373,9 +378,8 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   *sequence = 0;
   if (type != kAliveLogFile && type != kArchivedLogFile) {
     ROCKS_LOG_ERROR(db_options_.info_log, "[WalManger] Unknown file type %s",
-                    ToString(type).c_str());
-    return Status::NotSupported(
-        "File Type Not Known " + ToString(type));
+                    std::to_string(type).c_str());
+    return Status::NotSupported("File Type Not Known " + std::to_string(type));
   }
   {
     MutexLock l(&read_first_record_cache_mutex_);

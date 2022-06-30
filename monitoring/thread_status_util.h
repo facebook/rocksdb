@@ -94,7 +94,7 @@ class ThreadStatusUtil {
   // When this variable is set to true, thread_updater_local_cache_
   // will not be updated until this variable is again set to false
   // in UnregisterThread().
-  static  __thread bool thread_updater_initialized_;
+  static thread_local bool thread_updater_initialized_;
 
   // The thread-local cached ThreadStatusUpdater that caches the
   // thread_status_updater_ of the first Env that uses any ThreadStatusUtil
@@ -109,7 +109,7 @@ class ThreadStatusUtil {
   // When thread_updater_initialized_ is set to true, this variable
   // will not be updated until this thread_updater_initialized_ is
   // again set to false in UnregisterThread().
-  static __thread ThreadStatusUpdater* thread_updater_local_cache_;
+  static thread_local ThreadStatusUpdater* thread_updater_local_cache_;
 #else
   static bool thread_updater_initialized_;
   static ThreadStatusUpdater* thread_updater_local_cache_;

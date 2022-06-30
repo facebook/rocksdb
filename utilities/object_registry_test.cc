@@ -7,6 +7,7 @@
 
 #include "rocksdb/utilities/object_registry.h"
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/customizable.h"
 #include "test_util/testharness.h"
 
@@ -117,23 +118,25 @@ TEST_F(ObjRegistryTest, LocalRegistry) {
   ASSERT_NE(env, nullptr);
 }
 
-TEST_F(ObjRegistryTest, CheckShared) {
-  std::shared_ptr<Env> shared;
-  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("shared");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
+static int RegisterTestUnguarded(ObjectLibrary& library,
+                                 const std::string& /*arg*/) {
+  library.AddFactory<Env>(
       "unguarded",
       [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
          std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
+  library.AddFactory<Env>(
       "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
                     std::string* /* errmsg */) {
         guard->reset(new WrappedEnv(Env::Default(), uri));
         return guard->get();
       });
+  return 2;
+}
+
+TEST_F(ObjRegistryTest, CheckShared) {
+  std::shared_ptr<Env> shared;
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  registry->AddLibrary("shared", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewSharedObject<Env>("guarded", &shared));
   ASSERT_NE(shared, nullptr);
@@ -145,20 +148,7 @@ TEST_F(ObjRegistryTest, CheckShared) {
 TEST_F(ObjRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("static");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
-      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new WrappedEnv(Env::Default(), uri));
-        return guard->get();
-      });
+  registry->AddLibrary("static", RegisterTestUnguarded, "");
 
   ASSERT_NOK(registry->NewStaticObject<Env>("guarded", &env));
   ASSERT_EQ(env, nullptr);
@@ -170,20 +160,7 @@ TEST_F(ObjRegistryTest, CheckStatic) {
 TEST_F(ObjRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library =
-      std::make_shared<ObjectLibrary>("unique");
-  registry->AddLibrary(library);
-  library->AddFactory<Env>(
-      "unguarded",
-      [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
-         std::string* /* errmsg */) { return Env::Default(); });
-
-  library->AddFactory<Env>(
-      "guarded", [](const std::string& uri, std::unique_ptr<Env>* guard,
-                    std::string* /* errmsg */) {
-        guard->reset(new WrappedEnv(Env::Default(), uri));
-        return guard->get();
-      });
+  registry->AddLibrary("unique", RegisterTestUnguarded, "");
 
   ASSERT_OK(registry->NewUniqueObject<Env>("guarded", &unique));
   ASSERT_NE(unique, nullptr);
@@ -268,6 +245,7 @@ TEST_F(ObjRegistryTest, TestRegistryParents) {
   ASSERT_NOK(child->NewUniqueObject<Env>("cousin", &guard));
   ASSERT_NOK(uncle->NewUniqueObject<Env>("cousin", &guard));
 }
+
 class MyCustomizable : public Customizable {
  public:
   static const char* Type() { return "MyCustomizable"; }
@@ -281,6 +259,77 @@ class MyCustomizable : public Customizable {
   std::string id_;
   std::string name_;
 };
+
+TEST_F(ObjRegistryTest, TestFactoryCount) {
+  std::string msg;
+  auto grand = ObjectRegistry::Default();
+  auto local = ObjectRegistry::NewInstance();
+  std::unordered_set<std::string> grand_types, local_types;
+  std::vector<std::string> grand_names, local_names;
+
+  // Check how many types we have on startup.
+  // Grand should equal local
+  grand->GetFactoryTypes(&grand_types);
+  local->GetFactoryTypes(&local_types);
+  ASSERT_EQ(grand_types, local_types);
+  size_t grand_count = grand->GetFactoryCount(Env::Type());
+  size_t local_count = local->GetFactoryCount(Env::Type());
+
+  ASSERT_EQ(grand_count, local_count);
+  grand->GetFactoryNames(Env::Type(), &grand_names);
+  local->GetFactoryNames(Env::Type(), &local_names);
+  ASSERT_EQ(grand_names.size(), grand_count);
+  ASSERT_EQ(local_names.size(), local_count);
+  ASSERT_EQ(grand_names, local_names);
+
+  // Add an Env to the local registry.
+  // This will add one factory.
+  auto library = local->AddLibrary("local");
+  library->AddFactory<Env>(
+      "A", [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
+              std::string* /* errmsg */) { return nullptr; });
+  ASSERT_EQ(local_count + 1, local->GetFactoryCount(Env::Type()));
+  ASSERT_EQ(grand_count, grand->GetFactoryCount(Env::Type()));
+  local->GetFactoryTypes(&local_types);
+  local->GetFactoryNames(Env::Type(), &local_names);
+  ASSERT_EQ(grand_names.size() + 1, local_names.size());
+  ASSERT_EQ(local_names.size(), local->GetFactoryCount(Env::Type()));
+
+  if (grand_count == 0) {
+    // There were no Env when we started.  Should have one more type
+    // than previously
+    ASSERT_NE(grand_types, local_types);
+    ASSERT_EQ(grand_types.size() + 1, local_types.size());
+  } else {
+    // There was an Env type when we started.  The types should match
+    ASSERT_EQ(grand_types, local_types);
+  }
+
+  // Add a MyCustomizable to the registry.  This should be a new type
+  library->AddFactory<MyCustomizable>(
+      "MY", [](const std::string& /*uri*/,
+               std::unique_ptr<MyCustomizable>* /*guard */,
+               std::string* /* errmsg */) { return nullptr; });
+  ASSERT_EQ(local_count + 1, local->GetFactoryCount(Env::Type()));
+  ASSERT_EQ(grand_count, grand->GetFactoryCount(Env::Type()));
+  ASSERT_EQ(0U, grand->GetFactoryCount(MyCustomizable::Type()));
+  ASSERT_EQ(1U, local->GetFactoryCount(MyCustomizable::Type()));
+
+  local->GetFactoryNames(MyCustomizable::Type(), &local_names);
+  ASSERT_EQ(1U, local_names.size());
+  ASSERT_EQ(local_names[0], "MY");
+
+  local->GetFactoryTypes(&local_types);
+  ASSERT_EQ(grand_count == 0 ? 2 : grand_types.size() + 1, local_types.size());
+
+  // Add the same name again.  We should now have 2 factories.
+  library->AddFactory<MyCustomizable>(
+      "MY", [](const std::string& /*uri*/,
+               std::unique_ptr<MyCustomizable>* /*guard */,
+               std::string* /* errmsg */) { return nullptr; });
+  local->GetFactoryNames(MyCustomizable::Type(), &local_names);
+  ASSERT_EQ(2U, local_names.size());
+}
 
 TEST_F(ObjRegistryTest, TestManagedObjects) {
   auto registry = ObjectRegistry::NewInstance();
@@ -493,6 +542,18 @@ TEST_F(ObjRegistryTest, TestGetOrCreateManagedObject) {
   ASSERT_EQ(2, obj.use_count());
 }
 
+TEST_F(ObjRegistryTest, RegisterPlugin) {
+  std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
+  std::unique_ptr<Env> guard;
+  Env* env = nullptr;
+
+  ASSERT_NOK(registry->NewObject<Env>("unguarded", &env, &guard));
+  ASSERT_EQ(registry->RegisterPlugin("Missing", nullptr), -1);
+  ASSERT_EQ(registry->RegisterPlugin("", RegisterTestUnguarded), -1);
+  ASSERT_GT(registry->RegisterPlugin("Valid", RegisterTestUnguarded), 0);
+  ASSERT_OK(registry->NewObject<Env>("unguarded", &env, &guard));
+  ASSERT_NE(env, nullptr);
+}
 class PatternEntryTest : public testing::Test {};
 
 TEST_F(PatternEntryTest, TestSimpleEntry) {

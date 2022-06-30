@@ -15,6 +15,7 @@
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/utilities/transaction.h"
 #include "util/autovector.h"
+#include "util/hash_containers.h"
 #include "util/hash_map.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/lock/lock_manager.h"
@@ -172,7 +173,7 @@ class PointLockManager : public LockManager {
   InstrumentedMutex lock_map_mutex_;
 
   // Map of ColumnFamilyId to locked key info
-  using LockMaps = std::unordered_map<uint32_t, std::shared_ptr<LockMap>>;
+  using LockMaps = UnorderedMap<uint32_t, std::shared_ptr<LockMap>>;
   LockMaps lock_maps_;
 
   // Thread-local cache of entries in lock_maps_.  This is an optimization

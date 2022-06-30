@@ -56,7 +56,7 @@ class DeleteFileTest : public DBTestBase {
     options.sync = false;
     ReadOptions roptions;
     for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = ToString(i);
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));

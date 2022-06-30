@@ -76,6 +76,9 @@ class TestFSWritableFile : public FSWritableFile {
                          IODebugContext* dbg) override;
   virtual IOStatus Flush(const IOOptions&, IODebugContext*) override;
   virtual IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
+  virtual IOStatus RangeSync(uint64_t /*offset*/, uint64_t /*nbytes*/,
+                             const IOOptions& options,
+                             IODebugContext* dbg) override;
   virtual bool IsSyncThreadSafe() const override { return true; }
   virtual IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                                     const IOOptions& options,

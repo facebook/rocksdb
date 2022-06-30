@@ -436,10 +436,10 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
   std::vector<std::vector<ColumnFamilyHandle *>> vec_handles;
 
   for (int d = 0; d < kNumDBs; ++d) {
-    ASSERT_OK(DestroyDB(dbname_ + ToString(d), options));
+    ASSERT_OK(DestroyDB(dbname_ + std::to_string(d), options));
     DB* db;
     std::vector<ColumnFamilyHandle*> handles;
-    ASSERT_OK(DB::Open(options, dbname_ + ToString(d), &db));
+    ASSERT_OK(DB::Open(options, dbname_ + std::to_string(d), &db));
     for (size_t c = 0; c < cf_names.size(); ++c) {
       ColumnFamilyHandle* handle;
       ASSERT_OK(db->CreateColumnFamily(cf_opts, cf_names[c], &handle));
@@ -527,7 +527,8 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   // keep writing until writes are forced to stop.
   for (int i = 0; static_cast<int>(cf_meta.file_count) < kSlowdownTrigger * 10;
        ++i) {
-    ASSERT_OK(Put(1, ToString(i), std::string(10000, 'x'), WriteOptions()));
+    ASSERT_OK(
+        Put(1, std::to_string(i), std::string(10000, 'x'), WriteOptions()));
     FlushOptions fo;
     fo.allow_write_stall = true;
     ASSERT_OK(db_->Flush(fo, handles_[1]));

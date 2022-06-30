@@ -509,13 +509,13 @@ class TestMemLogger : public Logger {
       char* p = base;
       char* limit = base + bufsize;
 
-      struct timeval now_tv;
-      gettimeofday(&now_tv, nullptr);
+      port::TimeVal now_tv;
+      port::GetTimeOfDay(&now_tv, nullptr);
       const time_t seconds = now_tv.tv_sec;
       struct tm t;
       memset(&t, 0, sizeof(t));
       struct tm* ret __attribute__((__unused__));
-      ret = localtime_r(&seconds, &t);
+      ret = port::LocalTimeR(&seconds, &t);
       assert(ret);
       p += snprintf(p, limit - p, "%04d/%02d/%02d-%02d:%02d:%02d.%06d ",
                     t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour,

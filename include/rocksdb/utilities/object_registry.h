@@ -13,6 +13,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "rocksdb/status.h"
@@ -217,6 +218,18 @@ class ObjectLibrary {
   // @param num_types returns how many unique types are registered.
   size_t GetFactoryCount(size_t* num_types) const;
 
+  // Returns the number of factories registered for this library
+  // for the input type.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(const std::string& type) const;
+
+  // Returns the registered factory names for the input type
+  // names is updated to include the names for the type
+  void GetFactoryNames(const std::string& type,
+                       std::vector<std::string>* names) const;
+
+  void GetFactoryTypes(std::unordered_set<std::string>* types) const;
+
   void Dump(Logger* logger) const;
 
   // Registers the factory with the library for the name.
@@ -280,9 +293,7 @@ class ObjectRegistry {
   static std::shared_ptr<ObjectRegistry> Default();
   explicit ObjectRegistry(const std::shared_ptr<ObjectRegistry>& parent)
       : parent_(parent) {}
-  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library) {
-    libraries_.push_back(library);
-  }
+  explicit ObjectRegistry(const std::shared_ptr<ObjectLibrary>& library);
 
   std::shared_ptr<ObjectLibrary> AddLibrary(const std::string& id) {
     auto library = std::make_shared<ObjectLibrary>(id);
@@ -499,8 +510,23 @@ class ObjectRegistry {
     }
   }
 
+  // Returns the number of factories registered for this library
+  // for the input type.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(const std::string& type) const;
+
+  // Returns the names of registered factories for the input type.
+  // names is updated to include the names for the type
+  void GetFactoryNames(const std::string& type,
+                       std::vector<std::string>* names) const;
+
+  void GetFactoryTypes(std::unordered_set<std::string>* types) const;
+
   // Dump the contents of the registry to the logger
   void Dump(Logger* logger) const;
+
+  // Invokes the input function to retrieve the properties for this plugin.
+  int RegisterPlugin(const std::string& name, const RegistrarFunc& func);
 
  private:
   static std::string ToManagedObjectKey(const std::string& type,
@@ -548,6 +574,8 @@ class ObjectRegistry {
   // The libraries are searched in reverse order (back to front) when
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::vector<std::string> plugins_;
+  static std::unordered_map<std::string, RegistrarFunc> builtins_;
   std::map<std::string, std::weak_ptr<Customizable>> managed_objects_;
   std::shared_ptr<ObjectRegistry> parent_;
   mutable std::mutex objects_mutex_;  // Mutex for managed objects

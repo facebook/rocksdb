@@ -142,7 +142,7 @@ class WritableFileWriter {
   size_t max_buffer_size_;
   // Actually written data size can be used for truncate
   // not counting padding data
-  uint64_t filesize_;
+  std::atomic<uint64_t> filesize_;
 #ifndef ROCKSDB_LITE
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
@@ -255,7 +255,9 @@ class WritableFileWriter {
   // returns NotSupported status.
   IOStatus SyncWithoutFlush(bool use_fsync);
 
-  uint64_t GetFileSize() const { return filesize_; }
+  uint64_t GetFileSize() const {
+    return filesize_.load(std::memory_order_acquire);
+  }
 
   IOStatus InvalidateCache(size_t offset, size_t length) {
     return writable_file_->InvalidateCache(offset, length);
@@ -277,6 +279,7 @@ class WritableFileWriter {
   const char* GetFileChecksumFuncName() const;
 
  private:
+  // Decide the Rate Limiter priority.
   static Env::IOPriority DecideRateLimiterPriority(
       Env::IOPriority writable_file_io_priority,
       Env::IOPriority op_rate_limiter_priority);

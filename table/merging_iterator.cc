@@ -112,6 +112,14 @@ class MergingIterator : public InternalIterator {
       }
 
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
+
+      // child.status() is set to Status::TryAgain indicating asynchronous
+      // request for retrieval of data blocks has been submitted. So it should
+      // return at this point and Seek should be called again to retrieve the
+      // requested block and add the child to min heap.
+      if (child.status() == Status::TryAgain()) {
+        continue;
+      }
       {
         // Strictly, we timed slightly more than min heap operation,
         // but these operations are very cheap.
@@ -119,6 +127,18 @@ class MergingIterator : public InternalIterator {
         AddToMinHeapOrCheckStatus(&child);
       }
     }
+
+    for (auto& child : children_) {
+      if (child.status() == Status::TryAgain()) {
+        child.Seek(target);
+        {
+          PERF_TIMER_GUARD(seek_min_heap_time);
+          AddToMinHeapOrCheckStatus(&child);
+        }
+        PERF_COUNTER_ADD(number_async_seek, 1);
+      }
+    }
+
     direction_ = kForward;
     {
       PERF_TIMER_GUARD(seek_min_heap_time);
@@ -359,6 +379,13 @@ void MergingIterator::SwitchToForward() {
   for (auto& child : children_) {
     if (&child != current_) {
       child.Seek(target);
+      // child.status() is set to Status::TryAgain indicating asynchronous
+      // request for retrieval of data blocks has been submitted. So it should
+      // return at this point and Seek should be called again to retrieve the
+      // requested block and add the child to min heap.
+      if (child.status() == Status::TryAgain()) {
+        continue;
+      }
       if (child.Valid() && comparator_->Equal(target, child.key())) {
         assert(child.status().ok());
         child.Next();
@@ -366,6 +393,18 @@ void MergingIterator::SwitchToForward() {
     }
     AddToMinHeapOrCheckStatus(&child);
   }
+
+  for (auto& child : children_) {
+    if (child.status() == Status::TryAgain()) {
+      child.Seek(target);
+      if (child.Valid() && comparator_->Equal(target, child.key())) {
+        assert(child.status().ok());
+        child.Next();
+      }
+      AddToMinHeapOrCheckStatus(&child);
+    }
+  }
+
   direction_ = kForward;
 }
 

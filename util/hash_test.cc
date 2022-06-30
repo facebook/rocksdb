@@ -565,6 +565,7 @@ size_t FastRange64(uint64_t hash, size_t range) {
 // Tests for math.h / math128.h (not worth a separate test binary)
 using ROCKSDB_NAMESPACE::BitParity;
 using ROCKSDB_NAMESPACE::BitsSetToOne;
+using ROCKSDB_NAMESPACE::ConstexprFloorLog2;
 using ROCKSDB_NAMESPACE::CountTrailingZeroBits;
 using ROCKSDB_NAMESPACE::DecodeFixed128;
 using ROCKSDB_NAMESPACE::DecodeFixedGeneric;
@@ -597,10 +598,13 @@ static void test_BitOps() {
     // FloorLog2
     if (v > 0) {
       EXPECT_EQ(FloorLog2(v), i);
+      EXPECT_EQ(ConstexprFloorLog2(v), i);
     }
     if (vm1 > 0) {
       EXPECT_EQ(FloorLog2(vm1), i - 1);
+      EXPECT_EQ(ConstexprFloorLog2(vm1), i - 1);
       EXPECT_EQ(FloorLog2(everyOtherBit & vm1), (i - 1) & ~1);
+      EXPECT_EQ(ConstexprFloorLog2(everyOtherBit & vm1), (i - 1) & ~1);
     }
 
     // CountTrailingZeroBits
@@ -638,6 +642,11 @@ static void test_BitOps() {
 #endif
     vm1 = (vm1 << 1) | 1;
   }
+
+  EXPECT_EQ(ConstexprFloorLog2(T{1}), 0);
+  EXPECT_EQ(ConstexprFloorLog2(T{2}), 1);
+  EXPECT_EQ(ConstexprFloorLog2(T{3}), 1);
+  EXPECT_EQ(ConstexprFloorLog2(T{42}), 5);
 }
 
 TEST(MathTest, BitOps) {
