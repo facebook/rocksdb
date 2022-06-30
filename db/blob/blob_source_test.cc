@@ -561,6 +561,139 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   }
 }
 
+TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
+  options_.cf_paths.emplace_back(
+      test::PerThreadDBPath(env_, "BlobSourceTest_MultiGetBlobsFromMultiFiles"),
+      0);
+
+  options_.statistics = CreateDBStatistics();
+  Statistics* statistics = options_.statistics.get();
+  assert(statistics);
+
+  DestroyAndReopen(options_);
+
+  ImmutableOptions immutable_options(options_);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t blob_files = 2;
+  constexpr size_t num_blobs = 32;
+
+  std::vector<std::string> key_strs;
+  std::vector<std::string> blob_strs;
+
+  for (size_t i = 0; i < num_blobs; ++i) {
+    key_strs.push_back("key" + std::to_string(i));
+    blob_strs.push_back("blob" + std::to_string(i));
+  }
+
+  std::vector<Slice> keys;
+  std::vector<Slice> blobs;
+
+  uint64_t file_size = BlobLogHeader::kSize;
+  uint64_t blob_value_bytes = 0;
+  for (size_t i = 0; i < num_blobs; ++i) {
+    keys.push_back({key_strs[i]});
+    blobs.push_back({blob_strs[i]});
+    blob_value_bytes += blobs[i].size();
+    file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
+  }
+  file_size += BlobLogFooter::kSize;
+  const uint64_t blob_records_bytes =
+      file_size - BlobLogHeader::kSize - BlobLogFooter::kSize;
+
+  std::vector<uint64_t> blob_offsets(keys.size());
+  std::vector<uint64_t> blob_sizes(keys.size());
+
+  {
+    // Write key/blob pairs to multiple blob files.
+    for (size_t i = 0; i < blob_files; ++i) {
+      const uint64_t file_number = i + 1;
+      WriteBlobFile(immutable_options, column_family_id, has_ttl,
+                    expiration_range, expiration_range, file_number, keys,
+                    blobs, kNoCompression, blob_offsets, blob_sizes);
+    }
+  }
+
+  constexpr size_t capacity = 10;
+  std::shared_ptr<Cache> backing_cache =
+      NewLRUCache(capacity);  // Blob file cache
+
+  FileOptions file_options;
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      blob_file_read_hist, nullptr /*IOTracer*/));
+
+  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
+                         blob_file_cache.get());
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+
+  uint64_t bytes_read = 0;
+
+  {
+    // MultiGetBlob
+    read_options.fill_cache = true;
+    read_options.read_tier = ReadTier::kReadAllTier;
+
+    autovector<BlobFileReadRequests> blob_reqs;
+    std::array<autovector<BlobReadRequest>, blob_files> blob_reqs_in_file;
+    std::array<PinnableSlice, num_blobs * blob_files> value_buf;
+    std::array<Status, num_blobs * blob_files> statuses_buf;
+
+    for (size_t i = 0; i < blob_files; ++i) {
+      const uint64_t file_number = i + 1;
+      for (size_t j = 0; j < num_blobs; ++j) {
+        blob_reqs_in_file[i].emplace_back(
+            keys[j], blob_offsets[j], blob_sizes[j], kNoCompression,
+            &value_buf[i * num_blobs + j], &statuses_buf[i * num_blobs + j]);
+      }
+      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file[i]);
+    }
+
+    get_perf_context()->Reset();
+    statistics->Reset().PermitUncheckedError();
+
+    blob_source.MultiGetBlob(read_options, blob_reqs, &bytes_read);
+
+    for (size_t i = 0; i < blob_files; ++i) {
+      const uint64_t file_number = i + 1;
+      for (size_t j = 0; j < num_blobs; ++j) {
+        ASSERT_OK(statuses_buf[i * num_blobs + j]);
+        ASSERT_EQ(value_buf[i * num_blobs + j], blobs[j]);
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                                 blob_offsets[j]));
+      }
+    }
+
+    // Retrieved all blobs from 2 blob files twice via MultiGetBlob and
+    // TEST_BlobInCache.
+    ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count,
+              num_blobs * blob_files);
+    ASSERT_EQ((int)get_perf_context()->blob_read_count,
+              num_blobs * blob_files);  // blocking i/o
+    ASSERT_EQ((int)get_perf_context()->blob_read_byte,
+              blob_records_bytes * blob_files);  // blocking i/o
+    ASSERT_GE((int)get_perf_context()->blob_checksum_time, 0);
+    ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
+
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_MISS),
+              num_blobs * blob_files);  // MultiGetBlob
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_HIT),
+              num_blobs * blob_files);  // TEST_BlobInCache
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD),
+              num_blobs * blob_files);  // MultiGetBlob
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ),
+              blob_value_bytes * blob_files);  // TEST_BlobInCache
+    ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE),
+              blob_value_bytes * blob_files);  // MultiGetBlob
+  }
+}
+
 TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(env_, "BlobSourceTest_MultiGetBlobsFromCache"), 0);
@@ -625,7 +758,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
 
   {
-    // MultiGetBlob
+    // MultiGetBlobFromOneFile
     uint64_t bytes_read = 0;
     std::array<Status, num_blobs> statuses_buf;
     std::array<PinnableSlice, num_blobs> value_buf;
@@ -703,7 +836,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                                                blob_offsets[i]));
     }
 
-    // Cache-only MultiGetBlob
+    // Cache-only MultiGetBlobFromOneFile
     read_options.read_tier = ReadTier::kBlockCacheTier;
     get_perf_context()->Reset();
     statistics->Reset().PermitUncheckedError();
@@ -747,7 +880,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   options_.blob_cache->EraseUnRefEntries();
 
   {
-    // Cache-only MultiGetBlob
+    // Cache-only MultiGetBlobFromOneFile
     uint64_t bytes_read = 0;
     read_options.read_tier = ReadTier::kBlockCacheTier;
 
@@ -792,7 +925,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   }
 
   {
-    // MultiGetBlob from non-existing file
+    // MultiGetBlobFromOneFile from non-existing file
     uint64_t bytes_read = 0;
     uint64_t non_existing_file_number = 100;
     read_options.read_tier = ReadTier::kReadAllTier;
