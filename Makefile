@@ -482,14 +482,12 @@ ifeq ($(USE_FOLLY),1)
 		PLATFORM_CXXFLAGS += -isystem $(BOOST_PATH)/include -isystem $(DBL_CONV_PATH)/include -isystem $(GLOG_PATH)/include -isystem $(LIBEVENT_PATH)/include -isystem $(XZ_PATH)/include -isystem $(LIBSODIUM_PATH)/include -isystem $(FOLLY_PATH)/include -isystem $(FMT_PATH)/include
 	endif
 
-	PLATFORM_LDFLAGS += -Wl,-rpath=$(GFLAGS_PATH)/lib -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(LIBEVENT_PATH)/lib -Wl,-rpath=$(LIBSODIUM_PATH)/lib
 	# Add -ldl at the end as gcc resolves a symbol in a library by searching only in libraries specified later
 	# in the command line
-	PLATFORM_LDFLAGS += $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(GLOG_LIB_PATH)/libglog.so $(LIBEVENT_PATH)/lib/libevent.so $(LIBSODIUM_PATH)/lib/libsodium.so $(FOLLY_PATH)/lib/libfolly.a $(FMT_LIB_PATH)/libfmt.a $(GFLAGS_PATH)/lib/libgflags.so.2.2 -ldl
+	PLATFORM_LDFLAGS += $(BOOST_PATH)/lib/libboost_context.a $(BOOST_PATH)/lib/libboost_filesystem.a $(BOOST_PATH)/lib/libboost_atomic.a $(BOOST_PATH)/lib/libboost_program_options.a $(BOOST_PATH)/lib/libboost_regex.a $(BOOST_PATH)/lib/libboost_system.a $(BOOST_PATH)/lib/libboost_thread.a $(DBL_CONV_PATH)/lib/libdouble-conversion.a $(GLOG_LIB_PATH)/libglog.so $(FOLLY_PATH)/lib/libfolly.a $(FMT_LIB_PATH)/libfmt.a $(GFLAGS_PATH)/lib/libgflags.so.2.2 -ldl
+	PLATFORM_LDFLAGS += -Wl,-rpath=$(GFLAGS_PATH)/lib -Wl,-rpath=$(GLOG_LIB_PATH) -Wl,-rpath=$(LIBEVENT_PATH)/lib -Wl,-rpath=$(LIBSODIUM_PATH)/lib -Wl,-rpath=$(LIBEVENT_PATH)/lib
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
-# TODO: fix linking with fbcode compiler config
-	PLATFORM_LDFLAGS += -lglog
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
