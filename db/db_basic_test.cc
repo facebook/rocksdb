@@ -2649,6 +2649,16 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
                               &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
 }
+
+TEST_F(DBBasicTest, ValueTypeString) {
+  KeyVersion key_version;
+  // when adding new type, please also update `value_type_string_map`
+  for (unsigned char i = ValueType::kTypeDeletion; i < ValueType::kTypeMaxValid;
+       i++) {
+    key_version.type = i;
+    ASSERT_TRUE(key_version.GetTypeName() != "Invalid");
+  }
+}
 #endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
