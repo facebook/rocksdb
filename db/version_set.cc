@@ -1944,8 +1944,9 @@ void Version::MultiGetBlob(
     }
   }
 
-  blob_source_->MultiGetBlob(read_options, blob_reqs,
-                             /*bytes_read=*/nullptr);
+  if (blob_reqs.size() > 0) {
+    blob_source_->MultiGetBlob(read_options, blob_reqs, /*bytes_read=*/nullptr);
+  }
 
   for (auto& ctx : blob_ctxs) {
     BlobReadContexts& blobs_in_file = ctx.second;
