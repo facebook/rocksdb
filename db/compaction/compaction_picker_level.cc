@@ -497,6 +497,7 @@ bool LevelCompactionBuilder::TryPickL0TrivialMove() {
     is_l0_trivial_move_ = true;
     return true;
   }
+  return false;
 }
 
 bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
@@ -521,6 +522,9 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
          start_level_inputs_.size() < kMaxMultiTrivialMove;
          i++) {
       FileMetaData* next_file = level_files[i];
+      if (next_file->being_compacted) {
+        break;
+      }
       vstorage_->GetOverlappingInputs(output_level_, &(initial_file->smallest),
                                       &(next_file->largest),
                                       &output_level_inputs.files);
