@@ -1907,114 +1907,62 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
 void Version::MultiGetBlob(
     const ReadOptions& read_options, MultiGetRange& range,
-    std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs) {
-  if (read_options.read_tier == kBlockCacheTier) {
-    Status s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
-    for (const auto& elem : blob_rqs) {
-      for (const auto& blob_rq : elem.second) {
-        const KeyContext& key_context = blob_rq.second;
-        assert(key_context.s);
-        assert(key_context.s->ok());
-        *(key_context.s) = s;
-        assert(key_context.get_context);
-        auto& get_context = *(key_context.get_context);
-        get_context.MarkKeyMayExist();
-      }
-    }
-    return;
-  }
+    std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs) {
+  assert(!blob_ctxs.empty());
 
-  assert(!blob_rqs.empty());
-  Status status;
+  autovector<BlobFileReadRequests> blob_reqs;
 
-  for (auto& elem : blob_rqs) {
-    const uint64_t blob_file_number = elem.first;
+  for (auto& ctx : blob_ctxs) {
+    const auto file_number = ctx.first;
+    const auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
 
-    if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
-      auto& blobs_in_file = elem.second;
-      for (const auto& blob : blobs_in_file) {
-        const KeyContext& key_context = blob.second;
-        *(key_context.s) = Status::Corruption("Invalid blob file number");
-      }
-      continue;
-    }
-
-    CacheHandleGuard<BlobFileReader> blob_file_reader;
-    assert(blob_source_);
-    status =
-        blob_source_->GetBlobFileReader(blob_file_number, &blob_file_reader);
-    assert(!status.ok() || blob_file_reader.GetValue());
-
-    auto& blobs_in_file = elem.second;
-    if (!status.ok()) {
-      for (const auto& blob : blobs_in_file) {
-        const KeyContext& key_context = blob.second;
-        *(key_context.s) = status;
-      }
-      continue;
-    }
-
-    assert(blob_file_reader.GetValue());
-    const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
-    const CompressionType compression =
-        blob_file_reader.GetValue()->GetCompressionType();
-
-    // sort blobs_in_file by file offset.
-    std::sort(
-        blobs_in_file.begin(), blobs_in_file.end(),
-        [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) -> bool {
-          assert(lhs.first.file_number() == rhs.first.file_number());
-          return lhs.first.offset() < rhs.first.offset();
-        });
-
-    autovector<std::reference_wrapper<const KeyContext>> blob_read_key_contexts;
-    autovector<std::reference_wrapper<const Slice>> user_keys;
-    autovector<uint64_t> offsets;
-    autovector<uint64_t> value_sizes;
-    autovector<Status*> statuses;
-    autovector<PinnableSlice*> values;
+    autovector<BlobReadRequest> blob_reqs_in_file;
+    BlobReadContexts& blobs_in_file = ctx.second;
     for (const auto& blob : blobs_in_file) {
-      const auto& blob_index = blob.first;
+      const BlobIndex& blob_index = blob.first;
       const KeyContext& key_context = blob.second;
+
+      if (!blob_file_meta) {
+        *key_context.s = Status::Corruption("Invalid blob file number");
+        continue;
+      }
+
       if (blob_index.HasTTL() || blob_index.IsInlined()) {
-        *(key_context.s) =
+        *key_context.s =
             Status::Corruption("Unexpected TTL/inlined blob index");
         continue;
       }
-      const uint64_t key_size = key_context.ukey_with_ts.size();
-      const uint64_t offset = blob_index.offset();
-      const uint64_t value_size = blob_index.size();
-      if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
-        *(key_context.s) = Status::Corruption("Invalid blob offset");
-        continue;
-      }
-      if (blob_index.compression() != compression) {
-        *(key_context.s) =
-            Status::Corruption("Compression type mismatch when reading a blob");
-        continue;
-      }
-      blob_read_key_contexts.emplace_back(std::cref(key_context));
-      user_keys.emplace_back(std::cref(key_context.ukey_with_ts));
-      offsets.push_back(blob_index.offset());
-      value_sizes.push_back(blob_index.size());
-      statuses.push_back(key_context.s);
-      values.push_back(key_context.value);
+
+      key_context.value->Reset();
+      blob_reqs_in_file.emplace_back(
+          key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
+          blob_index.compression(), key_context.value, key_context.s);
     }
-    blob_file_reader.GetValue()->MultiGetBlob(read_options, user_keys, offsets,
-                                              value_sizes, statuses, values,
-                                              /*bytes_read=*/nullptr);
-    size_t num = blob_read_key_contexts.size();
-    assert(num == user_keys.size());
-    assert(num == offsets.size());
-    assert(num == value_sizes.size());
-    assert(num == statuses.size());
-    assert(num == values.size());
-    for (size_t i = 0; i < num; ++i) {
-      if (statuses[i]->ok()) {
-        range.AddValueSize(blob_read_key_contexts[i].get().value->size());
+    if (blob_reqs_in_file.size() > 0) {
+      const auto file_size = blob_file_meta->GetBlobFileSize();
+      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file);
+    }
+  }
+
+  if (blob_reqs.size() > 0) {
+    blob_source_->MultiGetBlob(read_options, blob_reqs, /*bytes_read=*/nullptr);
+  }
+
+  for (auto& ctx : blob_ctxs) {
+    BlobReadContexts& blobs_in_file = ctx.second;
+    for (const auto& blob : blobs_in_file) {
+      const KeyContext& key_context = blob.second;
+      if (key_context.s->ok()) {
+        range.AddValueSize(key_context.value->size());
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
-          *(blob_read_key_contexts[i].get().s) = Status::Aborted();
+          *key_context.s = Status::Aborted();
         }
+      } else if (key_context.s->IsIncomplete()) {
+        // read_options.read_tier == kBlockCacheTier
+        // Cannot read blob(s): no disk I/O allowed
+        assert(key_context.get_context);
+        auto& get_context = *(key_context.get_context);
+        get_context.MarkKeyMayExist();
       }
     }
   }
@@ -2253,7 +2201,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
   // blob_file => [[blob_idx, it], ...]
-  std::unordered_map<uint64_t, BlobReadRequests> blob_rqs;
+  std::unordered_map<uint64_t, BlobReadContexts> blob_ctxs;
   int prev_level = -1;
 
   while (!fp.IsSearchEnded()) {
@@ -2270,7 +2218,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         // Call MultiGetFromSST for looking up a single file
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
                             fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
-                            blob_rqs, num_filter_read, num_index_read,
+                            blob_ctxs, num_filter_read, num_index_read,
                             num_sst_read);
         if (fp.GetHitFileLevel() == 0) {
           dump_stats_for_l0_file = true;
@@ -2285,7 +2233,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       while (f != nullptr) {
         mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
             read_options, fp.CurrentFileRange(), fp.GetHitFileLevel(),
-            fp.IsHitFileLastInLevel(), f, blob_rqs, num_filter_read,
+            fp.IsHitFileLastInLevel(), f, blob_ctxs, num_filter_read,
             num_index_read, num_sst_read));
         if (fp.KeyMaySpanNextFile()) {
           break;
@@ -2358,8 +2306,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                       num_level_read);
   }
 
-  if (s.ok() && !blob_rqs.empty()) {
-    MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
+  if (s.ok() && !blob_ctxs.empty()) {
+    MultiGetBlob(read_options, keys_with_blobs_range, blob_ctxs);
   }
 
   // Process any left over keys

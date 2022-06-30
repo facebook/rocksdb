@@ -860,11 +860,11 @@ class Version {
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read) const;
 
-  using BlobReadRequest =
+  using BlobReadContext =
       std::pair<BlobIndex, std::reference_wrapper<const KeyContext>>;
-  using BlobReadRequests = std::vector<BlobReadRequest>;
+  using BlobReadContexts = std::vector<BlobReadContext>;
   void MultiGetBlob(const ReadOptions& read_options, MultiGetRange& range,
-                    std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs);
+                    std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs);
 
   // Loads some stats information from files (if update_stats is set) and
   // populates derived data structures. Call without mutex held. It needs to be
@@ -989,7 +989,7 @@ class Version {
       /* ret_type */ Status, /* func_name */ MultiGetFromSST,
       const ReadOptions& read_options, MultiGetRange file_range,
       int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
-      std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs,
+      std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
       uint64_t& num_filter_read, uint64_t& num_index_read,
       uint64_t& num_sst_read);
 
