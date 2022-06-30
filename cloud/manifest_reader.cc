@@ -71,8 +71,11 @@ Status ManifestReader::GetLiveFilesAndCloudManifest(
   int count = 0;
 
 
-  // keep track of live files for each CF
-  std::unordered_map<uint32_t, std::unordered_set<uint64_t>> cf_live_files;
+  // keep track of each CF's live files on each level
+  std::unordered_map<uint32_t,                // CF id
+                     std::unordered_map<int,  // level
+                                        std::unordered_set<uint64_t>>>
+      cf_live_files;
 
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
     VersionEdit edit;
@@ -86,31 +89,35 @@ Status ManifestReader::GetLiveFilesAndCloudManifest(
     std::vector<std::pair<int, FileMetaData>> new_files = edit.GetNewFiles();
     for (auto& one : new_files) {
       uint64_t num = one.second.fd.GetNumber();
-      cf_live_files[edit.GetColumnFamily()].insert(num);
-      list->insert(num);
+      cf_live_files[edit.GetColumnFamily()][one.first].insert(num);
     }
     // delete the files that are removed by this transaction
     std::set<std::pair<int, uint64_t>> deleted_files = edit.GetDeletedFiles();
     for (auto& one : deleted_files) {
+      int level = one.first;
       uint64_t num = one.second;
       // Deleted files should belong to some CF
       auto it = cf_live_files.find(edit.GetColumnFamily());
       if ((it == cf_live_files.end()) ||
-          (it->second.count(num) == 0)) {
+          (it->second.count(level) == 0) ||
+          (it->second[level].count(num) == 0)) {
         return Status::Corruption(
             "Corrupted Manifest file with unrecognized deleted file: " +
-            std::to_string(num));
+            std::to_string(level) + "," + std::to_string(num));
       }
-      it->second.erase(num);
-      list->erase(num);
+      it->second[level].erase(num);
     }
 
     // Removing the files from dropped CF, since we don't mark the files as
     // deleted in Manifest when a CF is dropped,
     if (edit.IsColumnFamilyDrop()) {
-      for (auto filenum: cf_live_files[edit.GetColumnFamily()]) {
-        list->erase(filenum);
-      }
+      cf_live_files.erase(edit.GetColumnFamily());
+    }
+  }
+
+  for (auto& [cf_id, live_files] : cf_live_files) {
+    for (auto& [level, level_live_files]: live_files) {
+      list->insert(level_live_files.begin(), level_live_files.end());
     }
   }
 

@@ -446,6 +446,40 @@ TEST_F(CloudTest, LiveFilesOfDroppedCFTest) {
   CloseDB(&handles);
 }
 
+// Verifies that when we move files across levels, the files are still listed as
+// live files
+TEST_F(CloudTest, LiveFilesAfterChangingLevelTest) {
+  options_.num_levels = 3;
+  OpenDB();
+  ASSERT_OK(db_->Put(WriteOptions(), "a", "1"));
+  ASSERT_OK(db_->Put(WriteOptions(), "b", "2"));
+  ASSERT_OK(db_->Flush({}));
+  auto db_impl = GetDBImpl();
+
+  ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
+
+  std::vector<std::string> tablefiles_before_move;
+  std::string manifest;
+  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
+                                    aenv_->GetSrcObjectPath(),
+                                    &tablefiles_before_move, &manifest));
+  EXPECT_EQ(tablefiles_before_move.size(), 1);
+
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 2;
+  // Move the sst files to another level by compacting entire range
+  ASSERT_OK(db_->CompactRange(cro, nullptr /* begin */, nullptr /* end */));
+
+  ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
+
+  std::vector<std::string> tablefiles_after_move;
+  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
+                                    aenv_->GetSrcObjectPath(),
+                                    &tablefiles_after_move, &manifest));
+  EXPECT_EQ(tablefiles_before_move, tablefiles_after_move);
+}
+
 TEST_F(CloudTest, GetChildrenTest) {
   // Create some objects in S3
   OpenDB();
