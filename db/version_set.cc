@@ -2657,6 +2657,16 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
+  double total_downcompact_bytes = 0.0;
+  // Historically, score is defined as actual bytes in a level divided by
+  // the level's target size, and 1.0 is the threshold for triggering
+  // compaction. Higher score means higher prioritization.
+  // Now we keep the compaction triggering condition, but consider more
+  // factors for priorization, while still keeping the 1.0 threshold.
+  // In order to provide flexibility for reducing score while still
+  // maintaining it to be over 1.0, we scale the original score by 10x
+  // if it is larger than 1.0.
+  const double kScoreScale = 10.0;
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -2674,6 +2684,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
       for (auto* f : files_[level]) {
+        total_downcompact_bytes += static_cast<double>(f->fd.GetFileSize());
         if (!f->being_compacted) {
           total_size += f->compensated_file_size;
           num_sorted_runs++;
@@ -2737,18 +2748,40 @@ void VersionStorageInfo::ComputeCompactionScore(
           }
           score =
               std::max(score, static_cast<double>(total_size) / l0_target_size);
+          if (immutable_options.level_compaction_dynamic_level_bytes &&
+              score > 1.0) {
+            score *= kScoreScale;
+          }
         }
       }
     } else {
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
+      uint64_t level_total_bytes = 0;
       for (auto f : files_[level]) {
+        level_total_bytes += f->fd.GetFileSize();
         if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
-      score = static_cast<double>(level_bytes_no_compacting) /
-              MaxBytesForLevel(level);
+      if (!immutable_options.level_compaction_dynamic_level_bytes ||
+          level_bytes_no_compacting < MaxBytesForLevel(level)) {
+        score = static_cast<double>(level_bytes_no_compacting) /
+                MaxBytesForLevel(level);
+      } else {
+        // If there are a large mount of data being compacted down to the
+        // current level soon, we would de-prioritize compaction from
+        // a level where the incoming data would be a large ratio. We do
+        // it by dividing level size not by target level size, but
+        // the target size and the incoming compaction bytes.
+        score = static_cast<double>(level_bytes_no_compacting) /
+                (MaxBytesForLevel(level) + total_downcompact_bytes) *
+                kScoreScale;
+      }
+      if (level_total_bytes > MaxBytesForLevel(level)) {
+        total_downcompact_bytes +=
+            static_cast<double>(level_total_bytes - MaxBytesForLevel(level));
+      }
     }
     compaction_level_[level] = level;
     compaction_score_[level] = score;
@@ -3775,13 +3808,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
       // No compaction from L1+ needs to be scheduled.
       base_level_ = num_levels_ - 1;
     } else {
-      uint64_t l0_size = 0;
-      for (const auto& f : files_[0]) {
-        l0_size += f->fd.GetFileSize();
-      }
-
-      uint64_t base_bytes_max =
-          std::max(options.max_bytes_for_level_base, l0_size);
+      uint64_t base_bytes_max = options.max_bytes_for_level_base;
       uint64_t base_bytes_min = static_cast<uint64_t>(
           base_bytes_max / options.max_bytes_for_level_multiplier);
 
@@ -3823,26 +3850,6 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
 
       level_multiplier_ = options.max_bytes_for_level_multiplier;
       assert(base_level_size > 0);
-      if (l0_size > base_level_size &&
-          (l0_size > options.max_bytes_for_level_base ||
-           static_cast<int>(files_[0].size() / 2) >=
-               options.level0_file_num_compaction_trigger)) {
-        // We adjust the base level according to actual L0 size, and adjust
-        // the level multiplier accordingly, when:
-        //   1. the L0 size is larger than level size base, or
-        //   2. number of L0 files reaches twice the L0->L1 compaction trigger
-        // We don't do this otherwise to keep the LSM-tree structure stable
-        // unless the L0 compaction is backlogged.
-        base_level_size = l0_size;
-        if (base_level_ == num_levels_ - 1) {
-          level_multiplier_ = 1.0;
-        } else {
-          level_multiplier_ = std::pow(
-              static_cast<double>(max_level_size) /
-                  static_cast<double>(base_level_size),
-              1.0 / static_cast<double>(num_levels_ - base_level_ - 1));
-        }
-      }
 
       uint64_t level_size = base_level_size;
       for (int i = base_level_; i < num_levels_; i++) {
