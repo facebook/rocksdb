@@ -627,8 +627,23 @@ TEST_F(DBBlobBasicTest, MultiGetWithDirectIO) {
 
 TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   Options options = GetDefaultOptions();
-  options.enable_blob_files = true;
+
+  LRUCacheOptions co;
+  co.capacity = 2048;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
   options.min_blob_size = 0;
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
 
   Reopen(options);
 
@@ -654,14 +669,64 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromMultipleFiles) {
   for (size_t i = 0; i < keys.size(); ++i) {
     keys[i] = key_strs[i];
   }
-  std::array<PinnableSlice, kNumKeys> values;
-  std::array<Status, kNumKeys> statuses;
-  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), kNumKeys, &keys[0],
-                &values[0], &statuses[0]);
 
-  for (size_t i = 0; i < kNumKeys; ++i) {
-    ASSERT_OK(statuses[i]);
-    ASSERT_EQ(value_strs[i], values[i]);
+  ReadOptions read_options;
+  read_options.read_tier = kReadAllTier;
+  read_options.fill_cache = false;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(value_strs[i], values[i]);
+    }
+  }
+
+  read_options.read_tier = kBlockCacheTier;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_TRUE(statuses[i].IsIncomplete());
+      ASSERT_TRUE(values[i].empty());
+    }
+  }
+
+  read_options.read_tier = kReadAllTier;
+  read_options.fill_cache = true;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(value_strs[i], values[i]);
+    }
+  }
+
+  read_options.read_tier = kBlockCacheTier;
+
+  {
+    std::array<PinnableSlice, kNumKeys> values;
+    std::array<Status, kNumKeys> statuses;
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), kNumKeys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    for (size_t i = 0; i < kNumKeys; ++i) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(value_strs[i], values[i]);
+    }
   }
 }
 
