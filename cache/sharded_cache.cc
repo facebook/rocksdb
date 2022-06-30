@@ -228,23 +228,16 @@ int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
 uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
 
 inline hash_t ShardedCache::HashSlice(const Slice& s) const {
-  uint64_t in_high64 = static_cast<uint64_t>(*s.data());
-  uint64_t in_low64 = static_cast<uint64_t>(*(s.data() + 8));
+  uint64_t in_high64 = *reinterpret_cast<const uint64_t*>(s.data());
+  uint64_t in_low64 = *reinterpret_cast<const uint64_t*>(s.data() + 8);
   uint64_t out_high64, out_low64;
   BijectiveHash2x64(in_high64, in_low64, &out_high64, &out_low64);
   hash_t hash;
 
-  // hash[0] = out_high64 >> 32;
-  // hash[1] = out_high64 & ((uint64_t{1} << 32) - 1);
-  // hash[2] = out_low64 >> 32;
-  // hash[3] = out_low64 & ((uint64_t{1} << 32) - 1);
-
-  hash[0] = Lower32of64(GetSliceNPHash64(s));
-  hash[1] = Hash(s.data(), s.size(), 0xbc9f1d34);
-  hash[2] = Hash(s.data(), s.size(), 0x7a2bb9d5);
-  hash[3] = 0;
-
-// printf("%u %u %u %u\n", hash[0], hash[1], hash[2], hash[3]);
+  hash[0] = out_high64 >> 32;
+  hash[1] = out_high64 & ((uint64_t{1} << 32) - 1);
+  hash[2] = out_low64 >> 32;
+  hash[3] = out_low64 & ((uint64_t{1} << 32) - 1);
 
   return hash;
 }
