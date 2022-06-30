@@ -1273,6 +1273,12 @@ Status DBImpl::GetPersistedReplicationSequence(std::string* out) {
   return Status::OK();
 }
 
+Status DBImpl::GetManifestUpdateSequence(uint64_t* out) {
+  InstrumentedMutexLock l(&mutex_);
+  *out = versions_->GetManifestUpdateSequence();
+  return Status::OK();
+}
+
 Status DBImpl::SetOptions(
     ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {

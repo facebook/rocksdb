@@ -474,6 +474,13 @@ TEST_F(ReplicationTest, Simple) {
   EXPECT_EQ(catchUpFollower(), 2);
   ASSERT_OK(follower->Get(ReadOptions(), "key7", &val));
   EXPECT_EQ(val, "val7");
+
+  uint64_t followerManifestUpdateSeq;
+  uint64_t leaderManifestUpdateSeq;
+  follower->GetManifestUpdateSequence(&followerManifestUpdateSeq);
+  leader->GetManifestUpdateSequence(&leaderManifestUpdateSeq);
+  EXPECT_EQ(followerManifestUpdateSeq, 14);
+  EXPECT_EQ(leaderManifestUpdateSeq, 14);
 }
 
 TEST_F(ReplicationTest, MultiColumnFamily) {

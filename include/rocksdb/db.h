@@ -1244,6 +1244,8 @@ class DB {
   // manifest writes mantain their own versioning and the persisted ones will be
   // correctly ignored by ApplyReplicationLogRecord().
   virtual Status GetPersistedReplicationSequence(std::string* out) = 0;
+  // Returns latest ManifestUpdateSequence.
+  virtual Status GetManifestUpdateSequence(uint64_t* out) = 0;
 
   // TODO: documentation needed
   // NOTE: SetOptions is intended only for expert users, and does not apply the
