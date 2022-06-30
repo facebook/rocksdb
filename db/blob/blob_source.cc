@@ -10,7 +10,9 @@
 
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
+#include "monitoring/statistics.h"
 #include "options/cf_options.h"
+#include "table/get_context.h"
 #include "table/multiget_context.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -78,6 +80,38 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   return s;
 }
 
+Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
+  Cache::Handle* cache_handle = nullptr;
+  cache_handle = blob_cache_->Lookup(key, statistics_);
+  if (cache_handle != nullptr) {
+    PERF_COUNTER_ADD(blob_cache_hit_count, 1);
+    RecordTick(statistics_, BLOB_DB_CACHE_HIT);
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
+               blob_cache_->GetUsage(cache_handle));
+  } else {
+    RecordTick(statistics_, BLOB_DB_CACHE_MISS);
+  }
+  return cache_handle;
+}
+
+Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
+                                        size_t charge,
+                                        Cache::Handle** cache_handle,
+                                        Cache::Priority priority) const {
+  const Status s =
+      blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
+                          cache_handle, priority);
+  if (s.ok()) {
+    assert(*cache_handle != nullptr);
+    RecordTick(statistics_, BLOB_DB_CACHE_ADD);
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
+               blob_cache_->GetUsage(*cache_handle));
+  } else {
+    RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
+  }
+  return s;
+}
+
 Status BlobSource::GetBlob(const ReadOptions& read_options,
                            const Slice& user_key, uint64_t file_number,
                            uint64_t offset, uint64_t file_size,
@@ -100,18 +134,21 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_entry);
     if (s.ok() && blob_entry.GetValue()) {
+      value->PinSelf(*blob_entry.GetValue());
+
       // For consistency, the size of on-disk (possibly compressed) blob record
       // is assigned to bytes_read.
+      uint64_t adjustment =
+          read_options.verify_checksums
+              ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                    user_key.size())
+              : 0;
+      assert(offset >= adjustment);
+
+      uint64_t record_size = value_size + adjustment;
       if (bytes_read) {
-        uint64_t adjustment =
-            read_options.verify_checksums
-                ? BlobLogRecord::CalculateAdjustmentForRecordHeader(
-                      user_key.size())
-                : 0;
-        assert(offset >= adjustment);
-        *bytes_read = value_size + adjustment;
+        *bytes_read = record_size;
       }
-      value->PinSelf(*blob_entry.GetValue());
       return s;
     }
   }
@@ -139,11 +176,15 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
+    uint64_t read_size = 0;
     s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, value, bytes_read);
+        prefetch_buffer, value, &read_size);
     if (!s.ok()) {
       return s;
+    }
+    if (bytes_read) {
+      *bytes_read = read_size;
     }
   }
 

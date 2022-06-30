@@ -949,6 +949,28 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_writebatch_wi_create_iter
     rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* cf);
 
+/* Options utils */
+
+// Load the latest rocksdb options from the specified db_path.
+//
+// On success, num_column_families will be updated with a non-zero
+// number indicating the number of column families.
+// The returned db_options, column_family_names, and column_family_options
+// should be released via rocksdb_load_latest_options_destroy().
+//
+// On error, a non-null errptr that includes the error message will be
+// returned.  db_options, column_family_names, and column_family_options
+// will be set to NULL.
+extern ROCKSDB_LIBRARY_API void rocksdb_load_latest_options(
+    const char* db_path, rocksdb_env_t* env, bool ignore_unknown_options,
+    rocksdb_cache_t* cache, rocksdb_options_t** db_options,
+    size_t* num_column_families, char*** column_family_names,
+    rocksdb_options_t*** column_family_options, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_load_latest_options_destroy(
+    rocksdb_options_t* db_options, char** list_column_family_names,
+    rocksdb_options_t** list_column_family_options, size_t len);
+
 /* Block based table options */
 
 extern ROCKSDB_LIBRARY_API rocksdb_block_based_table_options_t*
@@ -1668,7 +1690,13 @@ enum {
   rocksdb_env_unlock_file_nanos,
   rocksdb_env_new_logger_nanos,
   rocksdb_number_async_seek,
-  rocksdb_total_metric_count = 69
+  rocksdb_blob_cache_hit_count,
+  rocksdb_blob_read_count,
+  rocksdb_blob_read_byte,
+  rocksdb_blob_read_time,
+  rocksdb_blob_checksum_time,
+  rocksdb_blob_decompress_time,
+  rocksdb_total_metric_count = 77
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
@@ -1939,6 +1967,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_destroy(
     rocksdb_lru_cache_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_capacity(
     rocksdb_lru_cache_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_num_shard_bits(
+    rocksdb_lru_cache_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_memory_allocator(
     rocksdb_lru_cache_options_t*, rocksdb_memory_allocator_t*);
 
