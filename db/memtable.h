@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <optional>
 
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
@@ -567,6 +568,8 @@ class MemTable {
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
+  
+  std::mutex range_del_table_lock_;
 
 #ifndef ROCKSDB_LITE
   // Flush job info of the current memtable.
@@ -587,6 +590,21 @@ class MemTable {
                     std::string* value, std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);
+  KeyHandle FormatEntry(SequenceNumber s, ValueType type,
+                        const Slice& key, /* user key */
+                        const Slice& value,
+                        std::unique_ptr<MemTableRep>& table,
+                        char** out_buf,
+                        uint32_t* encoded_len,
+                        std::unique_ptr<SequenceNumber> tombstone_seq = nullptr);
+  bool InsertKey(std::unique_ptr<MemTableRep>& table,
+                 KeyHandle handle, SequenceNumber s,
+                 ValueType type,
+                 const Slice& key, /* user key */
+                 const Slice& value,
+                 std::function<bool(MemTableRep*, KeyHandle)> insert);
+  std::unique_ptr<SequenceNumber> MaxCoveringTombstoneSeqnum(const ReadOptions& read_options,
+                                                             const LookupKey& key);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
