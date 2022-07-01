@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+Fix a bug in Logger where if dbname and db_log_dir are on different filesystems, dbname creation would fail wrt to db_log_dir path returning an error and fails to open the DB.
+
 ## 7.4.1 (06/28/2022)
 ### Bug Fixes
 * Pass `rate_limiter_priority` through filter block reader functions to `FileSystem`.
