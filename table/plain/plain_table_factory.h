@@ -170,6 +170,9 @@ class PlainTableFactory : public TableFactory {
       const TableBuilderOptions& table_builder_options,
       WritableFileWriter* file) const override;
 
+  Status ValidateOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override;
+
   std::string GetPrintableOptions() const override;
   static const char kValueTypeSeqId0 = char(~0);
 

@@ -11,6 +11,10 @@
   * `rocksdb_level_metadata_t` and its and its get functions & destroy function.
   * `rocksdb_file_metadata_t` and its and get functions & destroy functions.
 * Add suggest_compact_range() and suggest_compact_range_cf() to C API.
+* Minor changes to C API for custom comparators.
+
+### Behavior changes
+* DB::Open will now fail if a `Comparator` satisfying `CanKeysWithDifferentByteContentsBeEqual()` is used with a feature that hashes keys or prefixes, such as Bloom filters or hash indices. RocksDB can return wrong results if these hashing-based features are used with a comparator that can treat different byte strings as equal. Because of this change, some existing custom comparators might need to add an override for `CanKeysWithDifferentByteContentsBeEqual()` to return false if appropriate.
 
 ### Bug Fixes
 * Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.

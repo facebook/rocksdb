@@ -136,11 +136,9 @@ std::string Reverse(const Slice& key) {
   return rev;
 }
 
-class ReverseKeyComparator : public Comparator {
+class BackwardsKeyComparator : public Comparator {
  public:
-  const char* Name() const override {
-    return "rocksdb.ReverseBytewiseComparator";
-  }
+  const char* Name() const override { return "BackwardsBytewiseComparator"; }
 
   int Compare(const Slice& a, const Slice& b) const override {
     return BytewiseComparator()->Compare(Reverse(a), Reverse(b));
@@ -161,13 +159,13 @@ class ReverseKeyComparator : public Comparator {
   }
 };
 
-ReverseKeyComparator reverse_key_comparator;
+BackwardsKeyComparator backwards_key_comparator;
 
 void Increment(const Comparator* cmp, std::string* key) {
   if (cmp == BytewiseComparator()) {
     key->push_back('\0');
   } else {
-    assert(cmp == &reverse_key_comparator);
+    assert(cmp == &backwards_key_comparator);
     std::string rev = Reverse(*key);
     rev.push_back('\0');
     *key = Reverse(rev);
@@ -783,7 +781,7 @@ class HarnessTest : public testing::Test {
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
     if (args_.reverse_compare) {
-      options_.comparator = &reverse_key_comparator;
+      options_.comparator = &backwards_key_comparator;
     }
 
     internal_comparator_.reset(
@@ -1776,7 +1774,7 @@ TEST_P(BlockBasedTableTest, IndexUncompressed) {
 #endif  // SNAPPY
 
 TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
-  TableConstructor c(&reverse_key_comparator);
+  TableConstructor c(&backwards_key_comparator);
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
 
@@ -1812,7 +1810,7 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     Options options;
     BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    options.comparator = &reverse_key_comparator;
+    options.comparator = &backwards_key_comparator;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
     options.prefix_extractor.reset(NewNoopTransform());
     options.table_properties_collector_factories.emplace_back(
@@ -1827,7 +1825,7 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
 
     auto& props = *c.GetTableReader()->GetTableProperties();
 
-    ASSERT_EQ("rocksdb.ReverseBytewiseComparator", props.comparator_name);
+    ASSERT_EQ("BackwardsBytewiseComparator", props.comparator_name);
     ASSERT_EQ("UInt64AddOperator", props.merge_operator_name);
     ASSERT_EQ("rocksdb.Noop", props.prefix_extractor_name);
     ASSERT_EQ(

@@ -288,6 +288,10 @@ class ComparatorWithU64TsImpl : public Comparator {
     }
   }
 
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
+
  private:
   static std::string kClassNameInternal() {
     std::stringstream ss;

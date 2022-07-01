@@ -29,6 +29,10 @@ class NativeComparatorWrapperTestStringComparator : public Comparator {
   }
 
   void FindShortSuccessor(std::string* /*key*/) const { return; }
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
 

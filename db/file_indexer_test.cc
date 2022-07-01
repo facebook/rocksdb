@@ -40,6 +40,10 @@ class IntComparator : public Comparator {
                              const Slice& /*limit*/) const override {}
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 
 class FileIndexerTest : public testing::Test {

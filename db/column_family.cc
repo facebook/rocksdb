@@ -1428,6 +1428,16 @@ Status ColumnFamilyData::ValidateOptions(
         "FIFO compaction only supported with max_open_files = -1.");
   }
 
+  if (cf_options.comparator->CanKeysWithDifferentByteContentsBeEqual()) {
+    // Checks for incompatible hashing (see also
+    // BlockBasedTableFactory::ValidateOptions)
+    if (cf_options.memtable_prefix_bloom_size_ratio > 0.0) {
+      return Status::InvalidArgument(
+          "Memtable Bloom filter not compatible with comparator where "
+          "different byte contents can be equal");
+    }
+  }
+
   return s;
 }
 

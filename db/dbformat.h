@@ -282,6 +282,9 @@ class InternalKeyComparator
   virtual const Comparator* GetRootComparator() const override {
     return user_comparator_.GetRootComparator();
   }
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return user_comparator_.CanKeysWithDifferentByteContentsBeEqual();
+  }
 };
 
 // The class represent the internal key in encoded form.

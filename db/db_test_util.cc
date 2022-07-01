@@ -131,7 +131,8 @@ bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
         option_config == kPlainTableCappedPrefix ||
         option_config == kPlainTableCappedPrefixNonMmap ||
         option_config == kPlainTableAllBytesPrefix ||
-        option_config == kVectorRep || option_config == kHashLinkList ||
+        option_config == kVectorRepAndMemtableBloom ||
+        option_config == kHashLinkList ||
         option_config == kUniversalCompaction ||
         option_config == kUniversalCompactionMultiLevel ||
         option_config == kUniversalSubcompactions ||
@@ -412,10 +413,12 @@ Options DBTestBase::GetOptions(
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
-    case kVectorRep:
+    case kVectorRepAndMemtableBloom:
       options.memtable_factory.reset(new VectorRepFactory(100));
       options.allow_concurrent_memtable_write = false;
       options.unordered_write = false;
+      options.memtable_prefix_bloom_size_ratio = 0.1;
+      options.memtable_whole_key_filtering = true;
       break;
     case kHashLinkList:
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));

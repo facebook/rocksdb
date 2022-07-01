@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <set>
+#include <string>
 #include <thread>
 #include <unordered_set>
 #include <utility>
@@ -2135,6 +2136,9 @@ TEST_F(DBTest, ComparatorCheck) {
     void FindShortSuccessor(std::string* key) const override {
       BytewiseComparator()->FindShortSuccessor(key);
     }
+    bool CanKeysWithDifferentByteContentsBeEqual() const override {
+      return false;
+    }
   };
   Options new_options, options;
   NewComparator cmp;
@@ -2188,7 +2192,41 @@ TEST_F(DBTest, CustomComparator) {
     new_options.write_buffer_size = 4096;  // Compact more often
     new_options.arena_block_size = 4096;
     new_options = CurrentOptions(new_options);
-    DestroyAndReopen(new_options);
+
+    bool expect_open_failure = false;
+    if (new_options.prefix_extractor && new_options.table_factory->IsInstanceOf(
+                                            TableFactory::kPlainTableName())) {
+      expect_open_failure = true;
+    }
+    if (new_options.memtable_prefix_bloom_size_ratio > 0.0) {
+      expect_open_failure = true;
+    }
+    const BlockBasedTableOptions* bbto = nullptr;
+    if (new_options.table_factory->IsInstanceOf(
+            TableFactory::kBlockBasedTableName())) {
+      bbto = new_options.table_factory->GetOptions<BlockBasedTableOptions>();
+      if (bbto->filter_policy) {
+        expect_open_failure = true;
+      } else if (bbto->index_type ==
+                 BlockBasedTableOptions::IndexType::kHashSearch) {
+        expect_open_failure = true;
+      } else if (bbto->data_block_index_type ==
+                 BlockBasedTableOptions::DataBlockIndexType::
+                     kDataBlockBinaryAndHash) {
+        expect_open_failure = true;
+      }
+    }
+
+    Destroy(last_options_);
+    {
+      Status s = TryReopen(new_options);
+      if (expect_open_failure) {
+        ASSERT_NOK(s);
+        continue;
+      } else {
+        ASSERT_OK(s);
+      }
+    }
     CreateAndReopenWithCF({"pikachu"}, new_options);
     ASSERT_OK(Put(1, "[10]", "ten"));
     ASSERT_OK(Put(1, "[0x14]", "twenty"));
@@ -2202,15 +2240,19 @@ TEST_F(DBTest, CustomComparator) {
       Compact(1, "[0]", "[9999]");
     }
 
+    std::string k;
+    for (int i = 0; i < 10000; i += 42) {
+      k = "[" + std::to_string(i) + "]";
+      ASSERT_OK(Put(1, k, k));
+    }
     for (int run = 0; run < 2; run++) {
-      for (int i = 0; i < 1000; i++) {
-        char buf[100];
-        snprintf(buf, sizeof(buf), "[%d]", i * 10);
-        ASSERT_OK(Put(1, buf, buf));
+      for (int i = 0; i < 10000; i += 42) {
+        k = "[" + std::to_string(i) + "]";
+        ASSERT_EQ(k, Get(1, k));
       }
       Compact(1, "[0]", "[1000000]");
     }
-  } while (ChangeCompactOptions());
+  } while (ChangeOptions());
 }
 
 TEST_F(DBTest, DBOpen_Options) {

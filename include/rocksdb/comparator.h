@@ -150,8 +150,8 @@ class Comparator : public Customizable {
 // must not be deleted.
 extern const Comparator* BytewiseComparator();
 
-// Return a builtin comparator that uses reverse lexicographic byte-wise
-// ordering.
+// Return a builtin comparator that uses the reverse order of
+// BytewiseComparator (still left-to-right lexicographic)
 extern const Comparator* ReverseBytewiseComparator();
 
 }  // namespace ROCKSDB_NAMESPACE

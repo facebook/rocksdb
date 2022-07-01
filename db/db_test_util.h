@@ -1009,7 +1009,7 @@ class DBTestBase : public testing::Test {
     kPlainTableCappedPrefix = 4,
     kPlainTableCappedPrefixNonMmap = 5,
     kPlainTableAllBytesPrefix = 6,
-    kVectorRep = 7,
+    kVectorRepAndMemtableBloom = 7,
     kHashLinkList = 8,
     kMergePut = 9,
     kFilter = 10,

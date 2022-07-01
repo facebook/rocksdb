@@ -119,6 +119,9 @@ class SanityTestSpecialComparator : public SanityTest {
     virtual void FindShortSuccessor(std::string* key) const override {
       BytewiseComparator()->FindShortSuccessor(key);
     }
+    bool CanKeysWithDifferentByteContentsBeEqual() const override {
+      return false;
+    }
   };
   Options options_;
 };

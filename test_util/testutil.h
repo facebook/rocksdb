@@ -104,6 +104,10 @@ class SimpleSuffixReverseComparator : public Comparator {
                                      const Slice& /*limit*/) const override {}
 
   virtual void FindShortSuccessor(std::string* /*key*/) const override {}
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 
 // Returns a user key comparator that can be used for comparing two uint64_t

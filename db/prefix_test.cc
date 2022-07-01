@@ -131,6 +131,10 @@ class TestKeyComparator : public Comparator {
                              const Slice& /*limit*/) const override {}
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 
 namespace {

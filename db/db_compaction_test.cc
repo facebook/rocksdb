@@ -3240,6 +3240,9 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
     void FindShortSuccessor(std::string* key) const override {
       return BytewiseComparator()->FindShortSuccessor(key);
     }
+    bool CanKeysWithDifferentByteContentsBeEqual() const override {
+      return false;
+    }
   } short_key_cmp;
   Options options = CurrentOptions();
   options.target_file_size_base = 100000000;

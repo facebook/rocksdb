@@ -293,12 +293,13 @@ struct rocksdb_comparator_t : public Comparator {
   void (*destructor_)(void*);
   int (*compare_)(void*, const char* a, size_t alen, const char* b,
                   size_t blen);
-  const char* (*name_)(void*);
   int (*compare_ts_)(void*, const char* a_ts, size_t a_tslen, const char* b_ts,
                      size_t b_tslen);
   int (*compare_without_ts_)(void*, const char* a, size_t alen,
                              unsigned char a_has_ts, const char* b, size_t blen,
                              unsigned char b_has_ts);
+  const char* name_;
+  unsigned char ckwdbcbe_;
 
   rocksdb_comparator_t() : Comparator() {}
 
@@ -327,7 +328,11 @@ struct rocksdb_comparator_t : public Comparator {
                                   b.data(), b.size(), b_has_ts);
   }
 
-  const char* Name() const override { return (*name_)(state_); }
+  const char* Name() const override { return name_; }
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return ckwdbcbe_ != 0;
+  }
 
   // No-ops since the C binding does not support key shortening methods.
   void FindShortestSeparator(std::string*, const Slice&) const override {}
@@ -4123,13 +4128,11 @@ void rocksdb_compactionfilterfactory_destroy(
 }
 
 rocksdb_comparator_t* rocksdb_comparator_create(
-    void* state,
-    void (*destructor)(void*),
-    int (*compare)(
-        void*,
-        const char* a, size_t alen,
-        const char* b, size_t blen),
-    const char* (*name)(void*)) {
+    void* state, void (*destructor)(void*),
+    int (*compare)(void*, const char* a, size_t alen, const char* b,
+                   size_t blen),
+    const char* name,
+    unsigned char can_keys_with_different_byte_contents_be_equal) {
   rocksdb_comparator_t* result = new rocksdb_comparator_t;
   result->state_ = state;
   result->destructor_ = destructor;
@@ -4137,6 +4140,7 @@ rocksdb_comparator_t* rocksdb_comparator_create(
   result->name_ = name;
   result->compare_ts_ = nullptr;
   result->compare_without_ts_ = nullptr;
+  result->ckwdbcbe_ = can_keys_with_different_byte_contents_be_equal;
   return result;
 }
 
@@ -4151,7 +4155,9 @@ rocksdb_comparator_t* rocksdb_comparator_with_ts_create(
     int (*compare_without_ts)(void*, const char* a, size_t alen,
                               unsigned char a_has_ts, const char* b,
                               size_t blen, unsigned char b_has_ts),
-    const char* (*name)(void*), size_t timestamp_size) {
+    const char* name,
+    unsigned char can_keys_with_different_byte_contents_be_equal,
+    size_t timestamp_size) {
   rocksdb_comparator_t* result = new rocksdb_comparator_t(timestamp_size);
   result->state_ = state;
   result->destructor_ = destructor;
@@ -4159,6 +4165,7 @@ rocksdb_comparator_t* rocksdb_comparator_with_ts_create(
   result->compare_ts_ = compare_ts;
   result->compare_without_ts_ = compare_without_ts;
   result->name_ = name;
+  result->ckwdbcbe_ = can_keys_with_different_byte_contents_be_equal;
   return result;
 }
 
