@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.4.2 (06/30/2022)
 ### Bug Fixes
 Fix a bug in Logger where if dbname and db_log_dir are on different filesystems, dbname creation would fail wrt to db_log_dir path returning an error and fails to open the DB.
 
