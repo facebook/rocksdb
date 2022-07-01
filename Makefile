@@ -448,19 +448,9 @@ endif
 # This provides a Makefile simulation of a Meta-internal folly integration.
 # It is not validated for general use.
 ifeq ($(USE_FOLLY),1)
-	ifeq (,$(FOLLY_DIR))
-		FOLLY_DIR = ./third-party/folly
-	endif
-	# AIX: pre-defined system headers are surrounded by an extern "C" block
-	ifeq ($(PLATFORM), OS_AIX)
-		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
-		PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
-	else
-		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
-		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
-	endif
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+	PLATFORM_LDFLAGS += -lfolly
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
@@ -545,10 +535,6 @@ LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
 ifeq ($(HAVE_POWER8),1)
 LIB_OBJECTS += $(patsubst %.c, $(OBJ_DIR)/%.o, $(LIB_SOURCES_C))
 LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
-endif
-
-ifeq ($(USE_FOLLY),1)
-  LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
 # range_tree is not compatible with non GNU libc on ppc64
@@ -2457,9 +2443,6 @@ endif
 ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
-ifeq ($(USE_FOLLY),1)
-  DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
-endif
 endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to
