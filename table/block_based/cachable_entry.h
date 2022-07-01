@@ -231,4 +231,14 @@ private:
   bool own_value_ = false;
 };
 
+template <>
+void CachableEntry<std::string>::TransferTo(Cleanable* cleanable) {
+  auto* slice = reinterpret_cast<PinnableSlice*>(cleanable);
+  slice->data_ = value_->data();
+  slice->size_ = value_->size();
+  slice->Pin();
+  assert(slice->IsPinned());
+  TransferTo(slice);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
