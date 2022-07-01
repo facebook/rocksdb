@@ -212,6 +212,8 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline bool IsPinned() const { return pinned_; }
 
+  inline void Pin() { pinned_ = true; }
+
  private:
   friend class PinnableSlice4Test;
   std::string self_space_;
