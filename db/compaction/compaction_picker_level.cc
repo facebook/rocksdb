@@ -7,11 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/compaction/compaction_picker_level.h"
+
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "db/compaction/compaction_picker_level.h"
+#include "db/version_edit.h"
 #include "logging/log_buffer.h"
 #include "test_util/sync_point.h"
 
@@ -87,6 +89,9 @@ class LevelCompactionBuilder {
   // function will return false.
   bool PickFileToCompact();
 
+  // Return true if a L0 trivial move is picked up.
+  bool TryPickL0TrivialMove();
+
   // For L0->L0, picks the longest span of files that aren't currently
   // undergoing compaction for which work-per-deleted-file decreases. The span
   // always starts from the newest L0 file.
@@ -117,6 +122,7 @@ class LevelCompactionBuilder {
   int base_index_ = -1;
   double start_level_score_ = 0;
   bool is_manual_ = false;
+  bool is_l0_trivial_move_ = false;
   CompactionInputFiles start_level_inputs_;
   std::vector<CompactionInputFiles> compaction_inputs_;
   CompactionInputFiles output_level_inputs_;
@@ -261,7 +267,7 @@ void LevelCompactionBuilder::SetupInitialFiles() {
 }
 
 bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
-  if (start_level_ == 0 && output_level_ != 0) {
+  if (start_level_ == 0 && output_level_ != 0 && !is_l0_trivial_move_) {
     return compaction_picker_->GetOverlappingL0Files(
         vstorage_, &start_level_inputs_, output_level_, &parent_index_);
   }
@@ -274,7 +280,8 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
   // need to consider other levels.
   if (output_level_ != 0) {
     output_level_inputs_.level = output_level_;
-    if (!compaction_picker_->SetupOtherInputs(
+    if (!is_l0_trivial_move_ &&
+        !compaction_picker_->SetupOtherInputs(
             cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs_,
             &output_level_inputs_, &parent_index_, base_index_)) {
       return false;
@@ -285,20 +292,22 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
       compaction_inputs_.push_back(output_level_inputs_);
     }
 
-    // In some edge cases we could pick a compaction that will be compacting
-    // a key range that overlap with another running compaction, and both
-    // of them have the same output level. This could happen if
-    // (1) we are running a non-exclusive manual compaction
-    // (2) AddFile ingest a new file into the LSM tree
-    // We need to disallow this from happening.
-    if (compaction_picker_->FilesRangeOverlapWithCompaction(compaction_inputs_,
-                                                            output_level_)) {
-      // This compaction output could potentially conflict with the output
-      // of a currently running compaction, we cannot run it.
-      return false;
+    if (!is_l0_trivial_move_) {
+      // In some edge cases we could pick a compaction that will be compacting
+      // a key range that overlap with another running compaction, and both
+      // of them have the same output level. This could happen if
+      // (1) we are running a non-exclusive manual compaction
+      // (2) AddFile ingest a new file into the LSM tree
+      // We need to disallow this from happening.
+      if (compaction_picker_->FilesRangeOverlapWithCompaction(
+              compaction_inputs_, output_level_)) {
+        // This compaction output could potentially conflict with the output
+        // of a currently running compaction, we cannot run it.
+        return false;
+      }
+      compaction_picker_->GetGrandparents(vstorage_, start_level_inputs_,
+                                          output_level_inputs_, &grandparents_);
     }
-    compaction_picker_->GetGrandparents(vstorage_, start_level_inputs_,
-                                        output_level_inputs_, &grandparents_);
   } else {
     compaction_inputs_.push_back(start_level_inputs_);
   }
@@ -349,6 +358,7 @@ Compaction* LevelCompactionBuilder::GetCompaction() {
       Temperature::kUnknown,
       /* max_subcompactions */ 0, std::move(grandparents_), is_manual_,
       /* trim_ts */ "", start_level_score_, false /* deletion_compaction */,
+      /* l0_files_might_overlap */ start_level_ == 0 && !is_l0_trivial_move_,
       compaction_reason_);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
@@ -417,6 +427,75 @@ uint32_t LevelCompactionBuilder::GetPathId(
   return p;
 }
 
+bool LevelCompactionBuilder::TryPickL0TrivialMove() {
+  if (vstorage_->base_level() <= 0) {
+    return false;
+  }
+  if (start_level_ == 0 && mutable_cf_options_.compression_per_level.empty() &&
+      !vstorage_->LevelFiles(output_level_).empty() &&
+      ioptions_.db_paths.size() <= 1) {
+    // Try to pick trivial move from L0 to L1. We start from the oldest
+    // file. We keep expanding to newer files if it would form a
+    // trivial move.
+    // For now we don't support it with
+    // mutable_cf_options_.compression_per_level to prevent the logic
+    // of determining whether L0 can be trivial moved to the next level.
+    // We skip the case where output level is empty, since in this case, at
+    // least the oldest file would qualify for trivial move, and this would
+    // be a surprising behavior with few benefits.
+
+    // We search from the oldest file from the newest. In theory, there are
+    // files in the middle can form trivial move too, but it is probably
+    // uncommon and we ignore these cases for simplicity.
+    const std::vector<FileMetaData*>& level_files =
+        vstorage_->LevelFiles(start_level_);
+
+    InternalKey my_smallest, my_largest;
+    for (auto it = level_files.rbegin(); it != level_files.rend(); ++it) {
+      CompactionInputFiles output_level_inputs;
+      output_level_inputs.level = output_level_;
+      FileMetaData* file = *it;
+      if (it == level_files.rbegin()) {
+        my_smallest = file->smallest;
+        my_largest = file->largest;
+      } else {
+        if (compaction_picker_->icmp()->Compare(file->largest, my_smallest) <
+            0) {
+          my_smallest = file->smallest;
+        } else if (compaction_picker_->icmp()->Compare(file->smallest,
+                                                       my_largest) > 0) {
+          my_largest = file->largest;
+        } else {
+          break;
+        }
+      }
+      vstorage_->GetOverlappingInputs(output_level_, &my_smallest, &my_largest,
+                                      &output_level_inputs.files);
+      if (output_level_inputs.empty()) {
+        assert(!file->being_compacted);
+        start_level_inputs_.files.push_back(file);
+      } else {
+        break;
+      }
+    }
+  }
+
+  if (!start_level_inputs_.empty()) {
+    // Sort files by key range. Not sure it's 100% necessary but it's cleaner
+    // to always keep files sorted by key the key ranges don't overlap.
+    std::sort(start_level_inputs_.files.begin(),
+              start_level_inputs_.files.end(),
+              [icmp = compaction_picker_->icmp()](FileMetaData* f1,
+                                                  FileMetaData* f2) -> bool {
+                return (icmp->Compare(f1->smallest, f2->smallest) < 0);
+              });
+
+    is_l0_trivial_move_ = true;
+    return true;
+  }
+  return false;
+}
+
 bool LevelCompactionBuilder::PickFileToCompact() {
   // level 0 files are overlapping. So we cannot pick more
   // than one concurrent compactions at this level. This
@@ -429,20 +508,26 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   }
 
   start_level_inputs_.clear();
+  start_level_inputs_.level = start_level_;
 
   assert(start_level_ >= 0);
 
-  // Pick the largest file in this level that is not already
-  // being compacted
-  const std::vector<int>& file_size =
-      vstorage_->FilesByCompactionPri(start_level_);
+  if (TryPickL0TrivialMove()) {
+    return true;
+  }
+
   const std::vector<FileMetaData*>& level_files =
       vstorage_->LevelFiles(start_level_);
 
+  // Pick the file with the highest score in this level that is not already
+  // being compacted.
+  const std::vector<int>& file_scores =
+      vstorage_->FilesByCompactionPri(start_level_);
+
   unsigned int cmp_idx;
   for (cmp_idx = vstorage_->NextCompactionIndex(start_level_);
-       cmp_idx < file_size.size(); cmp_idx++) {
-    int index = file_size[cmp_idx];
+       cmp_idx < file_scores.size(); cmp_idx++) {
+    int index = file_scores[cmp_idx];
     auto* f = level_files[index];
 
     // do not pick a file to compact if it is being compacted
@@ -460,7 +545,6 @@ bool LevelCompactionBuilder::PickFileToCompact() {
     }
 
     start_level_inputs_.files.push_back(f);
-    start_level_inputs_.level = start_level_;
     if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
                                                     &start_level_inputs_) ||
         compaction_picker_->FilesRangeOverlapWithCompaction(
@@ -478,8 +562,8 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       continue;
     }
 
-    // Now that input level is fully expanded, we check whether any output files
-    // are locked due to pending compaction.
+    // Now that input level is fully expanded, we check whether any output
+    // files are locked due to pending compaction.
     //
     // Note we rely on ExpandInputsToCleanCut() to tell us whether any output-
     // level files are locked, not just the extra ones pulled in for user-key
