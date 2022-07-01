@@ -1302,6 +1302,17 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_blob_file_starting_level(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_cache(
     rocksdb_options_t* opt, rocksdb_cache_t* blob_cache);
 
+enum {
+  rocksdb_prepopulate_blob_disable = 0,
+  rocksdb_prepopulate_blob_flush_only = 1
+};
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_prepopulate_blob_cache(
+    rocksdb_options_t* opt, int val);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_prepopulate_blob_cache(
+    rocksdb_options_t* opt);
+
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);

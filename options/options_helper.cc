@@ -257,6 +257,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->blob_compaction_readahead_size =
       moptions.blob_compaction_readahead_size;
   cf_opts->blob_file_starting_level = moptions.blob_file_starting_level;
+  cf_opts->prepopulate_blob_cache = moptions.prepopulate_blob_cache;
 
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =
@@ -459,6 +460,11 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       return ParseEnum<Temperature>(temperature_string_map, value,
                                     static_cast<Temperature*>(opt_address));
     }
+    case OptionType::kPrepopulateBlobCache: {
+      return ParseEnum<PrepopulateBlobCache>(
+          prepopulate_blob_cache_string_map, value,
+          static_cast<PrepopulateBlobCache*>(opt_address));
+    }
     default:
       return false;
   }
@@ -551,6 +557,10 @@ bool SerializeSingleOptionHelper(const void* opt_address,
           temperature_string_map, *static_cast<const Temperature*>(opt_address),
           value);
     }
+    case OptionType::kPrepopulateBlobCache:
+      return SerializeEnum<PrepopulateBlobCache>(
+          prepopulate_blob_cache_string_map,
+          *(static_cast<const PrepopulateBlobCache*>(opt_address)), value);
     default:
       return false;
   }
@@ -849,6 +859,11 @@ std::unordered_map<std::string, Temperature>
         {"kHot", Temperature::kHot},
         {"kWarm", Temperature::kWarm},
         {"kCold", Temperature::kCold}};
+
+std::unordered_map<std::string, PrepopulateBlobCache>
+    OptionsHelper::prepopulate_blob_cache_string_map = {
+        {"kPrepopulateBlobDisable", kPrepopulateBlobDisable},
+        {"kPrepopulateBlobFlushOnly", kPrepopulateBlobFlushOnly}};
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {
@@ -1222,6 +1237,8 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       return IsOptionEqual<std::string>(this_offset, that_offset);
     case OptionType::kTemperature:
       return IsOptionEqual<Temperature>(this_offset, that_offset);
+    case OptionType::kPrepopulateBlobCache:
+      return IsOptionEqual<PrepopulateBlobCache>(this_offset, that_offset);
     default:
       return false;
   }  // End switch

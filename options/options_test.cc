@@ -127,6 +127,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
+      {"prepopulate_blob_cache", "kPrepopulateBlobDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -266,6 +267,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, kPrepopulateBlobDisable);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -2356,6 +2358,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
+      {"prepopulate_blob_cache", "kPrepopulateBlobDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -2489,6 +2492,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, kPrepopulateBlobDisable);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -4593,6 +4597,13 @@ TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
     TestParseAndCompareOption(config_options,
                               OptionTypeInfo(0, OptionType::kEncodingType),
                               "EncodingType", iter.first, &e1, &e2);
+    ASSERT_EQ(e1, iter.second);
+  }
+  for (auto iter : OptionsHelper::prepopulate_blob_cache_string_map) {
+    PrepopulateBlobCache e1, e2;
+    TestParseAndCompareOption(
+        config_options, OptionTypeInfo(0, OptionType::kPrepopulateBlobCache),
+        "PrepopulateBlobCache", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
 }
