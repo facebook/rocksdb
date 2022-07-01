@@ -16,50 +16,42 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
-                               const std::string& bucket_prefix)
-    : info_log_(info_log), cenv_(cenv), bucket_prefix_(bucket_prefix) {}
+LocalManifestReader::LocalManifestReader(std::shared_ptr<Logger> info_log,
+                                         CloudEnv* cenv)
+    : info_log_(info_log), cenv_(cenv) {}
 
-ManifestReader::~ManifestReader() {}
+Status LocalManifestReader::GetLiveFilesLocally(const std::string& local_dbname, std::set<uint64_t>* list) const {
+  auto cenv_impl = static_cast<CloudEnvImpl*>(cenv_);
+  assert(cenv_impl);
+  // cloud manifest should be set in CloudEnv, and it should map to local
+  // CloudManifest
+  assert(cenv_impl->GetCloudManifest());
+  auto cloud_manifest = cenv_impl->GetCloudManifest();
+  auto current_epoch = cloud_manifest->GetCurrentEpoch().ToString();
 
-//
-// Extract all the live files needed by this MANIFEST file and corresponding
-// cloud_manifest object
-//
-Status ManifestReader::GetLiveFilesAndCloudManifest(
-    const std::string bucket_path, std::set<uint64_t>* list,
-    std::unique_ptr<CloudManifest>* cloud_manifest) {
+  std::unique_ptr<SequentialFileReader> manifest_file_reader;
   Status s;
   {
+    // file name here doesn't matter, it will always be mapped to the correct Manifest file
+    // use empty epoch here so that it will be recognized as manifest file type
+    auto manifest_file = ManifestFileWithEpoch(local_dbname, "" /* epoch */);
+
     std::unique_ptr<SequentialFile> file;
-    auto cloudManifestFile = CloudManifestFile(bucket_path);
-    s = cenv_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile, &file,
-                                      EnvOptions());
+    s = cenv_impl->NewSequentialFile(manifest_file, &file, EnvOptions());
     if (!s.ok()) {
       return s;
     }
-    s = CloudManifest::LoadFromLog(
-        std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
-            NewLegacySequentialFileWrapper(file), cloudManifestFile)),
-        cloud_manifest);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  std::unique_ptr<SequentialFileReader> file_reader;
-  {
-    auto manifestFile = ManifestFileWithEpoch(
-        bucket_path, (*cloud_manifest)->GetCurrentEpoch().ToString());
-    std::unique_ptr<SequentialFile> file;
-    s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifestFile, &file,
-                                      EnvOptions());
-    if (!s.ok()) {
-      return s;
-    }
-    file_reader.reset(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(file), manifestFile));
+    manifest_file_reader.reset(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(file), manifest_file));
   }
 
+  return GetLiveFilesFromFileReader(std::move(manifest_file_reader), list);
+}
+
+Status LocalManifestReader::GetLiveFilesFromFileReader(
+    std::unique_ptr<SequentialFileReader> file_reader,
+    std::set<uint64_t>* list) const {
+  Status s;
   // create a callback that gets invoked whil looping through the log records
   VersionSet::LogReporter reporter;
   reporter.status = &s;
@@ -68,8 +60,6 @@ Status ManifestReader::GetLiveFilesAndCloudManifest(
 
   Slice record;
   std::string scratch;
-  int count = 0;
-
 
   // keep track of each CF's live files on each level
   std::unordered_map<uint32_t,                // CF id
@@ -83,7 +73,6 @@ Status ManifestReader::GetLiveFilesAndCloudManifest(
     if (!s.ok()) {
       break;
     }
-    count++;
 
     // add the files that are added by this transaction
     std::vector<std::pair<int, FileMetaData>> new_files = edit.GetNewFiles();
@@ -122,10 +111,52 @@ Status ManifestReader::GetLiveFilesAndCloudManifest(
   }
 
   file_reader.reset();
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[mn] manifest for db %s has %d entries %s", bucket_path.c_str(), count,
-      s.ToString().c_str());
   return s;
+}
+
+ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
+                               const std::string& bucket_prefix)
+    : LocalManifestReader(info_log, cenv), bucket_prefix_(bucket_prefix) {}
+
+//
+// Extract all the live files needed by this MANIFEST file and corresponding
+// cloud_manifest object
+//
+Status ManifestReader::GetLiveFiles(const std::string& bucket_path,
+                                    std::set<uint64_t>* list) const {
+  Status s;
+  std::unique_ptr<CloudManifest> cloud_manifest;
+  {
+    std::unique_ptr<SequentialFile> file;
+    auto cloudManifestFile = CloudManifestFile(bucket_path);
+    s = cenv_->NewSequentialFileCloud(bucket_prefix_, cloudManifestFile, &file,
+                                      EnvOptions());
+    if (!s.ok()) {
+      return s;
+    }
+    s = CloudManifest::LoadFromLog(
+        std::unique_ptr<SequentialFileReader>(new SequentialFileReader(
+            NewLegacySequentialFileWrapper(file), cloudManifestFile)),
+        &cloud_manifest);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  std::unique_ptr<SequentialFileReader> file_reader;
+  {
+    auto manifestFile = ManifestFileWithEpoch(
+        bucket_path, cloud_manifest->GetCurrentEpoch().ToString());
+    std::unique_ptr<SequentialFile> file;
+    s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifestFile, &file,
+                                      EnvOptions());
+    if (!s.ok()) {
+      return s;
+    }
+    file_reader.reset(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(file), manifestFile));
+  }
+
+  return GetLiveFilesFromFileReader(std::move(file_reader), list);
 }
 
 Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,

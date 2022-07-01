@@ -13,33 +13,46 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Operates on MANIFEST files stored locally
+class LocalManifestReader {
+ public:
+  LocalManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv);
+
+  // Retrive all live files by reading manifest files locally.
+  // If Manifest file doesn't exist, it will be pulled from s3
+  //
+  // REQUIRES: cenv_ should have cloud_manifest_ set, and it should have the
+  // same content as the CLOUDMANIFEST file stored locally. cloud_manifest_ is
+  // not updated when calling the function
+  Status GetLiveFilesLocally(const std::string& local_dbname,
+                             std::set<uint64_t>* list) const;
+
+ protected:
+  // Get all the live sst file number by reading version_edit records from file_reader
+  Status GetLiveFilesFromFileReader(
+      std::unique_ptr<SequentialFileReader> file_reader,
+      std::set<uint64_t>* list) const;
+
+  std::shared_ptr<Logger> info_log_;
+  CloudEnv* cenv_;
+};
+
 //
-// Operates on MANIFEST files stored in the cloud bucket
+// Operates on MANIFEST files stored in the cloud bucket directly
 //
-class ManifestReader {
+class ManifestReader: public LocalManifestReader {
  public:
   ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
                  const std::string& bucket_prefix);
 
-  virtual ~ManifestReader();
-
   // Retrieve all live files referred to by this bucket path
-  Status GetLiveFiles(const std::string bucket_path, std::set<uint64_t>* list) {
-    std::unique_ptr<CloudManifest> cloud_manifest;
-    return GetLiveFilesAndCloudManifest(bucket_path, list, &cloud_manifest);
-  }
-
-  // Retrive all live files and cloud_manifest
-  Status GetLiveFilesAndCloudManifest(
-      const std::string bucket_path, std::set<uint64_t>* list,
-      std::unique_ptr<CloudManifest>* cloud_manifest);
+  // It will read from CLOUDMANIFEST and MANIFEST file in s3 directly
+  Status GetLiveFiles(const std::string& bucket_path,
+                      std::set<uint64_t>* list) const;
 
   static Status GetMaxFileNumberFromManifest(Env* env, const std::string& fname,
                                              uint64_t* maxFileNumber);
-
  private:
-  std::shared_ptr<Logger> info_log_;
-  CloudEnv* cenv_;
   std::string bucket_prefix_;
 };
 }  // namespace ROCKSDB_NAMESPACE

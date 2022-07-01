@@ -297,8 +297,7 @@ class MockCloudEnv : public CloudEnv {
     return notsup_;
   }
 
-  Status FindAllLiveFiles(const std::string& /* bucket */,
-                          const std::string& /* object_path */,
+  Status FindAllLiveFiles(const std::string& /* local_dbname */,
                           std::vector<std::string>* /* live_sst_files */,
                           std::string* /* manifest_file */) override {
     return notsup_;

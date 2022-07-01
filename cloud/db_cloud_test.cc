@@ -1,13 +1,8 @@
 // Copyright (c) 2017 Rockset
 
-#include <gtest/gtest.h>
-#include "cloud/cloud_env_impl.h"
-#include "rocksdb/cloud/cloud_env_options.h"
 #ifndef ROCKSDB_LITE
 
 #ifdef USE_AWS
-
-#include "rocksdb/cloud/db_cloud.h"
 
 #include <algorithm>
 #include <chrono>
@@ -20,6 +15,7 @@
 #include "logging/logging.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/options.h"
+#include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "db/db_impl/db_impl.h"
@@ -382,27 +378,30 @@ TEST_F(CloudTest, FindAllLiveFilesTest) {
   ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
   ASSERT_OK(db_->Flush(FlushOptions()));
 
-  CloseDB();
-  DestroyDir(dbname_);
-  OpenDB();
+  // wait until files are persisted into s3
+  GetDBImpl()->TEST_WaitForBackgroundWork();
 
   std::vector<std::string> tablefiles;
   std::string manifest;
-  aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(), aenv_->GetSrcObjectPath(),
-                          &tablefiles, &manifest);
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &tablefiles, &manifest));
   EXPECT_EQ(tablefiles.size(), 1);
   for (auto name: tablefiles) {
     EXPECT_EQ(GetFileType(name), RocksDBFileType::kSstFile);
-    // verify that the sst file indeed exists
-    EXPECT_TRUE(aenv_->GetStorageProvider()
-                    ->ExistsCloudObject(aenv_->GetSrcBucketName(), name)
-                    .ok());
+    // verify that the sst file indeed exists in cloud
+    EXPECT_TRUE(
+        aenv_->GetStorageProvider()
+            ->ExistsCloudObject(aenv_->GetSrcBucketName(),
+                                aenv_->GetSrcObjectPath() + pathsep + name)
+            .ok());
   }
 
   EXPECT_EQ(GetFileType(manifest), RocksDBFileType::kManifestFile);
-  EXPECT_TRUE(aenv_->GetStorageProvider()
-                  ->ExistsCloudObject(aenv_->GetSrcBucketName(), manifest)
-                  .ok());
+  // verify that manifest file indeed exists in cloud
+  EXPECT_TRUE(
+      aenv_->GetStorageProvider()
+          ->ExistsCloudObject(aenv_->GetSrcBucketName(),
+                              aenv_->GetSrcObjectPath() + pathsep + manifest)
+          .ok());
 }
 
 // Files of dropped CF should not be included in live files
@@ -412,36 +411,25 @@ TEST_F(CloudTest, LiveFilesOfDroppedCFTest) {
 
   std::vector<std::string> tablefiles;
   std::string manifest;
-  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
-                                    aenv_->GetSrcObjectPath(), &tablefiles,
-                                    &manifest));
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &tablefiles, &manifest));
 
   EXPECT_TRUE(tablefiles.empty());
   CreateColumnFamilies({"cf1"}, &handles);
-  auto db_impl = GetDBImpl();
 
   // write to CF
   ASSERT_OK(db_->Put(WriteOptions(), handles[1], "hello", "world"));
   // flush cf1
   ASSERT_OK(db_->Flush({}, handles[1]));
 
-  // wait until background flush job is done, so that the Manifest updates are
-  // synced to s3
-  db_impl->TEST_WaitForBackgroundWork();
-
   tablefiles.clear();
-  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
-                                    aenv_->GetSrcObjectPath(), &tablefiles,
-                                    &manifest));
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &tablefiles, &manifest));
   EXPECT_TRUE(tablefiles.size() == 1);
 
   // Drop the CF
   ASSERT_OK(db_->DropColumnFamily(handles[1]));
   tablefiles.clear();
   // make sure that files are not listed as live for dropped CF
-  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
-                                    aenv_->GetSrcObjectPath(), &tablefiles,
-                                    &manifest));
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &tablefiles, &manifest));
   EXPECT_TRUE(tablefiles.empty());
   CloseDB(&handles);
 }
@@ -456,13 +444,10 @@ TEST_F(CloudTest, LiveFilesAfterChangingLevelTest) {
   ASSERT_OK(db_->Flush({}));
   auto db_impl = GetDBImpl();
 
-  ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
-
   std::vector<std::string> tablefiles_before_move;
   std::string manifest;
-  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
-                                    aenv_->GetSrcObjectPath(),
-                                    &tablefiles_before_move, &manifest));
+  ASSERT_OK(
+      aenv_->FindAllLiveFiles(dbname_, &tablefiles_before_move, &manifest));
   EXPECT_EQ(tablefiles_before_move.size(), 1);
 
   CompactRangeOptions cro;
@@ -474,9 +459,8 @@ TEST_F(CloudTest, LiveFilesAfterChangingLevelTest) {
   ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
 
   std::vector<std::string> tablefiles_after_move;
-  ASSERT_OK(aenv_->FindAllLiveFiles(aenv_->GetSrcBucketName(),
-                                    aenv_->GetSrcObjectPath(),
-                                    &tablefiles_after_move, &manifest));
+  ASSERT_OK(
+      aenv_->FindAllLiveFiles(dbname_, &tablefiles_after_move, &manifest));
   EXPECT_EQ(tablefiles_before_move, tablefiles_after_move);
 }
 
@@ -1878,6 +1862,28 @@ TEST_F(CloudTest, FileCacheOnDemand) {
   EXPECT_EQ(local_files.size(), 2);
 
   CloseDB();
+}
+
+TEST_F(CloudTest, FindLiveFilesFetchManifestTest) {
+  OpenDB();
+  ASSERT_OK(db_->Put({}, "a", "1"));
+  ASSERT_OK(db_->Flush({}));
+  CloseDB();
+
+  DestroyDir(dbname_);
+
+  // recreate cloud env, which points to the same bucket and objectpath
+  CreateCloudEnv();
+
+  std::vector<std::string> live_sst_files;
+  std::string manifest_file;
+
+  // fetch and load CloudManifest
+  ASSERT_OK(aenv_->PreloadCloudManifest(dbname_));
+
+  // manifest file will be fetched to local db
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &live_sst_files, &manifest_file));
+  EXPECT_EQ(live_sst_files.size(), 1);
 }
 
 }  //  namespace ROCKSDB_NAMESPACE

@@ -1373,6 +1373,7 @@ class VersionSet {
   friend class DumpManifestHandler;
   friend class DBImpl;
   friend class DBImplReadOnly;
+  friend class LocalManifestReader;
   friend class ManifestReader;
 
   struct LogReporter : public log::Reader::Reporter {

@@ -869,7 +869,8 @@ Status CloudEnvImpl::LoadLocalCloudManifest(
   return s;
 }
 
-std::string RemapFilenameWithCloudManifest(const std::string& logical_path, CloudManifest* cloud_manifest) {
+std::string RemapFilenameWithCloudManifest(const std::string& logical_path,
+                                           CloudManifest* cloud_manifest) {
   auto file_name = basename(logical_path);
   uint64_t fileNumber;
   FileType type;
@@ -2053,27 +2054,26 @@ Status CloudEnvImpl::CheckValidity() const {
   }
 }
 
-Status CloudEnvImpl::FindAllLiveFiles(const std::string& bucket,
-                                      const std::string& object_path,
+Status CloudEnvImpl::FindAllLiveFiles(const std::string& local_dbname,
                                       std::vector<std::string>* live_sst_files,
                                       std::string* manifest_file) {
-  std::unique_ptr<ManifestReader> extractor(
-      new ManifestReader(info_log_, this, bucket));
+  std::unique_ptr<LocalManifestReader> extractor(
+      new LocalManifestReader(info_log_, this));
   std::set<uint64_t> file_nums;
-  std::unique_ptr<CloudManifest> cloud_manifest;
-  auto st = extractor->GetLiveFilesAndCloudManifest(object_path, &file_nums,
-                                                    &cloud_manifest);
+  auto st = extractor->GetLiveFilesLocally(local_dbname, &file_nums);
   if (!st.ok()) {
     return st;
   }
-  std::string current_epoch = cloud_manifest->GetCurrentEpoch().ToString();
+
   live_sst_files->resize(file_nums.size());
-  *manifest_file = ManifestFileWithEpoch(object_path, current_epoch);
+
+  // filename will be remapped correctly based on current_epoch of cloud_manifest
+  *manifest_file =
+      RemapFilename(ManifestFileWithEpoch("" /* dbname */, "" /* epoch */));
   size_t idx = 0;
   for (auto num : file_nums) {
-    std::string logical_path = MakeTableFileName(object_path, num);
-    (*live_sst_files)[idx] =
-        RemapFilenameWithCloudManifest(logical_path, cloud_manifest.get());
+    std::string logical_path = MakeTableFileName("" /* path */, num);
+    (*live_sst_files)[idx] = RemapFilename(logical_path);
     idx++;
   }
   return Status::OK();
