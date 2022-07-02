@@ -2111,7 +2111,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  private native PrepopulateBlobCache prepopulateBlobCache() {
+  public PrepopulateBlobCache prepopulateBlobCache() {
     return PrepopulateBlobCache.getPrepopulateBlobCache(prepopulateBlobCache(nativeHandle_));
   }
 

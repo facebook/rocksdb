@@ -56,8 +56,7 @@ public enum PrepopulateBlobCache {
    * @throws IllegalArgumentException If PrepopulateBlobCache cannot be found for the
    *   provided byteIdentifier
    */
-  public static PrepopulateBlobCache
-  getPrepopulateBlobCache(byte byteIdentifier) {
+  public static PrepopulateBlobCache getPrepopulateBlobCache(byte byteIdentifier) {
     for (final PrepopulateBlobCache prepopulateBlobCache : PrepopulateBlobCache.values()) {
       if (prepopulateBlobCache.getValue() == byteIdentifier) {
         return prepopulateBlobCache;
@@ -77,8 +76,7 @@ public enum PrepopulateBlobCache {
    *
    * @return PrepopulateBlobCache instance (optional)
    */
-  static PrepopulateBlobCache
-  getFromInternal(final String internalName) {
+  static PrepopulateBlobCache getFromInternal(final String internalName) {
     for (final PrepopulateBlobCache prepopulateBlobCache : PrepopulateBlobCache.values()) {
       if (prepopulateBlobCache.internalName_.equals(internalName)) {
         return prepopulateBlobCache;
@@ -94,8 +92,7 @@ public enum PrepopulateBlobCache {
    *
    * @return byte representation
    */
-  public byte
-  getValue() {
+  public byte getValue() {
     return value_;
   }
 
@@ -105,8 +102,7 @@ public enum PrepopulateBlobCache {
    *
    * @return library name
    */
-  public String
-  getLibraryName() {
+  public String getLibraryName() {
     return libraryName_;
   }
 
