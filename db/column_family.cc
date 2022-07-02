@@ -1509,6 +1509,17 @@ FSDirectory* ColumnFamilyData::GetDataDir(size_t path_id) const {
   return data_dirs_[path_id].get();
 }
 
+SequenceNumber ColumnFamilyData::GetFirstMemtableSequenceNumber() const {
+  SequenceNumber mem_seqno = mem_->GetFirstSequenceNumber();
+  // seqno 0 means no key is inserted, memtable is empty
+  if (mem_seqno == 0) {
+    mem_seqno = kMaxSequenceNumber;
+  }
+  SequenceNumber first_mem_seqno =
+      std::min(mem_seqno, imm_.current()->GetFirstSequenceNumber());
+  return first_mem_seqno;
+}
+
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const ImmutableDBOptions* db_options,
                                  const FileOptions& file_options,

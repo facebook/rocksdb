@@ -1504,6 +1504,9 @@ db_table_properties_test: $(OBJ_DIR)/db/db_table_properties_test.o $(TEST_LIBRAR
 log_write_bench: $(OBJ_DIR)/util/log_write_bench.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK) $(PROFILING_FLAGS)
 
+seqno_time_test: $(OBJ_DIR)/db/seqno_time_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 plain_table_db_test: $(OBJ_DIR)/db/plain_table_db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
