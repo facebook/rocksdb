@@ -287,25 +287,37 @@ TEST_F(FastLRUCacheTest, ValidateKeySize) {
 }
 
 TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
-  size_t capacity = 1024;
-  size_t estimated_value_size = 1;
-  CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
-  double max_occupancy =
-      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
-  int hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                      metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  size_t capacity;
+  size_t estimated_value_size;
+  double max_occupancy;
+  int hash_bits;
+  CacheMetadataChargePolicy metadata_charge_policy;
 
-  capacity = 1024;
-  estimated_value_size = 1;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  max_occupancy =
-      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  // Vary the cache capacity, fix the element charge.
+  for (int i = 0; i < 2048; i++) {
+    capacity = i;
+    estimated_value_size = 0;
+    metadata_charge_policy = kFullChargeCacheMetadata;
+    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
+                                     metadata_charge_policy);
+    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                    metadata_charge_policy);
+    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  }
 
-  // No elements fit in cache.
+  // Fix the cache capacity, vary the element charge.
+  for (int i = 0; i < 1024; i++) {
+    capacity = 1024;
+    estimated_value_size = i;
+    metadata_charge_policy = kFullChargeCacheMetadata;
+    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
+                                     metadata_charge_policy);
+    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                    metadata_charge_policy);
+    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  }
+
+  // Zero-capacity cache, and only values have charge.
   capacity = 0;
   estimated_value_size = 1;
   metadata_charge_policy = kDontChargeCacheMetadata;
@@ -313,25 +325,25 @@ TEST_F(FastLRUCacheTest, CalcHashBitsTest) {
                                   metadata_charge_policy);
   EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
 
-  // Set the capacity just below a single handle. Because the load factor is <
-  // 100% at least one handle will fit in the table.
-  estimated_value_size = 1;
-  size_t handle_charge = CalcEstimatedHandleChargeWrapper(
-      8192 /* estimated_value_size */, kDontChargeCacheMetadata);
-  capacity = handle_charge - 1;
-  // The load factor should be bounded away from 100%.
-  assert(static_cast<size_t>(capacity / fast_lru_cache::kLoadFactor) >
-         handle_charge);
-  metadata_charge_policy = kDontChargeCacheMetadata;
-  max_occupancy =
-      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
+  // Zero-capacity cache, and only metadata has charge.
+  capacity = 0;
+  estimated_value_size = 0;
+  metadata_charge_policy = kFullChargeCacheMetadata;
   hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
                                   metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
+
+  // Small cache, large elements.
+  capacity = 1024;
+  estimated_value_size = 8192;
+  metadata_charge_policy = kFullChargeCacheMetadata;
+  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
+                                  metadata_charge_policy);
+  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
 
   // Large capacity.
   capacity = 31924172;
-  estimated_value_size = 321;
+  estimated_value_size = 8192;
   metadata_charge_policy = kFullChargeCacheMetadata;
   max_occupancy =
       CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);

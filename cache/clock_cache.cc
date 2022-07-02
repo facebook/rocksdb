@@ -289,14 +289,11 @@ int ClockCacheShard::CalcHashBits(
     CacheMetadataChargePolicy metadata_charge_policy) {
   size_t handle_charge =
       CalcEstimatedHandleCharge(estimated_value_size, metadata_charge_policy);
+  assert(handle_charge > 0);
   uint32_t num_entries =
-      static_cast<uint32_t>(capacity / (kLoadFactor * handle_charge));
-
-  if (num_entries == 0) {
-    return 0;
-  }
-  int hash_bits = FloorLog2(num_entries);
-  return hash_bits + (size_t{1} << hash_bits < num_entries ? 1 : 0);
+      static_cast<uint32_t>(capacity / (kLoadFactor * handle_charge)) + 1;
+  assert(num_entries <= uint32_t{1} << 31);
+  return FloorLog2((num_entries << 1) - 1);
 }
 
 void ClockCacheShard::SetCapacity(size_t capacity) {
@@ -516,6 +513,8 @@ ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
                        int num_shard_bits, bool strict_capacity_limit,
                        CacheMetadataChargePolicy metadata_charge_policy)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
+  assert(estimated_value_size > 0 ||
+         metadata_charge_policy != kDontChargeCacheMetadata);
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<ClockCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(ClockCacheShard) * num_shards_));
