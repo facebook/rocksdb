@@ -307,7 +307,7 @@ class ClockHandleTable {
 };  // class ClockHandleTable
 
 // A single shard of sharded cache.
-class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
+class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard32 {
  public:
   ClockCacheShard(size_t capacity, size_t estimated_value_size,
                   bool strict_capacity_limit,
@@ -427,7 +427,7 @@ class ClockCache
 #ifdef NDEBUG
     final
 #endif
-    : public ShardedCache {
+    : public ShardedCache32 {
  public:
   ClockCache(size_t capacity, size_t estimated_value_size, int num_shard_bits,
              bool strict_capacity_limit,
@@ -435,8 +435,8 @@ class ClockCache
                  kDontChargeCacheMetadata);
   ~ClockCache() override;
   const char* Name() const override { return "ClockCache"; }
-  CacheShard* GetShard(uint32_t shard) override;
-  const CacheShard* GetShard(uint32_t shard) const override;
+  CacheShard32* GetShard(uint32_t shard) override;
+  const CacheShard32* GetShard(uint32_t shard) const override;
   void* Value(Handle* handle) override;
   size_t GetCharge(Handle* handle) const override;
   uint32_t GetHash(Handle* handle) const override;
