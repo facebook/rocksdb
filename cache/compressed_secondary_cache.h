@@ -90,7 +90,8 @@ class CompressedSecondaryCache : public SecondaryCache {
     CacheValueChunk* next;
   };
 
-  CacheValueChunk* SplitValueIntoChunks(const std::string& value);
+  void SplitValueIntoChunks(const std::string& value,
+                            CacheValueChunk* chunk_ptr, size_t& new_size);
   std::string* MergeChunks(void* chunk, size_t size);
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;

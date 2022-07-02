@@ -119,8 +119,14 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
     val = Slice(compressed_val);
     size = compressed_val.size();
-    ptr = AllocateBlock(size, cache_options_.memory_allocator.get());
-    memcpy(ptr.get(), compressed_val.data(), size);
+    // ptr = AllocateBlock(size, cache_options_.memory_allocator.get());
+    // memcpy(ptr.get(), compressed_val.data(), size);
+    CacheValueChunk* val_ptr = new CacheValueChunk();
+    // CompressedSecondaryCache::CacheValueChunk* val_ptr =
+    SplitValueIntoChunks(compressed_val, val_ptr, size);
+    ptr =
+        AllocateBlock(sizeof(*val_ptr), cache_options_.memory_allocator.get());
+    memcpy(ptr.get(), val_ptr, sizeof(*val_ptr));
   }
 
   CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
@@ -145,17 +151,19 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
   return ret;
 }
 
-CompressedSecondaryCache::CacheValueChunk*
-CompressedSecondaryCache::SplitValueIntoChunks(const std::string& value) {
+void CompressedSecondaryCache::SplitValueIntoChunks(const std::string& value,
+                                                    CacheValueChunk* chunk_ptr,
+                                                    size_t& size) {
   assert(!value.empty());
   // TODO how to deal with empty value
   auto src_ptr = value.data();
   // for proper size, memcpy chunks into CompressedSecondaryCacheValue
-  size_t src_size = value.size();
+  size_t src_size = size;
   CacheAllocationPtr ptr;
-  CacheValueChunk* res = new CacheValueChunk();
-  CacheValueChunk* current_chunk = res;
+
+  CacheValueChunk* current_chunk = chunk_ptr;
   while (src_size > 0) {
+    size += sizeof(current_chunk);
     if (src_size <= malloc_bin_sizes_.front()) {
       ptr = AllocateBlock(src_size, cache_options_.memory_allocator.get());
       memcpy(ptr.get(), src_ptr, src_size);
@@ -190,8 +198,6 @@ CompressedSecondaryCache::SplitValueIntoChunks(const std::string& value) {
       current_chunk = next_chunk;
     }
   }
-
-  return res;
 }
 
 std::string* CompressedSecondaryCache::MergeChunks(void* chunk, size_t size) {}
