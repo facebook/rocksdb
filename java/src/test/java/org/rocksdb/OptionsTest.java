@@ -1037,7 +1037,7 @@ public class OptionsTest {
   public void prepopulateBlobCache() {
     try (final Options options = new Options()) {
       for (final PrepopulateBlobCache prepopulateBlobCache : PrepopulateBlobCache.values()) {
-        options.setPrepopulateBlobCache(PrepopulateBlobCache);
+        options.setPrepopulateBlobCache(prepopulateBlobCache);
         assertThat(options.prepopulateBlobCache()).isEqualTo(prepopulateBlobCache);
         assertThat(PrepopulateBlobCache.valueOf("PREPOPULATE_BLOB_DISABLE"))
             .isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
