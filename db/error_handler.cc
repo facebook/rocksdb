@@ -359,7 +359,7 @@ const Status& ErrorHandler::HandleKnownErrors(const Status& bg_err,
     }
   }
   if (bg_error_.severity() >= Status::Severity::kHardError) {
-    stop_state_.store(true, std::memory_order_release);
+    is_db_stopped_.store(true, std::memory_order_release);
   }
   return bg_error_;
 }
@@ -739,7 +739,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
         Status old_bg_error = bg_error_;
-        stop_state_.store(false, std::memory_order_release);
+        is_db_stopped_.store(false, std::memory_order_release);
         bg_error_ = Status::OK();
         bg_error_.PermitUncheckedError();
         EventHelpers::NotifyOnErrorRecoveryEnd(
@@ -797,7 +797,7 @@ void ErrorHandler::CheckAndSetRecoveryAndBGError(const Status& bg_err) {
     bg_error_ = bg_err;
   }
   if (bg_error_.severity() >= Status::Severity::kHardError) {
-    stop_state_.store(true, std::memory_order_release);
+    is_db_stopped_.store(true, std::memory_order_release);
   }
   return;
 }
