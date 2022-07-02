@@ -2105,14 +2105,14 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setPrepopulateBlobCache(final byte prepopulateBlobCache) {
-    setPrepopulateBlobCache(nativeHandle_, prepopulateBlobCache);
+  public Options setPrepopulateBlobCache(final PrepopulateBlobCache prepopulateBlobCache) {
+    setPrepopulateBlobCache(nativeHandle_, prepopulateBlobCache.getValue());
     return this;
   }
 
   @Override
-  private native byte prepopulateBlobCache() {
-    return prepopulateBlobCache(nativeHandle_);
+  private native PrepopulateBlobCache prepopulateBlobCache() {
+    return PrepopulateBlobCache.getPrepopulateBlobCache(prepopulateBlobCache(nativeHandle_));
   }
 
   //

@@ -3049,7 +3049,16 @@ void InitializeOptionsFromFlags(
         exit(1);
       }
     }
-    options.prepopulate_blob_cache = FLAGS_prepopulate_blob_cache;
+    switch (FLAGS_prepopulate_blob_cache) {
+      case 0:
+        options.prepopulate_blob_cache = kPrepopulateBlobDisable;
+        break;
+      case 1:
+        options.prepopulate_blob_cache = kPrepopulateBlobFlushOnly;
+        break;
+      default:
+        fprintf(stderr, "Unknown prepopulate blob cache mode\n");
+    }
   }
 
   options.wal_compression =

@@ -20,7 +20,7 @@ package org.rocksdb;
 public enum PrepopulateBlobCache {
   PREPOPULATE_BLOB_DISABLE((byte) 0x0, "prepopulate_blob_disable", "kPrepopulateBlobDisable"),
   PREPOPULATE_BLOB_FLUSH_ONLY(
-      (byte) 0x1, "prepopulate_blob_flush_only", "kPrepopulateBlobFlushOnly"),
+      (byte) 0x1, "prepopulate_blob_flush_only", "kPrepopulateBlobFlushOnly");
 
   /**
    * <p>Get the PrepopulateBlobCache enumeration value by
