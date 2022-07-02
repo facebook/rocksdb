@@ -9,32 +9,31 @@
 
 #pragma once
 
-#include <atomic>
-#include <string>
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 
-#include "util/math.h"
-#include "util/mutexlock.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "util/hash.h"
-
+#include "util/math.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // Single cache shard interface.
-template<typename T>
+template <typename T>
 class CacheShard {
  public:
   CacheShard() = default;
   virtual ~CacheShard() = default;
 
   using DeleterFn = Cache::DeleterFn;
-  virtual Status Insert(const Slice& key, T hash, void* value,
-                        size_t charge, DeleterFn deleter,
-                        Cache::Handle** handle, Cache::Priority priority) = 0;
+  virtual Status Insert(const Slice& key, T hash, void* value, size_t charge,
+                        DeleterFn deleter, Cache::Handle** handle,
+                        Cache::Priority priority) = 0;
   virtual Status Insert(const Slice& key, T hash, void* value,
                         const Cache::CacheItemHelper* helper, size_t charge,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
@@ -85,16 +84,16 @@ class CacheShard {
 //    inline static uint32_t extract(T hash, uint32_t shard_mask).
 //    This function computes the index of a shard, given a hash and the shard
 //    mask.
-template<typename T, typename Hasher, typename ShardExtractor>
+template <typename T, typename Hasher, typename ShardExtractor>
 class ShardedCache : public Cache {
  public:
   ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-               std::shared_ptr<MemoryAllocator> memory_allocator = nullptr) :
-      Cache(std::move(memory_allocator)),
-      shard_mask_((uint32_t{1} << num_shard_bits) - 1),
-      capacity_(capacity),
-      strict_capacity_limit_(strict_capacity_limit),
-      last_id_(1) {}
+               std::shared_ptr<MemoryAllocator> memory_allocator = nullptr)
+      : Cache(std::move(memory_allocator)),
+        shard_mask_((uint32_t{1} << num_shard_bits) - 1),
+        capacity_(capacity),
+        strict_capacity_limit_(strict_capacity_limit),
+        last_id_(1) {}
 
   virtual ~ShardedCache() = default;
   virtual CacheShard<T>* GetShard(uint32_t shard) = 0;
@@ -160,7 +159,8 @@ class ShardedCache : public Cache {
     return GetShard(Shard(hash))->Release(handle, useful, erase_if_last_ref);
   }
 
-  virtual bool Release(Handle* handle, bool erase_if_last_ref = false) override {
+  virtual bool Release(Handle* handle,
+                       bool erase_if_last_ref = false) override {
     T hash = GetHash(handle);
     return GetShard(Shard(hash))->Release(handle, erase_if_last_ref);
   }
@@ -189,7 +189,7 @@ class ShardedCache : public Cache {
     return last_id_.fetch_add(1, std::memory_order_relaxed);
   }
 
-  virtual size_t GetCapacity() const override  {
+  virtual size_t GetCapacity() const override {
     MutexLock l(&capacity_mutex_);
     return capacity_;
   }
@@ -263,17 +263,17 @@ class ShardedCache : public Cache {
     {
       MutexLock l(&capacity_mutex_);
       snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
-              capacity_);
+               capacity_);
       ret.append(buffer);
       snprintf(buffer, kBufferSize, "    num_shard_bits : %d\n",
-              GetNumShardBits());
+               GetNumShardBits());
       ret.append(buffer);
       snprintf(buffer, kBufferSize, "    strict_capacity_limit : %d\n",
-              strict_capacity_limit_);
+               strict_capacity_limit_);
       ret.append(buffer);
     }
     snprintf(buffer, kBufferSize, "    memory_allocator : %s\n",
-            memory_allocator() ? memory_allocator()->Name() : "None");
+             memory_allocator() ? memory_allocator()->Name() : "None");
     ret.append(buffer);
     ret.append(GetShard(0)->GetPrintableOptions());
     return ret;
@@ -297,7 +297,9 @@ class ShardedCache : public Cache {
 
  protected:
   inline T Hash(const Slice& key) { return Hasher::hash(key); }
-  inline uint32_t Shard(T hash) { return ShardExtractor::extract(hash, shard_mask_); }
+  inline uint32_t Shard(T hash) {
+    return ShardExtractor::extract(hash, shard_mask_);
+  }
 
  private:
   const uint32_t shard_mask_;
@@ -317,7 +319,7 @@ class Hasher32 {
 class ShardExtractor32 {
  public:
   inline static uint32_t extract(uint32_t hash, uint32_t shard_mask) {
-     return hash & shard_mask;
+    return hash & shard_mask;
   }
 };
 
