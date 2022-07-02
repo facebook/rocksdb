@@ -288,16 +288,13 @@ size_t LRUCacheShard::CalcEstimatedHandleCharge(
 int LRUCacheShard::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  if (capacity == 0) {
-    return 0;
-  }
   size_t handle_charge =
       CalcEstimatedHandleCharge(estimated_value_size, metadata_charge_policy);
   assert(handle_charge > 0);
   uint32_t num_entries =
       static_cast<uint32_t>(capacity / (kLoadFactor * handle_charge)) + 1;
-  int hash_bits = FloorLog2(num_entries);
-  return hash_bits + (size_t{1} << hash_bits < num_entries ? 1 : 0);
+  assert(num_entries <= uint32_t{1} << 31);
+  return FloorLog2((num_entries << 1) - 1);
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
