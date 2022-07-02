@@ -345,7 +345,7 @@ public abstract class AbstractMutableOptions {
             final PrepopulateBlobCache prepopulateBlobCache =
                 PrepopulateBlobCache.getFromInternal(valueStr);
             return setEnum(key, prepopulateBlobCache);
-          } else if (key.name().equals("blob_compression_type")) {
+          } else if (key.name().equals("compression")) {
             final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
             return setEnum(key, compressionType);
           } else {
