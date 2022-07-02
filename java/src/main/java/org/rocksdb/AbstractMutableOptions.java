@@ -341,8 +341,16 @@ public abstract class AbstractMutableOptions {
           return setIntArray(key, value);
 
         case ENUM:
-          final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
-          return setEnum(key, compressionType);
+          if (key.name().equals("prepopulate_blob_cache")) {
+            final PrepopulateBlobCache prepopulateBlobCache =
+                PrepopulateBlobCache.getFromInternal(valueStr);
+            return setEnum(key, prepopulateBlobCache);
+          } else if (key.name().equals("compression_type")) {
+            final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
+            return setEnum(key, compressionType);
+          } else {
+            throw new IllegalArgumentException("Unknown enum type: " + key.name());
+          }
 
         default:
           throw new IllegalStateException(key + " has unknown value type: " + key.getValueType());
