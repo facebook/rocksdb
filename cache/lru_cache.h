@@ -316,13 +316,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard32 {
   void SetHighPriorityPoolRatio(double high_pri_pool_ratio);
 
   // Like Cache methods, but with an extra "hash" parameter.
-  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+  virtual Status Insert(const Slice& key, const uint32_t& hash, void* value,
                         size_t charge, Cache::DeleterFn deleter,
                         Cache::Handle** handle,
                         Cache::Priority priority) override {
     return Insert(key, hash, value, charge, deleter, nullptr, handle, priority);
   }
-  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+  virtual Status Insert(const Slice& key, const uint32_t& hash, void* value,
                         const Cache::CacheItemHelper* helper, size_t charge,
                         Cache::Handle** handle,
                         Cache::Priority priority) override {
@@ -330,12 +330,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard32 {
     return Insert(key, hash, value, charge, nullptr, helper, handle, priority);
   }
   // If helper_cb is null, the values of the following arguments don't matter.
-  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+  virtual Cache::Handle* Lookup(const Slice& key, const uint32_t& hash,
                                 const ShardedCache32::CacheItemHelper* helper,
                                 const ShardedCache32::CreateCallback& create_cb,
                                 ShardedCache32::Priority priority, bool wait,
                                 Statistics* stats) override;
-  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override {
+  virtual Cache::Handle* Lookup(const Slice& key,
+                                const uint32_t& hash) override {
     return Lookup(key, hash, nullptr, nullptr, Cache::Priority::LOW, true,
                   nullptr);
   }
@@ -348,7 +349,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard32 {
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,
                        bool erase_if_last_ref = false) override;
-  virtual void Erase(const Slice& key, uint32_t hash) override;
+  virtual void Erase(const Slice& key, const uint32_t& hash) override;
 
   // Although in some platforms the update of size_t is atomic, to make sure
   // GetUsage() and GetPinnedUsage() work correctly under any platform, we'll

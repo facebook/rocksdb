@@ -24,21 +24,21 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Single cache shard interface.
-template <typename T>
+template <typename HashType>
 class CacheShard {
  public:
   CacheShard() = default;
   virtual ~CacheShard() = default;
 
   using DeleterFn = Cache::DeleterFn;
-  virtual Status Insert(const Slice& key, T hash, void* value, size_t charge,
-                        DeleterFn deleter, Cache::Handle** handle,
-                        Cache::Priority priority) = 0;
-  virtual Status Insert(const Slice& key, T hash, void* value,
+  virtual Status Insert(const Slice& key, const HashType& hash, void* value,
+                        size_t charge, DeleterFn deleter,
+                        Cache::Handle** handle, Cache::Priority priority) = 0;
+  virtual Status Insert(const Slice& key, const HashType& hash, void* value,
                         const Cache::CacheItemHelper* helper, size_t charge,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
-  virtual Cache::Handle* Lookup(const Slice& key, T hash) = 0;
-  virtual Cache::Handle* Lookup(const Slice& key, T hash,
+  virtual Cache::Handle* Lookup(const Slice& key, const HashType& hash) = 0;
+  virtual Cache::Handle* Lookup(const Slice& key, const HashType& hash,
                                 const Cache::CacheItemHelper* helper,
                                 const Cache::CreateCallback& create_cb,
                                 Cache::Priority priority, bool wait,
@@ -49,7 +49,7 @@ class CacheShard {
   virtual void Wait(Cache::Handle* handle) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
   virtual bool Release(Cache::Handle* handle, bool erase_if_last_ref) = 0;
-  virtual void Erase(const Slice& key, T hash) = 0;
+  virtual void Erase(const Slice& key, const HashType& hash) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;
@@ -76,15 +76,7 @@ class CacheShard {
 // Generic cache interface which shards cache by hash of keys. 2^num_shard_bits
 // shards will be created, with capacity split evenly to each of the shards.
 // Keys are sharded by the highest num_shard_bits bits of hash value.
-// There are three template parameters:
-// - T: The type of the hashes.
-// - Hasher: Implements inline static T hash(const Slice& s). This
-//    function computes a hash, provided a key.
-// - ShardExtractor: Implements
-//    inline static uint32_t extract(T hash, uint32_t shard_mask).
-//    This function computes the index of a shard, given a hash and the shard
-//    mask.
-template <typename T, typename Hasher, typename ShardExtractor>
+template <typename ShardHasher>
 class ShardedCache : public Cache {
  public:
   ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
@@ -96,8 +88,10 @@ class ShardedCache : public Cache {
         last_id_(1) {}
 
   virtual ~ShardedCache() = default;
-  virtual CacheShard<T>* GetShard(uint32_t shard) = 0;
-  virtual const CacheShard<T>* GetShard(uint32_t shard) const = 0;
+  virtual CacheShard<typename ShardHasher::hash_type>* GetShard(
+      uint32_t shard) = 0;
+  virtual const CacheShard<typename ShardHasher::hash_type>* GetShard(
+      uint32_t shard) const = 0;
 
   virtual uint32_t GetHash(Handle* handle) const = 0;
 
@@ -123,7 +117,7 @@ class ShardedCache : public Cache {
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         DeleterFn deleter, Handle** handle,
                         Priority priority) override {
-    T hash = Hash(key);
+    const auto& hash = Hash(key);
     return GetShard(Shard(hash))
         ->Insert(key, hash, value, charge, deleter, handle, priority);
   }
@@ -132,7 +126,7 @@ class ShardedCache : public Cache {
                         const CacheItemHelper* helper, size_t charge,
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) override {
-    T hash = Hash(key);
+    const auto& hash = Hash(key);
     if (!helper) {
       return Status::InvalidArgument();
     }
@@ -141,47 +135,47 @@ class ShardedCache : public Cache {
   }
 
   virtual Handle* Lookup(const Slice& key, Statistics* /* stats */) override {
-    T hash = Hash(key);
+    const auto& hash = Hash(key);
     return GetShard(Shard(hash))->Lookup(key, hash);
   }
 
   virtual Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
                          const CreateCallback& create_cb, Priority priority,
                          bool wait, Statistics* stats = nullptr) override {
-    T hash = Hash(key);
+    const auto& hash = Hash(key);
     return GetShard(Shard(hash))
         ->Lookup(key, hash, helper, create_cb, priority, wait, stats);
   }
 
   virtual bool Release(Handle* handle, bool useful,
                        bool erase_if_last_ref = false) override {
-    T hash = GetHash(handle);
+    const auto& hash = GetHash(handle);
     return GetShard(Shard(hash))->Release(handle, useful, erase_if_last_ref);
   }
 
   virtual bool Release(Handle* handle,
                        bool erase_if_last_ref = false) override {
-    T hash = GetHash(handle);
+    const auto& hash = GetHash(handle);
     return GetShard(Shard(hash))->Release(handle, erase_if_last_ref);
   }
 
   virtual bool IsReady(Handle* handle) override {
-    T hash = GetHash(handle);
+    const auto& hash = GetHash(handle);
     return GetShard(Shard(hash))->IsReady(handle);
   }
 
   virtual void Wait(Handle* handle) override {
-    T hash = GetHash(handle);
+    const auto& hash = GetHash(handle);
     GetShard(Shard(hash))->Wait(handle);
   }
 
   virtual bool Ref(Handle* handle) override {
-    T hash = GetHash(handle);
+    const auto& hash = GetHash(handle);
     return GetShard(Shard(hash))->Ref(handle);
   }
 
   virtual void Erase(const Slice& key) override {
-    T hash = Hash(key);
+    const auto& hash = Hash(key);
     GetShard(Shard(hash))->Erase(key, hash);
   }
 
@@ -296,9 +290,12 @@ class ShardedCache : public Cache {
   }
 
  protected:
-  inline T Hash(const Slice& key) { return Hasher::hash(key); }
-  inline uint32_t Shard(T hash) {
-    return ShardExtractor::extract(hash, shard_mask_);
+  inline typename ShardHasher::hash_type Hash(const Slice& key) const {
+    return ShardHasher::Hash(key);
+  }
+
+  inline uint32_t Shard(const typename ShardHasher::hash_type& hash) const {
+    return ShardHasher::ExtractShard(hash, shard_mask_);
   }
 
  private:
@@ -309,24 +306,23 @@ class ShardedCache : public Cache {
   std::atomic<uint64_t> last_id_;
 };
 
-class Hasher32 {
+class ShardHasher32 {
  public:
-  inline static uint32_t hash(const Slice& s) {
+  typedef uint32_t hash_type;
+
+  inline static hash_type Hash(const Slice& s) {
     return Lower32of64(GetSliceNPHash64(s));
   }
-};
 
-class ShardExtractor32 {
- public:
-  inline static uint32_t extract(uint32_t hash, uint32_t shard_mask) {
+  inline static uint32_t ExtractShard(hash_type hash, uint32_t shard_mask) {
     return hash & shard_mask;
   }
 };
 
-template class ShardedCache<uint32_t, Hasher32, ShardExtractor32>;
+template class ShardedCache<ShardHasher32>;
 
-using ShardedCache32 = ShardedCache<uint32_t, Hasher32, ShardExtractor32>;
+using ShardedCache32 = ShardedCache<ShardHasher32>;
 
-using CacheShard32 = CacheShard<uint32_t>;
+using CacheShard32 = CacheShard<ShardHasher32::hash_type>;
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -320,9 +320,9 @@ void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                             size_t charge, Cache::DeleterFn deleter,
-                             Cache::Handle** handle,
+Status LRUCacheShard::Insert(const Slice& key, const uint32_t& hash,
+                             void* value, size_t charge,
+                             Cache::DeleterFn deleter, Cache::Handle** handle,
                              Cache::Priority /*priority*/) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("FastLRUCache only supports key size " +
@@ -421,7 +421,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
+Cache::Handle* LRUCacheShard::Lookup(const Slice& key, const uint32_t& hash) {
   LRUHandle* h = nullptr;
   {
     DMutexLock l(mutex_);
@@ -486,7 +486,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   return last_reference;
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
+void LRUCacheShard::Erase(const Slice& key, const uint32_t& hash) {
   LRUHandle copy;
   bool last_reference = false;
   {

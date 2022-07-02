@@ -336,24 +336,24 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard32 {
   // the LRU list. Older items are evicted as necessary. If the cache is full
   // and free_handle_on_fail is true, the item is deleted and handle is set to
   // nullptr.
-  Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
-                Cache::DeleterFn deleter, Cache::Handle** handle,
+  Status Insert(const Slice& key, const uint32_t& hash, void* value,
+                size_t charge, Cache::DeleterFn deleter, Cache::Handle** handle,
                 Cache::Priority priority) override;
 
-  Status Insert(const Slice& key, uint32_t hash, void* value,
+  Status Insert(const Slice& key, const uint32_t& hash, void* value,
                 const Cache::CacheItemHelper* helper, size_t charge,
                 Cache::Handle** handle, Cache::Priority priority) override {
     return Insert(key, hash, value, charge, helper->del_cb, handle, priority);
   }
 
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+  Cache::Handle* Lookup(const Slice& key, const uint32_t& hash,
                         const Cache::CacheItemHelper* /*helper*/,
                         const Cache::CreateCallback& /*create_cb*/,
                         Cache::Priority /*priority*/, bool /*wait*/,
                         Statistics* /*stats*/) override {
     return Lookup(key, hash);
   }
-  Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  Cache::Handle* Lookup(const Slice& key, const uint32_t& hash) override;
 
   bool Release(Cache::Handle* handle, bool /*useful*/,
                bool erase_if_last_ref) override {
@@ -364,7 +364,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard32 {
 
   bool Ref(Cache::Handle* handle) override;
   bool Release(Cache::Handle* handle, bool erase_if_last_ref = false) override;
-  void Erase(const Slice& key, uint32_t hash) override;
+  void Erase(const Slice& key, const uint32_t& hash) override;
 
   size_t GetUsage() const override;
   size_t GetPinnedUsage() const override;

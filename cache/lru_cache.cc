@@ -410,7 +410,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
 }
 
 Cache::Handle* LRUCacheShard::Lookup(
-    const Slice& key, uint32_t hash,
+    const Slice& key, const uint32_t& hash,
     const ShardedCache32::CacheItemHelper* helper,
     const ShardedCache32::CreateCallback& create_cb, Cache::Priority priority,
     bool wait, Statistics* stats) {
@@ -578,7 +578,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return InsertItem(e, handle, /* free_handle_on_fail */ true);
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
+void LRUCacheShard::Erase(const Slice& key, const uint32_t& hash) {
   LRUHandle* e;
   bool last_reference = false;
   {
