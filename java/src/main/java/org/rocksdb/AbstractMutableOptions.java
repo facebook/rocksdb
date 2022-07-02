@@ -341,11 +341,13 @@ public abstract class AbstractMutableOptions {
           return setIntArray(key, value);
 
         case ENUM:
-          if (key.name().equals("prepopulate_blob_cache")) {
+          String optionName = key.name();
+          if (optionName.equals("prepopulate_blob_cache")) {
             final PrepopulateBlobCache prepopulateBlobCache =
                 PrepopulateBlobCache.getFromInternal(valueStr);
             return setEnum(key, prepopulateBlobCache);
-          } else if (key.name().equals("compression")) {
+          } else if (optionName.equals("compression")
+              || optionName.equals("blob_compression_type")) {
             final CompressionType compressionType = CompressionType.getFromInternal(valueStr);
             return setEnum(key, compressionType);
           } else {
