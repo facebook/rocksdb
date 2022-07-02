@@ -134,8 +134,7 @@ public class MutableColumnFamilyOptionsTest {
     assertThat(cf.minBlobSize()).isEqualTo(65536);
     assertThat(cf.blobCompactionReadaheadSize()).isEqualTo(262144);
     assertThat(cf.blobFileStartingLevel()).isEqualTo(5);
-    assertThat(cf.prepopulateBlobCache())
-        .isEqualTo(MutableColumnFamilyOptions.PrepopulateBlobCache.DISABLE);
+    assertThat(cf.prepopulateBlobCache()).isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
     assertThat(cf.targetFileSizeBase()).isEqualTo(67108864);
     assertThat(cf.maxBytesForLevelBase()).isEqualTo(268435456);
     assertThat(cf.softPendingCompactionBytesLimit()).isEqualTo(68719476736L);
