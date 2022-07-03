@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -78,12 +79,15 @@ class BlobFileBuilder {
   Status CloseBlobFile();
   Status CloseBlobFileIfNeeded();
 
+  Status PutBlobIntoCache(const Slice& key, const Slice& blob) const;
+
   std::function<uint64_t()> file_number_generator_;
   FileSystem* fs_;
   const ImmutableOptions* immutable_options_;
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
   CompressionType blob_compression_type_;
+  PrepopulateBlobCache prepopulate_blob_cache_;
   const FileOptions* file_options_;
   int job_id_;
   uint32_t column_family_id_;

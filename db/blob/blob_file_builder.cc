@@ -64,6 +64,7 @@ BlobFileBuilder::BlobFileBuilder(
       min_blob_size_(mutable_cf_options->min_blob_size),
       blob_file_size_(mutable_cf_options->blob_file_size),
       blob_compression_type_(mutable_cf_options->blob_compression_type),
+      prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
       job_id_(job_id),
       column_family_id_(column_family_id),
@@ -106,6 +107,35 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   Slice blob = value;
+
+  if (immutable_options_->blob_cache) {
+    bool warm_cache;
+
+    switch (prepopulate_blob_cache_) {
+      case kPrepopulateBlobFlushOnly:
+        warm_cache = (creation_reason_ == BlobFileCreationReason::kFlush);
+        break;
+      case kPrepopulateBlobDisable:
+        warm_cache = false;
+        break;
+      default:
+        // missing case
+        assert(false);
+        warm_cache = false;
+    }
+
+    if (warm_cache) {
+      if (blob_compression_type_ == kNoCompression) {
+        const Status s = PutBlobIntoCache(key, value);
+        if (!s.ok()) {
+          ROCKS_LOG_WARN(immutable_options_->info_log,
+                         "Failed to pre-populate the blob into blob cache: %s",
+                         s.ToString().c_str());
+        }
+      }
+    }
+  }
+
   std::string compressed_blob;
 
   {
@@ -372,4 +402,44 @@ void BlobFileBuilder::Abandon(const Status& s) {
   blob_count_ = 0;
   blob_bytes_ = 0;
 }
+
+Status BlobFileBuilder::PutBlobIntoCache(const Slice& key,
+                                         const Slice& blob) const {
+  assert(immutable_options_);
+  assert(immutable_options_->blob_cache);
+
+  auto blob_cache = immutable_options_->blob_cache.get();
+  auto statistics = immutable_options_->statistics.get();
+
+  const Cache::Priority priority = Cache::Priority::LOW;
+
+  // The objects that go into the cache must be heap-allocated, self-contained,
+  // and possess their own contents. The Cache has to be able to take unique
+  // ownership of them. Therefore, we copy the blob into a string directly, and
+  // insert that string into the cache.
+  std::string* buf = new std::string();
+  buf->assign(blob.data(), blob.size());
+
+  // TODO: support custom allocators and provide a better estimated memory
+  // usage using malloc_usable_size.
+  size_t charge = buf->size();
+  Cache::Handle* cache_handle = nullptr;
+
+  const Status s =
+      blob_cache->Insert(key, buf, charge, &DeleteCacheEntry<std::string>,
+                         &cache_handle, priority);
+
+  if (s.ok()) {
+    assert(cache_handle != nullptr);
+    RecordTick(statistics, BLOB_DB_CACHE_ADD);
+    RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE,
+               blob_cache->GetUsage(cache_handle));
+    blob_cache->Release(cache_handle, false /* erase_if_last_ref */);
+  } else {
+    RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
+  }
+
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
