@@ -48,8 +48,8 @@ class BlobSource {
   // sets "*bytes_read" to the size of on-disk (possibly compressed) blob
   // record.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 uint64_t file_number, uint64_t offset, uint64_t file_size,
-                 uint64_t value_size, CompressionType compression_type,
+                 uint64_t file_number, uint64_t offset, uint64_t value_size,
+                 CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
 
@@ -88,7 +88,7 @@ class BlobSource {
   //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
   //  records.
   void MultiGetBlobFromOneFile(const ReadOptions& read_options,
-                               uint64_t file_number, uint64_t file_size,
+                               uint64_t file_number,
                                autovector<BlobReadRequest>& blob_reqs,
                                uint64_t* bytes_read);
 
@@ -99,8 +99,7 @@ class BlobSource {
                                                blob_file_reader);
   }
 
-  bool TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
-                        uint64_t offset) const;
+  bool TEST_BlobInCache(uint64_t file_number, uint64_t offset) const;
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
@@ -116,10 +115,14 @@ class BlobSource {
                               size_t charge, Cache::Handle** cache_handle,
                               Cache::Priority priority) const;
 
-  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
-                              uint64_t offset) const {
-    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
-                                      file_size);
+  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t offset) const {
+    // The actual file size is not used in the cache key. This is because we
+    // want to support the feature of prepopulating/warming the blob cache
+    // during flush, and we don't know the exact size of the blob file in the
+    // middle of the flush.
+    OffsetableCacheKey base_cache_key(
+        db_id_, db_session_id_, file_number,
+        std::numeric_limits<uint64_t>::max() /* file size */);
     return base_cache_key.WithOffset(offset);
   }
 

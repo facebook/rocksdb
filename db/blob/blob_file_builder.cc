@@ -32,9 +32,9 @@ BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    int job_id, uint32_t column_family_id,
-    const std::string& column_family_name, Env::IOPriority io_priority,
-    Env::WriteLifeTimeHint write_hint,
+    const std::string db_id, std::string db_session_id, int job_id,
+    uint32_t column_family_id, const std::string& column_family_name,
+    Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
@@ -42,17 +42,18 @@ BlobFileBuilder::BlobFileBuilder(
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
                       immutable_options, mutable_cf_options, file_options,
-                      job_id, column_family_id, column_family_name, io_priority,
-                      write_hint, io_tracer, blob_callback, creation_reason,
-                      blob_file_paths, blob_file_additions) {}
+                      db_id, db_session_id, job_id, column_family_id,
+                      column_family_name, io_priority, write_hint, io_tracer,
+                      blob_callback, creation_reason, blob_file_paths,
+                      blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    int job_id, uint32_t column_family_id,
-    const std::string& column_family_name, Env::IOPriority io_priority,
-    Env::WriteLifeTimeHint write_hint,
+    const std::string db_id, std::string db_session_id, int job_id,
+    uint32_t column_family_id, const std::string& column_family_name,
+    Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback,
     BlobFileCreationReason creation_reason,
@@ -66,6 +67,8 @@ BlobFileBuilder::BlobFileBuilder(
       blob_compression_type_(mutable_cf_options->blob_compression_type),
       prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
+      db_id_(db_id),
+      db_session_id_(db_session_id),
       job_id_(job_id),
       column_family_id_(column_family_id),
       column_family_name_(column_family_name),
@@ -107,39 +110,10 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   Slice blob = value;
-
-  if (immutable_options_->blob_cache) {
-    bool warm_cache;
-
-    switch (prepopulate_blob_cache_) {
-      case kPrepopulateBlobFlushOnly:
-        warm_cache = (creation_reason_ == BlobFileCreationReason::kFlush);
-        break;
-      case kPrepopulateBlobDisable:
-        warm_cache = false;
-        break;
-      default:
-        // missing case
-        assert(false);
-        warm_cache = false;
-    }
-
-    if (warm_cache) {
-      if (blob_compression_type_ == kNoCompression) {
-        const Status s = PutBlobIntoCache(key, value);
-        if (!s.ok()) {
-          ROCKS_LOG_WARN(immutable_options_->info_log,
-                         "Failed to pre-populate the blob into blob cache: %s",
-                         s.ToString().c_str());
-        }
-      }
-    }
-  }
-
-  std::string compressed_blob;
+  Slice compressed_blob;
 
   {
-    const Status s = CompressBlobIfNeeded(&blob, &compressed_blob);
+    const Status s = CompressBlobIfNeeded(blob, &compressed_blob);
     if (!s.ok()) {
       return s;
     }
@@ -160,6 +134,16 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
     const Status s = CloseBlobFileIfNeeded();
     if (!s.ok()) {
       return s;
+    }
+  }
+
+  {
+    const Status s =
+        PutBlobIntoCacheIfNeeded(blob, blob_file_number, blob_offset);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_options_->info_log,
+                     "Failed to pre-populate the blob into blob cache: %s",
+                     s.ToString().c_str());
     }
   }
 
@@ -262,9 +246,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   return Status::OK();
 }
 
-Status BlobFileBuilder::CompressBlobIfNeeded(
-    Slice* blob, std::string* compressed_blob) const {
-  assert(blob);
+Status BlobFileBuilder::CompressBlobIfNeeded(const Slice& blob,
+                                             Slice* compressed_blob) const {
+  assert(!blob.empty());
   assert(compressed_blob);
   assert(compressed_blob->empty());
   assert(immutable_options_);
@@ -283,19 +267,18 @@ Status BlobFileBuilder::CompressBlobIfNeeded(
   constexpr uint32_t compression_format_version = 2;
 
   bool success = false;
-
+  std::string output;
   {
     StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
                          BLOB_DB_COMPRESSION_MICROS);
-    success =
-        CompressData(*blob, info, compression_format_version, compressed_blob);
+    success = CompressData(blob, info, compression_format_version, &output);
   }
 
   if (!success) {
     return Status::Corruption("Error compressing blob");
   }
 
-  *blob = Slice(*compressed_blob);
+  *compressed_blob = Slice(output);
 
   return Status::OK();
 }
@@ -401,6 +384,41 @@ void BlobFileBuilder::Abandon(const Status& s) {
   writer_.reset();
   blob_count_ = 0;
   blob_bytes_ = 0;
+}
+
+Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
+                                                 uint64_t blob_file_number,
+                                                 uint64_t blob_offset) const {
+  Status s = Status::OK();
+
+  if (immutable_options_->blob_cache) {
+    bool warm_cache;
+
+    switch (prepopulate_blob_cache_) {
+      case kPrepopulateBlobFlushOnly:
+        warm_cache = (creation_reason_ == BlobFileCreationReason::kFlush);
+        break;
+      case kPrepopulateBlobDisable:
+        warm_cache = false;
+        break;
+      default:
+        // missing case
+        assert(false);
+        warm_cache = false;
+    }
+
+    if (warm_cache) {
+      if (blob_compression_type_ == kNoCompression) {
+        const OffsetableCacheKey base_cache_key(
+            db_id_, db_session_id_, blob_file_number,
+            std::numeric_limits<uint64_t>::max() /* unknown blob file size */);
+        const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
+        s = PutBlobIntoCache(cache_key.AsSlice(), blob);
+      }
+    }
+  }
+
+  return s;
 }
 
 Status BlobFileBuilder::PutBlobIntoCache(const Slice& key,

@@ -113,8 +113,7 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
 
 Status BlobSource::GetBlob(const ReadOptions& read_options,
                            const Slice& user_key, uint64_t file_number,
-                           uint64_t offset, uint64_t file_size,
-                           uint64_t value_size,
+                           uint64_t offset, uint64_t value_size,
                            CompressionType compression_type,
                            FilePrefetchBuffer* prefetch_buffer,
                            PinnableSlice* value, uint64_t* bytes_read) {
@@ -122,7 +121,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   Status s;
 
-  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
+  const CacheKey cache_key = GetCacheKey(file_number, offset);
 
   CacheHandleGuard<std::string> blob_handle;
 
@@ -225,7 +224,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
   uint64_t total_bytes_read = 0;
   uint64_t bytes_read_in_file = 0;
 
-  for (auto& [file_number, file_size, blob_reqs_in_file] : blob_reqs) {
+  for (auto& [file_number, blob_reqs_in_file] : blob_reqs) {
     // sort blob_reqs_in_file by file offset.
     std::sort(
         blob_reqs_in_file.begin(), blob_reqs_in_file.end(),
@@ -233,8 +232,8 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
           return lhs.offset < rhs.offset;
         });
 
-    MultiGetBlobFromOneFile(read_options, file_number, file_size,
-                            blob_reqs_in_file, &bytes_read_in_file);
+    MultiGetBlobFromOneFile(read_options, file_number, blob_reqs_in_file,
+                            &bytes_read_in_file);
 
     total_bytes_read += bytes_read_in_file;
   }
@@ -246,7 +245,6 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
 
 void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
                                          uint64_t file_number,
-                                         uint64_t file_size,
                                          autovector<BlobReadRequest>& blob_reqs,
                                          uint64_t* bytes_read) {
   const size_t num_blobs = blob_reqs.size();
@@ -264,7 +262,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
   uint64_t total_bytes = 0;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
-                                          file_size);
+                                          std::numeric_limits<uint64_t>::max());
 
   if (blob_cache_) {
     size_t cached_blob_count = 0;
@@ -387,9 +385,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   }
 }
 
-bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
-                                  uint64_t offset) const {
-  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
+bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t offset) const {
+  const CacheKey cache_key = GetCacheKey(file_number, offset);
   const Slice key = cache_key.AsSlice();
 
   CacheHandleGuard<std::string> blob_handle;

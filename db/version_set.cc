@@ -1890,8 +1890,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
   const uint64_t blob_file_number = blob_index.file_number();
 
-  auto blob_file_meta = storage_info_.GetBlobFileMetaData(blob_file_number);
-  if (!blob_file_meta) {
+  if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
     return Status::Corruption("Invalid blob file number");
   }
 
@@ -1899,8 +1898,8 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   value->Reset();
   const Status s = blob_source_->GetBlob(
       read_options, user_key, blob_file_number, blob_index.offset(),
-      blob_file_meta->GetBlobFileSize(), blob_index.size(),
-      blob_index.compression(), prefetch_buffer, value, bytes_read);
+      blob_index.size(), blob_index.compression(), prefetch_buffer, value,
+      bytes_read);
 
   return s;
 }
@@ -1939,8 +1938,7 @@ void Version::MultiGetBlob(
           blob_index.compression(), key_context.value, key_context.s);
     }
     if (blob_reqs_in_file.size() > 0) {
-      const auto file_size = blob_file_meta->GetBlobFileSize();
-      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file);
+      blob_reqs.emplace_back(file_number, blob_reqs_in_file);
     }
   }
 

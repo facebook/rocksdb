@@ -36,7 +36,8 @@ class BlobFileBuilder {
   BlobFileBuilder(VersionSet* versions, FileSystem* fs,
                   const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, int job_id,
+                  const FileOptions* file_options, const std::string db_id,
+                  const std::string db_session_id, int job_id,
                   uint32_t column_family_id,
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
@@ -50,7 +51,8 @@ class BlobFileBuilder {
   BlobFileBuilder(std::function<uint64_t()> file_number_generator,
                   FileSystem* fs, const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, int job_id,
+                  const FileOptions* file_options, const std::string db_id,
+                  const std::string db_session_id, int job_id,
                   uint32_t column_family_id,
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
@@ -73,13 +75,15 @@ class BlobFileBuilder {
  private:
   bool IsBlobFileOpen() const;
   Status OpenBlobFileIfNeeded();
-  Status CompressBlobIfNeeded(Slice* blob, std::string* compressed_blob) const;
+  Status CompressBlobIfNeeded(const Slice& blob, Slice* compressed_blob) const;
   Status WriteBlobToFile(const Slice& key, const Slice& blob,
                          uint64_t* blob_file_number, uint64_t* blob_offset);
   Status CloseBlobFile();
   Status CloseBlobFileIfNeeded();
 
   Status PutBlobIntoCache(const Slice& key, const Slice& blob) const;
+  Status PutBlobIntoCacheIfNeeded(const Slice& blob, uint64_t blob_file_number,
+                                  uint64_t blob_offset) const;
 
   std::function<uint64_t()> file_number_generator_;
   FileSystem* fs_;
@@ -89,6 +93,8 @@ class BlobFileBuilder {
   CompressionType blob_compression_type_;
   PrepopulateBlobCache prepopulate_blob_cache_;
   const FileOptions* file_options_;
+  const std::string db_id_;
+  const std::string db_session_id_;
   int job_id_;
   uint32_t column_family_id_;
   std::string column_family_name_;

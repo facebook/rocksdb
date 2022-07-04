@@ -1432,6 +1432,112 @@ TEST_P(DBBlobBasicIOErrorTest, CompactionFilterReadBlob_IOError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 1 << 25;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.prepopulate_blob_cache = kPrepopulateBlobFlushOnly;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  const size_t kNumBlobs = 10;
+  const size_t kValueSize = 100;
+
+  std::string value(kValueSize, 'a');
+
+  for (size_t i = 1; i <= kNumBlobs; i++) {
+    ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(i, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_MISS));
+    ASSERT_EQ(i, options.statistics->getTickerCount(BLOB_DB_CACHE_HIT));
+  }
+
+  // Verify compaction not counted
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  EXPECT_EQ(kNumBlobs, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+}
+
+TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions co;
+  co.capacity = 1 << 25;
+  co.num_shard_bits = 2;
+  co.metadata_charge_policy = kDontChargeCacheMetadata;
+  auto backing_cache = NewLRUCache(co);
+
+  options.blob_cache = backing_cache;
+
+  BlockBasedTableOptions block_based_options;
+  block_based_options.no_block_cache = false;
+  block_based_options.block_cache = backing_cache;
+  block_based_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
+
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  options.prepopulate_blob_cache = kPrepopulateBlobFlushOnly;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  const size_t kNumBlobs = 10;
+  const size_t kValueSize = 100;
+
+  std::string value(kValueSize, 'a');
+
+  for (size_t i = 1; i <= 5; i++) {
+    ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(1, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+
+    ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(0,
+              options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
+    ASSERT_EQ(1, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
+  }
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"prepopulate_blob_cache", "kPrepopulateBlobDisable"}}));
+
+  for (size_t i = 6; i <= kNumBlobs; i++) {
+    ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+
+    ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(1, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(1,
+              options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
+    ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
+  }
+
+  // Verify compaction not counted
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  EXPECT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

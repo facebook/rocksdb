@@ -204,19 +204,19 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     get_perf_context()->Reset();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
 
       ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    blob_offsets[i], blob_sizes[i],
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
       total_bytes += bytes_read;
     }
 
@@ -241,11 +241,11 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
 
       ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    blob_offsets[i], blob_sizes[i],
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
@@ -258,8 +258,8 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
       ASSERT_EQ((int)get_perf_context()->blob_read_count, i + 1);
       ASSERT_EQ((int)get_perf_context()->blob_read_byte, total_bytes);
 
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
 
       ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, i + 1);
       ASSERT_EQ((int)get_perf_context()->blob_read_count, i + 1);
@@ -284,19 +284,19 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
 
       ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    blob_offsets[i], blob_sizes[i],
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
       total_bytes += bytes_read;    // on-disk blob record size
       blob_bytes += blob_sizes[i];  // cached blob value size
     }
@@ -322,19 +322,19 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
 
       ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    blob_offsets[i], blob_sizes[i],
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
       total_bytes += bytes_read;
       blob_bytes += blob_sizes[i];
     }
@@ -366,20 +366,19 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
 
       ASSERT_TRUE(blob_source
                       .GetBlob(read_options, keys[i], blob_file_number,
-                               blob_offsets[i], file_size, blob_sizes[i],
-                               kNoCompression, prefetch_buffer, &values[i],
-                               &bytes_read)
+                               blob_offsets[i], blob_sizes[i], kNoCompression,
+                               prefetch_buffer, &values[i], &bytes_read)
                       .IsIncomplete());
       ASSERT_TRUE(values[i].empty());
       ASSERT_EQ(bytes_read, 0);
 
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
     }
 
     // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
@@ -407,20 +406,17 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
     statistics->Reset().PermitUncheckedError();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, blob_offsets[i]));
 
       ASSERT_TRUE(blob_source
                       .GetBlob(read_options, keys[i], file_number,
-                               blob_offsets[i], file_size, blob_sizes[i],
-                               kNoCompression, prefetch_buffer, &values[i],
-                               &bytes_read)
+                               blob_offsets[i], blob_sizes[i], kNoCompression,
+                               prefetch_buffer, &values[i], &bytes_read)
                       .IsIOError());
       ASSERT_TRUE(values[i].empty());
       ASSERT_EQ(bytes_read, 0);
 
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, blob_offsets[i]));
     }
 
     // Retrieved the blob cache num_blobs * 3 times via TEST_BlobInCache,
@@ -505,8 +501,6 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
     CacheHandleGuard<BlobFileReader> blob_file_reader;
     ASSERT_OK(blob_source.GetBlobFileReader(file_number, &blob_file_reader));
     ASSERT_NE(blob_file_reader.GetValue(), nullptr);
-
-    const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
     ASSERT_EQ(blob_file_reader.GetValue()->GetCompressionType(), compression);
 
     for (size_t i = 0; i < num_blobs; ++i) {
@@ -519,19 +513,16 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
     get_perf_context()->Reset();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                                blob_offsets[i]));
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    compression, nullptr /*prefetch_buffer*/,
-                                    &values[i], &bytes_read));
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, blob_offsets[i]));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], file_number, blob_offsets[i], blob_sizes[i],
+          compression, nullptr /*prefetch_buffer*/, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, blob_offsets[i]));
     }
 
     ASSERT_GE((int)get_perf_context()->blob_decompress_time, 0);
@@ -540,21 +531,18 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
     get_perf_context()->Reset();
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, blob_offsets[i]));
 
       // Compressed blob size is passed in GetBlob
-      ASSERT_OK(blob_source.GetBlob(read_options, keys[i], file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
-                                    compression, nullptr /*prefetch_buffer*/,
-                                    &values[i], &bytes_read));
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], file_number, blob_offsets[i], blob_sizes[i],
+          compression, nullptr /*prefetch_buffer*/, &values[i], &bytes_read));
       ASSERT_EQ(values[i], blobs[i] /*uncompressed blob*/);
       ASSERT_NE(values[i].size(), blob_sizes[i] /*compressed size*/);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, blob_offsets[i]));
     }
 
     ASSERT_EQ((int)get_perf_context()->blob_decompress_time, 0);
@@ -652,7 +640,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
             keys[j], blob_offsets[j], blob_sizes[j], kNoCompression,
             &value_buf[i * num_blobs + j], &statuses_buf[i * num_blobs + j]);
       }
-      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file[i]);
+      blob_reqs.emplace_back(file_number, blob_reqs_in_file[i]);
     }
 
     get_perf_context()->Reset();
@@ -665,8 +653,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
       for (size_t j = 0; j < num_blobs; ++j) {
         ASSERT_OK(statuses_buf[i * num_blobs + j]);
         ASSERT_EQ(value_buf[i * num_blobs + j], blobs[j]);
-        ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                                 blob_offsets[j]));
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, blob_offsets[j]));
       }
     }
 
@@ -707,7 +694,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
     }
 
     // Add a fake multi-get blob request.
-    blob_reqs.emplace_back(fake_file_number, file_size, fake_blob_reqs_in_file);
+    blob_reqs.emplace_back(fake_file_number, fake_blob_reqs_in_file);
 
     blob_source.MultiGetBlob(read_options, blob_reqs, &bytes_read);
 
@@ -717,8 +704,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
       for (size_t j = 0; j < num_blobs; ++j) {
         ASSERT_OK(statuses_buf[i * num_blobs + j]);
         ASSERT_EQ(value_buf[i * num_blobs + j], blobs[j]);
-        ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                                 blob_offsets[j]));
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, blob_offsets[j]));
       }
     }
 
@@ -726,8 +712,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(fake_statuses_buf[i].IsIOError());
       ASSERT_TRUE(fake_value_buf[i].empty());
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(fake_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(fake_file_number, blob_offsets[i]));
     }
 
     // Retrieved all blobs from 3 blob files (including the fake one) twice
@@ -827,8 +813,8 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; i += 2) {  // even index
       blob_reqs.emplace_back(keys[i], blob_offsets[i], blob_sizes[i],
                              kNoCompression, &value_buf[i], &statuses_buf[i]);
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
     }
 
     read_options.fill_cache = true;
@@ -838,7 +824,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
 
     // Get half of blobs
     blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+                                        blob_reqs, &bytes_read);
 
     uint64_t fs_read_bytes = 0;
     uint64_t ca_read_bytes = 0;
@@ -848,14 +834,14 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
         ASSERT_EQ(value_buf[i], blobs[i]);
         fs_read_bytes +=
             blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize;
-        ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                 blob_offsets[i]));
+        ASSERT_TRUE(
+            blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
         ca_read_bytes += blob_sizes[i];
       } else {
         statuses_buf[i].PermitUncheckedError();
         ASSERT_TRUE(value_buf[i].empty());
-        ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                  blob_offsets[i]));
+        ASSERT_FALSE(
+            blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
       }
     }
 
@@ -878,19 +864,19 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
 
     // Get the rest of blobs
     for (size_t i = 1; i < num_blobs; i += 2) {  // odd index
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
 
       ASSERT_OK(blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                                    blob_offsets[i], file_size, blob_sizes[i],
+                                    blob_offsets[i], blob_sizes[i],
                                     kNoCompression, prefetch_buffer,
                                     &value_buf[i], &bytes_read));
       ASSERT_EQ(value_buf[i], blobs[i]);
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
     }
 
     // Cache-only MultiGetBlobFromOneFile
@@ -905,14 +891,14 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     }
 
     blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+                                        blob_reqs, &bytes_read);
 
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_OK(statuses_buf[i]);
       ASSERT_EQ(value_buf[i], blobs[i]);
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                               blob_offsets[i]));
+      ASSERT_TRUE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
       blob_bytes += blob_sizes[i];
     }
 
@@ -946,21 +932,21 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; i++) {
       blob_reqs.emplace_back(keys[i], blob_offsets[i], blob_sizes[i],
                              kNoCompression, &value_buf[i], &statuses_buf[i]);
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
     }
 
     get_perf_context()->Reset();
     statistics->Reset().PermitUncheckedError();
 
     blob_source.MultiGetBlobFromOneFile(read_options, blob_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+                                        blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIncomplete());
       ASSERT_TRUE(value_buf[i].empty());
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
-                                                blob_offsets[i]));
+      ASSERT_FALSE(
+          blob_source.TEST_BlobInCache(blob_file_number, blob_offsets[i]));
     }
 
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);
@@ -990,20 +976,20 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       blob_reqs.emplace_back(keys[i], blob_offsets[i], blob_sizes[i],
                              kNoCompression, &value_buf[i], &statuses_buf[i]);
       ASSERT_FALSE(blob_source.TEST_BlobInCache(non_existing_file_number,
-                                                file_size, blob_offsets[i]));
+                                                blob_offsets[i]));
     }
 
     get_perf_context()->Reset();
     statistics->Reset().PermitUncheckedError();
 
     blob_source.MultiGetBlobFromOneFile(read_options, non_existing_file_number,
-                                        file_size, blob_reqs, &bytes_read);
+                                        blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIOError());
       ASSERT_TRUE(value_buf[i].empty());
       ASSERT_FALSE(blob_source.TEST_BlobInCache(non_existing_file_number,
-                                                file_size, blob_offsets[i]));
+                                                blob_offsets[i]));
     }
 
     ASSERT_EQ((int)get_perf_context()->blob_cache_hit_count, 0);

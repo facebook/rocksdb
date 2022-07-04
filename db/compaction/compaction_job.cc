@@ -999,10 +999,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
           ? new BlobFileBuilder(
                 versions_, fs_.get(),
                 sub_compact->compaction->immutable_options(),
-                mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
-                cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
-                io_tracer_, blob_callback_, BlobFileCreationReason::kCompaction,
-                &blob_file_paths,
+                mutable_cf_options, &file_options_, db_id_, db_session_id_,
+                job_id_, cfd->GetID(), cfd->GetName(), Env::IOPriority::IO_LOW,
+                write_hint_, io_tracer_, blob_callback_,
+                BlobFileCreationReason::kCompaction, &blob_file_paths,
                 sub_compact->Current().GetBlobFileAdditionsPtr())
           : nullptr);
 
