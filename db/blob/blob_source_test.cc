@@ -159,13 +159,10 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   std::vector<Slice> keys;
   std::vector<Slice> blobs;
 
-  uint64_t file_size = BlobLogHeader::kSize;
   for (size_t i = 0; i < num_blobs; ++i) {
     keys.push_back({key_strs[i]});
     blobs.push_back({blob_strs[i]});
-    file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
   }
-  file_size += BlobLogFooter::kSize;
 
   std::vector<uint64_t> blob_offsets(keys.size());
   std::vector<uint64_t> blob_sizes(keys.size());
@@ -769,13 +766,10 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   std::vector<Slice> keys;
   std::vector<Slice> blobs;
 
-  uint64_t file_size = BlobLogHeader::kSize;
   for (size_t i = 0; i < num_blobs; ++i) {
     keys.push_back({key_strs[i]});
     blobs.push_back({blob_strs[i]});
-    file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
   }
-  file_size += BlobLogFooter::kSize;
 
   std::vector<uint64_t> blob_offsets(keys.size());
   std::vector<uint64_t> blob_sizes(keys.size());
