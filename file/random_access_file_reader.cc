@@ -467,7 +467,7 @@ IOStatus RandomAccessFileReader::ReadAsync(
   size_t alignment = file_->GetRequiredBufferAlignment();
   bool is_aligned = (req.offset & (alignment - 1)) == 0 &&
                     (req.len & (alignment - 1)) == 0 &&
-                    uintptr_t(req.scratch) % alignment == 0;
+                    (uintptr_t(req.scratch) & (alignment - 1)) == 0;
   read_async_info->is_aligned_ = is_aligned;
 
   if (use_direct_io() && is_aligned == false) {
