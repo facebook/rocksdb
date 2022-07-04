@@ -205,7 +205,7 @@ commands:
           name: "Test low-variance benchmarks"
           command: |
             cd tools
-            ./benchmark_compare.sh /tmp/rocksdb-benchmark-datadir /tmp/benchmark-results
+            ./benchmark_compare.sh /tmp/rocksdb-benchmark-datadir /tmp/benchmark-results 7.5.0
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
             DB_DIR: /tmp/rocksdb-benchmark-datadir
