@@ -116,10 +116,12 @@ class BlobSource {
                               Cache::Priority priority) const;
 
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t offset) const {
-    // The actual file size is not used in the cache key. This is because we
-    // want to support the feature of prepopulating/warming the blob cache
-    // during flush, and we don't know the exact size of the blob file in the
-    // middle of the flush.
+    // The cache key does not take the real file size into account. This is due
+    // to the fact that we want to provide the capability of warming up or
+    // pre-populating the blob cache during flush, but we are unsure of the
+    // actual size of the blob file in the middle of the flush. Therefore, we
+    // also set the file size here to the uint64 maximum value to ensure that
+    // the cache entry can be found if it exists.
     OffsetableCacheKey base_cache_key(
         db_id_, db_session_id_, file_number,
         std::numeric_limits<uint64_t>::max() /* file size */);

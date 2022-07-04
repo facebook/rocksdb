@@ -409,6 +409,11 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
     if (warm_cache) {
       if (blob_compression_type_ == kNoCompression) {
+        // The cache key does not take into account the real file size. This is
+        // because the blob file in the middle of the flush is unknown to be
+        // exactly how big it is. Therefore, we set the file size here to the
+        // uint64 maximum value to ensure that the warmed cache entries are
+        // available in subsequent inquiries.
         const OffsetableCacheKey base_cache_key(
             db_id_, db_session_id_, blob_file_number,
             std::numeric_limits<uint64_t>::max() /* unknown blob file size */);
