@@ -1476,6 +1476,7 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
   EXPECT_EQ(kNumBlobs, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
   Options options = GetDefaultOptions();
 
@@ -1537,6 +1538,7 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
                               /*end=*/nullptr));
   EXPECT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
 }
+#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
