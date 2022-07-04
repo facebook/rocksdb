@@ -248,9 +248,10 @@ void ClockCacheShard::ClockRemove(ClockHandle* h) {
   clock_usage_ -= h->total_charge;
 }
 
-void ClockCacheShard::ClockInsert(ClockHandle* h) {
+void ClockCacheShard::ClockInsert(ClockHandle* h,
+                                  ClockHandle::ClockPriority priority) {
   assert(!h->IsInClockList());
-  h->SetPriority(ClockHandle::ClockPriority::HIGH);
+  h->SetPriority(priority);
   clock_usage_ += h->total_charge;
 }
 
@@ -319,7 +320,7 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                size_t charge, Cache::DeleterFn deleter,
                                Cache::Handle** handle,
-                               Cache::Priority /*priority*/) {
+                               Cache::Priority priority) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("ClockCache only supports key size " +
                                 std::to_string(kCacheKeySize) + "B");
@@ -382,7 +383,11 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         }
       }
       if (handle == nullptr) {
-        ClockInsert(h);
+        if (priority == Cache::Priority::HIGH) {
+          ClockInsert(h, ClockHandle::ClockPriority::HIGH);
+        } else {
+          ClockInsert(h, ClockHandle::ClockPriority::MEDIUM);
+        }
       } else {
         // If caller already holds a ref, no need to take one here.
         if (!h->HasRefs()) {
@@ -448,7 +453,7 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
         table_.Remove(h);
       } else {
         // Put the item back on the clock list, and don't free it.
-        ClockInsert(h);
+        ClockInsert(h, ClockHandle::ClockPriority::HIGH);
         last_reference = false;
       }
     }

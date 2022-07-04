@@ -372,7 +372,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
  private:
   friend class ClockCache;
   void ClockRemove(ClockHandle* e);
-  void ClockInsert(ClockHandle* e);
+  void ClockInsert(ClockHandle* e, ClockHandle::ClockPriority priority);
 
   // Free some space following strict clock policy until enough space
   // to hold (usage_ + charge) is freed or the clock list is empty
