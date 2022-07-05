@@ -109,7 +109,7 @@ void ClockHandleTable::Assign(int slot, ClockHandle* h) {
   dst->displacements = disp;
   dst->SetIsVisible(true);
   dst->SetIsElement(true);
-  dst->SetPriority(ClockHandle::ClockPriority::NONE);
+  dst->SetClockPriority(ClockHandle::ClockPriority::NONE);
   occupancy_++;
 }
 
@@ -243,15 +243,18 @@ void ClockCacheShard::ApplyToSomeEntries(
 
 void ClockCacheShard::ClockRemove(ClockHandle* h) {
   assert(h->IsInClockList());
-  h->SetPriority(ClockHandle::ClockPriority::NONE);
+  h->SetClockPriority(ClockHandle::ClockPriority::NONE);
   assert(clock_usage_ >= h->total_charge);
   clock_usage_ -= h->total_charge;
 }
 
-void ClockCacheShard::ClockInsert(ClockHandle* h,
-                                  ClockHandle::ClockPriority priority) {
+void ClockCacheShard::ClockInsert(ClockHandle* h) {
   assert(!h->IsInClockList());
-  h->SetPriority(priority);
+  bool condition =
+      h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
+  h->SetClockPriority(static_cast<ClockHandle::ClockPriority>(
+      condition * ClockHandle::ClockPriority::HIGH +
+      (1 - condition) * ClockHandle::ClockPriority::MEDIUM));
   clock_usage_ += h->total_charge;
 }
 
@@ -265,7 +268,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
     if (!old->IsInClockList()) {
       continue;
     }
-    if (old->GetPriority() == ClockHandle::ClockPriority::LOW) {
+    if (old->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
       ClockRemove(old);
       table_.Remove(old);
       assert(usage_ >= old->total_charge);
@@ -273,7 +276,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
       deleted->push_back(*old);
       return;
     }
-    old->DecreasePriority();
+    old->DecreaseClockPriority();
   }
 }
 
@@ -331,6 +334,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   tmp.deleter = deleter;
   tmp.hash = hash;
   tmp.CalcTotalCharge(charge, metadata_charge_policy_);
+  tmp.SetCachePriority(priority);
   for (int i = 0; i < kCacheKeySize; i++) {
     tmp.key_data[i] = key.data()[i];
   }
@@ -383,11 +387,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         }
       }
       if (handle == nullptr) {
-        if (priority == Cache::Priority::HIGH) {
-          ClockInsert(h, ClockHandle::ClockPriority::HIGH);
-        } else {
-          ClockInsert(h, ClockHandle::ClockPriority::MEDIUM);
-        }
+        ClockInsert(h);
       } else {
         // If caller already holds a ref, no need to take one here.
         if (!h->HasRefs()) {
@@ -419,6 +419,7 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t /* hash */) {
         ClockRemove(h);
       }
       h->Ref();
+      h->SetHit();
     }
   }
   return reinterpret_cast<Cache::Handle*>(h);
@@ -453,7 +454,7 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
         table_.Remove(h);
       } else {
         // Put the item back on the clock list, and don't free it.
-        ClockInsert(h, ClockHandle::ClockPriority::HIGH);
+        ClockInsert(h);
         last_reference = false;
       }
     }
