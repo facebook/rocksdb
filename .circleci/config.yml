@@ -202,8 +202,10 @@ commands:
   perform-benchmarks-test:
     steps:
       - run:
-          name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000
+          name: "Test low-variance benchmarks - old way first, to check libgflags has rotted ? TODO (AP) -fix"
+          command: |
+            ./tools/benchmark.sh fillseq_enable_wal
+            ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
 
