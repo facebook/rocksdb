@@ -84,12 +84,14 @@ struct SstFileWriter::Rep {
 
     ikey.Set(user_key, sequence_number, value_type);
 
-    Status s = kv_validator->Add(ikey.Encode(), value);
+    Slice encoded_key = ikey.Encode();
+    Status s = kv_validator->Add(encoded_key, value);
     if (!s.ok()) {
       return s;
     }
 
-    builder->Add(ikey.Encode(), value);
+    TEST_SYNC_POINT_CALLBACK("SSTFileWriter::Add", &encoded_key);
+    builder->Add(encoded_key, value);
     // update file info
     file_info.num_entries++;
     file_info.largest_key.assign(user_key.data(), user_key.size());
