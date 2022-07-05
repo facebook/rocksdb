@@ -385,7 +385,8 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     }
 
     sst_file_reader.reset(new RandomAccessFileReader(
-        std::move(sst_file), r->file_info.file_path, /* clock */ nullptr, /* io_tracer */ nullptr));
+        std::move(sst_file), r->file_info.file_path, /* clock */ nullptr,
+        /* io_tracer */ nullptr));
 
     s = r->ioptions.table_factory->NewTableReader(
         TableReaderOptions(r->ioptions, r->mutable_cf_options.prefix_extractor,
