@@ -203,15 +203,9 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: |
-            cd tools
-            ./benchmark_compare.sh /tmp/rocksdb-benchmark-datadir /tmp/benchmark-results 7.5.0
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
-            DB_DIR: /tmp/rocksdb-benchmark-datadir
-            WAL_DIR: /tmp/rocksdb-benchmark-waldir
-            OUTPUT_DIR: /tmp/benchmark-results
-            NUM_KEYS: 10000000
 
   post-benchmarks:
     steps:
