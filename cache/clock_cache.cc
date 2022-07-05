@@ -250,11 +250,11 @@ void ClockCacheShard::ClockRemove(ClockHandle* h) {
 
 void ClockCacheShard::ClockInsert(ClockHandle* h) {
   assert(!h->IsInClockList());
-  bool condition =
+  bool is_high_priority =
       h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
   h->SetClockPriority(static_cast<ClockHandle::ClockPriority>(
-      condition * ClockHandle::ClockPriority::HIGH +
-      (1 - condition) * ClockHandle::ClockPriority::MEDIUM));
+      is_high_priority * ClockHandle::ClockPriority::HIGH +
+      (1 - is_high_priority) * ClockHandle::ClockPriority::MEDIUM));
   clock_usage_ += h->total_charge;
 }
 
