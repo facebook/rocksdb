@@ -2736,6 +2736,7 @@ void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
   assert(now > start_ts);
   uint64_t time_diff = now - start_ts;
   uint64_t ts = start_ts + (thread->rand.Next64() % time_diff);
+  ts_str.clear();
   PutFixed64(&ts_str, ts);
   ts_slice = ts_str;
   read_opts.timestamp = &ts_slice;
@@ -2766,6 +2767,7 @@ void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
   assert(now > start_ts);
   uint64_t time_diff = now - start_ts;
   uint64_t ts = start_ts + (thread->rand.Next64() % time_diff);
+  ts_str.clear();
   PutFixed64(&ts_str, ts);
   ts_slice = ts_str;
   read_opts.timestamp = &ts_slice;
