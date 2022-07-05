@@ -354,14 +354,12 @@ TEST_F(ExternalSSTFileBasicTest, BasicWithFileChecksumCrc32c) {
 }
 
 TEST_F(ExternalSSTFileBasicTest, KeyValueOrdering) {
-  SyncPoint::GetInstance()->SetCallBack(
-      "SSTFileWriter::Add", [&](void* arg) {
-          Slice key = *static_cast<Slice*>(arg);
-          assert (key.size() > 0);
-          char* buf = const_cast<char*>(key.data());
-          buf[0] = 0x0; // corrupt the first byte
-    }
-  );
+  SyncPoint::GetInstance()->SetCallBack("SSTFileWriter::Add", [&](void* arg) {
+    Slice key = *static_cast<Slice*>(arg);
+    assert(key.size() > 0);
+    char* buf = const_cast<char*>(key.data());
+    buf[0] = 0x0;  // corrupt the first byte
+  });
   Options options = CurrentOptions();
   // writes in order with paranoid checks succeed
   options.paranoid_file_checks = true;
@@ -416,7 +414,6 @@ TEST_F(ExternalSSTFileBasicTest, KeyValueOrdering) {
   ASSERT_OK(sst_file_writer_no_paranoid.Put(Key(2001), Key(2001) + "_val"));
   ASSERT_OK(sst_file_writer_no_paranoid.Finish());
   SyncPoint::GetInstance()->DisableProcessing();
-
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestFileWithFileChecksum) {
