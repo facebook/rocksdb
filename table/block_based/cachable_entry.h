@@ -119,6 +119,24 @@ public:
     ResetFields();
   }
 
+  void TransferTo(PinnableSlice* slice) {
+    if (slice) {
+      slice->data_ = value_->data();
+      slice->size_ = value_->size();
+      slice->Pin();
+      assert(slice->IsPinned());
+
+      if (cache_handle_ != nullptr) {
+        assert(cache_ != nullptr);
+        slice->RegisterCleanup(&ReleaseCacheHandle, cache_, cache_handle_);
+      } else if (own_value_) {
+        slice->RegisterCleanup(&DeleteValue, value_, nullptr);
+      }
+    }
+
+    ResetFields();
+  }
+
   void TransferTo(Cleanable* cleanable) {
     if (cleanable) {
       if (cache_handle_ != nullptr) {
@@ -229,16 +247,6 @@ private:
   Cache* cache_ = nullptr;
   Cache::Handle* cache_handle_ = nullptr;
   bool own_value_ = false;
-};
-
-template <>
-void CachableEntry<std::string>::TransferTo(Cleanable* cleanable) {
-  auto* slice = static_cast<PinnableSlice*>(cleanable);
-  slice->data_ = value_->data();
-  slice->size_ = value_->size();
-  slice->Pin();
-  assert(slice->IsPinned());
-  TransferTo(slice);
-}
+}; 
 
 }  // namespace ROCKSDB_NAMESPACE
