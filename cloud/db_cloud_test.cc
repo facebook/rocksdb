@@ -1824,7 +1824,7 @@ TEST_F(CloudTest, FileCacheLarge) {
 // Cache will have a few files only.
 TEST_F(CloudTest, FileCacheOnDemand) {
   size_t capacity = 3000;
-  int num_shard_bits = 1;
+  int num_shard_bits = 0; // 1 shard
   bool strict_capacity_limit = false;
   double high_pri_pool_ratio = 0;
 
@@ -1853,11 +1853,11 @@ TEST_F(CloudTest, FileCacheOnDemand) {
   db_->GetLiveFilesMetaData(&flist);
   EXPECT_EQ(flist.size(), 4);
 
-  // verify that there are only twp entries in the cache
+  // verify that there are only two entries in the cache
   EXPECT_EQ(cimpl->FileCacheGetNumItems(), 2);
   EXPECT_EQ(cimpl->FileCacheGetCharge(), cache->GetUsage());
 
-  // Theere should be only two local sst files.
+  // There should be only two local sst files.
   auto local_files = GetSSTFiles(dbname_);
   EXPECT_EQ(local_files.size(), 2);
 
