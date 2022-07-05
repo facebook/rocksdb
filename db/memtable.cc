@@ -374,6 +374,7 @@ class MemTableIterator : public InternalIterator {
     } else {
       iter_ = mem.table_->GetIterator(arena);
     }
+    status_.PermitUncheckedError();
   }
   // No copying allowed
   MemTableIterator(const MemTableIterator&) = delete;
