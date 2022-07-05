@@ -247,6 +247,6 @@ private:
   Cache* cache_ = nullptr;
   Cache::Handle* cache_handle_ = nullptr;
   bool own_value_ = false;
-}; 
+};
 
 }  // namespace ROCKSDB_NAMESPACE
