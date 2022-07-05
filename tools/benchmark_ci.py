@@ -64,16 +64,18 @@ def prepare(version_str, config):
             logging.debug(f"remove dir {f}")
             os.rmdir(f)
 
-    # Copy the current (presumably just built) db_bench into the run directory, adding the version number
-    # Make it executable
     db_bench_vers = f"{config.benchmark_cwd}/db_bench.{version_str}"
-    shutil.copyfile(f"{os.getcwd()}/db_bench", db_bench_vers)
-    st = os.stat(db_bench_vers)
-    os.chmod(db_bench_vers, st.st_mode | stat.S_IEXEC)
+    
+    # Create a symlink to the db_bench executable
+    os.symlink(f"{os.getcwd()}/db_bench", db_bench_vers)
 
 def results(version_str, config):
     # Copy the report TSV file back to the top level of results
     shutil.copyfile(f"{config.results_dir}/{version_str}/report.tsv", f"{config.results_dir}/report.tsv")
+
+    # Remove the symlink to the db_bench executable
+    db_bench_vers = f"{config.benchmark_cwd}/db_bench.{version_str}"
+    os.remove(db_bench_vers)
 
 def main():
     '''Tool for running benchmark_compare.sh on the most recent build, for CI
