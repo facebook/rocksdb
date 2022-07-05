@@ -129,6 +129,7 @@ LRUCacheShard::LRUCacheShard(
   lru_.next = &lru_;
   lru_.prev = &lru_;
   lru_low_pri_ = &lru_;
+  lru_bottom_pri_ = &lru_;
   SetCapacity(capacity);
 }
 
@@ -218,7 +219,14 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
   if (lru_low_pri_ == e) {
-    lru_low_pri_ = e->prev;
+    if (e->prev != lru_bottom_pri_) {
+      lru_low_pri_ = e->prev;
+    } else {
+      lru_low_pri_ = &lru_;
+    }
+  }
+  if (lru_bottom_pri_ == e) {
+    lru_bottom_pri_ = e->prev;
   }
   e->next->prev = e->prev;
   e->prev->next = e->next;
@@ -243,11 +251,25 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInHighPriPool(true);
     high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
+  } else if (e->IsBottomPri()) {
+    // Insert "e" to the head of bottom-pri pool.
+    e->next = lru_bottom_pri_->next;
+    e->prev = lru_bottom_pri_;
+    e->prev->next = e;
+    e->next->prev = e;
+    e->SetInHighPriPool(false);
+    lru_bottom_pri_ = e;
   } else {
     // Insert "e" to the head of low-pri pool. Note that when
     // high_pri_pool_ratio is 0, head of low-pri pool is also head of LRU list.
-    e->next = lru_low_pri_->next;
-    e->prev = lru_low_pri_;
+    if (lru_low_pri_ == &lru_) {
+      // The low-pri pool is empty.
+      e->next = lru_bottom_pri_->next;
+      e->prev = lru_bottom_pri_;
+    } else {
+      e->next = lru_low_pri_->next;
+      e->prev = lru_low_pri_;
+    }
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(false);

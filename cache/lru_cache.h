@@ -89,6 +89,8 @@ struct LRUHandle {
     IS_PENDING = (1 << 5),
     // Whether this handle is still in a lower tier
     IS_IN_SECONDARY_CACHE = (1 << 6),
+    // Whether this entry is bottom priority entry.
+    IS_BOTTOM_PRI = (1 << 7),
   };
 
   uint8_t flags;
@@ -132,6 +134,7 @@ struct LRUHandle {
   }
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
+  bool IsBottomPri() const { return flags & IS_BOTTOM_PRI; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -144,8 +147,13 @@ struct LRUHandle {
   void SetPriority(Cache::Priority priority) {
     if (priority == Cache::Priority::HIGH) {
       flags |= IS_HIGH_PRI;
+      flags &= ~IS_BOTTOM_PRI;
+    } else if (priority == Cache::Priority::BOTTOM) {
+      flags |= IS_BOTTOM_PRI;
+      flags &= ~IS_HIGH_PRI;
     } else {
       flags &= ~IS_HIGH_PRI;
+      flags &= ~IS_BOTTOM_PRI;
     }
   }
 
@@ -431,6 +439,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Pointer to head of low-pri pool in LRU list.
   LRUHandle* lru_low_pri_;
+
+  // Pointer to head of bottom-pri pool in LRU list.
+  LRUHandle* lru_bottom_pri_;
 
   // ------------^^^^^^^^^^^^^-----------
   // Not frequently modified data members

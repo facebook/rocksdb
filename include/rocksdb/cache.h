@@ -196,7 +196,17 @@ class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less
   // likely to get evicted than low priority entries.
-  enum class Priority { HIGH, LOW };
+  //
+  // The BOTTOM priority is mainly used for blob caching. Blobs are typically
+  // lower-value targets for caching than data blocks, since 1) with BlobDB,
+  // data blocks containing blob references conceptually form an index structure
+  // which has to be consulted before we can read the blob value, and 2) cached
+  // blobs represent only a single key-value, while cached data blocks generally
+  // contain multiple KVs. Since we would like to make it possible to use the
+  // same backing cache for the block cache and the blob cache, it would make
+  // sense to add a new, bottom cache priority level for blobs so data blocks
+  // are prioritized over them.
+  enum class Priority { HIGH, LOW, BOTTOM };
 
   // A set of callbacks to allow objects in the primary block cache to be
   // be persisted in a secondary cache. The purpose of the secondary cache
