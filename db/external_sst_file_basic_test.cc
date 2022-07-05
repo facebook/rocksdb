@@ -358,7 +358,7 @@ TEST_F(ExternalSSTFileBasicTest, KeyValueOrdering) {
     Slice key = *static_cast<Slice*>(arg);
     assert(key.size() > 0);
     char* buf = const_cast<char*>(key.data());
-    buf[0] = 0x0;  // corrupt the first byte
+    buf[0]++;  // corrupt the first byte
   });
   Options options = CurrentOptions();
   // writes in order with paranoid checks succeed
