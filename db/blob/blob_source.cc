@@ -134,13 +134,11 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_entry);
     if (s.ok() && blob_entry.GetValue()) {
-      {
-        // To avoid copying the cached blob into the buffer provided by the
-        // application, we can simply transfer ownership of the cache handle to
-        // the target PinnableSlice. This has the potential to save a lot of
-        // CPU, especially with large blob values.
-        blob_entry.TransferTo(value);
-      }
+      // To avoid copying the cached blob into the buffer provided by the
+      // application, we can simply transfer ownership of the cache handle to
+      // the target PinnableSlice. This has the potential to save a lot of
+      // CPU, especially with large blob values.
+      blob_entry.TransferTo(value);
 
       // For consistency, the size of on-disk (possibly compressed) blob record
       // is assigned to bytes_read.
