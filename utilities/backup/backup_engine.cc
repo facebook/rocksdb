@@ -1453,6 +1453,11 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           if (type == kTableFile || type == kBlobFile) {
             io_st = db_fs_->GetFileSize(src_dirname + "/" + fname, io_options_,
                                         &size_bytes, nullptr);
+            if (!io_st.ok()) {
+              Log(options_.info_log, "GetFileSize is failed: %s",
+                  io_st.ToString().c_str());
+              return io_st;
+            }
           }
           EnvOptions src_env_options;
           switch (type) {
@@ -1479,18 +1484,16 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
               src_env_options = src_raw_env_options;
               break;
           }
-          if (io_st.ok()) {
-            io_st = AddBackupFileWorkItem(
-                live_dst_paths, backup_items_to_finish, new_backup_id,
-                options_.share_table_files &&
-                    (type == kTableFile || type == kBlobFile),
-                src_dirname, fname, src_env_options, rate_limiter, type,
-                size_bytes, db_options.statistics.get(), size_limit_bytes,
-                options_.share_files_with_checksum &&
-                    (type == kTableFile || type == kBlobFile),
-                options.progress_callback, "" /* contents */,
-                checksum_func_name, checksum_val, src_temperature);
-          }
+          io_st = AddBackupFileWorkItem(
+              live_dst_paths, backup_items_to_finish, new_backup_id,
+              options_.share_table_files &&
+                  (type == kTableFile || type == kBlobFile),
+              src_dirname, fname, src_env_options, rate_limiter, type,
+              size_bytes, db_options.statistics.get(), size_limit_bytes,
+              options_.share_files_with_checksum &&
+                  (type == kTableFile || type == kBlobFile),
+              options.progress_callback, "" /* contents */, checksum_func_name,
+              checksum_val, src_temperature);
           return io_st;
         } /* copy_file_cb */,
         [&](const std::string& fname, const std::string& contents,

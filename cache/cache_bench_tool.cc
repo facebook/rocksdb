@@ -284,7 +284,9 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
+      cache_ = NewClockCache(
+          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
       if (!cache_) {
         fprintf(stderr, "Clock cache not supported.\n");
         exit(1);

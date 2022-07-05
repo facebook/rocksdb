@@ -1193,6 +1193,14 @@ TEST_F(DBBasicTestWithTimestamp, SimpleBackwardIterateLowerTsBound) {
     it->SeekToLast();
     CheckIterEntry(it.get(), "a", kTypeSingleDeletion, Slice(),
                    Timestamp(1, 0));
+
+    key_ub_str = "a";  // exclusive
+    key_ub = key_ub_str;
+    read_opts.iterate_upper_bound = &key_ub;
+    it.reset(db_->NewIterator(read_opts));
+    it->SeekToLast();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
   }
 
   Close();

@@ -278,11 +278,21 @@ Status CreateLoggerFromOptions(const std::string& dbname,
       InfoLogFileName(dbname, db_absolute_path, options.db_log_dir);
 
   const auto& clock = env->GetSystemClock();
-  // In case it does not exist
+  // In case it does not exist.
   s = env->CreateDirIfMissing(dbname);
   if (!s.ok()) {
-    return s;
+    if (options.db_log_dir.empty()) {
+      return s;
+    } else {
+      // Ignore the error returned during creation of dbname because dbname and
+      // db_log_dir can be on different filesystems in which case dbname will
+      // not exist and error should be ignored. db_log_dir creation will handle
+      // the error in case there is any error in the creation of dbname on same
+      // filesystem.
+      s = Status::OK();
+    }
   }
+  assert(s.ok());
 
   if (!options.db_log_dir.empty()) {
     s = env->CreateDirIfMissing(options.db_log_dir);

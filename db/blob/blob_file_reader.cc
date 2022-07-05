@@ -16,6 +16,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "table/multiget_context.h"
 #include "test_util/sync_point.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -374,40 +375,50 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   return Status::OK();
 }
 
-void BlobFileReader::MultiGetBlob(
-    const ReadOptions& read_options,
-    const autovector<std::reference_wrapper<const Slice>>& user_keys,
-    const autovector<uint64_t>& offsets,
-    const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
-    autovector<PinnableSlice*>& values, uint64_t* bytes_read) const {
-  const size_t num_blobs = user_keys.size();
+void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
+                                  autovector<BlobReadRequest*>& blob_reqs,
+                                  uint64_t* bytes_read) const {
+  const size_t num_blobs = blob_reqs.size();
   assert(num_blobs > 0);
-  assert(num_blobs == offsets.size());
-  assert(num_blobs == value_sizes.size());
-  assert(num_blobs == statuses.size());
-  assert(num_blobs == values.size());
+  assert(num_blobs <= MultiGetContext::MAX_BATCH_SIZE);
 
 #ifndef NDEBUG
-  for (size_t i = 0; i < offsets.size() - 1; ++i) {
-    assert(offsets[i] <= offsets[i + 1]);
+  for (size_t i = 0; i < num_blobs - 1; ++i) {
+    assert(blob_reqs[i]->offset <= blob_reqs[i + 1]->offset);
   }
 #endif  // !NDEBUG
 
-  std::vector<FSReadRequest> read_reqs(num_blobs);
+  std::vector<FSReadRequest> read_reqs;
   autovector<uint64_t> adjustments;
   uint64_t total_len = 0;
+  read_reqs.reserve(num_blobs);
   for (size_t i = 0; i < num_blobs; ++i) {
-    const size_t key_size = user_keys[i].get().size();
-    assert(IsValidBlobOffset(offsets[i], key_size, value_sizes[i], file_size_));
+    const size_t key_size = blob_reqs[i]->user_key->size();
+    const uint64_t offset = blob_reqs[i]->offset;
+    const uint64_t value_size = blob_reqs[i]->len;
+
+    if (!IsValidBlobOffset(offset, key_size, value_size, file_size_)) {
+      *blob_reqs[i]->status = Status::Corruption("Invalid blob offset");
+      continue;
+    }
+    if (blob_reqs[i]->compression != compression_type_) {
+      *blob_reqs[i]->status =
+          Status::Corruption("Compression type mismatch when reading a blob");
+      continue;
+    }
+
     const uint64_t adjustment =
         read_options.verify_checksums
             ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
             : 0;
-    assert(offsets[i] >= adjustment);
+    assert(blob_reqs[i]->offset >= adjustment);
     adjustments.push_back(adjustment);
-    read_reqs[i].offset = offsets[i] - adjustment;
-    read_reqs[i].len = value_sizes[i] + adjustment;
-    total_len += read_reqs[i].len;
+
+    FSReadRequest read_req;
+    read_req.offset = blob_reqs[i]->offset - adjustment;
+    read_req.len = blob_reqs[i]->len + adjustment;
+    read_reqs.emplace_back(read_req);
+    total_len += read_req.len;
   }
 
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, total_len);
@@ -439,9 +450,12 @@ void BlobFileReader::MultiGetBlob(
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();
     }
-    for (size_t i = 0; i < num_blobs; ++i) {
-      assert(statuses[i]);
-      *statuses[i] = s;
+    for (auto& req : blob_reqs) {
+      assert(req->status);
+      if (!req->status->IsCorruption()) {
+        // Avoid overwriting corruption status.
+        *req->status = s;
+      }
     }
     return;
   }
@@ -449,33 +463,39 @@ void BlobFileReader::MultiGetBlob(
   assert(s.ok());
 
   uint64_t total_bytes = 0;
-  for (size_t i = 0; i < num_blobs; ++i) {
-    auto& req = read_reqs[i];
-    const auto& record_slice = req.result;
+  for (size_t i = 0, j = 0; i < num_blobs; ++i) {
+    assert(blob_reqs[i]->status);
+    if (!blob_reqs[i]->status->ok()) {
+      continue;
+    }
 
-    assert(statuses[i]);
+    assert(j < read_reqs.size());
+    auto& req = read_reqs[j++];
+    const auto& record_slice = req.result;
     if (req.status.ok() && record_slice.size() != req.len) {
       req.status = IOStatus::Corruption("Failed to read data from blob file");
     }
 
-    *statuses[i] = req.status;
-    if (!statuses[i]->ok()) {
+    *blob_reqs[i]->status = req.status;
+    if (!blob_reqs[i]->status->ok()) {
       continue;
     }
 
     // Verify checksums if enabled
     if (read_options.verify_checksums) {
-      *statuses[i] = VerifyBlob(record_slice, user_keys[i], value_sizes[i]);
-      if (!statuses[i]->ok()) {
+      *blob_reqs[i]->status =
+          VerifyBlob(record_slice, *blob_reqs[i]->user_key, blob_reqs[i]->len);
+      if (!blob_reqs[i]->status->ok()) {
         continue;
       }
     }
 
     // Uncompress blob if needed
-    Slice value_slice(record_slice.data() + adjustments[i], value_sizes[i]);
-    *statuses[i] = UncompressBlobIfNeeded(value_slice, compression_type_,
-                                          clock_, statistics_, values[i]);
-    if (statuses[i]->ok()) {
+    Slice value_slice(record_slice.data() + adjustments[i], blob_reqs[i]->len);
+    *blob_reqs[i]->status =
+        UncompressBlobIfNeeded(value_slice, compression_type_, clock_,
+                               statistics_, blob_reqs[i]->result);
+    if (blob_reqs[i]->status->ok()) {
       total_bytes += record_slice.size();
     }
   }

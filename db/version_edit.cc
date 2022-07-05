@@ -799,6 +799,12 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  LastSeq: ");
     AppendNumberTo(&r, last_sequence_);
   }
+  for (const auto& level_and_compact_cursor : compact_cursors_) {
+    r.append("\n  CompactCursor: ");
+    AppendNumberTo(&r, level_and_compact_cursor.first);
+    r.append(" ");
+    r.append(level_and_compact_cursor.second.DebugString(hex_key));
+  }
   for (const auto& deleted_file : deleted_files_) {
     r.append("\n  DeleteFile: ");
     AppendNumberTo(&r, deleted_file.first);
