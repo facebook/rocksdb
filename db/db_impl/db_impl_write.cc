@@ -1722,7 +1722,8 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
 }
 
 uint64_t DBImpl::GetMaxTotalWalSize() const {
-  auto max_total_wal_size = max_total_wal_size_.load(std::memory_order_acquire);
+  uint64_t max_total_wal_size =
+      max_total_wal_size_.load(std::memory_order_acquire);
   if (max_total_wal_size > 0) {
     return max_total_wal_size;
   }

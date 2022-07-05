@@ -1861,10 +1861,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     if (s.ok()) {
-      impl->log_write_mutex_.Lock();
+      InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
-      impl->log_write_mutex_.Unlock();
     }
     if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
