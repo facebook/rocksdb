@@ -233,7 +233,7 @@ private:
 
 template <>
 void CachableEntry<std::string>::TransferTo(Cleanable* cleanable) {
-  auto* slice = reinterpret_cast<PinnableSlice*>(cleanable);
+  auto* slice = static_cast<PinnableSlice*>(cleanable);
   slice->data_ = value_->data();
   slice->size_ = value_->size();
   slice->Pin();
