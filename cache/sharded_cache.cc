@@ -10,22 +10,17 @@
 #include "cache/sharded_cache.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "util/hash.h"
 #include "util/math.h"
+#include "util/math128.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-namespace {
-
-inline uint32_t HashSlice(const Slice& s) {
-  return Lower32of64(GetSliceNPHash64(s));
-}
-
-}  // namespace
 
 ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
                            bool strict_capacity_limit,
@@ -58,7 +53,8 @@ void ShardedCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
 Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
                             DeleterFn deleter, Handle** handle,
                             Priority priority) {
-  uint32_t hash = HashSlice(key);
+  // TODO(Guido)
+  hash_t hash = HashSlice(key);
   return GetShard(Shard(hash))
       ->Insert(key, hash, value, charge, deleter, handle, priority);
 }
@@ -66,7 +62,7 @@ Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
 Status ShardedCache::Insert(const Slice& key, void* value,
                             const CacheItemHelper* helper, size_t charge,
                             Handle** handle, Priority priority) {
-  uint32_t hash = HashSlice(key);
+  hash_t hash = HashSlice(key);
   if (!helper) {
     return Status::InvalidArgument();
   }
@@ -75,7 +71,7 @@ Status ShardedCache::Insert(const Slice& key, void* value,
 }
 
 Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* /*stats*/) {
-  uint32_t hash = HashSlice(key);
+  hash_t hash = HashSlice(key);
   return GetShard(Shard(hash))->Lookup(key, hash);
 }
 
@@ -84,39 +80,39 @@ Cache::Handle* ShardedCache::Lookup(const Slice& key,
                                     const CreateCallback& create_cb,
                                     Priority priority, bool wait,
                                     Statistics* stats) {
-  uint32_t hash = HashSlice(key);
+  hash_t hash = HashSlice(key);
   return GetShard(Shard(hash))
       ->Lookup(key, hash, helper, create_cb, priority, wait, stats);
 }
 
 bool ShardedCache::IsReady(Handle* handle) {
-  uint32_t hash = GetHash(handle);
+  hash_t hash = GetHash(handle);
   return GetShard(Shard(hash))->IsReady(handle);
 }
 
 void ShardedCache::Wait(Handle* handle) {
-  uint32_t hash = GetHash(handle);
+  hash_t hash = GetHash(handle);
   GetShard(Shard(hash))->Wait(handle);
 }
 
 bool ShardedCache::Ref(Handle* handle) {
-  uint32_t hash = GetHash(handle);
+  hash_t hash = GetHash(handle);
   return GetShard(Shard(hash))->Ref(handle);
 }
 
 bool ShardedCache::Release(Handle* handle, bool erase_if_last_ref) {
-  uint32_t hash = GetHash(handle);
+  hash_t hash = GetHash(handle);
   return GetShard(Shard(hash))->Release(handle, erase_if_last_ref);
 }
 
 bool ShardedCache::Release(Handle* handle, bool useful,
                            bool erase_if_last_ref) {
-  uint32_t hash = GetHash(handle);
+  hash_t hash = GetHash(handle);
   return GetShard(Shard(hash))->Release(handle, useful, erase_if_last_ref);
 }
 
 void ShardedCache::Erase(const Slice& key) {
-  uint32_t hash = HashSlice(key);
+  hash_t hash = HashSlice(key);
   GetShard(Shard(hash))->Erase(key, hash);
 }
 
@@ -213,6 +209,7 @@ std::string ShardedCache::GetPrintableOptions() const {
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;
 }
+
 int GetDefaultCacheShardBits(size_t capacity) {
   int num_shard_bits = 0;
   size_t min_shard_size = 512L * 1024L;  // Every shard is at least 512KB.
@@ -229,5 +226,20 @@ int GetDefaultCacheShardBits(size_t capacity) {
 int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
 
 uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
+
+inline hash_t ShardedCache::HashSlice(const Slice& s) const {
+  uint64_t in_high64 = *reinterpret_cast<const uint64_t*>(s.data());
+  uint64_t in_low64 = *reinterpret_cast<const uint64_t*>(s.data() + 8);
+  uint64_t out_high64, out_low64;
+  BijectiveHash2x64(in_high64, in_low64, &out_high64, &out_low64);
+  hash_t hash;
+
+  hash[0] = Upper32of64(out_high64);
+  hash[1] = Lower32of64(out_high64);
+  hash[2] = Upper32of64(out_low64);
+  hash[3] = Lower32of64(out_low64);
+
+  return hash;
+}
 
 }  // namespace ROCKSDB_NAMESPACE

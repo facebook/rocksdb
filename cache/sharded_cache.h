@@ -9,13 +9,17 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <string>
 
+#include "cache_key.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+typedef std::array<uint32_t, kCacheKeySize / 4> hash_t;
 
 // Single cache shard interface.
 class CacheShard {
@@ -24,14 +28,15 @@ class CacheShard {
   virtual ~CacheShard() = default;
 
   using DeleterFn = Cache::DeleterFn;
-  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+
+  virtual Status Insert(const Slice& key, const hash_t& hash, void* value,
                         size_t charge, DeleterFn deleter,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
-  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+  virtual Status Insert(const Slice& key, const hash_t& hash, void* value,
                         const Cache::CacheItemHelper* helper, size_t charge,
                         Cache::Handle** handle, Cache::Priority priority) = 0;
-  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
-  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+  virtual Cache::Handle* Lookup(const Slice& key, const hash_t& hash) = 0;
+  virtual Cache::Handle* Lookup(const Slice& key, const hash_t& hash,
                                 const Cache::CacheItemHelper* helper,
                                 const Cache::CreateCallback& create_cb,
                                 Cache::Priority priority, bool wait,
@@ -42,7 +47,7 @@ class CacheShard {
   virtual void Wait(Cache::Handle* handle) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
   virtual bool Release(Cache::Handle* handle, bool erase_if_last_ref) = 0;
-  virtual void Erase(const Slice& key, uint32_t hash) = 0;
+  virtual void Erase(const Slice& key, const hash_t& hash) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;
@@ -77,7 +82,7 @@ class ShardedCache : public Cache {
   virtual CacheShard* GetShard(uint32_t shard) = 0;
   virtual const CacheShard* GetShard(uint32_t shard) const = 0;
 
-  virtual uint32_t GetHash(Handle* handle) const = 0;
+  virtual hash_t GetHash(Handle* handle) const = 0;
 
   virtual void SetCapacity(size_t capacity) override;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
@@ -117,7 +122,8 @@ class ShardedCache : public Cache {
   uint32_t GetNumShards() const;
 
  protected:
-  inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
+  uint32_t Shard(const hash_t& hash) { return hash[0] & shard_mask_; }
+  virtual hash_t HashSlice(const Slice& s) const;
 
  private:
   const uint32_t shard_mask_;
