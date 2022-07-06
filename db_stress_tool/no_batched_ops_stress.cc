@@ -363,8 +363,6 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
-    } else if (s.IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(s, thread);
     } else {
       if (error_count == 0) {
         // errors case
@@ -423,10 +421,7 @@ class NonBatchedOpsStressTest : public StressTest {
         wo.rate_limiter_priority = Env::IO_USER;
       }
       Status s = NewTxn(wo, &txn);
-      if (s.IsMemoryLimit()) {
-        VerifyOneOpMemoryLimit(s, thread);
-        return {};
-      } else if (!s.ok()) {
+      if (!s.ok()) {
         fprintf(stderr, "NewTxn: %s\n", s.ToString().c_str());
         std::terminate();
       }
@@ -464,10 +459,7 @@ class NonBatchedOpsStressTest : public StressTest {
             default:
               assert(false);
           }
-          if (s.IsMemoryLimit()) {
-            VerifyOneOpMemoryLimit(s, thread);
-            return {};
-          } else if (!s.ok()) {
+          if (!s.ok()) {
             fprintf(stderr, "Transaction put: %s\n", s.ToString().c_str());
             std::terminate();
           }
@@ -533,11 +525,7 @@ class NonBatchedOpsStressTest : public StressTest {
         } else {
           tmp_s = db_->Get(readoptionscopy, cfh, keys[i], &value);
         }
-        if (s.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(s, thread);
-        } else if (tmp_s.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(tmp_s, thread);
-        } else if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
+        if (!tmp_s.ok() && !tmp_s.IsNotFound()) {
           fprintf(stderr, "Get error: %s\n", s.ToString().c_str());
           is_consistent = false;
         } else if (!s.ok() && tmp_s.ok()) {
@@ -633,10 +621,8 @@ class NonBatchedOpsStressTest : public StressTest {
     }
 
     Status s = iter->status();
-    if (s.ok()) {
+    if (iter->status().ok()) {
       thread->stats.AddPrefixes(1, count);
-    } else if (s.IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(s, thread);
     } else {
       fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
@@ -728,9 +714,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     shared->Put(rand_column_family, rand_key, value_base, false /* pending */);
-    if (s.IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(s, thread);
-    } else if (!s.ok()) {
+    if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
@@ -791,9 +775,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       shared->Delete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddDeletes(1);
-      if (s.IsMemoryLimit()) {
-        VerifyOneOpMemoryLimit(s, thread);
-      } else if (!s.ok()) {
+      if (!s.ok()) {
         if (FLAGS_injest_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
@@ -830,9 +812,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
       shared->SingleDelete(rand_column_family, rand_key, false /* pending */);
       thread->stats.AddSingleDeletes(1);
-      if (s.IsMemoryLimit()) {
-        VerifyOneOpMemoryLimit(s, thread);
-      } else if (!s.ok()) {
+      if (!s.ok()) {
         if (FLAGS_injest_error_severity >= 2) {
           if (!is_db_stopped_ &&
               s.severity() >= Status::Severity::kFatalError) {
@@ -890,9 +870,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string end_keystr = Key(rand_key + FLAGS_range_deletion_width);
     Slice end_key = end_keystr;
     Status s = db_->DeleteRange(write_opts, cfh, key, end_key);
-    if (s.IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(s, thread);
-    } else if (!s.ok()) {
+    if (!s.ok()) {
       if (FLAGS_injest_error_severity >= 2) {
         if (!is_db_stopped_ && s.severity() >= Status::Severity::kFatalError) {
           is_db_stopped_ = true;
@@ -990,9 +968,7 @@ class NonBatchedOpsStressTest : public StressTest {
       s = db_->IngestExternalFile(column_families_[column_family],
                                   {sst_filename}, IngestExternalFileOptions());
     }
-    if (s.IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(s, thread);
-    } else if (!s.ok()) {
+    if (!s.ok()) {
       fprintf(stderr, "file ingestion error: %s\n", s.ToString().c_str());
       std::terminate();
     }

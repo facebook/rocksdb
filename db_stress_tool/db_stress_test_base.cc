@@ -8,17 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
+#include "util/compression.h"
 #ifdef GFLAGS
-
-#include <exception>
-#include <memory>
-
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_table_properties_collector.h"
-#include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/secondary_cache.h"
@@ -27,7 +23,6 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
-#include "util/compression.h"
 #include "utilities/backup/backup_engine_impl.h"
 #include "utilities/fault_injection_fs.h"
 #include "utilities/fault_injection_secondary_cache.h"
@@ -54,7 +49,7 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
 }  // namespace
 
 StressTest::StressTest()
-    : cache_(CreateCache()),
+    : cache_(NewCache(FLAGS_cache_size, FLAGS_cache_numshardbits)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size,
                                     FLAGS_compressed_cache_numshardbits)),
       filter_policy_(CreateFilterPolicy()),
@@ -111,17 +106,16 @@ StressTest::~StressTest() {
   delete cmp_db_;
 }
 
-namespace {
-std::shared_ptr<Cache> CreateBaseCache() {
-  if (FLAGS_cache_size <= 0) {
+std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
+                                            int32_t num_shard_bits) {
+  ConfigOptions config_options;
+  if (capacity <= 0) {
     return nullptr;
   }
-  const size_t capacity = static_cast<size_t>(FLAGS_cache_size);
 
-  ConfigOptions config_options;
   if (FLAGS_cache_type == "clock_cache") {
-    auto cache = NewClockCache(capacity, FLAGS_block_size,
-                               FLAGS_cache_numshardbits, FLAGS_cache_strict_capacity_limit,
+    auto cache = NewClockCache(static_cast<size_t>(capacity), FLAGS_block_size,
+                               num_shard_bits, false /*strict_capacity_limit*/,
                                kDefaultCacheMetadataChargePolicy);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
@@ -129,14 +123,13 @@ std::shared_ptr<Cache> CreateBaseCache() {
     }
     return cache;
   } else if (FLAGS_cache_type == "fast_lru_cache") {
-    return NewFastLRUCache(capacity, FLAGS_block_size, FLAGS_cache_numshardbits,
-                           FLAGS_cache_strict_capacity_limit,
+    return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
+                           num_shard_bits, false /*strict_capacity_limit*/,
                            kDefaultCacheMetadataChargePolicy);
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
-    opts.num_shard_bits = FLAGS_cache_numshardbits;
-    opts.strict_capacity_limit = FLAGS_cache_strict_capacity_limit;
+    opts.num_shard_bits = num_shard_bits;
 #ifndef ROCKSDB_LITE
     std::shared_ptr<SecondaryCache> secondary_cache;
     if (!FLAGS_secondary_cache_uri.empty()) {
@@ -160,68 +153,6 @@ std::shared_ptr<Cache> CreateBaseCache() {
   } else {
     fprintf(stderr, "Cache type not supported.");
     exit(1);
-    return nullptr;
-  }
-}
-}  // namespace
-
-std::shared_ptr<Cache> StressTest::CreateCache() {
-  class StressTestCacheWrapper : public test::CacheWrapper {
-   public:
-    StressTestCacheWrapper(StressTest* stress_test,
-                           std::shared_ptr<Cache> target)
-        : CacheWrapper(std::move(target)),
-          cache_failed_insertion_balance_(
-              stress_test->cache_failed_insertion_balance_) {}
-
-    Status Insert(const Slice& key, void* value, size_t charge,
-                  DeleterFn deleter, Handle** handle = nullptr,
-                  Priority priority = Priority::LOW) override {
-      Status s = test::CacheWrapper::Insert(key, value, charge, deleter, handle,
-                                            priority);
-      if (s.IsMemoryLimit()) {
-        ++cache_failed_insertion_balance_;
-      }
-      return s;
-    }
-    Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
-                  size_t charge, Handle** handle = nullptr,
-                  Priority priority = Priority::LOW) override {
-      Status s = test::CacheWrapper::Insert(key, value, helper, charge, handle,
-                                            priority);
-      if (s.IsMemoryLimit()) {
-        ++cache_failed_insertion_balance_;
-      }
-      return s;
-    }
-
-   private:
-    std::atomic<int64_t>& cache_failed_insertion_balance_;
-  };
-
-  std::shared_ptr<Cache> base_cache = CreateBaseCache();
-  if (base_cache) {
-    return std::make_shared<StressTestCacheWrapper>(this, base_cache);
-  } else {
-    return nullptr;
-  }
-}
-
-void StressTest::VerifyOneOpMemoryLimit(const Status& s, ThreadState* thread) {
-  assert(s.IsMemoryLimit());
-  auto after = --cache_failed_insertion_balance_;
-  if (after < 0) {
-    if (thread) {
-      thread->shared->GetMutex()->Lock();
-    }
-    fprintf(stderr,
-            "Hit MemoryLimit error without matching Cache Insert failure: %s\n",
-            s.ToString().c_str());
-    port::PrintStack();
-    std::terminate();
-  } else {
-    // TODO stat in thread state?
-    (void)thread;
   }
 }
 
@@ -776,9 +707,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_sync_wal_one_in)) {
         Status s = db_->SyncWAL();
-        if (s.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(s, thread);
-        } else if (!s.ok() && !s.IsNotSupported()) {
+        if (!s.ok() && !s.IsNotSupported()) {
           fprintf(stderr, "SyncWAL() failed: %s\n", s.ToString().c_str());
         }
       }
@@ -811,9 +740,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_flush_one_in)) {
         Status status = TestFlush(rand_column_families);
-        if (status.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(status, thread);
-        } else if (!status.ok()) {
+        if (!status.ok()) {
           fprintf(stdout, "Unable to perform Flush(): %s\n",
                   status.ToString().c_str());
         }
@@ -824,9 +751,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in) &&
           !FLAGS_write_fault_one_in) {
         Status status = VerifyGetLiveFiles();
-        if (status.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(status, thread);
-        } else if (!status.ok()) {
+        if (!status.ok()) {
           VerificationAbort(shared, "VerifyGetLiveFiles status not OK", status);
         }
       }
@@ -834,9 +759,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       // Verify GetSortedWalFiles with a 1 in N chance.
       if (thread->rand.OneInOpt(FLAGS_get_sorted_wal_files_one_in)) {
         Status status = VerifyGetSortedWalFiles();
-        if (status.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(status, thread);
-        } else if (!status.ok()) {
+        if (!status.ok()) {
           VerificationAbort(shared, "VerifyGetSortedWalFiles status not OK",
                             status);
         }
@@ -845,9 +768,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       // Verify GetCurrentWalFile with a 1 in N chance.
       if (thread->rand.OneInOpt(FLAGS_get_current_wal_file_one_in)) {
         Status status = VerifyGetCurrentWalFile();
-        if (status.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(status, thread);
-        } else if (!status.ok()) {
+        if (!status.ok()) {
           VerificationAbort(shared, "VerifyGetCurrentWalFile status not OK",
                             status);
         }
@@ -856,9 +777,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_pause_background_one_in)) {
         Status status = TestPauseBackground(thread);
-        if (status.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(status, thread);
-        } else if (!status.ok()) {
+        if (!status.ok()) {
           VerificationAbort(
               shared, "Pause/ContinueBackgroundWork status not OK", status);
         }
@@ -867,9 +786,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 #ifndef ROCKSDB_LITE
       if (thread->rand.OneInOpt(FLAGS_verify_checksum_one_in)) {
         Status status = db_->VerifyChecksum();
-        if (status.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(status, thread);
-        } else if (!status.ok()) {
+        if (!status.ok()) {
           VerificationAbort(shared, "VerifyChecksum status not OK", status);
         }
       }
@@ -899,9 +816,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
         if (total_size <= FLAGS_backup_max_size) {
           Status s = TestBackupRestore(thread, rand_column_families, rand_keys);
-          if (s.IsMemoryLimit()) {
-            VerifyOneOpMemoryLimit(s, thread);
-          } else if (!s.ok()) {
+          if (!s.ok()) {
             VerificationAbort(shared, "Backup/restore gave inconsistent state",
                               s);
           }
@@ -910,9 +825,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       if (thread->rand.OneInOpt(FLAGS_checkpoint_one_in)) {
         Status s = TestCheckpoint(thread, rand_column_families, rand_keys);
-        if (s.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(s, thread);
-        } else if (!s.ok()) {
+        if (!s.ok()) {
           VerificationAbort(shared, "Checkpoint gave inconsistent state", s);
         }
       }
@@ -921,9 +834,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       if (thread->rand.OneInOpt(FLAGS_approximate_size_one_in)) {
         Status s =
             TestApproximateSize(thread, i, rand_column_families, rand_keys);
-        if (s.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(s, thread);
-        } else if (!s.ok()) {
+        if (!s.ok()) {
           VerificationAbort(shared, "ApproximateSize Failed", s);
         }
       }
@@ -934,9 +845,7 @@ void StressTest::OperateDb(ThreadState* thread) {
 
       /*always*/ {
         Status s = MaybeReleaseSnapshots(thread, i);
-        if (s.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(s, thread);
-        } else if (!s.ok()) {
+        if (!s.ok()) {
           VerificationAbort(shared, "Snapshot gave inconsistent state", s);
         }
       }
@@ -1262,9 +1171,6 @@ Status StressTest::TestIterate(ThreadState* thread,
 
     if (s.ok()) {
       thread->stats.AddIterations(1);
-    } else if (s.IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(s, thread);
-      break;
     } else {
       fprintf(stderr, "TestIterate error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
@@ -2147,10 +2053,7 @@ Status StressTest::MaybeReleaseSnapshots(ThreadState* thread, uint64_t i) {
     db_->ReleaseSnapshot(snap_state.snapshot);
     delete snap_state.key_vec;
     thread->snapshot_queue.pop();
-    if (s.IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(s, thread);
-      // Pretend everything OK
-    } else if (!s.ok()) {
+    if (!s.ok()) {
       return s;
     }
   }
@@ -2199,30 +2102,21 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
     // Do some validation by declaring a snapshot and compare the data before
     // and after the compaction
     pre_snapshot = db_->GetSnapshot();
-    auto pre_opt_hash =
+    pre_hash =
         GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
-    if (pre_opt_hash.has_value()) {
-      pre_hash = *pre_opt_hash;
-    } else {
-      // Tolerable failure, e.g. due to memory limit
-      db_->ReleaseSnapshot(pre_snapshot);
-      return;
-    }
   }
 
   Status status = db_->CompactRange(cro, column_family, &start_key, &end_key);
 
-  if (status.IsMemoryLimit()) {
-    VerifyOneOpMemoryLimit(status, thread);
-  } else if (!status.ok()) {
+  if (!status.ok()) {
     fprintf(stdout, "Unable to perform CompactRange(): %s\n",
             status.ToString().c_str());
   }
 
   if (pre_snapshot != nullptr) {
-    auto post_opt_hash =
+    uint32_t post_hash =
         GetRangeHash(thread, pre_snapshot, column_family, start_key, end_key);
-    if (post_opt_hash.has_value() && pre_hash != *post_opt_hash) {
+    if (pre_hash != post_hash) {
       fprintf(stderr,
               "Data hash different before and after compact range "
               "start_key %s end_key %s\n",
@@ -2235,10 +2129,10 @@ void StressTest::TestCompactRange(ThreadState* thread, int64_t rand_key,
   }
 }
 
-std::optional<uint32_t> StressTest::GetRangeHash(
-    ThreadState* thread, const Snapshot* snapshot,
-    ColumnFamilyHandle* column_family, const Slice& start_key,
-    const Slice& end_key) {
+uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
+                                  ColumnFamilyHandle* column_family,
+                                  const Slice& start_key,
+                                  const Slice& end_key) {
   const std::string kCrcCalculatorSepearator = ";";
   uint32_t crc = 0;
   // This `ReadOptions` is for validation purposes. Ignore
@@ -2263,16 +2157,11 @@ std::optional<uint32_t> StressTest::GetRangeHash(
     crc = crc32c::Extend(crc, kCrcCalculatorSepearator.data(), 1);
   }
   if (!it->status().ok()) {
-    if (it->status().IsMemoryLimit()) {
-      VerifyOneOpMemoryLimit(it->status(), thread);
-      return {};
-    } else {
-      fprintf(stderr, "Iterator non-OK when calculating range CRC: %s\n",
-              it->status().ToString().c_str());
-      thread->stats.AddErrors(1);
-      // Fail fast to preserve the DB state.
-      thread->shared->SetVerificationFailure();
-    }
+    fprintf(stderr, "Iterator non-OK when calculating range CRC: %s\n",
+            it->status().ToString().c_str());
+    thread->stats.AddErrors(1);
+    // Fail fast to preserve the DB state.
+    thread->shared->SetVerificationFailure();
   }
   return crc;
 }
@@ -2676,13 +2565,6 @@ void StressTest::Open(SharedState* shared) {
             continue;
           }
         }
-
-        if (s.IsMemoryLimit()) {
-          VerifyOneOpMemoryLimit(s, /*thread*/ nullptr);
-          printf("Retrying DB::Open after memory limit reached\n");
-          continue;
-        }
-
         break;
       }
     } else {
