@@ -113,6 +113,7 @@ class Status {
     kOverwritten = 12,
     kTxnNotPrepared = 13,
     kIOFenced = 14,
+    kNotInsertCache = 15,
     kMaxSubCode
   };
 
@@ -154,6 +155,15 @@ class Status {
   // but it can be useful for communicating statistical information without
   // changing public APIs.
   static Status OkOverwritten() { return Status(kOk, kOverwritten); }
+
+  // Successful, though fail to insert block into cache.
+  // Note: using variants of OK status for program logic is discouraged,
+  // but it can be useful for communicating statistical information without
+  // changing public APIs.
+  static Status OKNotInsertToCache(const Slice& msg,
+                                   const Slice& msg2 = Slice()) {
+    return Status(kOk, kNotInsertCache, msg, msg2);
+  }
 
   // Return error status of an appropriate type.
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
@@ -295,6 +305,13 @@ class Status {
   bool IsOkOverwritten() const {
     MarkChecked();
     return code() == kOk && subcode() == kOverwritten;
+  }
+
+  // Returns true iff the status indicates success *without*
+  // inserting to cache
+  bool IsOkNotInsertToCache() const {
+    MarkChecked();
+    return code() == kOk && subcode() == kNotInsertCache;
   }
 
   // Returns true iff the status indicates a NotFound error.
