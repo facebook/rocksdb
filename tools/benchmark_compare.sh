@@ -10,7 +10,7 @@ K=1024
 M=$((1024 * K))
 
 # Dynamic loader configuration
-ld_library_path=${LD_LIBRARY_PATH:""}
+ld_library_path=${LD_LIBRARY_PATH:-""}
 
 # Benchmark configuration
 duration_rw=${DURATION_RW:-65}
