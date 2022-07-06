@@ -20,7 +20,8 @@ class BlockPrefetcher {
 
   void PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                         const BlockHandle& handle, size_t readahead_size,
-                        bool is_for_compaction, bool async_io,
+                        bool is_for_compaction,
+                        const bool no_sequential_checking,
                         Env::IOPriority rate_limiter_priority);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 

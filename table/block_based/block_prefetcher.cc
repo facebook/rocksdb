@@ -14,7 +14,8 @@
 namespace ROCKSDB_NAMESPACE {
 void BlockPrefetcher::PrefetchIfNeeded(
     const BlockBasedTable::Rep* rep, const BlockHandle& handle,
-    const size_t readahead_size, bool is_for_compaction, const bool async_io,
+    const size_t readahead_size, bool is_for_compaction,
+    const bool no_sequential_checking,
     const Env::IOPriority rate_limiter_priority) {
   // num_file_reads is used  by FilePrefetchBuffer only when
   // implicit_auto_readahead is set.
@@ -43,9 +44,9 @@ void BlockPrefetcher::PrefetchIfNeeded(
     return;
   }
 
-  // In case of async_io, always creates the PrefetchBuffer irrespective of
-  // num_file_reads_.
-  if (async_io) {
+  // In case of no_sequential_checking, it will skip the num_file_reads_ and
+  // will always creates the FilePrefetchBuffer.
+  if (no_sequential_checking) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true,

@@ -104,6 +104,7 @@
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
+using GFLAGS_NAMESPACE::SetVersionString;
 
 #ifdef ROCKSDB_LITE
 #define IF_ROCKSDB_LITE(Then, Else) Then
@@ -1677,6 +1678,9 @@ DEFINE_uint32(write_batch_protection_bytes_per_key, 0,
               "Size of per-key-value checksum in each write batch. Currently "
               "only value 0 and 8 are supported.");
 
+DEFINE_bool(build_info, false,
+            "Print the build info via GetRocksBuildInfoAsString");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -2843,8 +2847,8 @@ class Benchmark {
 #endif
 
   void PrintEnvironment() {
-    fprintf(stderr, "RocksDB:    version %d.%d\n",
-            kMajorVersion, kMinorVersion);
+    fprintf(stderr, "RocksDB:    version %s\n",
+            GetRocksVersionAsString(true).c_str());
 
 #if defined(__linux) || defined(__APPLE__) || defined(__FreeBSD__)
     time_t now = time(nullptr);
@@ -8384,6 +8388,7 @@ int db_bench_tool(int argc, char** argv) {
   if (!initialized) {
     SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                     " [OPTIONS]...");
+    SetVersionString(GetRocksVersionAsString(true));
     initialized = true;
   }
   ParseCommandLineFlags(&argc, &argv, true);
@@ -8468,6 +8473,13 @@ int db_bench_tool(int argc, char** argv) {
   // Let -readonly imply -use_existing_db
   FLAGS_use_existing_db |= FLAGS_readonly;
 #endif  // ROCKSDB_LITE
+
+  if (FLAGS_build_info) {
+    std::string build_info;
+    std::cout << GetRocksBuildInfoAsString(build_info, true) << std::endl;
+    // Similar to --version, nothing else will be done when this flag is set
+    exit(0);
+  }
 
   if (!FLAGS_seed) {
     uint64_t now = FLAGS_env->GetSystemClock()->NowMicros();

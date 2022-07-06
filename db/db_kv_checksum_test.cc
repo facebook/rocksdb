@@ -627,6 +627,39 @@ INSTANTIATE_TEST_CASE_P(
 
 // TODO: add test for transactions
 // TODO: add test for corrupted write batch with WAL disabled
+
+class DbKVChecksumWALToWriteBatchTest : public DBTestBase {
+ public:
+  DbKVChecksumWALToWriteBatchTest()
+      : DBTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {}
+};
+
+TEST_F(DbKVChecksumWALToWriteBatchTest, WriteBatchChecksumHandoff) {
+  Options options = CurrentOptions();
+  Reopen(options);
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
+  std::string content = "";
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch",
+      [&](void* batch_ptr) {
+        WriteBatch* batch = reinterpret_cast<WriteBatch*>(batch_ptr);
+        content.assign(batch->Data().data(), batch->GetDataSize());
+        Slice batch_content = batch->Data();
+        // Corrupt first bit
+        CorruptWriteBatch(&batch_content, 0, 1);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
+      [&](void* checksum_ptr) {
+        // Verify that checksum is produced on the batch content
+        uint64_t checksum = *reinterpret_cast<uint64_t*>(checksum_ptr);
+        ASSERT_EQ(checksum, XXH3_64bits(content.data(), content.size()));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_TRUE(TryReopen(options).IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
