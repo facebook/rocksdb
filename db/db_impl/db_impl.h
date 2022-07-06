@@ -2327,10 +2327,36 @@ class DBImpl : public DB {
 
   bool persistent_stats_cfd_exists_ = true;
 
-  // Without two_write_queues, read and writes to alive_log_files_ are
-  // protected by mutex_. With two_write_queues_, writes
-  // are protected by locking both mutex_ and log_write_mutex_, and reads must
-  // be under either mutex_ or log_write_mutex_.
+  // alive_log_files_ is protected by mutex_ and log_write_mutex_ with details
+  // as follows:
+  // 1. read by FindObsoleteFiles() which can be called in either application
+  //    thread or RocksDB bg threads, both mutex_ and log_write_mutex_ are
+  //    held.
+  // 2. pop_front() by FindObsoleteFiles(), both mutex_ and log_write_mutex_
+  //    are held.
+  // 3. push_back() by DBImpl::Open() and DBImpl::RestoreAliveLogFiles()
+  //    (actually called by Open()), only mutex_ is held because at this point,
+  //    the DB::Open() call has not returned success to application, and the
+  //    only other thread(s) that can conflict are bg threads calling
+  //    FindObsoleteFiles() which ensure that both mutex_ and log_write_mutex_
+  //    are held when accessing alive_log_files_.
+  // 4. read by DBImpl::Open() is protected by mutex_.
+  // 5. push_back() by SwitchMemtable(). Both mutex_ and log_write_mutex_ are
+  //    held. This is done by the write group leader. Note that in the case of
+  //    two-write-queues, another WAL-only write thread can be writing to the
+  //    WAL concurrently. See 9.
+  // 6. read by SwitchWAL() with both mutex_ and log_write_mutex_ held. This is
+  //    done by write group leader.
+  // 7. read by ConcurrentWriteToWAL() by the write group leader in the case of
+  //    two-write-queues. Only log_write_mutex_ is held to protect concurrent
+  //    pop_front() by FindObsoleteFiles().
+  // 8. read by PreprocessWrite() by the write group leader. log_write_mutex_
+  //    is held to protect the data structure from concurrent pop_front() by
+  //    FindObsoleteFiles().
+  // 9. read by ConcurrentWriteToWAL() by a WAL-only write thread in the case
+  //    of two-write-queues. Only log_write_mutex_ is held. This suffices to
+  //    protect the data structure from concurrent push_back() by current
+  //    write group leader as well as pop_front() by FindObsoleteFiles().
   std::deque<LogFileNumberSize> alive_log_files_;
 
   // Log files that aren't fully synced, and the current log file.
