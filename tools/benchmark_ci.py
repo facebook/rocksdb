@@ -18,7 +18,7 @@ import subprocess
 import sys
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 class Config:
     def __init__(self, args):
@@ -73,6 +73,7 @@ def results(version_str, config):
     # Copy the report TSV file back to the top level of results
     shutil.copyfile(f"{config.results_dir}/{version_str}/report.tsv", f"{config.results_dir}/report.tsv")
 
+def cleanup(version_str, config):
     # Remove the symlink to the db_bench executable
     db_bench_vers = f"{config.benchmark_cwd}/db_bench.{version_str}"
     os.remove(db_bench_vers)
@@ -108,14 +109,17 @@ def main():
 
     prepare(version_str, config)
 
-    env = {'NUM_KEYS': args.num_keys,
-           'LD_LIBRARY_PATH': os.getenv('LD_LIBRARY_PATH','')}
-    cmd = [config.benchmark_script,
-           config.data_dir, config.results_dir, version_str]
-    logging.info(f"Run {cmd} env={env} cwd={config.benchmark_cwd}")
-    subprocess.run(cmd,env=env,cwd=config.benchmark_cwd)
+    try:
+        env = {'NUM_KEYS': args.num_keys,
+            'LD_LIBRARY_PATH': os.getenv('LD_LIBRARY_PATH','')}
+        cmd = [config.benchmark_script,
+            config.data_dir, config.results_dir, version_str]
+        logging.info(f"Run {cmd} env={env} cwd={config.benchmark_cwd}")
+        subprocess.run(cmd,env=env,cwd=config.benchmark_cwd)
 
-    results(version_str, config)
+        results(version_str, config)
+    finally:
+        cleanup(version_str, config)
     
     return 0
 
