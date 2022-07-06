@@ -356,6 +356,13 @@ class MultiOpsTxnsStressTest : public StressTest {
   // actual value of the metadata. Method WriteToCommitTimeWriteBatch()
   // emulates this scenario.
   Status WriteToCommitTimeWriteBatch(Transaction& txn);
+
+  Status CommitAndCreateTimestampedSnapshotIfNeeded(ThreadState* thread,
+                                                    Transaction& txn);
+
+  void SetupSnapshot(ThreadState* thread, ReadOptions& read_opts,
+                     Transaction& txn,
+                     std::shared_ptr<const Snapshot>& snapshot);
 #endif  //! ROCKSDB_LITE
 
   std::vector<std::unique_ptr<KeyGenerator>> key_gen_for_a_;
