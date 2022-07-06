@@ -203,6 +203,9 @@ struct CompactionJob::SubcompactionState {
 
   // A flag determines if this subcompaction has been split by the cursor
   bool is_split = false;
+  // We also maintain the output split key for each subcompaction to avoid
+  // repetitive comparison in ShouldStopBefore()
+  const InternalKey* local_output_split_key = nullptr;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size,
                      uint32_t _sub_job_id)
@@ -212,6 +215,21 @@ struct CompactionJob::SubcompactionState {
         approx_size(size),
         sub_job_id(_sub_job_id) {
     assert(compaction != nullptr);
+    const InternalKeyComparator* icmp =
+        &compaction->column_family_data()->internal_comparator();
+    const InternalKey* output_split_key = compaction->GetOutputSplitKey();
+    // Invalid output_split_key indicates that we do not need to split
+    if (output_split_key != nullptr) {
+      // We may only split the output when the cursor is in the range. Split
+      if ((end == nullptr || icmp->user_comparator()->Compare(
+                                 ExtractUserKey(output_split_key->Encode()),
+                                 ExtractUserKey(*end)) < 0) &&
+          (start == nullptr || icmp->user_comparator()->Compare(
+                                   ExtractUserKey(output_split_key->Encode()),
+                                   ExtractUserKey(*start)) > 0)) {
+        local_output_split_key = output_split_key;
+      }
+    }
   }
 
   // Adds the key and value to the builder
@@ -237,21 +255,12 @@ struct CompactionJob::SubcompactionState {
         &compaction->column_family_data()->internal_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
 
-    const InternalKey output_split_key = compaction->GetOutputSplitKey();
-    if (output_split_key.Valid() && !is_split) {
-      // Invalid output_split_key indicates that we do not need to split
-      if ((end == nullptr || icmp->user_comparator()->Compare(
-                                 ExtractUserKey(output_split_key.Encode()),
-                                 ExtractUserKey(*end)) < 0) &&
-          (start == nullptr || icmp->user_comparator()->Compare(
-                                   ExtractUserKey(output_split_key.Encode()),
-                                   ExtractUserKey(*start)) > 0)) {
-        // We may only split the output when the cursor is in the range. Split
-        // occurs when the next key is larger than/equal to the cursor
-        if (icmp->Compare(internal_key, output_split_key.Encode()) >= 0) {
-          is_split = true;
-          return true;
-        }
+    // Invalid local_output_split_key indicates that we do not need to split
+    if (local_output_split_key != nullptr && !is_split) {
+      // Split occurs when the next key is larger than/equal to the cursor
+      if (icmp->Compare(internal_key, local_output_split_key->Encode()) >= 0) {
+        is_split = true;
+        return true;
       }
     }
     bool grandparant_file_switched = false;

@@ -182,7 +182,7 @@ class Compaction {
   // split the output files according to the existing cursor in the output
   // level under round-robin compaction policy. Empty indicates no required
   // splitting key
-  const InternalKey GetOutputSplitKey() const { return output_split_key_; }
+  const InternalKey* GetOutputSplitKey() const { return output_split_key_; }
 
   // If true, then the compaction can be done by simply deleting input files.
   bool deletion_compaction() const { return deletion_compaction_; }
@@ -387,7 +387,7 @@ class Compaction {
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
   // should it split the output file using the compact cursor?
-  InternalKey output_split_key_;
+  const InternalKey* output_split_key_;
 
   // L0 files in LSM-tree might be overlapping. But the compaction picking
   // logic might pick a subset of the files that aren't overlapping. if
