@@ -108,13 +108,15 @@ def main():
 
     prepare(version_str, config)
 
-    env = {'NUM_KEYS': args.num_keys}
+    env = [('NUM_KEYS', args.num_keys)]
     libs = os.getenv('LD_LIBRARY_PATH')
-    logging.debug(f"LD_LIBRARY_PATH {libs}")
     if libs != None:
-        env['LD_LIBRARY_PATH'] = libs
+        logging.debug(f"LD_LIBRARY_PATH present - {libs}")
+        env.append(('LD_LIBRARY_PATH', libs))
+    else:
+        logging.debug(f"LD_LIBRARY_PATH absent - {libs}")
     subprocess.run([config.benchmark_script,
-                   config.data_dir, config.results_dir,version_str],env=env,cwd=config.benchmark_cwd)
+                   config.data_dir, config.results_dir,version_str],env=dict(env),cwd=config.benchmark_cwd)
 
     results(version_str, config)
     
