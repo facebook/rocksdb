@@ -401,6 +401,7 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
   options.num_levels = 3;
   options.target_file_size_base = kFileBytes;
   options.target_file_size_multiplier = 1;
+  options.max_compaction_bytes = 1500;
   Reopen(options);
 
   Random rnd(301);
@@ -1028,6 +1029,7 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   options.memtable_factory.reset(
       test::NewSpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
+  options.max_compaction_bytes = 1500;
   // i == 0: CompactFiles
   // i == 1: CompactRange
   // i == 2: automatic compaction

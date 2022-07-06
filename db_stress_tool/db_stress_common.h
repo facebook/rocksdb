@@ -110,6 +110,7 @@ DECLARE_int32(open_files);
 DECLARE_int64(compressed_cache_size);
 DECLARE_int32(compressed_cache_numshardbits);
 DECLARE_int32(compaction_style);
+DECLARE_int32(compaction_pri);
 DECLARE_int32(num_levels);
 DECLARE_int32(level0_file_num_compaction_trigger);
 DECLARE_int32(level0_slowdown_writes_trigger);
@@ -613,8 +614,7 @@ extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
-extern std::string GenerateTimestampForRead();
-extern std::string NowNanosStr();
+extern std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

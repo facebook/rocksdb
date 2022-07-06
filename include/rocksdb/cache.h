@@ -174,19 +174,15 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
-// Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
+// Similar to NewLRUCache, but create a cache based on clock algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
 // more detail.
 //
 // Return nullptr if it is not supported.
-//
-// BROKEN: ClockCache is known to have bugs that could lead to crash or
-// corruption, so should not be used until fixed. Use NewLRUCache instead.
 extern std::shared_ptr<Cache> NewClockCache(
-    size_t capacity, int num_shard_bits = -1,
-    bool strict_capacity_limit = false,
-    CacheMetadataChargePolicy metadata_charge_policy =
-        kDefaultCacheMetadataChargePolicy);
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy);
 
 class Cache {
  public:

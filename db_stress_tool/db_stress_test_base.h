@@ -232,6 +232,15 @@ class StressTest {
 #endif
   void VerifyOneOpMemoryLimit(const Status& s, ThreadState* state);
 
+  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                            std::string& ts_str,
+                                            Slice& ts_slice,
+                                            ReadOptions& read_opts);
+
+  void MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                          std::string& ts_str, Slice& ts_slice,
+                                          ReadOptions& read_opts);
+
   std::shared_ptr<Cache> cache_;
   // WIP: Each failed block cache insertion is only allowed to cause one
   // DB operation to fail, after that failed insertion. This atomic keeps

@@ -43,12 +43,16 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       first_record_read_(false),
       compression_type_(kNoCompression),
       compression_type_record_read_(false),
-      uncompress_(nullptr) {}
+      uncompress_(nullptr),
+      hash_state_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
   if (uncompress_) {
     delete uncompress_;
+  }
+  if (hash_state_) {
+    XXH3_freeState(hash_state_);
   }
 }
 
@@ -60,9 +64,15 @@ Reader::~Reader() {
 // TODO krad: Evaluate if we need to move to a more strict mode where we
 // restrict the inconsistency to only the last log
 bool Reader::ReadRecord(Slice* record, std::string* scratch,
-                        WALRecoveryMode wal_recovery_mode) {
+                        WALRecoveryMode wal_recovery_mode, uint64_t* checksum) {
   scratch->clear();
   record->clear();
+  if (checksum != nullptr) {
+    if (hash_state_ == nullptr) {
+      hash_state_ = XXH3_createState();
+    }
+    XXH3_64bits_reset(hash_state_);
+  }
   if (uncompress_) {
     uncompress_->Reset();
   }
@@ -86,6 +96,10 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           // at the beginning of the next block.
           ReportCorruption(scratch->size(), "partial record without end(1)");
         }
+        if (checksum != nullptr) {
+          // No need to stream since the record is a single fragment
+          *checksum = XXH3_64bits(fragment.data(), fragment.size());
+        }
         prospective_record_offset = physical_record_offset;
         scratch->clear();
         *record = fragment;
@@ -101,6 +115,10 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           // of a block followed by a kFullType or kFirstType record
           // at the beginning of the next block.
           ReportCorruption(scratch->size(), "partial record without end(2)");
+          XXH3_64bits_reset(hash_state_);
+        }
+        if (checksum != nullptr) {
+          XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
         }
         prospective_record_offset = physical_record_offset;
         scratch->assign(fragment.data(), fragment.size());
@@ -113,6 +131,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           ReportCorruption(fragment.size(),
                            "missing start of fragmented record(1)");
         } else {
+          if (checksum != nullptr) {
+            XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
+          }
           scratch->append(fragment.data(), fragment.size());
         }
         break;
@@ -123,6 +144,10 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           ReportCorruption(fragment.size(),
                            "missing start of fragmented record(2)");
         } else {
+          if (checksum != nullptr) {
+            XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
+            *checksum = XXH3_64bits_digest(hash_state_);
+          }
           scratch->append(fragment.data(), fragment.size());
           *record = Slice(*scratch);
           last_record_offset_ = prospective_record_offset;
@@ -509,7 +534,8 @@ void Reader::InitCompression(const CompressionTypeRecord& compression_record) {
 }
 
 bool FragmentBufferedReader::ReadRecord(Slice* record, std::string* scratch,
-                                        WALRecoveryMode /*unused*/) {
+                                        WALRecoveryMode /*unused*/,
+                                        uint64_t* /* checksum */) {
   assert(record != nullptr);
   assert(scratch != nullptr);
   record->clear();

@@ -2371,7 +2371,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
     GenerateNewRandomFile(&rnd);
   }
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,8", FilesPerLevel(0));
 
