@@ -221,7 +221,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   bool need_cancel = false;
   IOStatus log_io_s = IOStatus::OK();
   if (needs_to_sync_closed_wals) {
-    // SyncClosedLogs() may unlock and re-lock the db_log_write_mutex.
+    // SyncClosedLogs() may unlock and re-lock the log_write_mutex multiple
+    // times.
     VersionEdit synced_wals;
     mutex_.Unlock();
     log_io_s = SyncClosedLogs(job_context, &synced_wals);
