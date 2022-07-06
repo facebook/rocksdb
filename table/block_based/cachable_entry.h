@@ -120,10 +120,7 @@ public:
   }
 
   void TransferTo(PinnableSlice* slice) {
-    if constexpr (std::is_same_v<std::string, T> ||
-                  std::is_same_v<std::string_view, T> ||
-                  std::is_same_v<PinnableSlice, T> ||
-                  std::is_same_v<Slice, T> || std::is_same_v<char, T>) {
+    if constexpr (std::is_same_v<std::string, T>) {
       if (slice) {
         slice->Reset();
         if (cache_handle_ != nullptr) {
