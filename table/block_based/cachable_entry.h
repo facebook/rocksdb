@@ -120,13 +120,18 @@ public:
   }
 
   void TransferTo(PinnableSlice* slice) {
-    if (slice) {
-      slice->Reset();
-      if (cache_handle_ != nullptr) {
-        assert(cache_ != nullptr);
-        slice->PinSlice(*value_, &ReleaseCacheHandle, cache_, cache_handle_);
-      } else if (own_value_) {
-        slice->PinSlice(*value_, &DeleteValue, value_, nullptr);
+    if constexpr (std::is_same_v<std::string, T> ||
+                  std::is_same_v<std::string_view, T> ||
+                  std::is_same_v<PinnableSlice, T> ||
+                  std::is_same_v<Slice, T> || std::is_same_v<char, T>) {
+      if (slice) {
+        slice->Reset();
+        if (cache_handle_ != nullptr) {
+          assert(cache_ != nullptr);
+          slice->PinSlice(*value_, &ReleaseCacheHandle, cache_, cache_handle_);
+        } else if (own_value_) {
+          slice->PinSlice(*value_, &DeleteValue, value_, nullptr);
+        }
       }
     }
 
