@@ -1695,6 +1695,13 @@ DEFINE_uint32(write_batch_protection_bytes_per_key, 0,
               "Size of per-key-value checksum in each write batch. Currently "
               "only value 0 and 8 are supported.");
 
+DEFINE_uint32(
+    memtable_protection_bytes_per_key, 0,
+    "Enable memtable per key-value checksum protection. "
+    "Each entry in memtable will be suffixed by a per key-value checksum. "
+    "This options determines the size of such checksums. "
+    "Supported values: 0, 1, 2, 4, 8.");
+
 DEFINE_bool(build_info, false,
             "Print the build info via GetRocksBuildInfoAsString");
 
@@ -3325,6 +3332,8 @@ class Benchmark {
       write_options_.disableWAL = FLAGS_disable_wal;
       write_options_.rate_limiter_priority =
           FLAGS_rate_limit_auto_wal_flush ? Env::IO_USER : Env::IO_TOTAL;
+      write_options_.protection_bytes_per_key =
+          FLAGS_write_batch_protection_bytes_per_key;
       read_options_ = ReadOptions(FLAGS_verify_checksum, true);
       read_options_.total_order_seek = FLAGS_total_order_seek;
       read_options_.prefix_same_as_start = FLAGS_prefix_same_as_start;
@@ -4586,6 +4595,8 @@ class Benchmark {
       exit(1);
     }
 #endif  // ROCKSDB_LITE
+    options.memtable_protection_bytes_per_key =
+        FLAGS_memtable_protection_bytes_per_key;
   }
 
   void InitializeOptionsGeneral(Options* opts) {
@@ -5003,8 +5014,7 @@ class Benchmark {
 
     RandomGenerator gen;
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     FLAGS_write_batch_protection_bytes_per_key,
-                     user_timestamp_size_);
+                     0 /* protection_bytes_per_key */, user_timestamp_size_);
     Status s;
     int64_t bytes = 0;
 
@@ -6772,8 +6782,7 @@ class Benchmark {
 
   void DoDelete(ThreadState* thread, bool seq) {
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     FLAGS_write_batch_protection_bytes_per_key,
-                     user_timestamp_size_);
+                     0 /* protection_bytes_per_key */, user_timestamp_size_);
     Duration duration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
@@ -6973,8 +6982,7 @@ class Benchmark {
     std::string keys[3];
 
     WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
-                     FLAGS_write_batch_protection_bytes_per_key,
-                     user_timestamp_size_);
+                     0 /* protection_bytes_per_key */, user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
@@ -7006,7 +7014,7 @@ class Benchmark {
     std::string suffixes[3] = {"1", "2", "0"};
     std::string keys[3];
 
-    WriteBatch batch(0, 0, FLAGS_write_batch_protection_bytes_per_key,
+    WriteBatch batch(0, 0, 0 /* protection_bytes_per_key */,
                      user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
