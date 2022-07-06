@@ -2361,18 +2361,59 @@ class DBImpl : public DB {
 
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
-  //  - push_back() is done from write_thread_ with locked mutex_ and
-  //  log_write_mutex_
-  //  - pop_front() is done from any thread with locked mutex_ and
-  //  log_write_mutex_
-  //  - reads are done with either locked mutex_ or log_write_mutex_
+  // 1. read by FindObsoleteFiles() which can be called either in application
+  //    thread or RocksDB bg threads. log_write_mutex_ is always held, while
+  //    some reads are performed without mutex_.
+  // 2. pop_front() by FindObsoleteFiles() with only log_write_mutex_ held.
+  // 3. read by DBImpl::Open() with both mutex_ and log_write_mutex_.
+  // 4. emplace_back() by DBImpl::Open() with both mutex_ and log_write_mutex.
+  //    Note that at this point, DB::Open() has not returned success to
+  //    application, thus the only other thread(s) that can conflict are bg
+  //    threads calling FindObsoleteFiles(). See 1.
+  // 5. iteration and clear() from CloseHelper() always hold log_write_mutex
+  //    and mutex_.
+  // 6. back() called by APIs FlushWAL() and LockWAL() are protected by only
+  //    log_write_mutex_. These two can be called by application threads after
+  //    DB::Open() returns success to applications.
+  // 7. read by SyncWAL(), another API, protected by only log_write_mutex_.
+  // 8. read by MarkLogsNotSynced() and MarkLogsSynced() are protected by
+  //    log_write_mutex_.
+  // 9. erase() by MarkLogsSynced() protected by log_write_mutex_.
+  // 10. read by SyncClosedLogs() protected by only log_write_mutex_. This can
+  //     happen in bg flush threads after DB::Open() returns success to
+  //     applications.
+  // 11. reads, e.g. front(), iteration, and back() called by PreprocessWrite()
+  //     holds only the log_write_mutex_. This is done by the write group
+  //     leader. A bg thread calling FindObsoleteFiles() or MarkLogsSynced()
+  //     can happen concurrently. This is fine because log_write_mutex_ is used
+  //     by all parties. See 2, 5, 9.
+  // 12. reads, empty(), back() called by SwitchMemtable() hold both mutex_ and
+  //     log_write_mutex_. This happens in the write group leader.
+  // 13. emplace_back() by SwitchMemtable() hold both mutex_ and
+  //     log_write_mutex_. This happens in the write group leader. Can conflict
+  //     with bg threads calling FindObsoleteFiles(), MarkLogsSynced(),
+  //     SyncClosedLogs(), etc. as well as application threads calling
+  //     FlushWAL(), SyncWAL(), LockWAL(). This is fine because all parties
+  //     require at least log_write_mutex_.
+  // 14. iteration called in WriteToWAL(write_group) protected by
+  //     log_write_mutex_. This is done by write group leader when
+  //     two-write-queues is disabled and write needs to sync logs.
+  // 15. back() called in ConcurrentWriteToWAL() protected by log_write_mutex_.
+  //     This can be done by the write group leader if two-write-queues is
+  //     enabled. It can also be done by another WAL-only write thread.
+  //
+  // Other observations:
   //  - back() and items with getting_synced=true are not popped,
   //  - The same thread that sets getting_synced=true will reset it.
   //  - it follows that the object referred by back() can be safely read from
-  //  the write_thread_ without using mutex
+  //  the write_thread_ without using mutex. Note that calling back() without
+  //  mutex may be unsafe because different implementations of deque::back() may
+  //  access other member variables of deque, causing undefined behaviors.
+  //  Generally, do not access stl containers without proper synchronization.
   //  - it follows that the items with getting_synced=true can be safely read
   //  from the same thread that has set getting_synced=true
   std::deque<LogWriterNumber> logs_;
+
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
   // This is the app-level state that is written to the WAL but will be used
