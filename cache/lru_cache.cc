@@ -410,9 +410,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
 }
 
 Cache::Handle* LRUCacheShard::Lookup(
-    const Slice& key, uint32_t hash,
-    const ShardedCache::CacheItemHelper* helper,
-    const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
+    const Slice& key, const uint32_t& hash,
+    const ShardedCache32::CacheItemHelper* helper,
+    const ShardedCache32::CreateCallback& create_cb, Cache::Priority priority,
     bool wait, Statistics* stats) {
   LRUHandle* e = nullptr;
   {
@@ -578,7 +578,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return InsertItem(e, handle, /* free_handle_on_fail */ true);
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
+void LRUCacheShard::Erase(const Slice& key, const uint32_t& hash) {
   LRUHandle* e;
   bool last_reference = false;
   {
@@ -669,12 +669,12 @@ LRUCache::~LRUCache() {
   }
 }
 
-CacheShard* LRUCache::GetShard(uint32_t shard) {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+CacheShard32* LRUCache::GetShard(uint32_t shard) {
+  return reinterpret_cast<CacheShard32*>(&shards_[shard]);
 }
 
-const CacheShard* LRUCache::GetShard(uint32_t shard) const {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+const CacheShard32* LRUCache::GetShard(uint32_t shard) const {
+  return reinterpret_cast<CacheShard32*>(&shards_[shard]);
 }
 
 void* LRUCache::Value(Handle* handle) {
@@ -773,7 +773,7 @@ std::shared_ptr<Cache> NewLRUCache(
     return nullptr;
   }
   if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+    num_shard_bits = ShardedCache32::GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<LRUCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,

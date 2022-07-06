@@ -317,9 +317,9 @@ void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                             size_t charge, Cache::DeleterFn deleter,
-                             Cache::Handle** handle,
+Status LRUCacheShard::Insert(const Slice& key, const uint32_t& hash,
+                             void* value, size_t charge,
+                             Cache::DeleterFn deleter, Cache::Handle** handle,
                              Cache::Priority /*priority*/) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("FastLRUCache only supports key size " +
@@ -418,7 +418,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
+Cache::Handle* LRUCacheShard::Lookup(const Slice& key, const uint32_t& hash) {
   LRUHandle* h = nullptr;
   {
     DMutexLock l(mutex_);
@@ -483,7 +483,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   return last_reference;
 }
 
-void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
+void LRUCacheShard::Erase(const Slice& key, const uint32_t& hash) {
   LRUHandle copy;
   bool last_reference = false;
   {
@@ -550,12 +550,12 @@ LRUCache::~LRUCache() {
   }
 }
 
-CacheShard* LRUCache::GetShard(uint32_t shard) {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+CacheShard32* LRUCache::GetShard(uint32_t shard) {
+  return reinterpret_cast<CacheShard32*>(&shards_[shard]);
 }
 
-const CacheShard* LRUCache::GetShard(uint32_t shard) const {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+const CacheShard32* LRUCache::GetShard(uint32_t shard) const {
+  return reinterpret_cast<CacheShard32*>(&shards_[shard]);
 }
 
 void* LRUCache::Value(Handle* handle) {
@@ -598,7 +598,7 @@ std::shared_ptr<Cache> NewFastLRUCache(
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
   if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+    num_shard_bits = ShardedCache32::GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<fast_lru_cache::LRUCache>(
       capacity, estimated_value_size, num_shard_bits, strict_capacity_limit,

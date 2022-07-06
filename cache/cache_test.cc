@@ -933,15 +933,15 @@ TEST_P(CacheTest, DefaultShardBits) {
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
   std::shared_ptr<Cache> cache = NewCache(16 * 1024L * 1024L);
-  ShardedCache* sc = dynamic_cast<ShardedCache*>(cache.get());
+  ShardedCache32* sc = dynamic_cast<ShardedCache32*>(cache.get());
   ASSERT_EQ(5, sc->GetNumShardBits());
 
   cache = NewLRUCache(511 * 1024L, -1, true);
-  sc = dynamic_cast<ShardedCache*>(cache.get());
+  sc = dynamic_cast<ShardedCache32*>(cache.get());
   ASSERT_EQ(0, sc->GetNumShardBits());
 
   cache = NewLRUCache(1024L * 1024L * 1024L, -1, true);
-  sc = dynamic_cast<ShardedCache*>(cache.get());
+  sc = dynamic_cast<ShardedCache32*>(cache.get());
   ASSERT_EQ(6, sc->GetNumShardBits());
 }
 

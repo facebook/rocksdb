@@ -57,7 +57,7 @@ struct LRUHandle {
     Info() {}
     ~Info() {}
     Cache::DeleterFn deleter;
-    const ShardedCache::CacheItemHelper* helper;
+    const ShardedCache32::CacheItemHelper* helper;
   } info_;
   // An entry is not added to the LRUHandleTable until the secondary cache
   // lookup is complete, so its safe to have this union.
@@ -295,7 +295,7 @@ class LRUHandleTable {
 };
 
 // A single shard of sharded cache.
-class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
+class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard32 {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, bool use_adaptive_mutex,
@@ -316,13 +316,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   void SetHighPriorityPoolRatio(double high_pri_pool_ratio);
 
   // Like Cache methods, but with an extra "hash" parameter.
-  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+  virtual Status Insert(const Slice& key, const uint32_t& hash, void* value,
                         size_t charge, Cache::DeleterFn deleter,
                         Cache::Handle** handle,
                         Cache::Priority priority) override {
     return Insert(key, hash, value, charge, deleter, nullptr, handle, priority);
   }
-  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+  virtual Status Insert(const Slice& key, const uint32_t& hash, void* value,
                         const Cache::CacheItemHelper* helper, size_t charge,
                         Cache::Handle** handle,
                         Cache::Priority priority) override {
@@ -330,12 +330,13 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
     return Insert(key, hash, value, charge, nullptr, helper, handle, priority);
   }
   // If helper_cb is null, the values of the following arguments don't matter.
-  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
-                                const ShardedCache::CacheItemHelper* helper,
-                                const ShardedCache::CreateCallback& create_cb,
-                                ShardedCache::Priority priority, bool wait,
+  virtual Cache::Handle* Lookup(const Slice& key, const uint32_t& hash,
+                                const ShardedCache32::CacheItemHelper* helper,
+                                const ShardedCache32::CreateCallback& create_cb,
+                                ShardedCache32::Priority priority, bool wait,
                                 Statistics* stats) override;
-  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override {
+  virtual Cache::Handle* Lookup(const Slice& key,
+                                const uint32_t& hash) override {
     return Lookup(key, hash, nullptr, nullptr, Cache::Priority::LOW, true,
                   nullptr);
   }
@@ -348,7 +349,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,
                        bool erase_if_last_ref = false) override;
-  virtual void Erase(const Slice& key, uint32_t hash) override;
+  virtual void Erase(const Slice& key, const uint32_t& hash) override;
 
   // Although in some platforms the update of size_t is atomic, to make sure
   // GetUsage() and GetPinnedUsage() work correctly under any platform, we'll
@@ -463,7 +464,7 @@ class LRUCache
 #ifdef NDEBUG
     final
 #endif
-    : public ShardedCache {
+    : public ShardedCache32 {
  public:
   LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
            double high_pri_pool_ratio,
@@ -474,8 +475,8 @@ class LRUCache
            const std::shared_ptr<SecondaryCache>& secondary_cache = nullptr);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
-  virtual CacheShard* GetShard(uint32_t shard) override;
-  virtual const CacheShard* GetShard(uint32_t shard) const override;
+  virtual CacheShard32* GetShard(uint32_t shard) override;
+  virtual const CacheShard32* GetShard(uint32_t shard) const override;
   virtual void* Value(Handle* handle) override;
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;

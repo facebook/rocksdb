@@ -316,9 +316,9 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
-Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
-                               size_t charge, Cache::DeleterFn deleter,
-                               Cache::Handle** handle,
+Status ClockCacheShard::Insert(const Slice& key, const uint32_t& hash,
+                               void* value, size_t charge,
+                               Cache::DeleterFn deleter, Cache::Handle** handle,
                                Cache::Priority /*priority*/) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("ClockCache only supports key size " +
@@ -401,7 +401,8 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   return s;
 }
 
-Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t /* hash */) {
+Cache::Handle* ClockCacheShard::Lookup(const Slice& key,
+                                       const uint32_t& /* hash */) {
   ClockHandle* h = nullptr;
   {
     DMutexLock l(mutex_);
@@ -467,7 +468,7 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   return last_reference;
 }
 
-void ClockCacheShard::Erase(const Slice& key, uint32_t /* hash */) {
+void ClockCacheShard::Erase(const Slice& key, const uint32_t& /* hash */) {
   ClockHandle copy;
   bool last_reference = false;
   {
@@ -536,12 +537,12 @@ ClockCache::~ClockCache() {
   }
 }
 
-CacheShard* ClockCache::GetShard(uint32_t shard) {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+CacheShard32* ClockCache::GetShard(uint32_t shard) {
+  return reinterpret_cast<CacheShard32*>(&shards_[shard]);
 }
 
-const CacheShard* ClockCache::GetShard(uint32_t shard) const {
-  return reinterpret_cast<CacheShard*>(&shards_[shard]);
+const CacheShard32* ClockCache::GetShard(uint32_t shard) const {
+  return reinterpret_cast<CacheShard32*>(&shards_[shard]);
 }
 
 void* ClockCache::Value(Handle* handle) {
@@ -584,7 +585,7 @@ std::shared_ptr<Cache> NewClockCache(
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
   if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+    num_shard_bits = ShardedCache32::GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<clock_cache::ClockCache>(
       capacity, estimated_value_size, num_shard_bits, strict_capacity_limit,
