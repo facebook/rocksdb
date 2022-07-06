@@ -4899,6 +4899,15 @@ void rocksdb_sstfilewriter_delete_with_ts(rocksdb_sstfilewriter_t* writer,
   SaveError(errptr, writer->rep->Delete(Slice(key, keylen), Slice(ts, tslen)));
 }
 
+void rocksdb_sstfilewriter_delete_range(rocksdb_sstfilewriter_t* writer,
+                                        const char* begin_key,
+                                        size_t begin_keylen,
+                                        const char* end_key, size_t end_keylen,
+                                        char** errptr) {
+  SaveError(errptr, writer->rep->DeleteRange(Slice(begin_key, begin_keylen),
+                                             Slice(end_key, end_keylen)));
+}
+
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
                                   char** errptr) {
   SaveError(errptr, writer->rep->Finish(nullptr));
