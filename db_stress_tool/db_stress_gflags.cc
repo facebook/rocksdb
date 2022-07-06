@@ -941,6 +941,12 @@ DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "specified number of bytes per key. Currently the only supported "
               "nonzero value is eight.");
 
+DEFINE_uint32(
+    memtable_protection_bytes_per_key, 0,
+    "If nonzero, enables integrity protection in memtable entries at the "
+    "specified number of bytes per key. Currently the supported "
+    "nonzero values are 1, 2, 4 and 8.");
+
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");

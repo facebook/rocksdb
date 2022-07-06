@@ -680,7 +680,6 @@ TEST_F(DbKVChecksumWALToWriteBatchTest, WriteBatchChecksumHandoff) {
   SyncPoint::GetInstance()->DisableProcessing();
 };
 
-
 // TODO (cbi): add DeleteRange coverage once it is implemented
 class DbMemtableKVChecksumTest : public DbKvChecksumTest {
  public:
