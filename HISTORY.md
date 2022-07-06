@@ -12,6 +12,7 @@
   * `rocksdb_level_metadata_t` and its and its get functions & destroy function.
   * `rocksdb_file_metadata_t` and its and get functions & destroy functions.
 * Add suggest_compact_range() and suggest_compact_range_cf() to C API.
+* `CompactRangeOptions::exclusive_manual_compaction` is now false by default. This ensures RocksDB does not introduce artificial parallelism limitations by default.
 
 ### Bug Fixes
 * Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.
