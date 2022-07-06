@@ -1446,9 +1446,6 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   Status s;
   mutex_.AssertHeld();
   assert(immutable_db_options_.avoid_flush_during_recovery);
-  if (two_write_queues_) {
-    log_write_mutex_.Lock();
-  }
   // Mark these as alive so they'll be considered for deletion later by
   // FindObsoleteFiles()
   total_log_size_ = 0;
@@ -1471,15 +1468,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
       break;
     }
     total_log_size_ += log.size;
-    if (two_write_queues_) {
-      alive_log_files_.push_back(log);
-    } else {
-      InstrumentedMutexLock l(&log_write_mutex_);
-      alive_log_files_.push_back(log);
-    }
-  }
-  if (two_write_queues_) {
-    log_write_mutex_.Unlock();
+    alive_log_files_.push_back(log);
   }
   return s;
 }
@@ -1861,11 +1850,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     if (s.ok()) {
-      InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
-    }
-    if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
