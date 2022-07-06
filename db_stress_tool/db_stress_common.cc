@@ -267,14 +267,12 @@ uint32_t GetValueBase(Slice s) {
   return res;
 }
 
-std::string NowNanosStr() {
+std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;
   PutFixed64(&ret, t);
   return ret;
 }
-
-std::string GenerateTimestampForRead() { return NowNanosStr(); }
 
 namespace {
 

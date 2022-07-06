@@ -1108,9 +1108,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
     TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
                              /*arg=*/nullptr);
+    uint64_t record_checksum;
     while (!stop_replay_by_wal_filter &&
            reader.ReadRecord(&record, &scratch,
-                             immutable_db_options_.wal_recovery_mode) &&
+                             immutable_db_options_.wal_recovery_mode,
+                             &record_checksum) &&
            status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(record.size(),
@@ -1126,8 +1128,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       if (!status.ok()) {
         return status;
       }
-      status = WriteBatchInternal::UpdateProtectionInfo(&batch,
-                                                        8 /* bytes_per_key */);
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch", &batch);
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
+          &record_checksum);
+      status = WriteBatchInternal::UpdateProtectionInfo(
+          &batch, 8 /* bytes_per_key */, &record_checksum);
       if (!status.ok()) {
         return status;
       }

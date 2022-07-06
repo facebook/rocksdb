@@ -18,6 +18,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "util/compression.h"
+#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
@@ -61,12 +62,17 @@ class Reader {
 
   // Read the next record into *record.  Returns true if read
   // successfully, false if we hit end of the input.  May use
-  // "*scratch" as temporary storage.  The contents filled in *record
+  // "*scratch" as temporary storage. The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
+  // If record_checksum is not nullptr, then this function will calculate the
+  // checksum of the record read and set record_checksum to it. The checksum is
+  // calculated from the original buffers that contain the contents of the
+  // record.
   virtual bool ReadRecord(Slice* record, std::string* scratch,
                           WALRecoveryMode wal_recovery_mode =
-                              WALRecoveryMode::kTolerateCorruptedTailRecords);
+                              WALRecoveryMode::kTolerateCorruptedTailRecords,
+                          uint64_t* record_checksum = nullptr);
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -145,6 +151,8 @@ class Reader {
   std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
   std::string uncompressed_record_;
+  // Used for stream hashing log record
+  XXH3_state_t* hash_state_;
 
   // Extend record types with the following special values
   enum {
@@ -191,7 +199,8 @@ class FragmentBufferedReader : public Reader {
   ~FragmentBufferedReader() override {}
   bool ReadRecord(Slice* record, std::string* scratch,
                   WALRecoveryMode wal_recovery_mode =
-                      WALRecoveryMode::kTolerateCorruptedTailRecords) override;
+                      WALRecoveryMode::kTolerateCorruptedTailRecords,
+                  uint64_t* record_checksum = nullptr) override;
   void UnmarkEOF() override;
 
  private:
