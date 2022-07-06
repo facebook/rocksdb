@@ -88,7 +88,7 @@ class CacheHandleGuard {
     if (cleanable) {
       if (handle_ != nullptr) {
         assert(cache_);
-        cleanable->RegisterCleanup(&ReleaseHandle, cache_, handle_);
+        cleanable->RegisterCleanup(&ReleaseCacheHandle, cache_, handle_);
       }
     }
     ResetFields();
@@ -115,7 +115,7 @@ class CacheHandleGuard {
     value_ = nullptr;
   }
 
-  static void ReleaseHandle(void* arg1, void* arg2) {
+  static void ReleaseCacheHandle(void* arg1, void* arg2) {
     Cache* const cache = static_cast<Cache*>(arg1);
     assert(cache);
 
