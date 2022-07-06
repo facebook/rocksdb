@@ -400,7 +400,7 @@ class PersistentCacheFromCache : public PersistentCache {
   bool read_only_;
 };
 
-class ReadOnlyCacheWrapper : public test::CacheWrapper {
+class ReadOnlyCacheWrapper : public CacheWrapper {
   using CacheWrapper::CacheWrapper;
 
   using Cache::Insert;
@@ -904,7 +904,7 @@ namespace {
 // This allows us to manipulate BlockBasedTableReader into thinking
 // another thread inserted the data in between Lookup and Insert,
 // while mostly preserving the LRUCache interface/behavior.
-class LookupLiarCache : public test::CacheWrapper {
+class LookupLiarCache : public CacheWrapper {
   int nth_lookup_not_found_ = 0;
 
  public:
