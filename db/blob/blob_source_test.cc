@@ -1403,6 +1403,28 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
                 options_.blob_cache->GetUsage());
     }
   }
+
+  {
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, blob_file_number,
+                                      file_size);
+    size_t blob_bytes = options_.blob_cache->GetUsage();
+    for (size_t i = 0; i < num_blobs; ++i) {
+      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[i]);
+      options_.blob_cache->Erase(cache_key.AsSlice());
+      if (i == num_blobs - 1) {
+        // The last blob is not in the cache. cache_res_mgr should not reserve
+        // any space for it.
+        ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
+      } else {
+        ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
+      }
+      ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
+                blob_bytes - blob_sizes[i]);
+      ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
+                options_.blob_cache->GetUsage());
+      blob_bytes -= blob_sizes[i];
+    }
+  }
 }
 #endif  // ROCKSDB_LITE
 
