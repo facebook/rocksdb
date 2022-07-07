@@ -1268,8 +1268,6 @@ class BlobSourceCacheReservationTest : public DBTestBase {
     options_.enable_blob_files = true;
     options_.create_if_missing = true;
 
-    std::shared_ptr<CacheReservationManager> test_cache_rev_mng;
-
     LRUCacheOptions co;
     co.capacity = kCacheCapacity;
     co.num_shard_bits = kNumShardBits;
