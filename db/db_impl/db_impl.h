@@ -997,6 +997,7 @@ class DBImpl : public DB {
   }
 
   void AddToLogsToFreeQueue(log::Writer* log_writer) {
+    mutex_.AssertHeld();
     logs_to_free_queue_.push_back(log_writer);
   }
 
@@ -2312,8 +2313,9 @@ class DBImpl : public DB {
   // logfile_number_ is currently updated only in write_thread_, it can be read
   // from the same write_thread_ without any locks.
   uint64_t logfile_number_;
-  std::deque<uint64_t>
-      log_recycle_files_;  // a list of log files that we can recycle
+  // Log files that we can recycle. Must be protected by db mutex_.
+  std::deque<uint64_t> log_recycle_files_;
+  // Protected by log_write_mutex_.
   bool log_dir_synced_;
   // Without two_write_queues, read and writes to log_empty_ are protected by
   // mutex_. Since it is currently updated/read only in write_thread_, it can be
@@ -2428,7 +2430,7 @@ class DBImpl : public DB {
   std::atomic<uint64_t> total_log_size_;
 
   // If this is non-empty, we need to delete these log files in background
-  // threads. Protected by db mutex.
+  // threads. Protected by log_write_mutex_.
   autovector<log::Writer*> logs_to_free_;
 
   bool is_snapshot_supported_;
@@ -2508,10 +2510,13 @@ class DBImpl : public DB {
   // JobContext. Current implementation tracks table and blob files only.
   std::unordered_set<uint64_t> files_grabbed_for_purge_;
 
-  // A queue to store log writers to close
+  // A queue to store log writers to close. Protected by db mutex_.
   std::deque<log::Writer*> logs_to_free_queue_;
+
   std::deque<SuperVersion*> superversions_to_free_queue_;
+
   int unscheduled_flushes_;
+
   int unscheduled_compactions_;
 
   // count how many background compactions are running or have been scheduled in

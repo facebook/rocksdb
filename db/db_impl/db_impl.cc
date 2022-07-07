@@ -1053,6 +1053,7 @@ Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
+  mutex_.AssertHeld();
   if (!job_context->logs_to_free.empty()) {
     for (auto l : job_context->logs_to_free) {
       AddToLogsToFreeQueue(l);
