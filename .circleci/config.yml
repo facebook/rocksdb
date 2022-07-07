@@ -190,18 +190,6 @@ commands:
   perform-benchmarks:
     steps:
       - run:
-          name: "Run basic benchmark, 5 min"
-          command: ./tools/benchmark.sh fillseq_enable_wal
-          environment:
-            LD_LIBRARY_PATH: /usr/local/lib
-            DB_DIR: /tmp/rocksdb-benchmark-datadir
-            WAL_DIR: /tmp/rocksdb-benchmark-waldir
-            OUTPUT_DIR: /tmp/benchmark-results
-            NUM_KEYS: 10000000
-
-  perform-benchmarks-test:
-    steps:
-      - run:
           name: "Test low-variance benchmarks"
           command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
@@ -912,14 +900,6 @@ jobs:
       - perform-benchmarks
       - post-benchmarks
 
-  benchmark-linux-test: #use a private Circle CI runner (resource_class) to run the job
-    machine: true
-    resource_class: facebook/rocksdb-benchmark-sys1
-    steps:
-      - build-for-benchmarks
-      - perform-benchmarks-test
-      - post-benchmarks
-
 workflows:
   version: 2
   jobs-linux-run-tests:
@@ -1001,9 +981,6 @@ workflows:
                 - main
     jobs:
       - benchmark-linux
-  benchmark-linux-test:
-    jobs:
-      - benchmark-linux-test
   nightly:
     triggers:
       - schedule:
