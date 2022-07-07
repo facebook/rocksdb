@@ -1295,6 +1295,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
   std::string db_session_id_;
 };
 
+#ifndef ROCKSDB_LITE
 TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(
@@ -1403,6 +1404,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     }
   }
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
