@@ -113,14 +113,15 @@ class ShardedCache : public Cache {
                                DeleterFn deleter)>& callback,
       const ApplyToAllEntriesOptions& opts) override;
   virtual void EraseUnRefEntries() override;
+  virtual void SetCacheReservationManager(
+      std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr)
+      override;
+  virtual ConcurrentCacheReservationManager* GetCacheReservationManager()
+      const override;
   virtual std::string GetPrintableOptions() const override;
 
   int GetNumShardBits() const;
   uint32_t GetNumShards() const;
-
-  void SetCacheReservationManager(
-      std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr);
-  ConcurrentCacheReservationManager* GetCacheReservationManager() const;
 
  protected:
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }

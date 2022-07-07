@@ -40,8 +40,7 @@ BlobSource::BlobSource(const ImmutableOptions* ioptions,
             std::make_shared<
                 CacheReservationManagerImpl<CacheEntryRole::kBlobCache>>(
                 bbto->block_cache)));
-    ShardedCache* sc = dynamic_cast<ShardedCache*>(blob_cache_.get());
-    sc->SetCacheReservationManager(cache_res_mgr);
+    blob_cache_->SetCacheReservationManager(cache_res_mgr);
   }
 #endif  // ROCKSDB_LITE
 }
