@@ -478,14 +478,15 @@ IOStatus RandomAccessFileReader::ReadAsync(
     read_async_info->buf_.Alignment(alignment);
     read_async_info->buf_.AllocateNewBuffer(aligned_req.len);
 
+    // Request for tokens until allowed length is equal to req.len. Since reads
+    // are asynchronous so submitting multiple requests for a single request
+    // would make the code more complicated.
     if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
       size_t allowed = 0;
-      while (allowed != aligned_req.len) {
-        allowed = rate_limiter_->RequestToken(
-            read_async_info->buf_.Capacity() -
-                read_async_info->buf_.CurrentSize(),
-            read_async_info->buf_.Alignment(), rate_limiter_priority, stats_,
-            RateLimiter::OpType::kRead);
+      while (allowed < aligned_req.len) {
+        allowed += rate_limiter_->RequestToken(
+            req.len - allowed, read_async_info->buf_.Alignment(),
+            rate_limiter_priority, stats_, RateLimiter::OpType::kRead);
       }
     }
 
@@ -504,12 +505,15 @@ IOStatus RandomAccessFileReader::ReadAsync(
     s = file_->ReadAsync(aligned_req, opts, read_async_callback,
                          read_async_info, io_handle, del_fn, nullptr /*dbg*/);
   } else {
+    // Request for tokens until allowed length is equal to req.len. Since reads
+    // are asynchronous so submitting multiple requests for a single request
+    // would make the code more complicated.
     if (rate_limiter_priority != Env::IO_TOTAL && rate_limiter_ != nullptr) {
       size_t allowed = 0;
-      while (allowed != req.len) {
-        allowed = rate_limiter_->RequestToken(req.len, 0 /* alignment */,
-                                              rate_limiter_priority, stats_,
-                                              RateLimiter::OpType::kRead);
+      while (allowed < req.len) {
+        allowed += rate_limiter_->RequestToken(
+            req.len - allowed, use_direct_io() ? alignment : 0,
+            rate_limiter_priority, stats_, RateLimiter::OpType::kRead);
       }
     }
     s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
