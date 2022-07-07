@@ -38,6 +38,7 @@ namespace ROCKSDB_NAMESPACE {
 class Cache;
 struct ConfigOptions;
 class SecondaryCache;
+class ConcurrentCacheReservationManager;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -540,8 +541,22 @@ class Cache {
   // to each of the handles.
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
+  // Reserves (block) cache space for memory used in this cache.
+  void SetCacheReservationManager(
+      std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr) {
+    assert(cache_res_mgr == nullptr);
+    cache_res_mgr_ = cache_res_mgr;
+  }
+
+  ConcurrentCacheReservationManager* cache_reservation_manager() const {
+    return cache_res_mgr_.get();
+  }
+
  private:
   std::shared_ptr<MemoryAllocator> memory_allocator_;
+
+  // ONLY USED for charging blob cache usage
+  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_;
 };
 
 // Classifications of block cache entries.
@@ -571,12 +586,12 @@ enum class CacheEntryRole {
   // Filter's charge to account for
   // (new) bloom and ribbon filter construction's memory usage
   kFilterConstruction,
-  // BlockBasedTableReader's charge to account for
-  // its memory usage
+  // BlockBasedTableReader's charge to account for its memory usage
   kBlockBasedTableReader,
-  // FileMetadata's charge to account for
-  // its memory usage
+  // FileMetadata's charge to account for its memory usage
   kFileMetadata,
+  // Blob cache's charge to account for its memory usage
+  kBlobCache,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,

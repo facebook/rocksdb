@@ -29,9 +29,8 @@ class Slice;
 // storage with minimal cost.
 class BlobSource {
  public:
-  BlobSource(const ImmutableOptions* immutable_options,
-             const std::string& db_id, const std::string& db_session_id,
-             BlobFileCache* blob_file_cache);
+  BlobSource(const ImmutableOptions* ioptions, const std::string& db_id,
+             const std::string& db_session_id, BlobFileCache* blob_file_cache);
 
   BlobSource(const BlobSource&) = delete;
   BlobSource& operator=(const BlobSource&) = delete;
