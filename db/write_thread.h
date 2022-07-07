@@ -25,6 +25,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
 #include "util/autovector.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -190,7 +191,8 @@ class WriteThread {
     WriteGroup* write_group;
     CommitRequest* request;
     SequenceNumber sequence;  // the sequence number to use for the first key
-    Status status;
+    Status status;  // write protected by status_lock in multi batch write.
+    SpinMutex status_lock;
     Status callback_status;  // status returned by callback->Callback()
 
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;

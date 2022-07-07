@@ -861,7 +861,7 @@ void WriteThread::Writer::ConsumeOne(size_t claimed) {
       multi_batch.ignore_missing_column_families, 0, this->log_ref,
       multi_batch.db, true);
   if (!s.ok()) {
-    std::lock_guard<std::mutex> guard(this->StateMutex());
+    std::lock_guard<SpinMutex> guard(this->status_lock);
     this->status = s;
   }
   multi_batch.pending_wb_cnt.fetch_sub(1, std::memory_order_acq_rel);
