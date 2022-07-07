@@ -1999,7 +1999,6 @@ class DBImpl : public DB {
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
 #ifndef ROCKSDB_LITE
-
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
@@ -2011,7 +2010,6 @@ class DBImpl : public DB {
   // Wait for current IngestExternalFile() calls to finish.
   // REQUIRES: mutex_ held
   void WaitForIngestFile();
-
 #else
   // IngestExternalFile is not supported in ROCKSDB_LITE so this function
   // will be no-op
@@ -2497,12 +2495,6 @@ class DBImpl : public DB {
   // at a later time after the transaction in the oldest
   // log is fully commited.
   bool unable_to_release_oldest_log_;
-
-  static const int KEEP_LOG_FILE_NUM = 1000;
-  // MSVC version 1800 still does not have constexpr for ::max()
-  static const uint64_t kNoTimeOut = std::numeric_limits<uint64_t>::max();
-
-  std::string db_absolute_path_;
 
   // Number of running IngestExternalFile() or CreateColumnFamilyWithImport()
   // calls.
