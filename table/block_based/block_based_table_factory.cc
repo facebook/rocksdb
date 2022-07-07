@@ -695,12 +695,13 @@ Status BlockBasedTableFactory::ValidateOptions(
     static const std::set<CacheEntryRole> kMemoryChargingSupported = {
         CacheEntryRole::kCompressionDictionaryBuildingBuffer,
         CacheEntryRole::kFilterConstruction,
-        CacheEntryRole::kBlockBasedTableReader, CacheEntryRole::kFileMetadata};
+        CacheEntryRole::kBlockBasedTableReader, CacheEntryRole::kFileMetadata,
+        CacheEntryRole::kBlobCache};
     if (options.charged != CacheEntryRoleOptions::Decision::kFallback &&
         kMemoryChargingSupported.count(role) == 0) {
       return Status::NotSupported(
           "Enable/Disable CacheEntryRoleOptions::charged"
-          "for CacheEntryRole  " +
+          " for CacheEntryRole " +
           kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
           " is not supported");
     }
@@ -708,7 +709,7 @@ Status BlockBasedTableFactory::ValidateOptions(
         options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
       return Status::InvalidArgument(
           "Enable CacheEntryRoleOptions::charged"
-          "for CacheEntryRole  " +
+          " for CacheEntryRole " +
           kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
           " but block cache is disabled");
     }

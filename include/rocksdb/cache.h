@@ -544,8 +544,9 @@ class Cache {
   // Reserves (block) cache space for memory used in this cache.
   void SetCacheReservationManager(
       std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr) {
-    assert(cache_res_mgr == nullptr);
-    cache_res_mgr_ = cache_res_mgr;
+    if (cache_res_mgr_ != cache_res_mgr) {
+      cache_res_mgr_ = cache_res_mgr;
+    }
   }
 
   ConcurrentCacheReservationManager* cache_reservation_manager() const {
@@ -556,7 +557,7 @@ class Cache {
   std::shared_ptr<MemoryAllocator> memory_allocator_;
 
   // ONLY USED for charging blob cache usage
-  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_;
+  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_ = nullptr;
 };
 
 // Classifications of block cache entries.
