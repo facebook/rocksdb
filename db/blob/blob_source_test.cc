@@ -1286,7 +1286,6 @@ class BlobSourceCacheReservationTest : public DBTestBase {
       CacheEntryRole::kBlobCache>::GetDummyEntrySize();
   static constexpr std::size_t kCacheCapacity = 4096 * kSizeDummyEntry;
   static constexpr int kNumShardBits = 0;  // 2^0 shard
-  static constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   Options options_;
   BlockBasedTableOptions block_based_options_;
