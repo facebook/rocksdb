@@ -1262,7 +1262,8 @@ class BlobSourceCacheReservationTest : public DBTestBase {
  protected:
  public:
   explicit BlobSourceCacheReservationTest()
-      : DBTestBase("blob_source_test", /*env_do_fsync=*/true) {
+      : DBTestBase("blob_source_cache_researvation_test",
+                   /*env_do_fsync=*/true) {
     options_.env = env_;
     options_.enable_blob_files = true;
     options_.create_if_missing = true;
@@ -1299,7 +1300,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
 TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(
-          env_, "BlobSourceCacheReservationTest_MultiGetBlobsFromCache"),
+          env_, "BlobSourceCacheReservationTest_SimpleCacheReservation"),
       0);
 
   block_based_options_.cache_usage_options.options_overrides.insert(
