@@ -1370,10 +1370,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     read_options.fill_cache = false;
 
     for (size_t i = 0; i < num_blobs; ++i) {
-      blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                          blob_offsets[i], file_size, blob_sizes[i],
-                          kNoCompression, nullptr /* prefetch_buffer */,
-                          &values[i], &bytes_read);
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], blob_file_number, blob_offsets[i], file_size,
+          blob_sizes[i], kNoCompression, nullptr /* prefetch_buffer */,
+          &values[i], &bytes_read));
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
     }
@@ -1390,10 +1390,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     // entry here.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < num_blobs; ++i) {
-      blob_source.GetBlob(read_options, keys[i], blob_file_number,
-                          blob_offsets[i], file_size, blob_sizes[i],
-                          kNoCompression, nullptr /* prefetch_buffer */,
-                          &values[i], &bytes_read);
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[i], blob_file_number, blob_offsets[i], file_size,
+          blob_sizes[i], kNoCompression, nullptr /* prefetch_buffer */,
+          &values[i], &bytes_read));
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
       blob_bytes += blob_sizes[i];
