@@ -9,6 +9,7 @@
 #include <string>
 
 #include "cache/cache_reservation_manager.h"
+#include "cache/sharded_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
 #include "monitoring/statistics.h"
@@ -39,7 +40,8 @@ BlobSource::BlobSource(const ImmutableOptions* ioptions,
             std::make_shared<
                 CacheReservationManagerImpl<CacheEntryRole::kBlobCache>>(
                 bbto->block_cache)));
-    blob_cache_->SetCacheReservationManager(cache_res_mgr);
+    ShardedCache* sc = dynamic_cast<ShardedCache*>(blob_cache_.get());
+    sc->SetCacheReservationManager(cache_res_mgr);
   }
 #endif  // ROCKSDB_LITE
 }

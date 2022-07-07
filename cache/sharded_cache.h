@@ -17,6 +17,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class ConcurrentCacheReservationManager;
+
 // Single cache shard interface.
 class CacheShard {
  public:
@@ -116,6 +118,10 @@ class ShardedCache : public Cache {
   int GetNumShardBits() const;
   uint32_t GetNumShards() const;
 
+  void SetCacheReservationManager(
+      std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr);
+  ConcurrentCacheReservationManager* GetCacheReservationManager() const;
+
  protected:
   inline uint32_t Shard(uint32_t hash) { return hash & shard_mask_; }
 
@@ -125,6 +131,8 @@ class ShardedCache : public Cache {
   size_t capacity_;
   bool strict_capacity_limit_;
   std::atomic<uint64_t> last_id_;
+  // this is used for charging the current cache usage
+  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_ = nullptr;
 };
 
 extern int GetDefaultCacheShardBits(size_t capacity);

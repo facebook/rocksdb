@@ -62,14 +62,11 @@ Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
   uint32_t hash = HashSlice(key);
   Status s = GetShard(Shard(hash))
                  ->Insert(key, hash, value, charge, deleter, handle, priority);
-  if (s.ok()) {
-    auto cache_res_mgr = cache_reservation_manager();
-    if (cache_res_mgr) {
-      // Insert may cause the cache entry eviction if the cache is full. So we
-      // directly call the reservation manager to update the total memory used
-      // in the cache.
-      s = cache_res_mgr->UpdateCacheReservation(GetUsage());
-    }
+  if (s.ok() && cache_res_mgr_) {
+    // Insert may cause the cache entry eviction if the cache is full. So we
+    // directly call the reservation manager to update the total memory used
+    // in the cache.
+    cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
   }
   return s;
 }
@@ -119,13 +116,9 @@ bool ShardedCache::Release(Handle* handle, bool erase_if_last_ref) {
   uint32_t hash = GetHash(handle);
   size_t memory_used_delta = GetUsage(handle);
   bool erased = GetShard(Shard(hash))->Release(handle, erase_if_last_ref);
-  if (erased) {
-    auto cache_res_mgr = cache_reservation_manager();
-    if (cache_res_mgr) {
-      const Status s =
-          cache_res_mgr->UpdateCacheReservation(memory_used_delta, false);
-      s.PermitUncheckedError();
-    }
+  if (erased && cache_res_mgr_) {
+    cache_res_mgr_->UpdateCacheReservation(memory_used_delta, false)
+        .PermitUncheckedError();
   }
   return erased;
 }
@@ -136,13 +129,9 @@ bool ShardedCache::Release(Handle* handle, bool useful,
   size_t memory_used_delta = GetUsage(handle);
   bool erased =
       GetShard(Shard(hash))->Release(handle, useful, erase_if_last_ref);
-  if (erased) {
-    auto cache_res_mgr = cache_reservation_manager();
-    if (cache_res_mgr) {
-      const Status s =
-          cache_res_mgr->UpdateCacheReservation(memory_used_delta, false);
-      s.PermitUncheckedError();
-    }
+  if (erased && cache_res_mgr_) {
+    cache_res_mgr_->UpdateCacheReservation(memory_used_delta, false)
+        .PermitUncheckedError();
   }
   return erased;
 }
@@ -150,10 +139,8 @@ bool ShardedCache::Release(Handle* handle, bool useful,
 void ShardedCache::Erase(const Slice& key) {
   uint32_t hash = HashSlice(key);
   GetShard(Shard(hash))->Erase(key, hash);
-  auto cache_res_mgr = cache_reservation_manager();
-  if (cache_res_mgr) {
-    const Status s = cache_res_mgr->UpdateCacheReservation(GetUsage());
-    s.PermitUncheckedError();
+  if (cache_res_mgr_) {
+    cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
   }
 }
 
@@ -225,10 +212,8 @@ void ShardedCache::EraseUnRefEntries() {
   for (uint32_t s = 0; s < num_shards; s++) {
     GetShard(s)->EraseUnRefEntries();
   }
-  auto cache_res_mgr = cache_reservation_manager();
-  if (cache_res_mgr) {
-    const Status s = cache_res_mgr->UpdateCacheReservation(GetUsage());
-    s.PermitUncheckedError();
+  if (cache_res_mgr_) {
+    cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
   }
 }
 
@@ -271,5 +256,15 @@ int GetDefaultCacheShardBits(size_t capacity) {
 int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
 
 uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
+
+void ShardedCache::SetCacheReservationManager(
+    std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr) {
+  cache_res_mgr_ = cache_res_mgr;
+}
+
+ConcurrentCacheReservationManager* ShardedCache::GetCacheReservationManager()
+    const {
+  return cache_res_mgr_.get();
+}
 
 }  // namespace ROCKSDB_NAMESPACE

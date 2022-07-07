@@ -38,7 +38,6 @@ namespace ROCKSDB_NAMESPACE {
 class Cache;
 struct ConfigOptions;
 class SecondaryCache;
-class ConcurrentCacheReservationManager;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -541,23 +540,8 @@ class Cache {
   // to each of the handles.
   virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
-  // Reserves (block) cache space for memory used in this cache.
-  void SetCacheReservationManager(
-      std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr) {
-    if (cache_res_mgr_ != cache_res_mgr) {
-      cache_res_mgr_ = cache_res_mgr;
-    }
-  }
-
-  ConcurrentCacheReservationManager* cache_reservation_manager() const {
-    return cache_res_mgr_.get();
-  }
-
  private:
   std::shared_ptr<MemoryAllocator> memory_allocator_;
-
-  // ONLY USED for charging blob cache usage
-  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_ = nullptr;
 };
 
 // Classifications of block cache entries.

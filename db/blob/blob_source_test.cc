@@ -12,6 +12,7 @@
 #include <string>
 
 #include "cache/compressed_secondary_cache.h"
+#include "cache/sharded_cache.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
@@ -1353,9 +1354,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
-
+  ShardedCache* sc =
+      dynamic_cast<ShardedCache*>(immutable_options.blob_cache.get());
   ConcurrentCacheReservationManager* cache_res_mgr =
-      immutable_options.blob_cache->cache_reservation_manager();
+      sc->GetCacheReservationManager();
   ASSERT_NE(cache_res_mgr, nullptr);
 
   ReadOptions read_options;
