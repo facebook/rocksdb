@@ -55,11 +55,11 @@ class CompressedSecondaryCache : public SecondaryCache {
  public:
   CompressedSecondaryCache(
       size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-      double high_pri_pool_ratio,
+      double high_pri_pool_ratio = 0.0,
       std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
       bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy metadata_charge_policy =
-          kDontChargeCacheMetadata,
+          kDefaultCacheMetadataChargePolicy,
       CompressionType compression_type = CompressionType::kLZ4Compression,
       uint32_t compress_format_version = 2);
   virtual ~CompressedSecondaryCache() override;
@@ -80,19 +80,28 @@ class CompressedSecondaryCache : public SecondaryCache {
   std::string GetPrintableOptions() const override;
 
  private:
+  friend class CompressedSecondaryCacheTest;
   // TODO add CACHE_LINE_SIZE info.
   // TODO what should be min and max size here.
-  static constexpr std::array<size_t, 10> malloc_bin_sizes_{
-      32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384};
+  static constexpr std::array<size_t, 19> malloc_bin_sizes_{
+      64,  96,  128, 160, 192,  224,  256,  320,  384,  448,
+      512, 640, 768, 896, 1024, 2048, 4096, 8192, 16384};
   struct CacheValueChunk {
-    void* chunk_ptr;
-    size_t size;
-    CacheValueChunk* next;
+    CacheAllocationPtr* chunk_ptr = nullptr;
+    size_t charge = 0;
+    CacheValueChunk* next = nullptr;
   };
 
-  void SplitValueIntoChunks(const std::string& value,
-                            CacheValueChunk* chunk_ptr, size_t& new_size);
-  std::string* MergeChunks(void* chunk, size_t size);
+  // Split value into chunks to better fit into jemalloc bins. The chunks
+  // are stored in CacheValueChunk and extra charge is needed for each chunk,
+  // so the cache charge is recalculated here.
+  CacheValueChunk* SplitValueIntoChunks(const std::string& value,
+                                        size_t& charge);
+
+  // After merging chunks, the extra charge for each chunk is removed, so
+  // the charge is recalculated.
+  CacheAllocationPtr* MergeChunksIntoValue(const void* chunks_head,
+                                           size_t& charge);
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
 };

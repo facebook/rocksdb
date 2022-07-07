@@ -162,6 +162,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     }
     std::shared_ptr<SecondaryCache> sec_cache =
         NewCompressedSecondaryCache(opts);
+
+    BasicTestHelper(sec_cache);
   }
 
   void FailsTest(bool sec_cache_is_compressed) {
@@ -519,6 +521,75 @@ class CompressedSecondaryCacheTest : public testing::Test {
     secondary_cache.reset();
   }
 
+  void SplitValueIntoChunksTest() {
+    using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
+    CompressedSecondaryCache* sec_cache =
+        new CompressedSecondaryCache(1000, 0, true, 0.0);
+    Random rnd(301);
+    // 2399 = 2048 + 320 + 31 , so there should be 3 chunks after split.
+    size_t str_size{2399};
+    std::string str = rnd.RandomString(str_size);
+    size_t charge{2399};
+    CacheValueChunk* value_chunks_head =
+        sec_cache->SplitValueIntoChunks(str, charge);
+    ASSERT_EQ(charge, str_size + 3 * sizeof(CacheValueChunk));
+
+    CacheValueChunk* current_chunk{value_chunks_head};
+    ASSERT_EQ(current_chunk->charge, 2048);
+    current_chunk = current_chunk->next;
+    ASSERT_EQ(current_chunk->charge, 320);
+    current_chunk = current_chunk->next;
+    ASSERT_EQ(current_chunk->charge, 31);
+  }
+
+  void MergeChunksIntoValueTest() {
+    JemallocAllocatorOptions jopts;
+    std::shared_ptr<MemoryAllocator> allocator;
+    std::string msg;
+    // allocator can be nullptr for this test.
+    if (JemallocNodumpAllocator::IsSupported(&msg)) {
+      NewJemallocNodumpAllocator(jopts, &allocator);
+    }
+
+    using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
+    CacheValueChunk* chunks_head = new CacheValueChunk();
+    CacheValueChunk* current_chunk = chunks_head;
+    Random rnd(301);
+    size_t size1{2048};
+    std::string str1 = rnd.RandomString(size1);
+    CacheAllocationPtr ptr = AllocateBlock(size1, allocator.get());
+    memcpy(ptr.get(), str1.data(), size1);
+    current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+    current_chunk->charge = size1;
+    current_chunk->next = new CacheValueChunk();
+    current_chunk = current_chunk->next;
+
+    size_t size2{256};
+    std::string str2 = rnd.RandomString(size2);
+    ptr = AllocateBlock(size2, allocator.get());
+    memcpy(ptr.get(), str2.data(), size2);
+    current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+    current_chunk->charge = size2;
+    current_chunk->next = new CacheValueChunk();
+    current_chunk = current_chunk->next;
+
+    size_t size3{31};
+    std::string str3 = rnd.RandomString(size3);
+    ptr = AllocateBlock(size3, allocator.get());
+    memcpy(ptr.get(), str3.data(), size3);
+    current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+    current_chunk->charge = size3;
+    std::string str = str1 + str2 + str3;
+
+    CompressedSecondaryCache* sec_cache =
+        new CompressedSecondaryCache(1000, 0, true, 0.0);
+    size_t charge = 0;
+    CacheAllocationPtr* value =
+        sec_cache->MergeChunksIntoValue(chunks_head, charge);
+    ASSERT_EQ(strcmp((char*)value->get(), str.data()), 0);
+    ASSERT_EQ(charge, size1 + size2 + size3);
+  }
+
  private:
   bool fail_create_;
 };
@@ -637,6 +708,14 @@ TEST_F(CompressedSecondaryCacheTest,
 TEST_F(CompressedSecondaryCacheTest,
        IntegrationFullCapacityTestWithCompression) {
   IntegrationFullCapacityTest(true);
+}
+
+TEST_F(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
+  SplitValueIntoChunksTest();
+}
+
+TEST_F(CompressedSecondaryCacheTest, MergeChunksIntoValueTest) {
+  MergeChunksIntoValueTest();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
