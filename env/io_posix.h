@@ -99,7 +99,7 @@ struct Posix_IOHandle {
 
 inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
                          size_t len, size_t iov_len, bool async_read,
-                         bool use_direct_io, uint32_t alignment,
+                         bool use_direct_io, size_t alignment,
                          size_t& finished_len, FSReadRequest* req,
                          size_t& bytes_read, bool& read_again) {
   read_again = false;

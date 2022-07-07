@@ -104,10 +104,10 @@ class BlobSource {
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CachableEntry<std::string>* blob) const;
+                          CacheHandleGuard<std::string>* blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
-                          CachableEntry<std::string>* cached_blob,
+                          CacheHandleGuard<std::string>* cached_blob,
                           PinnableSlice* blob) const;
 
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
