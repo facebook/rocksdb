@@ -1188,6 +1188,11 @@ DEFINE_bool(charge_file_metadata, false,
             "CacheEntryRoleOptions::charged of"
             "CacheEntryRole::kFileMetadata");
 
+DEFINE_bool(charge_blob_cache, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRole::kBlobCache");
+
 DEFINE_uint64(backup_rate_limit, 0ull,
               "If non-zero, db_bench will rate limit reads and writes for DB "
               "backup. This "
@@ -4521,6 +4526,21 @@ class Benchmark {
           co.capacity = FLAGS_blob_cache_size;
           co.num_shard_bits = FLAGS_blob_cache_numshardbits;
           options.blob_cache = NewLRUCache(co);
+
+          if (block_based_options.block_cache &&
+              options.blob_cache.GetCapacity() <=
+                  block_based_options.block_cache.GetCapacity()) {
+            block_based_options.cache_usage_options.options_overrides.insert(
+                {CacheEntryRole::kBlobCache,
+                 {/*.charged = */ FLAGS_charge_blob_cache
+                      ? CacheEntryRoleOptions::Decision::kEnabled
+                      : CacheEntryRoleOptions::Decision::kDisabled}});
+          } else if (FLAGS_charge_blob_cache) {
+            fprintf(stderr,
+                    "Unable to charge blob cache if block cache is not set or "
+                    "blob cache is larger than block cache.\n");
+            exit(1);
+          }
         } else {
           fprintf(stderr,
                   "Unable to create a standalone blob cache if blob_cache_size "

@@ -334,6 +334,11 @@ DEFINE_bool(charge_file_metadata, false,
             "CacheEntryRoleOptions::charged of"
             "kFileMetadata");
 
+DEFINE_bool(charge_blob_cache, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of"
+            "kBlobCache");
+
 DEFINE_int32(
     top_level_index_pinning,
     static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
