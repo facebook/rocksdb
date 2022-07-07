@@ -203,7 +203,7 @@ commands:
     steps:
       - run:
           name: "Test low-variance benchmarks"
-          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
 
@@ -217,7 +217,7 @@ commands:
           command: |
             set +e
             set +o pipefail
-            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
+            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3_rix/_doc
             true
 
 executors:
