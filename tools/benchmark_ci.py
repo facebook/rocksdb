@@ -28,6 +28,27 @@ class Config:
         self.benchmark_script = f"{os.getcwd()}/tools/benchmark_compare.sh"
         self.benchmark_cwd = f"{os.getcwd()}/tools"
 
+    benchmark_env_keys = ['LD_LIBRARY_PATH',
+                          'NUM_KEYS',
+                          'KEY_SIZE',
+                          'VALUE_SIZE',
+                          'CACHE_SIZE_MB',
+                          'DURATION_RW',
+                          'DURATION_RO',
+                          'MB_WRITE_PER_SEC',
+                          'NUM_THREADS',
+                          'COMPRESSION_TYPE',
+                          'MIN_LEVEL_TO_COMPRESS',
+                          'WRITE_BUFFER_SIZE_MB',
+                          'TARGET_FILE_SIZE_BASE_MB',
+                          'MAX_BYTES_FOR_LEVEL_BASE_MB',
+                          'MAX_BACKGROUND_JOBS',
+                          'CACHE_INDEX_AND_FILTER_BLOCKS',
+                          'USE_O_DIRECT',
+                          'STATS_INTERVAL_SECONDS',
+                          'SUBCOMPACTIONS',
+                          'COMPACTION_STYLE']
+
 def read_version(config):
     majorRegex = re.compile('#define ROCKSDB_MAJOR\s([0-9]+)')
     minorRegex = re.compile('#define ROCKSDB_MINOR\s([0-9]+)')
@@ -78,6 +99,14 @@ def cleanup(version_str, config):
     db_bench_vers = f"{config.benchmark_cwd}/db_bench.{version_str}"
     os.remove(db_bench_vers)
 
+def get_benchmark_env():
+    env = []
+    for key in Config.benchmark_env_keys:
+        value = os.getenv(key)
+        if not value is None:
+            env.append((key, value))
+    return env
+
 def main():
     '''Tool for running benchmark_compare.sh on the most recent build, for CI
     This tool will
@@ -110,12 +139,12 @@ def main():
     prepare(version_str, config)
 
     try:
-        env = {'NUM_KEYS': args.num_keys,
-            'LD_LIBRARY_PATH': os.getenv('LD_LIBRARY_PATH','')}
+        env = get_benchmark_env()
+        env.append(('NUM_KEYS', args.num_keys))
         cmd = [config.benchmark_script,
             config.data_dir, config.results_dir, version_str]
         logging.info(f"Run {cmd} env={env} cwd={config.benchmark_cwd}")
-        subprocess.run(cmd,env=env,cwd=config.benchmark_cwd)
+        subprocess.run(cmd,env=dict(env),cwd=config.benchmark_cwd)
 
         results(version_str, config)
     finally:

@@ -206,6 +206,13 @@ commands:
           command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
+            # How long to run parts of the test(s)
+            DURATION_RO: 450
+            DURATION_RW: 450
+            # The benchmark host has 32GB memory
+            # The folllowing values are tailored to work with that
+            # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
+
 
   post-benchmarks:
     steps:
