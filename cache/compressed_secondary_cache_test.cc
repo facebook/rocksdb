@@ -528,7 +528,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     Random rnd(301);
     // 2399 = 2048 + 320 + 31 , so there should be 3 chunks after split.
     size_t str_size{2399};
-    std::string str = rnd.RandomString(str_size);
+    std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{2399};
     CacheValueChunk* value_chunks_head =
         sec_cache->SplitValueIntoChunks(str, charge);
@@ -556,7 +556,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     CacheValueChunk* current_chunk = chunks_head;
     Random rnd(301);
     size_t size1{2048};
-    std::string str1 = rnd.RandomString(size1);
+    std::string str1 = rnd.RandomString(static_cast<int>(size1));
     CacheAllocationPtr ptr = AllocateBlock(size1, allocator.get());
     memcpy(ptr.get(), str1.data(), size1);
     current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
@@ -565,7 +565,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     current_chunk = current_chunk->next;
 
     size_t size2{256};
-    std::string str2 = rnd.RandomString(size2);
+    std::string str2 = rnd.RandomString(static_cast<int>(size2));
     ptr = AllocateBlock(size2, allocator.get());
     memcpy(ptr.get(), str2.data(), size2);
     current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
@@ -574,7 +574,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     current_chunk = current_chunk->next;
 
     size_t size3{31};
-    std::string str3 = rnd.RandomString(size3);
+    std::string str3 = rnd.RandomString(static_cast<int>(size3));
     ptr = AllocateBlock(size3, allocator.get());
     memcpy(ptr.get(), str3.data(), size3);
     current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
