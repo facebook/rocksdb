@@ -359,7 +359,8 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
         return io_s;
       }
       io_s = status_to_io_status(prefetch_buffer_->PrefetchAsync(
-          opts, file_, handle_.offset(), block_size_with_trailer_, &slice_));
+          opts, read_options_.rate_limiter_priority, file_, handle_.offset(),
+          block_size_with_trailer_, &slice_));
       if (io_s.IsTryAgain()) {
         return io_s;
       }
