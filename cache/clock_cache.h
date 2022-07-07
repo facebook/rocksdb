@@ -65,6 +65,8 @@ struct ClockHandle {
   static constexpr int kIsVisibleOffset = 0;
   static constexpr int kIsElementOffset = 1;
   static constexpr int kClockPriorityOffset = 2;
+  static constexpr int kIsHitOffset = 4;
+  static constexpr int kCachePriorityOffset = 5;
 
   enum Flags : uint8_t {
     // Whether the handle is visible to Lookups.
@@ -74,6 +76,9 @@ struct ClockHandle {
     // Clock priorities. Represents how close a handle is from
     // being evictable.
     CLOCK_PRIORITY = (3 << kClockPriorityOffset),
+    // Whether the handle has been looked up after its insertion.
+    HAS_HIT = (1 << kIsHitOffset),
+    CACHE_PRIORITY = (1 << kCachePriorityOffset),
   };
   uint8_t flags;
 
@@ -82,7 +87,7 @@ struct ClockHandle {
     LOW = (1 << kClockPriorityOffset),   // Immediately evictable.
     MEDIUM = (2 << kClockPriorityOffset),
     HIGH = (3 << kClockPriorityOffset)
-    // Priority is CLOCK_NONE if and only if
+    // Priority is NONE if and only if
     // (i) the handle is not an element, or
     // (ii) the handle is an element but it is being referenced.
   };
@@ -102,7 +107,8 @@ struct ClockHandle {
     flags = 0;
     SetIsVisible(false);
     SetIsElement(false);
-    SetPriority(ClockPriority::NONE);
+    SetClockPriority(ClockPriority::NONE);
+    SetCachePriority(Cache::Priority::LOW);
     displacements = 0;
     key_data.fill(0);
   }
@@ -142,20 +148,36 @@ struct ClockHandle {
     }
   }
 
-  ClockPriority GetPriority() const {
+  bool HasHit() const { return flags & HAS_HIT; }
+
+  void SetHit() { flags |= HAS_HIT; }
+
+  bool IsInClockList() const {
+    return GetClockPriority() != ClockHandle::ClockPriority::NONE;
+  }
+
+  Cache::Priority GetCachePriority() const {
+    return static_cast<Cache::Priority>(flags & CACHE_PRIORITY);
+  }
+
+  void SetCachePriority(Cache::Priority priority) {
+    if (priority == Cache::Priority::HIGH) {
+      flags |= Flags::CACHE_PRIORITY;
+    } else {
+      flags &= ~Flags::CACHE_PRIORITY;
+    }
+  }
+
+  ClockPriority GetClockPriority() const {
     return static_cast<ClockPriority>(flags & Flags::CLOCK_PRIORITY);
   }
 
-  bool IsInClockList() const {
-    return GetPriority() != ClockHandle::ClockPriority::NONE;
-  }
-
-  void SetPriority(ClockPriority priority) {
+  void SetClockPriority(ClockPriority priority) {
     flags &= ~Flags::CLOCK_PRIORITY;
     flags |= priority;
   }
 
-  void DecreasePriority() {
+  void DecreaseClockPriority() {
     uint8_t p = static_cast<uint8_t>(flags & Flags::CLOCK_PRIORITY) >>
                 kClockPriorityOffset;
     assert(p > 0);

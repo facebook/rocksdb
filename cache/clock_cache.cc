@@ -109,7 +109,7 @@ void ClockHandleTable::Assign(int slot, ClockHandle* h) {
   dst->displacements = disp;
   dst->SetIsVisible(true);
   dst->SetIsElement(true);
-  dst->SetPriority(ClockHandle::ClockPriority::NONE);
+  dst->SetClockPriority(ClockHandle::ClockPriority::NONE);
   occupancy_++;
 }
 
@@ -243,14 +243,18 @@ void ClockCacheShard::ApplyToSomeEntries(
 
 void ClockCacheShard::ClockRemove(ClockHandle* h) {
   assert(h->IsInClockList());
-  h->SetPriority(ClockHandle::ClockPriority::NONE);
+  h->SetClockPriority(ClockHandle::ClockPriority::NONE);
   assert(clock_usage_ >= h->total_charge);
   clock_usage_ -= h->total_charge;
 }
 
 void ClockCacheShard::ClockInsert(ClockHandle* h) {
   assert(!h->IsInClockList());
-  h->SetPriority(ClockHandle::ClockPriority::HIGH);
+  bool is_high_priority =
+      h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
+  h->SetClockPriority(static_cast<ClockHandle::ClockPriority>(
+      is_high_priority * ClockHandle::ClockPriority::HIGH +
+      (1 - is_high_priority) * ClockHandle::ClockPriority::MEDIUM));
   clock_usage_ += h->total_charge;
 }
 
@@ -264,7 +268,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
     if (!old->IsInClockList()) {
       continue;
     }
-    if (old->GetPriority() == ClockHandle::ClockPriority::LOW) {
+    if (old->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
       ClockRemove(old);
       table_.Remove(old);
       assert(usage_ >= old->total_charge);
@@ -272,7 +276,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
       deleted->push_back(*old);
       return;
     }
-    old->DecreasePriority();
+    old->DecreaseClockPriority();
   }
 }
 
@@ -319,7 +323,7 @@ void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                size_t charge, Cache::DeleterFn deleter,
                                Cache::Handle** handle,
-                               Cache::Priority /*priority*/) {
+                               Cache::Priority priority) {
   if (key.size() != kCacheKeySize) {
     return Status::NotSupported("ClockCache only supports key size " +
                                 std::to_string(kCacheKeySize) + "B");
@@ -330,6 +334,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   tmp.deleter = deleter;
   tmp.hash = hash;
   tmp.CalcTotalCharge(charge, metadata_charge_policy_);
+  tmp.SetCachePriority(priority);
   for (int i = 0; i < kCacheKeySize; i++) {
     tmp.key_data[i] = key.data()[i];
   }
@@ -415,6 +420,7 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t /* hash */) {
         ClockRemove(h);
       }
       h->Ref();
+      h->SetHit();
     }
   }
   return reinterpret_cast<Cache::Handle*>(h);

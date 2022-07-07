@@ -448,28 +448,29 @@ TEST_F(ClockCacheTest, Validate) {
 
 TEST_F(ClockCacheTest, ClockPriorityTest) {
   clock_cache::ClockHandle handle;
-  EXPECT_EQ(handle.GetPriority(),
+  EXPECT_EQ(handle.GetClockPriority(),
             clock_cache::ClockHandle::ClockPriority::NONE);
-  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::HIGH);
-  EXPECT_EQ(handle.GetPriority(),
+  handle.SetClockPriority(clock_cache::ClockHandle::ClockPriority::HIGH);
+  EXPECT_EQ(handle.GetClockPriority(),
             clock_cache::ClockHandle::ClockPriority::HIGH);
-  handle.DecreasePriority();
-  EXPECT_EQ(handle.GetPriority(),
+  handle.DecreaseClockPriority();
+  EXPECT_EQ(handle.GetClockPriority(),
             clock_cache::ClockHandle::ClockPriority::MEDIUM);
-  handle.DecreasePriority();
-  EXPECT_EQ(handle.GetPriority(), clock_cache::ClockHandle::ClockPriority::LOW);
-  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetPriority(),
+  handle.DecreaseClockPriority();
+  EXPECT_EQ(handle.GetClockPriority(),
+            clock_cache::ClockHandle::ClockPriority::LOW);
+  handle.SetClockPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetClockPriority(),
             clock_cache::ClockHandle::ClockPriority::MEDIUM);
-  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::NONE);
-  EXPECT_EQ(handle.GetPriority(),
+  handle.SetClockPriority(clock_cache::ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetClockPriority(),
             clock_cache::ClockHandle::ClockPriority::NONE);
-  handle.SetPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetPriority(),
+  handle.SetClockPriority(clock_cache::ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetClockPriority(),
             clock_cache::ClockHandle::ClockPriority::MEDIUM);
-  handle.DecreasePriority();
-  handle.DecreasePriority();
-  EXPECT_EQ(handle.GetPriority(),
+  handle.DecreaseClockPriority();
+  handle.DecreaseClockPriority();
+  EXPECT_EQ(handle.GetClockPriority(),
             clock_cache::ClockHandle::ClockPriority::NONE);
 }
 
