@@ -44,7 +44,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       compression_type_(kNoCompression),
       compression_type_record_read_(false),
       uncompress_(nullptr),
-      hash_state_(nullptr) {}
+      hash_state_(nullptr),
+      fragment_hash_state_(nullptr) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -53,6 +54,9 @@ Reader::~Reader() {
   }
   if (hash_state_) {
     XXH3_freeState(hash_state_);
+  }
+  if (fragment_hash_state_) {
+    XXH3_freeState(fragment_hash_state_);
   }
 }
 
@@ -64,10 +68,11 @@ Reader::~Reader() {
 // TODO krad: Evaluate if we need to move to a more strict mode where we
 // restrict the inconsistency to only the last log
 bool Reader::ReadRecord(Slice* record, std::string* scratch,
-                        WALRecoveryMode wal_recovery_mode, uint64_t* checksum) {
+                        WALRecoveryMode wal_recovery_mode,
+                        uint64_t* record_checksum) {
   scratch->clear();
   record->clear();
-  if (checksum != nullptr) {
+  if (record_checksum != nullptr) {
     if (hash_state_ == nullptr) {
       hash_state_ = XXH3_createState();
     }
@@ -85,7 +90,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   while (true) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
     size_t drop_size = 0;
-    const unsigned int record_type = ReadPhysicalRecord(&fragment, &drop_size);
+    const unsigned int record_type =
+        ReadPhysicalRecord(&fragment, &drop_size, record_checksum);
     switch (record_type) {
       case kFullType:
       case kRecyclableFullType:
@@ -96,15 +102,14 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           // at the beginning of the next block.
           ReportCorruption(scratch->size(), "partial record without end(1)");
         }
-        if (checksum != nullptr) {
-          // No need to stream since the record is a single fragment
-          *checksum = XXH3_64bits(fragment.data(), fragment.size());
-        }
         prospective_record_offset = physical_record_offset;
         scratch->clear();
         *record = fragment;
         last_record_offset_ = prospective_record_offset;
         first_record_read_ = true;
+        // record_checksum is computed in ReadPhysicalRecord().
+        // No need to recompute checksum since this record consists of a single
+        // fragment.
         return true;
 
       case kFirstType:
@@ -117,11 +122,21 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           ReportCorruption(scratch->size(), "partial record without end(2)");
           XXH3_64bits_reset(hash_state_);
         }
-        if (checksum != nullptr) {
-          XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
-        }
         prospective_record_offset = physical_record_offset;
         scratch->assign(fragment.data(), fragment.size());
+        if (record_checksum != nullptr) {
+          XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
+          if (*record_checksum !=
+              XXH3_64bits(scratch->data(), fragment.size())) {
+            ReportCorruption(scratch->size(),
+                             "In memory record corrupted: WAL record checksum "
+                             "verification failed.");
+            scratch->clear();
+            in_fragmented_record = false;
+            XXH3_64bits_reset(hash_state_);
+            break;
+          }
+        }
         in_fragmented_record = true;
         break;
 
@@ -130,12 +145,27 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         if (!in_fragmented_record) {
           ReportCorruption(fragment.size(),
                            "missing start of fragmented record(1)");
-        } else {
-          if (checksum != nullptr) {
-            XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
+          if (record_checksum != nullptr) {
+            XXH3_64bits_reset(hash_state_);
           }
-          scratch->append(fragment.data(), fragment.size());
+          break;
         }
+        scratch->append(fragment.data(), fragment.size());
+        if (record_checksum != nullptr) {
+          XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
+          if (*record_checksum !=
+              XXH3_64bits(scratch->data() + scratch->size() - fragment.size(),
+                          fragment.size())) {
+            ReportCorruption(
+                scratch->size(),
+                "In memory record corrupted: checksum verification failed.");
+            scratch->clear();
+            in_fragmented_record = false;
+            XXH3_64bits_reset(hash_state_);
+            break;
+          }
+        }
+        in_fragmented_record = true;
         break;
 
       case kLastType:
@@ -143,18 +173,28 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         if (!in_fragmented_record) {
           ReportCorruption(fragment.size(),
                            "missing start of fragmented record(2)");
-        } else {
-          if (checksum != nullptr) {
-            XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
-            *checksum = XXH3_64bits_digest(hash_state_);
-          }
-          scratch->append(fragment.data(), fragment.size());
-          *record = Slice(*scratch);
-          last_record_offset_ = prospective_record_offset;
-          first_record_read_ = true;
-          return true;
+          break;
         }
-        break;
+        scratch->append(fragment.data(), fragment.size());
+        if (record_checksum != nullptr) {
+          XXH3_64bits_update(hash_state_, fragment.data(), fragment.size());
+          if (*record_checksum !=
+              XXH3_64bits(scratch->data() + scratch->size() - fragment.size(),
+                          fragment.size())) {
+            ReportCorruption(
+                scratch->size(),
+                "In memory record corrupted: checksum verification failed.");
+            scratch->clear();
+            in_fragmented_record = false;
+            XXH3_64bits_reset(hash_state_);
+            break;
+          }
+          *record_checksum = XXH3_64bits_digest(hash_state_);
+        }
+        *record = Slice(*scratch);
+        last_record_offset_ = prospective_record_offset;
+        first_record_read_ = true;
+        return true;
 
       case kBadHeader:
         if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
@@ -417,7 +457,8 @@ bool Reader::ReadMore(size_t* drop_size, int *error) {
   }
 }
 
-unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
+unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
+                                        uint64_t* fragment_checksum) {
   while (true) {
     // We need at least the minimum header size
     if (buffer_.size() < static_cast<size_t>(kHeaderSize)) {
@@ -495,6 +536,9 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     buffer_.remove_prefix(header_size + length);
 
     if (!uncompress_ || type == kSetCompressionType) {
+      if (fragment_checksum != nullptr) {
+        *fragment_checksum = XXH3_64bits(header + header_size, length);
+      }
       *result = Slice(header + header_size, length);
       return type;
     } else {
@@ -502,6 +546,12 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       uncompressed_record_.clear();
       size_t uncompressed_size = 0;
       int remaining = 0;
+      if (fragment_checksum != nullptr) {
+        if (fragment_hash_state_ == nullptr) {
+          fragment_hash_state_ = XXH3_createState();
+        }
+        XXH3_64bits_reset(fragment_hash_state_);
+      }
       do {
         remaining = uncompress_->Uncompress(header + header_size, length,
                                             uncompressed_buffer_.get(),
@@ -511,10 +561,17 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
           return kBadRecord;
         }
         if (uncompressed_size > 0) {
+          if (fragment_checksum) {
+            XXH3_64bits_update(fragment_hash_state_, uncompressed_buffer_.get(),
+                               uncompressed_size);
+          }
           uncompressed_record_.append(uncompressed_buffer_.get(),
                                       uncompressed_size);
         }
       } while (remaining > 0 || uncompressed_size == kBlockSize);
+      if (fragment_checksum != nullptr) {
+        *fragment_checksum = XXH3_64bits_digest(fragment_hash_state_);
+      }
       *result = Slice(uncompressed_record_);
       return type;
     }
