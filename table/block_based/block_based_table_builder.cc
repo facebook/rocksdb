@@ -944,7 +944,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
           Status s =
               r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
                   r->data_begin_offset);
-          exceeds_global_block_cache_limit = s.IsIncomplete();
+          exceeds_global_block_cache_limit = s.IsMemoryLimit();
         }
 
         if (exceeds_buffer_limit || exceeds_global_block_cache_limit) {

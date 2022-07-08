@@ -28,7 +28,7 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
               read_req->result = req.result;
             },
             &awaiter->read_reqs_[i], &awaiter->io_handle_[i],
-            &awaiter->del_fn_[i], Env::IOPriority::IO_TOTAL)
+            &awaiter->del_fn_[i], /*aligned_buf=*/nullptr)
         .PermitUncheckedError();
   }
   return true;

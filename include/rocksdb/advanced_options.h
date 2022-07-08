@@ -117,7 +117,7 @@ struct CompressionOptions {
   //
   // The amount of data buffered can be limited by `max_dict_buffer_bytes`. This
   // buffered memory is charged to the block cache when there is a block cache.
-  // If block cache insertion fails with `Status::Incomplete` (i.e., it is
+  // If block cache insertion fails with `Status::MemoryLimit` (i.e., it is
   // full), we finalize the dictionary with whatever data we have and then stop
   // buffering.
   //

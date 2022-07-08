@@ -446,29 +446,17 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
   }
 }
 
-// TODO akanksha:
-// 1. Handle use_direct_io case which currently calls Read API.
 IOStatus RandomAccessFileReader::ReadAsync(
     FSReadRequest& req, const IOOptions& opts,
     std::function<void(const FSReadRequest&, void*)> cb, void* cb_arg,
-    void** io_handle, IOHandleDeleter* del_fn,
-    Env::IOPriority rate_limiter_priority) {
-  if (use_direct_io()) {
-    // For direct_io, it calls Read API.
-    req.status = Read(opts, req.offset, req.len, &(req.result), req.scratch,
-                      nullptr /*dbg*/, rate_limiter_priority);
-    cb(req, cb_arg);
-    return IOStatus::OK();
-  }
-
+    void** io_handle, IOHandleDeleter* del_fn, AlignedBuf* aligned_buf) {
+  IOStatus s;
   // Create a callback and populate info.
   auto read_async_callback =
       std::bind(&RandomAccessFileReader::ReadAsyncCallback, this,
                 std::placeholders::_1, std::placeholders::_2);
-  ReadAsyncInfo* read_async_info = new ReadAsyncInfo;
-  read_async_info->cb_ = cb;
-  read_async_info->cb_arg_ = cb_arg;
-  read_async_info->start_time_ = clock_->NowMicros();
+  ReadAsyncInfo* read_async_info =
+      new ReadAsyncInfo(cb, cb_arg, clock_->NowMicros());
 
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
@@ -476,8 +464,38 @@ IOStatus RandomAccessFileReader::ReadAsync(
   }
 #endif
 
-  IOStatus s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
-                                io_handle, del_fn, nullptr /*dbg*/);
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  bool is_aligned = (req.offset & (alignment - 1)) == 0 &&
+                    (req.len & (alignment - 1)) == 0 &&
+                    (uintptr_t(req.scratch) & (alignment - 1)) == 0;
+  read_async_info->is_aligned_ = is_aligned;
+
+  if (use_direct_io() && is_aligned == false) {
+    FSReadRequest aligned_req = Align(req, alignment);
+
+    // Allocate aligned buffer.
+    read_async_info->buf_.Alignment(alignment);
+    read_async_info->buf_.AllocateNewBuffer(aligned_req.len);
+
+    // Set rem fields in aligned FSReadRequest.
+    aligned_req.scratch = read_async_info->buf_.BufferStart();
+
+    // Set user provided fields to populate back in callback.
+    read_async_info->user_scratch_ = req.scratch;
+    read_async_info->user_aligned_buf_ = aligned_buf;
+    read_async_info->user_len_ = req.len;
+    read_async_info->user_offset_ = req.offset;
+    read_async_info->user_result_ = req.result;
+
+    assert(read_async_info->buf_.CurrentSize() == 0);
+
+    s = file_->ReadAsync(aligned_req, opts, read_async_callback,
+                         read_async_info, io_handle, del_fn, nullptr /*dbg*/);
+  } else {
+    s = file_->ReadAsync(req, opts, read_async_callback, read_async_info,
+                         io_handle, del_fn, nullptr /*dbg*/);
+  }
+
 // Suppress false positive clang analyzer warnings.
 // Memory is not released if file_->ReadAsync returns !s.ok(), because
 // ReadAsyncCallback is never called in that case. If ReadAsyncCallback is
@@ -497,7 +515,54 @@ void RandomAccessFileReader::ReadAsyncCallback(const FSReadRequest& req,
   assert(read_async_info);
   assert(read_async_info->cb_);
 
-  read_async_info->cb_(req, read_async_info->cb_arg_);
+  if (use_direct_io() && read_async_info->is_aligned_ == false) {
+    // Create FSReadRequest with user provided fields.
+    FSReadRequest user_req;
+    user_req.scratch = read_async_info->user_scratch_;
+    user_req.offset = read_async_info->user_offset_;
+    user_req.len = read_async_info->user_len_;
+
+    // Update results in user_req.
+    user_req.result = req.result;
+    user_req.status = req.status;
+
+    read_async_info->buf_.Size(read_async_info->buf_.CurrentSize() +
+                               req.result.size());
+
+    size_t offset_advance_len = static_cast<size_t>(
+        /*offset_passed_by_user=*/read_async_info->user_offset_ -
+        /*aligned_offset=*/req.offset);
+
+    size_t res_len = 0;
+    if (req.status.ok() &&
+        offset_advance_len < read_async_info->buf_.CurrentSize()) {
+      res_len =
+          std::min(read_async_info->buf_.CurrentSize() - offset_advance_len,
+                   read_async_info->user_len_);
+      if (read_async_info->user_aligned_buf_ == nullptr) {
+        // Copy the data into user's scratch.
+// Clang analyzer assumes that it will take use_direct_io() == false in
+// ReadAsync and use_direct_io() == true in Callback which cannot be true.
+#ifndef __clang_analyzer__
+        read_async_info->buf_.Read(user_req.scratch, offset_advance_len,
+                                   res_len);
+#endif  // __clang_analyzer__
+      } else {
+        // Set aligned_buf provided by user without additional copy.
+        user_req.scratch =
+            read_async_info->buf_.BufferStart() + offset_advance_len;
+        read_async_info->user_aligned_buf_->reset(
+            read_async_info->buf_.Release());
+      }
+      user_req.result = Slice(user_req.scratch, res_len);
+    } else {
+      // Either req.status is not ok or data was not read.
+      user_req.result = Slice();
+    }
+    read_async_info->cb_(user_req, read_async_info->cb_arg_);
+  } else {
+    read_async_info->cb_(req, read_async_info->cb_arg_);
+  }
 
   // Update stats and notify listeners.
   if (stats_ != nullptr && file_read_hist_ != nullptr) {

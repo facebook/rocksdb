@@ -415,6 +415,7 @@ bool GetContext::GetBlobValue(const Slice& blob_index,
       user_key_, blob_index, prefetch_buffer, blob_value, bytes_read);
   if (!status.ok()) {
     if (status.IsIncomplete()) {
+      // FIXME: this code is not covered by unit tests
       MarkKeyMayExist();
       return false;
     }
