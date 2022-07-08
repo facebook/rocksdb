@@ -71,6 +71,7 @@ function display_usage() {
   echo -e "\tREPORT_INTERVAL_SECONDS\t\tValue for report_interval_seconds"
   echo -e "\tSUBCOMPACTIONS\t\t\tValue for subcompactions"
   echo -e "\tCOMPACTION_STYLE\t\tOne of leveled, universal, blob. Default is leveled."
+  echo -e "\tMULTIREAD_BATCHED\t\tUse the new MultiGet API (default: false)"
   echo -e "\nEnvironment variables (mostly) for leveled compaction:"
   echo -e "\tLEVEL0_FILE_NUM_COMPACTION_TRIGGER\t\tValue for level0_file_num_compaction_trigger"
   echo -e "\tLEVEL0_SLOWDOWN_WRITES_TRIGGER\t\t\tValue for level0_slowdown_writes_trigger"
@@ -184,6 +185,7 @@ stats_interval_seconds=${STATS_INTERVAL_SECONDS:-60}
 report_interval_seconds=${REPORT_INTERVAL_SECONDS:-5}
 subcompactions=${SUBCOMPACTIONS:-1}
 per_level_fanout=${PER_LEVEL_FANOUT:-8}
+multiread_batched=${MULTIREAD_BATCHED:-false}
 
 cache_index_and_filter=${CACHE_INDEX_AND_FILTER_BLOCKS:-0}
 if [[ $cache_index_and_filter -eq 0 ]]; then
@@ -943,6 +945,7 @@ function run_multireadrandom {
   cmd="$time_cmd ./db_bench --benchmarks=multireadrandom \
        --use_existing_db=1 \
        --threads=$num_threads \
+       --multiread_batched=$multiread_batched \
        --batch_size=10 \
        $params_w \
        --seed=$( date +%s ) \
