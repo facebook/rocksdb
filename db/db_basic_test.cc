@@ -4195,7 +4195,9 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 
-TEST_F(DBBasicTest, ManualWalSync) {
+// TODO: re-enable after we provide finer-grained control for WAL tracking to
+// meet the needs of different use cases, durability levels and recovery modes.
+TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
   Options options = CurrentOptions();
   options.track_and_verify_wals_in_manifest = true;
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
