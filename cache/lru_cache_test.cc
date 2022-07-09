@@ -276,8 +276,8 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"m", "x", "y", "g", "z"}, 2, 2);
 
   // To insert another bottom-pri entry, we must erase one of the low-pri
-  // entries or high-pri entries. Otherwise, the cache will be full and the new
-  // entry will replace the existing bottom-pri entry.
+  // entries or high-pri entries. Otherwise, the cache is already full and the
+  // new entry will replace the existing bottom-pri entry.
   Erase("y");
   Insert("n", Cache::Priority::BOTTOM);
   ValidateLRUList({"m", "n", "x", "g", "z"}, 2, 1);
