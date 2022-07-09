@@ -74,7 +74,7 @@ struct LRUHandle {
   // The number of external refs to this entry. The cache itself is not counted.
   uint32_t refs;
 
-  enum Flags : uint8_t {
+  enum Flags : uint16_t {
     // Whether this entry is referenced by the hash table.
     IN_CACHE = (1 << 0),
     // Whether this entry is high priority entry.
@@ -89,11 +89,13 @@ struct LRUHandle {
     IS_PENDING = (1 << 5),
     // Whether this handle is still in a lower tier
     IS_IN_SECONDARY_CACHE = (1 << 6),
-    // Whether this entry is bottom priority entry.
-    IS_BOTTOM_PRI = (1 << 7),
+    // Whether this entry is low priority entry.
+    IS_LOW_PRI = (1 << 7),
+    // Whether this entry is in low-pri pool.
+    IN_LOW_PRI_POOL = (1 << 8),
   };
 
-  uint8_t flags;
+  uint16_t flags;
 
 #ifdef __SANITIZE_THREAD__
   // TSAN can report a false data race on flags, where one thread is writing
@@ -124,6 +126,8 @@ struct LRUHandle {
   bool InCache() const { return flags & IN_CACHE; }
   bool IsHighPri() const { return flags & IS_HIGH_PRI; }
   bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
+  bool IsLowPri() const { return flags & IS_LOW_PRI; }
+  bool InLowPriPool() const { return flags & IN_LOW_PRI_POOL; }
   bool HasHit() const { return flags & HAS_HIT; }
   bool IsSecondaryCacheCompatible() const {
 #ifdef __SANITIZE_THREAD__
@@ -134,7 +138,6 @@ struct LRUHandle {
   }
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
-  bool IsBottomPri() const { return flags & IS_BOTTOM_PRI; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -147,13 +150,13 @@ struct LRUHandle {
   void SetPriority(Cache::Priority priority) {
     if (priority == Cache::Priority::HIGH) {
       flags |= IS_HIGH_PRI;
-      flags &= ~IS_BOTTOM_PRI;
-    } else if (priority == Cache::Priority::BOTTOM) {
-      flags |= IS_BOTTOM_PRI;
+      flags &= ~IS_LOW_PRI;
+    } else if (priority == Cache::Priority::LOW) {
+      flags |= IS_LOW_PRI;
       flags &= ~IS_HIGH_PRI;
     } else {
       flags &= ~IS_HIGH_PRI;
-      flags &= ~IS_BOTTOM_PRI;
+      flags &= ~IS_LOW_PRI;
     }
   }
 
@@ -162,6 +165,14 @@ struct LRUHandle {
       flags |= IN_HIGH_PRI_POOL;
     } else {
       flags &= ~IN_HIGH_PRI_POOL;
+    }
+  }
+
+  void SetInLowPriPool(bool in_low_pri_pool) {
+    if (in_low_pri_pool) {
+      flags |= IN_LOW_PRI_POOL;
+    } else {
+      flags &= ~IN_LOW_PRI_POOL;
     }
   }
 
@@ -374,7 +385,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   virtual std::string GetPrintableOptions() const override;
 
-  void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
+  void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri,
+                       LRUHandle** lru_bottom_pri);
 
   //  Retrieves number of elements in LRU, for unit test purpose only.
   //  Not threadsafe.

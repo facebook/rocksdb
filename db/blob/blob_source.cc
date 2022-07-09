@@ -70,7 +70,7 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   assert(blob_cache_);
 
   Status s;
-  const Cache::Priority priority = Cache::Priority::LOW;
+  const Cache::Priority priority = Cache::Priority::BOTTOM;
 
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take

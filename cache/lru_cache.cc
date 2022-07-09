@@ -193,10 +193,12 @@ void LRUCacheShard::ApplyToSomeEntries(
       index_begin, index_end);
 }
 
-void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri) {
+void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri,
+                                    LRUHandle** lru_bottom_pri) {
   DMutexLock l(mutex_);
   *lru = &lru_;
   *lru_low_pri = lru_low_pri_;
+  *lru_bottom_pri = lru_bottom_pri_;
 }
 
 size_t LRUCacheShard::TEST_GetLRUSize() {
@@ -249,17 +251,10 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(true);
+    e->SetInLowPriPool(false);
     high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
-  } else if (e->IsBottomPri()) {
-    // Insert "e" to the head of bottom-pri pool.
-    e->next = lru_bottom_pri_->next;
-    e->prev = lru_bottom_pri_;
-    e->prev->next = e;
-    e->next->prev = e;
-    e->SetInHighPriPool(false);
-    lru_bottom_pri_ = e;
-  } else {
+  } else if (e->IsLowPri()) {
     // Insert "e" to the head of low-pri pool. Note that when
     // high_pri_pool_ratio is 0, head of low-pri pool is also head of LRU list.
     if (lru_low_pri_ == &lru_) {
@@ -273,7 +268,17 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(false);
+    e->SetInLowPriPool(true);
     lru_low_pri_ = e;
+  } else {
+    // Insert "e" to the head of bottom-pri pool.
+    e->next = lru_bottom_pri_->next;
+    e->prev = lru_bottom_pri_;
+    e->prev->next = e;
+    e->next->prev = e;
+    e->SetInHighPriPool(false);
+    e->SetInLowPriPool(false);
+    lru_bottom_pri_ = e;
   }
   lru_usage_ += e->total_charge;
 }
@@ -281,9 +286,15 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
 void LRUCacheShard::MaintainPoolSize() {
   while (high_pri_pool_usage_ > high_pri_pool_capacity_) {
     // Overflow last entry in high-pri pool to low-pri pool.
-    lru_low_pri_ = lru_low_pri_->next;
+    if (lru_bottom_pri_ != &lru_ && lru_low_pri_ == &lru_) {
+      // The low-pri pool is empty but the bottom-pri pool is not.
+      lru_low_pri_ = lru_bottom_pri_->next;
+    } else {
+      lru_low_pri_ = lru_low_pri_->next;
+    }
     assert(lru_low_pri_ != &lru_);
     lru_low_pri_->SetInHighPriPool(false);
+    lru_low_pri_->SetInLowPriPool(true);
     assert(high_pri_pool_usage_ >= lru_low_pri_->total_charge);
     high_pri_pool_usage_ -= lru_low_pri_->total_charge;
   }
