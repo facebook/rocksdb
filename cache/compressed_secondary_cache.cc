@@ -5,7 +5,6 @@
 
 #include "cache/compressed_secondary_cache.h"
 
-#include <iostream>
 #include <memory>
 
 #include "memory/memory_allocator.h"
