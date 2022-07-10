@@ -382,6 +382,51 @@ Status PessimisticTransactionDB::CreateColumnFamily(
   return s;
 }
 
+Status PessimisticTransactionDB::CreateColumnFamilies(
+    const ColumnFamilyOptions& options,
+    const std::vector<std::string>& column_family_names,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  InstrumentedMutexLock l(&column_family_mutex_);
+
+  Status s = VerifyCFOptions(options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = db_->CreateColumnFamilies(options, column_family_names, handles);
+  if (s.ok()) {
+    for (auto it = handles->begin(); it != handles->end(); ++it) {
+      lock_manager_->AddColumnFamily(*it);
+      UpdateCFComparatorMap(*it);
+    }
+  }
+
+  return s;
+}
+
+Status PessimisticTransactionDB::CreateColumnFamilies(
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  InstrumentedMutexLock l(&column_family_mutex_);
+
+  for (auto it = column_families.begin(); it != column_families.end(); ++it) {
+    Status s = VerifyCFOptions(it->options);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  Status s = db_->CreateColumnFamilies(column_families, handles);
+  if (s.ok()) {
+    for (auto it = handles->begin(); it != handles->end(); ++it) {
+      lock_manager_->AddColumnFamily(*it);
+      UpdateCFComparatorMap(*it);
+    }
+  }
+
+  return s;
+}
+
 // Let LockManager know that it can deallocate the LockMap for this
 // column family.
 Status PessimisticTransactionDB::DropColumnFamily(
@@ -391,6 +436,20 @@ Status PessimisticTransactionDB::DropColumnFamily(
   Status s = db_->DropColumnFamily(column_family);
   if (s.ok()) {
     lock_manager_->RemoveColumnFamily(column_family);
+  }
+
+  return s;
+}
+
+Status PessimisticTransactionDB::DropColumnFamilies(
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  InstrumentedMutexLock l(&column_family_mutex_);
+
+  Status s = db_->DropColumnFamilies(column_families);
+  if (s.ok()) {
+    for (auto it = column_families.begin(); it != column_families.end(); ++it) {
+      lock_manager_->RemoveColumnFamily(*it);
+    }
   }
 
   return s;
