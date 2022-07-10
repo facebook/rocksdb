@@ -194,21 +194,21 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     // MultiGetBlob
     bytes_read = 0;
     size_t total_size = 0;
-    autovector<std::reference_wrapper<const Slice>> key_refs;
-    for (const auto& key_ref : keys) {
-      key_refs.emplace_back(std::cref(key_ref));
-    }
-    autovector<uint64_t> offsets{blob_offsets[0], blob_offsets[1],
-                                 blob_offsets[2]};
-    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1], blob_sizes[2]};
+
     std::array<Status, num_blobs> statuses_buf;
-    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
-                                 &statuses_buf[2]};
     std::array<PinnableSlice, num_blobs> value_buf;
-    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
-                                      &value_buf[2]};
-    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
-                         values, &bytes_read);
+    std::array<BlobReadRequest, num_blobs> requests_buf;
+    autovector<BlobReadRequest*> blob_reqs;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      requests_buf[i] =
+          BlobReadRequest(keys[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+      blob_reqs.push_back(&requests_buf[i]);
+    }
+
+    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_OK(statuses_buf[i]);
       ASSERT_EQ(value_buf[i], blobs[i]);
@@ -300,15 +300,21 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
         blob_offsets[0],
         blob_offsets[1] - (keys[1].size() - key_refs[1].get().size()),
         blob_offsets[2]};
-    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1], blob_sizes[2]};
+
     std::array<Status, num_blobs> statuses_buf;
-    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
-                                 &statuses_buf[2]};
     std::array<PinnableSlice, num_blobs> value_buf;
-    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
-                                      &value_buf[2]};
-    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
-                         values, &bytes_read);
+    std::array<BlobReadRequest, num_blobs> requests_buf;
+    autovector<BlobReadRequest*> blob_reqs;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      requests_buf[i] =
+          BlobReadRequest(key_refs[i], offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+      blob_reqs.push_back(&requests_buf[i]);
+    }
+
+    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+
     for (size_t i = 0; i < num_blobs; ++i) {
       if (i == 1) {
         ASSERT_TRUE(statuses_buf[i].IsCorruption());
@@ -339,17 +345,21 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     Slice wrong_key_slice(incorrect_key, sizeof(incorrect_key) - 1);
     key_refs[2] = std::cref(wrong_key_slice);
 
-    autovector<uint64_t> offsets{blob_offsets[0], blob_offsets[1],
-                                 blob_offsets[2]};
-    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1], blob_sizes[2]};
     std::array<Status, num_blobs> statuses_buf;
-    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
-                                 &statuses_buf[2]};
     std::array<PinnableSlice, num_blobs> value_buf;
-    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
-                                      &value_buf[2]};
-    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
-                         values, &bytes_read);
+    std::array<BlobReadRequest, num_blobs> requests_buf;
+
+    for (size_t i = 0; i < num_blobs; ++i) {
+      requests_buf[i] =
+          BlobReadRequest(key_refs[i], blob_offsets[i], blob_sizes[i],
+                          kNoCompression, &value_buf[i], &statuses_buf[i]);
+    }
+
+    autovector<BlobReadRequest*> blob_reqs = {
+        &requests_buf[0], &requests_buf[1], &requests_buf[2]};
+
+    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+
     for (size_t i = 0; i < num_blobs; ++i) {
       if (i == num_blobs - 1) {
         ASSERT_TRUE(statuses_buf[i].IsCorruption());
@@ -376,17 +386,26 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     for (const auto& key_ref : keys) {
       key_refs.emplace_back(std::cref(key_ref));
     }
-    autovector<uint64_t> offsets{blob_offsets[0], blob_offsets[1],
-                                 blob_offsets[2]};
-    autovector<uint64_t> sizes{blob_sizes[0], blob_sizes[1] + 1, blob_sizes[2]};
+
     std::array<Status, num_blobs> statuses_buf;
-    autovector<Status*> statuses{&statuses_buf[0], &statuses_buf[1],
-                                 &statuses_buf[2]};
     std::array<PinnableSlice, num_blobs> value_buf;
-    autovector<PinnableSlice*> values{&value_buf[0], &value_buf[1],
-                                      &value_buf[2]};
-    reader->MultiGetBlob(read_options, key_refs, offsets, sizes, statuses,
-                         values, &bytes_read);
+    std::array<BlobReadRequest, num_blobs> requests_buf;
+
+    requests_buf[0] =
+        BlobReadRequest(key_refs[0], blob_offsets[0], blob_sizes[0],
+                        kNoCompression, &value_buf[0], &statuses_buf[0]);
+    requests_buf[1] =
+        BlobReadRequest(key_refs[1], blob_offsets[1], blob_sizes[1] + 1,
+                        kNoCompression, &value_buf[1], &statuses_buf[1]);
+    requests_buf[2] =
+        BlobReadRequest(key_refs[2], blob_offsets[2], blob_sizes[2],
+                        kNoCompression, &value_buf[2], &statuses_buf[2]);
+
+    autovector<BlobReadRequest*> blob_reqs = {
+        &requests_buf[0], &requests_buf[1], &requests_buf[2]};
+
+    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+
     for (size_t i = 0; i < num_blobs; ++i) {
       if (i != 1) {
         ASSERT_OK(statuses_buf[i]);
