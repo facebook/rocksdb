@@ -84,25 +84,29 @@ class CompressedSecondaryCache : public SecondaryCache {
   friend class CompressedSecondaryCacheTest;
   // TODO add CACHE_LINE_SIZE info.
   // TODO what should be min and max size here.
-  static constexpr std::array<uint16_t, 19> malloc_bin_sizes_{
-      64,  96,  128, 160, 192,  224,  256,  320,  384,  448,
-      512, 640, 768, 896, 1024, 2048, 4096, 8192, 16384};
+  static constexpr std::array<uint16_t, 20> malloc_bin_sizes_{
+      64,  96,  128, 160, 192,  224,  256,  320,  384,   448,
+      512, 640, 768, 896, 1024, 2048, 4096, 8192, 16384, 32768};
   struct CacheValueChunk {
-    CacheAllocationPtr* chunk_ptr = nullptr;
+    CacheAllocationPtr chunk_ptr = nullptr;
     size_t charge = 0;
-    CacheValueChunk* next = nullptr;
+    std::unique_ptr<CacheValueChunk> next = nullptr;
   };
 
   // Split value into chunks to better fit into jemalloc bins. The chunks
   // are stored in CacheValueChunk and extra charge is needed for each chunk,
   // so the cache charge is recalculated here.
-  CacheValueChunk* SplitValueIntoChunks(const std::string& value,
-                                        size_t& charge);
+  std::unique_ptr<CacheValueChunk> SplitValueIntoChunks(
+      const Slice& value, const CompressionType compression_type,
+      size_t& charge);
 
   // After merging chunks, the extra charge for each chunk is removed, so
   // the charge is recalculated.
-  CacheAllocationPtr* MergeChunksIntoValue(const void* chunks_head,
-                                           size_t& charge);
+  CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
+                                          size_t& charge);
+
+  // An implementation of Cache::DeleterFn.
+  static void DeletionCallback(const Slice& /*key*/, void* obj);
   std::shared_ptr<Cache> cache_;
   CompressedSecondaryCacheOptions cache_options_;
 };

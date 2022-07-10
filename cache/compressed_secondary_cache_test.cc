@@ -10,6 +10,7 @@
 
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memory_allocator.h"
+#include "rocksdb/compression_type.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/secondary_cache.h"
 #include "test_util/testharness.h"
@@ -523,22 +524,22 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
   void SplitValueIntoChunksTest() {
     using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
-    CompressedSecondaryCache* sec_cache =
-        new CompressedSecondaryCache(1000, 0, true, 0.0);
+    std::unique_ptr<CompressedSecondaryCache> sec_cache =
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.0);
     Random rnd(301);
     // 2399 = 2048 + 320 + 31 , so there should be 3 chunks after split.
     size_t str_size{2399};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{2399};
-    CacheValueChunk* value_chunks_head =
-        sec_cache->SplitValueIntoChunks(str, charge);
+    std::unique_ptr<CacheValueChunk> chunks_head =
+        sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
     ASSERT_EQ(charge, str_size + 3 * sizeof(CacheValueChunk));
 
-    CacheValueChunk* current_chunk{value_chunks_head};
+    CacheValueChunk* current_chunk = chunks_head.get();
     ASSERT_EQ(current_chunk->charge, 2048);
-    current_chunk = current_chunk->next;
+    current_chunk = current_chunk->next.get();
     ASSERT_EQ(current_chunk->charge, 320);
-    current_chunk = current_chunk->next;
+    current_chunk = current_chunk->next.get();
     ASSERT_EQ(current_chunk->charge, 31);
   }
 
@@ -552,42 +553,44 @@ class CompressedSecondaryCacheTest : public testing::Test {
     }
 
     using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
-    CacheValueChunk* chunks_head = new CacheValueChunk();
-    CacheValueChunk* current_chunk = chunks_head;
+    std::unique_ptr<CacheValueChunk> chunks_head =
+        std::make_unique<CacheValueChunk>();
+    CacheValueChunk* current_chunk = chunks_head.get();
     Random rnd(301);
     size_t size1{2048};
     std::string str1 = rnd.RandomString(static_cast<int>(size1));
     CacheAllocationPtr ptr = AllocateBlock(size1, allocator.get());
     memcpy(ptr.get(), str1.data(), size1);
-    current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+    current_chunk->chunk_ptr = std::move(ptr);
     current_chunk->charge = size1;
-    current_chunk->next = new CacheValueChunk();
-    current_chunk = current_chunk->next;
+    current_chunk->next = std::make_unique<CacheValueChunk>();
+    current_chunk = current_chunk->next.get();
 
     size_t size2{256};
     std::string str2 = rnd.RandomString(static_cast<int>(size2));
     ptr = AllocateBlock(size2, allocator.get());
     memcpy(ptr.get(), str2.data(), size2);
-    current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+    current_chunk->chunk_ptr = std::move(ptr);
     current_chunk->charge = size2;
-    current_chunk->next = new CacheValueChunk();
-    current_chunk = current_chunk->next;
+    current_chunk->next = std::make_unique<CacheValueChunk>();
+    current_chunk = current_chunk->next.get();
 
     size_t size3{31};
     std::string str3 = rnd.RandomString(static_cast<int>(size3));
     ptr = AllocateBlock(size3, allocator.get());
     memcpy(ptr.get(), str3.data(), size3);
-    current_chunk->chunk_ptr = new CacheAllocationPtr(std::move(ptr));
+    current_chunk->chunk_ptr = std::move(ptr);
     current_chunk->charge = size3;
     std::string str = str1 + str2 + str3;
 
-    CompressedSecondaryCache* sec_cache =
-        new CompressedSecondaryCache(1000, 0, true, 0.0);
+    std::unique_ptr<CompressedSecondaryCache> sec_cache =
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.0);
     size_t charge = 0;
-    CacheAllocationPtr* value =
-        sec_cache->MergeChunksIntoValue(chunks_head, charge);
-    ASSERT_EQ(strcmp((char*)value->get(), str.data()), 0);
+    CacheAllocationPtr value =
+        sec_cache->MergeChunksIntoValue(chunks_head.get(), charge);
     ASSERT_EQ(charge, size1 + size2 + size3);
+    std::string value_str{value.get(), charge};
+    ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
   }
 
  private:
