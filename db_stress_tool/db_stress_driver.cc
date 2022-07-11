@@ -105,9 +105,10 @@ bool RunStressTest(StressTest* stress) {
                                &continuous_verification_thread);
   }
 
-  ThreadState snapshots_gc_thread(0, &shared);
+  ThreadState timestamped_snapshots_thread(0, &shared);
   if (FLAGS_create_timestamped_snapshot_one_in > 0) {
-    db_stress_env->StartThread(SnapshotGcThread, &snapshots_gc_thread);
+    db_stress_env->StartThread(TimestampedSnapshotsThread,
+                               &timestamped_snapshots_thread);
   }
 
   // Each thread goes through the following states:
