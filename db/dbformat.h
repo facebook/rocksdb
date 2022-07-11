@@ -235,7 +235,7 @@ class InternalKeyComparator
 #ifdef NDEBUG
     final
 #endif
-    : public Comparator {
+    : public CompareInterface {
  private:
   UserComparatorWrapper user_comparator_;
 
@@ -253,13 +253,13 @@ class InternalKeyComparator
       : Comparator(c->timestamp_size()), user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
-  virtual const char* Name() const override;
+  virtual const char* Name() const;
   virtual int Compare(const Slice& a, const Slice& b) const override;
   // Same as Compare except that it excludes the value type from comparison
   virtual int CompareKeySeq(const Slice& a, const Slice& b) const;
   virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override;
-  virtual void FindShortSuccessor(std::string* key) const override;
+                                     const Slice& limit) const;
+  virtual void FindShortSuccessor(std::string* key) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -273,7 +273,7 @@ class InternalKeyComparator
   // value `kDisableGlobalSequenceNumber`.
   int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
               SequenceNumber b_global_seqno) const;
-  virtual const Comparator* GetRootComparator() const override {
+  virtual const Comparator* GetRootComparator() const {
     return user_comparator_.GetRootComparator();
   }
 };
