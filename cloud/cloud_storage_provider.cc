@@ -302,13 +302,20 @@ Status CloudStorageProviderImpl::NewCloudReadableFile(
 Status CloudStorageProviderImpl::GetCloudObject(
     const std::string& bucket_name, const std::string& object_path,
     const std::string& local_destination) {
+  return GetCloudObjectAndVersion(bucket_name, object_path, local_destination,
+                                  nullptr /* version */);
+}
+
+Status CloudStorageProviderImpl::GetCloudObjectAndVersion(
+    const std::string& bucket_name, const std::string& object_path,
+    const std::string& local_destination, std::string* version) {
   Env* localenv = env_->GetBaseEnv();
   std::string tmp_destination =
       local_destination + ".tmp-" + std::to_string(rng_.Next());
 
   uint64_t remote_size;
-  Status s =
-      DoGetCloudObject(bucket_name, object_path, tmp_destination, &remote_size);
+  Status s = DoGetCloudObject(bucket_name, object_path, tmp_destination,
+                              &remote_size, version);
   if (!s.ok()) {
     localenv->DeleteFile(tmp_destination);
     return s;
@@ -335,6 +342,7 @@ Status CloudStorageProviderImpl::GetCloudObject(
       "[%s] GetCloudObject %s/%s size %" PRIu64 ". %s", bucket_name.c_str(),
       Name(), object_path.c_str(), local_size, s.ToString().c_str());
   return s;
+
 }
 
 Status CloudStorageProviderImpl::PutCloudObject(

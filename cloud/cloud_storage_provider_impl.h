@@ -5,6 +5,7 @@
 #ifndef ROCKSDB_LITE
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "util/random.h"
+#include <optional>
 
 namespace ROCKSDB_NAMESPACE {
 class CloudStorageReadableFileImpl : public CloudStorageReadableFile {
@@ -109,6 +110,14 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   Status GetCloudObject(const std::string& bucket_name,
                         const std::string& object_path,
                         const std::string& local_destination) override;
+  virtual Status GetCloudObjectAndVersion(const std::string& bucket_name,
+                                          const std::string& object_path,
+                                          const std::string& local_destination,
+                                          std::string* version);
+  // check that a version of cloud object exists. Only used in tests
+  virtual Status TEST_ExistsCloudObject(const std::string& bucket_name,
+                                        const std::string& object_path,
+                                        const std::string& version) = 0;
   Status PutCloudObject(const std::string& local_file,
                         const std::string& bucket_name,
                         const std::string& object_path) override;
@@ -130,7 +139,8 @@ class CloudStorageProviderImpl : public CloudStorageProvider {
   virtual Status DoGetCloudObject(const std::string& bucket_name,
                                   const std::string& object_path,
                                   const std::string& local_path,
-                                  uint64_t* remote_size) = 0;
+                                  uint64_t* remote_size,
+                                  std::string* version) = 0;
   virtual Status DoPutCloudObject(const std::string& local_file,
                                   const std::string& object_path,
                                   const std::string& bucket_name,

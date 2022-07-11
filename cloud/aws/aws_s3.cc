@@ -40,6 +40,7 @@
 #include <cinttypes>
 #include <fstream>
 #include <iostream>
+#include <optional>
 
 #include "cloud/aws/aws_env.h"
 #include "cloud/aws/aws_file.h"
@@ -385,6 +386,9 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                           std::vector<std::string>* result) override;
   Status ExistsCloudObject(const std::string& bucket_name,
                            const std::string& object_path) override;
+  Status TEST_ExistsCloudObject(const std::string& bucket_name,
+                                const std::string& object_path,
+                                const std::string& version) override;
   Status GetCloudObjectSize(const std::string& bucket_name,
                             const std::string& object_path,
                             uint64_t* filesize) override;
@@ -416,12 +420,12 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                               std::unique_ptr<CloudStorageWritableFile>* result,
                               const EnvOptions& options) override;
   Status PrepareOptions(const ConfigOptions& options) override;
-
  protected:
   Status DoGetCloudObject(const std::string& bucket_name,
                           const std::string& object_path,
                           const std::string& destination,
-                          uint64_t* remote_size) override;
+                          uint64_t* remote_size,
+                          std::string* version) override;
   Status DoPutCloudObject(const std::string& local_file,
                           const std::string& bucket_name,
                           const std::string& object_path,
@@ -431,6 +435,7 @@ class S3StorageProvider : public CloudStorageProviderImpl {
   // If metadata, size modtime or etag is non-nullptr, returns requested data
   Status HeadObject(
       const std::string& bucket, const std::string& path,
+      const std::optional<std::string>& requested_version = std::nullopt,
       std::unordered_map<std::string, std::string>* metadata = nullptr,
       uint64_t* size = nullptr, uint64_t* modtime = nullptr,
       std::string* etag = nullptr);
@@ -669,18 +674,27 @@ Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
   }
   return Status::OK();
 }
-// Delete the specified object from the specified cloud bucket
+
+// check existence of the cloud object
 Status S3StorageProvider::ExistsCloudObject(const std::string& bucket_name,
                                             const std::string& object_path) {
   Status s = HeadObject(bucket_name, object_path);
   return s;
 }
 
+Status S3StorageProvider::TEST_ExistsCloudObject(const std::string& bucket_name,
+                                                 const std::string& object_path,
+                                                 const std::string& version) {
+  return HeadObject(bucket_name, object_path, std::make_optional(version));
+}
+
 // Return size of cloud object
 Status S3StorageProvider::GetCloudObjectSize(const std::string& bucket_name,
                                              const std::string& object_path,
                                              uint64_t* filesize) {
-  Status s = HeadObject(bucket_name, object_path, nullptr, filesize, nullptr);
+  Status s =
+      HeadObject(bucket_name, object_path, std::nullopt /* requested_version */,
+                 nullptr /* metadata */, filesize, nullptr /* modtime */);
   return s;
 }
 
@@ -694,8 +708,9 @@ Status S3StorageProvider::GetCloudObjectMetadata(const std::string& bucket_name,
                                                  const std::string& object_path,
                                                  CloudObjectInformation* info) {
   assert(info != nullptr);
-  return HeadObject(bucket_name, object_path, &info->metadata, &info->size,
-                    &info->modification_time, &info->content_hash);
+  return HeadObject(bucket_name, object_path,
+                    std::nullopt /* requested_version */, &info->metadata,
+                    &info->size, &info->modification_time, &info->content_hash);
 }
 
 Status S3StorageProvider::PutCloudObjectMetadata(
@@ -746,11 +761,15 @@ Status S3StorageProvider::NewCloudWritableFile(
 
 Status S3StorageProvider::HeadObject(
     const std::string& bucket_name, const std::string& object_path,
+    const std::optional<std::string>& requested_version,
     std::unordered_map<std::string, std::string>* metadata, uint64_t* size,
     uint64_t* modtime, std::string* etag) {
   Aws::S3::Model::HeadObjectRequest request;
   request.SetBucket(ToAwsString(bucket_name));
   request.SetKey(ToAwsString(object_path));
+  if (requested_version) {
+    request.SetVersionId(*requested_version);
+  }
 
   auto outcome = s3client_->HeadObject(request);
   bool isSuccess = outcome.IsSuccess();
@@ -892,7 +911,8 @@ class IOStreamWithOwnedBuf : public std::iostream {
 Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
                                            const std::string& object_path,
                                            const std::string& destination,
-                                           uint64_t* remote_size) {
+                                           uint64_t* remote_size,
+                                           std::string* version) {
   if (s3client_->HasTransferManager()) {
     // AWS Transfer manager does not work if we provide our stream
     // implementation because of https://github.com/aws/aws-sdk-cpp/issues/1732.
@@ -913,6 +933,10 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
         handle->GetStatus() == Aws::Transfer::TransferStatus::COMPLETED;
     if (success) {
       *remote_size = handle->GetBytesTotalSize();
+      if (version) {
+        *version = std::string(handle->GetVersionId().data(),
+                               handle->GetVersionId().length());
+      }
     } else {
       const auto& error = handle->GetLastError();
       std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
@@ -959,6 +983,10 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
       auto outcome = s3client_->GetCloudObject(request);
       if (outcome.IsSuccess()) {
         *remote_size = outcome.GetResult().GetContentLength();
+        if (version) {
+          *version = std::string(outcome.GetResult().GetVersionId().data(),
+                                 outcome.GetResult().GetVersionId().length());
+        }
       } else {
         const auto& error = outcome.GetError();
         std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());

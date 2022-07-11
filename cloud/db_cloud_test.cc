@@ -11,6 +11,7 @@
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
+#include "cloud/cloud_storage_provider_impl.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
@@ -381,27 +382,34 @@ TEST_F(CloudTest, FindAllLiveFilesTest) {
   // wait until files are persisted into s3
   GetDBImpl()->TEST_WaitForBackgroundWork();
 
+  CloseDB();
+
   std::vector<std::string> tablefiles;
   std::string manifest;
-  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &tablefiles, &manifest));
+  std::string manifest_file_version;
+
+  // fetch latest manifest to local
+  ASSERT_OK(aenv_->FindAllLiveFilesAndFetchManifest(
+      dbname_, &tablefiles, &manifest, &manifest_file_version));
   EXPECT_EQ(tablefiles.size(), 1);
+  EXPECT_FALSE(manifest_file_version.empty());
+
   for (auto name: tablefiles) {
     EXPECT_EQ(GetFileType(name), RocksDBFileType::kSstFile);
     // verify that the sst file indeed exists in cloud
-    EXPECT_TRUE(
+    EXPECT_OK(
         aenv_->GetStorageProvider()
             ->ExistsCloudObject(aenv_->GetSrcBucketName(),
-                                aenv_->GetSrcObjectPath() + pathsep + name)
-            .ok());
+                                aenv_->GetSrcObjectPath() + pathsep + name));
   }
 
   EXPECT_EQ(GetFileType(manifest), RocksDBFileType::kManifestFile);
   // verify that manifest file indeed exists in cloud
-  EXPECT_TRUE(
-      aenv_->GetStorageProvider()
-          ->ExistsCloudObject(aenv_->GetSrcBucketName(),
-                              aenv_->GetSrcObjectPath() + pathsep + manifest)
-          .ok());
+  auto cloud_storage = std::dynamic_pointer_cast<CloudStorageProviderImpl>(
+      aenv_->GetStorageProvider());
+  EXPECT_OK(cloud_storage->TEST_ExistsCloudObject(
+      aenv_->GetSrcBucketName(), aenv_->GetSrcObjectPath() + pathsep + manifest,
+      manifest_file_version));
 }
 
 // Files of dropped CF should not be included in live files
@@ -459,8 +467,7 @@ TEST_F(CloudTest, LiveFilesAfterChangingLevelTest) {
   ASSERT_OK(db_impl->TEST_WaitForBackgroundWork());
 
   std::vector<std::string> tablefiles_after_move;
-  ASSERT_OK(
-      aenv_->FindAllLiveFiles(dbname_, &tablefiles_after_move, &manifest));
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &tablefiles_after_move, &manifest));
   EXPECT_EQ(tablefiles_before_move, tablefiles_after_move);
 }
 

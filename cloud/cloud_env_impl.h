@@ -182,6 +182,9 @@ class CloudEnvImpl : public CloudEnv {
   Status FindAllLiveFiles(const std::string& local_dbname,
                           std::vector<std::string>* live_sst_files,
                           std::string* manifest_file) override;
+  Status FindAllLiveFilesAndFetchManifest(
+      const std::string& local_dbname, std::vector<std::string>* live_sst_files,
+      std::string* manifest_file, std::string* manifest_file_version) override;
 
   Status extractParents(const std::string& bucket_name_prefix,
                         const DbidList& dbid_list, DbidParents* parents);

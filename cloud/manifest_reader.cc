@@ -1,4 +1,7 @@
 // Copyright (c) 2017 Rockset.
+#include <memory>
+#include "cloud/cloud_storage_provider_impl.h"
+#include "rocksdb/cloud/cloud_storage_provider.h"
 #ifndef ROCKSDB_LITE
 
 #include <unordered_map>
@@ -20,7 +23,9 @@ LocalManifestReader::LocalManifestReader(std::shared_ptr<Logger> info_log,
                                          CloudEnv* cenv)
     : info_log_(info_log), cenv_(cenv) {}
 
-Status LocalManifestReader::GetLiveFilesLocally(const std::string& local_dbname, std::set<uint64_t>* list) const {
+Status LocalManifestReader::GetLiveFilesLocally(
+    const std::string& local_dbname, std::set<uint64_t>* list,
+    std::string* manifest_file_version) const {
   auto cenv_impl = static_cast<CloudEnvImpl*>(cenv_);
   assert(cenv_impl);
   // cloud manifest should be set in CloudEnv, and it should map to local
@@ -32,17 +37,38 @@ Status LocalManifestReader::GetLiveFilesLocally(const std::string& local_dbname,
   std::unique_ptr<SequentialFileReader> manifest_file_reader;
   Status s;
   {
-    // file name here doesn't matter, it will always be mapped to the correct Manifest file
+    auto cloud_storage_provider =
+        std::dynamic_pointer_cast<CloudStorageProviderImpl>(
+            cenv_impl->GetStorageProvider());
+    assert(cloud_storage_provider);
+    // file name here doesn't matter, it will always be mapped to the correct Manifest file.
     // use empty epoch here so that it will be recognized as manifest file type
-    auto manifest_file = ManifestFileWithEpoch(local_dbname, "" /* epoch */);
+    auto local_manifest_file = cenv_impl->RemapFilename(
+        ManifestFileWithEpoch(local_dbname, "" /* epoch */));
+
+    if (manifest_file_version != nullptr) {
+      // Only fetch the latest Manifest file from cloud when we ask for the version number.
+      auto remote_manifest_file =
+          cenv_impl->GetSrcObjectPath() + "/" + basename(local_manifest_file);
+
+      s = cloud_storage_provider->GetCloudObjectAndVersion(
+          cenv_impl->GetSrcBucketName(), remote_manifest_file,
+          local_manifest_file, manifest_file_version);
+      if (!s.ok()) {
+        return s;
+      }
+
+      // Assuming that we are running on versioned s3 when asking for version
+      assert(!manifest_file_version->empty());
+    }
 
     std::unique_ptr<SequentialFile> file;
-    s = cenv_impl->NewSequentialFile(manifest_file, &file, EnvOptions());
+    s = cenv_impl->NewSequentialFile(local_manifest_file, &file, EnvOptions());
     if (!s.ok()) {
       return s;
     }
     manifest_file_reader.reset(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(file), manifest_file));
+        NewLegacySequentialFileWrapper(file), local_manifest_file));
   }
 
   return GetLiveFilesFromFileReader(std::move(manifest_file_reader), list);

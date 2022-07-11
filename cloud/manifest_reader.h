@@ -21,11 +21,19 @@ class LocalManifestReader {
   // Retrive all live files by reading manifest files locally.
   // If Manifest file doesn't exist, it will be pulled from s3
   //
+  // If manifest_file_version is not null, it will fetch latest Manifest file
+  // from s3 first before reading it(be careful with this since it will override
+  // the manfiest file in local_dbname). manifest_file_version will be set as
+  // the version we read from s3.
+  //
   // REQUIRES: cenv_ should have cloud_manifest_ set, and it should have the
   // same content as the CLOUDMANIFEST file stored locally. cloud_manifest_ is
   // not updated when calling the function
+  // REQUIRES: cloud storage has versioning enabled if manifest_file_version !=
+  // nullptr
   Status GetLiveFilesLocally(const std::string& local_dbname,
-                             std::set<uint64_t>* list) const;
+                             std::set<uint64_t>* list,
+                             std::string* manifest_file_version = nullptr) const;
 
  protected:
   // Get all the live sst file number by reading version_edit records from file_reader
