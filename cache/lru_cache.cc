@@ -332,7 +332,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
           delete[] reinterpret_cast<char*>(e);
           *handle = nullptr;
         }
-        s = Status::Incomplete("Insert failed due to LRU cache being full.");
+        s = Status::MemoryLimit("Insert failed due to LRU cache being full.");
       }
     } else {
       // Insert into the cache. Note that the cache might get larger than its

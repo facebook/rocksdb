@@ -211,6 +211,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
+  // Mempurge threshold can be dynamically changed.
+  // For sake of consistency, mempurge_threshold is
+  // saved locally to maintain consistency in each
+  // FlushJob::Run call.
+  double mempurge_threshold =
+      mutable_cf_options_.experimental_mempurge_threshold;
+
   AutoThreadOperationStageUpdater stage_run(
       ThreadStatus::STAGE_FLUSH_RUN);
   if (mems_.empty()) {
@@ -238,9 +245,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
   Status mempurge_s = Status::NotFound("No MemPurge.");
-  if ((db_options_.experimental_mempurge_threshold > 0.0) &&
+  if ((mempurge_threshold > 0.0) &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (!mems_.empty()) && MemPurgeDecider()) {
+      (!mems_.empty()) && MemPurgeDecider(mempurge_threshold) &&
+      !(db_options_.atomic_flush)) {
+    cfd_->SetMempurgeUsed();
     mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
       // Mempurge is typically aborted when the output
@@ -628,8 +637,7 @@ Status FlushJob::MemPurge() {
   return s;
 }
 
-bool FlushJob::MemPurgeDecider() {
-  double threshold = db_options_.experimental_mempurge_threshold;
+bool FlushJob::MemPurgeDecider(double threshold) {
   // Never trigger mempurge if threshold is not a strictly positive value.
   if (!(threshold > 0.0)) {
     return false;
@@ -779,10 +787,11 @@ bool FlushJob::MemPurgeDecider() {
       estimated_useful_payload +=
           (mt->ApproximateMemoryUsage()) * (useful_payload * 1.0 / payload);
 
-      ROCKS_LOG_INFO(
-          db_options_.info_log,
-          "Mempurge sampling - found garbage ratio from sampling: %f.\n",
-          (payload - useful_payload) * 1.0 / payload);
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "Mempurge sampling [CF %s] - found garbage ratio from "
+                     "sampling: %f. Threshold is %f\n",
+                     cfd_->GetName().c_str(),
+                     (payload - useful_payload) * 1.0 / payload, threshold);
     } else {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Mempurge sampling: null payload measured, and collected "

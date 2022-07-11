@@ -334,14 +334,15 @@ class MemTableIterator : public InternalIterator {
       // iterator should only use prefix bloom filter
       auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
-      if (prefix_extractor_->InDomain(user_k_without_ts) &&
-          !bloom_->MayContain(
-              prefix_extractor_->Transform(user_k_without_ts))) {
-        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-        valid_ = false;
-        return;
-      } else {
-        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      if (prefix_extractor_->InDomain(user_k_without_ts)) {
+        if (!bloom_->MayContain(
+                prefix_extractor_->Transform(user_k_without_ts))) {
+          PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+          valid_ = false;
+          return;
+        } else {
+          PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+        }
       }
     }
     iter_->Seek(k, nullptr);
@@ -353,14 +354,15 @@ class MemTableIterator : public InternalIterator {
     if (bloom_) {
       auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
-      if (prefix_extractor_->InDomain(user_k_without_ts) &&
-          !bloom_->MayContain(
-              prefix_extractor_->Transform(user_k_without_ts))) {
-        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
-        valid_ = false;
-        return;
-      } else {
-        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      if (prefix_extractor_->InDomain(user_k_without_ts)) {
+        if (!bloom_->MayContain(
+                prefix_extractor_->Transform(user_k_without_ts))) {
+          PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+          valid_ = false;
+          return;
+        } else {
+          PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+        }
       }
     }
     iter_->Seek(k, nullptr);
@@ -738,21 +740,33 @@ static bool SaveValue(void* arg, const char* entry) {
 
     s->seq = seq;
 
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
+         type == kTypeWideColumnEntity) &&
         max_covering_tombstone_seq > seq) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
       case kTypeBlobIndex:
-        if (s->is_blob_index == nullptr) {
-          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
-          *(s->status) = Status::NotSupported(
-              "Encounter unsupported blob value. Please open DB with "
-              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        } else if (*(s->merge_in_progress)) {
+      case kTypeWideColumnEntity:
+        if (*(s->merge_in_progress)) {
+          *(s->status) = Status::NotSupported("Merge operator not supported");
+        } else if (!s->do_merge) {
+          *(s->status) = Status::NotSupported("GetMergeOperands not supported");
+        } else if (type == kTypeBlobIndex) {
+          if (s->is_blob_index == nullptr) {
+            ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
+            *(s->status) = Status::NotSupported(
+                "Encounter unsupported blob value. Please open DB with "
+                "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
+          }
+        } else {
+          assert(type == kTypeWideColumnEntity);
+
+          // TODO: support wide-column entities
           *(s->status) =
-              Status::NotSupported("Blob DB does not support merge operator.");
+              Status::NotSupported("Encountered unexpected wide-column entity");
         }
+
         if (!s->status->ok()) {
           *(s->found_final_value) = true;
           return false;
@@ -893,16 +907,20 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   bool may_contain = true;
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz);
+  bool bloom_checked = false;
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
     // only do whole key filtering for Get() to save CPU
     if (moptions_.memtable_whole_key_filtering) {
       may_contain = bloom_filter_->MayContain(user_key_without_ts);
+      bloom_checked = true;
     } else {
       assert(prefix_extractor_);
-      may_contain = !prefix_extractor_->InDomain(user_key_without_ts) ||
-                    bloom_filter_->MayContain(
-                        prefix_extractor_->Transform(user_key_without_ts));
+      if (prefix_extractor_->InDomain(user_key_without_ts)) {
+        may_contain = bloom_filter_->MayContain(
+            prefix_extractor_->Transform(user_key_without_ts));
+        bloom_checked = true;
+      }
     }
   }
 
@@ -911,7 +929,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
     PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
     *seq = kMaxSequenceNumber;
   } else {
-    if (bloom_filter_) {
+    if (bloom_checked) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
@@ -988,10 +1006,6 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         bloom_keys[num_keys] =
             prefix_extractor_->Transform(iter->ukey_without_ts);
         range_indexes[num_keys++] = iter.index();
-      } else {
-        // TODO: consider not counting these as Bloom hits to more closely
-        // match bloom_sst_hit_count
-        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
       }
     }
     bloom_filter_->MayContain(num_keys, &bloom_keys[0], &may_match[0]);
@@ -1044,8 +1058,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 }
 
-Status MemTable::Update(SequenceNumber seq, const Slice& key,
-                        const Slice& value,
+Status MemTable::Update(SequenceNumber seq, ValueType value_type,
+                        const Slice& key, const Slice& value,
                         const ProtectionInfoKVOS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
@@ -1075,7 +1089,7 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
       SequenceNumber existing_seq;
       UnPackSequenceAndType(tag, &existing_seq, &type);
       assert(existing_seq != seq);
-      if (type == kTypeValue) {
+      if (type == value_type) {
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
         uint32_t new_size = static_cast<uint32_t>(value.size());
@@ -1103,8 +1117,8 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
     }
   }
 
-  // The latest value is not `kTypeValue` or key doesn't exist
-  return Add(seq, kTypeValue, key, value, kv_prot_info);
+  // The latest value is not value_type or key doesn't exist
+  return Add(seq, value_type, key, value, kv_prot_info);
 }
 
 Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
@@ -1137,66 +1151,62 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
       ValueType type;
       uint64_t existing_seq;
       UnPackSequenceAndType(tag, &existing_seq, &type);
-      switch (type) {
-        case kTypeValue: {
-          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+      if (type == kTypeValue) {
+        Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
+        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
 
-          char* prev_buffer = const_cast<char*>(prev_value.data());
-          uint32_t new_prev_size = prev_size;
+        char* prev_buffer = const_cast<char*>(prev_value.data());
+        uint32_t new_prev_size = prev_size;
 
-          std::string str_value;
-          WriteLock wl(GetLock(lkey.user_key()));
-          auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
-                                                   delta, &str_value);
-          if (status == UpdateStatus::UPDATED_INPLACE) {
-            // Value already updated by callback.
-            assert(new_prev_size <= prev_size);
-            if (new_prev_size < prev_size) {
-              // overwrite the new prev_size
-              char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                       new_prev_size);
-              if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
-                // shift the value buffer as well.
-                memcpy(p, prev_buffer, new_prev_size);
-                prev_buffer = p;
-              }
+        std::string str_value;
+        WriteLock wl(GetLock(lkey.user_key()));
+        auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
+                                                 delta, &str_value);
+        if (status == UpdateStatus::UPDATED_INPLACE) {
+          // Value already updated by callback.
+          assert(new_prev_size <= prev_size);
+          if (new_prev_size < prev_size) {
+            // overwrite the new prev_size
+            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                     new_prev_size);
+            if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
+              // shift the value buffer as well.
+              memcpy(p, prev_buffer, new_prev_size);
+              prev_buffer = p;
             }
-            RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
-            UpdateFlushState();
-            if (kv_prot_info != nullptr) {
-              ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
-              // `seq` is swallowed and `existing_seq` prevails.
-              updated_kv_prot_info.UpdateS(seq, existing_seq);
-              updated_kv_prot_info.UpdateV(delta,
-                                           Slice(prev_buffer, new_prev_size));
-              Slice encoded(entry, prev_buffer + new_prev_size - entry);
-              return VerifyEncodedEntry(encoded, updated_kv_prot_info);
-            }
-            return Status::OK();
-          } else if (status == UpdateStatus::UPDATED) {
-            Status s;
-            if (kv_prot_info != nullptr) {
-              ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
-              updated_kv_prot_info.UpdateV(delta, str_value);
-              s = Add(seq, kTypeValue, key, Slice(str_value),
-                      &updated_kv_prot_info);
-            } else {
-              s = Add(seq, kTypeValue, key, Slice(str_value),
-                      nullptr /* kv_prot_info */);
-            }
-            RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
-            UpdateFlushState();
-            return s;
-          } else if (status == UpdateStatus::UPDATE_FAILED) {
-            // `UPDATE_FAILED` is named incorrectly. It indicates no update
-            // happened. It does not indicate a failure happened.
-            UpdateFlushState();
-            return Status::OK();
           }
+          RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+          UpdateFlushState();
+          if (kv_prot_info != nullptr) {
+            ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
+            // `seq` is swallowed and `existing_seq` prevails.
+            updated_kv_prot_info.UpdateS(seq, existing_seq);
+            updated_kv_prot_info.UpdateV(delta,
+                                         Slice(prev_buffer, new_prev_size));
+            Slice encoded(entry, prev_buffer + new_prev_size - entry);
+            return VerifyEncodedEntry(encoded, updated_kv_prot_info);
+          }
+          return Status::OK();
+        } else if (status == UpdateStatus::UPDATED) {
+          Status s;
+          if (kv_prot_info != nullptr) {
+            ProtectionInfoKVOS64 updated_kv_prot_info(*kv_prot_info);
+            updated_kv_prot_info.UpdateV(delta, str_value);
+            s = Add(seq, kTypeValue, key, Slice(str_value),
+                    &updated_kv_prot_info);
+          } else {
+            s = Add(seq, kTypeValue, key, Slice(str_value),
+                    nullptr /* kv_prot_info */);
+          }
+          RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
+          UpdateFlushState();
+          return s;
+        } else if (status == UpdateStatus::UPDATE_FAILED) {
+          // `UPDATE_FAILED` is named incorrectly. It indicates no update
+          // happened. It does not indicate a failure happened.
+          UpdateFlushState();
+          return Status::OK();
         }
-        default:
-          break;
       }
     }
   }

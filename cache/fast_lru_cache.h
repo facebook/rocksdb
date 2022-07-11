@@ -22,10 +22,14 @@
 #include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 namespace fast_lru_cache {
 
-// LRU cache implementation using an open-address hash table.
+// Forward declaration of friend class.
+class FastLRUCacheTest;
 
+// LRU cache implementation using an open-address hash table.
+//
 // Every slot in the hash table is an LRUHandle. Because handles can be
 // referenced externally, we can't discard them immediately once they are
 // deleted (via a delete or an LRU eviction) or replaced by a new version
@@ -51,7 +55,7 @@ namespace fast_lru_cache {
 // - Not R --> R: When an unreferenced element becomes referenced. This can only
 //    happen if the element is V, since references to an element can only be
 //    created when it's visible.
-
+//
 // Internally, the cache uses an open-addressed hash table to index the handles.
 // We use tombstone counters to keep track of displacements.
 // Because of the tombstones and the two possible visibility states of an
@@ -70,15 +74,13 @@ namespace fast_lru_cache {
 // slot. In any case, the slot becomes available. When a handle is inserted
 // into that slot, it becomes a visible element again.
 
-constexpr uint8_t kCacheKeySize =
-    static_cast<uint8_t>(sizeof(ROCKSDB_NAMESPACE::CacheKey));
-
 // The load factor p is a real number in (0, 1) such that at all
 // times at most a fraction p of all slots, without counting tombstones,
 // are occupied by elements. This means that the probability that a
 // random probe hits an empty slot is at most p, and thus at most 1/p probes
-// are required on average. We use p = 70%, so between 1 and 2 probes are
-// needed on average.
+// are required on average. For example, p = 70% implies that between 1 and 2
+// probes are needed on average (bear in mind that this reasoning doesn't
+// consider the effects of clustering over time).
 // Because the size of the hash table is always rounded up to the next
 // power of 2, p is really an upper bound on the actual load factor---the
 // actual load factor is anywhere between p/2 and p. This is a bit wasteful,
@@ -86,7 +88,12 @@ constexpr uint8_t kCacheKeySize =
 // Since space cost is dominated by the values (the LSM blocks),
 // overprovisioning the table with metadata only increases the total cache space
 // usage by a tiny fraction.
-constexpr double kLoadFactor = 0.7;
+constexpr double kLoadFactor = 0.35;
+
+// The user can exceed kLoadFactor if the sizes of the inserted values don't
+// match estimated_value_size, or if strict_capacity_limit == false. To
+// avoid performance to plunge, we set a strict upper bound on the load factor.
+constexpr double kStrictLoadFactor = 0.7;
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
@@ -102,7 +109,7 @@ struct LRUHandle {
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   // The hash of key(). Used for fast sharding and comparisons.
   uint32_t hash;
-  // The number of external refs to this entry. The cache itself is not counted.
+  // The number of external refs to this entry.
   uint32_t refs;
 
   enum Flags : uint8_t {
@@ -225,16 +232,10 @@ struct LRUHandle {
   }
 };
 
-// TODO(Guido) Update the following comment.
 
-// We provide our own simple hash table since it removes a whole bunch
-// of porting hacks and is also faster than some of the built-in hash
-// table implementations in some of the compiler/runtime combinations
-// we have tested.  E.g., readrandom speeds up by ~5% over the g++
-// 4.4.3's builtin hashtable.
 class LRUHandleTable {
  public:
-  explicit LRUHandleTable(uint8_t hash_bits);
+  explicit LRUHandleTable(int hash_bits);
   ~LRUHandleTable();
 
   // Returns a pointer to a visible element matching the key/hash, or
@@ -268,9 +269,16 @@ class LRUHandleTable {
     }
   }
 
-  uint8_t GetLengthBits() const { return length_bits_; }
+  uint32_t GetTableSize() const { return uint32_t{1} << length_bits_; }
+
+  int GetLengthBits() const { return length_bits_; }
+
+  uint32_t GetOccupancyLimit() const { return occupancy_limit_; }
 
   uint32_t GetOccupancy() const { return occupancy_; }
+
+  // Returns x mod 2^{length_bits_}.
+  uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
 
  private:
   int FindVisibleElement(const Slice& key, uint32_t hash, int& probe,
@@ -294,10 +302,15 @@ class LRUHandleTable {
 
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
-  uint8_t length_bits_;
+  int length_bits_;
+
+  const uint32_t length_bits_mask_;
 
   // Number of elements in the table.
   uint32_t occupancy_;
+
+  // Maximum number of elements the user can store in the table.
+  uint32_t occupancy_limit_;
 
   std::unique_ptr<LRUHandle[]> array_;
 };
@@ -367,19 +380,26 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
  private:
   friend class LRUCache;
+  friend class FastLRUCacheTest;
+
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 
   // Free some space following strict LRU policy until enough space
-  // to hold (usage_ + charge) is freed or the lru list is empty
+  // to hold (usage_ + charge) is freed or the LRU list is empty
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle>* deleted);
 
+  // Returns the charge of a single handle.
+  static size_t CalcEstimatedHandleCharge(
+      size_t estimated_value_size,
+      CacheMetadataChargePolicy metadata_charge_policy);
+
   // Returns the number of bits used to hash an element in the hash
   // table.
-  static uint8_t CalcHashBits(size_t capacity, size_t estimated_value_size,
-                              CacheMetadataChargePolicy metadata_charge_policy);
+  static int CalcHashBits(size_t capacity, size_t estimated_value_size,
+                          CacheMetadataChargePolicy metadata_charge_policy);
 
   // Initialized before use.
   size_t capacity_;

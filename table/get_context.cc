@@ -241,7 +241,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     auto type = parsed_key.type;
     // Key matches. Process it
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
+         type == kTypeWideColumnEntity) &&
         max_covering_tombstone_seq_ != nullptr &&
         *max_covering_tombstone_seq_ > parsed_key.sequence) {
       type = kTypeRangeDeletion;
@@ -249,15 +250,24 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     switch (type) {
       case kTypeValue:
       case kTypeBlobIndex:
+      case kTypeWideColumnEntity:
         assert(state_ == kNotFound || state_ == kMerge);
-        if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
-          // Blob value not supported. Stop.
-          state_ = kUnexpectedBlobIndex;
+        if (type == kTypeBlobIndex) {
+          if (is_blob_index_ == nullptr) {
+            // Blob value not supported. Stop.
+            state_ = kUnexpectedBlobIndex;
+            return false;
+          }
+        } else if (type == kTypeWideColumnEntity) {
+          // TODO: support wide-column entities
+          state_ = kUnexpectedWideColumnEntity;
           return false;
         }
+
         if (is_blob_index_ != nullptr) {
           *is_blob_index_ = (type == kTypeBlobIndex);
         }
+
         if (kNotFound == state_) {
           state_ = kFound;
           if (do_merge_) {
@@ -276,20 +286,25 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             // It means this function is called as part of DB GetMergeOperands
             // API and the current value should be part of
             // merge_context_->operand_list
-            if (is_blob_index_ != nullptr && *is_blob_index_) {
+            if (type == kTypeBlobIndex) {
               PinnableSlice pin_val;
               if (GetBlobValue(value, &pin_val) == false) {
                 return false;
               }
               Slice blob_value(pin_val);
               push_operand(blob_value, nullptr);
+            } else if (type == kTypeWideColumnEntity) {
+              // TODO: support wide-column entities
+              state_ = kUnexpectedWideColumnEntity;
+              return false;
             } else {
+              assert(type == kTypeValue);
               push_operand(value, value_pinner);
             }
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
-          if (is_blob_index_ != nullptr && *is_blob_index_) {
+          if (type == kTypeBlobIndex) {
             PinnableSlice pin_val;
             if (GetBlobValue(value, &pin_val) == false) {
               return false;
@@ -304,7 +319,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               // merge_context_->operand_list
               push_operand(blob_value, nullptr);
             }
+          } else if (type == kTypeWideColumnEntity) {
+            // TODO: support wide-column entities
+            state_ = kUnexpectedWideColumnEntity;
+            return false;
           } else {
+            assert(type == kTypeValue);
+
             state_ = kFound;
             if (do_merge_) {
               Merge(&value);
@@ -394,6 +415,7 @@ bool GetContext::GetBlobValue(const Slice& blob_index,
       user_key_, blob_index, prefetch_buffer, blob_value, bytes_read);
   if (!status.ok()) {
     if (status.IsIncomplete()) {
+      // FIXME: this code is not covered by unit tests
       MarkKeyMayExist();
       return false;
     }

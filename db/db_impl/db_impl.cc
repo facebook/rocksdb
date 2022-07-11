@@ -156,7 +156,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
+      init_logger_creation_s_(),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only,
+                                          &init_logger_creation_s_)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -576,38 +578,6 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
 
-  // For now, simply trigger a manual flush at close time
-  // on all the column families.
-  // TODO(bjlemaire): Check if this is needed. Also, in the
-  // future we can contemplate doing a more fine-grained
-  // flushing by first checking if there is a need for
-  // flushing (but need to implement something
-  // else than imm()->IsFlushPending() because the output
-  // memtables added to imm() don't trigger flushes).
-  if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
-    Status flush_ret;
-    mutex_.Unlock();
-    for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
-      if (immutable_db_options_.atomic_flush) {
-        flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
-                                         FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(
-              immutable_db_options_.info_log,
-              "Atomic flush memtables failed upon closing (mempurge).");
-        }
-      } else {
-        flush_ret =
-            FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                         "Flush memtables failed upon closing (mempurge).");
-        }
-      }
-    }
-    mutex_.Lock();
-  }
-
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
@@ -747,6 +717,9 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  // TODO: remove this.
+  init_logger_creation_s_.PermitUncheckedError();
+
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return;

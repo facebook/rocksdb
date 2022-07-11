@@ -480,11 +480,8 @@ class ColumnFamilyData {
       const MutableCFOptions& mutable_cf_options,
       const ImmutableCFOptions& immutable_cf_options);
 
-  // Recalculate some small conditions, which are changed only during
-  // compaction, adding new memtable and/or
-  // recalculation of compaction score. These values are used in
-  // DBImpl::MakeRoomForWrite function to decide, if it need to make
-  // a write stall
+  // Recalculate some stall conditions, which are changed only during
+  // compaction, adding new memtable and/or recalculation of compaction score.
   WriteStallCondition RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options);
 
@@ -528,6 +525,10 @@ class ColumnFamilyData {
   }
 
   static const uint32_t kDummyColumnFamilyDataId;
+
+  // Keep track of whether the mempurge feature was ever used.
+  void SetMempurgeUsed() { mempurge_used_ = true; }
+  bool GetMempurgeUsed() { return mempurge_used_; }
 
  private:
   friend class ColumnFamilySet;
@@ -629,6 +630,7 @@ class ColumnFamilyData {
   // For charging memory usage of file metadata created for newly added files to
   // a Version associated with this CFD
   std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+  bool mempurge_used_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

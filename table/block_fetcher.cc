@@ -126,7 +126,7 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
   if ((do_uncompress_ || ioptions_.allow_mmap_reads) &&
       block_size_with_trailer_ < kDefaultStackBufferSize) {
-    // If we've got a small enough hunk of data, read it in to the
+    // If we've got a small enough chunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
     //
     // `GetBlockContents()` cannot return this data as its lifetime is tied to
@@ -359,8 +359,7 @@ IOStatus BlockFetcher::ReadAsyncBlockContents() {
         return io_s;
       }
       io_s = status_to_io_status(prefetch_buffer_->PrefetchAsync(
-          opts, file_, handle_.offset(), block_size_with_trailer_,
-          read_options_.rate_limiter_priority, &slice_));
+          opts, file_, handle_.offset(), block_size_with_trailer_, &slice_));
       if (io_s.IsTryAgain()) {
         return io_s;
       }

@@ -136,6 +136,7 @@ CXXFLAGS += $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 CFLAGS +=  $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 endif
 
+GIT_COMMAND ?= git
 ifeq ($(USE_COROUTINES), 1)
 	USE_FOLLY = 1
 	OPT += -DUSE_COROUTINES
@@ -1383,6 +1384,9 @@ db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIB
 db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_wide_basic_test: $(OBJ_DIR)/db/wide/db_wide_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -2353,9 +2357,9 @@ commit_prereq:
 # integration.
 checkout_folly:
 	if [ -e third-party/folly ]; then \
-		cd third-party/folly && git fetch origin; \
+		cd third-party/folly && ${GIT_COMMAND} fetch origin; \
 	else \
-		cd third-party && git clone https://github.com/facebook/folly.git; \
+		cd third-party && ${GIT_COMMAND} clone https://github.com/facebook/folly.git; \
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically

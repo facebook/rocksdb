@@ -2897,6 +2897,15 @@ class ModelDB : public DB {
              const Slice& /*v*/) override {
     return Status::NotSupported();
   }
+
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported();
+  }
+
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;

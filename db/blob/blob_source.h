@@ -10,9 +10,11 @@
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_read_request.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
+#include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,11 +38,59 @@ class BlobSource {
 
   ~BlobSource();
 
+  // Read a blob from the underlying cache or one blob file.
+  //
+  // If successful, returns ok and sets "*value" to the newly retrieved
+  // uncompressed blob. If there was an error while fetching the blob, sets
+  // "*value" to empty and returns a non-ok status.
+  //
+  // Note: For consistency, whether the blob is found in the cache or on disk,
+  // sets "*bytes_read" to the size of on-disk (possibly compressed) blob
+  // record.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t file_number, uint64_t offset, uint64_t file_size,
                  uint64_t value_size, CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
                  uint64_t* bytes_read);
+
+  // Read multiple blobs from the underlying cache or blob file(s).
+  //
+  // If successful, returns ok and sets "result" in the elements of "blob_reqs"
+  // to the newly retrieved uncompressed blobs. If there was an error while
+  // fetching one of blobs, sets its "result" to empty and sets its
+  // corresponding "status" to a non-ok status.
+  //
+  // Note:
+  //  - The main difference between this function and MultiGetBlobFromOneFile is
+  //    that this function can read multiple blobs from multiple blob files.
+  //
+  //  - For consistency, whether the blob is found in the cache or on disk, sets
+  //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
+  //  records.
+  void MultiGetBlob(const ReadOptions& read_options,
+                    autovector<BlobFileReadRequests>& blob_reqs,
+                    uint64_t* bytes_read);
+
+  // Read multiple blobs from the underlying cache or one blob file.
+  //
+  // If successful, returns ok and sets "result" in the elements of "blob_reqs"
+  // to the newly retrieved uncompressed blobs. If there was an error while
+  // fetching one of blobs, sets its "result" to empty and sets its
+  // corresponding "status" to a non-ok status.
+  //
+  // Note:
+  //  - The main difference between this function and MultiGetBlob is that this
+  //  function is only used for the case where the demanded blobs are stored in
+  //  one blob file. MultiGetBlob will call this function multiple times if the
+  //  demanded blobs are stored in multiple blob files.
+  //
+  //  - For consistency, whether the blob is found in the cache or on disk, sets
+  //  "*bytes_read" to the total size of on-disk (possibly compressed) blob
+  //  records.
+  void MultiGetBlobFromOneFile(const ReadOptions& read_options,
+                               uint64_t file_number, uint64_t file_size,
+                               autovector<BlobReadRequest>& blob_reqs,
+                               uint64_t* bytes_read);
 
   inline Status GetBlobFileReader(
       uint64_t blob_file_number,
@@ -54,30 +104,23 @@ class BlobSource {
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CachableEntry<std::string>* blob) const;
+                          CacheHandleGuard<std::string>* blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
-                          CachableEntry<std::string>* cached_blob,
+                          CacheHandleGuard<std::string>* cached_blob,
                           PinnableSlice* blob) const;
+
+  Cache::Handle* GetEntryFromCache(const Slice& key) const;
+
+  Status InsertEntryIntoCache(const Slice& key, std::string* value,
+                              size_t charge, Cache::Handle** cache_handle,
+                              Cache::Priority priority) const;
 
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
                               uint64_t offset) const {
     OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
                                       file_size);
     return base_cache_key.WithOffset(offset);
-  }
-
-  inline Cache::Handle* GetEntryFromCache(const Slice& key) const {
-    return blob_cache_->Lookup(key, statistics_);
-  }
-
-  inline Status InsertEntryIntoCache(const Slice& key, std::string* value,
-                                     size_t charge,
-                                     Cache::Handle** cache_handle,
-                                     Cache::Priority priority) const {
-    return blob_cache_->Insert(key, value, charge,
-                               &DeleteCacheEntry<std::string>, cache_handle,
-                               priority);
   }
 
   const std::string& db_id_;
