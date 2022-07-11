@@ -2038,6 +2038,12 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       MaybeScheduleFlushOrCompaction();
     }
 
+    if (flush_options.wait) {
+      TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleExportFlush");
+    } else {
+      TEST_SYNC_POINT("DBImpl::FlushMemTable:AfterScheduleNonExportFlush");
+    }
+
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
       if (two_write_queues_) {
