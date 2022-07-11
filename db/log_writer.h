@@ -28,7 +28,7 @@ namespace log {
 /**
  * Writer is a general purpose log stream writer. It provides an append-only
  * abstraction for writing data. The details of the how the data is written is
- * handled by the WriteableFile sub-class implementation.
+ * handled by the WritableFile sub-class implementation.
  *
  * File format:
  *

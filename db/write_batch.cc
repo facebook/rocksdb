@@ -29,6 +29,8 @@
 //    kTypeRollbackXID varstring
 //    kTypeBeginPersistedPrepareXID
 //    kTypeBeginUnprepareXID
+//    kTypeWideColumnEntity varstring varstring
+//    kTypeColumnFamilyWideColumnEntity varint32 varstring varstring
 //    kTypeNoop
 // varstring :=
 //    len: varint32
@@ -36,6 +38,8 @@
 
 #include "rocksdb/write_batch.h"
 
+#include <algorithm>
+#include <limits>
 #include <map>
 #include <stack>
 #include <stdexcept>
@@ -52,6 +56,7 @@
 #include "db/merge_context.h"
 #include "db/snapshot_impl.h"
 #include "db/trim_history_scheduler.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -82,6 +87,7 @@ enum ContentFlags : uint32_t {
   HAS_DELETE_RANGE = 1 << 9,
   HAS_BLOB_INDEX = 1 << 10,
   HAS_BEGIN_UNPREPARE = 1 << 11,
+  HAS_PUT_ENTITY = 1 << 12,
 };
 
 struct BatchContentClassifier : public WriteBatch::Handler {
@@ -89,6 +95,12 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
   Status PutCF(uint32_t, const Slice&, const Slice&) override {
     content_flags |= ContentFlags::HAS_PUT;
+    return Status::OK();
+  }
+
+  Status PutEntityCF(uint32_t /* column_family_id */, const Slice& /* key */,
+                     const Slice& /* entity */) override {
+    content_flags |= ContentFlags::HAS_PUT_ENTITY;
     return Status::OK();
   }
 
@@ -287,6 +299,10 @@ bool WriteBatch::HasPut() const {
   return (ComputeContentFlags() & ContentFlags::HAS_PUT) != 0;
 }
 
+bool WriteBatch::HasPutEntity() const {
+  return (ComputeContentFlags() & ContentFlags::HAS_PUT_ENTITY) != 0;
+}
+
 bool WriteBatch::HasDelete() const {
   return (ComputeContentFlags() & ContentFlags::HAS_DELETE) != 0;
 }
@@ -435,6 +451,17 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad Rollback XID");
       }
       break;
+    case kTypeColumnFamilyWideColumnEntity:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch PutEntity");
+      }
+      FALLTHROUGH_INTENDED;
+    case kTypeWideColumnEntity:
+      if (!GetLengthPrefixedSlice(input, key) ||
+          !GetLengthPrefixedSlice(input, value)) {
+        return Status::Corruption("bad WriteBatch PutEntity");
+      }
+      break;
     default:
       return Status::Corruption("unknown WriteBatch tag");
   }
@@ -462,6 +489,7 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
       (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
 
   Slice key, value, blob, xid;
+
   // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
   // the batch boundary symbols otherwise we would mis-count the number of
   // batches. We do that by checking whether the accumulated batch is empty
@@ -660,6 +688,16 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         s = handler->MarkNoop(empty_batch);
         assert(s.ok());
         empty_batch = true;
+        break;
+      case kTypeWideColumnEntity:
+      case kTypeColumnFamilyWideColumnEntity:
+        assert(wb->content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_PUT_ENTITY));
+        s = handler->PutEntityCF(column_family, key, value);
+        if (LIKELY(s.ok())) {
+          empty_batch = false;
+          ++found;
+        }
         break;
       default:
         return Status::Corruption("unknown WriteBatch tag");
@@ -889,6 +927,86 @@ Status WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
 
   return Status::InvalidArgument(
       "Cannot call this method on column family enabling timestamp");
+}
+
+Status WriteBatchInternal::PutEntity(WriteBatch* b, uint32_t column_family_id,
+                                     const Slice& key,
+                                     const WideColumns& columns) {
+  assert(b);
+
+  if (key.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("key is too large");
+  }
+
+  WideColumns sorted_columns(columns);
+  std::sort(sorted_columns.begin(), sorted_columns.end(),
+            [](const WideColumn& lhs, const WideColumn& rhs) {
+              return lhs.name().compare(rhs.name()) < 0;
+            });
+
+  std::string entity;
+  const Status s = WideColumnSerialization::Serialize(sorted_columns, entity);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (entity.size() > size_t{std::numeric_limits<uint32_t>::max()}) {
+    return Status::InvalidArgument("wide column entity is too large");
+  }
+
+  LocalSavePoint save(b);
+
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeWideColumnEntity));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyWideColumnEntity));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+
+  PutLengthPrefixedSlice(&b->rep_, key);
+  PutLengthPrefixedSlice(&b->rep_, entity);
+
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_PUT_ENTITY,
+                          std::memory_order_relaxed);
+
+  if (b->prot_info_ != nullptr) {
+    b->prot_info_->entries_.emplace_back(
+        ProtectionInfo64()
+            .ProtectKVO(key, entity, kTypeWideColumnEntity)
+            .ProtectC(column_family_id));
+  }
+
+  return save.commit();
+}
+
+Status WriteBatch::PutEntity(ColumnFamilyHandle* column_family,
+                             const Slice& key, const WideColumns& columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call this method without a column family handle");
+  }
+
+  Status s;
+  uint32_t cf_id = 0;
+  size_t ts_sz = 0;
+
+  std::tie(s, cf_id, ts_sz) =
+      WriteBatchInternal::GetColumnFamilyIdAndTimestampSize(this,
+                                                            column_family);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (ts_sz) {
+    return Status::InvalidArgument(
+        "Cannot call this method on column family enabling timestamp");
+  }
+
+  return WriteBatchInternal::PutEntity(this, cf_id, key, columns);
 }
 
 Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
@@ -1556,6 +1674,10 @@ Status WriteBatch::VerifyChecksum() const {
       case kTypeCommitXIDAndTimestamp:
         checksum_protected = false;
         break;
+      case kTypeColumnFamilyWideColumnEntity:
+      case kTypeWideColumnEntity:
+        tag = kTypeWideColumnEntity;
+        break;
       default:
         return Status::Corruption(
             "unknown WriteBatch tag",
@@ -1865,11 +1987,13 @@ class MemTableInserter : public WriteBatch::Handler {
           mem->Add(sequence_, value_type, key, value, kv_prot_info,
                    concurrent_memtable_writes_, get_post_process_info(mem),
                    hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
-    } else if (moptions->inplace_callback == nullptr) {
+    } else if (moptions->inplace_callback == nullptr ||
+               value_type != kTypeValue) {
       assert(!concurrent_memtable_writes_);
-      ret_status = mem->Update(sequence_, key, value, kv_prot_info);
+      ret_status = mem->Update(sequence_, value_type, key, value, kv_prot_info);
     } else {
       assert(!concurrent_memtable_writes_);
+      assert(value_type == kTypeValue);
       ret_status = mem->UpdateCallback(sequence_, key, value, kv_prot_info);
       if (ret_status.IsNotFound()) {
         // key not found in memtable. Do sst get, update, add
@@ -1992,6 +2116,29 @@ class MemTableInserter : public WriteBatch::Handler {
       DecrementProtectionInfoIdxForTryAgain();
     }
     return ret_status;
+  }
+
+  Status PutEntityCF(uint32_t column_family_id, const Slice& key,
+                     const Slice& value) override {
+    const auto* kv_prot_info = NextProtectionInfo();
+
+    Status s;
+    if (kv_prot_info) {
+      // Memtable needs seqno, doesn't need CF ID
+      auto mem_kv_prot_info =
+          kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
+      s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
+                    &mem_kv_prot_info);
+    } else {
+      s = PutCFImpl(column_family_id, key, value, kTypeWideColumnEntity,
+                    /* kv_prot_info */ nullptr);
+    }
+
+    if (UNLIKELY(s.IsTryAgain())) {
+      DecrementProtectionInfoIdxForTryAgain();
+    }
+
+    return s;
   }
 
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
@@ -2780,6 +2927,11 @@ class ProtectionInfoUpdater : public WriteBatch::Handler {
     return UpdateProtInfo(cf, key, val, kTypeValue);
   }
 
+  Status PutEntityCF(uint32_t cf, const Slice& key,
+                     const Slice& entity) override {
+    return UpdateProtInfo(cf, key, entity, kTypeWideColumnEntity);
+  }
+
   Status DeleteCF(uint32_t cf, const Slice& key) override {
     return UpdateProtInfo(cf, key, "", kTypeDeletion);
   }
@@ -2911,7 +3063,8 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
 }
 
 Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
-                                                size_t bytes_per_key) {
+                                                size_t bytes_per_key,
+                                                uint64_t* checksum) {
   if (bytes_per_key == 0) {
     if (wb->prot_info_ != nullptr) {
       wb->prot_info_.reset();
@@ -2924,7 +3077,14 @@ Status WriteBatchInternal::UpdateProtectionInfo(WriteBatch* wb,
     if (wb->prot_info_ == nullptr) {
       wb->prot_info_.reset(new WriteBatch::ProtectionInfo());
       ProtectionInfoUpdater prot_info_updater(wb->prot_info_.get());
-      return wb->Iterate(&prot_info_updater);
+      Status s = wb->Iterate(&prot_info_updater);
+      if (s.ok() && checksum != nullptr) {
+        uint64_t expected_hash = XXH3_64bits(wb->rep_.data(), wb->rep_.size());
+        if (expected_hash != *checksum) {
+          return Status::Corruption("Write batch content corrupted.");
+        }
+      }
+      return s;
     } else {
       // Already protected.
       return Status::OK();

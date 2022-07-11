@@ -191,7 +191,7 @@ struct CompactionJob::SubcompactionState {
   // The number of bytes overlapping between the current output and
   // grandparent files used in ShouldStopBefore().
   uint64_t overlapped_bytes = 0;
-  // A flag determine whether the key has been seen in ShouldStopBefore()
+  // A flag determines whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
   // sub compaction job id, which is used to identify different sub-compaction
   // within the same compaction job.
@@ -201,6 +201,12 @@ struct CompactionJob::SubcompactionState {
   // sub-compaction begin.
   bool notify_on_subcompaction_completion = false;
 
+  // A flag determines if this subcompaction has been split by the cursor
+  bool is_split = false;
+  // We also maintain the output split key for each subcompaction to avoid
+  // repetitive comparison in ShouldStopBefore()
+  const InternalKey* local_output_split_key = nullptr;
+
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size,
                      uint32_t _sub_job_id)
       : compaction(c),
@@ -209,6 +215,21 @@ struct CompactionJob::SubcompactionState {
         approx_size(size),
         sub_job_id(_sub_job_id) {
     assert(compaction != nullptr);
+    const InternalKeyComparator* icmp =
+        &compaction->column_family_data()->internal_comparator();
+    const InternalKey* output_split_key = compaction->GetOutputSplitKey();
+    // Invalid output_split_key indicates that we do not need to split
+    if (output_split_key != nullptr) {
+      // We may only split the output when the cursor is in the range. Split
+      if ((end == nullptr || icmp->user_comparator()->Compare(
+                                 ExtractUserKey(output_split_key->Encode()),
+                                 ExtractUserKey(*end)) < 0) &&
+          (start == nullptr || icmp->user_comparator()->Compare(
+                                   ExtractUserKey(output_split_key->Encode()),
+                                   ExtractUserKey(*start)) > 0)) {
+        local_output_split_key = output_split_key;
+      }
+    }
   }
 
   // Adds the key and value to the builder
@@ -234,6 +255,14 @@ struct CompactionJob::SubcompactionState {
         &compaction->column_family_data()->internal_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
 
+    // Invalid local_output_split_key indicates that we do not need to split
+    if (local_output_split_key != nullptr && !is_split) {
+      // Split occurs when the next key is larger than/equal to the cursor
+      if (icmp->Compare(internal_key, local_output_split_key->Encode()) >= 0) {
+        is_split = true;
+        return true;
+      }
+    }
     bool grandparant_file_switched = false;
     // Scan to find earliest grandparent file that contains key.
     while (grandparent_index < grandparents.size() &&

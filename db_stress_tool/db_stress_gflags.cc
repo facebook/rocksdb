@@ -200,6 +200,10 @@ DEFINE_int32(
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
 
+DEFINE_int32(compaction_pri, ROCKSDB_NAMESPACE::Options().compaction_pri,
+             "Which file from a level should be picked to merge to the next "
+             "level in level-based compaction");
+
 DEFINE_int32(num_levels, ROCKSDB_NAMESPACE::Options().num_levels,
              "Number of levels in the DB");
 
@@ -305,7 +309,7 @@ DEFINE_int64(cache_size, 2LL * KB * KB * KB,
 DEFINE_int32(cache_numshardbits, 6,
              "Number of shards for the block cache"
              " is 2 ** cache_numshardbits. Negative means use default settings."
-             " This is applied only if FLAGS_cache_size is non-negative.");
+             " This is applied only if FLAGS_cache_size is greater than 0.");
 
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
@@ -449,6 +453,26 @@ DEFINE_int32(
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
     "[Integrated BlobDB] Enable writing blob files during flushes and "
     "compactions starting from the specified level.");
+
+DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
+
+DEFINE_bool(
+    use_shared_block_and_blob_cache, true,
+    "[Integrated BlobDB] Use a shared backing cache for both block "
+    "cache and blob cache. It only takes effect if use_blob_cache is enabled.");
+
+DEFINE_uint64(
+    blob_cache_size, 2LL * KB * KB * KB,
+    "[Integrated BlobDB] Number of bytes to use as a cache of blobs. It only "
+    "takes effect if the block and blob caches are different "
+    "(use_shared_block_and_blob_cache = false).");
+
+DEFINE_int32(blob_cache_numshardbits, 6,
+             "[Integrated BlobDB] Number of shards for the blob cache is 2 ** "
+             "blob_cache_numshardbits. Negative means use default settings. "
+             "It only takes effect if blob_cache_size is greater than 0, and "
+             "the block and blob caches are different "
+             "(use_shared_block_and_blob_cache = false).");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);

@@ -217,6 +217,11 @@ class DBImpl : public DB {
   Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, const Slice& ts, const Slice& value) override;
 
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns) override;
+
   using DB::Merge;
   Status Merge(const WriteOptions& options, ColumnFamilyHandle* column_family,
                const Slice& key, const Slice& value) override;
@@ -1248,6 +1253,7 @@ class DBImpl : public DB {
   std::unique_ptr<VersionSet> versions_;
   // Flag to check whether we allocated and own the info log file
   bool own_info_log_;
+  Status init_logger_creation_s_;
   const DBOptions initial_db_options_;
   Env* const env_;
   std::shared_ptr<IOTracer> io_tracer_;
@@ -1993,7 +1999,6 @@ class DBImpl : public DB {
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
 #ifndef ROCKSDB_LITE
-
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
@@ -2005,7 +2010,6 @@ class DBImpl : public DB {
   // Wait for current IngestExternalFile() calls to finish.
   // REQUIRES: mutex_ held
   void WaitForIngestFile();
-
 #else
   // IngestExternalFile is not supported in ROCKSDB_LITE so this function
   // will be no-op
@@ -2492,12 +2496,6 @@ class DBImpl : public DB {
   // log is fully commited.
   bool unable_to_release_oldest_log_;
 
-  static const int KEEP_LOG_FILE_NUM = 1000;
-  // MSVC version 1800 still does not have constexpr for ::max()
-  static const uint64_t kNoTimeOut = std::numeric_limits<uint64_t>::max();
-
-  std::string db_absolute_path_;
-
   // Number of running IngestExternalFile() or CreateColumnFamilyWithImport()
   // calls.
   // REQUIRES: mutex held
@@ -2600,10 +2598,12 @@ class GetWithTimestampReadCallback : public ReadCallback {
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,
-                               bool read_only = false);
+                               bool read_only = false,
+                               Status* logger_creation_s = nullptr);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
-                                 bool read_only = false);
+                                 bool read_only = false,
+                                 Status* logger_creation_s = nullptr);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,

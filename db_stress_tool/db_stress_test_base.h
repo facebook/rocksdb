@@ -45,6 +45,9 @@ class StressTest {
 
   void ReleaseOldTimestampedSnapshots(uint64_t ts);
 
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
+      uint64_t ts);
+
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
@@ -228,6 +231,15 @@ class StressTest {
   virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
+
+  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                            std::string& ts_str,
+                                            Slice& ts_slice,
+                                            ReadOptions& read_opts);
+
+  void MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                          std::string& ts_str, Slice& ts_slice,
+                                          ReadOptions& read_opts);
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

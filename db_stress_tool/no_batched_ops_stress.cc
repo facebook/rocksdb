@@ -26,7 +26,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GenerateTimestampForRead();
+      ts_str = GetNowNanos();
       ts = ts_str;
       options.timestamp = &ts;
     }
@@ -216,7 +216,7 @@ class NonBatchedOpsStressTest : public StressTest {
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GenerateTimestampForRead();
+      ts_str = GetNowNanos();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
@@ -335,7 +335,14 @@ class NonBatchedOpsStressTest : public StressTest {
       fault_fs_guard->EnableErrorInjection();
       SharedState::ignore_read_error = false;
     }
-    Status s = db_->Get(read_opts, cfh, key, &from_db);
+
+    ReadOptions read_opts_copy = read_opts;
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
+                                         read_opts_copy);
+
+    Status s = db_->Get(read_opts_copy, cfh, key, &from_db);
     if (fault_fs_guard) {
       error_count = fault_fs_guard->GetAndResetErrorCount();
     }
@@ -391,6 +398,12 @@ class NonBatchedOpsStressTest : public StressTest {
     if (do_consistency_check) {
       readoptionscopy.snapshot = db_->GetSnapshot();
     }
+
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    MaybeUseOlderTimestampForPointLookup(thread, read_ts_str, read_ts_slice,
+                                         readoptionscopy);
+
     readoptionscopy.rate_limiter_priority =
         FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
 
@@ -591,6 +604,11 @@ class NonBatchedOpsStressTest : public StressTest {
       ro_copy.iterate_upper_bound = &ub_slice;
     }
 
+    std::string read_ts_str;
+    Slice read_ts_slice;
+    MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
+                                       ro_copy);
+
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
     unsigned long count = 0;
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
@@ -598,7 +616,9 @@ class NonBatchedOpsStressTest : public StressTest {
       ++count;
     }
 
-    assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+    if (ro_copy.iter_start_ts == nullptr) {
+      assert(count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
+    }
 
     Status s = iter->status();
     if (iter->status().ok()) {
@@ -630,12 +650,12 @@ class NonBatchedOpsStressTest : public StressTest {
       lock.reset(
           new MutexLock(shared->GetMutexForKey(rand_column_family, rand_key)));
       if (FLAGS_user_timestamp_size > 0) {
-        write_ts_str = NowNanosStr();
+        write_ts_str = GetNowNanos();
         write_ts = write_ts_str;
       }
     }
     if (write_ts.size() == 0 && FLAGS_user_timestamp_size) {
-      write_ts_str = NowNanosStr();
+      write_ts_str = GetNowNanos();
       write_ts = write_ts_str;
     }
 
@@ -723,7 +743,7 @@ class NonBatchedOpsStressTest : public StressTest {
     auto shared = thread->shared;
 
     // OPERATION delete
-    std::string write_ts_str = NowNanosStr();
+    std::string write_ts_str = GetNowNanos();
     Slice write_ts = write_ts_str;
 
     std::string key_str = Key(rand_key);

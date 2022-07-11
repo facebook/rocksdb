@@ -2655,8 +2655,10 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
   ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
 
   OpenBackupEngine();
-  TEST_SetDefaultRateLimitersClock(backup_engine_.get(),
-                                   special_env->GetSystemClock());
+  TEST_SetDefaultRateLimitersClock(
+      backup_engine_.get(),
+      special_env->GetSystemClock() /* backup_rate_limiter_clock */,
+      special_env->GetSystemClock() /* restore_rate_limiter_clock */);
 
   auto start_restore = special_env->NowMicros();
   ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
@@ -3066,7 +3068,7 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   db = nullptr;
 
   // Now try opening read-write and make sure it fails, for safety.
-  ASSERT_TRUE(DB::Open(opts, name, &db).IsAborted());
+  ASSERT_TRUE(DB::Open(opts, name, &db).IsIOError());
 }
 
 TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {

@@ -1907,114 +1907,62 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 
 void Version::MultiGetBlob(
     const ReadOptions& read_options, MultiGetRange& range,
-    std::unordered_map<uint64_t, BlobReadRequests>& blob_rqs) {
-  if (read_options.read_tier == kBlockCacheTier) {
-    Status s = Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
-    for (const auto& elem : blob_rqs) {
-      for (const auto& blob_rq : elem.second) {
-        const KeyContext& key_context = blob_rq.second;
-        assert(key_context.s);
-        assert(key_context.s->ok());
-        *(key_context.s) = s;
-        assert(key_context.get_context);
-        auto& get_context = *(key_context.get_context);
-        get_context.MarkKeyMayExist();
-      }
-    }
-    return;
-  }
+    std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs) {
+  assert(!blob_ctxs.empty());
 
-  assert(!blob_rqs.empty());
-  Status status;
+  autovector<BlobFileReadRequests> blob_reqs;
 
-  for (auto& elem : blob_rqs) {
-    const uint64_t blob_file_number = elem.first;
+  for (auto& ctx : blob_ctxs) {
+    const auto file_number = ctx.first;
+    const auto blob_file_meta = storage_info_.GetBlobFileMetaData(file_number);
 
-    if (!storage_info_.GetBlobFileMetaData(blob_file_number)) {
-      auto& blobs_in_file = elem.second;
-      for (const auto& blob : blobs_in_file) {
-        const KeyContext& key_context = blob.second;
-        *(key_context.s) = Status::Corruption("Invalid blob file number");
-      }
-      continue;
-    }
-
-    CacheHandleGuard<BlobFileReader> blob_file_reader;
-    assert(blob_source_);
-    status =
-        blob_source_->GetBlobFileReader(blob_file_number, &blob_file_reader);
-    assert(!status.ok() || blob_file_reader.GetValue());
-
-    auto& blobs_in_file = elem.second;
-    if (!status.ok()) {
-      for (const auto& blob : blobs_in_file) {
-        const KeyContext& key_context = blob.second;
-        *(key_context.s) = status;
-      }
-      continue;
-    }
-
-    assert(blob_file_reader.GetValue());
-    const uint64_t file_size = blob_file_reader.GetValue()->GetFileSize();
-    const CompressionType compression =
-        blob_file_reader.GetValue()->GetCompressionType();
-
-    // sort blobs_in_file by file offset.
-    std::sort(
-        blobs_in_file.begin(), blobs_in_file.end(),
-        [](const BlobReadRequest& lhs, const BlobReadRequest& rhs) -> bool {
-          assert(lhs.first.file_number() == rhs.first.file_number());
-          return lhs.first.offset() < rhs.first.offset();
-        });
-
-    autovector<std::reference_wrapper<const KeyContext>> blob_read_key_contexts;
-    autovector<std::reference_wrapper<const Slice>> user_keys;
-    autovector<uint64_t> offsets;
-    autovector<uint64_t> value_sizes;
-    autovector<Status*> statuses;
-    autovector<PinnableSlice*> values;
+    autovector<BlobReadRequest> blob_reqs_in_file;
+    BlobReadContexts& blobs_in_file = ctx.second;
     for (const auto& blob : blobs_in_file) {
-      const auto& blob_index = blob.first;
+      const BlobIndex& blob_index = blob.first;
       const KeyContext& key_context = blob.second;
+
+      if (!blob_file_meta) {
+        *key_context.s = Status::Corruption("Invalid blob file number");
+        continue;
+      }
+
       if (blob_index.HasTTL() || blob_index.IsInlined()) {
-        *(key_context.s) =
+        *key_context.s =
             Status::Corruption("Unexpected TTL/inlined blob index");
         continue;
       }
-      const uint64_t key_size = key_context.ukey_with_ts.size();
-      const uint64_t offset = blob_index.offset();
-      const uint64_t value_size = blob_index.size();
-      if (!IsValidBlobOffset(offset, key_size, value_size, file_size)) {
-        *(key_context.s) = Status::Corruption("Invalid blob offset");
-        continue;
-      }
-      if (blob_index.compression() != compression) {
-        *(key_context.s) =
-            Status::Corruption("Compression type mismatch when reading a blob");
-        continue;
-      }
-      blob_read_key_contexts.emplace_back(std::cref(key_context));
-      user_keys.emplace_back(std::cref(key_context.ukey_with_ts));
-      offsets.push_back(blob_index.offset());
-      value_sizes.push_back(blob_index.size());
-      statuses.push_back(key_context.s);
-      values.push_back(key_context.value);
+
+      key_context.value->Reset();
+      blob_reqs_in_file.emplace_back(
+          key_context.ukey_with_ts, blob_index.offset(), blob_index.size(),
+          blob_index.compression(), key_context.value, key_context.s);
     }
-    blob_file_reader.GetValue()->MultiGetBlob(read_options, user_keys, offsets,
-                                              value_sizes, statuses, values,
-                                              /*bytes_read=*/nullptr);
-    size_t num = blob_read_key_contexts.size();
-    assert(num == user_keys.size());
-    assert(num == offsets.size());
-    assert(num == value_sizes.size());
-    assert(num == statuses.size());
-    assert(num == values.size());
-    for (size_t i = 0; i < num; ++i) {
-      if (statuses[i]->ok()) {
-        range.AddValueSize(blob_read_key_contexts[i].get().value->size());
+    if (blob_reqs_in_file.size() > 0) {
+      const auto file_size = blob_file_meta->GetBlobFileSize();
+      blob_reqs.emplace_back(file_number, file_size, blob_reqs_in_file);
+    }
+  }
+
+  if (blob_reqs.size() > 0) {
+    blob_source_->MultiGetBlob(read_options, blob_reqs, /*bytes_read=*/nullptr);
+  }
+
+  for (auto& ctx : blob_ctxs) {
+    BlobReadContexts& blobs_in_file = ctx.second;
+    for (const auto& blob : blobs_in_file) {
+      const KeyContext& key_context = blob.second;
+      if (key_context.s->ok()) {
+        range.AddValueSize(key_context.value->size());
         if (range.GetValueSize() > read_options.value_size_soft_limit) {
-          *(blob_read_key_contexts[i].get().s) = Status::Aborted();
+          *key_context.s = Status::Aborted();
         }
+      } else if (key_context.s->IsIncomplete()) {
+        // read_options.read_tier == kBlockCacheTier
+        // Cannot read blob(s): no disk I/O allowed
+        assert(key_context.get_context);
+        auto& get_context = *(key_context.get_context);
+        get_context.MarkKeyMayExist();
       }
     }
   }
@@ -2161,6 +2109,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             "Encounter unexpected blob index. Please open DB with "
             "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
         return;
+      case GetContext::kUnexpectedWideColumnEntity:
+        *status =
+            Status::NotSupported("Encountered unexpected wide-column entity");
+        return;
     }
     f = fp.GetNextFile();
   }
@@ -2249,7 +2201,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
   // blob_file => [[blob_idx, it], ...]
-  std::unordered_map<uint64_t, BlobReadRequests> blob_rqs;
+  std::unordered_map<uint64_t, BlobReadContexts> blob_ctxs;
   int prev_level = -1;
 
   while (!fp.IsSearchEnded()) {
@@ -2266,7 +2218,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         // Call MultiGetFromSST for looking up a single file
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
                             fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
-                            blob_rqs, num_filter_read, num_index_read,
+                            blob_ctxs, num_filter_read, num_index_read,
                             num_sst_read);
         if (fp.GetHitFileLevel() == 0) {
           dump_stats_for_l0_file = true;
@@ -2281,7 +2233,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       while (f != nullptr) {
         mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
             read_options, fp.CurrentFileRange(), fp.GetHitFileLevel(),
-            fp.IsHitFileLastInLevel(), f, blob_rqs, num_filter_read,
+            fp.IsHitFileLastInLevel(), f, blob_ctxs, num_filter_read,
             num_index_read, num_sst_read));
         if (fp.KeyMaySpanNextFile()) {
           break;
@@ -2354,8 +2306,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                       num_level_read);
   }
 
-  if (s.ok() && !blob_rqs.empty()) {
-    MultiGetBlob(read_options, keys_with_blobs_range, blob_rqs);
+  if (s.ok() && !blob_ctxs.empty()) {
+    MultiGetBlob(read_options, keys_with_blobs_range, blob_ctxs);
   }
 
   // Process any left over keys
@@ -2705,6 +2657,16 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableOptions& ioptions,
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableOptions& immutable_options,
     const MutableCFOptions& mutable_cf_options) {
+  double total_downcompact_bytes = 0.0;
+  // Historically, score is defined as actual bytes in a level divided by
+  // the level's target size, and 1.0 is the threshold for triggering
+  // compaction. Higher score means higher prioritization.
+  // Now we keep the compaction triggering condition, but consider more
+  // factors for priorization, while still keeping the 1.0 threshold.
+  // In order to provide flexibility for reducing score while still
+  // maintaining it to be over 1.0, we scale the original score by 10x
+  // if it is larger than 1.0.
+  const double kScoreScale = 10.0;
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -2722,6 +2684,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
       for (auto* f : files_[level]) {
+        total_downcompact_bytes += static_cast<double>(f->fd.GetFileSize());
         if (!f->being_compacted) {
           total_size += f->compensated_file_size;
           num_sorted_runs++;
@@ -2785,18 +2748,40 @@ void VersionStorageInfo::ComputeCompactionScore(
           }
           score =
               std::max(score, static_cast<double>(total_size) / l0_target_size);
+          if (immutable_options.level_compaction_dynamic_level_bytes &&
+              score > 1.0) {
+            score *= kScoreScale;
+          }
         }
       }
     } else {
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
+      uint64_t level_total_bytes = 0;
       for (auto f : files_[level]) {
+        level_total_bytes += f->fd.GetFileSize();
         if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
-      score = static_cast<double>(level_bytes_no_compacting) /
-              MaxBytesForLevel(level);
+      if (!immutable_options.level_compaction_dynamic_level_bytes ||
+          level_bytes_no_compacting < MaxBytesForLevel(level)) {
+        score = static_cast<double>(level_bytes_no_compacting) /
+                MaxBytesForLevel(level);
+      } else {
+        // If there are a large mount of data being compacted down to the
+        // current level soon, we would de-prioritize compaction from
+        // a level where the incoming data would be a large ratio. We do
+        // it by dividing level size not by target level size, but
+        // the target size and the incoming compaction bytes.
+        score = static_cast<double>(level_bytes_no_compacting) /
+                (MaxBytesForLevel(level) + total_downcompact_bytes) *
+                kScoreScale;
+      }
+      if (level_total_bytes > MaxBytesForLevel(level)) {
+        total_downcompact_bytes +=
+            static_cast<double>(level_total_bytes - MaxBytesForLevel(level));
+      }
     }
     compaction_level_[level] = level;
     compaction_score_[level] = score;
@@ -3189,11 +3174,24 @@ void SortFileByOverlappingRatio(
                                           ttl_boost_score;
   }
 
-  std::sort(temp->begin(), temp->end(),
-            [&](const Fsize& f1, const Fsize& f2) -> bool {
-              return file_to_order[f1.file->fd.GetNumber()] <
-                     file_to_order[f2.file->fd.GetNumber()];
-            });
+  size_t num_to_sort = temp->size() > VersionStorageInfo::kNumberFilesToSort
+                           ? VersionStorageInfo::kNumberFilesToSort
+                           : temp->size();
+
+  std::partial_sort(temp->begin(), temp->begin() + num_to_sort, temp->end(),
+                    [&](const Fsize& f1, const Fsize& f2) -> bool {
+                      // If score is the same, pick file with smaller keys.
+                      // This makes the algorithm more deterministic, and also
+                      // help the trivial move case to have more files to
+                      // extend.
+                      if (file_to_order[f1.file->fd.GetNumber()] ==
+                          file_to_order[f2.file->fd.GetNumber()]) {
+                        return icmp.Compare(f1.file->smallest,
+                                            f2.file->smallest) < 0;
+                      }
+                      return file_to_order[f1.file->fd.GetNumber()] <
+                             file_to_order[f2.file->fd.GetNumber()];
+                    });
 }
 
 void SortFileByRoundRobin(const InternalKeyComparator& icmp,
@@ -3819,13 +3817,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
       // No compaction from L1+ needs to be scheduled.
       base_level_ = num_levels_ - 1;
     } else {
-      uint64_t l0_size = 0;
-      for (const auto& f : files_[0]) {
-        l0_size += f->fd.GetFileSize();
-      }
-
-      uint64_t base_bytes_max =
-          std::max(options.max_bytes_for_level_base, l0_size);
+      uint64_t base_bytes_max = options.max_bytes_for_level_base;
       uint64_t base_bytes_min = static_cast<uint64_t>(
           base_bytes_max / options.max_bytes_for_level_multiplier);
 
@@ -3867,26 +3859,6 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
 
       level_multiplier_ = options.max_bytes_for_level_multiplier;
       assert(base_level_size > 0);
-      if (l0_size > base_level_size &&
-          (l0_size > options.max_bytes_for_level_base ||
-           static_cast<int>(files_[0].size() / 2) >=
-               options.level0_file_num_compaction_trigger)) {
-        // We adjust the base level according to actual L0 size, and adjust
-        // the level multiplier accordingly, when:
-        //   1. the L0 size is larger than level size base, or
-        //   2. number of L0 files reaches twice the L0->L1 compaction trigger
-        // We don't do this otherwise to keep the LSM-tree structure stable
-        // unless the L0 compaction is backlogged.
-        base_level_size = l0_size;
-        if (base_level_ == num_levels_ - 1) {
-          level_multiplier_ = 1.0;
-        } else {
-          level_multiplier_ = std::pow(
-              static_cast<double>(max_level_size) /
-                  static_cast<double>(base_level_size),
-              1.0 / static_cast<double>(num_levels_ - base_level_ - 1));
-        }
-      }
 
       uint64_t level_size = base_level_size;
       for (int i = base_level_; i < num_levels_; i++) {

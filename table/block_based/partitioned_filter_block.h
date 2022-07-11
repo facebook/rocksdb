@@ -111,18 +111,22 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
 
   bool KeyMayMatch(const Slice& key, const bool no_io,
                    const Slice* const const_ikey_ptr, GetContext* get_context,
-                   BlockCacheLookupContext* lookup_context) override;
+                   BlockCacheLookupContext* lookup_context,
+                   Env::IOPriority rate_limiter_priority) override;
   void KeysMayMatch(MultiGetRange* range, const bool no_io,
-                    BlockCacheLookupContext* lookup_context) override;
+                    BlockCacheLookupContext* lookup_context,
+                    Env::IOPriority rate_limiter_priority) override;
 
   bool PrefixMayMatch(const Slice& prefix, const bool no_io,
                       const Slice* const const_ikey_ptr,
                       GetContext* get_context,
-                      BlockCacheLookupContext* lookup_context) override;
+                      BlockCacheLookupContext* lookup_context,
+                      Env::IOPriority rate_limiter_priority) override;
   void PrefixesMayMatch(MultiGetRange* range,
                         const SliceTransform* prefix_extractor,
                         const bool no_io,
-                        BlockCacheLookupContext* lookup_context) override;
+                        BlockCacheLookupContext* lookup_context,
+                        Env::IOPriority rate_limiter_priority) override;
 
   size_t ApproximateMemoryUsage() const override;
 
@@ -137,21 +141,26 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
 
   using FilterFunction = bool (FullFilterBlockReader::*)(
       const Slice& slice, const bool no_io, const Slice* const const_ikey_ptr,
-      GetContext* get_context, BlockCacheLookupContext* lookup_context);
+      GetContext* get_context, BlockCacheLookupContext* lookup_context,
+      Env::IOPriority rate_limiter_priority);
   bool MayMatch(const Slice& slice, bool no_io, const Slice* const_ikey_ptr,
                 GetContext* get_context,
                 BlockCacheLookupContext* lookup_context,
+                Env::IOPriority rate_limiter_priority,
                 FilterFunction filter_function) const;
   using FilterManyFunction = void (FullFilterBlockReader::*)(
       MultiGetRange* range, const SliceTransform* prefix_extractor,
-      const bool no_io, BlockCacheLookupContext* lookup_context);
+      const bool no_io, BlockCacheLookupContext* lookup_context,
+      Env::IOPriority rate_limiter_priority);
   void MayMatch(MultiGetRange* range, const SliceTransform* prefix_extractor,
                 bool no_io, BlockCacheLookupContext* lookup_context,
+                Env::IOPriority rate_limiter_priority,
                 FilterManyFunction filter_function) const;
   void MayMatchPartition(MultiGetRange* range,
                          const SliceTransform* prefix_extractor,
                          BlockHandle filter_handle, bool no_io,
                          BlockCacheLookupContext* lookup_context,
+                         Env::IOPriority rate_limiter_priority,
                          FilterManyFunction filter_function) const;
   Status CacheDependencies(const ReadOptions& ro, bool pin) override;
 

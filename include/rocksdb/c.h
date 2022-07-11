@@ -110,6 +110,10 @@ typedef struct rocksdb_writeoptions_t    rocksdb_writeoptions_t;
 typedef struct rocksdb_universal_compaction_options_t rocksdb_universal_compaction_options_t;
 typedef struct rocksdb_livefiles_t     rocksdb_livefiles_t;
 typedef struct rocksdb_column_family_handle_t rocksdb_column_family_handle_t;
+typedef struct rocksdb_column_family_metadata_t
+    rocksdb_column_family_metadata_t;
+typedef struct rocksdb_level_metadata_t rocksdb_level_metadata_t;
+typedef struct rocksdb_sst_file_metadata_t rocksdb_sst_file_metadata_t;
 typedef struct rocksdb_envoptions_t      rocksdb_envoptions_t;
 typedef struct rocksdb_ingestexternalfileoptions_t rocksdb_ingestexternalfileoptions_t;
 typedef struct rocksdb_sstfilewriter_t   rocksdb_sstfilewriter_t;
@@ -626,6 +630,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf(
     const char* start_key, size_t start_key_len, const char* limit_key,
     size_t limit_key_len);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_suggest_compact_range(
+    rocksdb_t* db, const char* start_key, size_t start_key_len,
+    const char* limit_key, size_t limit_key_len, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_suggest_compact_range_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    const char* start_key, size_t start_key_len, const char* limit_key,
+    size_t limit_key_len, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_opt(
     rocksdb_t* db, rocksdb_compactoptions_t* opt, const char* start_key,
     size_t start_key_len, const char* limit_key, size_t limit_key_len);
@@ -935,6 +948,28 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_writebatch_wi_create_iter
     rocksdb_writebatch_wi_t* wbwi,
     rocksdb_iterator_t* base_iterator,
     rocksdb_column_family_handle_t* cf);
+
+/* Options utils */
+
+// Load the latest rocksdb options from the specified db_path.
+//
+// On success, num_column_families will be updated with a non-zero
+// number indicating the number of column families.
+// The returned db_options, column_family_names, and column_family_options
+// should be released via rocksdb_load_latest_options_destroy().
+//
+// On error, a non-null errptr that includes the error message will be
+// returned.  db_options, column_family_names, and column_family_options
+// will be set to NULL.
+extern ROCKSDB_LIBRARY_API void rocksdb_load_latest_options(
+    const char* db_path, rocksdb_env_t* env, bool ignore_unknown_options,
+    rocksdb_cache_t* cache, rocksdb_options_t** db_options,
+    size_t* num_column_families, char*** column_family_names,
+    rocksdb_options_t*** column_family_options, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_load_latest_options_destroy(
+    rocksdb_options_t* db_options, char** list_column_family_names,
+    rocksdb_options_t** list_column_family_options, size_t len);
 
 /* Block based table options */
 
@@ -1498,6 +1533,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_report_bg_io_stats(
     rocksdb_options_t*);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_experimental_mempurge_threshold(rocksdb_options_t*, double);
+extern ROCKSDB_LIBRARY_API double
+rocksdb_options_get_experimental_mempurge_threshold(rocksdb_options_t*);
+
 enum {
   rocksdb_tolerate_corrupted_tail_records_recovery = 0,
   rocksdb_absolute_consistency_recovery = 1,
@@ -1650,7 +1690,13 @@ enum {
   rocksdb_env_unlock_file_nanos,
   rocksdb_env_new_logger_nanos,
   rocksdb_number_async_seek,
-  rocksdb_total_metric_count = 69
+  rocksdb_blob_cache_hit_count,
+  rocksdb_blob_read_count,
+  rocksdb_blob_read_byte,
+  rocksdb_blob_read_time,
+  rocksdb_blob_checksum_time,
+  rocksdb_blob_decompress_time,
+  rocksdb_total_metric_count = 77
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
@@ -1921,6 +1967,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_destroy(
     rocksdb_lru_cache_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_capacity(
     rocksdb_lru_cache_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_num_shard_bits(
+    rocksdb_lru_cache_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_lru_cache_options_set_memory_allocator(
     rocksdb_lru_cache_options_t*, rocksdb_memory_allocator_t*);
 
@@ -2164,6 +2212,124 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete_file_in_range_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     const char* start_key, size_t start_key_len, const char* limit_key,
     size_t limit_key_len, char** errptr);
+
+/* MetaData */
+
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_metadata_t*
+rocksdb_get_column_family_metadata(rocksdb_t* db);
+
+/**
+ * Returns the rocksdb_column_family_metadata_t of the specified
+ * column family.
+ *
+ * Note that the caller is responsible to release the returned memory
+ * using rocksdb_column_family_metadata_destroy.
+ */
+extern ROCKSDB_LIBRARY_API rocksdb_column_family_metadata_t*
+rocksdb_get_column_family_metadata_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_column_family_metadata_destroy(
+    rocksdb_column_family_metadata_t* cf_meta);
+
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_column_family_metadata_get_size(
+    rocksdb_column_family_metadata_t* cf_meta);
+
+extern ROCKSDB_LIBRARY_API size_t rocksdb_column_family_metadata_get_file_count(
+    rocksdb_column_family_metadata_t* cf_meta);
+
+extern ROCKSDB_LIBRARY_API char* rocksdb_column_family_metadata_get_name(
+    rocksdb_column_family_metadata_t* cf_meta);
+
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_column_family_metadata_get_level_count(
+    rocksdb_column_family_metadata_t* cf_meta);
+
+/**
+ * Returns the rocksdb_level_metadata_t of the ith level from the specified
+ * column family metadata.
+ *
+ * If the specified i is greater than or equal to the number of levels
+ * in the specified column family, then NULL will be returned.
+ *
+ * Note that the caller is responsible to release the returned memory
+ * using rocksdb_level_metadata_destroy before releasing its parent
+ * rocksdb_column_family_metadata_t.
+ */
+extern ROCKSDB_LIBRARY_API rocksdb_level_metadata_t*
+rocksdb_column_family_metadata_get_level_metadata(
+    rocksdb_column_family_metadata_t* cf_meta, size_t i);
+
+/**
+ * Releases the specified rocksdb_level_metadata_t.
+ *
+ * Note that the specified rocksdb_level_metadata_t must be released
+ * before the release of its parent rocksdb_column_family_metadata_t.
+ */
+extern ROCKSDB_LIBRARY_API void rocksdb_level_metadata_destroy(
+    rocksdb_level_metadata_t* level_meta);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_level_metadata_get_level(
+    rocksdb_level_metadata_t* level_meta);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_level_metadata_get_size(rocksdb_level_metadata_t* level_meta);
+
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_level_metadata_get_file_count(rocksdb_level_metadata_t* level_meta);
+
+/**
+ * Returns the sst_file_metadata_t of the ith file from the specified level
+ * metadata.
+ *
+ * If the specified i is greater than or equal to the number of files
+ * in the specified level, then NULL will be returned.
+ *
+ * Note that the caller is responsible to release the returned memory
+ * using rocksdb_sst_file_metadata_destroy before releasing its
+ * parent rocksdb_level_metadata_t.
+ */
+extern ROCKSDB_LIBRARY_API rocksdb_sst_file_metadata_t*
+rocksdb_level_metadata_get_sst_file_metadata(
+    rocksdb_level_metadata_t* level_meta, size_t i);
+
+/**
+ * Releases the specified rocksdb_sst_file_metadata_t.
+ *
+ * Note that the specified rocksdb_sst_file_metadata_t must be released
+ * before the release of its parent rocksdb_level_metadata_t.
+ */
+extern ROCKSDB_LIBRARY_API void rocksdb_sst_file_metadata_destroy(
+    rocksdb_sst_file_metadata_t* file_meta);
+
+extern ROCKSDB_LIBRARY_API char*
+rocksdb_sst_file_metadata_get_relative_filename(
+    rocksdb_sst_file_metadata_t* file_meta);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_sst_file_metadata_get_size(rocksdb_sst_file_metadata_t* file_meta);
+
+/**
+ * Returns the smallest key of the specified sst file.
+ * The caller is responsible for releasing the returned memory.
+ *
+ * @param file_meta the metadata of an SST file to obtain its smallest key.
+ * @param len the out value which will contain the length of the returned key
+ *     after the function call.
+ */
+extern ROCKSDB_LIBRARY_API char* rocksdb_sst_file_metadata_get_smallestkey(
+    rocksdb_sst_file_metadata_t* file_meta, size_t* len);
+
+/**
+ * Returns the smallest key of the specified sst file.
+ * The caller is responsible for releasing the returned memory.
+ *
+ * @param file_meta the metadata of an SST file to obtain its smallest key.
+ * @param len the out value which will contain the length of the returned key
+ *     after the function call.
+ */
+extern ROCKSDB_LIBRARY_API char* rocksdb_sst_file_metadata_get_largestkey(
+    rocksdb_sst_file_metadata_t* file_meta, size_t* len);
 
 /* Transactions */
 

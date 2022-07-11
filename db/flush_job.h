@@ -122,7 +122,7 @@ class FlushJob {
   // recommend all users not to set this flag as true given that the MemPurge
   // process has not matured yet.
   Status MemPurge();
-  bool MemPurgeDecider();
+  bool MemPurgeDecider(double threshold);
   // The rate limiter priority (io_priority) is determined dynamically here.
   Env::IOPriority GetRateLimiterPriorityForWrite();
 #ifndef ROCKSDB_LITE

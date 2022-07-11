@@ -110,6 +110,7 @@ DECLARE_int32(open_files);
 DECLARE_int64(compressed_cache_size);
 DECLARE_int32(compressed_cache_numshardbits);
 DECLARE_int32(compaction_style);
+DECLARE_int32(compaction_pri);
 DECLARE_int32(num_levels);
 DECLARE_int32(level0_file_num_compaction_trigger);
 DECLARE_int32(level0_slowdown_writes_trigger);
@@ -267,6 +268,10 @@ DECLARE_double(blob_garbage_collection_age_cutoff);
 DECLARE_double(blob_garbage_collection_force_threshold);
 DECLARE_uint64(blob_compaction_readahead_size);
 DECLARE_int32(blob_file_starting_level);
+DECLARE_bool(use_blob_cache);
+DECLARE_bool(use_shared_block_and_blob_cache);
+DECLARE_uint64(blob_cache_size);
+DECLARE_int32(blob_cache_numshardbits);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -588,7 +593,7 @@ extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
 
-extern void SnapshotGcThread(void* v);
+extern void TimestampedSnapshotsThread(void* v);
 
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 
@@ -608,8 +613,7 @@ extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
-extern std::string GenerateTimestampForRead();
-extern std::string NowNanosStr();
+extern std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);
