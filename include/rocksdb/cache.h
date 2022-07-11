@@ -288,7 +288,7 @@ class Cache {
   // Insert a mapping from key->value into the volatile cache only
   // and assign it with the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::Incomplete.
+  // return Status::MemoryLimit.
   //
   // If handle is not nullptr, returns a handle that corresponds to the
   // mapping. The caller must call this->Release(handle) when the returned
@@ -446,7 +446,7 @@ class Cache {
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::Incomplete.
+  // return Status::MemoryLimit.
   //
   // The helper argument is saved by the cache and will be used when the
   // inserted object is evicted or promoted to the secondary cache. It,

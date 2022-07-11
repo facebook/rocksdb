@@ -3180,6 +3180,15 @@ void SortFileByOverlappingRatio(
 
   std::partial_sort(temp->begin(), temp->begin() + num_to_sort, temp->end(),
                     [&](const Fsize& f1, const Fsize& f2) -> bool {
+                      // If score is the same, pick file with smaller keys.
+                      // This makes the algorithm more deterministic, and also
+                      // help the trivial move case to have more files to
+                      // extend.
+                      if (file_to_order[f1.file->fd.GetNumber()] ==
+                          file_to_order[f2.file->fd.GetNumber()]) {
+                        return icmp.Compare(f1.file->smallest,
+                                            f2.file->smallest) < 0;
+                      }
                       return file_to_order[f1.file->fd.GetNumber()] <
                              file_to_order[f2.file->fd.GetNumber()];
                     });

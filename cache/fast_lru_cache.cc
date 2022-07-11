@@ -368,11 +368,12 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         last_reference_list.push_back(tmp);
       } else {
         if (table_.GetOccupancy() == table_.GetOccupancyLimit()) {
-          s = Status::Incomplete(
+          // TODO: Consider using a distinct status for this case, but usually
+          // it will be handled the same way as reaching charge capacity limit
+          s = Status::MemoryLimit(
               "Insert failed because all slots in the hash table are full.");
-          // TODO(Guido) Use the correct statuses.
         } else {
-          s = Status::Incomplete(
+          s = Status::MemoryLimit(
               "Insert failed because the total charge has exceeded the "
               "capacity.");
         }

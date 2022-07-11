@@ -741,7 +741,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   cache->SetStrictCapacityLimit(true);
   Cache::Handle* handle;
   s = cache->Insert(extra_key, extra_value, 1, &deleter, &handle);
-  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.IsMemoryLimit());
   ASSERT_EQ(nullptr, handle);
   ASSERT_EQ(10, cache->GetUsage());
 
@@ -758,7 +758,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
     ASSERT_NE(nullptr, handles[i]);
   }
   s = cache2->Insert(extra_key, extra_value, 1, &deleter, &handle);
-  ASSERT_TRUE(s.IsIncomplete());
+  ASSERT_TRUE(s.IsMemoryLimit());
   ASSERT_EQ(nullptr, handle);
   // test insert without handle
   s = cache2->Insert(extra_key, extra_value, 1, &deleter);
