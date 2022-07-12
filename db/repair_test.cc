@@ -385,9 +385,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[1], &fname_to_props));
   ASSERT_EQ(fname_to_props.size(), 2U);
   for (const auto& fname_and_props : fname_to_props) {
-    std::string comparator_name (
-      InternalKeyComparator(rev_opts.comparator).Name());
-    comparator_name = comparator_name.substr(comparator_name.find(':') + 1);
+    std::string comparator_name(rev_opts.comparator->Name());
     ASSERT_EQ(comparator_name,
               fname_and_props.second->comparator_name);
   }
