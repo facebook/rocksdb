@@ -102,8 +102,7 @@ default_params = {
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,
-    "
-    _log_file_num": lambda: random.randint(0, 1),
+    "recycle_log_file_num": lambda: random.randint(0, 1),
     "snapshot_hold_ops": 100000,
     "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
