@@ -1224,6 +1224,24 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   &values[1], nullptr /* bytes_read */));
     ASSERT_EQ(values[1], blobs[1]);
+
+    // key0 promotion should succeed due to key1 was erased from the primary
+    // cache.
+    {
+      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
+      const Slice key1 = cache_key.AsSlice();
+      blob_cache->Erase(key1);
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                                blob_offsets[1]));
+
+      cache_key = base_cache_key.WithOffset(blob_offsets[0]);
+      const Slice key0 = cache_key.AsSlice();
+      auto handle0 = blob_cache->Lookup(key0, statistics);
+      ASSERT_NE(handle0, nullptr);
+      blob_cache->Release(handle0);
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[0]));
+    }
   }
 }
 
