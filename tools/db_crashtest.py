@@ -424,7 +424,6 @@ multiops_wp_txn_params = {
     "checkpoint_one_in": 0,
     # Required to be 1 in order to use commit-time-batch
     "use_only_the_last_commit_time_batch_for_recovery": 1,
-    "recycle_log_file_num": 0,
     "clear_wp_commit_cache_one_in": 10,
     "create_timestamped_snapshot_one_in": 0,
 }
