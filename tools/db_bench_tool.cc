@@ -8279,6 +8279,8 @@ int db_bench_tool(int argc, char** argv) {
       method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES192_CTR;
     } else if (!strcasecmp(FLAGS_encryption_method.c_str(), "AES256CTR")) {
       method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kAES256_CTR;
+    } else if (!strcasecmp(FLAGS_encryption_method.c_str(), "SM4CTR")) {
+      method = ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kSM4_CTR;
     }
     if (method == ROCKSDB_NAMESPACE::encryption::EncryptionMethod::kUnknown) {
       fprintf(stderr, "Unknown encryption method %s\n",

@@ -20,6 +20,7 @@ enum class EncryptionMethod : int {
   kAES128_CTR = 2,
   kAES192_CTR = 3,
   kAES256_CTR = 4,
+  kSM4_CTR = 5,
 };
 
 inline size_t KeySize(EncryptionMethod method) {
@@ -30,6 +31,8 @@ inline size_t KeySize(EncryptionMethod method) {
       return 24;
     case EncryptionMethod::kAES256_CTR:
       return 32;
+    case EncryptionMethod::kSM4_CTR:
+      return 16;
     default:
       return 0;
   };

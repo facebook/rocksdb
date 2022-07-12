@@ -56,6 +56,12 @@ class EncryptionTest
       case EncryptionMethod::kAES256_CTR:
         cipher = EVP_aes_256_ctr();
         break;
+#if OPENSSL_VERSION_NUMBER >= 0x1010100fL
+      // Openssl support SM4 after 1.1.1 release version.
+      case EncryptionMethod::kSM4_CTR:
+        cipher = EVP_sm4_ctr();
+        break;
+#endif
       default:
         assert(false);
     }
@@ -146,12 +152,23 @@ TEST_P(EncryptionTest, EncryptionTest) {
   EXPECT_TRUE(TestEncryption(16, 16 * 2, IV_OVERFLOW_FULL));
 }
 
+// Openssl support SM4 after 1.1.1 release version.
+#if OPENSSL_VERSION_NUMBER < 0x1010100fL
 INSTANTIATE_TEST_CASE_P(
     EncryptionTestInstance, EncryptionTest,
     testing::Combine(testing::Bool(),
                      testing::Values(EncryptionMethod::kAES128_CTR,
                                      EncryptionMethod::kAES192_CTR,
                                      EncryptionMethod::kAES256_CTR)));
+#else
+INSTANTIATE_TEST_CASE_P(
+    EncryptionTestInstance, EncryptionTest,
+    testing::Combine(testing::Bool(),
+                     testing::Values(EncryptionMethod::kAES128_CTR,
+                                     EncryptionMethod::kAES192_CTR,
+                                     EncryptionMethod::kAES256_CTR,
+                                     EncryptionMethod::kSM4_CTR)));
+#endif
 
 }  // namespace encryption
 }  // namespace ROCKSDB_NAMESPACE
