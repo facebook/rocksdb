@@ -123,6 +123,28 @@ class BlobSource {
     return base_cache_key.WithOffset(offset);
   }
 
+  // Callbacks for secondary blob cache
+  static size_t SizeCallback(void* obj) {
+    assert(obj != nullptr);
+    return static_cast<std::string*>(obj)->size();
+  }
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out) {
+    assert(from_obj != nullptr);
+    const std::string* buf = static_cast<const std::string*>(from_obj);
+    assert(length == buf->size());
+    assert(from_offset == 0);
+    memcpy(out, buf, length);
+    return Status::OK();
+  }
+
+  static Cache::CacheItemHelper* GetCacheItemHelper() {
+    static Cache::CacheItemHelper cache_helper(SizeCallback, SaveToCallback,
+                                               &DeleteCacheEntry<std::string>);
+    return &cache_helper;
+  }
+
   const std::string& db_id_;
   const std::string& db_session_id_;
 
@@ -133,6 +155,11 @@ class BlobSource {
 
   // A cache to store uncompressed blobs.
   std::shared_ptr<Cache> blob_cache_;
+
+  // The control option of how the cache tiers will be used. Currently rocksdb
+  // support block/blob cache (volatile tier), secondary cache (non-volatile
+  // tier).
+  const CacheTier lowest_used_cache_tier_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

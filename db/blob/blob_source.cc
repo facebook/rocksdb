@@ -25,7 +25,8 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       db_session_id_(db_session_id),
       statistics_(immutable_options->statistics.get()),
       blob_file_cache_(blob_file_cache),
-      blob_cache_(immutable_options->blob_cache) {}
+      blob_cache_(immutable_options->blob_cache),
+      lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {}
 
 BlobSource::~BlobSource() = default;
 
@@ -81,7 +82,23 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
 
 Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
-  cache_handle = blob_cache_->Lookup(key, statistics_);
+
+  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
+    Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
+                                          void** out_obj,
+                                          size_t* charge) -> Status {
+      *out_obj = reinterpret_cast<void*>(new char[size]);
+      memcpy(*out_obj, buf, size);
+      *charge = size;
+      return Status::OK();
+    };
+    cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
+                                       Cache::Priority::LOW,
+                                       true /* wait_for_cache */, statistics_);
+  } else {
+    cache_handle = blob_cache_->Lookup(key, statistics_);
+  }
+
   if (cache_handle != nullptr) {
     PERF_COUNTER_ADD(blob_cache_hit_count, 1);
     RecordTick(statistics_, BLOB_DB_CACHE_HIT);
@@ -97,9 +114,16 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
                                         size_t charge,
                                         Cache::Handle** cache_handle,
                                         Cache::Priority priority) const {
-  const Status s =
-      blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
-                          cache_handle, priority);
+  Status s;
+
+  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
+    s = blob_cache_->Insert(key, value, GetCacheItemHelper(), charge,
+                            cache_handle, priority);
+  } else {
+    s = blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
+                            cache_handle, priority);
+  }
+
   if (s.ok()) {
     assert(*cache_handle != nullptr);
     RecordTick(statistics_, BLOB_DB_CACHE_ADD);
@@ -108,6 +132,7 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
   } else {
     RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
   }
+
   return s;
 }
 
