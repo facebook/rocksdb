@@ -527,6 +527,8 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   // Why avoid this? Because Lookup removes elements from the clock
   // list, so it would need to update the pinned usage every time,
   // which creates additional synchronization costs.
+  DMutexLock l(mutex_);
+
   size_t clock_usage = 0;
 
   table_.ConstApplyToEntriesRange(

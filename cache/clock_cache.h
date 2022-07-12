@@ -114,7 +114,7 @@ struct ClockHandle {
     MEDIUM = (2 << kClockPriorityOffset),
     HIGH = (3 << kClockPriorityOffset)
     // Priority LOW means immediately evictable, and HIGH means farthest from
-    // evictable. The priority is NONE if and only if:
+    // evictable. Priority is NONE if and only if:
     // (i) the handle is not an element, or
     // (ii) the handle is an externally referenced element, or
     // (iii) the handle is an element that was externally referenced but it's
