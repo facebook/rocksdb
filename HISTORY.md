@@ -4,6 +4,10 @@
 * Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
 * Support backward iteration when `ReadOptions::iter_start_ts` is set.
 * Provide support for ReadOptions.async_io with direct_io to improve Seek latency by using async IO to parallelize child iterator seek and doing asynchronous prefetching on sequential scans.
+* Added support for blob caching in order to cache frequently used blobs for BlobDB. 
+  * User can configure the new ColumnFamilyOptions `blob_cache` to enable/disable blob caching.
+  * Either sharing the backend cache with the block cache or using a completely separate cache is supported. 
+  * A new abstraction interface called `BlobSource` for blob read logic gives all users access to blobs, whether they are in the blob cache, secondary cache, or (remote) storage. Blobs can be potentially read both while handling user reads (`Get`, `MultiGet`, or iterator) and during compaction (while dealing with compaction filters, Merges, or garbage collection) but eventually all blob reads go through `Version::GetBlob` or, for MultiGet, `Version::MultiGetBlob` (and then get dispatched to the interface -- `BlobSource`). 
 
 ### Public API changes
 * Add metadata related structs and functions in C API, including
@@ -14,6 +18,7 @@
 * Add suggest_compact_range() and suggest_compact_range_cf() to C API.
 * When using block cache strict capacity limit (`LRUCache` with `strict_capacity_limit=true`), DB operations now fail with Status code `kAborted` subcode `kMemoryLimit` (`IsMemoryLimit()`) instead of `kIncomplete` (`IsIncomplete()`) when the capacity limit is reached, because Incomplete can mean other specific things for some operations. In more detail, `Cache::Insert()` now returns the updated Status code and this usually propagates through RocksDB to the user on failure.
 * NewClockCache calls temporarily return an LRUCache (with similar characteristics as the desired ClockCache). This is because ClockCache is being replaced by a new version (the old one had unknown bugs) but this is still under development.
+* Add two functions `int ReserveThreads(int threads_to_be_reserved)` and `int ReleaseThreads(threads_to_be_released)` into `Env` class. In the default implementation, both return 0. Newly added `xxxEnv` class that inherits `Env` should implement these two functions for thread reservation/releasing features.
 
 ### Bug Fixes
 * Fix a bug in which backup/checkpoint can include a WAL deleted by RocksDB.
