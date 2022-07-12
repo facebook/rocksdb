@@ -1131,7 +1131,6 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   read_options.verify_checksums = true;
 
   auto blob_cache = options_.blob_cache;
-  auto secondary_cache = lru_cache_ops_.secondary_cache;
   {
     // GetBlob
     std::vector<PinnableSlice> values(keys.size());
