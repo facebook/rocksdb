@@ -783,7 +783,8 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
     }
     ret.append("  block_cache_options:\n");
     ret.append(table_options_.block_cache->GetPrintableOptions());
-    if (std::strcmp(table_options_.block_cache->Name(), "LRUCache") == 0) {
+    if (block_cache_name != nullptr &&
+        std::strcmp(block_cache_name, "LRUCache") == 0) {
       LRUCache* lru_cache =
           dynamic_cast<LRUCache*>(table_options_.block_cache.get());
       if (lru_cache->GetSecondaryCache()) {
