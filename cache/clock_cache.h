@@ -10,6 +10,8 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -59,84 +61,120 @@ struct ClockHandle {
   Cache::DeleterFn deleter;
   uint32_t hash;
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
-  // The number of external refs to this entry.
-  uint32_t refs;
+  std::array<char, kCacheKeySize> key_data;
 
-  static constexpr int kIsVisibleOffset = 0;
+  static constexpr int kExternalRefsOffset = 0;
+  static constexpr int kSharedRefsOffset = 15;
+  static constexpr int kExclusiveRefOffset = 30;
+  static constexpr int kWillDeleteOffset = 31;
+
+  enum Refs : uint32_t {
+    // Number of external references to the slot.
+    EXTERNAL_REFS = ((uint32_t{1} << 15) - 1)
+                    << kExternalRefsOffset,  // Bits 0, ..., 14
+    // Total number of internal plus external references to the slot.
+    SHARED_REFS = ((uint32_t{1} << 15) - 1)
+                  << kSharedRefsOffset,  // Bits 15, ..., 29
+    // Whether a thread has an exclusive reference to the slot.
+    EXCLUSIVE_REF = uint32_t{1} << kExclusiveRefOffset,  // Bit 30
+    // Whether the handle will be deleted soon. This means that new internal
+    // or external references to this handle cannot be taken from the moment
+    // it's set. There is an exception: external references can be created
+    // from existing external references, or converting from existing internal
+    // references.
+    WILL_DELETE = uint32_t{1} << kWillDeleteOffset  // Bit 31
+  };
+
+  static constexpr uint32_t kOneInternalRef = 0x8000;
+  static constexpr uint32_t kOneExternalRef = 0x8001;
+
+  std::atomic<uint32_t> refs;
+
   static constexpr int kIsElementOffset = 1;
   static constexpr int kClockPriorityOffset = 2;
   static constexpr int kIsHitOffset = 4;
   static constexpr int kCachePriorityOffset = 5;
 
   enum Flags : uint8_t {
-    // Whether the handle is visible to Lookups.
-    IS_VISIBLE = (1 << kIsVisibleOffset),
     // Whether the slot is in use by an element.
-    IS_ELEMENT = (1 << kIsElementOffset),
-    // Clock priorities. Represents how close a handle is from
-    // being evictable.
-    CLOCK_PRIORITY = (3 << kClockPriorityOffset),
+    IS_ELEMENT = 1 << kIsElementOffset,
+    // Clock priorities. Represents how close a handle is from being evictable.
+    CLOCK_PRIORITY = 3 << kClockPriorityOffset,
     // Whether the handle has been looked up after its insertion.
-    HAS_HIT = (1 << kIsHitOffset),
-    CACHE_PRIORITY = (1 << kCachePriorityOffset),
+    HAS_HIT = 1 << kIsHitOffset,
+    // The value of Cache::Priority for the handle.
+    CACHE_PRIORITY = 1 << kCachePriorityOffset,
   };
-  uint8_t flags;
+
+  std::atomic<uint8_t> flags;
 
   enum ClockPriority : uint8_t {
-    NONE = (0 << kClockPriorityOffset),  // Not an element in the eyes of clock.
-    LOW = (1 << kClockPriorityOffset),   // Immediately evictable.
+    NONE = (0 << kClockPriorityOffset),
+    LOW = (1 << kClockPriorityOffset),
     MEDIUM = (2 << kClockPriorityOffset),
     HIGH = (3 << kClockPriorityOffset)
-    // Priority is NONE if and only if
+    // Priority LOW means immediately evictable, and HIGH means farthest from
+    // evictable. The priority is NONE if and only if:
     // (i) the handle is not an element, or
-    // (ii) the handle is an element but it is being referenced.
+    // (ii) the handle is an externally referenced element, or
+    // (iii) the handle is an element that was externally referenced but it's
+    //      not any more, and the clock_pointer_ has not swept through the
+    //      slot since the element stopped being referenced.
   };
 
-  // The number of elements that hash to this slot or a lower one,
-  // but wind up in a higher slot.
-  uint32_t displacements;
+  // The number of elements that hash to this slot or a lower one, but wind
+  // up in this slot or a higher one.
+  std::atomic<uint32_t> displacements;
 
-  std::array<char, kCacheKeySize> key_data;
-
-  ClockHandle() {
-    value = nullptr;
-    deleter = nullptr;
-    hash = 0;
-    total_charge = 0;
-    refs = 0;
-    flags = 0;
-    SetIsVisible(false);
+  ClockHandle()
+      : value(nullptr),
+        deleter(nullptr),
+        hash(0),
+        total_charge(0),
+        refs(0),
+        flags(0),
+        displacements(0) {
+    SetWillDelete(false);
     SetIsElement(false);
     SetClockPriority(ClockPriority::NONE);
     SetCachePriority(Cache::Priority::LOW);
-    displacements = 0;
     key_data.fill(0);
+  }
+
+  ClockHandle(const ClockHandle& other)
+      : value(other.value),
+        deleter(other.deleter),
+        hash(other.hash),
+        total_charge(other.total_charge),
+        key_data(other.key_data) {
+    refs.store(other.refs);
+    flags.store(other.flags);
+    displacements.store(other.displacements);
+    SetWillDelete(other.WillDelete());
+    SetIsElement(other.IsElement());
+    SetClockPriority(other.GetClockPriority());
+    SetCachePriority(other.GetCachePriority());
+  }
+
+  void operator=(const ClockHandle& other) {
+    // TODO(Guido) Is there a better way to implement copy ctor + operator=?
+    value = other.value;
+    deleter = other.deleter;
+    hash = other.hash;
+    total_charge = other.total_charge;
+    refs.store(other.refs);
+    key_data = other.key_data;
+    flags.store(other.flags);
+    SetWillDelete(other.WillDelete());
+    SetIsElement(other.IsElement());
+    SetClockPriority(other.GetClockPriority());
+    SetCachePriority(other.GetCachePriority());
+    displacements.store(other.displacements);
   }
 
   Slice key() const { return Slice(key_data.data(), kCacheKeySize); }
 
-  // Increase the reference count by 1.
-  void Ref() { refs++; }
-
-  // Just reduce the reference count by 1. Return true if it was last reference.
-  bool Unref() {
-    assert(refs > 0);
-    refs--;
-    return refs == 0;
-  }
-
-  // Return true if there are external refs, false otherwise.
-  bool HasRefs() const { return refs > 0; }
-
-  bool IsVisible() const { return flags & IS_VISIBLE; }
-
-  void SetIsVisible(bool is_visible) {
-    if (is_visible) {
-      flags |= IS_VISIBLE;
-    } else {
-      flags &= ~IS_VISIBLE;
-    }
-  }
+  bool HasExternalRefs() const { return (refs & EXTERNAL_REFS) > 0; }
 
   bool IsElement() const { return flags & IS_ELEMENT; }
 
@@ -152,7 +190,7 @@ struct ClockHandle {
 
   void SetHit() { flags |= HAS_HIT; }
 
-  bool IsInClockList() const {
+  bool IsInClock() const {
     return GetClockPriority() != ClockHandle::ClockPriority::NONE;
   }
 
@@ -189,7 +227,6 @@ struct ClockHandle {
   }
 
   void FreeData() {
-    assert(refs == 0);
     if (deleter) {
       (*deleter)(key(), value);
     }
@@ -232,17 +269,119 @@ struct ClockHandle {
     return total_charge - meta_charge;
   }
 
-  inline bool IsEmpty() {
+  inline bool IsEmpty() const {
     return !this->IsElement() && this->displacements == 0;
   }
 
-  inline bool IsTombstone() {
+  inline bool IsTombstone() const {
     return !this->IsElement() && this->displacements > 0;
   }
 
-  inline bool Matches(const Slice& some_key) {
-    return this->IsElement() && this->key() == some_key;
+  inline bool Matches(const Slice& some_key, uint32_t some_hash) const {
+    return this->IsElement() && this->hash == some_hash &&
+           this->key() == some_key;
   }
+
+  bool WillDelete() const { return refs & WILL_DELETE; }
+
+  void SetWillDelete(bool will_delete) {
+    if (will_delete) {
+      refs |= WILL_DELETE;
+    } else {
+      refs &= ~WILL_DELETE;
+    }
+  }
+
+  inline bool ExternalRef() {
+    if (!((refs += kOneExternalRef) & (EXCLUSIVE_REF | WILL_DELETE))) {
+      return true;
+    }
+    refs -= kOneExternalRef;
+    return false;
+  }
+
+  // Retrieves refs and modify the external ref count in a single atomic
+  // operation.
+  inline uint32_t ReleaseExternalRef() { return refs -= kOneExternalRef; }
+
+  // Take an external ref, assuming there is at least one external reference
+  // to the handle.
+  // TODO(Guido) Is it okay to assume that the existing external reference
+  // survives until this function returns?
+  void Ref() { refs += kOneExternalRef; }
+
+  inline bool InternalRef() {
+    if (!((refs += kOneInternalRef) & (EXCLUSIVE_REF | WILL_DELETE))) {
+      return true;
+    }
+    refs -= kOneInternalRef;
+    return false;
+  }
+
+  inline void ReleaseInternalRef() { refs -= kOneInternalRef; }
+
+  inline bool ExclusiveRef() {
+    uint32_t will_delete = refs & WILL_DELETE;
+    uint32_t expected = will_delete;
+    return refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete);
+  }
+
+  // Spins until an exclusive ref is taken. Stops when an external reference is
+  // detected (in this case the wait would presumably be too long).
+  inline bool ConditionalSpinExclusiveRef() {
+    uint32_t expected = 0;
+    uint32_t will_delete = 0;
+    while (
+        !refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete)) {
+      if (expected & EXTERNAL_REFS) {
+        return false;
+      }
+      will_delete = expected & WILL_DELETE;
+      expected = will_delete;
+    }
+    return true;
+  }
+
+  inline void ReleaseExclusiveRef() { refs.fetch_and(~EXCLUSIVE_REF); }
+
+  // All the following conversion functions guarantee that no exclusive
+  // refs to the handle can be taken by a different thread during the
+  // process.
+  inline void ExclusiveToInternalRef() {
+    refs += kOneInternalRef;
+    ReleaseExclusiveRef();
+  }
+
+  inline void ExclusiveToExternalRef() {
+    refs += kOneExternalRef;
+    ReleaseExclusiveRef();
+  }
+
+  // TODO(Guido) Spinning indefinitely is dangerous. Do we want to bound the
+  // loop and prepare the algorithms to react to a failure?
+  inline void InternalToExclusiveRef() {
+    uint32_t expected = kOneInternalRef;
+    uint32_t will_delete = 0;
+    while (
+        !refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete)) {
+      will_delete = expected & WILL_DELETE;
+      expected = kOneInternalRef | will_delete;
+    }
+  }
+
+  inline void InternalToExternalRef() { refs++; }
+
+  // TODO(Guido) Same concern.
+  inline void ExternalToExclusiveRef() {
+    uint32_t expected = kOneExternalRef;
+    uint32_t will_delete = 0;
+    while (
+        !refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete)) {
+      will_delete = expected & WILL_DELETE;
+      expected = kOneExternalRef | will_delete;
+    }
+  }
+
 };  // struct ClockHandle
 
 class ClockHandleTable {
@@ -252,31 +391,49 @@ class ClockHandleTable {
 
   // Returns a pointer to a visible element matching the key/hash, or
   // nullptr if not present.
-  ClockHandle* Lookup(const Slice& key);
+  ClockHandle* Lookup(const Slice& key, uint32_t hash);
 
   // Inserts a copy of h into the hash table.
   // Returns a pointer to the inserted handle, or nullptr if no slot
   // available was found. If an existing visible element matching the
   // key/hash is already present in the hash table, the argument old
-  // is set to pointe to it; otherwise, it's set to nullptr.
+  // is set to point to it; otherwise, it's set to nullptr.
+  // Returns an exclusive reference to h, and no references to old.
   ClockHandle* Insert(ClockHandle* h, ClockHandle** old);
 
   // Removes h from the hash table. The handle must already be off
   // the clock list.
+  // Assumes the thread has an exclusive reference to h.
   void Remove(ClockHandle* h);
 
-  // Turns a visible element h into a ghost (i.e., not visible).
-  void Exclude(ClockHandle* h);
-
-  // Assigns a copy of h to the given slot.
-  void Assign(int slot, ClockHandle* h);
+  // Assigns a copy of src to dst.
+  // Assumes the thread has an exclusive reference to dst.
+  void Assign(ClockHandle* dst, ClockHandle* src);
 
   template <typename T>
-  void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end) {
+  void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
+                           bool ok_will_delete) {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
-      if (h->IsVisible()) {
-        func(h);
+      if (h->ExclusiveRef()) {
+        if (h->IsElement() && (ok_will_delete || !h->WillDelete())) {
+          func(h);
+        }
+        h->ReleaseExclusiveRef();
+      }
+    }
+  }
+
+  template <typename T>
+  void ConstApplyToEntriesRange(T func, uint32_t index_begin,
+                                uint32_t index_end, bool ok_will_delete) const {
+    for (uint32_t i = index_begin; i < index_end; i++) {
+      ClockHandle* h = &array_[i];
+      if (h->ExclusiveRef()) {
+        if (h->IsElement() && (ok_will_delete || !h->WillDelete())) {
+          func(h);
+        }
+        h->ReleaseExclusiveRef();
       }
     }
   }
@@ -295,28 +452,39 @@ class ClockHandleTable {
  private:
   friend class ClockCacheShard;
 
-  int FindVisibleElement(const Slice& key, int& probe, int displacement);
+  int FindElement(const Slice& key, uint32_t hash, int& probe,
+                  int displacement);
 
   int FindAvailableSlot(const Slice& key, int& probe, int displacement);
 
-  int FindVisibleElementOrAvailableSlot(const Slice& key, int& probe,
-                                        int displacement);
+  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash, int& probe,
+                                 int displacement);
 
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that cond(e) is true.
   // Otherwise, if no match is found, returns -1.
-  // For every handle e probed except the final slot, updates
+  // For every handle e probed, the FindSlot updates
   // e->displacements += displacement.
   // The argument probe is modified such that consecutive calls
   // to FindSlot continue probing right after where the previous
   // call left.
-  int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> cond,
+  // The functional argument cond is always called having an
+  // internal reference.
+  // If a matching handle is found, FindSlot yields an internal
+  // reference to it.
+  int FindSlot(const Slice& key, std::function<bool(const ClockHandle*)> cond,
                int& probe, int displacement);
+
+  // After a failed FindSlot call, this function rolls back all
+  // displacement updates done by a sequence of FindSlot calls,
+  // starting from the 0-th probe.
+  void Rollback(const Slice& key, int probe, int displacement);
 
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
   int length_bits_;
 
+  // For faster computation of ModTableSize.
   const uint32_t length_bits_mask_;
 
   // Number of elements in the table.
@@ -393,8 +561,12 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
  private:
   friend class ClockCache;
-  void ClockRemove(ClockHandle* e);
-  void ClockInsert(ClockHandle* e);
+
+  void ClockInsert(ClockHandle* h);
+
+  void ClockRemove(ClockHandle* h);
+
+  void Evict(ClockHandle* h);
 
   // Free some space following strict clock policy until enough space
   // to hold (usage_ + charge) is freed or the clock list is empty
@@ -435,9 +607,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
   // Memory size for entries residing in the cache.
   size_t usage_;
-
-  // Memory size for unpinned entries in the clock list.
-  size_t clock_usage_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
