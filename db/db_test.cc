@@ -483,6 +483,69 @@ TEST_F(DBTest, LevelLimitReopen) {
 }
 #endif  // ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest, LevelReopenWithFIFO) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  const std::string expected_foo_entries[] = {
+      "[ v5 ]", "[ v4, v5 ]", "[ v3, v4, v5 ]", "[ v2, v3, v4, v5 ]",
+      "[ v1, v2, v3, v4, v5 ]"};
+
+  const std::string expected_files_per_level[] = {"0,0,0,0,0,1", "0,0,0,0,1,1",
+                                                  "0,0,0,1,1,1", "0,0,1,1,1,1",
+                                                  "0,1,1,1,1,1"};
+
+  // Sequentially insert "v5" "v4" "v3" "v2" "v1" with same key "foo".
+  // For each insertion, flush then into a single sst file and move to a
+  // dedicate level as the above constant vectors.
+  for (int i = 0; i < 5; ++i) {
+    int level = 5 - i;
+    ASSERT_OK(Put(1, "foo", std::string("v") + std::to_string(level)));
+    ASSERT_OK(Flush(1));
+    CheckAllEntriesWithFifoReopen(expected_foo_entries[i], "foo", 1,
+                                  {"pikachu"}, options);
+    MoveFilesToLevel(level, 1);
+    CheckAllEntriesWithFifoReopen(expected_foo_entries[i], "foo", 1,
+                                  {"pikachu"}, options);
+    ASSERT_EQ(expected_files_per_level[i], FilesPerLevel(1));
+  }
+
+  const std::string expected_foo_entries_after_fifo_compaction[] = {
+      "[ v1, v2, v3, v4 ]", "[ v1, v2, v3 ]", "[ v1, v2 ]", "[ v1 ]"};
+
+  const std::string expected_files_per_level_after_fifo_compaction[] = {
+      "0,1,1,1,1", "0,1,1,1", "0,1,1", "0,1"};
+
+  // Then, we reopen the DB with fifo compaction with proper
+  // max_table_files_size that will remove one file upon compaction, and verify
+  // FIFO compaction will first delete files from older (i.e. bottom) levels.
+  for (int i = 0; i < 4; ++i) {
+    uint64_t total_sst_files_size = 0;
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.total-sst-files-size", &total_sst_files_size));
+    ASSERT_TRUE(total_sst_files_size > 0);
+
+    Options fifo_options(options);
+    fifo_options.compaction_style = kCompactionStyleFIFO;
+    options.create_if_missing = false;
+    fifo_options.max_open_files = -1;
+    fifo_options.disable_auto_compactions = false;
+    fifo_options.compaction_options_fifo.max_table_files_size =
+        total_sst_files_size - 1;
+    ASSERT_OK(
+        TryReopenWithColumnFamilies({"default", "pikachu"}, fifo_options));
+    // For FIFO to pick a compaction
+    ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
+    CheckAllEntriesWithFifoReopen(expected_foo_entries_after_fifo_compaction[i],
+                                  "foo", 1, {"pikachu"}, options);
+    ASSERT_EQ(expected_files_per_level_after_fifo_compaction[i],
+              FilesPerLevel(1));
+  }
+}
+#endif  // !ROCKSDB_LITE
+
 TEST_F(DBTest, PutSingleDeleteGet) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
@@ -668,7 +731,7 @@ TEST_F(DBTest, SingleDeletePutFlush) {
     ASSERT_OK(Flush(1));
 
     ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
-    // Skip FIFO and universal compaction beccaus they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |

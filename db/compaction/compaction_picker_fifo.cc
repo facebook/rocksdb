@@ -125,16 +125,26 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer) {
-  const int kLevel0 = 0;
-  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
-  uint64_t total_size = GetTotalFilesSize(level_files);
+  // compute the total size and identify the last non-empty level
+  int last_level = 0;
+  uint64_t total_size = 0;
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    auto level_size = GetTotalFilesSize(vstorage->LevelFiles(level));
+    total_size += level_size;
+    if (level_size > 0) {
+      last_level = level;
+    }
+  }
+  const std::vector<FileMetaData*>& last_level_files =
+      vstorage->LevelFiles(last_level);
 
   if (total_size <=
-          mutable_cf_options.compaction_options_fifo.max_table_files_size ||
-      level_files.size() == 0) {
-    // total size not exceeded
+      mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+    // total size not exceeded, try to find intra level 0 compaction if enabled
+    const std::vector<FileMetaData*>& level0_files =
+        vstorage->LevelFiles(last_level);
     if (mutable_cf_options.compaction_options_fifo.allow_compaction &&
-        level_files.size() > 0) {
+        level0_files.size() > 0) {
       CompactionInputFiles comp_inputs;
       // try to prevent same files from being compacted multiple times, which
       // could produce large files that may never TTL-expire. Achieve this by
@@ -146,7 +156,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
               static_cast<uint64_t>(mutable_cf_options.write_buffer_size),
               1.1));
       if (FindIntraL0Compaction(
-              level_files,
+              level0_files,
               mutable_cf_options
                   .level0_file_num_compaction_trigger /* min_files_to_compact */
               ,
@@ -187,9 +197,10 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
   std::vector<CompactionInputFiles> inputs;
   inputs.emplace_back();
-  inputs[0].level = 0;
+  inputs[0].level = last_level;
 
-  for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
+  for (auto ritr = last_level_files.rbegin(); ritr != last_level_files.rend();
+       ++ritr) {
     auto f = *ritr;
     total_size -= f->fd.file_size;
     inputs[0].files.push_back(f);
@@ -207,7 +218,10 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-      std::move(inputs), 0, 0, 0, 0, kNoCompression,
+      std::move(inputs), last_level,
+      /* target_file_size */ 0,
+      /* max_compaction_bytes */ 0,
+      /* output_path_id */ 0, kNoCompression,
       mutable_cf_options.compression_opts, Temperature::kUnknown,
       /* max_subcompactions */ 0, {}, /* is manual */ false,
       /* trim_ts */ "", vstorage->CompactionScore(0),
@@ -327,8 +341,6 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     LogBuffer* log_buffer, SequenceNumber /*earliest_memtable_seqno*/) {
-  assert(vstorage->num_levels() == 1);
-
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
     c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,
