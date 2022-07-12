@@ -487,6 +487,9 @@ class LRUCache
   size_t TEST_GetLRUSize();
   //  Retrieves high pri pool ratio.
   double GetHighPriPoolRatio();
+  std::shared_ptr<SecondaryCache> GetSecondaryCache() {
+    return secondary_cache_;
+  }
 
  private:
   LRUCacheShard* shards_ = nullptr;

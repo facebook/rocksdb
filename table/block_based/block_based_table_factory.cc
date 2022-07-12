@@ -17,6 +17,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
+#include "cache/lru_cache.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -782,6 +783,14 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
     }
     ret.append("  block_cache_options:\n");
     ret.append(table_options_.block_cache->GetPrintableOptions());
+    if (std::strcmp(table_options_.block_cache->Name(), "LRUCache") == 0) {
+      LRUCache* lru_cache =
+          dynamic_cast<LRUCache*>(table_options_.block_cache.get());
+      if (lru_cache->GetSecondaryCache()) {
+        ret.append("  secondary cache:\n");
+        ret.append(lru_cache->GetSecondaryCache()->GetPrintableOptions());
+      }
+    }
   }
   snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
            static_cast<void*>(table_options_.block_cache_compressed.get()));
