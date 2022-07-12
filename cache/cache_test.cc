@@ -111,7 +111,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
       return NewLRUCache(capacity);
     }
     if (type == kClock) {
-      return NewClockCacheExperimental(
+      return ExperimentalNewClockCache(
           capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
           false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     }
@@ -137,7 +137,7 @@ class CacheTest : public testing::TestWithParam<std::string> {
       return NewLRUCache(co);
     }
     if (type == kClock) {
-      return NewClockCacheExperimental(capacity, 1 /*estimated_value_size*/,
+      return ExperimentalNewClockCache(capacity, 1 /*estimated_value_size*/,
                                        num_shard_bits, strict_capacity_limit,
                                        charge_policy);
     }
@@ -957,7 +957,7 @@ TEST_P(CacheTest, GetChargeAndDeleter) {
 
 std::shared_ptr<Cache> (*new_clock_cache_func)(size_t, size_t, int, bool,
                                                CacheMetadataChargePolicy) =
-    NewClockCacheExperimental;
+    ExperimentalNewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
                         testing::Values(kLRU, kClock, kFast));
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, LRUCacheTest,

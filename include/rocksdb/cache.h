@@ -191,13 +191,6 @@ extern std::shared_ptr<Cache> NewClockCache(
     bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy);
 
-// EXPERIMENTAL Only for internal testing, temporarily replacing
-// NewClockCache.
-extern std::shared_ptr<Cache> NewClockCacheExperimental(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy);
-
 class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less

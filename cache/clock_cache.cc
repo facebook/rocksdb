@@ -591,7 +591,7 @@ std::shared_ptr<Cache> NewClockCache(
                      nullptr, kDefaultToAdaptiveMutex, metadata_charge_policy);
 }
 
-std::shared_ptr<Cache> NewClockCacheExperimental(
+std::shared_ptr<Cache> ExperimentalNewClockCache(
     size_t capacity, size_t estimated_value_size, int num_shard_bits,
     bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
