@@ -284,7 +284,7 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = NewClockCache(
+      cache_ = NewClockCacheExperimental(
           FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
           false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
       if (!cache_) {
