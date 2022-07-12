@@ -385,12 +385,12 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
     const Cache::CacheItemHelper* cache_helper,
     const Cache::CreateCallback& create_cb, Cache::Priority priority) const {
   Cache::Handle* cache_handle = nullptr;
-  if (cache_tier == CacheTier::kNonVolatileBlockTier) {
-    cache_handle = block_cache->Lookup(key, cache_helper, create_cb, priority,
-                                       wait, rep_->ioptions.statistics.get());
-  } else {
-    cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
-  }
+  // if (cache_tier == CacheTier::kNonVolatileBlockTier) {
+  cache_handle = block_cache->Lookup(key, cache_helper, create_cb, priority,
+                                     wait, rep_->ioptions.statistics.get());
+  // } else {
+  //   cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
+  // }
 
   if (cache_handle != nullptr) {
     UpdateCacheHitMetrics(block_type, get_context,
@@ -409,13 +409,13 @@ Status BlockBasedTable::InsertEntryToCache(
     std::unique_ptr<TBlocklike>& block_holder, size_t charge,
     Cache::Handle** cache_handle, Cache::Priority priority) const {
   Status s = Status::OK();
-  if (cache_tier == CacheTier::kNonVolatileBlockTier) {
-    s = block_cache->Insert(key, block_holder.get(), cache_helper, charge,
-                            cache_handle, priority);
-  } else {
-    s = block_cache->Insert(key, block_holder.get(), charge,
-                            cache_helper->del_cb, cache_handle, priority);
-  }
+  // if (cache_tier == CacheTier::kNonVolatileBlockTier) {
+  s = block_cache->Insert(key, block_holder.get(), cache_helper, charge,
+                          cache_handle, priority);
+  // } else {
+  //   s = block_cache->Insert(key, block_holder.get(), charge,
+  //                           cache_helper->del_cb, cache_handle, priority);
+  // }
   return s;
 }
 
