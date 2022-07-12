@@ -2974,10 +2974,10 @@ class Benchmark {
       return nullptr;
     }
     if (FLAGS_cache_type == "clock_cache") {
-      auto cache = NewClockCacheExperimental(static_cast<size_t>(capacity),
-                                 FLAGS_block_size, FLAGS_cache_numshardbits,
-                                 false /*strict_capacity_limit*/,
-                                 kDefaultCacheMetadataChargePolicy);
+      auto cache = NewClockCacheExperimental(
+          static_cast<size_t>(capacity), FLAGS_block_size,
+          FLAGS_cache_numshardbits, false /*strict_capacity_limit*/,
+          kDefaultCacheMetadataChargePolicy);
       if (!cache) {
         fprintf(stderr, "Clock cache not supported.");
         exit(1);

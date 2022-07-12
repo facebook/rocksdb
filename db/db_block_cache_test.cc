@@ -935,9 +935,9 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        NewClockCacheExperimental(capacity, 1 /*estimated_value_size*/, num_shard_bits,
-                      false /*strict_capacity_limit*/,
-                      kDefaultCacheMetadataChargePolicy),
+        NewClockCacheExperimental(
+            capacity, 1 /*estimated_value_size*/, num_shard_bits,
+            false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy),
         NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
                         false /*strict_capacity_limit*/,
                         kDefaultCacheMetadataChargePolicy)}) {
