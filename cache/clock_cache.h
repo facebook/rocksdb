@@ -182,7 +182,7 @@ struct ClockHandle {
     if (is_element) {
       flags |= IS_ELEMENT;
     } else {
-      flags &= ~IS_ELEMENT;
+      flags &= static_cast<uint8_t>(~IS_ELEMENT);
     }
   }
 
@@ -202,7 +202,7 @@ struct ClockHandle {
     if (priority == Cache::Priority::HIGH) {
       flags |= Flags::CACHE_PRIORITY;
     } else {
-      flags &= ~Flags::CACHE_PRIORITY;
+      flags &= static_cast<uint8_t>(~Flags::CACHE_PRIORITY);
     }
   }
 
@@ -211,7 +211,7 @@ struct ClockHandle {
   }
 
   void SetClockPriority(ClockPriority priority) {
-    flags &= ~Flags::CLOCK_PRIORITY;
+    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
     flags |= priority;
   }
 
@@ -220,7 +220,7 @@ struct ClockHandle {
                 kClockPriorityOffset;
     assert(p > 0);
     p--;
-    flags &= ~Flags::CLOCK_PRIORITY;
+    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
     ClockPriority new_priority =
         static_cast<ClockPriority>(p << kClockPriorityOffset);
     flags |= new_priority;
