@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 
+#include "cache/compressed_secondary_cache.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
@@ -21,6 +22,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "util/compression.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1017,6 +1019,212 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ), 0);
     ASSERT_EQ(statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE), 0);
+  }
+}
+
+class BlobSecondaryCacheTest : public DBTestBase {
+ protected:
+ public:
+  explicit BlobSecondaryCacheTest()
+      : DBTestBase("blob_secondary_cache_test", /*env_do_fsync=*/true) {
+    options_.env = env_;
+    options_.enable_blob_files = true;
+    options_.create_if_missing = true;
+
+    // Set a small cache capacity to evict entries from the cache, and to test
+    // that secondary cache is used properly.
+    lru_cache_ops_.capacity = 1024;
+    lru_cache_ops_.num_shard_bits = 2;
+    lru_cache_ops_.metadata_charge_policy = kDontChargeCacheMetadata;
+
+    secondary_cache_opts_.capacity = 8 << 20;  // 8 MB
+    secondary_cache_opts_.num_shard_bits = 2;
+    secondary_cache_opts_.metadata_charge_policy = kDontChargeCacheMetadata;
+
+    // Read blobs from the secondary cache if they are not in the primary cache
+    options_.lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
+
+    assert(db_->GetDbIdentity(db_id_).ok());
+    assert(db_->GetDbSessionId(db_session_id_).ok());
+  }
+
+  Options options_;
+
+  LRUCacheOptions lru_cache_ops_;
+  CompressedSecondaryCacheOptions secondary_cache_opts_;
+
+  std::string db_id_;
+  std::string db_session_id_;
+};
+
+TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  secondary_cache_opts_.compression_type = kSnappyCompression;
+  lru_cache_ops_.secondary_cache =
+      NewCompressedSecondaryCache(secondary_cache_opts_);
+  options_.blob_cache = NewLRUCache(lru_cache_ops_);
+
+  options_.cf_paths.emplace_back(
+      test::PerThreadDBPath(
+          env_, "BlobSecondaryCacheTest_GetBlobsFromSecondaryCache"),
+      0);
+
+  options_.statistics = CreateDBStatistics();
+  Statistics* statistics = options_.statistics.get();
+  assert(statistics);
+
+  DestroyAndReopen(options_);
+
+  ImmutableOptions immutable_options(options_);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t file_number = 1;
+
+  Random rnd(301);
+
+  std::vector<std::string> key_strs;
+  std::vector<std::string> blob_strs;
+  key_strs.push_back("key0");
+  blob_strs.push_back(rnd.RandomString(1020));
+  key_strs.push_back("key1");
+  blob_strs.push_back(rnd.RandomString(1020));
+
+  std::vector<Slice> keys;
+  std::vector<Slice> blobs;
+  keys.push_back({key_strs[0]});
+  blobs.push_back({blob_strs[0]});
+  keys.push_back({key_strs[1]});
+  blobs.push_back({blob_strs[1]});
+
+  std::vector<uint64_t> blob_offsets(keys.size());
+  std::vector<uint64_t> blob_sizes(keys.size());
+
+  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
+                expiration_range, file_number, keys, blobs, kNoCompression,
+                blob_offsets, blob_sizes);
+
+  constexpr size_t capacity = 1024;
+  std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
+
+  FileOptions file_options;
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
+      backing_cache.get(), &immutable_options, &file_options, column_family_id,
+      blob_file_read_hist, nullptr /*IOTracer*/));
+
+  BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
+                         blob_file_cache.get());
+
+  CacheHandleGuard<BlobFileReader> file_reader;
+  ASSERT_OK(blob_source.GetBlobFileReader(file_number, &file_reader));
+  ASSERT_NE(file_reader.GetValue(), nullptr);
+  const uint64_t file_size = file_reader.GetValue()->GetFileSize();
+  ASSERT_EQ(file_reader.GetValue()->GetCompressionType(), kNoCompression);
+
+  ReadOptions read_options;
+  read_options.verify_checksums = true;
+
+  auto blob_cache = options_.blob_cache;
+  auto secondary_cache = lru_cache_ops_.secondary_cache;
+  {
+    // GetBlob
+    std::vector<PinnableSlice> values(keys.size());
+
+    read_options.fill_cache = true;
+    get_perf_context()->Reset();
+
+    // key0 should be filled to the primary cache from the blob file.
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
+                                  blob_offsets[0], file_size, blob_sizes[0],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[0], nullptr /* bytes_read */));
+    ASSERT_EQ(values[0], blobs[0]);
+    ASSERT_TRUE(
+        blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[0]));
+
+    // key0 should be demoted to the secondary cache, and key1 should be filled
+    // to the primary cache from the blob file.
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
+                                  blob_offsets[1], file_size, blob_sizes[1],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[1], nullptr /* bytes_read */));
+    ASSERT_EQ(values[0], blobs[0]);
+    ASSERT_TRUE(
+        blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[1]));
+
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
+                                      file_size);
+
+    // blob_cache here only looks at the primary cache since we didn't provide
+    // the cache item helper for the secondary cache. However, since key0 is
+    // demoted to the secondary cache, we shouldn't be able to find it in the
+    // primary cache.
+    {
+      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[0]);
+      const Slice key0 = cache_key.AsSlice();
+      auto handle0 = blob_cache->Lookup(key0, statistics);
+      ASSERT_EQ(handle0, nullptr);
+      blob_cache->Release(handle0);
+      // after a cache miss occurs in the primary cache, key0 can be retrieved
+      // in the secondary cache.
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[0]));
+    }
+
+    // key1 should exist in the primary cache.
+    {
+      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
+      const Slice key1 = cache_key.AsSlice();
+      auto handle1 = blob_cache->Lookup(key1, statistics);
+      ASSERT_NE(handle1, nullptr);
+      blob_cache->Release(handle1);
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[1]));
+    }
+
+    // key0 promotion should fail due to the blob cache being at capacity,
+    // but the lookup should still succeed
+    {
+      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[0]);
+      const Slice key0 = cache_key.AsSlice();
+      auto handle0 = blob_cache->Lookup(key0, statistics);
+      ASSERT_EQ(handle0, nullptr);
+      blob_cache->Release(handle0);
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[0]));
+    }
+
+    // key1 should still be in the primary cache because key0 wasn't added back
+    // into it.
+    {
+      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
+      const Slice key1 = cache_key.AsSlice();
+      auto handle1 = blob_cache->Lookup(key1, statistics);
+      ASSERT_NE(handle1, nullptr);
+      blob_cache->Release(handle1);
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                               blob_offsets[1]));
+    }
+
+    // check if we can retrieve the same values we inserted even some of the
+    // key/value pairs are in the compressed secondary cache.
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
+                                  blob_offsets[0], file_size, blob_sizes[0],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[0], nullptr /* bytes_read */));
+    ASSERT_EQ(values[0], blobs[0]);
+
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
+                                  blob_offsets[1], file_size, blob_sizes[1],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[1], nullptr /* bytes_read */));
+    ASSERT_EQ(values[1], blobs[1]);
   }
 }
 
