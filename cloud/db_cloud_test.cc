@@ -1893,6 +1893,29 @@ TEST_F(CloudTest, FindLiveFilesFetchManifestTest) {
   EXPECT_EQ(live_sst_files.size(), 1);
 }
 
+TEST_F(CloudTest, FileModificationTimeTest) {
+  OpenDB();
+  ASSERT_OK(db_->Put({}, "a", "1"));
+  ASSERT_OK(db_->Flush({}));
+  std::vector<std::string> live_sst_files;
+  std::string manifest_file;
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &live_sst_files, &manifest_file));
+  uint64_t modtime1;
+  ASSERT_OK(aenv_->GetFileModificationTime(dbname_ + pathsep + manifest_file,
+                                           &modtime1));
+  CloseDB();
+  DestroyDir(dbname_);
+  // don't roll cloud manifest so that manifest file epoch is not updated
+  cloud_env_options_.roll_cloud_manifest_on_open = false;
+  OpenDB();
+  uint64_t modtime2;
+  ASSERT_OK(aenv_->GetFileModificationTime(dbname_ + pathsep + manifest_file,
+                                           &modtime2));
+  // we read local file modification time, so the second time we open db, the
+  // modification time is changed
+  EXPECT_GT(modtime2, modtime1);
+}
+
 }  //  namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the cloud wrapper around rocksdb

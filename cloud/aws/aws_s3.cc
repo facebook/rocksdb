@@ -432,13 +432,28 @@ class S3StorageProvider : public CloudStorageProviderImpl {
                           uint64_t file_size) override;
 
  private:
-  // If metadata, size modtime or etag is non-nullptr, returns requested data
-  Status HeadObject(
-      const std::string& bucket, const std::string& path,
-      const std::optional<std::string>& requested_version = std::nullopt,
-      std::unordered_map<std::string, std::string>* metadata = nullptr,
-      uint64_t* size = nullptr, uint64_t* modtime = nullptr,
-      std::string* etag = nullptr);
+  struct HeadObjectResult {
+    // If any of the field is non-nullptr, returns requested data
+    std::unordered_map<std::string, std::string>* metadata = nullptr;
+    uint64_t* size = nullptr;
+    uint64_t* modtime = nullptr;
+    std::string* etag = nullptr;
+  };
+
+  // Retrieves metadata from an object (no version specified)
+  Status HeadObject(const std::string& bucket, const std::string& path,
+                    HeadObjectResult* result);
+
+  // Retrieves metadata from an object with the specified version
+  Status HeadObjectWithVersion(const std::string& bucket,
+                               const std::string& path,
+                               const std::string& requested_version,
+                               HeadObjectResult* result);
+
+  // Retrieves metadata from an object based on a HeadObject request
+  // REQUIRES: result != nullptr
+  Status HeadObject(const Aws::S3::Model::HeadObjectRequest& request,
+                    HeadObjectResult* result);
 
   // The S3 client
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
@@ -678,39 +693,46 @@ Status S3StorageProvider::ListCloudObjects(const std::string& bucket_name,
 // check existence of the cloud object
 Status S3StorageProvider::ExistsCloudObject(const std::string& bucket_name,
                                             const std::string& object_path) {
-  Status s = HeadObject(bucket_name, object_path);
+  HeadObjectResult result;                                             
+  Status s = HeadObject(bucket_name, object_path, &result);
   return s;
 }
 
 Status S3StorageProvider::TEST_ExistsCloudObject(const std::string& bucket_name,
                                                  const std::string& object_path,
                                                  const std::string& version) {
-  return HeadObject(bucket_name, object_path, std::make_optional(version));
+  HeadObjectResult result;                                                 
+  return HeadObjectWithVersion(bucket_name, object_path, version, &result);
 }
 
 // Return size of cloud object
 Status S3StorageProvider::GetCloudObjectSize(const std::string& bucket_name,
                                              const std::string& object_path,
                                              uint64_t* filesize) {
-  Status s =
-      HeadObject(bucket_name, object_path, std::nullopt /* requested_version */,
-                 nullptr /* metadata */, filesize, nullptr /* modtime */);
+  HeadObjectResult result;                                             
+  result.size = filesize;
+  Status s = HeadObject(bucket_name, object_path, &result);
   return s;
 }
 
 Status S3StorageProvider::GetCloudObjectModificationTime(
     const std::string& bucket_name, const std::string& object_path,
     uint64_t* time) {
-  return HeadObject(bucket_name, object_path, nullptr, nullptr, time);
+  HeadObjectResult result;
+  result.modtime = time;
+  return HeadObject(bucket_name, object_path, &result);
 }
 
 Status S3StorageProvider::GetCloudObjectMetadata(const std::string& bucket_name,
                                                  const std::string& object_path,
                                                  CloudObjectInformation* info) {
   assert(info != nullptr);
-  return HeadObject(bucket_name, object_path,
-                    std::nullopt /* requested_version */, &info->metadata,
-                    &info->size, &info->modification_time, &info->content_hash);
+  HeadObjectResult result;
+  result.metadata = &info->metadata;
+  result.size = &info->size;
+  result.modtime = &info->modification_time;
+  result.etag = &info->content_hash;
+  return HeadObject(bucket_name, object_path, &result);
 }
 
 Status S3StorageProvider::PutCloudObjectMetadata(
@@ -759,42 +781,55 @@ Status S3StorageProvider::NewCloudWritableFile(
   return (*result)->status();
 }
 
-Status S3StorageProvider::HeadObject(
-    const std::string& bucket_name, const std::string& object_path,
-    const std::optional<std::string>& requested_version,
-    std::unordered_map<std::string, std::string>* metadata, uint64_t* size,
-    uint64_t* modtime, std::string* etag) {
+Status S3StorageProvider::HeadObject(const std::string& bucket_name,
+                                     const std::string& object_path,
+                                     HeadObjectResult* result) {
   Aws::S3::Model::HeadObjectRequest request;
   request.SetBucket(ToAwsString(bucket_name));
   request.SetKey(ToAwsString(object_path));
-  if (requested_version) {
-    request.SetVersionId(*requested_version);
-  }
+  return HeadObject(request, result);
+}
 
+Status S3StorageProvider::HeadObjectWithVersion(
+    const std::string& bucket_name, const std::string& object_path,
+    const std::string& requested_version, HeadObjectResult* result) {
+  Aws::S3::Model::HeadObjectRequest request;
+  request.SetBucket(ToAwsString(bucket_name));
+  request.SetKey(ToAwsString(object_path));
+  request.SetVersionId(ToAwsString(requested_version));
+  return HeadObject(request, result);
+}
+
+Status S3StorageProvider::HeadObject(
+    const Aws::S3::Model::HeadObjectRequest& request,
+    HeadObjectResult* result) {
+  assert(result != nullptr);
   auto outcome = s3client_->HeadObject(request);
   bool isSuccess = outcome.IsSuccess();
   if (!isSuccess) {
     const auto& error = outcome.GetError();
     const auto& errMessage = error.GetMessage();
+    Slice object_path(request.GetKey().data(), request.GetKey().size());
     if (IsNotFound(error.GetErrorType())) {
       return Status::NotFound(object_path, errMessage.c_str());
+    } else {
+      return Status::IOError(object_path, errMessage.c_str());
     }
-    return Status::IOError(object_path, errMessage.c_str());
   }
   const auto& res = outcome.GetResult();
-  if (metadata != nullptr) {
+  if (result->metadata != nullptr) {
     for (const auto& m : res.GetMetadata()) {
-      (*metadata)[m.first.c_str()] = m.second.c_str();
+      (*(result->metadata))[m.first.c_str()] = m.second.c_str();
     }
   }
-  if (size != nullptr) {
-    *size = res.GetContentLength();
+  if (result->size != nullptr) {
+    *(result->size) = res.GetContentLength();
   }
-  if (modtime != nullptr) {
-    *modtime = res.GetLastModified().Millis();
+  if ((result->modtime) != nullptr) {
+    *(result->modtime) = res.GetLastModified().Millis();
   }
-  if (etag != nullptr) {
-    *etag = std::string(res.GetETag().data(), res.GetETag().length());
+  if ((result->etag) != nullptr) {
+    *(result->etag) = std::string(res.GetETag().data(), res.GetETag().length());
   }
   return Status::OK();
 }
