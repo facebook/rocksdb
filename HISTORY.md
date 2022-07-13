@@ -4,10 +4,10 @@
 * Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
 * Support backward iteration when `ReadOptions::iter_start_ts` is set.
 * Provide support for ReadOptions.async_io with direct_io to improve Seek latency by using async IO to parallelize child iterator seek and doing asynchronous prefetching on sequential scans.
-* Added support for blob caching in order to cache frequently used blobs for BlobDB. 
+* Added support for blob caching in order to cache frequently used blobs for BlobDB.
   * User can configure the new ColumnFamilyOptions `blob_cache` to enable/disable blob caching.
-  * Either sharing the backend cache with the block cache or using a completely separate cache is supported. 
-  * A new abstraction interface called `BlobSource` for blob read logic gives all users access to blobs, whether they are in the blob cache, secondary cache, or (remote) storage. Blobs can be potentially read both while handling user reads (`Get`, `MultiGet`, or iterator) and during compaction (while dealing with compaction filters, Merges, or garbage collection) but eventually all blob reads go through `Version::GetBlob` or, for MultiGet, `Version::MultiGetBlob` (and then get dispatched to the interface -- `BlobSource`). 
+  * Either sharing the backend cache with the block cache or using a completely separate cache is supported.
+  * A new abstraction interface called `BlobSource` for blob read logic gives all users access to blobs, whether they are in the blob cache, secondary cache, or (remote) storage. Blobs can be potentially read both while handling user reads (`Get`, `MultiGet`, or iterator) and during compaction (while dealing with compaction filters, Merges, or garbage collection) but eventually all blob reads go through `Version::GetBlob` or, for MultiGet, `Version::MultiGetBlob` (and then get dispatched to the interface -- `BlobSource`).
 
 ### Public API changes
 * Add metadata related structs and functions in C API, including
@@ -28,6 +28,7 @@
 ## Behavior Change
 * In leveled compaction with dynamic levelling, level multiplier is not anymore adjusted due to oversized L0. Instead, compaction score is adjusted by increasing size level target by adding incoming bytes from upper levels. This would deprioritize compactions from upper levels if more data from L0 is coming. This is to fix some unnecessary full stalling due to drastic change of level targets, while not wasting write bandwidth for compaction while writes are overloaded.
 * For track_and_verify_wals_in_manifest, revert to the original behavior before #10087: syncing of live WAL file is not tracked, and we track only the synced sizes of **closed** WALs. (PR #10330).
+* WAL compression now computes/verifies checksum during compression/decompression.
 
 ## 7.4.0 (06/19/2022)
 ### Bug Fixes
