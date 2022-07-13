@@ -99,7 +99,6 @@ TEST_F(DBFlushTest, FlushBeforeWritingManifestWithCheckpoint) {
       {{"DBImpl::FlushMemTable:AfterScheduleNonExportFlush",
         "FlushJob::WriteLevel0Table:flush_started2"}});
 
-
   bool processed = false;
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table:flush_started1", [&](void* /*arg*/) {
@@ -126,10 +125,10 @@ TEST_F(DBFlushTest, FlushBeforeWritingManifestWithCheckpoint) {
   rocksdb::ExportImportFilesMetaData* cf_sst_files_metadata = nullptr;
   rocksdb::Checkpoint* checkpoint;
   auto status = rocksdb::Checkpoint::Create(dbfull(), &checkpoint);
-  ASSERT_EQ(status.ok(), true);
+  ASSERT_OK(status);
 
   // Add first write and trigger an ExportColumnFamily which will trigger a
-  // flush.
+  // flush with wait.
   ASSERT_OK(Put("bar", "v"));
   uint64_t timeSinceEpochMilliseconds =
       std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -139,11 +138,16 @@ TEST_F(DBFlushTest, FlushBeforeWritingManifestWithCheckpoint) {
       "/tmp/checkpoint1_" + std::to_string(timeSinceEpochMilliseconds);
   status = checkpoint->ExportColumnFamily(dbfull()->DefaultColumnFamily(),
                                           dir_path, &cf_sst_files_metadata);
-  ASSERT_EQ(status.ok(), true);
+  ASSERT_OK(status);
 
+  int total_files = cf_sst_files_metadata->files.size();
+  ASSERT_OK(DestroyDir(env_, dir_path));
 #ifndef ROCKSDB_LITE
-  ASSERT_GT(cf_sst_files_metadata->files.size(), 0);
+  ASSERT_GT(total_files, 0);
 #endif  // ROCKSDB_LITE
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 // Disable this test temporarily on Travis as it fails intermittently.
