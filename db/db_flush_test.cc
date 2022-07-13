@@ -100,6 +100,7 @@ TEST_F(DBFlushTest, FlushBeforeWritingManifestWithCheckpoint) {
       {{"DBImpl::FlushMemTable:AfterScheduleNonExportFlush",
         "FlushJob::WriteLevel0Table:flush_started2"}});
 
+
   bool processed = false;
   SyncPoint::GetInstance()->SetCallBack(
       "FlushJob::WriteLevel0Table:flush_started1", [&](void* /*arg*/) {
