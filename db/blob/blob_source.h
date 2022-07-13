@@ -11,6 +11,7 @@
 #include "cache/cache_key.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_read_request.h"
+#include "monitoring/statistics.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "table/block_based/cachable_entry.h"
@@ -101,19 +102,42 @@ class BlobSource {
 
   bool TEST_BlobInCache(uint64_t file_number, uint64_t offset) const;
 
+  static Status PutBlobIntoCache(Cache* blob_cache, const Slice& key,
+                                 const Slice* blob,
+                                 CacheHandleGuard<std::string>* cached_blob,
+                                 Statistics* const statistics) {
+    assert(blob);
+    assert(blob_cache);
+    assert(!key.empty());
+
+    Status s;
+    const Cache::Priority priority = Cache::Priority::LOW;
+
+    // Objects to be put into the cache have to be heap-allocated and
+    // self-contained, i.e. own their contents. The Cache has to be able to take
+    // unique ownership of them. Therefore, we copy the blob into a string
+    // directly, and insert that into the cache.
+    std::string* buf = new std::string();
+    buf->assign(blob->data(), blob->size());
+
+    // TODO: support custom allocators and provide a better estimated memory
+    // usage using malloc_usable_size.
+    Cache::Handle* cache_handle = nullptr;
+    s = InsertEntryIntoCache(blob_cache, key, buf, buf->size(), &cache_handle,
+                             priority, statistics);
+    if (s.ok()) {
+      assert(cache_handle != nullptr);
+      *cached_blob = CacheHandleGuard<std::string>(blob_cache, cache_handle);
+    }
+
+    return s;
+  }
+
  private:
   Status GetBlobFromCache(const Slice& cache_key,
                           CacheHandleGuard<std::string>* blob) const;
 
-  Status PutBlobIntoCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* cached_blob,
-                          PinnableSlice* blob) const;
-
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
-
-  Status InsertEntryIntoCache(const Slice& key, std::string* value,
-                              size_t charge, Cache::Handle** cache_handle,
-                              Cache::Priority priority) const;
 
   inline CacheKey GetCacheKey(uint64_t file_number, uint64_t offset) const {
     // The cache key does not take the real file size into account. This is due
@@ -126,6 +150,25 @@ class BlobSource {
         db_id_, db_session_id_, file_number,
         std::numeric_limits<uint64_t>::max() /* file size */);
     return base_cache_key.WithOffset(offset);
+  }
+
+  static Status InsertEntryIntoCache(Cache* blob_cache, const Slice& key,
+                                     std::string* value, size_t charge,
+                                     Cache::Handle** cache_handle,
+                                     Cache::Priority priority,
+                                     Statistics* const statistics) {
+    const Status s =
+        blob_cache->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
+                           cache_handle, priority);
+    if (s.ok()) {
+      assert(*cache_handle != nullptr);
+      RecordTick(statistics, BLOB_DB_CACHE_ADD);
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE,
+                 blob_cache->GetUsage(*cache_handle));
+    } else {
+      RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
+    }
+    return s;
   }
 
   const std::string& db_id_;

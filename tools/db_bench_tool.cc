@@ -4539,6 +4539,7 @@ class Benchmark {
           break;
         default:
           fprintf(stderr, "Unknown prepopulate blob cache mode\n");
+          exit(1);
       }
       fprintf(
           stdout,

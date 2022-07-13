@@ -12,6 +12,7 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
+#include "db/blob/blob_source.h"
 #include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
@@ -32,7 +33,7 @@ BlobFileBuilder::BlobFileBuilder(
     VersionSet* versions, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    const std::string db_id, std::string db_session_id, int job_id,
+    std::string db_id, std::string db_session_id, int job_id,
     uint32_t column_family_id, const std::string& column_family_name,
     Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
@@ -51,7 +52,7 @@ BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, FileSystem* fs,
     const ImmutableOptions* immutable_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
-    const std::string db_id, std::string db_session_id, int job_id,
+    std::string db_id, std::string db_session_id, int job_id,
     uint32_t column_family_id, const std::string& column_family_name,
     Env::IOPriority io_priority, Env::WriteLifeTimeHint write_hint,
     const std::shared_ptr<IOTracer>& io_tracer,
@@ -67,8 +68,8 @@ BlobFileBuilder::BlobFileBuilder(
       blob_compression_type_(mutable_cf_options->blob_compression_type),
       prepopulate_blob_cache_(mutable_cf_options->prepopulate_blob_cache),
       file_options_(file_options),
-      db_id_(db_id),
-      db_session_id_(db_session_id),
+      db_id_(std::move(db_id)),
+      db_session_id_(std::move(db_session_id)),
       job_id_(job_id),
       column_family_id_(column_family_id),
       column_family_name_(column_family_name),
@@ -110,10 +111,10 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
   }
 
   Slice blob = value;
-  Slice compressed_blob;
+  std::string compressed_blob;
 
   {
-    const Status s = CompressBlobIfNeeded(blob, &compressed_blob);
+    const Status s = CompressBlobIfNeeded(&blob, &compressed_blob);
     if (!s.ok()) {
       return s;
     }
@@ -139,7 +140,7 @@ Status BlobFileBuilder::Add(const Slice& key, const Slice& value,
 
   {
     const Status s =
-        PutBlobIntoCacheIfNeeded(blob, blob_file_number, blob_offset);
+        PutBlobIntoCacheIfNeeded(value, blob_file_number, blob_offset);
     if (!s.ok()) {
       ROCKS_LOG_WARN(immutable_options_->info_log,
                      "Failed to pre-populate the blob into blob cache: %s",
@@ -246,9 +247,9 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   return Status::OK();
 }
 
-Status BlobFileBuilder::CompressBlobIfNeeded(const Slice& blob,
-                                             Slice* compressed_blob) const {
-  assert(!blob.empty());
+Status BlobFileBuilder::CompressBlobIfNeeded(
+    Slice* blob, std::string* compressed_blob) const {
+  assert(blob);
   assert(compressed_blob);
   assert(compressed_blob->empty());
   assert(immutable_options_);
@@ -267,18 +268,19 @@ Status BlobFileBuilder::CompressBlobIfNeeded(const Slice& blob,
   constexpr uint32_t compression_format_version = 2;
 
   bool success = false;
-  std::string output;
+
   {
     StopWatch stop_watch(immutable_options_->clock, immutable_options_->stats,
                          BLOB_DB_COMPRESSION_MICROS);
-    success = CompressData(blob, info, compression_format_version, &output);
+    success =
+        CompressData(*blob, info, compression_format_version, compressed_blob);
   }
 
   if (!success) {
     return Status::Corruption("Error compressing blob");
   }
 
-  *compressed_blob = Slice(output);
+  *blob = Slice(*compressed_blob);
 
   return Status::OK();
 }
@@ -408,58 +410,20 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
     }
 
     if (warm_cache) {
-      if (blob_compression_type_ == kNoCompression) {
-        // The cache key does not take into account the real file size. This is
-        // because the blob file in the middle of the flush is unknown to be
-        // exactly how big it is. Therefore, we set the file size here to the
-        // uint64 maximum value to ensure that the warmed cache entries are
-        // available in subsequent inquiries.
-        const OffsetableCacheKey base_cache_key(
-            db_id_, db_session_id_, blob_file_number,
-            std::numeric_limits<uint64_t>::max() /* unknown blob file size */);
-        const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
-        s = PutBlobIntoCache(cache_key.AsSlice(), blob);
-      }
+      // The cache key does not take into account the real file size. This is
+      // because the blob file in the middle of the flush is unknown to be
+      // exactly how big it is. Therefore, we set the file size here to the
+      // uint64 maximum value to ensure that the warmed cache entries are
+      // available in subsequent inquiries.
+      const OffsetableCacheKey base_cache_key(
+          db_id_, db_session_id_, blob_file_number,
+          std::numeric_limits<uint64_t>::max() /* unknown blob file size */);
+      const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
+      CacheHandleGuard<std::string> blob_handle;
+      s = BlobSource::PutBlobIntoCache(immutable_options_->blob_cache.get(),
+                                       cache_key.AsSlice(), &blob, &blob_handle,
+                                       immutable_options_->statistics.get());
     }
-  }
-
-  return s;
-}
-
-Status BlobFileBuilder::PutBlobIntoCache(const Slice& key,
-                                         const Slice& blob) const {
-  assert(immutable_options_);
-  assert(immutable_options_->blob_cache);
-
-  auto blob_cache = immutable_options_->blob_cache.get();
-  auto statistics = immutable_options_->statistics.get();
-
-  const Cache::Priority priority = Cache::Priority::LOW;
-
-  // The objects that go into the cache must be heap-allocated, self-contained,
-  // and possess their own contents. The Cache has to be able to take unique
-  // ownership of them. Therefore, we copy the blob into a string directly, and
-  // insert that string into the cache.
-  std::string* buf = new std::string();
-  buf->assign(blob.data(), blob.size());
-
-  // TODO: support custom allocators and provide a better estimated memory
-  // usage using malloc_usable_size.
-  size_t charge = buf->size();
-  Cache::Handle* cache_handle = nullptr;
-
-  const Status s =
-      blob_cache->Insert(key, buf, charge, &DeleteCacheEntry<std::string>,
-                         &cache_handle, priority);
-
-  if (s.ok()) {
-    assert(cache_handle != nullptr);
-    RecordTick(statistics, BLOB_DB_CACHE_ADD);
-    RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE,
-               blob_cache->GetUsage(cache_handle));
-    blob_cache->Release(cache_handle, false /* erase_if_last_ref */);
-  } else {
-    RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
   }
 
   return s;

@@ -36,8 +36,8 @@ class BlobFileBuilder {
   BlobFileBuilder(VersionSet* versions, FileSystem* fs,
                   const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, const std::string db_id,
-                  const std::string db_session_id, int job_id,
+                  const FileOptions* file_options, std::string db_id,
+                  std::string db_session_id, int job_id,
                   uint32_t column_family_id,
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
@@ -51,8 +51,8 @@ class BlobFileBuilder {
   BlobFileBuilder(std::function<uint64_t()> file_number_generator,
                   FileSystem* fs, const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, const std::string db_id,
-                  const std::string db_session_id, int job_id,
+                  const FileOptions* file_options, std::string db_id,
+                  std::string db_session_id, int job_id,
                   uint32_t column_family_id,
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
@@ -75,7 +75,7 @@ class BlobFileBuilder {
  private:
   bool IsBlobFileOpen() const;
   Status OpenBlobFileIfNeeded();
-  Status CompressBlobIfNeeded(const Slice& blob, Slice* compressed_blob) const;
+  Status CompressBlobIfNeeded(Slice* blob, std::string* compressed_blob) const;
   Status WriteBlobToFile(const Slice& key, const Slice& blob,
                          uint64_t* blob_file_number, uint64_t* blob_offset);
   Status CloseBlobFile();

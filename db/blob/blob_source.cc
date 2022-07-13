@@ -48,37 +48,6 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key,
   return Status::NotFound("Blob not found in cache");
 }
 
-Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
-                                    CacheHandleGuard<std::string>* cached_blob,
-                                    PinnableSlice* blob) const {
-  assert(blob);
-  assert(!cache_key.empty());
-  assert(blob_cache_);
-
-  Status s;
-  const Cache::Priority priority = Cache::Priority::LOW;
-
-  // Objects to be put into the cache have to be heap-allocated and
-  // self-contained, i.e. own their contents. The Cache has to be able to take
-  // unique ownership of them. Therefore, we copy the blob into a string
-  // directly, and insert that into the cache.
-  std::string* buf = new std::string();
-  buf->assign(blob->data(), blob->size());
-
-  // TODO: support custom allocators and provide a better estimated memory
-  // usage using malloc_usable_size.
-  Cache::Handle* cache_handle = nullptr;
-  s = InsertEntryIntoCache(cache_key, buf, buf->size(), &cache_handle,
-                           priority);
-  if (s.ok()) {
-    assert(cache_handle != nullptr);
-    *cached_blob =
-        CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);
-  }
-
-  return s;
-}
-
 Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
   cache_handle = blob_cache_->Lookup(key, statistics_);
@@ -91,24 +60,6 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
     RecordTick(statistics_, BLOB_DB_CACHE_MISS);
   }
   return cache_handle;
-}
-
-Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
-                                        size_t charge,
-                                        Cache::Handle** cache_handle,
-                                        Cache::Priority priority) const {
-  const Status s =
-      blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
-                          cache_handle, priority);
-  if (s.ok()) {
-    assert(*cache_handle != nullptr);
-    RecordTick(statistics_, BLOB_DB_CACHE_ADD);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
-               blob_cache_->GetUsage(*cache_handle));
-  } else {
-    RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
-  }
-  return s;
 }
 
 Status BlobSource::GetBlob(const ReadOptions& read_options,
@@ -206,7 +157,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    s = PutBlobIntoCache(key, &blob_handle, value);
+    s = PutBlobIntoCache(blob_cache_.get(), key, value, &blob_handle,
+                         statistics_);
     if (!s.ok()) {
       return s;
     }
@@ -370,7 +322,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
           const CacheKey cache_key =
               base_cache_key.WithOffset(_blob_reqs[i]->offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(key, &blob_handle, _blob_reqs[i]->result);
+          s = PutBlobIntoCache(blob_cache_.get(), key, _blob_reqs[i]->result,
+                               &blob_handle, statistics_);
           if (!s.ok()) {
             *_blob_reqs[i]->status = s;
           }
