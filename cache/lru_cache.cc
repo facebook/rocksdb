@@ -762,6 +762,7 @@ std::string LRUCache::GetPrintableOptions() const {
   ret.reserve(20000);
   ret.append(ShardedCache::GetPrintableOptions());
   if (secondary_cache_) {
+    ret.append("  secondary_cache:\n");
     ret.append(secondary_cache_->GetPrintableOptions());
   }
   return ret;
