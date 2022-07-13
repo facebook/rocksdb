@@ -1442,12 +1442,12 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
     assert(wal.IsSyncing());
-    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.GetPreSyncSize() > 0) {
-      synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
-    }
 
     if (logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+          wal.GetPreSyncSize() > 0) {
+        synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
+      }
       logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
