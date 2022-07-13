@@ -1,7 +1,11 @@
 # Rocksdb Change Log
+## 7.4.3 (07/13/2022)
+### Behavior Changes
+* For track_and_verify_wals_in_manifest, revert to the original behavior before #10087: syncing of live WAL file is not tracked, and we track only the synced sizes of **closed** WALs. (PR #10330).
+
 ## 7.4.2 (06/30/2022)
 ### Bug Fixes
-Fix a bug in Logger where if dbname and db_log_dir are on different filesystems, dbname creation would fail wrt to db_log_dir path returning an error and fails to open the DB.
+* Fix a bug in Logger where if dbname and db_log_dir are on different filesystems, dbname creation would fail wrt to db_log_dir path returning an error and fails to open the DB.
 
 ## 7.4.1 (06/28/2022)
 ### Bug Fixes
