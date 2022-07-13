@@ -1102,15 +1102,21 @@ class PosixFileSystem : public FileSystem {
         req.scratch = posix_handle->scratch;
         req.offset = posix_handle->offset;
         req.len = posix_handle->len;
+
         size_t finished_len = 0;
         size_t bytes_read = 0;
+        bool read_again = false;
         UpdateResult(cqe, "", req.len, posix_handle->iov.iov_len,
-                     true /*async_read*/, finished_len, &req, bytes_read);
+                     true /*async_read*/, posix_handle->use_direct_io,
+                     posix_handle->alignment, finished_len, &req, bytes_read,
+                     read_again);
         posix_handle->is_finished = true;
         io_uring_cqe_seen(iu, cqe);
         posix_handle->cb(req, posix_handle->cb_arg);
+
         (void)finished_len;
         (void)bytes_read;
+        (void)read_again;
 
         if (static_cast<Posix_IOHandle*>(io_handles[i]) == posix_handle) {
           break;

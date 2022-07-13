@@ -190,6 +190,8 @@ class BatchedOpsStressTest : public StressTest {
       std::vector<Status> statuses(num_prefixes);
       ReadOptions readoptionscopy = readoptions;
       readoptionscopy.snapshot = db_->GetSnapshot();
+      readoptionscopy.rate_limiter_priority =
+          FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
       std::vector<std::string> key_str;
       key_str.reserve(num_prefixes);
       key_slices.reserve(num_prefixes);

@@ -249,6 +249,8 @@ class VersionBuilder::Rep {
   bool has_invalid_levels_;
   // Current levels of table files affected by additions/deletions.
   std::unordered_map<uint64_t, int> table_file_levels_;
+  // Current compact cursors that should be changed after the last compaction
+  std::unordered_map<int, InternalKey> updated_compact_cursors_;
   NewestFirstBySeqNo level_zero_cmp_;
   BySmallestKey level_nonzero_cmp_;
 
@@ -809,6 +811,22 @@ class VersionBuilder::Rep {
     return Status::OK();
   }
 
+  Status ApplyCompactCursors(int level,
+                             const InternalKey& smallest_uncompacted_key) {
+    if (level < 0) {
+      std::ostringstream oss;
+      oss << "Cannot add compact cursor (" << level << ","
+          << smallest_uncompacted_key.Encode().ToString()
+          << " due to invalid level (level = " << level << ")";
+      return Status::Corruption("VersionBuilder", oss.str());
+    }
+    if (level < num_levels_) {
+      // Omit levels (>= num_levels_) when re-open with shrinking num_levels_
+      updated_compact_cursors_[level] = smallest_uncompacted_key;
+    }
+    return Status::OK();
+  }
+
   // Apply all of the edits in *edit to the current state.
   Status Apply(const VersionEdit* edit) {
     {
@@ -860,6 +878,16 @@ class VersionBuilder::Rep {
       }
     }
 
+    // Populate compact cursors for round-robin compaction, leave
+    // the cursor to be empty to indicate it is invalid
+    for (const auto& cursor : edit->GetCompactCursors()) {
+      const int level = cursor.first;
+      const InternalKey smallest_uncompacted_key = cursor.second;
+      const Status s = ApplyCompactCursors(level, smallest_uncompacted_key);
+      if (!s.ok()) {
+        return s;
+      }
+    }
     return Status::OK();
   }
 
@@ -1142,12 +1170,24 @@ class VersionBuilder::Rep {
     }
   }
 
+  void SaveCompactCursorsTo(VersionStorageInfo* vstorage) const {
+    for (auto iter = updated_compact_cursors_.begin();
+         iter != updated_compact_cursors_.end(); iter++) {
+      vstorage->AddCursorForOneLevel(iter->first, iter->second);
+    }
+  }
+
   // Save the current state in *vstorage.
   Status SaveTo(VersionStorageInfo* vstorage) const {
-    Status s = CheckConsistency(base_vstorage_);
+    Status s;
+
+#ifndef NDEBUG
+    // The same check is done within Apply() so we skip it in release mode.
+    s = CheckConsistency(base_vstorage_);
     if (!s.ok()) {
       return s;
     }
+#endif  // NDEBUG
 
     s = CheckConsistency(vstorage);
     if (!s.ok()) {
@@ -1157,6 +1197,8 @@ class VersionBuilder::Rep {
     SaveSSTFilesTo(vstorage);
 
     SaveBlobFilesTo(vstorage);
+
+    SaveCompactCursorsTo(vstorage);
 
     s = CheckConsistency(vstorage);
     return s;

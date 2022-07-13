@@ -37,8 +37,6 @@ std::shared_ptr<const FilterPolicy> Create(double bits_per_key,
   return BloomLikeFilterPolicy::Create(name, bits_per_key);
 }
 const std::string kLegacyBloom = test::LegacyBloomFilterPolicy::kClassName();
-const std::string kDeprecatedBlock =
-    DeprecatedBlockBasedBloomFilterPolicy::kClassName();
 const std::string kFastLocalBloom =
     test::FastLocalBloomFilterPolicy::kClassName();
 const std::string kStandard128Ribbon =
@@ -189,7 +187,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     get_perf_context()->EnablePerLevelPerfContext();
     BlockBasedTableOptions bbto;
-    bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    bbto.filter_policy.reset(NewBloomFilterPolicy(10));
     if (partition_filters) {
       bbto.partition_filters = true;
       bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
@@ -256,6 +254,15 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloomCustomPrefixExtractor) {
         (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
 #endif  // ROCKSDB_LITE
 
+    // No bloom on extractor changed, after re-open
+    options.prefix_extractor.reset(NewCappedPrefixTransform(10));
+    Reopen(options);
+    ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
+    ASSERT_EQ(
+        3,
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful);
+
     get_perf_context()->Reset();
   }
 }
@@ -267,7 +274,7 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     get_perf_context()->EnablePerLevelPerfContext();
     BlockBasedTableOptions bbto;
-    bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    bbto.filter_policy.reset(NewBloomFilterPolicy(10));
     if (partition_filters) {
       bbto.partition_filters = true;
       bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
@@ -331,7 +338,7 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
     get_perf_context()->EnablePerLevelPerfContext();
 
     BlockBasedTableOptions bbto;
-    bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    bbto.filter_policy.reset(NewBloomFilterPolicy(10));
     bbto.whole_key_filtering = false;
     if (partition_filters) {
       bbto.partition_filters = true;
@@ -747,7 +754,6 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
-        std::make_tuple(kDeprecatedBlock, false, test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, true, test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion),
         std::make_tuple(kAutoRibbon, false, test::kDefaultFormatVersion)));
@@ -755,7 +761,6 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(kDeprecatedBlock, false, test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, true, test::kDefaultFormatVersion),
         std::make_tuple(kAutoBloom, false, test::kDefaultFormatVersion),
         std::make_tuple(kAutoRibbon, false, test::kDefaultFormatVersion)));
@@ -763,7 +768,6 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(kDeprecatedBlock, false, kLatestFormatVersion),
         std::make_tuple(kAutoBloom, true, kLatestFormatVersion),
         std::make_tuple(kAutoBloom, false, kLatestFormatVersion),
         std::make_tuple(kAutoRibbon, false, kLatestFormatVersion)));
@@ -829,8 +833,6 @@ std::shared_ptr<const FilterPolicy> kCompatibilityRibbonPolicy{
     NewRibbonFilterPolicy(20, -1)};
 
 std::vector<CompatibilityConfig> kCompatibilityConfigs = {
-    {Create(20, kDeprecatedBlock), false,
-     BlockBasedTableOptions().format_version},
     {kCompatibilityBloomPolicy, false, BlockBasedTableOptions().format_version},
     {kCompatibilityBloomPolicy, true, BlockBasedTableOptions().format_version},
     {kCompatibilityBloomPolicy, false, /* legacy Bloom */ 4U},
@@ -878,9 +880,8 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
       ASSERT_EQ("val", Get(prefix + "Z"));  // Filter positive
       // Filter negative, with high probability
       ASSERT_EQ("NOT_FOUND", Get(prefix + "Q"));
-      // FULL_POSITIVE does not include block-based filter case (j == 0)
       EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
-                j == 0 ? 0 : 2);
+                2);
       EXPECT_EQ(TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
     }
   }
@@ -904,7 +905,7 @@ class ChargeFilterConstructionTestWithParam
         detect_filter_construct_corruption_(std::get<3>(GetParam())) {
     if (charge_filter_construction_ ==
             CacheEntryRoleOptions::Decision::kDisabled ||
-        policy_ == kDeprecatedBlock || policy_ == kLegacyBloom) {
+        policy_ == kLegacyBloom) {
       // For these cases, we only interested in whether filter construction
       // cache charging happens instead of its accuracy. Therefore we don't
       // need many keys.
@@ -1031,8 +1032,6 @@ INSTANTIATE_TEST_CASE_P(
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
                         kStandard128Ribbon, true, true),
 
-        std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled,
-                        kDeprecatedBlock, false, false),
         std::make_tuple(CacheEntryRoleOptions::Decision::kEnabled, kLegacyBloom,
                         false, false)));
 
@@ -1109,11 +1108,10 @@ TEST_P(ChargeFilterConstructionTestWithParam, Basic) {
     return;
   }
 
-  if (policy == kDeprecatedBlock || policy == kLegacyBloom) {
+  if (policy == kLegacyBloom) {
     EXPECT_EQ(filter_construction_cache_res_peaks.size(), 0)
         << "There shouldn't be filter construction cache charging as this "
-           "feature does not support kDeprecatedBlock "
-           "nor kLegacyBloom";
+           "feature does not support kLegacyBloom";
     return;
   }
 
@@ -1798,10 +1796,9 @@ class SliceTransformLimitedDomain : public SliceTransform {
   }
 };
 
-TEST_F(DBBloomFilterTest, PrefixExtractorFullFilter) {
+TEST_F(DBBloomFilterTest, PrefixExtractorWithFilter1) {
   BlockBasedTableOptions bbto;
-  // Full Filter Block
-  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, false));
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
   bbto.whole_key_filtering = false;
 
   Options options = CurrentOptions();
@@ -1827,10 +1824,9 @@ TEST_F(DBBloomFilterTest, PrefixExtractorFullFilter) {
   ASSERT_EQ(Get("zzzzz_AAAA"), "val5");
 }
 
-TEST_F(DBBloomFilterTest, PrefixExtractorBlockFilter) {
+TEST_F(DBBloomFilterTest, PrefixExtractorWithFilter2) {
   BlockBasedTableOptions bbto;
-  // Block Filter Block
-  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10, true));
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
 
   Options options = CurrentOptions();
   options.prefix_extractor = std::make_shared<SliceTransformLimitedDomain>();
@@ -2221,7 +2217,6 @@ class BloomStatsTestWithParam
     } else {
       BlockBasedTableOptions table_options;
       if (partition_filters_) {
-        assert(bfp_impl_ != kDeprecatedBlock);
         table_options.partition_filters = partition_filters_;
         table_options.index_type =
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
@@ -2346,9 +2341,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  // The seek doesn't check block-based bloom filter because last index key
-  // starts with the same prefix we're seeking to.
-  uint64_t expected_hits = bfp_impl_ == kDeprecatedBlock ? 1 : 2;
+  uint64_t expected_hits = 2;
   ASSERT_EQ(expected_hits, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
@@ -2360,8 +2353,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
 INSTANTIATE_TEST_CASE_P(
     BloomStatsTestWithParam, BloomStatsTestWithParam,
-    ::testing::Values(std::make_tuple(kDeprecatedBlock, false),
-                      std::make_tuple(kLegacyBloom, false),
+    ::testing::Values(std::make_tuple(kLegacyBloom, false),
                       std::make_tuple(kLegacyBloom, true),
                       std::make_tuple(kFastLocalBloom, false),
                       std::make_tuple(kFastLocalBloom, true),
@@ -2486,7 +2478,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   options.level_compaction_dynamic_level_bytes = true;
   BlockBasedTableOptions bbto;
   bbto.cache_index_and_filter_blocks = true;
-  bbto.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10));
   bbto.whole_key_filtering = true;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   options.optimize_filters_for_hits = true;
@@ -2674,7 +2666,6 @@ int CountIter(std::unique_ptr<Iterator>& iter, const Slice& key) {
 // as the upper bound and two keys are adjacent according to the comparator.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
   for (const auto& bfp_impl : BloomLikeFilterPolicy::GetAllFixedImpls()) {
-    int using_full_builder = bfp_impl != kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
     options.env = CurrentOptions().env;
@@ -2726,8 +2717,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abcdxx00"), 4);
       // should check bloom filter since upper bound meets requirement
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + using_full_builder);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 3);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -2740,8 +2730,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abcdxx01"), 4);
       // should skip bloom filter since upper bound is too long
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + using_full_builder);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 3);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -2754,8 +2743,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       ASSERT_EQ(CountIter(iter, "abcdxx02"), 4);
       // should check bloom filter since upper bound matches transformed seek
       // key
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     {
@@ -2768,8 +2756,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "aaaaaaaa"), 0);
       // should skip bloom filter since mismatch is found
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:3"}}));
@@ -2782,23 +2769,52 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
     }
-    ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:4"}}));
+    // Same with re-open
+    options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+    Reopen(options);
     {
-      // set back to capped:4 and verify BF is always read
+      Slice upper_bound("abd");
+      ReadOptions read_options;
+      read_options.prefix_same_as_start = true;
+      read_options.iterate_upper_bound = &upper_bound;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      ASSERT_EQ(CountIter(iter, "abc"), 4);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
+    }
+    // Set back to capped:4 and verify BF is always read
+    options.prefix_extractor.reset(NewCappedPrefixTransform(4));
+    Reopen(options);
+    {
       Slice upper_bound("abd");
       ReadOptions read_options;
       read_options.prefix_same_as_start = true;
       read_options.iterate_upper_bound = &upper_bound;
       std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter, "abc"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                3 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 5);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
     }
+    // Same if there's a problem initally loading prefix transform
+    SyncPoint::GetInstance()->SetCallBack(
+        "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+        [&](void* arg) { *static_cast<bool*>(arg) = true; });
+    SyncPoint::GetInstance()->EnableProcessing();
+    Reopen(options);
+    {
+      Slice upper_bound("abd");
+      ReadOptions read_options;
+      read_options.prefix_same_as_start = true;
+      read_options.iterate_upper_bound = &upper_bound;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      ASSERT_EQ(CountIter(iter, "abc"), 0);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 6);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
+    }
+    SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
@@ -2806,7 +2822,6 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
 // verify iterators can read all SST files using the latest config.
 TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
   for (const auto& bfp_impl : BloomLikeFilterPolicy::GetAllFixedImpls()) {
-    int using_full_builder = bfp_impl != kDeprecatedBlock;
     Options options;
     options.env = CurrentOptions().env;
     options.create_if_missing = true;
@@ -2840,11 +2855,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     read_options.iterate_upper_bound = &upper_bound;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     ASSERT_EQ(CountIter(iter, "foo"), 2);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              1 + using_full_builder);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2);
     ASSERT_EQ(CountIter(iter, "gpk"), 0);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              1 + using_full_builder);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 2);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
 
     // second SST with capped:3 BF
@@ -2857,14 +2870,12 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       // BF is cappped:3 now
       std::unique_ptr<Iterator> iter_tmp(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 4);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                2 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 4);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 0);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
       // both counters are incremented because BF is "not changed" for 1 of the
       // 2 SST files, so filter is checked once and found no match.
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                3 + using_full_builder * 2);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 5);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
     }
 
@@ -2882,25 +2893,21 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       std::unique_ptr<Iterator> iter_tmp(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_tmp, "foo"), 9);
       // the first and last BF are checked
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                4 + using_full_builder * 3);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 7);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 1);
       ASSERT_EQ(CountIter(iter_tmp, "gpk"), 0);
       // only last BF is checked and not found
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                5 + using_full_builder * 3);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 8);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
     }
 
     // iter_old can only see the first SST, so checked plus 1
     ASSERT_EQ(CountIter(iter_old, "foo"), 4);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              6 + using_full_builder * 3);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 9);
     // iter was created after the first setoptions call so only full filter
     // will check the filter
     ASSERT_EQ(CountIter(iter, "foo"), 2);
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-              6 + using_full_builder * 4);
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 10);
 
     {
       // keys in all three SSTs are visible to iterator
@@ -2908,12 +2915,10 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       // so +2 for checked counter
       std::unique_ptr<Iterator> iter_all(db_->NewIterator(read_options));
       ASSERT_EQ(CountIter(iter_all, "foo"), 9);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                7 + using_full_builder * 5);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 2);
       ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                8 + using_full_builder * 5);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 13);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
     }
     ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "capped:3"}}));
@@ -2924,12 +2929,10 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
       ASSERT_EQ(CountIter(iter_all, "foo"), 6);
       // all three SST are checked because the current options has the same as
       // the remaining SST (capped:3)
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                9 + using_full_builder * 7);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 16);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
       ASSERT_EQ(CountIter(iter_all, "gpk"), 0);
-      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED),
-                10 + using_full_builder * 7);
+      ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 17);
       ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 4);
     }
     // TODO(Zhongyi): Maybe also need to add Get calls to test point look up?
@@ -3108,6 +3111,382 @@ TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
     ASSERT_TRUE(it->Valid());
   }
   it.reset();
+}
+
+namespace {
+class BackwardBytewiseComparator : public Comparator {
+ public:
+  const char* Name() const override { return "BackwardBytewiseComparator"; }
+
+  int Compare(const Slice& a, const Slice& b) const override {
+    int min_size_neg = -static_cast<int>(std::min(a.size(), b.size()));
+    const char* a_end = a.data() + a.size();
+    const char* b_end = b.data() + b.size();
+    for (int i = -1; i >= min_size_neg; --i) {
+      if (a_end[i] != b_end[i]) {
+        if (static_cast<unsigned char>(a_end[i]) <
+            static_cast<unsigned char>(b_end[i])) {
+          return -1;
+        } else {
+          return 1;
+        }
+      }
+    }
+    return static_cast<int>(a.size()) - static_cast<int>(b.size());
+  }
+
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
+
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+
+const BackwardBytewiseComparator kBackwardBytewiseComparator{};
+
+class FixedSuffix4Transform : public SliceTransform {
+  const char* Name() const override { return "FixedSuffixTransform"; }
+
+  Slice Transform(const Slice& src) const override {
+    return Slice(src.data() + src.size() - 4, 4);
+  }
+
+  bool InDomain(const Slice& src) const override { return src.size() >= 4; }
+};
+
+std::pair<uint64_t, uint64_t> GetBloomStat(const Options& options, bool sst) {
+  if (sst) {
+    return {
+        options.statistics->getAndResetTickerCount(BLOOM_FILTER_PREFIX_CHECKED),
+        options.statistics->getAndResetTickerCount(BLOOM_FILTER_PREFIX_USEFUL)};
+  } else {
+    auto hit = std::exchange(get_perf_context()->bloom_memtable_hit_count, 0);
+    auto miss = std::exchange(get_perf_context()->bloom_memtable_miss_count, 0);
+    return {hit + miss, miss};
+  }
+}
+
+std::pair<uint64_t, uint64_t> CheckedAndUseful(uint64_t checked,
+                                               uint64_t useful) {
+  return {checked, useful};
+}
+}  // namespace
+
+// This uses a prefix_extractor + comparator combination that violates
+// one of the old obsolete, unnecessary axioms of prefix extraction:
+// * key.starts_with(prefix(key))
+// This axiom is not really needed, and we validate that here.
+TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter1) {
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+
+  Options options = CurrentOptions();
+  options.comparator = &kBackwardBytewiseComparator;
+  options.prefix_extractor = std::make_shared<FixedSuffix4Transform>();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.statistics = CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("321aaaa", "val1"));
+  ASSERT_OK(Put("112aaaa", "val2"));
+  ASSERT_OK(Put("009aaaa", "val3"));
+  ASSERT_OK(Put("baa", "val4"));  // out of domain
+  ASSERT_OK(Put("321abaa", "val5"));
+  ASSERT_OK(Put("zzz", "val6"));  // out of domain
+
+  for (auto flushed : {false, true}) {
+    SCOPED_TRACE("flushed=" + std::to_string(flushed));
+    if (flushed) {
+      ASSERT_OK(Flush());
+    }
+    ReadOptions read_options;
+    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+      read_options.auto_prefix_mode = true;
+    }
+    EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+    {
+      Slice ub("999aaaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa"), 3);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("999abaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "abaa"), 1);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("999acaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "acaa"), 0);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 1));
+    }
+    {
+      Slice ub("zzzz");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "baa"), 3);
+      if (flushed) {  // TODO: fix memtable case
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+    }
+  }
+}
+
+// This uses a prefix_extractor + comparator combination that violates
+// one of the old obsolete, unnecessary axioms of prefix extraction:
+// * Compare(prefix(key), key) <= 0
+// This axiom is not really needed, and we validate that here.
+TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter2) {
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+
+  Options options = CurrentOptions();
+  options.comparator = ReverseBytewiseComparator();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.statistics = CreateDBStatistics();
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("aaaa123", "val1"));
+  ASSERT_OK(Put("aaaa211", "val2"));
+  ASSERT_OK(Put("aaaa900", "val3"));
+  ASSERT_OK(Put("aab", "val4"));  // out of domain
+  ASSERT_OK(Put("aaba123", "val5"));
+  ASSERT_OK(Put("qqqq123", "val7"));
+  ASSERT_OK(Put("qqqq", "val8"));
+  ASSERT_OK(Put("zzz", "val8"));  // out of domain
+
+  for (auto flushed : {false, true}) {
+    SCOPED_TRACE("flushed=" + std::to_string(flushed));
+    if (flushed) {
+      ASSERT_OK(Flush());
+    }
+    ReadOptions read_options;
+    if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+      read_options.auto_prefix_mode = true;
+    } else {
+      // TODO: why needed?
+      get_perf_context()->bloom_memtable_hit_count = 0;
+      get_perf_context()->bloom_memtable_miss_count = 0;
+    }
+    EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+    {
+      Slice ub("aaaa000");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa999"), 3);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      // Note: prefix does work as upper bound
+      Slice ub("aaaa");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa999"), 3);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      // Note: prefix does not work here as seek key
+      Slice ub("aaaa500");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaaa"), 0);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("aaba000");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaba999"), 1);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+    {
+      Slice ub("aaca000");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "aaca999"), 0);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 1));
+    }
+    {
+      Slice ub("aaaz");
+      read_options.iterate_upper_bound = &ub;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "zzz"), 5);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+    }
+    {
+      // Note: prefix does work here as seek key, but only finds key equal
+      // to prefix (others with same prefix are less)
+      read_options.auto_prefix_mode = false;
+      read_options.iterate_upper_bound = nullptr;
+      read_options.prefix_same_as_start = true;
+      std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+      EXPECT_EQ(CountIter(iter, "qqqq"), 1);
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+    }
+  }
+}
+
+namespace {
+// A weird comparator that in combination with NonIdempotentFixed4Transform
+// breaks an old axiom of prefix filtering.
+class WeirdComparator : public Comparator {
+ public:
+  const char* Name() const override { return "WeirdComparator"; }
+
+  int Compare(const Slice& a, const Slice& b) const override {
+    bool a_in = a.size() >= 5;
+    bool b_in = b.size() >= 5;
+    if (a_in != b_in) {
+      // Order keys after prefixes
+      return a_in - b_in;
+    }
+    if (a_in) {
+      return BytewiseComparator()->Compare(a, b);
+    } else {
+      // Different ordering on the prefixes
+      return ReverseBytewiseComparator()->Compare(a, b);
+    }
+  }
+
+  void FindShortestSeparator(std::string* /*start*/,
+                             const Slice& /*limit*/) const override {}
+
+  void FindShortSuccessor(std::string* /*key*/) const override {}
+};
+const WeirdComparator kWeirdComparator{};
+
+// Non-idempotentent because prefix is always 4 bytes, but this is
+// out-of-domain for keys to be assigned prefixes (>= 5 bytes)
+class NonIdempotentFixed4Transform : public SliceTransform {
+  const char* Name() const override { return "NonIdempotentFixed4Transform"; }
+
+  Slice Transform(const Slice& src) const override {
+    return Slice(src.data(), 4);
+  }
+
+  bool InDomain(const Slice& src) const override { return src.size() >= 5; }
+};
+}  // namespace
+
+// This uses a prefix_extractor + comparator combination that violates
+// two of the old obsolete, unnecessary axioms of prefix extraction:
+// * prefix(prefix(key)) == prefix(key)
+// * If Compare(k1, k2) <= 0, then Compare(prefix(k1), prefix(k2)) <= 0
+// This axiom is not really needed, and we validate that here.
+TEST_F(DBBloomFilterTest, WeirdPrefixExtractorWithFilter3) {
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(ROCKSDB_NAMESPACE::NewBloomFilterPolicy(10));
+  bbto.whole_key_filtering = false;
+
+  Options options = CurrentOptions();
+  options.prefix_extractor = std::make_shared<NonIdempotentFixed4Transform>();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.statistics = CreateDBStatistics();
+
+  for (auto weird_comparator : {false, true}) {
+    if (weird_comparator) {
+      options.comparator = &kWeirdComparator;
+    }
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("aaaa123", "val1"));
+    ASSERT_OK(Put("aaaa211", "val2"));
+    ASSERT_OK(Put("aaaa900", "val3"));
+    ASSERT_OK(Put("aab", "val4"));  // out of domain
+    ASSERT_OK(Put("aaba123", "val5"));
+    ASSERT_OK(Put("qqqq123", "val7"));
+    ASSERT_OK(Put("qqqq", "val8"));  // out of domain
+    ASSERT_OK(Put("zzzz", "val8"));  // out of domain
+
+    for (auto flushed : {false, true}) {
+      SCOPED_TRACE("flushed=" + std::to_string(flushed));
+      if (flushed) {
+        ASSERT_OK(Flush());
+      }
+      ReadOptions read_options;
+      if (flushed) {  // TODO: support auto_prefix_mode in memtable?
+        read_options.auto_prefix_mode = true;
+      } else {
+        // TODO: why needed?
+        get_perf_context()->bloom_memtable_hit_count = 0;
+        get_perf_context()->bloom_memtable_miss_count = 0;
+      }
+      EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      {
+        Slice ub("aaaa999");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaaa000"), 3);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+      }
+      {
+        // Note: prefix as seek key is not bloom-optimized
+        // Note: the count works with weird_comparator because "aaaa" is
+        // ordered as the last of the prefixes
+        Slice ub("aaaa999");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaaa"), 3);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+      {
+        Slice ub("aaba9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaba0"), 1);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+      }
+      {
+        Slice ub("aaca9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aaca0"), 0);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 1));
+      }
+      {
+        Slice ub("qqqq9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "qqqq0"), 1);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(1, 0));
+      }
+      {
+        // Note: prefix as seek key is not bloom-optimized
+        Slice ub("qqqq9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "qqqq"), weird_comparator ? 7 : 2);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+      {
+        // Note: prefix as seek key is not bloom-optimized
+        Slice ub("zzzz9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "zzzz"), weird_comparator ? 8 : 1);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+      {
+        Slice ub("zzzz9");
+        read_options.iterate_upper_bound = &ub;
+        std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+        EXPECT_EQ(CountIter(iter, "aab"), weird_comparator ? 6 : 5);
+        EXPECT_EQ(GetBloomStat(options, flushed), CheckedAndUseful(0, 0));
+      }
+    }
+  }
 }
 
 #endif  // ROCKSDB_LITE

@@ -17,9 +17,15 @@ if [ "$?" != "1" ]; then
   BAD=1
 fi
 
-git grep -n '<rocksdb/' -- ':!build_tools/check-sources.sh'
+git grep -n 'include <rocksdb/' -- ':!build_tools/check-sources.sh'
 if [ "$?" != "1" ]; then
   echo '^^^^^ Use double-quotes as in #include "rocksdb/something.h"'
+  BAD=1
+fi
+
+git grep -n 'include "include/rocksdb/' -- ':!build_tools/check-sources.sh'
+if [ "$?" != "1" ]; then
+  echo '^^^^^ Use #include "rocksdb/something.h" instead of #include "include/rocksdb/something.h"'
   BAD=1
 fi
 

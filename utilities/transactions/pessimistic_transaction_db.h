@@ -71,20 +71,27 @@ class PessimisticTransactionDB : public TransactionDB {
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
   inline Status WriteWithConcurrencyControl(const WriteOptions& opts,
                                             WriteBatch* updates) {
-    // Need to lock all keys in this batch to prevent write conflicts with
-    // concurrent transactions.
-    Transaction* txn = BeginInternalTransaction(opts);
-    txn->DisableIndexing();
+    Status s;
+    if (opts.protection_bytes_per_key > 0) {
+      s = WriteBatchInternal::UpdateProtectionInfo(
+          updates, opts.protection_bytes_per_key);
+    }
+    if (s.ok()) {
+      // Need to lock all keys in this batch to prevent write conflicts with
+      // concurrent transactions.
+      Transaction* txn = BeginInternalTransaction(opts);
+      txn->DisableIndexing();
 
-    auto txn_impl = static_cast_with_check<PessimisticTransaction>(txn);
+      auto txn_impl = static_cast_with_check<PessimisticTransaction>(txn);
 
-    // Since commitBatch sorts the keys before locking, concurrent Write()
-    // operations will not cause a deadlock.
-    // In order to avoid a deadlock with a concurrent Transaction, Transactions
-    // should use a lock timeout.
-    Status s = txn_impl->CommitBatch(updates);
+      // Since commitBatch sorts the keys before locking, concurrent Write()
+      // operations will not cause a deadlock.
+      // In order to avoid a deadlock with a concurrent Transaction,
+      // Transactions should use a lock timeout.
+      s = txn_impl->CommitBatch(updates);
 
-    delete txn;
+      delete txn;
+    }
 
     return s;
   }

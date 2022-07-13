@@ -101,6 +101,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
+#include "util/distributed_mutex.h"
 #include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -145,6 +146,8 @@ void DumpSupportInfo(Logger* logger) {
   }
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
                    crc32c::IsFastCrc32Supported().c_str());
+
+  ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
 }
 }  // namespace
 
@@ -153,7 +156,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
+      init_logger_creation_s_(),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only,
+                                          &init_logger_creation_s_)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -241,8 +246,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
-  // TODO: Check for an error here
-  env_->GetAbsolutePath(dbname, &db_absolute_path_).PermitUncheckedError();
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
@@ -260,7 +263,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_session_id_));
+                                 io_tracer_, db_id_, db_session_id_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -573,38 +576,6 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
 
-  // For now, simply trigger a manual flush at close time
-  // on all the column families.
-  // TODO(bjlemaire): Check if this is needed. Also, in the
-  // future we can contemplate doing a more fine-grained
-  // flushing by first checking if there is a need for
-  // flushing (but need to implement something
-  // else than imm()->IsFlushPending() because the output
-  // memtables added to imm() don't trigger flushes).
-  if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
-    Status flush_ret;
-    mutex_.Unlock();
-    for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
-      if (immutable_db_options_.atomic_flush) {
-        flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
-                                         FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(
-              immutable_db_options_.info_log,
-              "Atomic flush memtables failed upon closing (mempurge).");
-        }
-      } else {
-        flush_ret =
-            FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                         "Flush memtables failed upon closing (mempurge).");
-        }
-      }
-    }
-    mutex_.Lock();
-  }
-
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
@@ -744,6 +715,9 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  // TODO: remove this.
+  init_logger_creation_s_.PermitUncheckedError();
+
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return;
@@ -1364,6 +1338,7 @@ Status DBImpl::FlushWAL(bool sync) {
 }
 
 Status DBImpl::SyncWAL() {
+  TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
   autovector<log::Writer*, 1> logs_to_sync;
   bool need_log_dir_sync;
   uint64_t current_log_number;
@@ -1376,7 +1351,7 @@ Status DBImpl::SyncWAL() {
     current_log_number = logfile_number_;
 
     while (logs_.front().number <= current_log_number &&
-           logs_.front().getting_synced) {
+           logs_.front().IsSyncing()) {
       log_sync_cv_.Wait();
     }
     // First check that logs are safe to sync in background.
@@ -1393,8 +1368,7 @@ Status DBImpl::SyncWAL() {
     for (auto it = logs_.begin();
          it != logs_.end() && it->number <= current_log_number; ++it) {
       auto& log = *it;
-      assert(!log.getting_synced);
-      log.getting_synced = true;
+      log.PrepareForSync();
       logs_to_sync.push_back(log.writer);
     }
 
@@ -1467,25 +1441,24 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
-    assert(wal.getting_synced);
-    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.writer->file()->GetFileSize() > 0) {
-      synced_wals.AddWal(wal.number,
-                         WalMetadata(wal.writer->file()->GetFileSize()));
-    }
+    assert(wal.IsSyncing());
 
     if (logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+          wal.GetPreSyncSize() > 0) {
+        synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
+      }
       logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
-      wal.getting_synced = false;
+      wal.FinishSync();
       ++it;
     }
   }
   assert(logs_.empty() || logs_[0].number > up_to ||
-         (logs_.size() == 1 && !logs_[0].getting_synced));
+         (logs_.size() == 1 && !logs_[0].IsSyncing()));
 
   Status s;
   if (synced_wals.IsWalAddition()) {
@@ -1505,8 +1478,7 @@ void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
-    assert(wal.getting_synced);
-    wal.getting_synced = false;
+    wal.FinishSync();
   }
   log_sync_cv_.SignalAll();
 }

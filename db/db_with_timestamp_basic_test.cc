@@ -1065,6 +1065,191 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound) {
+  constexpr int kNumKeysPerFile = 128;
+  constexpr uint64_t kMaxKey = 1024;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
+  DestroyAndReopen(options);
+  const std::vector<std::string> write_timestamps = {Timestamp(1, 0),
+                                                     Timestamp(3, 0)};
+  const std::vector<std::string> read_timestamps = {Timestamp(2, 0),
+                                                    Timestamp(4, 0)};
+  const std::vector<std::string> read_timestamps_lb = {Timestamp(1, 0),
+                                                       Timestamp(1, 0)};
+  for (size_t i = 0; i < write_timestamps.size(); ++i) {
+    WriteOptions write_opts;
+    for (uint64_t key = 0; key <= kMaxKey; ++key) {
+      Status s = db_->Put(write_opts, Key1(key), write_timestamps[i],
+                          "value" + std::to_string(i));
+      ASSERT_OK(s);
+    }
+  }
+  for (size_t i = 0; i < read_timestamps.size(); ++i) {
+    ReadOptions read_opts;
+    Slice read_ts = read_timestamps[i];
+    Slice read_ts_lb = read_timestamps_lb[i];
+    read_opts.timestamp = &read_ts;
+    read_opts.iter_start_ts = &read_ts_lb;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    int count = 0;
+    uint64_t key = 0;
+    for (it->SeekForPrev(Key1(kMaxKey)), key = kMaxKey; it->Valid();
+         it->Prev(), ++count, --key) {
+      CheckIterEntry(it.get(), Key1(key), kTypeValue, "value0",
+                     write_timestamps[0]);
+      if (i > 0) {
+        it->Prev();
+        CheckIterEntry(it.get(), Key1(key), kTypeValue, "value1",
+                       write_timestamps[1]);
+      }
+    }
+    size_t expected_count = kMaxKey + 1;
+    ASSERT_EQ(expected_count, count);
+  }
+  // Delete all keys@ts=5 and check iteration result with start ts set
+  {
+    std::string write_timestamp = Timestamp(5, 0);
+    WriteOptions write_opts;
+    for (uint64_t key = 0; key < kMaxKey + 1; ++key) {
+      Status s = db_->Delete(write_opts, Key1(key), write_timestamp);
+      ASSERT_OK(s);
+    }
+
+    std::string read_timestamp = Timestamp(6, 0);
+    ReadOptions read_opts;
+    Slice read_ts = read_timestamp;
+    read_opts.timestamp = &read_ts;
+    std::string read_timestamp_lb = Timestamp(2, 0);
+    Slice read_ts_lb = read_timestamp_lb;
+    read_opts.iter_start_ts = &read_ts_lb;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    int count = 0;
+    uint64_t key = kMaxKey;
+    for (it->SeekForPrev(Key1(key)), key = kMaxKey; it->Valid();
+         it->Prev(), ++count, --key) {
+      CheckIterEntry(it.get(), Key1(key), kTypeValue, "value1",
+                     Timestamp(3, 0));
+      it->Prev();
+      CheckIterEntry(it.get(), Key1(key), kTypeDeletionWithTimestamp, Slice(),
+                     write_timestamp);
+    }
+    ASSERT_EQ(kMaxKey + 1, count);
+  }
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, SimpleBackwardIterateLowerTsBound) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  std::string ts_ub_buf = Timestamp(5, 0);
+  Slice ts_ub = ts_ub_buf;
+  std::string ts_lb_buf = Timestamp(1, 0);
+  Slice ts_lb = ts_lb_buf;
+
+  {
+    ReadOptions read_opts;
+    read_opts.timestamp = &ts_ub;
+    read_opts.iter_start_ts = &ts_lb;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    it->SeekToLast();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+
+    it->SeekForPrev("foo");
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  // Test iterate_upper_bound
+  ASSERT_OK(db_->Put(WriteOptions(), "a", Timestamp(0, 0), "v0"));
+  ASSERT_OK(db_->SingleDelete(WriteOptions(), "a", Timestamp(1, 0)));
+
+  for (int i = 0; i < 5; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "b", Timestamp(i, 0),
+                       "v" + std::to_string(i)));
+  }
+
+  {
+    ReadOptions read_opts;
+    read_opts.timestamp = &ts_ub;
+    read_opts.iter_start_ts = &ts_lb;
+    std::string key_ub_str = "b";  // exclusive
+    Slice key_ub = key_ub_str;
+    read_opts.iterate_upper_bound = &key_ub;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    it->SeekToLast();
+    CheckIterEntry(it.get(), "a", kTypeSingleDeletion, Slice(),
+                   Timestamp(1, 0));
+
+    key_ub_str = "a";  // exclusive
+    key_ub = key_ub_str;
+    read_opts.iterate_upper_bound = &key_ub;
+    it.reset(db_->NewIterator(read_opts));
+    it->SeekToLast();
+    ASSERT_FALSE(it->Valid());
+    ASSERT_OK(it->status());
+  }
+
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, BackwardIterateLowerTsBound_Reseek) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_sequential_skip_in_iterations = 2;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "a", Timestamp(i, 0),
+                       "v" + std::to_string(i)));
+  }
+
+  for (int i = 0; i < 10; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), "b", Timestamp(i, 0),
+                       "v" + std::to_string(i)));
+  }
+
+  {
+    std::string ts_ub_buf = Timestamp(6, 0);
+    Slice ts_ub = ts_ub_buf;
+    std::string ts_lb_buf = Timestamp(4, 0);
+    Slice ts_lb = ts_lb_buf;
+
+    ReadOptions read_opts;
+    read_opts.timestamp = &ts_ub;
+    read_opts.iter_start_ts = &ts_lb;
+    std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+    it->SeekToLast();
+    for (int i = 0; i < 3 && it->Valid(); it->Prev(), ++i) {
+      CheckIterEntry(it.get(), "b", kTypeValue, "v" + std::to_string(4 + i),
+                     Timestamp(4 + i, 0));
+    }
+    for (int i = 0; i < 3 && it->Valid(); it->Prev(), ++i) {
+      CheckIterEntry(it.get(), "a", kTypeValue, "v" + std::to_string(4 + i),
+                     Timestamp(4 + i, 0));
+    }
+  }
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
   Options options = CurrentOptions();
   options.env = env_;

@@ -63,6 +63,8 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
+    "compaction_pri": random.randint(0, 4),
+    "data_block_index_type": lambda: random.choice([0, 1]),
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
@@ -114,12 +116,12 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["fast_lru_cache", "lru_cache"]),   # clock_cache is broken
+    "cache_type": "lru_cache",  # fast_lru_cache and clock_cache are currently incompatible
+                                # with stress tests, because they use strict_capacity_limit = false
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
-    "use_block_based_filter": lambda: random.randint(0, 1),
     "value_size_mult": 32,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
@@ -274,7 +276,8 @@ whitebox_default_params = {
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
-    "experimental_mempurge_threshold": lambda: 10.0*random.random(),
+    # TODO: re-enable once internal task T124324915 is fixed.
+    # "experimental_mempurge_threshold": lambda: 10.0*random.random(),
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
@@ -343,6 +346,9 @@ blob_params = {
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
     "blob_file_starting_level": lambda: random.choice([0] * 4 + [1] * 3 + [2] * 2 + [3]),
+    "use_blob_cache": lambda: random.randint(0, 1),
+    "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
+    "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
 }
 
 ts_params = {
@@ -356,9 +362,7 @@ ts_params = {
     "use_txn": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
-    "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
-    "use_block_based_filter": 0,
 }
 
 multiops_txn_default_params = {
@@ -399,6 +403,7 @@ multiops_txn_default_params = {
     "rollback_one_in":  4,
     # Re-enable once we have a compaction for MultiOpsTxnStressTest
     "enable_compaction_filter": 0,
+    "create_timestamped_snapshot_one_in": 50,
 }
 
 multiops_wc_txn_params = {
@@ -419,8 +424,8 @@ multiops_wp_txn_params = {
     "checkpoint_one_in": 0,
     # Required to be 1 in order to use commit-time-batch
     "use_only_the_last_commit_time_batch_for_recovery": 1,
-    "recycle_log_file_num": 0,
     "clear_wp_commit_cache_one_in": 10,
+    "create_timestamped_snapshot_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
@@ -497,10 +502,6 @@ def finalize_and_sanitize(src_params):
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0
-        else:
-            dest_params["use_block_based_filter"] = 0
-    if dest_params["ribbon_starting_level"] < 999:
-        dest_params["use_block_based_filter"] = 0
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
@@ -520,8 +521,6 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
-    if dest_params.get("test_batches_snapshots") == 0:
-        dest_params["batch_protection_bytes_per_key"] = 0
     if (dest_params.get("prefix_size") == -1 and
         dest_params.get("memtable_whole_key_filtering") == 0):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0

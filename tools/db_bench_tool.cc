@@ -37,6 +37,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
@@ -104,6 +105,7 @@
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 using GFLAGS_NAMESPACE::RegisterFlagValidator;
 using GFLAGS_NAMESPACE::SetUsageMessage;
+using GFLAGS_NAMESPACE::SetVersionString;
 
 #ifdef ROCKSDB_LITE
 #define IF_ROCKSDB_LITE(Then, Else) Then
@@ -1073,6 +1075,26 @@ DEFINE_int32(
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_starting_level,
     "[Integrated BlobDB] The starting level for blob files.");
 
+DEFINE_bool(use_blob_cache, false, "[Integrated BlobDB] Enable blob cache.");
+
+DEFINE_bool(
+    use_shared_block_and_blob_cache, true,
+    "[Integrated BlobDB] Use a shared backing cache for both block "
+    "cache and blob cache. It only takes effect if use_blob_cache is enabled.");
+
+DEFINE_uint64(
+    blob_cache_size, 8 << 20,
+    "[Integrated BlobDB] Number of bytes to use as a cache of blobs. It only "
+    "takes effect if the block and blob caches are different "
+    "(use_shared_block_and_blob_cache = false).");
+
+DEFINE_int32(blob_cache_numshardbits, 6,
+             "[Integrated BlobDB] Number of shards for the blob cache is 2 ** "
+             "blob_cache_numshardbits. Negative means use default settings. "
+             "It only takes effect if blob_cache_size is greater than 0, and "
+             "the block and blob caches are different "
+             "(use_shared_block_and_blob_cache = false).");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -1604,9 +1626,6 @@ DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
             "instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
-DEFINE_bool(use_block_based_filter, false, "if use kBlockBasedFilter "
-            "instead of kFullFilter for filter block. "
-            "This is valid if only we use BlockTable");
 DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
               " database The possible merge operators are defined in"
@@ -1658,6 +1677,12 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
 DEFINE_uint32(write_batch_protection_bytes_per_key, 0,
               "Size of per-key-value checksum in each write batch. Currently "
               "only value 0 and 8 are supported.");
+
+DEFINE_bool(build_info, false,
+            "Print the build info via GetRocksBuildInfoAsString");
+
+DEFINE_bool(track_and_verify_wals_in_manifest, false,
+            "If true, enable WAL tracking in the MANIFEST");
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -2825,8 +2850,8 @@ class Benchmark {
 #endif
 
   void PrintEnvironment() {
-    fprintf(stderr, "RocksDB:    version %d.%d\n",
-            kMajorVersion, kMinorVersion);
+    fprintf(stderr, "RocksDB:    version %s\n",
+            GetRocksVersionAsString(true).c_str());
 
 #if defined(__linux) || defined(__APPLE__) || defined(__FreeBSD__)
     time_t now = time(nullptr);
@@ -2953,9 +2978,12 @@ class Benchmark {
     config_options.ignore_unsupported_options = false;
     if (capacity <= 0) {
       return nullptr;
-    } else if (FLAGS_cache_uri == "clock_cache") {
-      auto cache = NewClockCache(static_cast<size_t>(capacity),
-                                 FLAGS_cache_numshardbits);
+    }
+    if (FLAGS_cache_type == "clock_cache") {
+      auto cache = ExperimentalNewClockCache(
+          static_cast<size_t>(capacity), FLAGS_block_size,
+          FLAGS_cache_numshardbits, false /*strict_capacity_limit*/,
+          kDefaultCacheMetadataChargePolicy);
       if (!cache) {
         fprintf(stderr, "Clock cache not supported.");
         exit(1);
@@ -4471,6 +4499,8 @@ class Benchmark {
     }
 
     options.allow_data_in_errors = FLAGS_allow_data_in_errors;
+    options.track_and_verify_wals_in_manifest =
+        FLAGS_track_and_verify_wals_in_manifest;
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;
@@ -4487,6 +4517,32 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
+
+    if (FLAGS_use_blob_cache) {
+      if (FLAGS_use_shared_block_and_blob_cache) {
+        options.blob_cache = cache_;
+      } else {
+        if (FLAGS_blob_cache_size > 0) {
+          LRUCacheOptions co;
+          co.capacity = FLAGS_blob_cache_size;
+          co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+          options.blob_cache = NewLRUCache(co);
+        } else {
+          fprintf(stderr,
+                  "Unable to create a standalone blob cache if blob_cache_size "
+                  "<= 0.\n");
+          exit(1);
+        }
+      }
+      fprintf(stdout,
+              "Integrated BlobDB: blob cache enabled, block and blob caches "
+              "shared: %d, blob cache size %" PRIu64
+              ", blob cache num shard bits: %d\n",
+              FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+              FLAGS_blob_cache_numshardbits);
+    } else {
+      fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+    }
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
@@ -4534,19 +4590,6 @@ class Benchmark {
           table_options->filter_policy = BlockBasedTableOptions().filter_policy;
         } else if (FLAGS_bloom_bits == 0) {
           table_options->filter_policy.reset();
-        } else if (FLAGS_use_block_based_filter) {
-          // Use back-door way of enabling obsolete block-based Bloom
-          Status s = FilterPolicy::CreateFromString(
-              ConfigOptions(),
-              "rocksdb.internal.DeprecatedBlockBasedBloomFilter:" +
-                  std::to_string(FLAGS_bloom_bits),
-              &table_options->filter_policy);
-          if (!s.ok()) {
-            fprintf(stderr,
-                    "failure creating obsolete block-based filter: %s\n",
-                    s.ToString().c_str());
-            exit(1);
-          }
         } else {
           table_options->filter_policy.reset(
               FLAGS_use_ribbon_filter ? NewRibbonFilterPolicy(FLAGS_bloom_bits)
@@ -4587,6 +4630,9 @@ class Benchmark {
         options.rate_limiter.reset(NewGenericRateLimiter(
             FLAGS_rate_limiter_bytes_per_sec,
             FLAGS_rate_limiter_refill_period_us, 10 /* fairness */,
+            // TODO: replace this with a more general FLAG for deciding
+            // RateLimiter::Mode as now we also rate-limit foreground reads e.g,
+            // Get()/MultiGet()
             FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
                                       : RateLimiter::Mode::kWritesOnly,
             FLAGS_rate_limiter_auto_tuned));
@@ -8358,6 +8404,7 @@ int db_bench_tool(int argc, char** argv) {
   if (!initialized) {
     SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                     " [OPTIONS]...");
+    SetVersionString(GetRocksVersionAsString(true));
     initialized = true;
   }
   ParseCommandLineFlags(&argc, &argv, true);
@@ -8442,6 +8489,13 @@ int db_bench_tool(int argc, char** argv) {
   // Let -readonly imply -use_existing_db
   FLAGS_use_existing_db |= FLAGS_readonly;
 #endif  // ROCKSDB_LITE
+
+  if (FLAGS_build_info) {
+    std::string build_info;
+    std::cout << GetRocksBuildInfoAsString(build_info, true) << std::endl;
+    // Similar to --version, nothing else will be done when this flag is set
+    exit(0);
+  }
 
   if (!FLAGS_seed) {
     uint64_t now = FLAGS_env->GetSystemClock()->NowMicros();

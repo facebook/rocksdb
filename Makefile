@@ -136,6 +136,7 @@ CXXFLAGS += $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 CFLAGS +=  $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 endif
 
+GIT_COMMAND ?= git
 ifeq ($(USE_COROUTINES), 1)
 	USE_FOLLY = 1
 	OPT += -DUSE_COROUTINES
@@ -461,6 +462,8 @@ ifeq ($(USE_FOLLY),1)
 	endif
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+# TODO: fix linking with fbcode compiler config
+	PLATFORM_LDFLAGS += -lglog
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
@@ -1381,6 +1384,9 @@ db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIB
 db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_wide_basic_test: $(OBJ_DIR)/db/wide/db_wide_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1592,9 +1598,6 @@ random_access_file_reader_test: $(OBJ_DIR)/file/random_access_file_reader_test.o
 	$(AM_LINK)
 
 file_reader_writer_test: $(OBJ_DIR)/util/file_reader_writer_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
-block_based_filter_block_test: $(OBJ_DIR)/table/block_based/block_based_filter_block_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 block_based_table_reader_test: table/block_based/block_based_table_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1862,6 +1865,9 @@ blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRA
 	$(AM_LINK)
 
 blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_source_test: $(OBJ_DIR)/db/blob/blob_source_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 blob_garbage_meter_test: $(OBJ_DIR)/db/blob/blob_garbage_meter_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2351,16 +2357,20 @@ commit_prereq:
 # integration.
 checkout_folly:
 	if [ -e third-party/folly ]; then \
-		cd third-party/folly && git fetch origin; \
+		cd third-party/folly && ${GIT_COMMAND} fetch origin; \
 	else \
-		cd third-party && git clone https://github.com/facebook/folly.git; \
+		cd third-party && ${GIT_COMMAND} clone https://github.com/facebook/folly.git; \
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
-	cd third-party/folly && git reset --hard 98b9b2c1124e99f50f9085ddee74ce32afffc665
+	cd third-party/folly && git reset --hard beacd86d63cd71c904632262e6c36f60874d78ba
 	@# A hack to remove boost dependency.
 	@# NOTE: this hack is not needed if using FBCODE compiler config
 	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
+	@# NOTE: this hack is required for clang in some cases
+	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
+	@# NOTE: this hack is required for gcc in some cases
+	perl -pi -e 's/(__has_include.<experimental.memory_resource>.)/__cpp_rtti && $$1/' third-party/folly/folly/memory/MemoryResource.h
 
 # ---------------------------------------------------------------------------
 #   Build size testing

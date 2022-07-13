@@ -682,12 +682,6 @@ Status DB::OpenAsSecondary(
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   *dbptr = nullptr;
-  if (db_options.max_open_files != -1) {
-    // TODO (yanqin) maybe support max_open_files != -1 by creating hard links
-    // on SST files so that db secondary can still have access to old SSTs
-    // while primary instance may delete original.
-    return Status::InvalidArgument("require max_open_files to be -1");
-  }
 
   DBOptions tmp_opts(db_options);
   Status s;
@@ -697,6 +691,27 @@ Status DB::OpenAsSecondary(
       tmp_opts.info_log = nullptr;
       return s;
     }
+  }
+
+  assert(tmp_opts.info_log != nullptr);
+  if (db_options.max_open_files != -1) {
+    std::ostringstream oss;
+    oss << "The primary instance may delete all types of files after they "
+           "become obsolete. The application can coordinate the primary and "
+           "secondary so that primary does not delete/rename files that are "
+           "currently being used by the secondary. Alternatively, a custom "
+           "Env/FS can be provided such that files become inaccessible only "
+           "after all primary and secondaries indicate that they are obsolete "
+           "and deleted. If the above two are not possible, you can open the "
+           "secondary instance with `max_open_files==-1` so that secondary "
+           "will eagerly keep all table files open. Even if a file is deleted, "
+           "its content can still be accessed via a prior open file "
+           "descriptor. This is a hacky workaround for only table files. If "
+           "none of the above is done, then point lookup or "
+           "range scan via the secondary instance can result in IOError: file "
+           "not found. This can be resolved by retrying "
+           "TryCatchUpWithPrimary().";
+    ROCKS_LOG_WARN(tmp_opts.info_log, "%s", oss.str().c_str());
   }
 
   handles->clear();

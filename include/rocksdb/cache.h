@@ -178,19 +178,22 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
-// Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
+// EXPERIMENTAL Currently ClockCache is under development, although it's
+// already exposed in the public API. To avoid unreliable performance and
+// correctness issues, NewClockCache will temporarily return an LRUCache
+// constructed with the corresponding arguments.
+//
+// TODO(Guido) When ClockCache is complete, roll back to the old text:
+// ``
+// Similar to NewLRUCache, but create a cache based on clock algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
 // more detail.
-//
 // Return nullptr if it is not supported.
-//
-// BROKEN: ClockCache is known to have bugs that could lead to crash or
-// corruption, so should not be used until fixed. Use NewLRUCache instead.
+// ``
 extern std::shared_ptr<Cache> NewClockCache(
-    size_t capacity, int num_shard_bits = -1,
-    bool strict_capacity_limit = false,
-    CacheMetadataChargePolicy metadata_charge_policy =
-        kDefaultCacheMetadataChargePolicy);
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy);
 
 class Cache : public Customizable {
  public:
@@ -293,9 +296,9 @@ class Cache : public Customizable {
   std::string GetId() const override { return GenerateIndividualId(); }
 
   // Insert a mapping from key->value into the volatile cache only
-  // and assign it // the specified charge against the total cache capacity.
+  // and assign it with the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::Incomplete.
+  // return Status::MemoryLimit.
   //
   // If handle is not nullptr, returns a handle that corresponds to the
   // mapping. The caller must call this->Release(handle) when the returned
@@ -397,8 +400,8 @@ class Cache : public Customizable {
   // memory - call this only if you're shutting down the process.
   // Any attempts of using cache after this call will fail terribly.
   // Always delete the DB object before calling this method!
-  virtual void DisownData(){
-      // default implementation is noop
+  virtual void DisownData() {
+    // default implementation is noop
   }
 
   struct ApplyToAllEntriesOptions {
@@ -451,7 +454,7 @@ class Cache : public Customizable {
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::Incomplete.
+  // return Status::MemoryLimit.
   //
   // The helper argument is saved by the cache and will be used when the
   // inserted object is evicted or promoted to the secondary cache. It,
@@ -551,7 +554,7 @@ enum class CacheEntryRole {
   kFilterBlock,
   // Block-based table metadata block for partitioned filter
   kFilterMetaBlock,
-  // Block-based table deprecated filter block (old "block-based" filter)
+  // OBSOLETE / DEPRECATED: old/removed block-based filter
   kDeprecatedFilterBlock,
   // Block-based table index block
   kIndexBlock,

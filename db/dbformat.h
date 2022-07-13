@@ -66,7 +66,9 @@ enum ValueType : unsigned char {
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
   kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
-  kMaxValue = 0x7F                    // Not used for storing records.
+  kTypeWideColumnEntity = 0x16,
+  kTypeColumnFamilyWideColumnEntity = 0x17,  // WAL only
+  kMaxValue = 0x7F                           // Not used for storing records.
 };
 
 // Defined in dbformat.cc
@@ -76,8 +78,8 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex ||
-         kTypeDeletionWithTimestamp == t;
+  return t <= kTypeMerge || kTypeSingleDeletion == t || kTypeBlobIndex == t ||
+         kTypeDeletionWithTimestamp == t || kTypeWideColumnEntity == t;
 }
 
 // Checks whether a type is from user operation
@@ -236,7 +238,6 @@ class InternalKeyComparator
     : public Comparator {
  private:
   UserComparatorWrapper user_comparator_;
-  std::string name_;
 
  public:
   // `InternalKeyComparator`s constructed with the default constructor are not
@@ -248,13 +249,8 @@ class InternalKeyComparator
   //    this constructor to precompute the result of `Name()`. To avoid this
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
-  explicit InternalKeyComparator(const Comparator* c, bool named = true)
-      : Comparator(c->timestamp_size()), user_comparator_(c) {
-    if (named) {
-      name_ = "rocksdb.InternalKeyComparator:" +
-              std::string(user_comparator_.Name());
-    }
-  }
+  explicit InternalKeyComparator(const Comparator* c)
+      : Comparator(c->timestamp_size()), user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const override;

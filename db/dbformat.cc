@@ -26,7 +26,7 @@ namespace ROCKSDB_NAMESPACE {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
+const ValueType kValueTypeForSeek = kTypeWideColumnEntity;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 const std::string kDisableUserTimestamp("");
 
@@ -46,6 +46,8 @@ EntryType GetEntryType(ValueType value_type) {
       return kEntryRangeDeletion;
     case kTypeBlobIndex:
       return kEntryBlobIndex;
+    case kTypeWideColumnEntity:
+      return kEntryWideColumnEntity;
     default:
       return kEntryOther;
   }
@@ -115,10 +117,7 @@ std::string InternalKey::DebugString(bool hex) const {
 }
 
 const char* InternalKeyComparator::Name() const {
-  if (name_.empty()) {
-    return "rocksdb.anonymous.InternalKeyComparator";
-  }
-  return name_.c_str();
+  return "rocksdb.anonymous.InternalKeyComparator";
 }
 
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,

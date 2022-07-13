@@ -32,7 +32,7 @@ class SequenceIterWrapper : public InternalIterator {
  public:
   SequenceIterWrapper(InternalIterator* iter, const Comparator* cmp,
                       bool need_count_entries)
-      : icmp_(cmp, /*named=*/false),
+      : icmp_(cmp),
         inner_iter_(iter),
         need_count_entries_(need_count_entries) {}
   bool Valid() const override { return inner_iter_->Valid(); }

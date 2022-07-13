@@ -52,7 +52,8 @@ function display_usage() {
   echo -e "\tNUM_THREADS\t\t\tThe number of threads to use (default: 64)"
   echo -e "\tMB_WRITE_PER_SEC\t\t\tRate limit for background writer"
   echo -e "\tNUM_NEXTS_PER_SEEK\t\t(default: 10)"
-  echo -e "\tCACHE_SIZE\t\t\tSize of the block cache(default: 16GB)"
+  echo -e "\tCACHE_SIZE\t\t\tSize of the block cache (default: 16GB)"
+  echo -e "\tCACHE_NUMSHARDBITS\t\t\tNumber of shards for the block cache is 2 ** cache_numshardbits (default: 6)"
   echo -e "\tCOMPRESSION_MAX_DICT_BYTES"
   echo -e "\tCOMPRESSION_TYPE\t\tDefault compression(default: zstd)"
   echo -e "\tBOTTOMMOST_COMPRESSION\t\t(default: none)"
@@ -89,6 +90,11 @@ function display_usage() {
   echo -e "\tBLOB_COMPRESSION_TYPE\tValue for blob_compression_type"
   echo -e "\tBLOB_GC_AGE_CUTOFF\tValue for blob_garbage_collection_age_cutoff"
   echo -e "\tBLOB_GC_FORCE_THRESHOLD\tValue for blob_garbage_collection_force_threshold"
+  echo -e "\tBLOB_FILE_STARTING_LEVEL\t\tBlob file starting level (default: 0)"
+  echo -e "\tUSE_BLOB_CACHE\t\t\tEnable blob cache (default: 1)"
+  echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache (default: 1)"
+  echo -e "\tBLOB_CACHE_SIZE\t\t\tSize of the blob cache (default: 16GB)"
+  echo -e "\tBLOB_CACHE_NUMSHARDBITS\t\t\tNumber of shards for the blob cache is 2 ** blob_cache_numshardbits (default: 6)"
 }
 
 if [ $# -lt 1 ]; then
@@ -156,7 +162,8 @@ num_threads=${NUM_THREADS:-64}
 mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
 # Only for tests that do range scans
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}
-cache_size=${CACHE_SIZE:-$((17179869184))}
+cache_size=${CACHE_SIZE:-$(( 16 * $G ))}
+cache_numshardbits=${CACHE_NUMSHARDBITS:-6}
 compression_max_dict_bytes=${COMPRESSION_MAX_DICT_BYTES:-0}
 compression_type=${COMPRESSION_TYPE:-zstd}
 min_level_to_compress=${MIN_LEVEL_TO_COMPRESS:-"-1"}
@@ -227,6 +234,11 @@ blob_file_size=${BLOB_FILE_SIZE:-$(( 256 * $M ))}
 blob_compression_type=${BLOB_COMPRESSION_TYPE:-${compression_type}}
 blob_gc_age_cutoff=${BLOB_GC_AGE_CUTOFF:-"0.25"}
 blob_gc_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1}
+blob_file_starting_level=${BLOB_FILE_STARTING_LEVEL:-0}
+use_blob_cache=${USE_BLOB_CACHE:-1}
+use_shared_block_and_blob_cache=${USE_SHARED_BLOCK_AND_BLOB_CACHE:-1}
+blob_cache_size=${BLOB_CACHE_SIZE:-$(( 16 * $G ))}
+blob_cache_numshardbits=${BLOB_CACHE_NUMSHARDBITS:-6}
 
 const_params_base="
   --db=$DB_DIR \
@@ -237,7 +249,7 @@ const_params_base="
   --value_size=$value_size \
   --block_size=$block_size \
   --cache_size=$cache_size \
-  --cache_numshardbits=6 \
+  --cache_numshardbits=$cache_numshardbits \
   --compression_max_dict_bytes=$compression_max_dict_bytes \
   --compression_ratio=0.5 \
   --compression_type=$compression_type \
@@ -278,7 +290,8 @@ level_const_params="
   $hard_pending_arg \
 "
 
-# TODO: these inherit level_const_params because the non-blob LSM tree uses leveled compaction
+# These inherit level_const_params because the non-blob LSM tree uses leveled compaction.
+# The use of undefok is for options that are not supported until 7.5.
 blob_const_params="
   $level_const_params \
   --enable_blob_files=true \
@@ -288,6 +301,12 @@ blob_const_params="
   --enable_blob_garbage_collection=true \
   --blob_garbage_collection_age_cutoff=$blob_gc_age_cutoff \
   --blob_garbage_collection_force_threshold=$blob_gc_force_threshold \
+  --blob_file_starting_level=$blob_file_starting_level \
+  --use_blob_cache=$use_blob_cache \
+  --use_shared_block_and_blob_cache=$use_shared_block_and_blob_cache \
+  --blob_cache_size=$blob_cache_size \
+  --blob_cache_numshardbits=$blob_cache_numshardbits \
+  --undefok=use_blob_cache,use_shared_block_and_blob_cache,blob_cache_size,blob_cache_numshardbits \
 "
 
 # TODO:
@@ -371,7 +390,7 @@ params_univ_compact="$const_params \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
-tsv_header="ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
+tsv_header="ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id\tgithash"
 
 function get_cmd() {
   output=$1
@@ -449,16 +468,40 @@ function stop_stats {
   echo -e "max sizes (GB): $am all, $sm sst, $lm log, $bm blob" >> $output.sizes
 }
 
+function units_as_gb {
+  size=$1
+  units=$2
+
+  case $units in
+    MB)
+      echo "$size" | awk '{ printf "%.1f", $1 / 1024.0 }'
+      ;;
+    GB)
+      echo "$size"
+      ;;
+    TB)
+      echo "$size" | awk '{ printf "%.1f", $1 * 1024.0 }'
+      ;;
+    *)
+      echo "NA"
+      ;;
+  esac
+}
+
 function summarize_result {
   test_out=$1
   test_name=$2
   bench_name=$3
 
+  # In recent versions these can be found directly via db_bench --version, --build_info but
+  # grepping from the log lets this work on older versions.
+  version="$( grep "RocksDB version:" "$DB_DIR"/LOG | head -1 | awk '{ printf "%s", $5 }' )"
+  git_hash="$( grep "Git sha" "$DB_DIR"/LOG | head -1 | awk '{ printf "%s", substr($5, 1, 10) }' )"
+
   # Note that this function assumes that the benchmark executes long enough so
   # that "Compaction Stats" is written to stdout at least once. If it won't
   # happen then empty output from grep when searching for "Sum" will cause
   # syntax errors.
-  version=$( grep ^RocksDB: $test_out | awk '{ print $3 }' )
   date=$( grep ^Date: $test_out | awk '{ print $6 "-" $3 "-" $4 "T" $5 }' )
   my_date=$( month_to_num $date )
   uptime=$( grep ^Uptime\(secs $test_out | tail -1 | awk '{ printf "%.0f", $2 }' )
@@ -481,14 +524,31 @@ function summarize_result {
     mb_sec=$( grep ^${bench_name} $test_out | awk '{ print $11 }' )
   fi
 
-  flush_wgb=$( grep "^Flush(GB)" $test_out | tail -1 | awk '{ print $3 }' | tr ',' ' ' | awk '{ print $1 }' )
-  sum_wgb=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
-  cmb_ps=$( grep "^Cumulative compaction" $test_out | tail -1 | awk '{ printf "%.1f", $6 }' )
-  if [[ "$sum_wgb" == "" || "$flush_wgb" == "" || "$flush_wgb" == "0.000" ]]; then
-    wamp=""
+  # For RocksDB version 4.x there are fewer fields but this still parses correctly
+  # Cumulative writes: 242M writes, 242M keys, 18M commit groups, 12.9 writes per commit group, ingest: 95.96 GB, 54.69 MB/s
+  cum_writes_gb_orig=$( grep "^Cumulative writes" "$test_out" | tail -1 | awk '{ for (x=1; x<=NF; x++) { if ($x == "ingest:") { printf "%.1f", $(x+1) } } }' )
+  cum_writes_units=$( grep "^Cumulative writes" "$test_out" | tail -1 | awk '{ for (x=1; x<=NF; x++) { if ($x == "ingest:") { print $(x+2) } } }' | sed 's/,//g' )
+  cum_writes_gb=$( units_as_gb "$cum_writes_gb_orig" "$cum_writes_units" )
+
+  # Cumulative compaction: 1159.74 GB write, 661.03 MB/s write, 1108.89 GB read, 632.04 MB/s read, 6284.3 seconds
+  cmb_ps=$( grep "^Cumulative compaction" "$test_out" | tail -1 | awk '{ printf "%.1f", $6 }' )
+  sum_wgb_orig=$( grep "^Cumulative compaction" "$test_out" | tail -1 | awk '{ printf "%.1f", $3 }' )
+  sum_wgb_units=$( grep "^Cumulative compaction" "$test_out" | tail -1 | awk '{ print $4 }' )
+  sum_wgb=$( units_as_gb "$sum_wgb_orig" "$sum_wgb_units" )
+
+  # Flush(GB): cumulative 97.193, interval 1.247
+  flush_wgb=$( grep "^Flush(GB)" "$test_out" | tail -1 | awk '{ print $3 }' | tr ',' ' ' | awk '{ print $1 }' )
+
+  if [[ "$sum_wgb" == "NA" || \
+        "$cum_writes_gb" == "NA" || \
+        "$cum_writes_gb_orig" == "0.0" || \
+        -z "$cum_writes_gb_orig" || \
+        -z "$flush_wgb" ]]; then
+    wamp="NA"
   else
-    wamp=$( echo "$sum_wgb / $flush_wgb" | bc -l | awk '{ printf "%.1f", $1 }' )
+    wamp=$( echo "( $sum_wgb + $flush_wgb ) / $cum_writes_gb" | bc -l | awk '{ printf "%.1f", $1 }' )
   fi
+
   c_wsecs=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $15 }' )
   c_csecs=$( grep "^ Sum" $test_out | tail -1 | awk '{ printf "%.0f", $16 }' )
 
@@ -508,7 +568,7 @@ function summarize_result {
   u_cpu=$( awk '{ printf "%.1f", $2 / 1000.0 }' $time_out )
   s_cpu=$( awk '{ printf "%.1f", $3 / 1000.0  }' $time_out )
 
-  rss="na"
+  rss="NA"
   if [ -f $test_out.stats.ps ]; then
     rss=$(  tail -1 $test_out.stats.ps | awk '{ printf "%.1f\n", $6 / (1024 * 1024) }' )
   fi
@@ -539,10 +599,11 @@ function summarize_result {
     echo -e "# date - Date/time of test" >> $report
     echo -e "# version - RocksDB version" >> $report
     echo -e "# job_id - User-provided job ID" >> $report
+    echo -e "# githash - git hash at which db_bench was compiled"
     echo -e $tsv_header >> $report
   fi
 
-  echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_wsecs\t$c_csecs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
+  echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_wsecs\t$c_csecs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id\t$git_hash" \
     >> $report
 }
 

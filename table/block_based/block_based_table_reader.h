@@ -38,7 +38,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 class FilterBlockReader;
-class BlockBasedFilterBlockReader;
 class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
@@ -67,7 +66,7 @@ using KVPairBlock = std::vector<std::pair<std::string, std::string>>;
 // loaded blocks in the memory.
 class BlockBasedTable : public TableReader {
  public:
-  static const std::string kFilterBlockPrefix;
+  static const std::string kObsoleteFilterBlockPrefix;
   static const std::string kFullFilterBlockPrefix;
   static const std::string kPartitionedFilterBlockPrefix;
 
@@ -114,11 +113,11 @@ class BlockBasedTable : public TableReader {
       size_t max_file_size_for_l0_meta_pin = 0,
       const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
 
-  bool PrefixMayMatch(const Slice& internal_key,
-                      const ReadOptions& read_options,
-                      const SliceTransform* options_prefix_extractor,
-                      const bool need_upper_bound_check,
-                      BlockCacheLookupContext* lookup_context) const;
+  bool PrefixRangeMayMatch(const Slice& internal_key,
+                           const ReadOptions& read_options,
+                           const SliceTransform* options_prefix_extractor,
+                           const bool need_upper_bound_check,
+                           BlockCacheLookupContext* lookup_context) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -455,12 +454,14 @@ class BlockBasedTable : public TableReader {
                              const bool no_io,
                              const SliceTransform* prefix_extractor,
                              GetContext* get_context,
-                             BlockCacheLookupContext* lookup_context) const;
+                             BlockCacheLookupContext* lookup_context,
+                             Env::IOPriority rate_limiter_priority) const;
 
   void FullFilterKeysMayMatch(FilterBlockReader* filter, MultiGetRange* range,
                               const bool no_io,
                               const SliceTransform* prefix_extractor,
-                              BlockCacheLookupContext* lookup_context) const;
+                              BlockCacheLookupContext* lookup_context,
+                              Env::IOPriority rate_limiter_priority) const;
 
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
@@ -585,7 +586,6 @@ struct BlockBasedTable::Rep {
   enum class FilterType {
     kNoFilter,
     kFullFilter,
-    kBlockFilter,
     kPartitionedFilter,
   };
   FilterType filter_type;

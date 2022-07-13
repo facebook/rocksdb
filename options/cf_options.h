@@ -112,6 +112,8 @@ struct MutableCFOptions {
         max_successive_merges(options.max_successive_merges),
         inplace_update_num_locks(options.inplace_update_num_locks),
         prefix_extractor(options.prefix_extractor),
+        experimental_mempurge_threshold(
+            options.experimental_mempurge_threshold),
         disable_auto_compactions(options.disable_auto_compactions),
         soft_pending_compaction_bytes_limit(
             options.soft_pending_compaction_bytes_limit),
@@ -170,6 +172,7 @@ struct MutableCFOptions {
         max_successive_merges(0),
         inplace_update_num_locks(0),
         prefix_extractor(nullptr),
+        experimental_mempurge_threshold(0.0),
         disable_auto_compactions(false),
         soft_pending_compaction_bytes_limit(0),
         hard_pending_compaction_bytes_limit(0),
@@ -231,6 +234,22 @@ struct MutableCFOptions {
   size_t max_successive_merges;
   size_t inplace_update_num_locks;
   std::shared_ptr<const SliceTransform> prefix_extractor;
+  // [experimental]
+  // Used to activate or deactive the Mempurge feature (memtable garbage
+  // collection). (deactivated by default). At every flush, the total useful
+  // payload (total entries minus garbage entries) is estimated as a ratio
+  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
+  // compared to this `threshold` value:
+  //     - if ratio<threshold: the flush is replaced by a mempurge operation
+  //     - else: a regular flush operation takes place.
+  // Threshold values:
+  //   0.0: mempurge deactivated (default).
+  //   1.0: recommended threshold value.
+  //   >1.0 : aggressive mempurge.
+  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
+  //   ratios.
+  // [experimental]
+  double experimental_mempurge_threshold;
 
   // Compaction related options
   bool disable_auto_compactions;

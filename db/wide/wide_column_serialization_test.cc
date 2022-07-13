@@ -124,6 +124,22 @@ TEST(WideColumnSerializationTest, SerializeDeserialize) {
   }
 }
 
+TEST(WideColumnSerializationTest, SerializeDuplicateError) {
+  WideColumns columns{{"foo", "bar"}, {"foo", "baz"}};
+  std::string output;
+
+  ASSERT_TRUE(
+      WideColumnSerialization::Serialize(columns, output).IsCorruption());
+}
+
+TEST(WideColumnSerializationTest, SerializeOutOfOrderError) {
+  WideColumns columns{{"hello", "world"}, {"foo", "bar"}};
+  std::string output;
+
+  ASSERT_TRUE(
+      WideColumnSerialization::Serialize(columns, output).IsCorruption());
+}
+
 TEST(WideColumnSerializationTest, DeserializeVersionError) {
   // Can't decode version
 

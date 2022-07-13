@@ -2221,6 +2221,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
   // No async IO in this case since we don't do parallel lookup in L0
   ASSERT_EQ(multiget_io_batch_size.count, 0);
   ASSERT_EQ(multiget_io_batch_size.max, 0);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
 }
 
 TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
@@ -2257,6 +2258,7 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
   // A batch of 3 async IOs is expected, one for each overlapping file in L1
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 3);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
 
 TEST_F(DBMultiGetAsyncIOTest, LastKeyInFile) {
@@ -2407,27 +2409,37 @@ TEST_F(DBBasicTest, MultiGetStats) {
                 values.data(), s.data(), false);
 
   ASSERT_EQ(values.size(), kMultiGetBatchSize);
-  HistogramData hist_data_blocks;
+  HistogramData hist_level;
   HistogramData hist_index_and_filter_blocks;
   HistogramData hist_sst;
 
-  options.statistics->histogramData(NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                                    &hist_data_blocks);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
   options.statistics->histogramData(NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
                                     &hist_index_and_filter_blocks);
   options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
 
   // Maximum number of blocks read from a file system in a level.
-  ASSERT_EQ(hist_data_blocks.max, 32);
+  ASSERT_EQ(hist_level.max, 1);
   ASSERT_GT(hist_index_and_filter_blocks.max, 0);
   // Maximum number of sst files read from file system in a level.
   ASSERT_EQ(hist_sst.max, 2);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 4);
+  ASSERT_EQ(hist_level.min, 1);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
   ASSERT_EQ(hist_sst.min, 1);
+
+  for (PinnableSlice& value : values) {
+    value.Reset();
+  }
+  for (Status& status : s) {
+    status = Status::OK();
+  }
+  db_->MultiGet(read_opts, handles_[1], kMultiGetBatchSize, &keys[950],
+                values.data(), s.data(), false);
+  options.statistics->histogramData(NUM_LEVEL_READ_PER_MULTIGET, &hist_level);
+  ASSERT_EQ(hist_level.max, 2);
 }
 
 // Test class for batched MultiGet with prefix extractor
@@ -2455,35 +2467,37 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   SetPerfLevel(kEnableCount);
   get_perf_context()->Reset();
 
-  // First key is not in the prefix_extractor domain
   ASSERT_OK(Put("k", "v0"));
   ASSERT_OK(Put("kk1", "v1"));
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk3", "v3"));
   ASSERT_OK(Put("kk4", "v4"));
-  std::vector<std::string> mem_keys(
+  std::vector<std::string> keys(
       {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
-  std::vector<std::string> inmem_values;
-  inmem_values = MultiGet(mem_keys, nullptr);
-  ASSERT_EQ(inmem_values[0], "v0");
-  ASSERT_EQ(inmem_values[1], "v1");
-  ASSERT_EQ(inmem_values[2], "v2");
-  ASSERT_EQ(inmem_values[3], "v3");
-  ASSERT_EQ(inmem_values[4], "v4");
+  std::vector<std::string> expected(
+      {"v0", "v1", "v2", "v3", "v4", "NOT_FOUND", "NOT_FOUND"});
+  std::vector<std::string> values;
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values, expected);
+  // One key ("k") is not queried against the filter because it is outside
+  // the prefix_extractor domain, leaving 6 keys with queried prefixes.
   ASSERT_EQ(get_perf_context()->bloom_memtable_miss_count, 2);
-  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 5);
+  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 4);
   ASSERT_OK(Flush());
 
-  std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
-  std::vector<std::string> values;
   get_perf_context()->Reset();
   values = MultiGet(keys, nullptr);
-  ASSERT_EQ(values[0], "v0");
-  ASSERT_EQ(values[1], "v1");
-  ASSERT_EQ(values[2], "v2");
-  ASSERT_EQ(values[3], "v3");
-  ASSERT_EQ(values[4], "v4");
-  // Filter hits for 4 in-domain keys
+  ASSERT_EQ(values, expected);
+  ASSERT_EQ(get_perf_context()->bloom_sst_miss_count, 2);
+  ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
+
+  // Also check Get stat
+  get_perf_context()->Reset();
+  for (size_t i = 0; i < keys.size(); ++i) {
+    values[i] = Get(keys[i]);
+  }
+  ASSERT_EQ(values, expected);
+  ASSERT_EQ(get_perf_context()->bloom_sst_miss_count, 2);
   ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
 }
 
@@ -4131,7 +4145,7 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
 
   Status s = TryReopen(options);
   ASSERT_EQ(nullptr, options.info_log);
-  ASSERT_TRUE(s.IsAborted());
+  ASSERT_TRUE(s.IsIOError());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -4181,7 +4195,9 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 
-TEST_F(DBBasicTest, ManualWalSync) {
+// TODO: re-enable after we provide finer-grained control for WAL tracking to
+// meet the needs of different use cases, durability levels and recovery modes.
+TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
   Options options = CurrentOptions();
   options.track_and_verify_wals_in_manifest = true;
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;

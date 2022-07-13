@@ -54,7 +54,7 @@ class WalManagerTest : public testing::Test {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
 
     wal_manager_.reset(
         new WalManager(db_options_, env_options_, nullptr /*IOTracer*/));

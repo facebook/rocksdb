@@ -148,7 +148,7 @@ void DbVerificationThread(void* v) {
   }
 }
 
-void SnapshotGcThread(void* v) {
+void TimestampedSnapshotsThread(void* v) {
   assert(FLAGS_create_timestamped_snapshot_one_in > 0);
   auto* thread = reinterpret_cast<ThreadState*>(v);
   assert(thread);
@@ -169,6 +169,14 @@ void SnapshotGcThread(void* v) {
     }
 
     uint64_t now = db_stress_env->NowNanos();
+    std::pair<Status, std::shared_ptr<const Snapshot>> res =
+        stress_test->CreateTimestampedSnapshot(now);
+    if (res.first.ok()) {
+      assert(res.second);
+      assert(res.second->GetTimestamp() == now);
+    } else {
+      assert(!res.second);
+    }
     constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
     stress_test->ReleaseOldTimestampedSnapshots(now - time_diff);
 
@@ -267,14 +275,12 @@ uint32_t GetValueBase(Slice s) {
   return res;
 }
 
-std::string NowNanosStr() {
+std::string GetNowNanos() {
   uint64_t t = db_stress_env->NowNanos();
   std::string ret;
   PutFixed64(&ret, t);
   return ret;
 }
-
-std::string GenerateTimestampForRead() { return NowNanosStr(); }
 
 namespace {
 

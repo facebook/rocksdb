@@ -2897,6 +2897,15 @@ class ModelDB : public DB {
              const Slice& /*v*/) override {
     return Status::NotSupported();
   }
+
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported();
+  }
+
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;
@@ -4271,7 +4280,9 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
         threads.emplace_back([&] {
           for (size_t i = cnt; i < 2 * cnt; i++) {
             auto istr = std::to_string(i);
-            WriteBatch batch;
+            WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                             wopt.protection_bytes_per_key,
+                             0 /* default_cf_ts_sz */);
             ASSERT_OK(batch.Put("a" + istr, "b" + istr));
             ASSERT_OK(
                 dbfull()->WriteImpl(wopt, &batch, nullptr, nullptr, 0, true));
