@@ -284,21 +284,16 @@ class CloudEnvOptions {
   // Default: true
   bool run_purger;
 
-  // An ephemeral clone is a clone that has no destination bucket path. All
-  // updates to this clone are stored locally and not uploaded to cloud.
-  // It is called ephemeral because locally made updates can get lost if
-  // the machines dies.
-  // This flag controls whether the ephemeral db needs to be resynced to
-  // the source cloud bucket at every db open time.
-  // If true,  then the local ephemeral db is re-synced to the src cloud
-  //           bucket every time the db is opened. Any previous writes
-  //           to this ephemeral db are lost.
-  // If false, then the local ephemeral db is initialized from data in the
-  //           src cloud bucket only if the local copy does not exist.
-  //           If the local copy of the db already exists, then no data
-  //           from the src cloud bucket is copied to the local db dir.
-  // Default:  false
-  bool ephemeral_resync_on_open;
+  // If true, we will sync local snapshot(i.e, CLOUDMANIFEST and MANIFEST files)
+  // when opening db from cloud.
+  // Otherwise, we will use local CLOUDMANIFEST and MANIFEST files directly if
+  // present.
+  //
+  // NOTE: if the files are not present locally, we will always fetch
+  // from cloud
+  //
+  // Default: false
+  bool resync_on_open;
 
   // If true, we will skip the dbid verification on startup. This is currently
   // only used in tests and is not recommended setting.
@@ -360,7 +355,7 @@ class CloudEnvOptions {
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
       bool _server_side_encryption = false, std::string _encryption_key_id = "",
       bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
-      bool _run_purger = false, bool _ephemeral_resync_on_open = false,
+      bool _run_purger = false, bool _resync_on_open = false,
       bool _skip_dbid_verification = false,
       bool _use_aws_transfer_manager = false,
       int _number_objects_listed_in_one_iteration = 5000,
@@ -381,7 +376,7 @@ class CloudEnvOptions {
         create_bucket_if_missing(_create_bucket_if_missing),
         request_timeout_ms(_request_timeout_ms),
         run_purger(_run_purger),
-        ephemeral_resync_on_open(_ephemeral_resync_on_open),
+        resync_on_open(_resync_on_open),
         skip_dbid_verification(_skip_dbid_verification),
         use_aws_transfer_manager(_use_aws_transfer_manager),
         number_objects_listed_in_one_iteration(

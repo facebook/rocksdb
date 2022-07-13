@@ -1710,10 +1710,8 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
 
 Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname) {
   std::string cloudmanifest = CloudManifestFile(local_dbname);
-  // If this is an ephemeral replica and resync_on_open is false and we have a
-  // local cloud manifest, do nothing.
-  if (!SrcMatchesDest() && !cloud_env_options.ephemeral_resync_on_open &&
-      GetBaseEnv()->FileExists(cloudmanifest).ok()) {
+  // If resync_on_open is false and we have a local cloud manifest, do nothing.
+  if (!cloud_env_options.resync_on_open && GetBaseEnv()->FileExists(cloudmanifest).ok()) {
     // nothing to do here, we have our cloud manifest
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
         "[cloud_env_impl] FetchCloudManifest: Nothing to do, %s exists and "

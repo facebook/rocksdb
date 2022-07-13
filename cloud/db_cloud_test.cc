@@ -1500,7 +1500,7 @@ TEST_F(CloudTest, EphemeralOnCorruptedDB) {
 //
 TEST_F(CloudTest, EphemeralResync) {
   cloud_env_options_.keep_local_sst_files = true;
-  cloud_env_options_.ephemeral_resync_on_open = true;
+  cloud_env_options_.resync_on_open = true;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   // Create a primary DB with two files
