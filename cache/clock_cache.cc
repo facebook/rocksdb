@@ -584,8 +584,7 @@ void ClockCache::DisownData() {
 }  // namespace clock_cache
 
 std::shared_ptr<Cache> NewClockCache(
-    size_t capacity, size_t /*estimated_value_size*/, int num_shard_bits,
-    bool strict_capacity_limit,
+    size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
   return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit, 0.5,
                      nullptr, kDefaultToAdaptiveMutex, metadata_charge_policy);
