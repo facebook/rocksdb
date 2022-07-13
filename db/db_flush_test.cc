@@ -21,7 +21,6 @@
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
-#include "test_util/sync_point_impl.h"
 #include "test_util/testutil.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
