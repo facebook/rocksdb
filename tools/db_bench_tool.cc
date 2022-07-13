@@ -1569,6 +1569,9 @@ DEFINE_string(
     encryption_method, "",
     "If non-empty, enable encryption with the specific encryption method.");
 
+DEFINE_bool(track_and_verify_wals_in_manifest, false,
+            "If true, enable WAL tracking in the MANIFEST");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -4444,6 +4447,9 @@ class Benchmark {
       }
       options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     }
+
+    options.track_and_verify_wals_in_manifest =
+        FLAGS_track_and_verify_wals_in_manifest;
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;
