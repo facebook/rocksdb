@@ -145,8 +145,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
                                            &user_comparator);
           if (s.ok()) {
             assert(user_comparator);
-            internal_comparator_ =
-                InternalKeyComparator(user_comparator, /*named=*/true);
+            internal_comparator_ = InternalKeyComparator(user_comparator);
           }
         }
       }

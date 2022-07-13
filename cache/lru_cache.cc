@@ -757,6 +757,17 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
   }
 }
 
+std::string LRUCache::GetPrintableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  ret.append(ShardedCache::GetPrintableOptions());
+  if (secondary_cache_) {
+    ret.append("  secondary_cache:\n");
+    ret.append(secondary_cache_->GetPrintableOptions());
+  }
+  return ret;
+}
+
 }  // namespace lru_cache
 
 std::shared_ptr<Cache> NewLRUCache(
