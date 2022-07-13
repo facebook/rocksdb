@@ -452,9 +452,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"prepopulate_blob_cache",
-         {offsetof(struct MutableCFOptions, prepopulate_blob_cache),
-          OptionType::kPrepopulateBlobCache, OptionVerificationType::kNormal,
-          OptionTypeFlags::kMutable}},
+         OptionTypeInfo::Enum<PrepopulateBlobCache>(
+             offsetof(struct MutableCFOptions, prepopulate_blob_cache),
+             &prepopulate_blob_cache_string_map)},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,

@@ -57,7 +57,6 @@ enum class OptionType {
   kEncodedString,
   kTemperature,
   kArray,
-  kPrepopulateBlobCache,
   kUnknown,
 };
 

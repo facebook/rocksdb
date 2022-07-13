@@ -460,11 +460,6 @@ static bool ParseOptionHelper(void* opt_address, const OptionType& opt_type,
       return ParseEnum<Temperature>(temperature_string_map, value,
                                     static_cast<Temperature*>(opt_address));
     }
-    case OptionType::kPrepopulateBlobCache: {
-      return ParseEnum<PrepopulateBlobCache>(
-          prepopulate_blob_cache_string_map, value,
-          static_cast<PrepopulateBlobCache*>(opt_address));
-    }
     default:
       return false;
   }
@@ -557,10 +552,6 @@ bool SerializeSingleOptionHelper(const void* opt_address,
           temperature_string_map, *static_cast<const Temperature*>(opt_address),
           value);
     }
-    case OptionType::kPrepopulateBlobCache:
-      return SerializeEnum<PrepopulateBlobCache>(
-          prepopulate_blob_cache_string_map,
-          *(static_cast<const PrepopulateBlobCache*>(opt_address)), value);
     default:
       return false;
   }
@@ -1237,8 +1228,6 @@ static bool AreOptionsEqual(OptionType type, const void* this_offset,
       return IsOptionEqual<std::string>(this_offset, that_offset);
     case OptionType::kTemperature:
       return IsOptionEqual<Temperature>(this_offset, that_offset);
-    case OptionType::kPrepopulateBlobCache:
-      return IsOptionEqual<PrepopulateBlobCache>(this_offset, that_offset);
     default:
       return false;
   }  // End switch

@@ -4599,13 +4599,6 @@ TEST_F(OptionTypeInfoTest, TestBuiltinEnum) {
                               "EncodingType", iter.first, &e1, &e2);
     ASSERT_EQ(e1, iter.second);
   }
-  for (auto iter : OptionsHelper::prepopulate_blob_cache_string_map) {
-    PrepopulateBlobCache e1, e2;
-    TestParseAndCompareOption(
-        config_options, OptionTypeInfo(0, OptionType::kPrepopulateBlobCache),
-        "PrepopulateBlobCache", iter.first, &e1, &e2);
-    ASSERT_EQ(e1, iter.second);
-  }
 }
 
 TEST_F(OptionTypeInfoTest, TestStruct) {
