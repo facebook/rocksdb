@@ -262,8 +262,6 @@ class InternalKeyComparator
 
   // Same as Compare except that it excludes the value type from comparison
   int CompareKeySeq(const Slice& a, const Slice& b) const;
-  void FindShortestSeparator(std::string* start, const Slice& limit) const;
-  void FindShortSuccessor(std::string* key) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -277,9 +275,6 @@ class InternalKeyComparator
   // value `kDisableGlobalSequenceNumber`.
   int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
               SequenceNumber b_global_seqno) const;
-  virtual const Comparator* GetRootComparator() const {
-    return user_comparator_.GetRootComparator();
-  }
 };
 
 // The class represent the internal key in encoded form.
