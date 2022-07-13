@@ -447,6 +447,46 @@ class CompactionService : public Customizable {
   ~CompactionService() override = default;
 };
 
+enum TraceFilterType : uint64_t {
+  // Trace all the operations
+  kTraceFilterNone = 0x0,
+  // Do not trace the get operations
+  kTraceFilterGet = 0x1 << 0,
+  // Do not trace the write operations
+  kTraceFilterWrite = 0x1 << 1,
+  // Do not trace the `Iterator::Seek()` operations
+  kTraceFilterIteratorSeek = 0x1 << 2,
+  // Do not trace the `Iterator::SeekForPrev()` operations
+  kTraceFilterIteratorSeekForPrev = 0x1 << 3,
+  // Do not trace the `MultiGet()` operations
+  kTraceFilterMultiGet = 0x1 << 4,
+};
+
+// TraceOptions is used for StartTrace
+struct TraceOptions {
+  // To avoid the trace file size grows large than the storage space,
+  // user can set the max trace file size in Bytes. Default is 64GB
+  uint64_t max_trace_file_size = uint64_t{64} * 1024 * 1024 * 1024;
+  // Specify trace sampling option, i.e. capture one per how many requests.
+  // Default to 1 (capture every request).
+  uint64_t sampling_frequency = 1;
+  // Note: The filtering happens before sampling.
+  uint64_t filter = kTraceFilterNone;
+  // When true, the order of write records in the trace will match the order of
+  // the corresponding write records in the WAL and applied to the DB. There may
+  // be a performance penalty associated with preserving this ordering.
+  //
+  // Default: false. This means write records in the trace may be in an order
+  // different from the WAL's order.
+  bool preserve_write_order = false;
+};
+
+struct IOTracingOptions {
+  EnvOptions env_opts;
+  TraceOptions trace_opts;
+  std::string io_trace_file_path = "";
+};
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   // NOT MAINTAINED: This function has not been and is not maintained.
@@ -1390,6 +1430,8 @@ struct DBOptions {
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
   bool enforce_single_del_contracts = true;
+
+  IOTracingOptions* io_trace_opts = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1969,40 +2011,6 @@ struct IngestExternalFileOptions {
   //
   // ingest_behind takes precedence over fail_if_not_bottommost_level.
   bool fail_if_not_bottommost_level = false;
-};
-
-enum TraceFilterType : uint64_t {
-  // Trace all the operations
-  kTraceFilterNone = 0x0,
-  // Do not trace the get operations
-  kTraceFilterGet = 0x1 << 0,
-  // Do not trace the write operations
-  kTraceFilterWrite = 0x1 << 1,
-  // Do not trace the `Iterator::Seek()` operations
-  kTraceFilterIteratorSeek = 0x1 << 2,
-  // Do not trace the `Iterator::SeekForPrev()` operations
-  kTraceFilterIteratorSeekForPrev = 0x1 << 3,
-  // Do not trace the `MultiGet()` operations
-  kTraceFilterMultiGet = 0x1 << 4,
-};
-
-// TraceOptions is used for StartTrace
-struct TraceOptions {
-  // To avoid the trace file size grows large than the storage space,
-  // user can set the max trace file size in Bytes. Default is 64GB
-  uint64_t max_trace_file_size = uint64_t{64} * 1024 * 1024 * 1024;
-  // Specify trace sampling option, i.e. capture one per how many requests.
-  // Default to 1 (capture every request).
-  uint64_t sampling_frequency = 1;
-  // Note: The filtering happens before sampling.
-  uint64_t filter = kTraceFilterNone;
-  // When true, the order of write records in the trace will match the order of
-  // the corresponding write records in the WAL and applied to the DB. There may
-  // be a performance penalty associated with preserving this ordering.
-  //
-  // Default: false. This means write records in the trace may be in an order
-  // different from the WAL's order.
-  bool preserve_write_order = false;
 };
 
 // ImportColumnFamilyOptions is used by ImportColumnFamily()

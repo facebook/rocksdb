@@ -16,6 +16,7 @@ int main() {
 #include <string>
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
@@ -23,6 +24,7 @@ int main() {
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "tools/io_tracer_parser_tool.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -173,6 +175,40 @@ TEST_F(IOTracerParserTest, NoRecordingBeforeStartIOTrace) {
     RunIOTracerParserTool();
   }
 }
+
+TEST_F(IOTracerParserTest, TraceDBOpen) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 13;
+
+  // Add data to create SST files.
+  {
+    WriteOptions write_opt;
+    for (int i = 0; i < 4; i++) {
+      ASSERT_OK(db_->Put(write_opt, "key_" + std::to_string(i),
+                         "value_" + std::to_string(i)));
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    }
+    if (env_->FileExists(trace_file_path_).ok()) {
+      EXPECT_OK(env_->DeleteFile(trace_file_path_));
+    }
+    ASSERT_OK(db_->Close());
+  }
+  {
+    // Reopen DB
+    options.create_if_missing = true;
+    IOTracingOptions io_trace_opts;
+    io_trace_opts.io_trace_file_path = trace_file_path_;
+    options.io_trace_opts = &io_trace_opts;
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    ASSERT_OK(db_->EndIOTrace());
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+
+    RunIOTracerParserTool();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
