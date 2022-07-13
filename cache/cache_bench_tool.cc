@@ -13,6 +13,7 @@
 #include <set>
 #include <sstream>
 
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
@@ -284,7 +285,7 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = NewClockCache(
+      cache_ = ExperimentalNewClockCache(
           FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
           false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
       if (!cache_) {
