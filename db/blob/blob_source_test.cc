@@ -184,9 +184,10 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
-      backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -482,9 +483,10 @@ TEST_F(BlobSourceTest, GetCompressedBlobs) {
   auto backing_cache = NewLRUCache(capacity);  // Blob file cache
 
   FileOptions file_options;
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
-      backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      nullptr /*HistogramImpl*/, nullptr /*IOTracer*/));
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, nullptr /*HistogramImpl*/, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -626,9 +628,10 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromMultiFiles) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
-      backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -808,9 +811,10 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
-      backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -1263,7 +1267,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
  protected:
  public:
   explicit BlobSourceCacheReservationTest()
-      : DBTestBase("blob_source_cache_researvation_test",
+      : DBTestBase("blob_source_cache_reservation_test",
                    /*env_do_fsync=*/true) {
     options_.env = env_;
     options_.enable_blob_files = true;
@@ -1348,9 +1352,11 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
 
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
-      backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -1477,9 +1483,10 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   FileOptions file_options;
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
-  std::unique_ptr<BlobFileCache> blob_file_cache(new BlobFileCache(
-      backing_cache.get(), &immutable_options, &file_options, column_family_id,
-      blob_file_read_hist, nullptr /*IOTracer*/));
+  std::unique_ptr<BlobFileCache> blob_file_cache =
+      std::make_unique<BlobFileCache>(
+          backing_cache.get(), &immutable_options, &file_options,
+          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -1509,8 +1516,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   {
     read_options.fill_cache = true;
 
-    // Since we resized the each blob to be kSizeDummyEntry / (num_blobs
-    // / 2), we should observe cache eviction for the second half blobs.
+    // Since we resized each blob to be kSizeDummyEntry / (num_blobs/ 2), we
+    // should observe cache eviction for the second half blobs.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
