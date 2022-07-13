@@ -57,6 +57,10 @@ class WinEnvThreads {
 
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const;
 
+  int ReserveThreads(int threads_to_be_reserved, Env::Priority pri);
+
+  int ReleaseThreads(int threads_to_be_released, Env::Priority pri);
+
   static uint64_t gettid();
 
   uint64_t GetThreadID() const;
@@ -278,6 +282,10 @@ class WinEnv : public CompositeEnv {
   void WaitForJoin() override;
 
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
+
+  int ReserveThreads(int threads_to_be_reserved, Env::Priority pri) override;
+
+  int ReleaseThreads(int threads_to_be_released, Env::Priority pri) override;
 
   uint64_t GetThreadID() const override;
 

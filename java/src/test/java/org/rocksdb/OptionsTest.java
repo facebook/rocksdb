@@ -275,6 +275,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void experimentalMempurgeThreshold() {
+    try (final Options opt = new Options()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setExperimentalMempurgeThreshold(doubleValue);
+      assertThat(opt.experimentalMempurgeThreshold()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
   public void memtableWholeKeyFiltering() {
     try (final Options opt = new Options()) {
       final boolean booleanValue = rand.nextBoolean();

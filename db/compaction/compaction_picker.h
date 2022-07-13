@@ -217,6 +217,8 @@ class CompactionPicker {
     return &compactions_in_progress_;
   }
 
+  const InternalKeyComparator* icmp() const { return icmp_; }
+
  protected:
   const ImmutableOptions& ioptions_;
 
