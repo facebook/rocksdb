@@ -17,6 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
+// The general interface for comparing two Slices are defined for both of
+// Comparator and some internal data structures.
 class CompareInterface {
  public:
   virtual ~CompareInterface() {}

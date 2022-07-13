@@ -386,7 +386,7 @@ void MergingIterator::SwitchToForward() {
       if (child.status() == Status::TryAgain()) {
         continue;
       }
-      if (child.Valid() && comparator_->Compare(target, child.key()) == 0) {
+      if (child.Valid() && comparator_->Equal(target, child.key())) {
         assert(child.status().ok());
         child.Next();
       }
@@ -397,7 +397,7 @@ void MergingIterator::SwitchToForward() {
   for (auto& child : children_) {
     if (child.status() == Status::TryAgain()) {
       child.Seek(target);
-      if (child.Valid() && comparator_->Compare(target, child.key()) == 0) {
+      if (child.Valid() && comparator_->Equal(target, child.key())) {
         assert(child.status().ok());
         child.Next();
       }
@@ -416,7 +416,7 @@ void MergingIterator::SwitchToBackward() {
     if (&child != current_) {
       child.SeekForPrev(target);
       TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev", &child);
-      if (child.Valid() && comparator_->Compare(target, child.key()) == 0) {
+      if (child.Valid() && comparator_->Equal(target, child.key())) {
         assert(child.status().ok());
         child.Prev();
       }
