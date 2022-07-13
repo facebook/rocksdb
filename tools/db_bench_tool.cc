@@ -1620,6 +1620,9 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
     RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
                           &ValidateTableCacheNumshardbits);
 
+DEFINE_bool(track_and_verify_wals_in_manifest, false,
+            "If true, enable WAL tracking in the MANIFEST");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -4391,6 +4394,9 @@ class Benchmark {
       }
       options.comparator = test::BytewiseComparatorWithU64TsWrapper();
     }
+
+    options.track_and_verify_wals_in_manifest =
+        FLAGS_track_and_verify_wals_in_manifest;
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;
