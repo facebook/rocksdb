@@ -31,7 +31,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 // The maximum length of a varint in bytes for 64-bit.
-const unsigned int kMaxVarint64Length = 10;
+const uint32_t kMaxVarint64Length = 10;
 
 // Standard Put... routines append to a string
 extern void PutFixed16(std::string* dst, uint16_t value);

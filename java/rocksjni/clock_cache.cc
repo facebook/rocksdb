@@ -6,10 +6,12 @@
 // This file implements the "bridge" between Java and C++ for
 // ROCKSDB_NAMESPACE::ClockCache.
 
+#include "cache/clock_cache.h"
+
 #include <jni.h>
 
-#include "cache/clock_cache.h"
 #include "include/org_rocksdb_ClockCache.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_ClockCache
@@ -21,9 +23,11 @@ jlong Java_org_rocksdb_ClockCache_newClockCache(
     jboolean jstrict_capacity_limit) {
   auto* sptr_clock_cache = new std::shared_ptr<ROCKSDB_NAMESPACE::Cache>(
       ROCKSDB_NAMESPACE::NewClockCache(
-          static_cast<size_t>(jcapacity), static_cast<int>(jnum_shard_bits),
-          static_cast<bool>(jstrict_capacity_limit)));
-  return reinterpret_cast<jlong>(sptr_clock_cache);
+          static_cast<size_t>(jcapacity), 1 /* estimated_value_size */,
+          static_cast<int>(jnum_shard_bits),
+          static_cast<bool>(jstrict_capacity_limit),
+          rocksdb::CacheMetadataChargePolicy::kFullChargeCacheMetadata));
+  return GET_CPLUSPLUS_POINTER(sptr_clock_cache);
 }
 
 /*

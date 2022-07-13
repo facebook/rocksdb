@@ -27,19 +27,22 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       bool check_filter, bool need_upper_bound_check,
       const SliceTransform* prefix_extractor, TableReaderCaller caller,
       size_t compaction_readahead_size = 0, bool allow_unprepared_value = false)
-      : table_(table),
+      : index_iter_(std::move(index_iter)),
+        table_(table),
         read_options_(read_options),
         icomp_(icomp),
         user_comparator_(icomp.user_comparator()),
-        index_iter_(std::move(index_iter)),
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
         lookup_context_(caller),
-        block_prefetcher_(compaction_readahead_size),
+        block_prefetcher_(
+            compaction_readahead_size,
+            table_->get_rep()->table_options.initial_auto_readahead_size),
         allow_unprepared_value_(allow_unprepared_value),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
-        need_upper_bound_check_(need_upper_bound_check) {}
+        need_upper_bound_check_(need_upper_bound_check),
+        async_read_in_progress_(false) {}
 
   ~BlockBasedTableIterator() {}
 
@@ -94,6 +97,8 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       return index_iter_->status();
     } else if (block_iter_points_to_real_block_) {
       return block_iter_.status();
+    } else if (async_read_in_progress_) {
+      return Status::TryAgain();
     } else {
       return Status::OK();
     }
@@ -149,6 +154,29 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     }
   }
 
+  void GetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
+    if (block_prefetcher_.prefetch_buffer() != nullptr &&
+        read_options_.adaptive_readahead) {
+      block_prefetcher_.prefetch_buffer()->GetReadaheadState(
+          &(readahead_file_info->data_block_readahead_info));
+      if (index_iter_) {
+        index_iter_->GetReadaheadState(readahead_file_info);
+      }
+    }
+  }
+
+  void SetReadaheadState(ReadaheadFileInfo* readahead_file_info) override {
+    if (read_options_.adaptive_readahead) {
+      block_prefetcher_.SetReadaheadState(
+          &(readahead_file_info->data_block_readahead_info));
+      if (index_iter_) {
+        index_iter_->SetReadaheadState(readahead_file_info);
+      }
+    }
+  }
+
+  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
+
  private:
   enum class IterDirection {
     kForward,
@@ -187,7 +215,6 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   const ReadOptions& read_options_;
   const InternalKeyComparator& icomp_;
   UserComparatorWrapper user_comparator_;
-  std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   DataBlockIter block_iter_;
   const SliceTransform* prefix_extractor_;
@@ -212,10 +239,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
 
+  bool async_read_in_progress_;
+
   // If `target` is null, seek to first.
-  void SeekImpl(const Slice* target);
+  void SeekImpl(const Slice* target, bool async_prefetch);
 
   void InitDataBlock();
+  void AsyncInitDataBlock(bool is_first_pass);
   bool MaterializeCurrentBlock();
   void FindKeyForward();
   void FindBlockForward();
@@ -235,9 +265,9 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
       // check.
       return true;
     }
-    if (check_filter_ &&
-        !table_->PrefixMayMatch(ikey, read_options_, prefix_extractor_,
-                                need_upper_bound_check_, &lookup_context_)) {
+    if (check_filter_ && !table_->PrefixRangeMayMatch(
+                             ikey, read_options_, prefix_extractor_,
+                             need_upper_bound_check_, &lookup_context_)) {
       // TODO remember the iterator is invalidated because of prefix
       // match. This can avoid the upper level file iterator to falsely
       // believe the position is the end of the SST file and move to

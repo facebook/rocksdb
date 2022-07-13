@@ -9,7 +9,10 @@
 #include "db/dbformat.h"
 
 #include <stdio.h>
+
 #include <cinttypes>
+
+#include "db/lookup_key.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/coding.h"
@@ -23,8 +26,9 @@ namespace ROCKSDB_NAMESPACE {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
+const ValueType kValueTypeForSeek = kTypeWideColumnEntity;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
+const std::string kDisableUserTimestamp("");
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {
@@ -42,21 +46,11 @@ EntryType GetEntryType(ValueType value_type) {
       return kEntryRangeDeletion;
     case kTypeBlobIndex:
       return kEntryBlobIndex;
+    case kTypeWideColumnEntity:
+      return kEntryWideColumnEntity;
     default:
       return kEntryOther;
   }
-}
-
-bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
-  ParsedInternalKey ikey;
-  if (!ParseInternalKey(internal_key, &ikey, false /*log_err_key */)
-           .ok()) {  // TODO
-    return false;
-  }
-  fkey->user_key = ikey.user_key;
-  fkey->sequence = ikey.sequence;
-  fkey->type = GetEntryType(ikey.type);
-  return true;
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
@@ -123,10 +117,7 @@ std::string InternalKey::DebugString(bool hex) const {
 }
 
 const char* InternalKeyComparator::Name() const {
-  if (name_.empty()) {
-    return "rocksdb.anonymous.InternalKeyComparator";
-  }
-  return name_.c_str();
+  return "rocksdb.anonymous.InternalKeyComparator";
 }
 
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,

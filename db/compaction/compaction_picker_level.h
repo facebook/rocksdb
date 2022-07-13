@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 // for description of Leveled compaction.
 class LevelCompactionPicker : public CompactionPicker {
  public:
-  LevelCompactionPicker(const ImmutableCFOptions& ioptions,
+  LevelCompactionPicker(const ImmutableOptions& ioptions,
                         const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
   virtual Compaction* PickCompaction(

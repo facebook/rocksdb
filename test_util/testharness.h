@@ -15,12 +15,41 @@
 #include <gtest/gtest.h>
 #endif
 
-// If GTEST_SKIP is available, use it. Otherwise, define skip as success
+// A "skipped" test has a specific meaning in Facebook infrastructure: the
+// test is in good shape and should be run, but something about the
+// compilation or execution environment means the test cannot be run.
+// Specifically, there is a hole in intended testing if any
+// parameterization of a test (e.g. Foo/FooTest.Bar/42) is skipped for all
+// tested build configurations/platforms/etc.
+//
+// If GTEST_SKIP is available, use it. Otherwise, define skip as success.
+//
+// The GTEST macros do not seem to print the message, even with -verbose,
+// so these print to stderr. Note that these do not exit the test themselves;
+// calling code should 'return' or similar from the test.
 #ifdef GTEST_SKIP_
-#define ROCKSDB_GTEST_SKIP(m) GTEST_SKIP_(m)
+#define ROCKSDB_GTEST_SKIP(m)          \
+  do {                                 \
+    fputs("SKIPPED: " m "\n", stderr); \
+    GTEST_SKIP_(m);                    \
+  } while (false) /* user ; */
 #else
-#define ROCKSDB_GTEST_SKIP(m) GTEST_SUCCESS_("SKIPPED: " m)
+#define ROCKSDB_GTEST_SKIP(m)          \
+  do {                                 \
+    fputs("SKIPPED: " m "\n", stderr); \
+    GTEST_SUCCESS_("SKIPPED: " m);     \
+  } while (false) /* user ; */
 #endif
+
+// We add "bypass" as an alternative to ROCKSDB_GTEST_SKIP that is allowed to
+// be a permanent condition, e.g. for intentionally omitting or disabling some
+// parameterizations for some tests. (Use _DISABLED at the end of the test
+// name to disable an entire test.)
+#define ROCKSDB_GTEST_BYPASS(m)         \
+  do {                                  \
+    fputs("BYPASSED: " m "\n", stderr); \
+    GTEST_SUCCESS_("BYPASSED: " m);     \
+  } while (false) /* user ; */
 
 #include <string>
 #include "rocksdb/env.h"
@@ -49,5 +78,40 @@ int RandomSeed();
 #define EXPECT_OK(s) \
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
+
+// Useful for testing
+// * No need to deal with Status like in Regex public API
+// * No triggering lint reports on use of std::regex in tests
+// * Available in LITE (unlike public API)
+class TestRegex {
+ public:
+  // These throw on bad pattern
+  /*implicit*/ TestRegex(const std::string& pattern);
+  /*implicit*/ TestRegex(const char* pattern);
+
+  // Checks that the whole of str is matched by this regex
+  bool Matches(const std::string& str) const;
+
+  const std::string& GetPattern() const;
+
+ private:
+  class Impl;
+  std::shared_ptr<Impl> impl_;  // shared_ptr for simple implementation
+  std::string pattern_;
+};
+
+::testing::AssertionResult AssertMatchesRegex(const char* str_expr,
+                                              const char* pattern_expr,
+                                              const std::string& str,
+                                              const TestRegex& pattern);
+
+#define ASSERT_MATCHES_REGEX(str, pattern) \
+  ASSERT_PRED_FORMAT2(ROCKSDB_NAMESPACE::test::AssertMatchesRegex, str, pattern)
+#define EXPECT_MATCHES_REGEX(str, pattern) \
+  EXPECT_PRED_FORMAT2(ROCKSDB_NAMESPACE::test::AssertMatchesRegex, str, pattern)
+
 }  // namespace test
+
+using test::TestRegex;
+
 }  // namespace ROCKSDB_NAMESPACE

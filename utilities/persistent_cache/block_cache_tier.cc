@@ -6,7 +6,6 @@
 
 #include "utilities/persistent_cache/block_cache_tier.h"
 
-#include <regex>
 #include <utility>
 #include <vector>
 

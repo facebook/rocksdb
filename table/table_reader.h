@@ -10,6 +10,10 @@
 #pragma once
 #include <memory>
 #include "db/range_tombstone_fragmenter.h"
+#if USE_COROUTINES
+#include "folly/experimental/coro/Coroutine.h"
+#include "folly/experimental/coro/Task.h"
+#endif
 #include "rocksdb/slice_transform.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -119,6 +123,15 @@ class TableReader {
                      prefix_extractor, skip_filters);
     }
   }
+
+#if USE_COROUTINES
+  virtual folly::coro::Task<void> MultiGetCoroutine(
+      const ReadOptions& readOptions, const MultiGetContext::Range* mget_range,
+      const SliceTransform* prefix_extractor, bool skip_filters = false) {
+    MultiGet(readOptions, mget_range, prefix_extractor, skip_filters);
+    co_return;
+  }
+#endif  // USE_COROUTINES
 
   // Prefetch data corresponding to a give range of keys
   // Typically this functionality is required for table implementations that

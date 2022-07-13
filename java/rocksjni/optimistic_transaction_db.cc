@@ -6,14 +6,14 @@
 // This file implements the "bridge" between Java and C++
 // for ROCKSDB_NAMESPACE::TransactionDB.
 
+#include "rocksdb/utilities/optimistic_transaction_db.h"
+
 #include <jni.h>
 
 #include "include/org_rocksdb_OptimisticTransactionDB.h"
-
 #include "rocksdb/options.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/transaction.h"
-
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -38,7 +38,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2(
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   if (s.ok()) {
-    return reinterpret_cast<jlong>(otdb);
+    return GET_CPLUSPLUS_POINTER(otdb);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -194,7 +194,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJ(
       reinterpret_cast<ROCKSDB_NAMESPACE::WriteOptions*>(jwrite_options_handle);
   ROCKSDB_NAMESPACE::Transaction* txn =
       optimistic_txn_db->BeginTransaction(*write_options);
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -214,7 +214,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction__JJJ(
           joptimistic_txn_options_handle);
   ROCKSDB_NAMESPACE::Transaction* txn = optimistic_txn_db->BeginTransaction(
       *write_options, *optimistic_txn_options);
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -240,7 +240,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJ(
   // when providing an old_optimistic_txn
   assert(txn == old_txn);
 
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -268,7 +268,7 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
   // when providing an old_optimisic_txn
   assert(txn == old_txn);
 
-  return reinterpret_cast<jlong>(txn);
+  return GET_CPLUSPLUS_POINTER(txn);
 }
 
 /*
@@ -280,5 +280,5 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(
     JNIEnv*, jobject, jlong jhandle) {
   auto* optimistic_txn_db =
       reinterpret_cast<ROCKSDB_NAMESPACE::OptimisticTransactionDB*>(jhandle);
-  return reinterpret_cast<jlong>(optimistic_txn_db->GetBaseDB());
+  return GET_CPLUSPLUS_POINTER(optimistic_txn_db->GetBaseDB());
 }

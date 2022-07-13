@@ -14,7 +14,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Cache;
-struct ImmutableCFOptions;
+struct ImmutableOptions;
 struct FileOptions;
 class HistogramImpl;
 class Status;
@@ -24,7 +24,7 @@ class IOTracer;
 
 class BlobFileCache {
  public:
-  BlobFileCache(Cache* cache, const ImmutableCFOptions* immutable_cf_options,
+  BlobFileCache(Cache* cache, const ImmutableOptions* immutable_options,
                 const FileOptions* file_options, uint32_t column_family_id,
                 HistogramImpl* blob_file_read_hist,
                 const std::shared_ptr<IOTracer>& io_tracer);
@@ -40,7 +40,7 @@ class BlobFileCache {
   // Note: mutex_ below is used to guard against multiple threads racing to open
   // the same file.
   Striped<port::Mutex, Slice> mutex_;
-  const ImmutableCFOptions* immutable_cf_options_;
+  const ImmutableOptions* immutable_options_;
   const FileOptions* file_options_;
   uint32_t column_family_id_;
   HistogramImpl* blob_file_read_hist_;

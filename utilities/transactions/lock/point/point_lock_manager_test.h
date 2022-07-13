@@ -78,7 +78,7 @@ class PointLockManagerTest : public testing::Test {
   TransactionDB* db_;
 };
 
-typedef void (*init_func_t)(PointLockManagerTest*);
+using init_func_t = void (*)(PointLockManagerTest*);
 
 class AnyLockManagerTest : public PointLockManagerTest,
                            public testing::WithParamInterface<init_func_t> {

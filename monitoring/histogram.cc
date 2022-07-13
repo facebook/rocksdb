@@ -10,6 +10,8 @@
 #include "monitoring/histogram.h"
 
 #include <stdio.h>
+
+#include <algorithm>
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
@@ -23,9 +25,9 @@ HistogramBucketMapper::HistogramBucketMapper() {
   // If you change this, you also need to change
   // size of array buckets_ in HistogramImpl
   bucketValues_ = {1, 2};
-  valueIndexMap_ = {{1, 0}, {2, 1}};
   double bucket_val = static_cast<double>(bucketValues_.back());
-  while ((bucket_val = 1.5 * bucket_val) <= static_cast<double>(port::kMaxUint64)) {
+  while ((bucket_val = 1.5 * bucket_val) <=
+         static_cast<double>(std::numeric_limits<uint64_t>::max())) {
     bucketValues_.push_back(static_cast<uint64_t>(bucket_val));
     // Extracts two most significant digits to make histogram buckets more
     // human-readable. E.g., 172 becomes 170.
@@ -35,26 +37,18 @@ HistogramBucketMapper::HistogramBucketMapper() {
       pow_of_ten *= 10;
     }
     bucketValues_.back() *= pow_of_ten;
-    valueIndexMap_[bucketValues_.back()] = bucketValues_.size() - 1;
   }
   maxBucketValue_ = bucketValues_.back();
   minBucketValue_ = bucketValues_.front();
 }
 
 size_t HistogramBucketMapper::IndexForValue(const uint64_t value) const {
-  if (value >= maxBucketValue_) {
-    return bucketValues_.size() - 1;
-  } else if ( value >= minBucketValue_ ) {
-    std::map<uint64_t, uint64_t>::const_iterator lowerBound =
-      valueIndexMap_.lower_bound(value);
-    if (lowerBound != valueIndexMap_.end()) {
-      return static_cast<size_t>(lowerBound->second);
-    } else {
-      return 0;
-    }
-  } else {
-    return 0;
-  }
+  auto beg = bucketValues_.begin();
+  auto end = bucketValues_.end();
+  if (value >= maxBucketValue_)
+    return end - beg - 1;  // bucketValues_.size() - 1
+  else
+    return std::lower_bound(beg, end, value) - beg;
 }
 
 namespace {
@@ -170,15 +164,16 @@ double HistogramStat::Average() const {
 }
 
 double HistogramStat::StandardDeviation() const {
-  uint64_t cur_num = num();
-  uint64_t cur_sum = sum();
-  uint64_t cur_sum_squares = sum_squares();
+  double cur_num =
+      static_cast<double>(num());  // Use double to avoid integer overflow
+  double cur_sum = static_cast<double>(sum());
+  double cur_sum_squares = static_cast<double>(sum_squares());
   if (cur_num == 0) return 0;
   double variance =
-      static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
-      static_cast<double>(cur_num * cur_num);
+      (cur_sum_squares * cur_num - cur_sum * cur_sum) / (cur_num * cur_num);
   return std::sqrt(variance);
 }
+
 std::string HistogramStat::ToString() const {
   uint64_t cur_num = num();
   std::string r;

@@ -175,6 +175,13 @@ public enum HistogramType {
    */
   NUM_SST_READ_PER_LEVEL((byte) 0x31),
 
+  /**
+   * The number of retry in auto resume
+   */
+  ERROR_HANDLER_AUTORESUME_RETRY_COUNT((byte) 0x32),
+
+  ASYNC_READ_BYTES((byte) 0x33),
+
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);
 

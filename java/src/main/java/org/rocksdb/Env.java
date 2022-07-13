@@ -43,8 +43,8 @@ public abstract class Env extends RocksObject {
   }
 
   /**
-   * <p>Sets the number of background worker threads of the flush pool
-   * for this environment.</p>
+   * <p>Sets the number of background worker threads of the low priority
+   * pool for this environment.</p>
    * <p>Default number: 1</p>
    *
    * @param number the number of threads

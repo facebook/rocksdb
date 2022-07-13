@@ -19,6 +19,8 @@
 #include <thread>
 #include <vector>
 
+#include "db/db_test_util.h"
+#include "env/emulated_clock.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -29,25 +31,6 @@
 #include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
-namespace {
-class NoSleepClock : public SystemClockWrapper {
- public:
-  NoSleepClock(
-      const std::shared_ptr<SystemClock>& base = SystemClock::Default())
-      : SystemClockWrapper(base) {}
-  const char* Name() const override { return "NoSleepClock"; }
-  void SleepForMicroseconds(int micros) override {
-    fake_time_ += static_cast<uint64_t>(micros);
-  }
-
-  uint64_t NowNanos() override { return fake_time_ * 1000; }
-
-  uint64_t NowMicros() override { return fake_time_; }
-
- private:
-  uint64_t fake_time_ = 6666666666;
-};
-}  // namespace
 
 // In this test we only want to Log some simple log message with
 // no format. LogMessage() provides such a simple interface and
@@ -67,18 +50,28 @@ void LogMessage(const InfoLogLevel log_level, Logger* logger,
 class AutoRollLoggerTest : public testing::Test {
  public:
   static void InitTestDb() {
+    // TODO replace the `system` calls with Env/FileSystem APIs.
 #ifdef OS_WIN
     // Replace all slashes in the path so windows CompSpec does not
     // become confused
+    std::string testDbDir(kTestDbDir);
+    std::replace_if(
+        testDbDir.begin(), testDbDir.end(), [](char ch) { return ch == '/'; },
+        '\\');
+    std::string deleteDbDirCmd =
+        "if exist " + testDbDir + " rd /s /q " + testDbDir;
+    ASSERT_TRUE(system(deleteDbDirCmd.c_str()) == 0);
+
     std::string testDir(kTestDir);
     std::replace_if(testDir.begin(), testDir.end(),
                     [](char ch) { return ch == '/'; }, '\\');
     std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
 #else
-    std::string deleteCmd = "rm -rf " + kTestDir;
+    std::string deleteCmd = "rm -rf " + kTestDir + " " + kTestDbDir;
 #endif
     ASSERT_TRUE(system(deleteCmd.c_str()) == 0);
     ASSERT_OK(Env::Default()->CreateDir(kTestDir));
+    ASSERT_OK(Env::Default()->CreateDir(kTestDbDir));
   }
 
   void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
@@ -125,6 +118,7 @@ class AutoRollLoggerTest : public testing::Test {
 
   static const std::string kSampleMessage;
   static const std::string kTestDir;
+  static const std::string kTestDbDir;
   static const std::string kLogFile;
   static Env* default_env;
 };
@@ -133,6 +127,8 @@ const std::string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
 const std::string AutoRollLoggerTest::kTestDir(
     test::PerThreadDBPath("db_log_test"));
+const std::string AutoRollLoggerTest::kTestDbDir(
+    test::PerThreadDBPath("db_log_test_db"));
 const std::string AutoRollLoggerTest::kLogFile(
     test::PerThreadDBPath("db_log_test") + "/LOG");
 Env* AutoRollLoggerTest::default_env = Env::Default();
@@ -218,7 +214,8 @@ TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
-  auto nsc = std::make_shared<NoSleepClock>();
+  auto nsc =
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
 
   size_t time = 2;
   size_t log_size = 1024 * 5;
@@ -287,7 +284,8 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 
   InitTestDb();
 
-  auto nsc = std::make_shared<NoSleepClock>();
+  auto nsc =
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
   AutoRollLogger logger(FileSystem::Default(), nsc, kTestDir, "", log_max_size,
                         time, keep_log_file_num);
 
@@ -305,7 +303,8 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 // port
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
-  auto nsc = std::make_shared<NoSleepClock>();
+  auto nsc =
+      std::make_shared<EmulatedSystemClock>(SystemClock::Default(), true);
   std::unique_ptr<Env> nse(new CompositeEnvWrapper(Env::Default(), nsc));
 
   std::shared_ptr<Logger> logger;
@@ -385,7 +384,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     options.log_file_time_to_roll = 2;
     options.keep_log_file_num = kFileNum;
     options.db_log_dir = kTestDir;
-    ASSERT_OK(CreateLoggerFromOptions("/dummy/db/name", options, &logger));
+    ASSERT_OK(CreateLoggerFromOptions(kTestDbDir, options, &logger));
     auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
 
     // Roll the log 4 times, and it will trim to 3 files.
@@ -401,7 +400,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     std::vector<std::string> files = GetLogFiles();
     ASSERT_EQ(kFileNum, files.size());
     for (const auto& f : files) {
-      ASSERT_TRUE(f.find("dummy") != std::string::npos);
+      ASSERT_TRUE(f.find("db_log_test_db") != std::string::npos);
     }
 
     // Cleaning up those files.
@@ -686,6 +685,50 @@ TEST_F(AutoRollLoggerTest, FileCreateFailure) {
   ASSERT_NOK(CreateLoggerFromOptions("", options, &logger));
   ASSERT_TRUE(!logger);
 }
+
+TEST_F(AutoRollLoggerTest, RenameOnlyWhenExists) {
+  InitTestDb();
+  SpecialEnv env(Env::Default());
+  Options options;
+  options.env = &env;
+
+  // Originally no LOG exists. Should not see a rename.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_EQ(0, env.rename_count_);
+  }
+
+  // Now a LOG exists. Create a new one should see a rename.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_EQ(1, env.rename_count_);
+  }
+}
+
+TEST_F(AutoRollLoggerTest, RenameError) {
+  InitTestDb();
+  SpecialEnv env(Env::Default());
+  env.rename_error_ = true;
+  Options options;
+  options.env = &env;
+
+  // Originally no LOG exists. Should not be impacted by rename error.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_TRUE(logger != nullptr);
+  }
+
+  // Now a LOG exists. Rename error should cause failure.
+  {
+    std::shared_ptr<Logger> logger;
+    ASSERT_NOK(CreateLoggerFromOptions(kTestDir, options, &logger));
+    ASSERT_TRUE(logger == nullptr);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

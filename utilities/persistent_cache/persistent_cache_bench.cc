@@ -127,7 +127,7 @@ class CacheTierBenchmark {
           std::bind(&CacheTierBenchmark::Read, this));
 
     // Wait till FLAGS_nsec and then signal to quit
-    StopWatchNano t(SystemClock::Default(), /*auto_start=*/true);
+    StopWatchNano t(SystemClock::Default().get(), /*auto_start=*/true);
     size_t sec = t.ElapsedNanos() / 1000000000ULL;
     while (!quit_) {
       sec = t.ElapsedNanos() / 1000000000ULL;
@@ -194,7 +194,7 @@ class CacheTierBenchmark {
     auto block = NewBlock(key);
 
     // insert
-    StopWatchNano timer(SystemClock::Default(), /*auto_start=*/true);
+    StopWatchNano timer(SystemClock::Default().get(), /*auto_start=*/true);
     while (true) {
       Status status = cache_->Insert(block_key, block.get(), FLAGS_iosize);
       if (status.ok()) {
@@ -226,7 +226,7 @@ class CacheTierBenchmark {
     Slice key = FillKey(k, val);
 
     // Lookup in cache
-    StopWatchNano timer(SystemClock::Default(), /*auto_start=*/true);
+    StopWatchNano timer(SystemClock::Default().get(), /*auto_start=*/true);
     std::unique_ptr<char[]> block;
     size_t size;
     Status status = cache_->Lookup(key, &block, &size);

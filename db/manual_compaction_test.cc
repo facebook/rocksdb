@@ -13,7 +13,19 @@
 #include "rocksdb/write_batch.h"
 #include "test_util/testharness.h"
 
-using namespace ROCKSDB_NAMESPACE;
+using ROCKSDB_NAMESPACE::CompactionFilter;
+using ROCKSDB_NAMESPACE::CompactionStyle;
+using ROCKSDB_NAMESPACE::CompactRangeOptions;
+using ROCKSDB_NAMESPACE::CompressionType;
+using ROCKSDB_NAMESPACE::DB;
+using ROCKSDB_NAMESPACE::DestroyDB;
+using ROCKSDB_NAMESPACE::FlushOptions;
+using ROCKSDB_NAMESPACE::Iterator;
+using ROCKSDB_NAMESPACE::Options;
+using ROCKSDB_NAMESPACE::ReadOptions;
+using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::WriteBatch;
+using ROCKSDB_NAMESPACE::WriteOptions;
 
 namespace {
 
@@ -38,7 +50,8 @@ class ManualCompactionTest : public testing::Test {
  public:
   ManualCompactionTest() {
     // Get rid of any state from an old run.
-    dbname_ = test::PerThreadDBPath("rocksdb_manual_compaction_test");
+    dbname_ = ROCKSDB_NAMESPACE::test::PerThreadDBPath(
+        "rocksdb_manual_compaction_test");
     DestroyDB(dbname_, Options());
   }
 
@@ -91,12 +104,12 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     Options options;
     if (iter == 0) { // level compaction
       options.num_levels = 3;
-      options.compaction_style = kCompactionStyleLevel;
+      options.compaction_style = CompactionStyle::kCompactionStyleLevel;
     } else { // universal compaction
-      options.compaction_style = kCompactionStyleUniversal;
+      options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
     }
     options.create_if_missing = true;
-    options.compression = kNoCompression;
+    options.compression = CompressionType::kNoCompression;
     options.compaction_filter = new DestroyAllCompactionFilter();
     ASSERT_OK(DB::Open(options, dbname_, &db));
 
@@ -129,7 +142,7 @@ TEST_F(ManualCompactionTest, Test) {
   Options db_options;
   db_options.write_buffer_size = 1024;
   db_options.create_if_missing = true;
-  db_options.compression = kNoCompression;
+  db_options.compression = CompressionType::kNoCompression;
   ASSERT_OK(DB::Open(db_options, dbname_, &db));
 
   // create first key range
@@ -182,9 +195,9 @@ TEST_F(ManualCompactionTest, SkipLevel) {
   options.num_levels = 3;
   // Initially, flushed L0 files won't exceed 100.
   options.level0_file_num_compaction_trigger = 100;
-  options.compaction_style = kCompactionStyleLevel;
+  options.compaction_style = CompactionStyle::kCompactionStyleLevel;
   options.create_if_missing = true;
-  options.compression = kNoCompression;
+  options.compression = CompressionType::kNoCompression;
   LogCompactionFilter* filter = new LogCompactionFilter();
   options.compaction_filter = filter;
   ASSERT_OK(DB::Open(options, dbname_, &db));

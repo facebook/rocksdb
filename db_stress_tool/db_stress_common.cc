@@ -16,12 +16,11 @@
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
+ROCKSDB_NAMESPACE::Env* db_stress_listener_env = nullptr;
 ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
-#ifndef NDEBUG
 // If non-null, injects read error at a rate specified by the
 // read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
-#endif // NDEBUG
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
@@ -30,7 +29,7 @@ enum ROCKSDB_NAMESPACE::ChecksumType checksum_type_e =
     ROCKSDB_NAMESPACE::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;
 std::vector<double> sum_probs(100001);
-int64_t zipf_sum_size = 100000;
+constexpr int64_t zipf_sum_size = 100000;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -149,6 +148,42 @@ void DbVerificationThread(void* v) {
   }
 }
 
+void TimestampedSnapshotsThread(void* v) {
+  assert(FLAGS_create_timestamped_snapshot_one_in > 0);
+  auto* thread = reinterpret_cast<ThreadState*>(v);
+  assert(thread);
+  SharedState* shared = thread->shared;
+  assert(shared);
+  StressTest* stress_test = shared->GetStressTest();
+  assert(stress_test);
+  while (true) {
+    {
+      MutexLock l(shared->GetMutex());
+      if (shared->ShouldStopBgThread()) {
+        shared->IncBgThreadsFinished();
+        if (shared->BgThreadsFinished()) {
+          shared->GetCondVar()->SignalAll();
+        }
+        return;
+      }
+    }
+
+    uint64_t now = db_stress_env->NowNanos();
+    std::pair<Status, std::shared_ptr<const Snapshot>> res =
+        stress_test->CreateTimestampedSnapshot(now);
+    if (res.first.ok()) {
+      assert(res.second);
+      assert(res.second->GetTimestamp() == now);
+    } else {
+      assert(!res.second);
+    }
+    constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
+    stress_test->ReleaseOldTimestampedSnapshots(now - time_diff);
+
+    db_stress_env->SleepForMicroseconds(1000 * 1000);
+  }
+}
+
 void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz) {
   if (!FLAGS_verbose) {
     return;
@@ -225,12 +260,26 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
       ((rand % kRandomValueMaxFactor) + 1) * FLAGS_value_size_mult;
   assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
   (void)max_sz;
-  *((uint32_t*)v) = rand;
+  PutUnaligned(reinterpret_cast<uint32_t*>(v), rand);
   for (size_t i = sizeof(uint32_t); i < value_sz; i++) {
     v[i] = (char)(rand ^ i);
   }
   v[value_sz] = '\0';
   return value_sz;  // the size of the value set.
+}
+
+uint32_t GetValueBase(Slice s) {
+  assert(s.size() >= sizeof(uint32_t));
+  uint32_t res;
+  GetUnaligned(reinterpret_cast<const uint32_t*>(s.data()), &res);
+  return res;
+}
+
+std::string GetNowNanos() {
+  uint64_t t = db_stress_env->NowNanos();
+  std::string ret;
+  PutFixed64(&ret, t);
+  return ret;
 }
 
 namespace {

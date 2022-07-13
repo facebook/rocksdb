@@ -49,8 +49,6 @@ bool SortList::PartialMergeMulti(const Slice& /*key*/,
   return true;
 }
 
-const char* SortList::Name() const { return "MergeSortOperator"; }
-
 void SortList::MakeVector(std::vector<int>& operand, Slice slice) const {
   do {
     const char* begin = slice.data_;

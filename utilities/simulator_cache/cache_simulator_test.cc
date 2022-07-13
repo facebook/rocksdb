@@ -6,7 +6,9 @@
 #include "utilities/simulator_cache/cache_simulator.h"
 
 #include <cstdlib>
+
 #include "rocksdb/env.h"
+#include "rocksdb/trace_record.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 

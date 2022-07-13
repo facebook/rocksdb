@@ -12,7 +12,6 @@ cp -r /rocksdb-host/* /rocksdb-local-build
 cd /rocksdb-local-build
 
 make clean-not-downloaded
-PORTABLE=1 make rocksdbjavastatic
+PORTABLE=1 make -j2 rocksdbjavastatic
 
-cp java/target/librocksdbjni-linux*.so java/target/rocksdbjni-*-linux*.jar java/target/rocksdbjni-*-linux*.jar.sha1x /rocksdb-java-target
-
+cp java/target/librocksdbjni-linux*.so java/target/rocksdbjni-*-linux*.jar java/target/rocksdbjni-*-linux*.jar.sha1 /rocksdb-java-target

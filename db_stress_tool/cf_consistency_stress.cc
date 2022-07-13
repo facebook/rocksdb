@@ -18,6 +18,8 @@ class CfConsistencyStressTest : public StressTest {
 
   ~CfConsistencyStressTest() override {}
 
+  bool IsStateTracked() const override { return false; }
+
   Status TestPut(ThreadState* thread, WriteOptions& write_opts,
                  const ReadOptions& /* read_opts */,
                  const std::vector<int>& rand_column_families,
@@ -212,12 +214,15 @@ class CfConsistencyStressTest : public StressTest {
     std::vector<PinnableSlice> values(num_keys);
     std::vector<Status> statuses(num_keys);
     ColumnFamilyHandle* cfh = column_families_[rand_column_families[0]];
+    ReadOptions readoptionscopy = read_opts;
+    readoptionscopy.rate_limiter_priority =
+        FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
 
     for (size_t i = 0; i < num_keys; ++i) {
       key_str.emplace_back(Key(rand_keys[i]));
       keys.emplace_back(key_str.back());
     }
-    db_->MultiGet(read_opts, cfh, num_keys, keys.data(), values.data(),
+    db_->MultiGet(readoptionscopy, cfh, num_keys, keys.data(), values.data(),
                   statuses.data());
     for (auto s : statuses) {
       if (s.ok()) {
@@ -284,6 +289,8 @@ class CfConsistencyStressTest : public StressTest {
   }
 
   void VerifyDb(ThreadState* thread) const override {
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions options(FLAGS_verify_checksum, true);
     // We must set total_order_seek to true because we are doing a SeekToFirst
     // on a column family whose memtables may support (by default) prefix-based
@@ -444,21 +451,24 @@ class CfConsistencyStressTest : public StressTest {
 
     DB* db_ptr = cmp_db_ ? cmp_db_ : db_;
     const auto& cfhs = cmp_db_ ? cmp_cfhs_ : column_families_;
-    const auto ss_deleter = [&](const Snapshot* ss) {
-      db_ptr->ReleaseSnapshot(ss);
-    };
-    std::unique_ptr<const Snapshot, decltype(ss_deleter)> snapshot_guard(
-        db_ptr->GetSnapshot(), ss_deleter);
-    if (cmp_db_) {
-      status = cmp_db_->TryCatchUpWithPrimary();
-    }
+
+    // Take a snapshot to preserve the state of primary db.
+    ManagedSnapshot snapshot_guard(db_);
+
     SharedState* shared = thread->shared;
     assert(shared);
-    if (!status.ok()) {
-      shared->SetShouldStopTest();
-      return;
+
+    if (cmp_db_) {
+      status = cmp_db_->TryCatchUpWithPrimary();
+      if (!status.ok()) {
+        fprintf(stderr, "TryCatchUpWithPrimary: %s\n",
+                status.ToString().c_str());
+        shared->SetShouldStopTest();
+        assert(false);
+        return;
+      }
     }
-    assert(cmp_db_ || snapshot_guard.get());
+
     const auto checksum_column_family = [](Iterator* iter,
                                            uint32_t* checksum) -> Status {
       assert(nullptr != checksum);
@@ -470,17 +480,31 @@ class CfConsistencyStressTest : public StressTest {
       *checksum = ret;
       return iter->status();
     };
-    ReadOptions ropts;
+    // This `ReadOptions` is for validation purposes. Ignore
+    // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
+    ReadOptions ropts(FLAGS_verify_checksum, true);
     ropts.total_order_seek = true;
-    ropts.snapshot = snapshot_guard.get();
+    if (nullptr == cmp_db_) {
+      ropts.snapshot = snapshot_guard.snapshot();
+    }
     uint32_t crc = 0;
     {
       // Compute crc for all key-values of default column family.
       std::unique_ptr<Iterator> it(db_ptr->NewIterator(ropts));
       status = checksum_column_family(it.get(), &crc);
+      if (!status.ok()) {
+        fprintf(stderr, "Computing checksum of default cf: %s\n",
+                status.ToString().c_str());
+        assert(false);
+      }
     }
-    uint32_t tmp_crc = 0;
-    if (status.ok()) {
+    // Since we currently intentionally disallow reading from the secondary
+    // instance with snapshot, we cannot achieve cross-cf consistency if WAL is
+    // enabled because there is no guarantee that secondary instance replays
+    // the primary's WAL to a consistent point where all cfs have the same
+    // data.
+    if (status.ok() && FLAGS_disable_wal) {
+      uint32_t tmp_crc = 0;
       for (ColumnFamilyHandle* cfh : cfhs) {
         if (cfh == db_ptr->DefaultColumnFamily()) {
           continue;
@@ -491,11 +515,19 @@ class CfConsistencyStressTest : public StressTest {
           break;
         }
       }
-    }
-    if (!status.ok() || tmp_crc != crc) {
-      shared->SetShouldStopTest();
+      if (!status.ok()) {
+        fprintf(stderr, "status: %s\n", status.ToString().c_str());
+        shared->SetShouldStopTest();
+        assert(false);
+      } else if (tmp_crc != crc) {
+        fprintf(stderr, "tmp_crc=%" PRIu32 " crc=%" PRIu32 "\n", tmp_crc, crc);
+        shared->SetShouldStopTest();
+        assert(false);
+      }
     }
   }
+#else   // ROCKSDB_LITE
+  void ContinuouslyVerifyDb(ThreadState* /*thread*/) const override {}
 #endif  // !ROCKSDB_LITE
 
   std::vector<int> GenerateColumnFamilies(

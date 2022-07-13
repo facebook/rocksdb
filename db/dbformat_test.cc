@@ -8,7 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/dbformat.h"
+
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -202,5 +204,6 @@ TEST_F(FormatTest, RangeTombstoneSerializeEndKey) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -26,8 +26,7 @@ class SystemClock;
 namespace port {
 class WinLogger : public ROCKSDB_NAMESPACE::Logger {
  public:
-  WinLogger(uint64_t (*gettid)(), const std::shared_ptr<SystemClock>& clock,
-            HANDLE file,
+  WinLogger(uint64_t (*gettid)(), SystemClock* clock, HANDLE file,
             const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL);
 
   virtual ~WinLogger();
@@ -54,7 +53,7 @@ protected:
   uint64_t (*gettid_)();  // Return the thread id for the current thread
   std::atomic_size_t log_size_;
   std::atomic_uint_fast64_t last_flush_micros_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   bool flush_pending_;
 
   Status CloseInternal();

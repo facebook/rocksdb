@@ -221,7 +221,7 @@ bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
     return false;
   }
   freader_.reset(new RandomAccessFileReader(std::move(file), Path(),
-                                            env_->GetSystemClock()));
+                                            env_->GetSystemClock().get()));
 
   return true;
 }
@@ -238,7 +238,7 @@ bool RandomAccessCacheFile::Read(const LBA& lba, Slice* key, Slice* val,
 
   Slice result;
   Status s = freader_->Read(IOOptions(), lba.off_, lba.size_, &result, scratch,
-                            nullptr);
+                            nullptr, Env::IO_TOTAL /* rate_limiter_priority */);
   if (!s.ok()) {
     Error(log_, "Error reading from file %s. %s", Path().c_str(),
           s.ToString().c_str());

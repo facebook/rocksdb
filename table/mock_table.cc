@@ -255,7 +255,7 @@ Status MockTableFactory::NewTableReader(
 
 TableBuilder* MockTableFactory::NewTableBuilder(
     const TableBuilderOptions& /*table_builder_options*/,
-    uint32_t /*column_family_id*/, WritableFileWriter* file) const {
+    WritableFileWriter* file) const {
   uint32_t id;
   Status s = GetAndWriteNextID(file, &id);
   assert(s.ok());
@@ -266,8 +266,8 @@ TableBuilder* MockTableFactory::NewTableBuilder(
 Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
                                          KVVector file_contents) {
   std::unique_ptr<WritableFileWriter> file_writer;
-  auto s = WritableFileWriter::Create(env->GetFileSystem(), fname,
-                                      FileOptions(), &file_writer, nullptr);
+  Status s = WritableFileWriter::Create(env->GetFileSystem(), fname,
+                                        FileOptions(), &file_writer, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -291,7 +291,8 @@ Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,
                                        uint32_t* id) const {
   char buf[4];
   Slice result;
-  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr);
+  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr,
+                        Env::IO_TOTAL /* rate_limiter_priority */);
   assert(result.size() == 4);
   *id = DecodeFixed32(buf);
   return s;

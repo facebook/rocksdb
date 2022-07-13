@@ -37,7 +37,8 @@ class ErrorHandler {
          db_mutex_(db_mutex),
          auto_recovery_(false),
          recovery_in_prog_(false),
-         soft_error_no_bg_work_(false) {
+         soft_error_no_bg_work_(false),
+         bg_error_stats_(db_options.statistics) {
      // Clear the checked flag for uninitialized errors
      bg_error_.PermitUncheckedError();
      recovery_error_.PermitUncheckedError();
@@ -51,9 +52,6 @@ class ErrorHandler {
                                      Status::SubCode subcode);
 
    const Status& SetBGError(const Status& bg_err, BackgroundErrorReason reason);
-
-   const Status& SetBGError(const IOStatus& bg_io_err,
-                            BackgroundErrorReason reason);
 
    Status GetBGError() const { return bg_error_; }
 
@@ -102,16 +100,25 @@ class ErrorHandler {
     bool auto_recovery_;
     bool recovery_in_prog_;
     // A flag to indicate that for the soft error, we should not allow any
-    // backrgound work execpt the work is from recovery.
+    // background work except the work is from recovery.
     bool soft_error_no_bg_work_;
 
     // Used to store the context for recover, such as flush reason.
     DBRecoverContext recover_context_;
 
+    // The pointer of DB statistics.
+    std::shared_ptr<Statistics> bg_error_stats_;
+
+    const Status& HandleKnownErrors(const Status& bg_err,
+                                    BackgroundErrorReason reason);
     Status OverrideNoSpaceError(const Status& bg_error, bool* auto_recovery);
     void RecoverFromNoSpace();
     const Status& StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
     void RecoverFromRetryableBGIOError();
+    // First, if it is in recovery and the recovery_error is ok. Set the
+    // recovery_error_ to bg_err. Second, if the severity is higher than the
+    // current bg_error_, overwrite it.
+    void CheckAndSetRecoveryAndBGError(const Status& bg_err);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -31,8 +31,7 @@ class BlobLogWriter {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this BlobLogWriter is in use.
-  BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
-                const std::shared_ptr<SystemClock>& clock,
+  BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest, SystemClock* clock,
                 Statistics* statistics, uint64_t log_number, bool use_fsync,
                 bool do_flush, uint64_t boffset = 0);
   // No copying allowed
@@ -69,7 +68,7 @@ class BlobLogWriter {
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   Statistics* statistics_;
   uint64_t log_number_;
   uint64_t block_offset_;  // Current offset in block

@@ -22,9 +22,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-DeleteScheduler::DeleteScheduler(const std::shared_ptr<SystemClock>& clock,
-                                 FileSystem* fs, int64_t rate_bytes_per_sec,
-                                 Logger* info_log,
+DeleteScheduler::DeleteScheduler(SystemClock* clock, FileSystem* fs,
+                                 int64_t rate_bytes_per_sec, Logger* info_log,
                                  SstFileManagerImpl* sst_file_manager,
                                  double max_trash_db_ratio,
                                  uint64_t bytes_max_delete_chunk)
@@ -358,7 +357,9 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
           s = fs_->NewDirectory(dir_to_sync, IOOptions(), &dir_obj, nullptr);
         }
         if (s.ok()) {
-          s = dir_obj->Fsync(IOOptions(), nullptr);
+          s = dir_obj->FsyncWithDirOptions(
+              IOOptions(), nullptr,
+              DirFsyncOptions(DirFsyncOptions::FsyncReason::kFileDeleted));
           TEST_SYNC_POINT_CALLBACK(
               "DeleteScheduler::DeleteTrashFile::AfterSyncDir",
               reinterpret_cast<void*>(const_cast<std::string*>(&dir_to_sync)));

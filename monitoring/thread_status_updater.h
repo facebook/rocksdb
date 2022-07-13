@@ -196,7 +196,7 @@ class ThreadStatusUpdater {
  protected:
 #ifdef ROCKSDB_USING_THREAD_STATUS
   // The thread-local variable for storing thread status.
-  static __thread ThreadStatusData* thread_status_data_;
+  static thread_local ThreadStatusData* thread_status_data_;
 
   // Returns the pointer to the thread status data only when the
   // thread status data is non-null and has enable_tracking == true.

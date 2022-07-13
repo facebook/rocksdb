@@ -7,7 +7,9 @@
 #pragma once
 
 #include <string>
+
 #include "db/dbformat.h"
+#include "file/readahead_file_info.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
@@ -171,6 +173,18 @@ class InternalIteratorBase : public Cleanable {
   virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
     return Status::NotSupported("");
   }
+
+  // When iterator moves from one file to another file at same level, new file's
+  // readahead state (details of last block read) is updated with previous
+  // file's readahead state. This way internal readahead_size of Prefetch Buffer
+  // doesn't start from scratch and can fall back to 8KB with no prefetch if
+  // reads are not sequential.
+  //
+  // Default implementation is no-op and its implemented by iterators.
+  virtual void GetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
+
+  // Default implementation is no-op and its implemented by iterators.
+  virtual void SetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {

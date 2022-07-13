@@ -6,6 +6,7 @@
 #include <string>
 
 #include "include/org_rocksdb_ConcurrentTaskLimiterImpl.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -25,7 +26,7 @@ jlong Java_org_rocksdb_ConcurrentTaskLimiterImpl_newConcurrentTaskLimiterImpl0(
   auto* ptr = new std::shared_ptr<ROCKSDB_NAMESPACE::ConcurrentTaskLimiter>(
       ROCKSDB_NAMESPACE::NewConcurrentTaskLimiter(name, limit));
 
-  return reinterpret_cast<jlong>(ptr);
+  return GET_CPLUSPLUS_POINTER(ptr);
 }
 
 /*

@@ -6,23 +6,26 @@
  */
 package org.rocksdb.jmh;
 
-import org.openjdk.jmh.annotations.*;
-import org.rocksdb.*;
-import org.rocksdb.util.FileUtils;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import static org.rocksdb.util.KVUtils.ba;
 import static org.rocksdb.util.KVUtils.keys;
 
-@State(Scope.Benchmark)
-public class MultiGetBenchmarks {
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
+import org.rocksdb.*;
+import org.rocksdb.util.FileUtils;
 
+@State(Scope.Thread)
+public class MultiGetBenchmarks {
   @Param({
       "no_column_family",
       "1_column_family",
@@ -31,8 +34,7 @@ public class MultiGetBenchmarks {
   })
   String columnFamilyTestType;
 
-  @Param("100000")
-  int keyCount;
+  @Param({"10000", "25000", "100000"}) int keyCount;
 
   @Param({
           "10",
@@ -41,6 +43,9 @@ public class MultiGetBenchmarks {
           "10000",
   })
   int multiGetSize;
+
+  @Param({"16", "64", "250", "1000", "4000", "16000"}) int valueSize;
+  @Param({"16"}) int keySize; // big enough
 
   Path dbDir;
   DBOptions options;
@@ -85,7 +90,8 @@ public class MultiGetBenchmarks {
     // store initial data for retrieving via get
     for (int i = 0; i < cfs; i++) {
       for (int j = 0; j < keyCount; j++) {
-        db.put(cfHandles[i], ba("key" + j), ba("value" + j));
+        final byte[] paddedValue = Arrays.copyOf(ba("value" + j), valueSize);
+        db.put(cfHandles[i], ba("key" + j), paddedValue);
       }
     }
 
@@ -149,10 +155,78 @@ public class MultiGetBenchmarks {
     }
   }
 
+  ByteBuffer keysBuffer;
+  ByteBuffer valuesBuffer;
+
+  List<ByteBuffer> valueBuffersList;
+  List<ByteBuffer> keyBuffersList;
+
+  @Setup
+  public void allocateSliceBuffers() {
+    keysBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
+    valuesBuffer = ByteBuffer.allocateDirect(keyCount * valueSize);
+    valueBuffersList = new ArrayList<>();
+    keyBuffersList = new ArrayList<>();
+    for (int i = 0; i < keyCount; i++) {
+      valueBuffersList.add(valuesBuffer.slice());
+      valuesBuffer.position(i * valueSize);
+      keyBuffersList.add(keysBuffer.slice());
+      keysBuffer.position(i * keySize);
+    }
+  }
+
+  @TearDown
+  public void freeSliceBuffers() {
+    valueBuffersList.clear();
+  }
+
   @Benchmark
   public List<byte[]> multiGet10() throws RocksDBException {
     final int fromKeyIdx = next(multiGetSize, keyCount);
-    final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
-    return db.multiGetAsList(keys);
+    if (fromKeyIdx >= 0) {
+      final List<byte[]> keys = keys(fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<byte[]> valueResults = db.multiGetAsList(keys);
+      for (final byte[] result : valueResults) {
+        if (result.length != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
+      }
+    }
+    return new ArrayList<>();
+  }
+
+  @Benchmark
+  public List<RocksDB.MultiGetInstance> multiGetDirect10() throws RocksDBException {
+    final int fromKeyIdx = next(multiGetSize, keyCount);
+    if (fromKeyIdx >= 0) {
+      final List<ByteBuffer> keys = keys(keyBuffersList, fromKeyIdx, fromKeyIdx + multiGetSize);
+      final List<RocksDB.MultiGetInstance> results = db.multiGetByteBuffers(
+          keys, valueBuffersList.subList(fromKeyIdx, fromKeyIdx + multiGetSize));
+      for (final RocksDB.MultiGetInstance result : results) {
+        if (result.status.getCode() != Status.Code.Ok)
+          throw new RuntimeException("Test status assumption wrong");
+        if (result.valueSize != valueSize)
+          throw new RuntimeException("Test valueSize assumption wrong");
+      }
+      return results;
+    }
+    return new ArrayList<>();
+  }
+
+  public static void main(final String[] args) throws RunnerException {
+    final org.openjdk.jmh.runner.options.Options opt =
+        new OptionsBuilder()
+            .include(MultiGetBenchmarks.class.getSimpleName())
+            .forks(1)
+            .jvmArgs("-ea")
+            .warmupIterations(1)
+            .measurementIterations(2)
+            .forks(2)
+            .param("columnFamilyTestType=", "1_column_family")
+            .param("multiGetSize=", "10", "1000")
+            .param("keyCount=", "1000")
+            .output("jmh_output")
+            .build();
+
+    new Runner(opt).run();
   }
 }

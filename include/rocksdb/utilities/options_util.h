@@ -51,7 +51,7 @@ struct ConfigOptions;
 // BlockBasedTableOptions and making necessary changes.
 //
 // ignore_unknown_options can be set to true if you want to ignore options
-// that are from a newer version of the db, esentially for forward
+// that are from a newer version of the db, essentially for forward
 // compatibility.
 //
 // config_options contains a set of options that controls the processing
@@ -66,7 +66,7 @@ struct ConfigOptions;
 // @return the function returns an OK status when it went successfully.  If
 //     the specified "dbpath" does not contain any option file, then a
 //     Status::NotFound will be returned.  A return value other than
-//     Status::OK or Status::NotFound indicates there're some error related
+//     Status::OK or Status::NotFound indicates there is some error related
 //     to the options file itself.
 //
 // @see LoadOptionsFromFile

@@ -8,9 +8,11 @@
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 
-using namespace ROCKSDB_NAMESPACE;
-
 namespace { // anonymous namespace
+
+using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::MergeOperator;
+using ROCKSDB_NAMESPACE::Slice;
 
 // A merge operator that mimics Put semantics
 // Since this merge-operator will not be used in production,
@@ -48,7 +50,10 @@ class PutOperator : public MergeOperator {
     return true;
   }
 
-  const char* Name() const override { return "PutOperator"; }
+  static const char* kClassName() { return "PutOperator"; }
+  static const char* kNickName() { return "put_v1"; }
+  const char* Name() const override { return kClassName(); }
+  const char* NickName() const override { return kNickName(); }
 };
 
 class PutOperatorV2 : public PutOperator {
@@ -67,6 +72,9 @@ class PutOperatorV2 : public PutOperator {
     merge_out->existing_operand = merge_in.operand_list.back();
     return true;
   }
+
+  static const char* kNickName() { return "put"; }
+  const char* NickName() const override { return kNickName(); }
 };
 
 } // end of anonymous namespace

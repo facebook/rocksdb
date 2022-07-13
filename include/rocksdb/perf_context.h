@@ -57,7 +57,7 @@ struct PerfContext {
   // enable per level perf context and allocate storage for PerfContextByLevel
   void EnablePerLevelPerfContext();
 
-  // temporarily disable per level perf contxt by setting the flag to false
+  // temporarily disable per level perf context by setting the flag to false
   void DisablePerLevelPerfContext();
 
   // free the space for PerfContextByLevel, also disable per level perf context
@@ -74,12 +74,22 @@ struct PerfContext {
   uint64_t filter_block_read_count;       // total number of filter block reads
   uint64_t compression_dict_block_read_count;  // total number of compression
                                                // dictionary block reads
+
+  uint64_t secondary_cache_hit_count;  // total number of secondary cache hits
+
   uint64_t block_checksum_time;    // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
 
   uint64_t get_read_bytes;       // bytes for vals returned by Get
   uint64_t multiget_read_bytes;  // bytes for vals returned by MultiGet
   uint64_t iter_read_bytes;      // bytes for keys/vals decoded by iterator
+
+  uint64_t blob_cache_hit_count;  // total number of blob cache hits
+  uint64_t blob_read_count;       // total number of blob reads (with IO)
+  uint64_t blob_read_byte;        // total number of bytes from blob reads
+  uint64_t blob_read_time;        // total nanos spent on blob reads
+  uint64_t blob_checksum_time;    // total nanos spent on blob checksum
+  uint64_t blob_decompress_time;  // total nanos spent on blob decompression
 
   // total number of internal keys skipped over during iteration.
   // There are several reasons for it:
@@ -226,12 +236,21 @@ struct PerfContext {
   // Time spent in decrypting data. Populated when EncryptedEnv is used.
   uint64_t decrypt_data_nanos;
 
+  uint64_t number_async_seek;
+
   std::map<uint32_t, PerfContextByLevel>* level_to_perf_context = nullptr;
   bool per_level_perf_context_enabled = false;
 };
 
-// Get Thread-local PerfContext object pointer
-// if defined(NPERF_CONTEXT), then the pointer is not thread-local
+// If RocksDB is compiled with -DNPERF_CONTEXT, then a pointer to a global,
+// non-thread-local PerfContext object will be returned. Attempts to update
+// this object will be ignored, and reading from it will also be no-op.
+// Otherwise,
+// a) if thread-local is supported on the platform, then a pointer to
+//    a thread-local PerfContext object will be returned.
+// b) if thread-local is NOT supported, then compilation will fail.
+//
+// This function never returns nullptr.
 PerfContext* get_perf_context();
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -16,17 +16,15 @@
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 #include "port/port.h"
 #include "util/autovector.h"
+#include "util/defer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 uint64_t DBImpl::MinLogNumberToKeep() {
-  if (allow_2pc()) {
-    return versions_->min_log_number_to_keep_2pc();
-  } else {
-    return versions_->MinLogNumberWithUnflushedData();
-  }
+  return versions_->min_log_number_to_keep();
 }
 
 uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
@@ -38,20 +36,28 @@ uint64_t DBImpl::MinObsoleteSstNumberToKeep() {
 }
 
 Status DBImpl::DisableFileDeletions() {
-  InstrumentedMutexLock l(&mutex_);
-  return DisableFileDeletionsWithLock();
-}
-
-Status DBImpl::DisableFileDeletionsWithLock() {
-  mutex_.AssertHeld();
-  ++disable_delete_obsolete_files_;
-  if (disable_delete_obsolete_files_ == 1) {
+  Status s;
+  int my_disable_delete_obsolete_files;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    s = DisableFileDeletionsWithLock();
+    my_disable_delete_obsolete_files = disable_delete_obsolete_files_;
+  }
+  if (my_disable_delete_obsolete_files == 1) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "File Deletions Disabled, but already disabled. Counter: %d",
-                   disable_delete_obsolete_files_);
+                   my_disable_delete_obsolete_files);
   }
+  return s;
+}
+
+// FIXME: can be inconsistent with DisableFileDeletions in cases like
+// DBImplReadOnly
+Status DBImpl::DisableFileDeletionsWithLock() {
+  mutex_.AssertHeld();
+  ++disable_delete_obsolete_files_;
   return Status::OK();
 }
 
@@ -120,7 +126,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
              mutable_db_options_.delete_obsolete_files_period_micros == 0) {
     doing_the_full_scan = true;
   } else {
-    const uint64_t now_micros = clock_->NowMicros();
+    const uint64_t now_micros = immutable_db_options_.clock->NowMicros();
     if ((delete_obsolete_files_last_run_ +
          mutable_db_options_.delete_obsolete_files_period_micros) <
         now_micros) {
@@ -161,8 +167,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->log_number = MinLogNumberToKeep();
   job_context->prev_log_number = versions_->prev_log_number();
 
-  versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
   if (doing_the_full_scan) {
+    versions_->AddLiveFiles(&job_context->sst_live, &job_context->blob_live);
     InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
                                   dbname_);
     std::set<std::string> paths;
@@ -215,7 +221,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
 
     // Add log files in wal_dir
-    if (immutable_db_options_.wal_dir != dbname_) {
+    if (!immutable_db_options_.IsWalDirSameAsDBPath(dbname_)) {
       std::vector<std::string> log_files;
       Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
       s.PermitUncheckedError();  // TODO: What should we do on error?
@@ -224,6 +230,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.wal_dir);
       }
     }
+
     // Add info log files in db_log_dir
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {
@@ -236,7 +243,31 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
             log_file, immutable_db_options_.db_log_dir);
       }
     }
+  } else {
+    // Instead of filling ob_context->sst_live and job_context->blob_live,
+    // directly remove files that show up in any Version. This is because
+    // candidate files tend to be a small percentage of all files, so it is
+    // usually cheaper to check them against every version, compared to
+    // building a map for all files.
+    versions_->RemoveLiveFiles(job_context->sst_delete_files,
+                               job_context->blob_delete_files);
   }
+
+  // Before potentially releasing mutex and waiting on condvar, increment
+  // pending_purge_obsolete_files_ so that another thread executing
+  // `GetSortedWals` will wait until this thread finishes execution since the
+  // other thread will be waiting for `pending_purge_obsolete_files_`.
+  // pending_purge_obsolete_files_ MUST be decremented if there is nothing to
+  // delete.
+  ++pending_purge_obsolete_files_;
+
+  Defer cleanup([job_context, this]() {
+    assert(job_context != nullptr);
+    if (!job_context->HaveSomethingToDelete()) {
+      mutex_.AssertHeld();
+      --pending_purge_obsolete_files_;
+    }
+  });
 
   // logs_ is empty when called during recovery, in which case there can't yet
   // be any tracked obsolete logs
@@ -274,7 +305,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
     while (!logs_.empty() && logs_.front().number < min_log_number) {
       auto& log = logs_.front();
-      if (log.getting_synced) {
+      if (log.IsSyncing()) {
         log_sync_cv_.Wait();
         // logs_ could have changed while we were waiting.
         continue;
@@ -294,9 +325,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->logs_to_free = logs_to_free_;
   job_context->log_recycle_files.assign(log_recycle_files_.begin(),
                                         log_recycle_files_.end());
-  if (job_context->HaveSomethingToDelete()) {
-    ++pending_purge_obsolete_files_;
-  }
   logs_to_free_.clear();
 }
 
@@ -311,7 +339,7 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
     return (first.file_path > second.file_path);
   }
 }
-};  // namespace
+}  // namespace
 
 // Delete obsolete files and log status and information of file deletion
 void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
@@ -322,9 +350,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
 
   Status file_deletion_status;
   if (type == kTableFile || type == kBlobFile || type == kWalFile) {
-    file_deletion_status =
-        DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
-                     /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
+    // Rate limit WAL deletion only if its in the DB dir
+    file_deletion_status = DeleteDBFile(
+        &immutable_db_options_, fname, path_to_sync,
+        /*force_bg=*/false,
+        /*force_fg=*/(type == kWalFile) ? !wal_in_db_path_ : false);
   } else {
     file_deletion_status = env_->DeleteFile(fname);
   }
@@ -352,6 +382,11 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
     EventHelpers::LogAndNotifyTableFileDeletion(
         &event_logger_, job_id, number, fname, file_deletion_status, GetName(),
         immutable_db_options_.listeners);
+  }
+  if (type == kBlobFile) {
+    EventHelpers::LogAndNotifyBlobFileDeletion(
+        &event_logger_, immutable_db_options_.listeners, job_id, number, fname,
+        file_deletion_status, GetName());
   }
 }
 
@@ -382,8 +417,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   for (auto& file : state.sst_delete_files) {
-    candidate_files.emplace_back(
-        MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
+    if (!file.only_delete_metadata) {
+      candidate_files.emplace_back(
+          MakeTableFileName(file.metadata->fd.GetNumber()), file.path);
+    }
     if (file.metadata->table_reader_handle) {
       table_cache_->Release(file.metadata->table_reader_handle);
     }
@@ -395,10 +432,10 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
                                  blob_file.GetPath());
   }
 
+  auto wal_dir = immutable_db_options_.GetWalDir();
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(file_num),
-                                   immutable_db_options_.wal_dir);
+      candidate_files.emplace_back(LogFileName(file_num), wal_dir);
     }
   }
   for (const auto& filename : state.manifest_delete_files) {
@@ -517,12 +554,6 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
       case kOptionsFile:
         keep = (number >= optsfile_num2);
-        TEST_SYNC_POINT_CALLBACK(
-            "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:1",
-            reinterpret_cast<void*>(&number));
-        TEST_SYNC_POINT_CALLBACK(
-            "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:2",
-            reinterpret_cast<void*>(&keep));
         break;
       case kCurrentFile:
       case kDBLockFile:
@@ -547,8 +578,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       fname = BlobFileName(candidate_file.file_path, number);
       dir_to_sync = candidate_file.file_path;
     } else {
-      dir_to_sync =
-          (type == kWalFile) ? immutable_db_options_.wal_dir : dbname_;
+      dir_to_sync = (type == kWalFile) ? wal_dir : dbname_;
       fname = dir_to_sync +
               ((!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
                        (!to_delete.empty() && to_delete.front() == '/')
@@ -558,8 +588,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
 #ifndef ROCKSDB_LITE
-    if (type == kWalFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
-                             immutable_db_options_.wal_size_limit_mb > 0)) {
+    if (type == kWalFile && (immutable_db_options_.WAL_ttl_seconds > 0 ||
+                             immutable_db_options_.WAL_size_limit_MB > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;
     }
@@ -634,6 +664,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
   InstrumentedMutexLock l(&mutex_);
   --pending_purge_obsolete_files_;
   assert(pending_purge_obsolete_files_ >= 0);
+  if (schedule_only) {
+    // Must change from pending_purge_obsolete_files_ to bg_purge_scheduled_
+    // while holding mutex (for GetSortedWalFiles() etc.)
+    SchedulePurge();
+  }
   if (pending_purge_obsolete_files_ == 0) {
     bg_cv_.SignalAll();
   }
@@ -647,15 +682,15 @@ void DBImpl::DeleteObsoleteFiles() {
 
   mutex_.Unlock();
   if (job_context.HaveSomethingToDelete()) {
-    PurgeObsoleteFiles(job_context);
+    bool defer_purge = immutable_db_options_.avoid_unnecessary_blocking_io;
+    PurgeObsoleteFiles(job_context, defer_purge);
   }
   job_context.Clean();
   mutex_.Lock();
 }
 
 uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
-    const autovector<MemTable*>& memtables_to_flush) {
+    VersionSet* vset, const autovector<MemTable*>& memtables_to_flush) {
   uint64_t min_log = 0;
 
   // we must look through the memtables for two phase transactions
@@ -663,7 +698,7 @@ uint64_t FindMinPrepLogReferencedByMemTable(
   std::unordered_set<MemTable*> memtables_to_flush_set(
       memtables_to_flush.begin(), memtables_to_flush.end());
   for (auto loop_cfd : *vset->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped() || loop_cfd == cfd_to_flush) {
+    if (loop_cfd->IsDropped()) {
       continue;
     }
 
@@ -685,18 +720,16 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 }
 
 uint64_t FindMinPrepLogReferencedByMemTable(
-    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    VersionSet* vset,
     const autovector<const autovector<MemTable*>*>& memtables_to_flush) {
   uint64_t min_log = 0;
 
-  std::unordered_set<ColumnFamilyData*> cfds_to_flush_set(cfds_to_flush.begin(),
-                                                          cfds_to_flush.end());
   std::unordered_set<MemTable*> memtables_to_flush_set;
   for (const autovector<MemTable*>* memtables : memtables_to_flush) {
     memtables_to_flush_set.insert(memtables->begin(), memtables->end());
   }
   for (auto loop_cfd : *vset->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped() || cfds_to_flush_set.count(loop_cfd)) {
+    if (loop_cfd->IsDropped()) {
       continue;
     }
 
@@ -752,7 +785,7 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
   assert(!cfds_to_flush.empty());
   assert(cfds_to_flush.size() == edit_lists.size());
 
-  uint64_t min_log_number_to_keep = port::kMaxUint64;
+  uint64_t min_log_number_to_keep = std::numeric_limits<uint64_t>::max();
   for (const auto& edit_list : edit_lists) {
     uint64_t log = 0;
     for (const auto& e : edit_list) {
@@ -764,7 +797,7 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
       min_log_number_to_keep = std::min(min_log_number_to_keep, log);
     }
   }
-  if (min_log_number_to_keep == port::kMaxUint64) {
+  if (min_log_number_to_keep == std::numeric_limits<uint64_t>::max()) {
     min_log_number_to_keep = cfds_to_flush[0]->GetLogNumber();
     for (size_t i = 1; i < cfds_to_flush.size(); i++) {
       min_log_number_to_keep =
@@ -812,8 +845,8 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
     min_log_number_to_keep = min_log_in_prep_heap;
   }
 
-  uint64_t min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable(
-      vset, &cfd_to_flush, memtables_to_flush);
+  uint64_t min_log_refed_by_mem =
+      FindMinPrepLogReferencedByMemTable(vset, memtables_to_flush);
 
   if (min_log_refed_by_mem != 0 &&
       min_log_refed_by_mem < min_log_number_to_keep) {
@@ -843,8 +876,8 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
     min_log_number_to_keep = min_log_in_prep_heap;
   }
 
-  uint64_t min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable(
-      vset, cfds_to_flush, memtables_to_flush);
+  uint64_t min_log_refed_by_mem =
+      FindMinPrepLogReferencedByMemTable(vset, memtables_to_flush);
 
   if (min_log_refed_by_mem != 0 &&
       min_log_refed_by_mem < min_log_number_to_keep) {
@@ -854,43 +887,61 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId() {
+void DBImpl::SetDBId(std::string&& id, bool read_only,
+                     RecoveryContext* recovery_ctx) {
+  assert(db_id_.empty());
+  assert(!id.empty());
+  db_id_ = std::move(id);
+  if (!read_only && immutable_db_options_.write_dbid_to_manifest) {
+    assert(recovery_ctx != nullptr);
+    assert(versions_->GetColumnFamilySet() != nullptr);
+    VersionEdit edit;
+    edit.SetDBId(db_id_);
+    versions_->db_id_ = db_id_;
+    recovery_ctx->UpdateVersionEdits(
+        versions_->GetColumnFamilySet()->GetDefault(), edit);
+  }
+}
+
+Status DBImpl::SetupDBId(bool read_only, RecoveryContext* recovery_ctx) {
   Status s;
-  // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
-  // the very first time.
-  if (db_id_.empty()) {
-    // Check for the IDENTITY file and create it if not there.
-    s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
-    // Typically Identity file is created in NewDB() and for some reason if
-    // it is no longer available then at this point DB ID is not in Identity
-    // file or Manifest.
-    if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
-      if (!s.ok()) {
+  // Check for the IDENTITY file and create it if not there or
+  // broken or not matching manifest
+  std::string db_id_in_file;
+  s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
+  if (s.ok()) {
+    s = GetDbIdentityFromIdentityFile(&db_id_in_file);
+    if (s.ok() && !db_id_in_file.empty()) {
+      if (db_id_.empty()) {
+        // Loaded from file and wasn't already known from manifest
+        SetDBId(std::move(db_id_in_file), read_only, recovery_ctx);
+        return s;
+      } else if (db_id_ == db_id_in_file) {
+        // Loaded from file and matches manifest
         return s;
       }
-    } else if (!s.ok()) {
-      assert(s.IsIOError());
-      return s;
     }
-    s = GetDbIdentityFromIdentityFile(&db_id_);
-    if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
-      VersionEdit edit;
-      edit.SetDBId(db_id_);
-      Options options;
-      MutableCFOptions mutable_cf_options(options);
-      versions_->db_id_ = db_id_;
-      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                                 mutable_cf_options, &edit, &mutex_, nullptr,
-                                 /* new_descriptor_log */ false);
-    }
-  } else {
+  }
+  if (s.IsNotFound()) {
+    s = Status::OK();
+  }
+  if (!s.ok()) {
+    assert(s.IsIOError());
+    return s;
+  }
+  // Otherwise IDENTITY file is missing or no good.
+  // Generate new id if needed
+  if (db_id_.empty()) {
+    SetDBId(env_->GenerateUniqueId(), read_only, recovery_ctx);
+  }
+  // Persist it to IDENTITY file if allowed
+  if (!read_only) {
     s = SetIdentityFile(env_, dbname_, db_id_);
   }
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFiles() {
+Status DBImpl::DeleteUnreferencedSstFiles(RecoveryContext* recovery_ctx) {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -910,7 +961,6 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
 
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
-  std::set<std::string> files_to_delete;
   Status s;
   for (const auto& path : paths) {
     std::vector<std::string> files;
@@ -928,8 +978,9 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
       const std::string normalized_fpath = path + fname;
       largest_file_number = std::max(largest_file_number, number);
       if (type == kTableFile && number >= next_file_number &&
-          files_to_delete.find(normalized_fpath) == files_to_delete.end()) {
-        files_to_delete.insert(normalized_fpath);
+          recovery_ctx->files_to_delete_.find(normalized_fpath) ==
+              recovery_ctx->files_to_delete_.end()) {
+        recovery_ctx->files_to_delete_.emplace(normalized_fpath);
       }
     }
   }
@@ -937,7 +988,7 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
     return s;
   }
 
-  if (largest_file_number > next_file_number) {
+  if (largest_file_number >= next_file_number) {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
 
@@ -946,21 +997,7 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  s = versions_->LogAndApply(
-      default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-      directories_.GetDbDir(), /*new_descriptor_log*/ false);
-  if (!s.ok()) {
-    return s;
-  }
-
-  mutex_.Unlock();
-  for (const auto& fname : files_to_delete) {
-    s = env_->DeleteFile(fname);
-    if (!s.ok()) {
-      break;
-    }
-  }
-  mutex_.Lock();
+  recovery_ctx->UpdateVersionEdits(default_cfd, edit);
   return s;
 }
 

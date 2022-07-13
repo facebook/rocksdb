@@ -41,10 +41,10 @@ ZSTD_customMem GetJeZstdAllocationOverrides() {
 
 namespace ROCKSDB_NAMESPACE {
 namespace port {
-void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT {
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) noexcept {
   return je_aligned_alloc(alignment, size);
 }
-void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT { je_free(p); }
+void jemalloc_aligned_free(void* p) noexcept { je_free(p); }
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 

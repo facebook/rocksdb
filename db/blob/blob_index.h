@@ -52,6 +52,9 @@ class BlobIndex {
 
   BlobIndex() : type_(Type::kUnknown) {}
 
+  BlobIndex(const BlobIndex&) = default;
+  BlobIndex& operator=(const BlobIndex&) = default;
+
   bool IsInlined() const { return type_ == Type::kInlinedTTL; }
 
   bool HasTTL() const {
@@ -93,9 +96,9 @@ class BlobIndex {
     assert(slice.size() > 0);
     type_ = static_cast<Type>(*slice.data());
     if (type_ >= Type::kUnknown) {
-      return Status::Corruption(
-          kErrorMessage,
-          "Unknown blob index type: " + ToString(static_cast<char>(type_)));
+      return Status::Corruption(kErrorMessage,
+                                "Unknown blob index type: " +
+                                    std::to_string(static_cast<char>(type_)));
     }
     slice = Slice(slice.data() + 1, slice.size() - 1);
     if (HasTTL()) {

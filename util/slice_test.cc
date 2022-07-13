@@ -5,6 +5,8 @@
 
 #include "rocksdb/slice.h"
 
+#include <gtest/gtest.h>
+
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/data_structure.h"
@@ -13,6 +15,13 @@
 #include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+TEST(SliceTest, StringView) {
+  std::string s = "foo";
+  std::string_view sv = s;
+  ASSERT_EQ(Slice(s), Slice(sv));
+  ASSERT_EQ(Slice(s), Slice(std::move(sv)));
+}
 
 // Use this to keep track of the cleanups that were actually performed
 void Multiplier(void* arg1, void* arg2) {
@@ -157,6 +166,7 @@ TEST_F(PinnableSliceTest, Move) {
   ASSERT_EQ(2, res);
 }
 
+// ***************************************************************** //
 // Unit test for SmallEnumSet
 class SmallEnumSetTest : public testing::Test {
  public:

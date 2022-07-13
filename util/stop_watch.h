@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 // and overwrite is true, it will be added to *elapsed if overwrite is false.
 class StopWatch {
  public:
-  StopWatch(const std::shared_ptr<SystemClock>& clock, Statistics* statistics,
+  StopWatch(SystemClock* clock, Statistics* statistics,
             const uint32_t hist_type, uint64_t* elapsed = nullptr,
             bool overwrite = true, bool delay_enabled = false)
       : clock_(clock),
@@ -73,7 +73,7 @@ class StopWatch {
   uint64_t start_time() const { return start_time_; }
 
  private:
-  const std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   Statistics* statistics_;
   const uint32_t hist_type_;
   uint64_t* elapsed_;
@@ -88,8 +88,7 @@ class StopWatch {
 // a nano second precision stopwatch
 class StopWatchNano {
  public:
-  explicit StopWatchNano(const std::shared_ptr<SystemClock>& clock,
-                         bool auto_start = false)
+  explicit StopWatchNano(SystemClock* clock, bool auto_start = false)
       : clock_(clock), start_(0) {
     if (auto_start) {
       Start();
@@ -112,7 +111,7 @@ class StopWatchNano {
   }
 
  private:
-  const std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   uint64_t start_;
 };
 

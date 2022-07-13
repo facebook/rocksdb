@@ -105,7 +105,7 @@ public class EnvOptionsTest {
   @Test
   public void compactionReadaheadSize() {
     try (final EnvOptions envOptions = new EnvOptions()) {
-      final int intValue = rand.nextInt();
+      final int intValue = rand.nextInt(2147483647);
       envOptions.setCompactionReadaheadSize(intValue);
       assertThat(envOptions.compactionReadaheadSize()).isEqualTo(intValue);
     }
@@ -114,7 +114,7 @@ public class EnvOptionsTest {
   @Test
   public void randomAccessMaxBufferSize() {
     try (final EnvOptions envOptions = new EnvOptions()) {
-      final int intValue = rand.nextInt();
+      final int intValue = rand.nextInt(2147483647);
       envOptions.setRandomAccessMaxBufferSize(intValue);
       assertThat(envOptions.randomAccessMaxBufferSize()).isEqualTo(intValue);
     }
@@ -123,7 +123,7 @@ public class EnvOptionsTest {
   @Test
   public void writableFileMaxBufferSize() {
     try (final EnvOptions envOptions = new EnvOptions()) {
-      final int intValue = rand.nextInt();
+      final int intValue = rand.nextInt(2147483647);
       envOptions.setWritableFileMaxBufferSize(intValue);
       assertThat(envOptions.writableFileMaxBufferSize()).isEqualTo(intValue);
     }

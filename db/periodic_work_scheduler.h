@@ -30,8 +30,8 @@ class PeriodicWorkScheduler {
   PeriodicWorkScheduler& operator=(const PeriodicWorkScheduler&) = delete;
   PeriodicWorkScheduler& operator=(PeriodicWorkScheduler&&) = delete;
 
-  void Register(DBImpl* dbi, unsigned int stats_dump_period_sec,
-                unsigned int stats_persist_period_sec);
+  Status Register(DBImpl* dbi, unsigned int stats_dump_period_sec,
+                  unsigned int stats_persist_period_sec);
 
   void Unregister(DBImpl* dbi);
 

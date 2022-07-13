@@ -8,6 +8,8 @@
 #include "utilities/blob_db/blob_db.h"
 
 #include <cinttypes>
+
+#include "logging/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {

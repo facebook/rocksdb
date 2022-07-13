@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBEncryptionTest : public DBTestBase {
  public:
   DBEncryptionTest()
-      : DBTestBase("/db_encryption_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("db_encryption_test", /*env_do_fsync=*/true) {}
   Env* GetTargetEnv() {
     if (encrypted_env_ != nullptr) {
       return (static_cast<EnvWrapper*>(encrypted_env_))->target();

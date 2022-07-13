@@ -43,7 +43,7 @@ class PinnedIteratorsManager : public Cleanable {
     }
   }
 
-  typedef void (*ReleaseFunction)(void* arg1);
+  using ReleaseFunction = void (*)(void* arg1);
   void PinPtr(void* ptr, ReleaseFunction release_func) {
     assert(pinning_enabled);
     if (ptr == nullptr) {

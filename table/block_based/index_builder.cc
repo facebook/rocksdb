@@ -20,9 +20,8 @@
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
 
-// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace ROCKSDB_NAMESPACE {
-// using namespace rocksdb;
+
 // Create a index builder based on its type.
 IndexBuilder* IndexBuilder::CreateIndexBuilder(
     BlockBasedTableOptions::IndexType index_type,

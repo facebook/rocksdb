@@ -19,6 +19,9 @@
 #ifndef HWCAP_PMULL
 #define HWCAP_PMULL (1 << 4)
 #endif
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
 
 #ifdef HAVE_ARM64_CRYPTO
 /* unfolding to compute 8 * 3 = 24 bytes parallelly */
@@ -43,6 +46,7 @@
 extern bool pmull_runtime_flag;
 
 uint32_t crc32c_runtime_check(void) {
+#if !defined(__APPLE__)
   uint64_t auxv = 0;
 #if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   auxv = getauxval(AT_HWCAP);
@@ -50,9 +54,16 @@ uint32_t crc32c_runtime_check(void) {
   elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
 #endif
   return (auxv & HWCAP_CRC32) != 0;
+#else
+  int r;
+  size_t l = sizeof(r);
+  if (sysctlbyname("hw.optional.armv8_crc32", &r, &l, NULL, 0) == -1) return 0;
+  return r == 1;
+#endif
 }
 
 bool crc32c_pmull_runtime_check(void) {
+#if !defined(__APPLE__)
   uint64_t auxv = 0;
 #if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   auxv = getauxval(AT_HWCAP);
@@ -60,6 +71,9 @@ bool crc32c_pmull_runtime_check(void) {
   elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
 #endif
   return (auxv & HWCAP_PMULL) != 0;
+#else
+  return true;
+#endif
 }
 
 #ifdef ROCKSDB_UBSAN_RUN

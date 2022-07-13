@@ -38,7 +38,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     wholeKeyFiltering = true;
     verifyCompression = false;
     readAmpBytesPerBit = 0;
-    formatVersion = 4;
+    formatVersion = 5;
     enableIndexCompression = true;
     blockAlign = false;
     indexShortening = IndexShorteningMode.kShortenSeparators;
@@ -552,9 +552,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   /**
    * Use the specified filter policy to reduce disk reads.
    *
-   * {@link org.rocksdb.Filter} should not be disposed before options instances
-   * using this filter is disposed. If {@link Filter#dispose()} function is not
-   * called, then filter object will be GC'd automatically.
+   * {@link org.rocksdb.Filter} should not be closed before options instances
+   * using this filter are closed.
    *
    * {@link org.rocksdb.Filter} instance can be re-used in multiple options
    * instances.

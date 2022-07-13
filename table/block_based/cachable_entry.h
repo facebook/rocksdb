@@ -59,12 +59,11 @@ public:
   CachableEntry(const CachableEntry&) = delete;
   CachableEntry& operator=(const CachableEntry&) = delete;
 
-  CachableEntry(CachableEntry&& rhs)
-    : value_(rhs.value_)
-    , cache_(rhs.cache_)
-    , cache_handle_(rhs.cache_handle_)
-    , own_value_(rhs.own_value_)
-  {
+  CachableEntry(CachableEntry&& rhs) noexcept
+      : value_(rhs.value_),
+        cache_(rhs.cache_),
+        cache_handle_(rhs.cache_handle_),
+        own_value_(rhs.own_value_) {
     assert(value_ != nullptr ||
       (cache_ == nullptr && cache_handle_ == nullptr && !own_value_));
     assert(!!cache_ == !!cache_handle_);
@@ -73,7 +72,7 @@ public:
     rhs.ResetFields();
   }
 
-  CachableEntry& operator=(CachableEntry&& rhs) {
+  CachableEntry& operator=(CachableEntry&& rhs) noexcept {
     if (UNLIKELY(this == &rhs)) {
       return *this;
     }
@@ -162,7 +161,6 @@ public:
   }
 
   void SetCachedValue(T* value, Cache* cache, Cache::Handle* cache_handle) {
-    assert(value != nullptr);
     assert(cache != nullptr);
     assert(cache_handle != nullptr);
 
@@ -179,22 +177,38 @@ public:
     assert(!own_value_);
   }
 
-private:
-  void ReleaseResource() {
-    if (LIKELY(cache_handle_ != nullptr)) {
-      assert(cache_ != nullptr);
-      cache_->Release(cache_handle_);
-    } else if (own_value_) {
-      delete value_;
-    }
+  void UpdateCachedValue() {
+    assert(cache_ != nullptr);
+    assert(cache_handle_ != nullptr);
+
+    value_ = static_cast<T*>(cache_->Value(cache_handle_));
   }
 
-  void ResetFields() {
-    value_ = nullptr;
-    cache_ = nullptr;
-    cache_handle_ = nullptr;
-    own_value_ = false;
+  bool IsReady() {
+    if (!own_value_) {
+      assert(cache_ != nullptr);
+      assert(cache_handle_ != nullptr);
+      return cache_->IsReady(cache_handle_);
+    }
+    return true;
   }
+
+private:
+ void ReleaseResource() noexcept {
+   if (LIKELY(cache_handle_ != nullptr)) {
+     assert(cache_ != nullptr);
+     cache_->Release(cache_handle_);
+   } else if (own_value_) {
+     delete value_;
+   }
+ }
+
+ void ResetFields() noexcept {
+   value_ = nullptr;
+   cache_ = nullptr;
+   cache_handle_ = nullptr;
+   own_value_ = false;
+ }
 
   static void ReleaseCacheHandle(void* arg1, void* arg2) {
     Cache* const cache = static_cast<Cache*>(arg1);

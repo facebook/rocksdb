@@ -62,35 +62,37 @@ public class BlockBasedTableConfigTest {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     assertThat(IndexType.values().length).isEqualTo(4);
     blockBasedTableConfig.setIndexType(IndexType.kHashSearch);
-    assertThat(blockBasedTableConfig.indexType().equals(
-        IndexType.kHashSearch));
+    assertThat(blockBasedTableConfig.indexType()).isEqualTo(IndexType.kHashSearch);
     assertThat(IndexType.valueOf("kBinarySearch")).isNotNull();
     blockBasedTableConfig.setIndexType(IndexType.valueOf("kBinarySearch"));
-    assertThat(blockBasedTableConfig.indexType().equals(
-        IndexType.kBinarySearch));
+    assertThat(blockBasedTableConfig.indexType()).isEqualTo(IndexType.kBinarySearch);
   }
 
   @Test
   public void dataBlockIndexType() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
     blockBasedTableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinaryAndHash);
-    assertThat(blockBasedTableConfig.dataBlockIndexType().equals(
-        DataBlockIndexType.kDataBlockBinaryAndHash));
+    assertThat(blockBasedTableConfig.dataBlockIndexType())
+        .isEqualTo(DataBlockIndexType.kDataBlockBinaryAndHash);
     blockBasedTableConfig.setDataBlockIndexType(DataBlockIndexType.kDataBlockBinarySearch);
-    assertThat(blockBasedTableConfig.dataBlockIndexType().equals(
-        DataBlockIndexType.kDataBlockBinarySearch));
+    assertThat(blockBasedTableConfig.dataBlockIndexType())
+        .isEqualTo(DataBlockIndexType.kDataBlockBinarySearch);
   }
 
   @Test
   public void checksumType() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    assertThat(ChecksumType.values().length).isEqualTo(4);
+    assertThat(ChecksumType.values().length).isEqualTo(5);
     assertThat(ChecksumType.valueOf("kxxHash")).
         isEqualTo(ChecksumType.kxxHash);
     blockBasedTableConfig.setChecksumType(ChecksumType.kNoChecksum);
+    assertThat(blockBasedTableConfig.checksumType()).isEqualTo(ChecksumType.kNoChecksum);
     blockBasedTableConfig.setChecksumType(ChecksumType.kxxHash);
-    assertThat(blockBasedTableConfig.checksumType().equals(
-        ChecksumType.kxxHash));
+    assertThat(blockBasedTableConfig.checksumType()).isEqualTo(ChecksumType.kxxHash);
+    blockBasedTableConfig.setChecksumType(ChecksumType.kxxHash64);
+    assertThat(blockBasedTableConfig.checksumType()).isEqualTo(ChecksumType.kxxHash64);
+    blockBasedTableConfig.setChecksumType(ChecksumType.kXXH3);
+    assertThat(blockBasedTableConfig.checksumType()).isEqualTo(ChecksumType.kXXH3);
   }
 
   @Test

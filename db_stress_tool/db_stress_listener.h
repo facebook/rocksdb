@@ -6,22 +6,62 @@
 #ifdef GFLAGS
 #pragma once
 
+#include <mutex>
+#include <unordered_set>
+
+#include "file/filename.h"
+#include "file/writable_file_writer.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/table_properties.h"
+#include "rocksdb/unique_id.h"
 #include "util/gflags_compat.h"
+#include "util/random.h"
 
 DECLARE_int32(compact_files_one_in);
 
 namespace ROCKSDB_NAMESPACE {
+
+#ifndef ROCKSDB_LITE
+// Verify across process executions that all seen IDs are unique
+class UniqueIdVerifier {
+ public:
+  explicit UniqueIdVerifier(const std::string& db_name, Env* env);
+  ~UniqueIdVerifier();
+
+  void Verify(const std::string& id);
+
+ private:
+  void VerifyNoWrite(const std::string& id);
+
+ private:
+  std::mutex mutex_;
+  // IDs persisted to a hidden file inside DB dir
+  std::string path_;
+  std::unique_ptr<WritableFileWriter> data_file_writer_;
+  // Starting byte for which 8 bytes to check in memory within 24 byte ID
+  size_t offset_;
+  // Working copy of the set of 8 byte pieces
+  std::unordered_set<uint64_t> id_set_;
+};
+
 class DbStressListener : public EventListener {
  public:
   DbStressListener(const std::string& db_name,
                    const std::vector<DbPath>& db_paths,
-                   const std::vector<ColumnFamilyDescriptor>& column_families)
+                   const std::vector<ColumnFamilyDescriptor>& column_families,
+                   Env* env)
       : db_name_(db_name),
         db_paths_(db_paths),
         column_families_(column_families),
-        num_pending_file_creations_(0) {}
-#ifndef ROCKSDB_LITE
+        num_pending_file_creations_(0),
+        unique_ids_(db_name, env) {}
+
+  const char* Name() const override { return kClassName(); }
+  static const char* kClassName() { return "DBStressListener"; }
+
   ~DbStressListener() override { assert(num_pending_file_creations_ == 0); }
   void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
     assert(IsValidColumnFamilyName(info.cf_name));
@@ -64,15 +104,15 @@ class DbStressListener : public EventListener {
   void OnTableFileCreated(const TableFileCreationInfo& info) override {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
-    if (info.file_size) {
-      VerifyFilePath(info.file_path);
-    }
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
-    if (info.status.ok() && info.file_size > 0) {
+    if (info.status.ok()) {
+      assert(info.file_size > 0);
+      VerifyFilePath(info.file_path);
       assert(info.table_properties.data_size > 0 ||
              info.table_properties.num_range_deletions > 0);
       assert(info.table_properties.raw_key_size > 0);
       assert(info.table_properties.num_entries > 0);
+      VerifyTableFileUniqueId(info.table_properties, info.file_path);
     }
     --num_pending_file_creations_;
   }
@@ -86,9 +126,12 @@ class DbStressListener : public EventListener {
     RandomSleep();
   }
 
-  void OnExternalFileIngested(
-      DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) override {
+  void OnExternalFileIngested(DB* /*db*/,
+                              const ExternalFileIngestionInfo& info) override {
     RandomSleep();
+    // Here we assume that each generated external file is ingested
+    // exactly once (or thrown away in case of crash)
+    VerifyTableFileUniqueId(info.table_properties, info.internal_file_path);
   }
 
   void OnBackgroundError(BackgroundErrorReason /* reason */,
@@ -206,17 +249,23 @@ class DbStressListener : public EventListener {
 #endif  // !NDEBUG
   }
 
+  // Unique id is verified using the TableProperties. file_path is only used
+  // for reporting.
+  void VerifyTableFileUniqueId(const TableProperties& new_file_properties,
+                               const std::string& file_path);
+
   void RandomSleep() {
     std::this_thread::sleep_for(
         std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
-#endif  // !ROCKSDB_LITE
 
  private:
   std::string db_name_;
   std::vector<DbPath> db_paths_;
   std::vector<ColumnFamilyDescriptor> column_families_;
   std::atomic<int> num_pending_file_creations_;
+  UniqueIdVerifier unique_ids_;
 };
+#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
