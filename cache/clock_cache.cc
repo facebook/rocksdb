@@ -104,8 +104,7 @@ void ClockHandleTable::Remove(ClockHandle* h) {
   FindSlot(
       h->key(), [&](ClockHandle* e) { return e == h; },
       [&](ClockHandle* e) { return e->displacements == 0; },
-      [&](ClockHandle* e) { e->displacements--; },
-      probe);
+      [&](ClockHandle* e) { e->displacements--; }, probe);
   h->SetWillDelete(false);
   h->SetIsElement(false);
   h->ReleaseExclusiveRef();
@@ -128,7 +127,8 @@ void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
 
 int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe) {
   return FindSlot(
-      key, [&](ClockHandle* h) {
+      key,
+      [&](ClockHandle* h) {
         if (h->TryInternalRef()) {
           if (h->Matches(key, hash)) {
             return true;
@@ -138,14 +138,14 @@ int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe) {
         return false;
       },
       [&](ClockHandle* h) { return h->displacements == 0; },
-      [&](ClockHandle* /*h*/) { },
-      probe);
+      [&](ClockHandle* /*h*/) {}, probe);
 }
 
 int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe,
                                         int displacement) {
   return FindSlot(
-      key, [](ClockHandle* h) {
+      key,
+      [](ClockHandle* h) {
         if (h->TryInternalRef()) {
           if (!h->IsElement()) {
             return true;
@@ -155,8 +155,7 @@ int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe,
         return false;
       },
       [&](ClockHandle* h) { return h->IsEmpty(); },
-      [&](ClockHandle* h) { h->displacements += displacement; },
-      probe);
+      [&](ClockHandle* h) { h->displacements += displacement; }, probe);
 }
 
 int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
@@ -174,15 +173,14 @@ int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
         return false;
       },
       [&](ClockHandle* h) { return h->IsEmpty(); },
-      [&](ClockHandle* h) { h->displacements += displacement; },
-      probe);
+      [&](ClockHandle* h) { h->displacements += displacement; }, probe);
 }
 
-inline int ClockHandleTable::FindSlot(
-    const Slice& key, std::function<bool(ClockHandle*)> match,
-    std::function<bool(ClockHandle*)> abort,
-    std::function<void(ClockHandle*)> update,
-    int& probe) {
+inline int ClockHandleTable::FindSlot(const Slice& key,
+                                      std::function<bool(ClockHandle*)> match,
+                                      std::function<bool(ClockHandle*)> abort,
+                                      std::function<void(ClockHandle*)> update,
+                                      int& probe) {
   uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
   uint32_t increment =
       ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
@@ -314,7 +312,7 @@ void ClockCacheShard::EvictFromClock(size_t charge,
     ClockHandle* h = &table_.array_[clock_pointer_];
     clock_pointer_ = table_.ModTableSize(clock_pointer_ + 1);
 
-    if (h->TryExclusiveRef()){
+    if (h->TryExclusiveRef()) {
       if (!h->IsInClock() && h->IsElement()) {
         // It's either an externally referenced element, or it used to
         // be. We are holding an exclusive ref, so we must be in the
@@ -434,7 +432,6 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         assert(!old->WillDelete());
         old->SetWillDelete(true);
         if (old->TryExclusiveRef()) {
-
           Evict(old);
           last_reference_list.push_back(*old);
           old->ReleaseExclusiveRef();
@@ -493,9 +490,9 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // as soon as we released the final reference, an Insert or Erase could've
     // replaced this element. Thus, by the time we take the lock and exclusive
     // ref, we could potentially be referencing a different element.
-    // Before evicting the (potentially different) element, we re-check that it's
-    // unreferenced and marked as WILL_DELETE, so the eviction is safe.
-    // The bottomline is that we only guarantee that the input handle will be
+    // Before evicting the (potentially different) element, we re-check that
+    // it's unreferenced and marked as WILL_DELETE, so the eviction is safe. The
+    // bottomline is that we only guarantee that the input handle will be
     // deleted, and possible another handle, and all deleted handles are safe
     // to delete.
     // TODO(Guido) With lock-free inserts and deletes we may be able to

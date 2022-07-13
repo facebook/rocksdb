@@ -465,21 +465,17 @@ class ClockHandleTable {
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that match(e) is true.
   // At every step, the function first tests whether match(e) holds.
-  // If this condition is false, it uses abort(e) to determine whether the search
-  // should stop, and in this case returns -1.
-  // For every handle e probed except the last one, the function
-  // runs update(e).
-  // We say a probe to a handle e is aborting if match(e) is false
-  // and abort(e) is true.
-  // The argument probe is one more than the last non-aborting probe during
-  // the call. This is so that that the variable can be used as a pointer
-  // such that consecutive calls to FindSlot that find a matching
-  // handle (i.e., don't return -1) continue probing where the previous
-  // one left.
+  // If this condition is false, it uses abort(e) to determine whether the
+  // search should stop, and in this case returns -1. For every handle e probed
+  // except the last one, the function runs update(e). We say a probe to a
+  // handle e is aborting if match(e) is false and abort(e) is true. The
+  // argument probe is one more than the last non-aborting probe during the
+  // call. This is so that that the variable can be used as a pointer such that
+  // consecutive calls to FindSlot that find a matching handle (i.e., don't
+  // return -1) continue probing where the previous one left.
   int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
-              std::function<bool(ClockHandle*)> abort,
-              std::function<void(ClockHandle*)> update,
-              int& probe);
+               std::function<bool(ClockHandle*)> abort,
+               std::function<void(ClockHandle*)> update, int& probe);
 
   // After a failed FindSlot call, this function rolls back all
   // displacement updates done by a sequence of FindSlot calls,
