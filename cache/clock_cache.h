@@ -472,7 +472,6 @@ class ClockCache
 
 }  // namespace clock_cache
 
-
 // Only for internal testing, temporarily replacing NewClockCache.
 // TODO(Guido) Remove once NewClockCache constructs a ClockCache again.
 extern std::shared_ptr<Cache> ExperimentalNewClockCache(
