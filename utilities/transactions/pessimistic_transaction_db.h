@@ -101,19 +101,19 @@ class PessimisticTransactionDB : public TransactionDB {
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle) override;
 
-  virtual Status CreateColumnFamilies(
+  Status CreateColumnFamilies(
       const ColumnFamilyOptions& options,
       const std::vector<std::string>& column_family_names,
       std::vector<ColumnFamilyHandle*>* handles) override;
 
-  virtual Status CreateColumnFamilies(
+  Status CreateColumnFamilies(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles) override;
 
   using StackableDB::DropColumnFamily;
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
 
-  virtual Status DropColumnFamilies(
+  Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families) override;
 
   Status TryLock(PessimisticTransaction* txn, uint32_t cfh_id,

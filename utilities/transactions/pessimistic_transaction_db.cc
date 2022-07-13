@@ -395,9 +395,9 @@ Status PessimisticTransactionDB::CreateColumnFamilies(
 
   s = db_->CreateColumnFamilies(options, column_family_names, handles);
   if (s.ok()) {
-    for (auto it = handles->begin(); it != handles->end(); ++it) {
-      lock_manager_->AddColumnFamily(*it);
-      UpdateCFComparatorMap(*it);
+    for (auto* handle : *handles) {
+      lock_manager_->AddColumnFamily(handle);
+      UpdateCFComparatorMap(handle);
     }
   }
 
@@ -409,8 +409,8 @@ Status PessimisticTransactionDB::CreateColumnFamilies(
     std::vector<ColumnFamilyHandle*>* handles) {
   InstrumentedMutexLock l(&column_family_mutex_);
 
-  for (auto it = column_families.begin(); it != column_families.end(); ++it) {
-    Status s = VerifyCFOptions(it->options);
+  for (auto& cf_desc : column_families) {
+    Status s = VerifyCFOptions(cf_desc.options);
     if (!s.ok()) {
       return s;
     }
@@ -418,9 +418,9 @@ Status PessimisticTransactionDB::CreateColumnFamilies(
 
   Status s = db_->CreateColumnFamilies(column_families, handles);
   if (s.ok()) {
-    for (auto it = handles->begin(); it != handles->end(); ++it) {
-      lock_manager_->AddColumnFamily(*it);
-      UpdateCFComparatorMap(*it);
+    for (auto* handle : *handles) {
+      lock_manager_->AddColumnFamily(handle);
+      UpdateCFComparatorMap(handle);
     }
   }
 
@@ -447,8 +447,8 @@ Status PessimisticTransactionDB::DropColumnFamilies(
 
   Status s = db_->DropColumnFamilies(column_families);
   if (s.ok()) {
-    for (auto it = column_families.begin(); it != column_families.end(); ++it) {
-      lock_manager_->RemoveColumnFamily(*it);
+    for (auto* handle : column_families) {
+      lock_manager_->RemoveColumnFamily(handle);
     }
   }
 
