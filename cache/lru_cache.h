@@ -482,7 +482,7 @@ class LRUCache
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& handles) override;
-  virtual std::string GetPrintableOptions() const override;
+  std::string GetPrintableOptions() const override;
 
   //  Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
