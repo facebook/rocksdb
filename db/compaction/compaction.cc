@@ -496,7 +496,9 @@ uint64_t Compaction::CalculateTotalInputSize() const {
 
 void Compaction::ReleaseCompactionFiles(Status status) {
   MarkFilesBeingCompacted(false);
-  cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
+  if (cfd_) {
+    cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
+  }
 }
 
 void Compaction::ResetNextCompactionIndex() {

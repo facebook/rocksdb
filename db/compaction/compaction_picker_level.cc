@@ -577,9 +577,16 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   const std::vector<int>& file_scores =
       vstorage_->FilesByCompactionPri(start_level_);
 
-  unsigned int cmp_idx;
-  for (cmp_idx = vstorage_->NextCompactionIndex(start_level_);
-       cmp_idx < file_scores.size(); cmp_idx++) {
+  unsigned int cmp_idx = vstorage_->NextCompactionIndex(start_level_);
+  for (std::size_t i = 0; i < file_scores.size(); i++, cmp_idx++) {
+    if (cmp_idx >= file_scores.size()) {
+      // we might be starting in the middle or even the end of the file list,
+      // but we might need to reconsider some of the files we have previously
+      // skipped, so we need to wraparound. See
+      // https://github.com/facebook/rocksdb/issues/10257#issuecomment-1180534048
+      // for details why this is necessary.
+      cmp_idx = 0;
+    }
     int index = file_scores[cmp_idx];
     auto* f = level_files[index];
 
@@ -606,7 +613,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       // user-key overlap.
       start_level_inputs_.clear();
 
-      // To ensure every file is selcted in a round-robin manner, we cannot
+      // To ensure every file is selected in a round-robin manner, we cannot
       // skip the current file. So we return false and wait for the next time
       // we can pick this file to compact
       if (ioptions_.compaction_pri == kRoundRobin) {

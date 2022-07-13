@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -426,12 +427,77 @@ TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
   ASSERT_EQ(num_levels - 1, compaction->output_level());
 }
 
+TEST_F(CompactionPickerTest, ReconsiderPreviouslySkippedFiles) {
+  // There can be situations where the picker is asked for a compaction twice
+  // for the same version. In such a scenario the first call might not be able
+  // to find any eligible files and as a result set NextCompactionIndex to the
+  // total number of files. In this case the second call could return null even
+  // though we could now compact one of the files we previously had to skip.
+  // This could then result in a deadlock as explained in more detail here:
+  // https://github.com/facebook/rocksdb/issues/10257#issuecomment-1180534048
+
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.level0_file_num_compaction_trigger = 1;
+  Add(0, 1U, "150", "200");
+  Add(0, 2U, "200", "250");
+  Add(1, 3U, "100", "200", 200'000'000U);
+  Add(1, 4U, "200", "300", 200'000'000U);
+  UpdateVersionStorageInfo();
+
+  int output_level = 2;
+  CompactionInputFiles compaction_input;
+  compaction_input.level = 1;
+  compaction_input.files = vstorage_->LevelFiles(1);
+
+  // we create and register a compaction from L1 to L2 that blocks
+  // a L0 compaction
+  std::unique_ptr<Compaction> conflicting_compaction{new Compaction(
+      vstorage_.get(), ioptions_, mutable_cf_options_, mutable_db_options_,
+      {compaction_input}, output_level,
+      MaxFileSizeForLevel(mutable_cf_options_, output_level,
+                          ioptions_.compaction_style, vstorage_->base_level(),
+                          ioptions_.level_compaction_dynamic_level_bytes),
+      mutable_cf_options_.max_compaction_bytes, ioptions_.cf_paths.size(),
+      kNoCompression, CompressionOptions{}, Temperature::kUnknown,
+      /* max_subcompactions */ 0, {}, /* is_manual */ false,
+      /* trim_ts */ "", 1.5, false /* deletion_compaction */,
+      /* l0_files_might_overlap */ false,
+      CompactionReason::kLevelMaxLevelSize)};
+  level_compaction_picker.RegisterCompaction(conflicting_compaction.get());
+
+  {
+    // due to the running compaction from L1 to L2, the picker does not find
+    // any eligible files and therefore returns null
+    std::unique_ptr<Compaction> compaction(
+        level_compaction_picker.PickCompaction(cf_name_, mutable_cf_options_,
+                                               mutable_db_options_,
+                                               vstorage_.get(), &log_buffer_));
+    ASSERT_TRUE(compaction.get() == nullptr);
+  }
+
+  conflicting_compaction->ReleaseCompactionFiles(Status::OK());
+  level_compaction_picker.UnregisterCompaction(conflicting_compaction.get());
+
+  // once the compaction has been finished and unregistered, the previously
+  // skipped files become eligible for compaction again, so the next time we ask
+  // the picker it should now actually return a L0 compaction.
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+      &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  EXPECT_EQ(0, compaction->start_level());
+  EXPECT_EQ(1, compaction->output_level());
+  EXPECT_EQ(2, compaction->inputs()->size());
+  auto& input = compaction->inputs()->at(0);
+  EXPECT_EQ(0, input.level);
+  EXPECT_EQ(vstorage_->LevelFiles(0), input.files);
+}
+
 // Universal and FIFO Compactions are not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
 TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
   NewVersionStorage(1, kCompactionStyleUniversal);
-  UniversalCompactionPicker universal_compaction_picker(
-      ioptions_, &icmp_);
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
@@ -2622,7 +2688,7 @@ TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
       cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
       &log_buffer_));
   ASSERT_TRUE(compaction.get() == nullptr);
-  ASSERT_EQ(4, vstorage_->NextCompactionIndex(1 /* level */));
+  ASSERT_EQ(3, vstorage_->NextCompactionIndex(1 /* level */));
 }
 
 TEST_F(CompactionPickerTest, IntraL0MaxCompactionBytesNotHit) {
