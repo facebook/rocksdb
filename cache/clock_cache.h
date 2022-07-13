@@ -292,7 +292,7 @@ struct ClockHandle {
     }
   }
 
-  inline bool ExternalRef() {
+  inline bool TryExternalRef() {
     if (!((refs += kOneExternalRef) & (EXCLUSIVE_REF | WILL_DELETE))) {
       return true;
     }
@@ -310,7 +310,7 @@ struct ClockHandle {
   // survives until this function returns?
   void Ref() { refs += kOneExternalRef; }
 
-  inline bool InternalRef() {
+  inline bool TryInternalRef() {
     if (!((refs += kOneInternalRef) & (EXCLUSIVE_REF | WILL_DELETE))) {
       return true;
     }
@@ -320,7 +320,7 @@ struct ClockHandle {
 
   inline void ReleaseInternalRef() { refs -= kOneInternalRef; }
 
-  inline bool ExclusiveRef() {
+  inline bool TryExclusiveRef() {
     uint32_t will_delete = refs & WILL_DELETE;
     uint32_t expected = will_delete;
     return refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete);
@@ -328,7 +328,7 @@ struct ClockHandle {
 
   // Spins until an exclusive ref is taken. Stops when an external reference is
   // detected (in this case the wait would presumably be too long).
-  inline bool ConditionalSpinExclusiveRef() {
+  inline bool TrySpinExclusiveRef() {
     uint32_t expected = 0;
     uint32_t will_delete = 0;
     while (
@@ -415,11 +415,14 @@ class ClockHandleTable {
                            bool ok_will_delete) {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
-      if (h->ExclusiveRef()) {
+      if (h->TryExclusiveRef()) {
         if (h->IsElement() && (ok_will_delete || !h->WillDelete())) {
+          // Hand the internal ref over to func, which is now responsible
+          // to release it.
           func(h);
+        } else {
+          h->ReleaseExclusiveRef();
         }
-        h->ReleaseExclusiveRef();
       }
     }
   }
@@ -429,7 +432,7 @@ class ClockHandleTable {
                                 uint32_t index_end, bool ok_will_delete) const {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
-      if (h->ExclusiveRef()) {
+      if (h->TryExclusiveRef()) {
         if (h->IsElement() && (ok_will_delete || !h->WillDelete())) {
           func(h);
         }
@@ -452,8 +455,7 @@ class ClockHandleTable {
  private:
   friend class ClockCacheShard;
 
-  int FindElement(const Slice& key, uint32_t hash, int& probe,
-                  int displacement);
+  int FindElement(const Slice& key, uint32_t hash, int& probe);
 
   int FindAvailableSlot(const Slice& key, int& probe, int displacement);
 
@@ -461,19 +463,23 @@ class ClockHandleTable {
                                  int displacement);
 
   // Returns the index of the first slot probed (hashing with
-  // the given key) with a handle e such that cond(e) is true.
-  // Otherwise, if no match is found, returns -1.
-  // For every handle e probed, the FindSlot updates
-  // e->displacements += displacement.
-  // The argument probe is modified such that consecutive calls
-  // to FindSlot continue probing right after where the previous
-  // call left.
-  // The functional argument cond is always called having an
-  // internal reference.
-  // If a matching handle is found, FindSlot yields an internal
-  // reference to it.
-  int FindSlot(const Slice& key, std::function<bool(const ClockHandle*)> cond,
-               int& probe, int displacement);
+  // the given key) with a handle e such that match(e) is true.
+  // At every step, the function first tests whether match(e) holds.
+  // If this condition is false, it uses abort(e) to determine whether the search
+  // should stop, and in this case returns -1.
+  // For every handle e probed except the last one, the function
+  // runs update(e).
+  // We say a probe to a handle e is aborting if match(e) is false
+  // and abort(e) is true.
+  // The argument probe is one more than the last non-aborting probe during
+  // the call. This is so that that the variable can be used as a pointer
+  // such that consecutive calls to FindSlot that find a matching
+  // handle (i.e., don't return -1) continue probing where the previous
+  // one left.
+  int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
+              std::function<bool(ClockHandle*)> abort,
+              std::function<void(ClockHandle*)> update,
+              int& probe);
 
   // After a failed FindSlot call, this function rolls back all
   // displacement updates done by a sequence of FindSlot calls,
@@ -566,6 +572,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
   void ClockRemove(ClockHandle* h);
 
+  // Assumes that the caller thread has an exclusive ref on h.
   void Evict(ClockHandle* h);
 
   // Free some space following strict clock policy until enough space

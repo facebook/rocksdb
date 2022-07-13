@@ -43,7 +43,7 @@ ClockHandleTable::~ClockHandleTable() {
 
 ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
   int probe = 0;
-  int slot = FindElement(key, hash, probe, 0);
+  int slot = FindElement(key, hash, probe);
   return (slot == -1) ? nullptr : &array_[slot];
 }
 
@@ -53,6 +53,8 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
       FindElementOrAvailableSlot(h->key(), h->hash, probe, 1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
+    // TODO(Guido) Why were we not rolling back?
+
     return nullptr;
   }
 
@@ -61,13 +63,13 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
     ClockHandle* new_entry = &array_[slot];
     new_entry->InternalToExclusiveRef();
     Assign(new_entry, h);
-    if (!(new_entry->displacements - 1)) {
-      // The slot was empty.
+    if (new_entry->displacements == 0) {
+      // This was an empty slot.
       return new_entry;
     }
     // It used to be a tombstone, so there may already be a copy of the
     // key in the table.
-    slot = FindElement(h->key(), h->hash, probe, 0 /*displacement*/);
+    slot = FindElement(h->key(), h->hash, probe);
     if (slot == -1) {
       // No existing copy of the key.
       return new_entry;
@@ -82,6 +84,7 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
     old_entry->ReleaseInternalRef();
     *old = old_entry;
     // Find an available slot for the new element.
+    old_entry->displacements++;
     slot = FindAvailableSlot(h->key(), probe, 1 /*displacement*/);
     if (slot == -1) {
       // No available slots.
@@ -99,10 +102,13 @@ void ClockHandleTable::Remove(ClockHandle* h) {
   assert(!h->IsInClock());  // Already off the clock list.
   int probe = 0;
   FindSlot(
-      h->key(), [&h](const ClockHandle* e) { return e == h; }, probe,
-      -1 /*displacement*/);
+      h->key(), [&](ClockHandle* e) { return e == h; },
+      [&](ClockHandle* e) { return e->displacements == 0; },
+      [&](ClockHandle* e) { e->displacements--; },
+      probe);
   h->SetWillDelete(false);
   h->SetIsElement(false);
+  h->ReleaseExclusiveRef();
   occupancy_--;
 }
 
@@ -120,18 +126,37 @@ void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
   occupancy_++;
 }
 
-int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe,
-                                  int displacement) {
+int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe) {
   return FindSlot(
-      key, [&](const ClockHandle* h) { return h->Matches(key, hash); }, probe,
-      displacement);
+      key, [&](ClockHandle* h) {
+        if (h->TryInternalRef()) {
+          if (h->Matches(key, hash)) {
+            return true;
+          }
+          h->ReleaseInternalRef();
+        }
+        return false;
+      },
+      [&](ClockHandle* h) { return h->displacements == 0; },
+      [&](ClockHandle* /*h*/) { },
+      probe);
 }
 
 int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe,
                                         int displacement) {
   return FindSlot(
-      key, [](const ClockHandle* h) { return !h->IsElement(); }, probe,
-      displacement);
+      key, [](ClockHandle* h) {
+        if (h->TryInternalRef()) {
+          if (!h->IsElement()) {
+            return true;
+          }
+          h->ReleaseInternalRef();
+        }
+        return false;
+      },
+      [&](ClockHandle* h) { return h->IsEmpty(); },
+      [&](ClockHandle* h) { h->displacements += displacement; },
+      probe);
 }
 
 int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
@@ -139,47 +164,44 @@ int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
                                                  int displacement) {
   return FindSlot(
       key,
-      [&](const ClockHandle* h) {
-        return !h->IsElement() || h->Matches(key, hash);
+      [&](ClockHandle* h) {
+        if (h->TryInternalRef()) {
+          if (!h->IsElement() || h->Matches(key, hash)) {
+            return true;
+          }
+          h->ReleaseInternalRef();
+        }
+        return false;
       },
-      probe, displacement);
+      [&](ClockHandle* h) { return h->IsEmpty(); },
+      [&](ClockHandle* h) { h->displacements += displacement; },
+      probe);
 }
 
 inline int ClockHandleTable::FindSlot(
-    const Slice& key, std::function<bool(const ClockHandle*)> cond, int& probe,
-    int displacement) {
+    const Slice& key, std::function<bool(ClockHandle*)> match,
+    std::function<bool(ClockHandle*)> abort,
+    std::function<void(ClockHandle*)> update,
+    int& probe) {
   uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
   uint32_t increment =
       ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
   uint32_t current = ModTableSize(base + probe * increment);
   while (true) {
-    probe++;
     ClockHandle* h = &array_[current];
-    if (current == base && probe > 1) {
+    if (current == base && probe > 0) {
       // We looped back.
-      h->displacements += displacement;
       return -1;
     }
-    if (h->InternalRef()) {
-      if (cond(h)) {
-        // Pass the shared reference to the caller.
-        h->displacements += displacement;
-        return current;
-      }
-      if (h->IsEmpty()) {  // TODO(Guido) This reads displacements. We could
-                           // save the read by combining displacements with
-                           // refs.
-        h->ReleaseInternalRef();
-        h->displacements += displacement;
-        return -1;
-      }
-      h->ReleaseInternalRef();
+    if (match(h)) {
+      probe++;
+      return current;
     }
-    h->displacements +=
-        displacement;  // TODO(Guido) Lookups don't update tombstone
-                       // counters, so we may want to have a separate version
-                       // of this function and save a few atomic updates.
-                       // And also take an external ref upon match.
+    if (abort(h)) {
+      return -1;
+    }
+    probe++;
+    update(h);
     current = ModTableSize(current + increment);
   }
 }
@@ -213,8 +235,8 @@ void ClockCacheShard::EraseUnRefEntries() {
     table_.ApplyToEntriesRange(
         [this, &last_reference_list](ClockHandle* h) {
           // Unreferenced element.
-          Evict(h);
           last_reference_list.push_back(*h);
+          Evict(h);
         },
         0, table_.GetTableSize(), true);
   }
@@ -282,31 +304,31 @@ void ClockCacheShard::Evict(ClockHandle* h) {
 
 void ClockCacheShard::EvictFromClock(size_t charge,
                                      autovector<ClockHandle>* deleted) {
+  // TODO(Guido) When an element is in the probe sequence of a
+  // hot element, it will be hard to get an exclusive ref.
+  // We may need a mechanism to avoid that an element sits forever
+  // in cache waiting to be evicted.
   assert(charge <= capacity_);
   uint32_t max_iterations = table_.GetTableSize();
   while (usage_ + charge > capacity_ && max_iterations--) {
-    ClockHandle* old = &table_.array_[clock_pointer_];
+    ClockHandle* h = &table_.array_[clock_pointer_];
     clock_pointer_ = table_.ModTableSize(clock_pointer_ + 1);
-    if (old->ExclusiveRef()) {
-      // TODO(Guido) When an element is in the probe sequence of a
-      // hot element, it will be hard to get an exclusive ref.
-      // We may need a mechanism to avoid that an element sits forever
-      // in cache waiting to be evicted.
 
-      if (!old->IsInClock() && old->IsElement()) {
+    if (h->TryExclusiveRef()){
+      if (!h->IsInClock() && h->IsElement()) {
         // It's either an externally referenced element, or it used to
         // be. We are holding an exclusive ref, so we must be in the
         // latter case---this handle was left behind by Release.
-        ClockInsert(old);
+        ClockInsert(h);
       }
 
-      if (old->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
-        Evict(old);
-        deleted->push_back(*old);
-      } else if (old->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
-        old->DecreaseClockPriority();
+      if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
+        deleted->push_back(*h);
+        Evict(h);
+      } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
+        h->DecreaseClockPriority();
       }
-      old->ReleaseExclusiveRef();
+      h->ReleaseExclusiveRef();
     }
   }
 }
@@ -375,6 +397,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   autovector<ClockHandle> last_reference_list;
   {
     DMutexLock l(mutex_);
+
     assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
     // Free the space following strict clock policy until enough space
     // is freed or the clock list is empty.
@@ -410,7 +433,8 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         s = Status::OkOverwritten();
         assert(!old->WillDelete());
         old->SetWillDelete(true);
-        if (old->ExclusiveRef()) {
+        if (old->TryExclusiveRef()) {
+
           Evict(old);
           last_reference_list.push_back(*old);
           old->ReleaseExclusiveRef();
@@ -439,8 +463,8 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
   ClockHandle* h = nullptr;
   h = table_.Lookup(key, hash);
   if (h != nullptr) {
-    h->SetHit();
     h->InternalToExternalRef();
+    h->SetHit();
     ClockRemove(h);
   }
   return reinterpret_cast<Cache::Handle*>(h);
@@ -450,7 +474,7 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
   ClockHandle* e = reinterpret_cast<ClockHandle*>(h);
   // To create another reference---entry must be already externally referenced.
   assert(e->HasExternalRefs());
-  return e->ExternalRef();
+  return e->TryExternalRef();
 }
 
 bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
@@ -464,22 +488,27 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   bool will_delete = refs & ClockHandle::WILL_DELETE;
 
   if (last_reference && (will_delete || erase_if_last_ref)) {
-    // Once we release the final reference, an Insert or Erase could replace
-    // this element. So when we re-take a lock and exclusive reference to
-    // evict it, we could potentially be referencing a different element.
-    // Because we re-check that the (potentially different) element is
-    // unreferenced and marked as WILL_DELETE, the eviction is safe anyway.
+    // At this point we want to evict the element, so we need to take
+    // a lock and an exclusive reference. But there's a problem:
+    // as soon as we released the final reference, an Insert or Erase could've
+    // replaced this element. Thus, by the time we take the lock and exclusive
+    // ref, we could potentially be referencing a different element.
+    // Before evicting the (potentially different) element, we re-check that it's
+    // unreferenced and marked as WILL_DELETE, so the eviction is safe.
+    // The bottomline is that we only guarantee that the input handle will be
+    // deleted, and possible another handle, and all deleted handles are safe
+    // to delete.
     // TODO(Guido) With lock-free inserts and deletes we may be able to
     // "atomically" transition to an exclusive ref, without creating a deadlock.
     ClockHandle copy;
     {
       DMutexLock l(mutex_);
-      if (h->ConditionalSpinExclusiveRef()) {
+      if (h->TrySpinExclusiveRef()) {
         copy = *h;
         Evict(h);
         h->ReleaseExclusiveRef();
       } else {
-        // An external ref was detected.
+        // An external ref was detected, or spinned too many times.
         return false;
       }
     }
@@ -500,10 +529,10 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
     if (h != nullptr) {
       h->SetWillDelete(true);
       h->ReleaseInternalRef();
-      if (h->ExclusiveRef()) {
+      if (h->TryExclusiveRef()) {
+        copy = *h;
         Evict(h);
         last_reference = true;
-        copy = *h;
         h->ReleaseExclusiveRef();
       }
     }
