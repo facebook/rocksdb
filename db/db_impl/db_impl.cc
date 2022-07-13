@@ -246,8 +246,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
-  // TODO: Check for an error here
-  env_->GetAbsolutePath(dbname, &db_absolute_path_).PermitUncheckedError();
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
@@ -1444,12 +1442,12 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
     assert(wal.IsSyncing());
-    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.GetPreSyncSize() > 0) {
-      synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
-    }
 
     if (logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+          wal.GetPreSyncSize() > 0) {
+        synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
+      }
       logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);

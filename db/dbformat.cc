@@ -117,10 +117,7 @@ std::string InternalKey::DebugString(bool hex) const {
 }
 
 const char* InternalKeyComparator::Name() const {
-  if (name_.empty()) {
-    return "rocksdb.anonymous.InternalKeyComparator";
-  }
-  return name_.c_str();
+  return "rocksdb.anonymous.InternalKeyComparator";
 }
 
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,

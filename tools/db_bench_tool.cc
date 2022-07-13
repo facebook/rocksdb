@@ -37,6 +37,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "db/malloc_stats.h"
@@ -1681,6 +1682,9 @@ DEFINE_uint32(write_batch_protection_bytes_per_key, 0,
 DEFINE_bool(build_info, false,
             "Print the build info via GetRocksBuildInfoAsString");
 
+DEFINE_bool(track_and_verify_wals_in_manifest, false,
+            "If true, enable WAL tracking in the MANIFEST");
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static Status CreateMemTableRepFactory(
@@ -2974,10 +2978,10 @@ class Benchmark {
       return nullptr;
     }
     if (FLAGS_cache_type == "clock_cache") {
-      auto cache = NewClockCache(static_cast<size_t>(capacity),
-                                 FLAGS_block_size, FLAGS_cache_numshardbits,
-                                 false /*strict_capacity_limit*/,
-                                 kDefaultCacheMetadataChargePolicy);
+      auto cache = ExperimentalNewClockCache(
+          static_cast<size_t>(capacity), FLAGS_block_size,
+          FLAGS_cache_numshardbits, false /*strict_capacity_limit*/,
+          kDefaultCacheMetadataChargePolicy);
       if (!cache) {
         fprintf(stderr, "Clock cache not supported.");
         exit(1);
@@ -4485,6 +4489,8 @@ class Benchmark {
     }
 
     options.allow_data_in_errors = FLAGS_allow_data_in_errors;
+    options.track_and_verify_wals_in_manifest =
+        FLAGS_track_and_verify_wals_in_manifest;
 
     // Integrated BlobDB
     options.enable_blob_files = FLAGS_enable_blob_files;

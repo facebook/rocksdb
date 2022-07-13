@@ -238,7 +238,6 @@ class InternalKeyComparator
     : public Comparator {
  private:
   UserComparatorWrapper user_comparator_;
-  std::string name_;
 
  public:
   // `InternalKeyComparator`s constructed with the default constructor are not
@@ -250,13 +249,8 @@ class InternalKeyComparator
   //    this constructor to precompute the result of `Name()`. To avoid this
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
-  explicit InternalKeyComparator(const Comparator* c, bool named = true)
-      : Comparator(c->timestamp_size()), user_comparator_(c) {
-    if (named) {
-      name_ = "rocksdb.InternalKeyComparator:" +
-              std::string(user_comparator_.Name());
-    }
-  }
+  explicit InternalKeyComparator(const Comparator* c)
+      : Comparator(c->timestamp_size()), user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const override;
