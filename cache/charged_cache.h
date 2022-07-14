@@ -14,9 +14,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class ConcurrentCacheReservationManager;
 
-// Generic cache interface which shards cache by hash of keys. 2^num_shard_bits
-// shards will be created, with capacity split evenly to each of the shards.
-// Keys are sharded by the highest num_shard_bits bits of hash value.
+// A cache interface which wraps around another cache and takes care of
+// reserving space in block cache towards a single global memory limit, and
+// forwards all the calls to the underlying cache.
 class ChargedCache : public Cache {
  public:
   ChargedCache(std::shared_ptr<Cache> cache,

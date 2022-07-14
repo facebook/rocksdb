@@ -716,12 +716,13 @@ Status BlockBasedTableFactory::ValidateOptions(
     }
     if (role == CacheEntryRole::kBlobCache &&
         options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
-      if (!strstr(cf_opts.blob_cache->Name(), ChargedCache::kClassName())) {
+      if (strncmp(cf_opts.blob_cache->Name(), ChargedCache::kClassName(),
+                  strlen(ChargedCache::kClassName())) != 0) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"
             " for CacheEntryRole " +
             kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
-            " but ChargedCache is not configured");
+            " but blob cache is not a ChargedCache");
       }
       ChargedCache* charged_cache =
           static_cast<ChargedCache*>(cf_opts.blob_cache.get());
