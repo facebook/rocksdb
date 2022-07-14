@@ -549,7 +549,7 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          if (FLAGS_lean) {
+          if (!FLAGS_lean) {
             // do something with the data
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
@@ -578,7 +578,7 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          if (FLAGS_lean) {
+          if (!FLAGS_lean) {
             // do something with the data
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
                                FLAGS_value_bytes);
