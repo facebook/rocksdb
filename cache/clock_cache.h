@@ -538,7 +538,8 @@ class ClockHandleTable {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
-        if (h->IsElement() && (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
+        if (h->IsElement() &&
+            (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
           // Hand the internal ref over to func, which is now responsible
           // to release it.
           func(h);
@@ -556,7 +557,8 @@ class ClockHandleTable {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
-        if (h->IsElement() && (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
+        if (h->IsElement() &&
+            (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
           func(h);
         }
         h->ReleaseExclusiveRef();
@@ -582,7 +584,8 @@ class ClockHandleTable {
 
   int FindAvailableSlot(const Slice& key, uint32_t& probe);
 
-  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash, uint32_t& probe);
+  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash,
+                                 uint32_t& probe);
 
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that match(e) is true.

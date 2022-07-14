@@ -120,7 +120,8 @@ void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
   occupancy_++;
 }
 
-int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, uint32_t& probe) {
+int ClockHandleTable::FindElement(const Slice& key, uint32_t hash,
+                                  uint32_t& probe) {
   return FindSlot(
       key,
       [&](ClockHandle* h) {
@@ -159,7 +160,8 @@ int ClockHandleTable::FindAvailableSlot(const Slice& key, uint32_t& probe) {
 }
 
 int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
-                                                 uint32_t hash, uint32_t& probe) {
+                                                 uint32_t hash,
+                                                 uint32_t& probe) {
   int slot = FindSlot(
       key,
       [&](ClockHandle* h) {
