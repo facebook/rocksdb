@@ -53,8 +53,7 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
       FindElementOrAvailableSlot(h->key(), h->hash, probe, 1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
-    // TODO(Guido) Why were we not rolling back?
-
+    Rollback(h->key(), h->hash, 1);
     return nullptr;
   }
 
@@ -314,9 +313,11 @@ void ClockCacheShard::EvictFromClock(size_t charge,
 
     if (h->TryExclusiveRef()) {
       if (!h->IsInClock() && h->IsElement()) {
-        // It's either an externally referenced element, or it used to
-        // be. We are holding an exclusive ref, so we must be in the
-        // latter case---this handle was left behind by Release.
+        // Elements that are not in clock are either currently externally
+        // referenced or used to be. Because we are holding an exclusive ref,
+        // we must be in the latter case. This happens when the last
+        // external reference to an element is released, and is not immediately
+        // removed.
         ClockInsert(h);
       }
 

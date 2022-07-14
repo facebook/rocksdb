@@ -54,8 +54,7 @@ constexpr double kStrictLoadFactor = 0.7;  // See fast_lru_cache.h.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
 constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
 
-// An experimental (under development!) alternative to LRUCache
-
+// An experimental (under development!) alternative to LRUCache.
 struct ClockHandle {
   void* value;
   Cache::DeleterFn deleter;
@@ -77,10 +76,11 @@ struct ClockHandle {
                   << kSharedRefsOffset,  // Bits 15, ..., 29
     // Whether a thread has an exclusive reference to the slot.
     EXCLUSIVE_REF = uint32_t{1} << kExclusiveRefOffset,  // Bit 30
-    // Whether the handle will be deleted soon. This means that new internal
-    // or external references to this handle cannot be taken from the moment
-    // it's set. There is an exception: external references can be created
-    // from existing external references, or converting from existing internal
+    // Whether the handle will be deleted soon. When this bit is set, new
+    // internal
+    // or external references to this handle stop being accepted.
+    // There is an exception: external references can be created from
+    // existing external references, or converting from existing internal
     // references.
     WILL_DELETE = uint32_t{1} << kWillDeleteOffset  // Bit 31
   };
@@ -89,6 +89,20 @@ struct ClockHandle {
   static constexpr uint32_t kOneExternalRef = 0x8001;
 
   std::atomic<uint32_t> refs;
+
+  // Shared references (i.e., external and internal references) and exclusive
+  // references are our custom implementation of RW locks---external and
+  // internal references are read locks, and exclusive references are write
+  // locks. Our readers are prioritized, and they never block. Using our own
+  // implementation of RW locks allows us to save many atomic operations by
+  // packing data more carefully. In particular:
+  // - Combining EXTERNAL_REFS and SHARED_REFS allows us to convert an internal
+  //    reference into an external reference in a single atomic arithmetic
+  //    operation.
+  // - Combining SHARED_REFS and WILL_DELETE allows us to attempt to take a
+  // shared
+  //    reference and check whether the entry is marked for deletion in a single
+  //    atomic arithmetic operation.
 
   static constexpr int kIsElementOffset = 1;
   static constexpr int kClockPriorityOffset = 2;
@@ -125,6 +139,22 @@ struct ClockHandle {
   // The number of elements that hash to this slot or a lower one, but wind
   // up in this slot or a higher one.
   std::atomic<uint32_t> displacements;
+
+  // Synchronization rules:
+  // - Use a shared reference when we want the handle's identity
+  //    members (i.e., key_data, hash, value, IS_ELEMENT flag) to
+  //    remain untouched, but not modify them. The only updates
+  //    that a shared reference allows are:
+  //      * set CLOCK_PRIORITY to NONE;
+  //      * set the HAS_HIT bit.
+  //    Notice that these two types of updates are idempotent, so
+  //    they don't require synchronization across shared references.
+  // - Use an exclusive reference when we want identity members
+  //    to remain untouched, as well as modify any identity member
+  //    or flag.
+  // - displacements can be modified without holding a reference.
+  // - refs is only modified through appropiate functions to
+  //    take or release references.
 
   ClockHandle()
       : value(nullptr),
@@ -300,8 +330,6 @@ struct ClockHandle {
     return false;
   }
 
-  // Retrieves refs and modify the external ref count in a single atomic
-  // operation.
   inline uint32_t ReleaseExternalRef() { return refs -= kOneExternalRef; }
 
   // Take an external ref, assuming there is at least one external reference
@@ -344,9 +372,9 @@ struct ClockHandle {
 
   inline void ReleaseExclusiveRef() { refs.fetch_and(~EXCLUSIVE_REF); }
 
-  // All the following conversion functions guarantee that no exclusive
+  // The following conversion functions guarantee that no exclusive
   // refs to the handle can be taken by a different thread during the
-  // process.
+  // conversion.
   inline void ExclusiveToInternalRef() {
     refs += kOneInternalRef;
     ReleaseExclusiveRef();
@@ -357,8 +385,8 @@ struct ClockHandle {
     ReleaseExclusiveRef();
   }
 
-  // TODO(Guido) Spinning indefinitely is dangerous. Do we want to bound the
-  // loop and prepare the algorithms to react to a failure?
+  // TODO(Guido) Do we want to bound the loop and prepare the
+  // algorithms to react to a failure?
   inline void InternalToExclusiveRef() {
     uint32_t expected = kOneInternalRef;
     uint32_t will_delete = 0;
