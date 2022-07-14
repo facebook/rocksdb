@@ -75,7 +75,9 @@ DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
 DEFINE_bool(skewed, false, "If true, skew the key access distribution");
 
-DEFINE_bool(lean, false, "If true, no additional computation is performed besides cache operations.");
+DEFINE_bool(lean, false,
+            "If true, no additional computation is performed besides cache "
+            "operations.");
 
 #ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
@@ -550,7 +552,7 @@ class CacheBench {
           if (FLAGS_lean) {
             // do something with the data
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                              FLAGS_value_bytes);
+                               FLAGS_value_bytes);
           }
         } else {
           // do insert
@@ -579,7 +581,7 @@ class CacheBench {
           if (FLAGS_lean) {
             // do something with the data
             result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                                FLAGS_value_bytes);
+                               FLAGS_value_bytes);
           }
         }
       } else if (random_op < erase_threshold_) {
