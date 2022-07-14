@@ -1299,8 +1299,8 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
       TableFileName(ioptions->cf_paths, file_meta->fd.GetNumber(),
                     file_meta->fd.GetPathId());
   }
-  s = ioptions->fs->NewRandomAccessFile(file_name, file_options_, &file,
-                                        nullptr);
+  FileSystemPtr fs(ioptions->fs, io_tracer_);
+  s = fs->NewRandomAccessFile(file_name, file_options_, &file, nullptr);
   if (!s.ok()) {
     return s;
   }
