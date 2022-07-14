@@ -601,8 +601,9 @@ class ClockHandleTable {
   // FindSlot that find a matching handle (i.e., don't return -1)
   // continue probing where the previous one left.
   inline int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
-               std::function<bool(ClockHandle*)> stop,
-               std::function<void(ClockHandle*)> update, uint32_t& probe);
+                      std::function<bool(ClockHandle*)> stop,
+                      std::function<void(ClockHandle*)> update,
+                      uint32_t& probe);
 
   // After a failed FindSlot call, this function rolls back all
   // displacement increments, starting from the 0-th probe.

@@ -182,10 +182,10 @@ int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
 }
 
 int ClockHandleTable::FindSlot(const Slice& key,
-                                      std::function<bool(ClockHandle*)> match,
-                                      std::function<bool(ClockHandle*)> stop,
-                                      std::function<void(ClockHandle*)> update,
-                                      uint32_t& probe) {
+                               std::function<bool(ClockHandle*)> match,
+                               std::function<bool(ClockHandle*)> stop,
+                               std::function<void(ClockHandle*)> update,
+                               uint32_t& probe) {
   uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
   uint32_t increment =
       ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
