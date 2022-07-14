@@ -1280,11 +1280,35 @@ class BlobSourceCacheReservationTest : public DBTestBase {
     options_.blob_cache = NewLRUCache(co);
     options_.lowest_used_cache_tier = CacheTier::kVolatileTier;
 
-    block_based_options_.no_block_cache = false;
-    block_based_options_.block_cache = NewLRUCache(co);
+    BlockBasedTableOptions block_based_options;
+    block_based_options.no_block_cache = false;
+    block_based_options.block_cache = NewLRUCache(co);
+    block_based_options.cache_usage_options.options_overrides.insert(
+        {CacheEntryRole::kBlobCache,
+         {/* charged = */ CacheEntryRoleOptions::Decision::kEnabled}});
+    options_.table_factory.reset(
+        NewBlockBasedTableFactory(block_based_options));
+
+    GenerateKeysAndBlobs();
 
     assert(db_->GetDbIdentity(db_id_).ok());
     assert(db_->GetDbSessionId(db_session_id_).ok());
+  }
+
+  void GenerateKeysAndBlobs() {
+    for (size_t i = 0; i < KNumBlobs; ++i) {
+      key_strs_.push_back("key" + std::to_string(i));
+      blob_strs_.push_back("blob" + std::to_string(i));
+    }
+
+    blob_file_size_ = BlobLogHeader::kSize;
+    for (size_t i = 0; i < KNumBlobs; ++i) {
+      keys_.push_back({key_strs_[i]});
+      blobs_.push_back({blob_strs_[i]});
+      blob_file_size_ +=
+          BlobLogRecord::kHeaderSize + keys_[i].size() + blobs_[i].size();
+    }
+    blob_file_size_ += BlobLogFooter::kSize;
   }
 
   static constexpr std::size_t kSizeDummyEntry = CacheReservationManagerImpl<
@@ -1292,8 +1316,18 @@ class BlobSourceCacheReservationTest : public DBTestBase {
   static constexpr std::size_t kCacheCapacity = 1 * kSizeDummyEntry;
   static constexpr int kNumShardBits = 0;  // 2^0 shard
 
+  static constexpr uint32_t kColumnFamilyId = 1;
+  static constexpr bool kHasTTL = false;
+  static constexpr uint64_t kBlobFileNumber = 1;
+  static constexpr size_t KNumBlobs = 16;
+
+  std::vector<Slice> keys_;
+  std::vector<Slice> blobs_;
+  std::vector<std::string> key_strs_;
+  std::vector<std::string> blob_strs_;
+  uint64_t blob_file_size_;
+
   Options options_;
-  BlockBasedTableOptions block_based_options_;
   std::string db_id_;
   std::string db_session_id_;
 };
@@ -1305,47 +1339,18 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
           env_, "BlobSourceCacheReservationTest_SimpleCacheReservation"),
       0);
 
-  block_based_options_.cache_usage_options.options_overrides.insert(
-      {CacheEntryRole::kBlobCache,
-       {/* charged = */ CacheEntryRoleOptions::Decision::kEnabled}});
-
-  options_.table_factory.reset(NewBlockBasedTableFactory(block_based_options_));
-
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
 
-  constexpr uint32_t column_family_id = 1;
-  constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
-  constexpr uint64_t blob_file_number = 1;
-  constexpr size_t num_blobs = 16;
 
-  std::vector<std::string> key_strs;
-  std::vector<std::string> blob_strs;
+  std::vector<uint64_t> blob_offsets(keys_.size());
+  std::vector<uint64_t> blob_sizes(keys_.size());
 
-  for (size_t i = 0; i < num_blobs; ++i) {
-    key_strs.push_back("key" + std::to_string(i));
-    blob_strs.push_back("blob" + std::to_string(i));
-  }
-
-  std::vector<Slice> keys;
-  std::vector<Slice> blobs;
-
-  uint64_t file_size = BlobLogHeader::kSize;
-  for (size_t i = 0; i < num_blobs; ++i) {
-    keys.push_back({key_strs[i]});
-    blobs.push_back({blob_strs[i]});
-    file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
-  }
-  file_size += BlobLogFooter::kSize;
-
-  std::vector<uint64_t> blob_offsets(keys.size());
-  std::vector<uint64_t> blob_sizes(keys.size());
-
-  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
-                expiration_range, blob_file_number, keys, blobs, kNoCompression,
-                blob_offsets, blob_sizes);
+  WriteBlobFile(immutable_options, kColumnFamilyId, kHasTTL, expiration_range,
+                expiration_range, kBlobFileNumber, keys_, blobs_,
+                kNoCompression, blob_offsets, blob_sizes);
 
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
@@ -1356,7 +1361,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
+          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -1368,16 +1373,16 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
 
-  std::vector<PinnableSlice> values(keys.size());
+  std::vector<PinnableSlice> values(keys_.size());
 
   {
     read_options.fill_cache = false;
 
-    for (size_t i = 0; i < num_blobs; ++i) {
+    for (size_t i = 0; i < KNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys[i], blob_file_number, blob_offsets[i], file_size,
-          blob_sizes[i], kNoCompression, nullptr /* prefetch_buffer */,
-          &values[i], nullptr /* bytes_read */));
+          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
+          blob_file_size_, blob_sizes[i], kNoCompression,
+          nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), 0);
     }
@@ -1390,11 +1395,11 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     // dummy entry. Therefore, cache reservation manager only reserves one dummy
     // entry here.
     uint64_t blob_bytes = 0;
-    for (size_t i = 0; i < num_blobs; ++i) {
+    for (size_t i = 0; i < KNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys[i], blob_file_number, blob_offsets[i], file_size,
-          blob_sizes[i], kNoCompression, nullptr /* prefetch_buffer */,
-          &values[i], nullptr /* bytes_read */));
+          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
+          blob_file_size_, blob_sizes[i], kNoCompression,
+          nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
       blob_bytes += blob_sizes[i];
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
@@ -1404,14 +1409,14 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   }
 
   {
-    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, blob_file_number,
-                                      file_size);
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, kBlobFileNumber,
+                                      blob_file_size_);
     size_t blob_bytes = options_.blob_cache->GetUsage();
 
-    for (size_t i = 0; i < num_blobs; ++i) {
+    for (size_t i = 0; i < KNumBlobs; ++i) {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[i]);
       options_.blob_cache->Erase(cache_key.AsSlice());
-      if (i == num_blobs - 1) {
+      if (i == KNumBlobs - 1) {
         // The last blob is not in the cache. cache_res_mgr should not reserve
         // any space for it.
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
@@ -1434,48 +1439,24 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
           "BlobSourceCacheReservationTest_IncreaseCacheReservationOnFullCache"),
       0);
 
-  block_based_options_.cache_usage_options.options_overrides.insert(
-      {CacheEntryRole::kBlobCache,
-       {/* charged = */ CacheEntryRoleOptions::Decision::kEnabled}});
-
-  options_.table_factory.reset(NewBlockBasedTableFactory(block_based_options_));
-
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
+  constexpr size_t blob_size = kSizeDummyEntry / (KNumBlobs / 2);
+  for (size_t i = 0; i < KNumBlobs; ++i) {
+    blob_file_size_ -= blobs_[i].size();  // old blob size
+    blob_strs_[i].resize(blob_size, '@');
+    blobs_[i] = Slice(blob_strs_[i]);
+    blob_file_size_ += blobs_[i].size();  // new blob size
+  }
 
-  constexpr uint32_t column_family_id = 1;
-  constexpr bool has_ttl = false;
+  std::vector<uint64_t> blob_offsets(keys_.size());
+  std::vector<uint64_t> blob_sizes(keys_.size());
+
   constexpr ExpirationRange expiration_range;
-  constexpr uint64_t blob_file_number = 1;
-  constexpr size_t num_blobs = 16;
-
-  std::vector<std::string> key_strs;
-  std::vector<std::string> blob_strs;
-
-  for (size_t i = 0; i < num_blobs; ++i) {
-    key_strs.push_back("key" + std::to_string(i));
-    blob_strs.push_back("blob" + std::to_string(i));
-    blob_strs[i].resize(kSizeDummyEntry / (num_blobs / 2), '@');
-  }
-
-  std::vector<Slice> keys;
-  std::vector<Slice> blobs;
-
-  uint64_t file_size = BlobLogHeader::kSize;
-  for (size_t i = 0; i < num_blobs; ++i) {
-    keys.push_back({key_strs[i]});
-    blobs.push_back({blob_strs[i]});
-    file_size += BlobLogRecord::kHeaderSize + keys[i].size() + blobs[i].size();
-  }
-  file_size += BlobLogFooter::kSize;
-
-  std::vector<uint64_t> blob_offsets(keys.size());
-  std::vector<uint64_t> blob_sizes(keys.size());
-
-  WriteBlobFile(immutable_options, column_family_id, has_ttl, expiration_range,
-                expiration_range, blob_file_number, keys, blobs, kNoCompression,
-                blob_offsets, blob_sizes);
+  WriteBlobFile(immutable_options, kColumnFamilyId, kHasTTL, expiration_range,
+                expiration_range, kBlobFileNumber, keys_, blobs_,
+                kNoCompression, blob_offsets, blob_sizes);
 
   constexpr size_t capacity = 10;
   std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
@@ -1486,7 +1467,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   std::unique_ptr<BlobFileCache> blob_file_cache =
       std::make_unique<BlobFileCache>(
           backing_cache.get(), &immutable_options, &file_options,
-          column_family_id, blob_file_read_hist, nullptr /*IOTracer*/);
+          kColumnFamilyId, blob_file_read_hist, nullptr /*IOTracer*/);
 
   BlobSource blob_source(&immutable_options, db_id_, db_session_id_,
                          blob_file_cache.get());
@@ -1498,16 +1479,16 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
 
-  std::vector<PinnableSlice> values(keys.size());
+  std::vector<PinnableSlice> values(keys_.size());
 
   {
     read_options.fill_cache = false;
 
-    for (size_t i = 0; i < num_blobs; ++i) {
+    for (size_t i = 0; i < KNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys[i], blob_file_number, blob_offsets[i], file_size,
-          blob_sizes[i], kNoCompression, nullptr /* prefetch_buffer */,
-          &values[i], nullptr /* bytes_read */));
+          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
+          blob_file_size_, blob_sizes[i], kNoCompression,
+          nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), 0);
     }
@@ -1519,14 +1500,14 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
     // Since we resized each blob to be kSizeDummyEntry / (num_blobs/ 2), we
     // should observe cache eviction for the second half blobs.
     uint64_t blob_bytes = 0;
-    for (size_t i = 0; i < num_blobs; ++i) {
+    for (size_t i = 0; i < KNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
-          read_options, keys[i], blob_file_number, blob_offsets[i], file_size,
-          blob_sizes[i], kNoCompression, nullptr /* prefetch_buffer */,
-          &values[i], nullptr /* bytes_read */));
+          read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
+          blob_file_size_, blob_sizes[i], kNoCompression,
+          nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
       blob_bytes += blob_sizes[i];
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
-      if (i >= num_blobs / 2) {
+      if (i >= KNumBlobs / 2) {
         ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), kSizeDummyEntry);
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
