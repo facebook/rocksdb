@@ -71,7 +71,7 @@ struct ClockHandle {
     // Number of external references to the slot.
     EXTERNAL_REFS = ((uint32_t{1} << 15) - 1)
                     << kExternalRefsOffset,  // Bits 0, ..., 14
-    // Total number of internal plus external references to the slot.
+    // Number of internal references plus external references to the slot.
     SHARED_REFS = ((uint32_t{1} << 15) - 1)
                   << kSharedRefsOffset,  // Bits 15, ..., 29
     // Whether a thread has an exclusive reference to the slot.
@@ -485,30 +485,29 @@ class ClockHandleTable {
 
   int FindElement(const Slice& key, uint32_t hash, int& probe);
 
-  int FindAvailableSlot(const Slice& key, int& probe, int displacement);
+  int FindAvailableSlot(const Slice& key, int& probe);
 
-  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash, int& probe,
-                                 int displacement);
+  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash, int& probe);
 
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that match(e) is true.
   // At every step, the function first tests whether match(e) holds.
-  // If this condition is false, it uses abort(e) to determine whether the
-  // search should stop, and in this case returns -1. For every handle e probed
-  // except the last one, the function runs update(e). We say a probe to a
-  // handle e is aborting if match(e) is false and abort(e) is true. The
-  // argument probe is one more than the last non-aborting probe during the
-  // call. This is so that that the variable can be used as a pointer such that
-  // consecutive calls to FindSlot that find a matching handle (i.e., don't
-  // return -1) continue probing where the previous one left.
+  // If it's false, it evaluates stop(e) to decide whether the
+  // search should stop, and in the affirmative case returns -1.
+  // For every handle e probed except the last one, the function runs
+  // update(e). We say a probe to a handle e is stopping if match(e) is
+  // false and stop(e) is true. The argument probe is one more than the
+  // last non-stopping probe during the call. This is so that that the
+  // variable can be used as a pointer such that consecutive calls to
+  // FindSlot that find a matching handle (i.e., don't return -1)
+  // continue probing where the previous one left.
   int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
-               std::function<bool(ClockHandle*)> abort,
+               std::function<bool(ClockHandle*)> stop,
                std::function<void(ClockHandle*)> update, int& probe);
 
   // After a failed FindSlot call, this function rolls back all
-  // displacement updates done by a sequence of FindSlot calls,
-  // starting from the 0-th probe.
-  void Rollback(const Slice& key, int probe, int displacement);
+  // displacement increments, starting from the 0-th probe.
+  void Rollback(const Slice& key, int probe);
 
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
