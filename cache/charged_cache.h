@@ -45,7 +45,9 @@ class ChargedCache : public Cache {
   virtual void Erase(const Slice& key) override;
   virtual void EraseUnRefEntries() override;
 
-  inline virtual const char* Name() const override { return cache_->Name(); }
+  static const char* kClassName() { return "ChargedCache"; }
+  inline virtual const char* Name() const override { return kClassName(); }
+
   inline virtual uint64_t NewId() override { return cache_->NewId(); }
 
   inline virtual void SetCapacity(size_t capacity) override {

@@ -716,15 +716,15 @@ Status BlockBasedTableFactory::ValidateOptions(
     }
     if (role == CacheEntryRole::kBlobCache &&
         options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
-      std::shared_ptr<ChargedCache> charged_cache =
-          std::dynamic_pointer_cast<ChargedCache>(cf_opts.blob_cache);
-      if (charged_cache == nullptr) {
+      if (!strstr(cf_opts.blob_cache->Name(), ChargedCache::kClassName())) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"
             " for CacheEntryRole " +
             kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
             " but ChargedCache is not configured");
       }
+      ChargedCache* charged_cache =
+          static_cast<ChargedCache*>(cf_opts.blob_cache.get());
       if (charged_cache->GetCache() == nullptr) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"
