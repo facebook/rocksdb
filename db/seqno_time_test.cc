@@ -231,8 +231,8 @@ TEST_F(SeqnoTimeTest, MultiCFs) {
   ReopenWithColumnFamilies({"default"}, options);
 
   auto scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
-  ASSERT_EQ(0u, scheduler->TEST_HasValidTask(
-                    dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
+  ASSERT_FALSE(scheduler->TEST_HasValidTask(
+      dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
 
   // Write some data and increase the current time
   for (int i = 0; i < 200; i++) {
@@ -252,8 +252,8 @@ TEST_F(SeqnoTimeTest, MultiCFs) {
   Options options_1 = options;
   options_1.preclude_last_level_data_seconds = 10000;  // 10k
   CreateColumnFamilies({"one"}, options_1);
-  ASSERT_EQ(1u, scheduler->TEST_HasValidTask(
-                    dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
+  ASSERT_TRUE(scheduler->TEST_HasValidTask(
+      dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
 
   // Write some data to the default CF (without preclude_last_level feature)
   for (int i = 0; i < 200; i++) {
@@ -386,8 +386,8 @@ TEST_F(SeqnoTimeTest, MultiCFs) {
       0);
 
   // And the timer worker is stopped
-  ASSERT_EQ(0u, scheduler->TEST_HasValidTask(
-                    dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
+  ASSERT_FALSE(scheduler->TEST_HasValidTask(
+      dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
   Close();
 }
 
