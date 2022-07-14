@@ -498,10 +498,10 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // replaced this element, and by the time we take the lock and ref
     // we could potentially be referencing a different element.
     // Thus, before evicting the (potentially different) element, we need to
-    // re-check that it's unreferenced and marked as WILL_DELETE, so the eviction
-    // is safe. Additionally, we check that the hash doesn't change, which will
-    // detect, most of the time, whether the element is a different one.
-    // The bottomline is that we only guarantee that the input handle will
+    // re-check that it's unreferenced and marked as WILL_DELETE, so the
+    // eviction is safe. Additionally, we check that the hash doesn't change,
+    // which will detect, most of the time, whether the element is a different
+    // one. The bottomline is that we only guarantee that the input handle will
     // be deleted, and occasionally also another handle, but in any case all
     // deleted handles are safe to delete.
     // TODO(Guido) With lock-free inserts and deletes we may be able to
@@ -511,7 +511,8 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
       DMutexLock l(mutex_);
       if (h->TrySpinExclusiveRef()) {
         will_delete = h->refs & ClockHandle::WILL_DELETE;
-        if (h->IsElement() && (will_delete || erase_if_last_ref) && h->hash == hash) {
+        if (h->IsElement() && (will_delete || erase_if_last_ref) &&
+            h->hash == hash) {
           copy = *h;
           Evict(h);
         }
