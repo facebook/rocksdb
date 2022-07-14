@@ -46,9 +46,10 @@ namespace clock_cache {
 //    referenced. In particular, when an handle becomes referenced, it's
 //    temporarily taken out of clock until all references to it are released.
 // (M) Marked for deletion (or invisible): An handle is marked for deletion
-//    when it can't be immediately deleted due to a reference. When this occurs,
+//    when an operation attempts to delete it, but the handle is externally
+//    referenced, so it can't be immediately deleted. When this mark is placed,
 //    lookups will no longer be able to find it. Consequently, no more external
-//    references can be taken to the handle. When a handle is not marked for
+//    references will be taken to the handle. When a handle is not marked for
 //    deletion, we say it's visible.
 // These properties induce 4 different states, with transitions defined as
 // follows:
@@ -136,10 +137,10 @@ struct ClockHandle {
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   std::array<char, kCacheKeySize> key_data;
 
-  static constexpr int kExternalRefsOffset = 0;
-  static constexpr int kSharedRefsOffset = 15;
-  static constexpr int kExclusiveRefOffset = 30;
-  static constexpr int kWillDeleteOffset = 31;
+  static constexpr uint32_t kExternalRefsOffset = 0;
+  static constexpr uint32_t kSharedRefsOffset = 15;
+  static constexpr uint32_t kExclusiveRefOffset = 30;
+  static constexpr uint32_t kWillBeDeletedOffset = 31;
 
   enum Refs : uint32_t {
     // Number of external references to the slot.
@@ -156,7 +157,7 @@ struct ClockHandle {
     // There is an exception: external references can be created from
     // existing external references, or converting from existing internal
     // references.
-    WILL_DELETE = uint32_t{1} << kWillDeleteOffset  // Bit 31
+    WILL_BE_DELETED = uint32_t{1} << kWillBeDeletedOffset  // Bit 31
   };
 
   static constexpr uint32_t kOneInternalRef = 0x8000;
@@ -173,15 +174,14 @@ struct ClockHandle {
   // - Combining EXTERNAL_REFS and SHARED_REFS allows us to convert an internal
   //    reference into an external reference in a single atomic arithmetic
   //    operation.
-  // - Combining SHARED_REFS and WILL_DELETE allows us to attempt to take a
-  // shared
-  //    reference and check whether the entry is marked for deletion in a single
-  //    atomic arithmetic operation.
+  // - Combining SHARED_REFS and WILL_BE_DELETED allows us to attempt to take a
+  //    shared reference and check whether the entry is marked for deletion
+  //    in a single atomic arithmetic operation.
 
-  static constexpr int kIsElementOffset = 1;
-  static constexpr int kClockPriorityOffset = 2;
-  static constexpr int kIsHitOffset = 4;
-  static constexpr int kCachePriorityOffset = 5;
+  static constexpr uint32_t kIsElementOffset = 1;
+  static constexpr uint32_t kClockPriorityOffset = 2;
+  static constexpr uint32_t kIsHitOffset = 4;
+  static constexpr uint32_t kCachePriorityOffset = 5;
 
   enum Flags : uint8_t {
     // Whether the slot is in use by an element.
@@ -209,7 +209,7 @@ struct ClockHandle {
 
   // Synchronization rules:
   // - Use a shared reference when we want the handle's identity
-  //    members (i.e., key_data, hash, value, IS_ELEMENT flag) to
+  //    members (key_data, hash, value and IS_ELEMENT flag) to
   //    remain untouched, but not modify them. The only updates
   //    that a shared reference allows are:
   //      * set CLOCK_PRIORITY to NONE;
@@ -231,7 +231,7 @@ struct ClockHandle {
         refs(0),
         flags(0),
         displacements(0) {
-    SetWillDelete(false);
+    SetWillBeDeleted(false);
     SetIsElement(false);
     SetClockPriority(ClockPriority::NONE);
     SetCachePriority(Cache::Priority::LOW);
@@ -247,7 +247,7 @@ struct ClockHandle {
     refs.store(other.refs);
     flags.store(other.flags);
     displacements.store(other.displacements);
-    SetWillDelete(other.WillDelete());
+    SetWillBeDeleted(other.WillBeDeleted());
     SetIsElement(other.IsElement());
     SetClockPriority(other.GetClockPriority());
     SetCachePriority(other.GetCachePriority());
@@ -262,7 +262,7 @@ struct ClockHandle {
     refs.store(other.refs);
     key_data = other.key_data;
     flags.store(other.flags);
-    SetWillDelete(other.WillDelete());
+    SetWillBeDeleted(other.WillBeDeleted());
     SetIsElement(other.IsElement());
     SetClockPriority(other.GetClockPriority());
     SetCachePriority(other.GetCachePriority());
@@ -379,34 +379,42 @@ struct ClockHandle {
            this->key() == some_key;
   }
 
-  bool WillDelete() const { return refs & WILL_DELETE; }
+  bool WillBeDeleted() const { return refs & WILL_BE_DELETED; }
 
-  void SetWillDelete(bool will_delete) {
-    if (will_delete) {
-      refs |= WILL_DELETE;
+  void SetWillBeDeleted(bool will_be_deleted) {
+    if (will_be_deleted) {
+      refs |= WILL_BE_DELETED;
     } else {
-      refs &= ~WILL_DELETE;
+      refs &= ~WILL_BE_DELETED;
     }
   }
 
+  // The following functions are for taking and releasing refs.
+
+  // Tries to take an external ref. Returns true iff it succeeds.
   inline bool TryExternalRef() {
-    if (!((refs += kOneExternalRef) & (EXCLUSIVE_REF | WILL_DELETE))) {
+    if (!((refs += kOneExternalRef) & (EXCLUSIVE_REF | WILL_BE_DELETED))) {
       return true;
     }
     refs -= kOneExternalRef;
     return false;
   }
 
+  // Releases an external ref. Returns the new value (this is useful to
+  // avoid an extra atomic read).
   inline uint32_t ReleaseExternalRef() { return refs -= kOneExternalRef; }
 
-  // Take an external ref, assuming there is at least one external reference
+  // Take an external ref, assuming there is already one external ref
   // to the handle.
-  // TODO(Guido) Is it okay to assume that the existing external reference
-  // survives until this function returns?
-  void Ref() { refs += kOneExternalRef; }
+  void Ref() {
+    // TODO(Guido) Is it okay to assume that the existing external reference
+    // survives until this function returns?
+    refs += kOneExternalRef;
+  }
 
+  // Tries to take an internal ref. Returns true iff it succeeds.
   inline bool TryInternalRef() {
-    if (!((refs += kOneInternalRef) & (EXCLUSIVE_REF | WILL_DELETE))) {
+    if (!((refs += kOneInternalRef) & (EXCLUSIVE_REF | WILL_BE_DELETED))) {
       return true;
     }
     refs -= kOneInternalRef;
@@ -415,33 +423,37 @@ struct ClockHandle {
 
   inline void ReleaseInternalRef() { refs -= kOneInternalRef; }
 
+  // Tries to take an exclusive ref. Returns true iff it succeeds.
   inline bool TryExclusiveRef() {
-    uint32_t will_delete = refs & WILL_DELETE;
-    uint32_t expected = will_delete;
-    return refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete);
+    uint32_t will_be_deleted = refs & WILL_BE_DELETED;
+    uint32_t expected = will_be_deleted;
+    return refs.compare_exchange_strong(expected,
+                                        EXCLUSIVE_REF | will_be_deleted);
   }
 
-  // Spins until an exclusive ref is taken. Stops when an external reference is
-  // detected (in this case the wait would presumably be too long).
+  // Repeatedly tries to take an exclusive reference, but stops as soon
+  // as an external reference is detected (in this case the wait would
+  // presumably be too long).
   inline bool TrySpinExclusiveRef() {
     uint32_t expected = 0;
-    uint32_t will_delete = 0;
-    while (
-        !refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete)) {
+    uint32_t will_be_deleted = 0;
+    while (!refs.compare_exchange_strong(expected,
+                                         EXCLUSIVE_REF | will_be_deleted)) {
       if (expected & EXTERNAL_REFS) {
         return false;
       }
-      will_delete = expected & WILL_DELETE;
-      expected = will_delete;
+      will_be_deleted = expected & WILL_BE_DELETED;
+      expected = will_be_deleted;
     }
     return true;
   }
 
   inline void ReleaseExclusiveRef() { refs.fetch_and(~EXCLUSIVE_REF); }
 
-  // The following conversion functions guarantee that no exclusive
-  // refs to the handle can be taken by a different thread during the
-  // conversion.
+  // The following functions are for upgrading and downgrading refs.
+  // They guarantee atomicity, i.e., no exclusive refs to the handle
+  // can be taken by a different thread during the conversion.
+
   inline void ExclusiveToInternalRef() {
     refs += kOneInternalRef;
     ReleaseExclusiveRef();
@@ -456,11 +468,11 @@ struct ClockHandle {
   // algorithms to react to a failure?
   inline void InternalToExclusiveRef() {
     uint32_t expected = kOneInternalRef;
-    uint32_t will_delete = 0;
-    while (
-        !refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete)) {
-      will_delete = expected & WILL_DELETE;
-      expected = kOneInternalRef | will_delete;
+    uint32_t will_be_deleted = 0;
+    while (!refs.compare_exchange_strong(expected,
+                                         EXCLUSIVE_REF | will_be_deleted)) {
+      will_be_deleted = expected & WILL_BE_DELETED;
+      expected = kOneInternalRef | will_be_deleted;
     }
   }
 
@@ -469,11 +481,11 @@ struct ClockHandle {
   // TODO(Guido) Same concern.
   inline void ExternalToExclusiveRef() {
     uint32_t expected = kOneExternalRef;
-    uint32_t will_delete = 0;
-    while (
-        !refs.compare_exchange_strong(expected, EXCLUSIVE_REF | will_delete)) {
-      will_delete = expected & WILL_DELETE;
-      expected = kOneExternalRef | will_delete;
+    uint32_t will_be_deleted = 0;
+    while (!refs.compare_exchange_strong(expected,
+                                         EXCLUSIVE_REF | will_be_deleted)) {
+      will_be_deleted = expected & WILL_BE_DELETED;
+      expected = kOneExternalRef | will_be_deleted;
     }
   }
 
@@ -506,11 +518,11 @@ class ClockHandleTable {
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
-                           bool ok_will_delete) {
+                           bool ok_will_be_deleted) {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
-        if (h->IsElement() && (ok_will_delete || !h->WillDelete())) {
+        if (h->IsElement() && (ok_will_be_deleted || !h->WillBeDeleted())) {
           // Hand the internal ref over to func, which is now responsible
           // to release it.
           func(h);
@@ -523,11 +535,12 @@ class ClockHandleTable {
 
   template <typename T>
   void ConstApplyToEntriesRange(T func, uint32_t index_begin,
-                                uint32_t index_end, bool ok_will_delete) const {
+                                uint32_t index_end,
+                                bool ok_will_be_deleted) const {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
-        if (h->IsElement() && (ok_will_delete || !h->WillDelete())) {
+        if (h->IsElement() && (ok_will_be_deleted || !h->WillBeDeleted())) {
           func(h);
         }
         h->ReleaseExclusiveRef();

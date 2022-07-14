@@ -101,7 +101,7 @@ void ClockHandleTable::Remove(ClockHandle* h) {
       h->key(), [&](ClockHandle* e) { return e == h; },
       [&](ClockHandle* e) { return e->displacements == 0; },
       [&](ClockHandle* e) { e->displacements--; }, probe);
-  h->SetWillDelete(false);
+  h->SetWillBeDeleted(false);
   h->SetIsElement(false);
   occupancy_--;
 }
@@ -435,8 +435,8 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       usage_ += h->total_charge;
       if (old != nullptr) {
         s = Status::OkOverwritten();
-        assert(!old->WillDelete());
-        old->SetWillDelete(true);
+        assert(!old->WillBeDeleted());
+        old->SetWillBeDeleted(true);
         if (old->TryExclusiveRef()) {
           last_reference_list.push_back(*old);
           Evict(old);
@@ -489,16 +489,16 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   uint32_t hash = h->hash;
   uint32_t refs = h->ReleaseExternalRef();
   bool last_reference = !(refs & ClockHandle::EXTERNAL_REFS);
-  bool will_delete = refs & ClockHandle::WILL_DELETE;
+  bool will_be_deleted = refs & ClockHandle::WILL_BE_DELETED;
 
-  if (last_reference && (will_delete || erase_if_last_ref)) {
+  if (last_reference && (will_be_deleted || erase_if_last_ref)) {
     // At this point we want to evict the element, so we need to take
     // a lock and an exclusive reference. But there's a problem:
     // as soon as we released the last reference, an Insert or Erase could've
     // replaced this element, and by the time we take the lock and ref
     // we could potentially be referencing a different element.
     // Thus, before evicting the (potentially different) element, we need to
-    // re-check that it's unreferenced and marked as WILL_DELETE, so the
+    // re-check that it's unreferenced and marked as WILL_BE_DELETED, so the
     // eviction is safe. Additionally, we check that the hash doesn't change,
     // which will detect, most of the time, whether the element is a different
     // one. The bottomline is that we only guarantee that the input handle will
@@ -510,8 +510,8 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     {
       DMutexLock l(mutex_);
       if (h->TrySpinExclusiveRef()) {
-        will_delete = h->refs & ClockHandle::WILL_DELETE;
-        if (h->IsElement() && (will_delete || erase_if_last_ref) &&
+        will_be_deleted = h->refs & ClockHandle::WILL_BE_DELETED;
+        if (h->IsElement() && (will_be_deleted || erase_if_last_ref) &&
             h->hash == hash) {
           copy = *h;
           Evict(h);
@@ -538,7 +538,7 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
     DMutexLock l(mutex_);
     ClockHandle* h = table_.Lookup(key, hash);
     if (h != nullptr) {
-      h->SetWillDelete(true);
+      h->SetWillBeDeleted(true);
       h->ReleaseInternalRef();
       if (h->TryExclusiveRef()) {
         copy = *h;
