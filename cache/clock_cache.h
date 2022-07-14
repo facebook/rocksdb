@@ -33,7 +33,7 @@ namespace clock_cache {
 // and clock eviction.
 
 ///////////////////////////////////////////////////////////////////////////////
-//                          Part 1: Handles' states
+//                          Part 1: Handles
 //
 // Every slot in the hash table is a ClockHandle. A handle can be in a few
 // different states, that stem from the fact that handles can be externally
@@ -87,7 +87,7 @@ namespace clock_cache {
 //
 // We maintain a circular buffer with the handles available for eviction,
 // which the clock algorithm traverses (using a "clock pointer") to pick the
-// next victim. We use the array of handles as the circular buffer, and mark
+// next victim. We use the hash table array as the circular buffer, and mark
 // the handles that are evictable. For this we use different clock flags, namely
 // NONE, LOW, MEDIUM, HIGH, that represent priorities: LOW, MEDIUM and HIGH
 // represent how close an element is from being evictable, LOW being immediately
@@ -101,6 +101,19 @@ namespace clock_cache {
 // Importantly, the clock priority is not NONE if and only if the element is
 // not externally referenced. In particular, clock will never evict an element
 // that is referenced.
+//
+///////////////////////////////////////////////////////////////////////////////
+//                      Part 4: Synchronization
+//
+// We provide the following synchronization guarantees:
+// - Lookup is lock-free.
+// - Release is lock-free, unless (i) no references to the element are left,
+//   and (ii) it was marked for deletion or the user wishes to delete if
+//   releasing the last reference.
+// - Insert and Erase still use a per-shard lock.
+//
+// Our hash table is lock-free, in the sense that some system-wide progress
+// is guaranteed, that is, some thread is always able to make progress.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -158,25 +171,28 @@ struct ClockHandle {
     // existing external references, or converting from existing internal
     // references.
     WILL_BE_DELETED = uint32_t{1} << kWillBeDeletedOffset  // Bit 31
+
+    // Shared references (i.e., external and internal references) and exclusive
+    // references are our custom implementation of RW locks---external and
+    // internal references are read locks, and exclusive references are write
+    // locks. We prioritize readers, which never block; in fact, they don't even
+    // use compare-and-swap operations. Using our own implementation of RW locks
+    // allows us to save many atomic operations by packing data more carefully.
+    // In particular:
+    // - Combining EXTERNAL_REFS and SHARED_REFS allows us to convert an
+    // internal
+    //    reference into an external reference in a single atomic arithmetic
+    //    operation.
+    // - Combining SHARED_REFS and WILL_BE_DELETED allows us to attempt to take
+    // a
+    //    shared reference and check whether the entry is marked for deletion
+    //    in a single atomic arithmetic operation.
   };
 
   static constexpr uint32_t kOneInternalRef = 0x8000;
   static constexpr uint32_t kOneExternalRef = 0x8001;
 
   std::atomic<uint32_t> refs;
-
-  // Shared references (i.e., external and internal references) and exclusive
-  // references are our custom implementation of RW locks---external and
-  // internal references are read locks, and exclusive references are write
-  // locks. Our readers are prioritized, and they never block. Using our own
-  // implementation of RW locks allows us to save many atomic operations by
-  // packing data more carefully. In particular:
-  // - Combining EXTERNAL_REFS and SHARED_REFS allows us to convert an internal
-  //    reference into an external reference in a single atomic arithmetic
-  //    operation.
-  // - Combining SHARED_REFS and WILL_BE_DELETED allows us to attempt to take a
-  //    shared reference and check whether the entry is marked for deletion
-  //    in a single atomic arithmetic operation.
 
   static constexpr uint32_t kIsElementOffset = 1;
   static constexpr uint32_t kClockPriorityOffset = 2;
