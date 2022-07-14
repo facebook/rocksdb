@@ -105,6 +105,10 @@ class CompactionIterator {
     virtual bool DoesInputReferenceBlobFiles() const = 0;
 
     virtual const Compaction* real_compaction() const = 0;
+
+    virtual bool SupportsPerKeyPlacement() const = 0;
+
+    virtual bool WithinPenultimateLevelOutputRange(const Slice& key) const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -162,6 +166,16 @@ class CompactionIterator {
     }
 
     const Compaction* real_compaction() const override { return compaction_; }
+
+    bool SupportsPerKeyPlacement() const override {
+      return compaction_->SupportsPerKeyPlacement();
+    }
+
+    // Check if key is within penultimate level output range, to see if it's
+    // safe to output to the penultimate level for per_key_placement feature.
+    bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
+      return compaction_->WithinPenultimateLevelOutputRange(key);
+    }
 
    private:
     const Compaction* compaction_;
@@ -227,6 +241,12 @@ class CompactionIterator {
   const Slice& user_key() const { return current_user_key_; }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
   uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
+  // If the current key should be placed on penultimate level, only valid if
+  // per_key_placement is supported
+  bool output_to_penultimate_level() const {
+    return output_to_penultimate_level_;
+  }
+  Status InputStatus() const { return input_.status(); }
 
  private:
   // Processes the input stream to find the next output
@@ -234,6 +254,10 @@ class CompactionIterator {
 
   // Do final preparations before presenting the output to the callee.
   void PrepareOutput();
+
+  // Decide the current key should be output to the last level or penultimate
+  // level, only call for compaction supports per key placement
+  void DecideOutputLevel();
 
   // Passes the output value to the blob file builder (if any), and replaces it
   // with the corresponding blob reference if it has been actually written to a
@@ -416,6 +440,11 @@ class CompactionIterator {
   // True if the previous internal key (same user key)'s sequence number has
   // just been zeroed out during bottommost compaction.
   bool last_key_seq_zeroed_{false};
+
+  // True if the current key should be output to the penultimate level if
+  // possible, compaction logic makes the final decision on which level to
+  // output to.
+  bool output_to_penultimate_level_{false};
 
   void AdvanceInputIter() { input_.Next(); }
 
