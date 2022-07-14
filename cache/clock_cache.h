@@ -472,4 +472,11 @@ class ClockCache
 
 }  // namespace clock_cache
 
+// Only for internal testing, temporarily replacing NewClockCache.
+// TODO(Guido) Remove once NewClockCache constructs a ClockCache again.
+extern std::shared_ptr<Cache> ExperimentalNewClockCache(
+    size_t capacity, size_t estimated_value_size, int num_shard_bits,
+    bool strict_capacity_limit,
+    CacheMetadataChargePolicy metadata_charge_policy);
+
 }  // namespace ROCKSDB_NAMESPACE
