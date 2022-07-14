@@ -518,11 +518,11 @@ class ClockHandleTable {
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
-                           bool ok_will_be_deleted) {
+                           bool also_apply_if_will_be_deleted) {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
-        if (h->IsElement() && (ok_will_be_deleted || !h->WillBeDeleted())) {
+        if (h->IsElement() && (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
           // Hand the internal ref over to func, which is now responsible
           // to release it.
           func(h);
@@ -536,11 +536,11 @@ class ClockHandleTable {
   template <typename T>
   void ConstApplyToEntriesRange(T func, uint32_t index_begin,
                                 uint32_t index_end,
-                                bool ok_will_be_deleted) const {
+                                bool also_apply_if_will_be_deleted) const {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
-        if (h->IsElement() && (ok_will_be_deleted || !h->WillBeDeleted())) {
+        if (h->IsElement() && (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
           func(h);
         }
         h->ReleaseExclusiveRef();
@@ -562,11 +562,11 @@ class ClockHandleTable {
  private:
   friend class ClockCacheShard;
 
-  int FindElement(const Slice& key, uint32_t hash, int& probe);
+  int FindElement(const Slice& key, uint32_t hash, uint32_t& probe);
 
-  int FindAvailableSlot(const Slice& key, int& probe);
+  int FindAvailableSlot(const Slice& key, uint32_t& probe);
 
-  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash, int& probe);
+  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash, uint32_t& probe);
 
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that match(e) is true.
@@ -582,11 +582,11 @@ class ClockHandleTable {
   // continue probing where the previous one left.
   int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
                std::function<bool(ClockHandle*)> stop,
-               std::function<void(ClockHandle*)> update, int& probe);
+               std::function<void(ClockHandle*)> update, uint32_t& probe);
 
   // After a failed FindSlot call, this function rolls back all
   // displacement increments, starting from the 0-th probe.
-  void Rollback(const Slice& key, int probe);
+  void Rollback(const Slice& key, uint32_t probe);
 
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.

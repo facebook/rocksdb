@@ -42,13 +42,13 @@ ClockHandleTable::~ClockHandleTable() {
 }
 
 ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
-  int probe = 0;
+  uint32_t probe = 0;
   int slot = FindElement(key, hash, probe);
   return (slot == -1) ? nullptr : &array_[slot];
 }
 
 ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
-  int probe = 0;
+  uint32_t probe = 0;
   int slot = FindElementOrAvailableSlot(h->key(), h->hash, probe);
   *old = nullptr;
   if (slot == -1) {
@@ -96,7 +96,7 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
 
 void ClockHandleTable::Remove(ClockHandle* h) {
   assert(!h->IsInClock());  // Already off clock.
-  int probe = 0;
+  uint32_t probe = 0;
   FindSlot(
       h->key(), [&](ClockHandle* e) { return e == h; },
       [&](ClockHandle* e) { return e->displacements == 0; },
@@ -120,7 +120,7 @@ void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
   occupancy_++;
 }
 
-int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe) {
+int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, uint32_t& probe) {
   return FindSlot(
       key,
       [&](ClockHandle* h) {
@@ -136,7 +136,7 @@ int ClockHandleTable::FindElement(const Slice& key, uint32_t hash, int& probe) {
       [&](ClockHandle* /*h*/) {}, probe);
 }
 
-int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe) {
+int ClockHandleTable::FindAvailableSlot(const Slice& key, uint32_t& probe) {
   int slot = FindSlot(
       key,
       [&](ClockHandle* h) {
@@ -159,7 +159,7 @@ int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe) {
 }
 
 int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
-                                                 uint32_t hash, int& probe) {
+                                                 uint32_t hash, uint32_t& probe) {
   int slot = FindSlot(
       key,
       [&](ClockHandle* h) {
@@ -183,7 +183,7 @@ inline int ClockHandleTable::FindSlot(const Slice& key,
                                       std::function<bool(ClockHandle*)> match,
                                       std::function<bool(ClockHandle*)> stop,
                                       std::function<void(ClockHandle*)> update,
-                                      int& probe) {
+                                      uint32_t& probe) {
   uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
   uint32_t increment =
       ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
@@ -207,11 +207,11 @@ inline int ClockHandleTable::FindSlot(const Slice& key,
   }
 }
 
-void ClockHandleTable::Rollback(const Slice& key, int probe) {
+void ClockHandleTable::Rollback(const Slice& key, uint32_t probe) {
   uint32_t current = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
   uint32_t increment =
       ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
-  for (int i = 0; i < probe; i++) {
+  for (uint32_t i = 0; i < probe; i++) {
     array_[current].displacements--;
     current = ModTableSize(current + increment);
   }
