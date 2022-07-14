@@ -8,8 +8,6 @@
 #include <cassert>
 #include <string>
 
-#include "cache/cache_reservation_manager.h"
-#include "cache/sharded_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
 #include "monitoring/statistics.h"
