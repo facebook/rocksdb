@@ -77,7 +77,6 @@ class CompressedSecondaryCache : public SecondaryCache {
   void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
 
   std::string GetPrintableOptions() const override;
-  std::shared_ptr<Cache> GetCache() {return cache_;}
 
  private:
   std::shared_ptr<Cache> cache_;
