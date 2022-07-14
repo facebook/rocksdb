@@ -3290,7 +3290,12 @@ TEST_F(OptionsParserTest, DuplicateCFOptions) {
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
 }
 
-TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
+// We removed a parameter of the lower version in this PR:
+// https://github.com/tikv/rocksdb/pull/286, so the logic
+// checked below is not valid. We've decide to turn off
+// checking for now until a better way is found, so just
+// skip this test.
+TEST_F(OptionsParserTest, DISABLED_IgnoreUnknownOptions) {
   for (int case_id = 0; case_id < 5; case_id++) {
     DBOptions db_opt;
     db_opt.max_open_files = 12345;
