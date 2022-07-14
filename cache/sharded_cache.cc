@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <memory>
 
-#include "cache/cache_reservation_manager.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/mutexlock.h"
@@ -60,15 +59,8 @@ Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
                             DeleterFn deleter, Handle** handle,
                             Priority priority) {
   uint32_t hash = HashSlice(key);
-  Status s = GetShard(Shard(hash))
-                 ->Insert(key, hash, value, charge, deleter, handle, priority);
-  if (s.ok() && cache_res_mgr_) {
-    // Insert may cause the cache entry eviction if the cache is full. So we
-    // directly call the reservation manager to update the total memory used
-    // in the cache.
-    cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
-  }
-  return s;
+  return GetShard(Shard(hash))
+      ->Insert(key, hash, value, charge, deleter, handle, priority);
 }
 
 Status ShardedCache::Insert(const Slice& key, void* value,
@@ -114,34 +106,18 @@ bool ShardedCache::Ref(Handle* handle) {
 
 bool ShardedCache::Release(Handle* handle, bool erase_if_last_ref) {
   uint32_t hash = GetHash(handle);
-  size_t memory_used_delta = GetUsage(handle);
-  bool erased = GetShard(Shard(hash))->Release(handle, erase_if_last_ref);
-  if (erased && cache_res_mgr_) {
-    cache_res_mgr_->UpdateCacheReservation(memory_used_delta, false)
-        .PermitUncheckedError();
-  }
-  return erased;
+  return GetShard(Shard(hash))->Release(handle, erase_if_last_ref);
 }
 
 bool ShardedCache::Release(Handle* handle, bool useful,
                            bool erase_if_last_ref) {
   uint32_t hash = GetHash(handle);
-  size_t memory_used_delta = GetUsage(handle);
-  bool erased =
-      GetShard(Shard(hash))->Release(handle, useful, erase_if_last_ref);
-  if (erased && cache_res_mgr_) {
-    cache_res_mgr_->UpdateCacheReservation(memory_used_delta, false)
-        .PermitUncheckedError();
-  }
-  return erased;
+  return GetShard(Shard(hash))->Release(handle, useful, erase_if_last_ref);
 }
 
 void ShardedCache::Erase(const Slice& key) {
   uint32_t hash = HashSlice(key);
   GetShard(Shard(hash))->Erase(key, hash);
-  if (cache_res_mgr_) {
-    cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
-  }
 }
 
 uint64_t ShardedCache::NewId() {
@@ -212,9 +188,6 @@ void ShardedCache::EraseUnRefEntries() {
   for (uint32_t s = 0; s < num_shards; s++) {
     GetShard(s)->EraseUnRefEntries();
   }
-  if (cache_res_mgr_) {
-    cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
-  }
 }
 
 std::string ShardedCache::GetPrintableOptions() const {
@@ -256,15 +229,5 @@ int GetDefaultCacheShardBits(size_t capacity) {
 int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
 
 uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
-
-void ShardedCache::SetCacheReservationManager(
-    std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr) {
-  cache_res_mgr_ = cache_res_mgr;
-}
-
-ConcurrentCacheReservationManager* ShardedCache::GetCacheReservationManager()
-    const {
-  return cache_res_mgr_.get();
-}
 
 }  // namespace ROCKSDB_NAMESPACE

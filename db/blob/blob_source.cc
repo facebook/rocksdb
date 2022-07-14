@@ -19,30 +19,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-BlobSource::BlobSource(const ImmutableOptions* ioptions,
+BlobSource::BlobSource(const ImmutableOptions* immutable_options,
                        const std::string& db_id,
                        const std::string& db_session_id,
                        BlobFileCache* blob_file_cache)
     : db_id_(db_id),
       db_session_id_(db_session_id),
-      statistics_(ioptions->statistics.get()),
+      statistics_(immutable_options->statistics.get()),
       blob_file_cache_(blob_file_cache),
-      blob_cache_(ioptions->blob_cache),
-      lowest_used_cache_tier_(ioptions->lowest_used_cache_tier) {
-#ifndef ROCKSDB_LITE
-  auto bbto = ioptions->table_factory->GetOptions<BlockBasedTableOptions>();
-  if (bbto &&
-      bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
-              .charged == CacheEntryRoleOptions::Decision::kEnabled) {
-    std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr(
-        new ConcurrentCacheReservationManager(
-            std::make_shared<
-                CacheReservationManagerImpl<CacheEntryRole::kBlobCache>>(
-                bbto->block_cache)));
-    blob_cache_->SetCacheReservationManager(cache_res_mgr);
-  }
-#endif  // ROCKSDB_LITE
-}
+      blob_cache_(immutable_options->blob_cache),
+      lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {}
 
 BlobSource::~BlobSource() = default;
 

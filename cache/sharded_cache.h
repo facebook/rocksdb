@@ -17,8 +17,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class ConcurrentCacheReservationManager;
-
 // Single cache shard interface.
 class CacheShard {
  public:
@@ -88,7 +86,7 @@ class ShardedCache : public Cache {
                         DeleterFn deleter, Handle** handle,
                         Priority priority) override;
   virtual Status Insert(const Slice& key, void* value,
-                        const CacheItemHelper* helper, size_t chargge,
+                        const CacheItemHelper* helper, size_t charge,
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
@@ -113,11 +111,6 @@ class ShardedCache : public Cache {
                                DeleterFn deleter)>& callback,
       const ApplyToAllEntriesOptions& opts) override;
   virtual void EraseUnRefEntries() override;
-  virtual void SetCacheReservationManager(
-      std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr)
-      override;
-  virtual ConcurrentCacheReservationManager* GetCacheReservationManager()
-      const override;
   virtual std::string GetPrintableOptions() const override;
 
   int GetNumShardBits() const;
@@ -132,8 +125,6 @@ class ShardedCache : public Cache {
   size_t capacity_;
   bool strict_capacity_limit_;
   std::atomic<uint64_t> last_id_;
-  // this is used for charging the current cache usage
-  std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr_ = nullptr;
 };
 
 extern int GetDefaultCacheShardBits(size_t capacity);

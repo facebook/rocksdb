@@ -17,6 +17,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_reservation_manager.h"
+#include "cache/charged_cache.h"
 #include "logging/logging.h"
 #include "options/options_helper.h"
 #include "port/port.h"
@@ -715,6 +716,22 @@ Status BlockBasedTableFactory::ValidateOptions(
     }
     if (role == CacheEntryRole::kBlobCache &&
         options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
+      std::shared_ptr<ChargedCache> charged_cache =
+          std::dynamic_pointer_cast<ChargedCache>(cf_opts.blob_cache);
+      if (charged_cache == nullptr) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but ChargedCache is not configured");
+      }
+      if (charged_cache->GetCache() == nullptr) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but blob cache is not configured");
+      }
       if (table_options_.no_block_cache) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"
@@ -722,21 +739,14 @@ Status BlockBasedTableFactory::ValidateOptions(
             kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
             " but block cache is disabled");
       }
-      if (cf_opts.blob_cache == nullptr) {
-        return Status::InvalidArgument(
-            "Enable CacheEntryRoleOptions::charged"
-            " for CacheEntryRole " +
-            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
-            " but blob cache is not configured");
-      }
-      if (table_options_.block_cache == cf_opts.blob_cache) {
+      if (table_options_.block_cache.get() == charged_cache->GetCache()) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"
             " for CacheEntryRole " +
             kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
             " but blob cache is the same as block cache");
       }
-      if (cf_opts.blob_cache->GetCapacity() >
+      if (charged_cache->GetCapacity() >
           table_options_.block_cache->GetCapacity()) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"

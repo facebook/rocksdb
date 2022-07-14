@@ -38,7 +38,6 @@ namespace ROCKSDB_NAMESPACE {
 class Cache;
 struct ConfigOptions;
 class SecondaryCache;
-class ConcurrentCacheReservationManager;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -127,6 +126,9 @@ extern std::shared_ptr<Cache> NewLRUCache(
         kDefaultCacheMetadataChargePolicy);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
+
+extern std::shared_ptr<Cache> NewChargedCache(
+    std::shared_ptr<Cache> cache, std::shared_ptr<Cache> block_cache);
 
 // EXPERIMENTAL
 // Options structure for configuring a SecondaryCache instance based on
@@ -434,17 +436,6 @@ class Cache {
   // Remove all entries.
   // Prerequisite: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
-
-  // Set cache reservation manager to reserve (block) cache space for memory
-  // used in this cache.
-  virtual void SetCacheReservationManager(
-      std::shared_ptr<ConcurrentCacheReservationManager> /*cache_res_mgr*/) {}
-
-  // Get cache reservation manager if it's set.
-  virtual ConcurrentCacheReservationManager* GetCacheReservationManager()
-      const {
-    return nullptr;
-  }
 
   virtual std::string GetPrintableOptions() const { return ""; }
 

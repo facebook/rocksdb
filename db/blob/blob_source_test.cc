@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 
+#include "cache/charged_cache.h"
 #include "cache/compressed_secondary_cache.h"
 #include "cache/sharded_cache.h"
 #include "db/blob/blob_file_cache.h"
@@ -1277,12 +1278,15 @@ class BlobSourceCacheReservationTest : public DBTestBase {
     co.capacity = kCacheCapacity;
     co.num_shard_bits = kNumShardBits;
     co.metadata_charge_policy = kDontChargeCacheMetadata;
-    options_.blob_cache = NewLRUCache(co);
+    std::shared_ptr<Cache> blob_cache = NewLRUCache(co);
+    std::shared_ptr<Cache> block_cache = NewLRUCache(co);
+
+    options_.blob_cache = NewChargedCache(blob_cache, block_cache);
     options_.lowest_used_cache_tier = CacheTier::kVolatileTier;
 
     BlockBasedTableOptions block_based_options;
     block_based_options.no_block_cache = false;
-    block_based_options.block_cache = NewLRUCache(co);
+    block_based_options.block_cache = block_cache;
     block_based_options.cache_usage_options.options_overrides.insert(
         {CacheEntryRole::kBlobCache,
          {/* charged = */ CacheEntryRoleOptions::Decision::kEnabled}});
@@ -1367,7 +1371,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
                          blob_file_cache.get());
 
   ConcurrentCacheReservationManager* cache_res_mgr =
-      immutable_options.blob_cache->GetCacheReservationManager();
+      std::dynamic_pointer_cast<ChargedCache>(immutable_options.blob_cache)
+          ->GetCacheReservationManager();
   ASSERT_NE(cache_res_mgr, nullptr);
 
   ReadOptions read_options;
@@ -1473,7 +1478,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
                          blob_file_cache.get());
 
   ConcurrentCacheReservationManager* cache_res_mgr =
-      immutable_options.blob_cache->GetCacheReservationManager();
+      std::dynamic_pointer_cast<ChargedCache>(immutable_options.blob_cache)
+          ->GetCacheReservationManager();
   ASSERT_NE(cache_res_mgr, nullptr);
 
   ReadOptions read_options;

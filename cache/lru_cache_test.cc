@@ -1480,10 +1480,10 @@ class LRUCacheWithStat : public LRUCache {
     return LRUCache::Insert(key, value, charge, deleter, handle, priority);
   }
   Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
-                size_t chargge, Handle** handle = nullptr,
+                size_t charge, Handle** handle = nullptr,
                 Priority priority = Priority::LOW) override {
     insert_count_++;
-    return LRUCache::Insert(key, value, helper, chargge, handle, priority);
+    return LRUCache::Insert(key, value, helper, charge, handle, priority);
   }
   Handle* Lookup(const Slice& key, Statistics* stats) override {
     lookup_count_++;
