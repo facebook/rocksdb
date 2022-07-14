@@ -242,7 +242,7 @@ void ClockCacheShard::EraseUnRefEntries() {
         0, table_.GetTableSize(), true);
   }
 
-  // Free the entries here outside of mutex for performance reasons.
+  // Free the entry outside of the mutex for performance reasons.
   for (auto& h : last_reference_list) {
     h.FreeData();
   }
@@ -317,11 +317,12 @@ void ClockCacheShard::EvictFromClock(size_t charge,
 
     if (h->TryExclusiveRef()) {
       if (!h->IsInClock() && h->IsElement()) {
+        // This branch re-inserts elements that were fully released, into clock.
         // Elements that are not in clock are either currently externally
-        // referenced or used to be. Because we are holding an exclusive ref,
-        // we must be in the latter case. This happens when the last
-        // external reference to an element is released, and is not immediately
-        // removed.
+        // referenced or used to be; because we are holding an exclusive ref,
+        // we are in the latter case. This can only happen when the last
+        // external reference to an element was released, and the element was
+        // not immediately removed.
         ClockInsert(h);
       }
 
@@ -365,7 +366,7 @@ void ClockCacheShard::SetCapacity(size_t capacity) {
     EvictFromClock(0, &last_reference_list);
   }
 
-  // Free the entries here outside of mutex for performance reasons.
+  // Free the entry outside of the mutex for performance reasons.
   for (auto& h : last_reference_list) {
     h.FreeData();
   }
@@ -453,7 +454,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     }
   }
 
-  // Free the entries here outside of mutex for performance reasons.
+  // Free the entry outside of the mutex for performance reasons.
   for (auto& h : last_reference_list) {
     h.FreeData();
   }
@@ -485,6 +486,7 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   }
 
   ClockHandle* h = reinterpret_cast<ClockHandle*>(handle);
+  uint32_t hash = h->hash;
   uint32_t refs = h->ReleaseExternalRef();
   bool last_reference = !(refs & ClockHandle::EXTERNAL_REFS);
   bool will_delete = refs & ClockHandle::WILL_DELETE;
@@ -493,21 +495,26 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // At this point we want to evict the element, so we need to take
     // a lock and an exclusive reference. But there's a problem:
     // as soon as we released the last reference, an Insert or Erase could've
-    // replaced this element. Thus, by the time we take the lock and ref,
+    // replaced this element, and by the time we take the lock and ref
     // we could potentially be referencing a different element.
-    // Before evicting the (potentially different) element, however, we re-check
-    // that it's unreferenced and marked as WILL_DELETE, so the eviction is
-    // safe. The bottomline is that we only guarantee that the input handle will
-    // be deleted, and possible another handle, and all deleted handles are safe
-    // to delete.
+    // Thus, before evicting the (potentially different) element, we need to
+    // re-check that it's unreferenced and marked as WILL_DELETE, so the eviction
+    // is safe. Additionally, we check that the hash doesn't change, which will
+    // detect, most of the time, whether the element is a different one.
+    // The bottomline is that we only guarantee that the input handle will
+    // be deleted, and occasionally also another handle, but in any case all
+    // deleted handles are safe to delete.
     // TODO(Guido) With lock-free inserts and deletes we may be able to
     // "atomically" transition to an exclusive ref, without creating a deadlock.
     ClockHandle copy;
     {
       DMutexLock l(mutex_);
       if (h->TrySpinExclusiveRef()) {
-        copy = *h;
-        Evict(h);
+        will_delete = h->refs & ClockHandle::WILL_DELETE;
+        if (h->IsElement() && (will_delete || erase_if_last_ref) && h->hash == hash) {
+          copy = *h;
+          Evict(h);
+        }
         h->ReleaseExclusiveRef();
       } else {
         // An external ref was detected.
@@ -515,6 +522,7 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
       }
     }
 
+    // Free the entry outside of the mutex for performance reasons.
     copy.FreeData();
     return true;
   }
@@ -539,8 +547,7 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
       }
     }
   }
-  // Free the entry here outside of mutex for performance reasons.
-  // last_reference will only be true if e != nullptr.
+  // Free the entry outside of the mutex for performance reasons.
   if (last_reference) {
     copy.FreeData();
   }
