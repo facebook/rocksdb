@@ -45,6 +45,9 @@ class StressTest {
 
   void ReleaseOldTimestampedSnapshots(uint64_t ts);
 
+  std::pair<Status, std::shared_ptr<const Snapshot>> CreateTimestampedSnapshot(
+      uint64_t ts);
+
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);

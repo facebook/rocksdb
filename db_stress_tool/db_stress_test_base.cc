@@ -10,6 +10,7 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
@@ -114,9 +115,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   }
 
   if (FLAGS_cache_type == "clock_cache") {
-    auto cache = NewClockCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                               num_shard_bits, false /*strict_capacity_limit*/,
-                               kDefaultCacheMetadataChargePolicy);
+    auto cache = ExperimentalNewClockCache(
+        static_cast<size_t>(capacity), FLAGS_block_size, num_shard_bits,
+        false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);
@@ -425,6 +426,21 @@ void StressTest::ReleaseOldTimestampedSnapshots(uint64_t ts) {
   }
   assert(txn_db_);
   txn_db_->ReleaseTimestampedSnapshotsOlderThan(ts);
+#else
+  (void)ts;
+  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
+  exit(1);
+#endif  // ROCKSDB_LITE
+}
+
+std::pair<Status, std::shared_ptr<const Snapshot>>
+StressTest::CreateTimestampedSnapshot(uint64_t ts) {
+#ifndef ROCKSDB_LITE
+  if (!txn_db_) {
+    return std::make_pair(Status::InvalidArgument(), nullptr);
+  }
+  assert(txn_db_);
+  return txn_db_->CreateTimestampedSnapshot(ts);
 #else
   (void)ts;
   fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");

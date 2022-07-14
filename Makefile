@@ -1783,6 +1783,9 @@ write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unpre
 timestamped_snapshot_test: $(OBJ_DIR)/utilities/transactions/timestamped_snapshot_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+tiered_compaction_test: $(OBJ_DIR)/db/compaction/tiered_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 sst_dump: $(OBJ_DIR)/tools/sst_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

@@ -13,6 +13,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
@@ -935,9 +936,9 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        NewClockCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
-                      false /*strict_capacity_limit*/,
-                      kDefaultCacheMetadataChargePolicy),
+        ExperimentalNewClockCache(
+            capacity, 1 /*estimated_value_size*/, num_shard_bits,
+            false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy),
         NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
                         false /*strict_capacity_limit*/,
                         kDefaultCacheMetadataChargePolicy)}) {
