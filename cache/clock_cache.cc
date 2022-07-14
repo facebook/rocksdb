@@ -181,7 +181,7 @@ int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
   return slot;
 }
 
-inline int ClockHandleTable::FindSlot(const Slice& key,
+int ClockHandleTable::FindSlot(const Slice& key,
                                       std::function<bool(ClockHandle*)> match,
                                       std::function<bool(ClockHandle*)> stop,
                                       std::function<void(ClockHandle*)> update,

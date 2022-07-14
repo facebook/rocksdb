@@ -143,6 +143,7 @@ constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
 constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
 
 // An experimental (under development!) alternative to LRUCache.
+
 struct ClockHandle {
   void* value;
   Cache::DeleterFn deleter;
@@ -150,10 +151,10 @@ struct ClockHandle {
   size_t total_charge;  // TODO(opt): Only allow uint32_t?
   std::array<char, kCacheKeySize> key_data;
 
-  static constexpr uint32_t kExternalRefsOffset = 0;
-  static constexpr uint32_t kSharedRefsOffset = 15;
-  static constexpr uint32_t kExclusiveRefOffset = 30;
-  static constexpr uint32_t kWillBeDeletedOffset = 31;
+  static constexpr uint8_t kExternalRefsOffset = 0;
+  static constexpr uint8_t kSharedRefsOffset = 15;
+  static constexpr uint8_t kExclusiveRefOffset = 30;
+  static constexpr uint8_t kWillBeDeletedOffset = 31;
 
   enum Refs : uint32_t {
     // Number of external references to the slot.
@@ -194,10 +195,10 @@ struct ClockHandle {
 
   std::atomic<uint32_t> refs;
 
-  static constexpr uint32_t kIsElementOffset = 1;
-  static constexpr uint32_t kClockPriorityOffset = 2;
-  static constexpr uint32_t kIsHitOffset = 4;
-  static constexpr uint32_t kCachePriorityOffset = 5;
+  static constexpr uint8_t kIsElementOffset = 1;
+  static constexpr uint8_t kClockPriorityOffset = 2;
+  static constexpr uint8_t kIsHitOffset = 4;
+  static constexpr uint8_t kCachePriorityOffset = 5;
 
   enum Flags : uint8_t {
     // Whether the slot is in use by an element.
@@ -599,7 +600,7 @@ class ClockHandleTable {
   // variable can be used as a pointer such that consecutive calls to
   // FindSlot that find a matching handle (i.e., don't return -1)
   // continue probing where the previous one left.
-  int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
+  inline int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
                std::function<bool(ClockHandle*)> stop,
                std::function<void(ClockHandle*)> update, uint32_t& probe);
 
