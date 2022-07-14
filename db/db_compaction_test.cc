@@ -5568,6 +5568,97 @@ TEST_F(DBCompactionTest, RoundRobinCutOutputAtCompactCursor) {
   }
 }
 
+TEST_F(DBCompactionTest, RoundRobinCutOutputAtGrandparentsBoundaries) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_bytes_for_level_multiplier = 10;
+  options.compaction_pri = CompactionPri::kRoundRobin;
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 50; j++) {
+      ASSERT_OK(Put(Key(j * 2 + i * 100), rnd.RandomString(102)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Prepopulate files in level 2
+  MoveFilesToLevel(2);
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+
+  VersionSet* const versions = dbfull()->GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+
+  const auto ucmp =
+      cfd->current()->storage_info()->InternalComparator()->user_comparator();
+  // There should be 10 files in level 2
+  ASSERT_EQ(10, level_to_files[2].size());
+  for (int i = 0; i < 10; i++) {
+    const auto file = level_to_files[2][i];
+    ASSERT_TRUE(ucmp->Compare(file.smallest.user_key(), Key(i * 100)) == 0 &&
+                ucmp->Compare(file.largest.user_key(), Key(98 + i * 100)) == 0);
+  }
+
+  // Create two files which spans across a slightly large key domain
+  for (int j = 0; j < 20; j++) {
+    ASSERT_OK(Put(Key(j * 25), rnd.RandomString(102)));
+  }
+  ASSERT_OK(Flush());
+  for (int j = 0; j < 20; j++) {
+    ASSERT_OK(Put(Key(j * 25 + 500), rnd.RandomString(102)));
+  }
+  ASSERT_OK(Flush());
+  // Since the maximum number of files in level 0 is 2 and the range does not
+  // overlap, one file will be moved to L1. This should be a trivial move as
+  // there are no files in L1 now.
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  // Note that trivial move does not trigger compaction and in that case the
+  // output is not necessarily split upon the boundary of grandparent file.
+  ASSERT_EQ(
+      1, NumTableFilesAtLevel(1));  // no split occurs due to the trivial move
+
+  // Add more overlapping files (trivial move is avoided since the file in L1
+  // spans across a large key domain) to trigger compaction that output files in
+  // L1.
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 50; j++) {
+      ASSERT_OK(Put(Key(j * 2 + 1 + i * 100), rnd.RandomString(1014)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  std::vector<std::vector<FileMetaData>> new_level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &new_level_to_files);
+  for (const auto& file : new_level_to_files[1]) {
+    for (const auto& grandparent_file : new_level_to_files[2]) {
+      if (ucmp->Compare(file.smallest.user_key(),
+                        grandparent_file.largest.user_key()) < 0 &&
+          ucmp->Compare(file.largest.user_key(),
+                        grandparent_file.smallest.user_key()) > 0) {
+        // If a file in L1 overlaps with another file in L2, the key domain of a
+        // file in L1 must be covered by the file in L2
+        ASSERT_TRUE(ucmp->Compare(file.smallest.user_key(),
+                                  grandparent_file.smallest.user_key()) >= 0 &&
+                    ucmp->Compare(file.largest.user_key(),
+                                  grandparent_file.largest.user_key()) <= 0);
+      }
+    }
+  }
+}
+
 class NoopMergeOperator : public MergeOperator {
  public:
   NoopMergeOperator() {}

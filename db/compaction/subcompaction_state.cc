@@ -134,10 +134,23 @@ bool SubcompactionState::ShouldStopBefore(const Slice& internal_key) {
       &compaction->column_family_data()->internal_comparator();
 
   // Invalid local_output_split_key indicates that we do not need to split
-  if (local_output_split_key_ != nullptr && !is_split_) {
+  if (local_output_split_key_ != nullptr && !is_split_by_cursor_) {
     // Split occurs when the next key is larger than/equal to the cursor
     if (icmp->Compare(internal_key, local_output_split_key_->Encode()) >= 0) {
-      is_split_ = true;
+      is_split_by_cursor_ = true;
+      return true;
+    }
+  }
+
+  // Empty grandparents_boundaries or next_grandparents_boundary_split_idx has
+  // reached the end indicate that we do not need to split on the boundaries
+  if (!grandparents_boundaries.empty() &&
+      next_grandparents_boundary_split_idx < grandparents_boundaries.size()) {
+    if (icmp->Compare(
+            internal_key,
+            grandparents_boundaries[next_grandparents_boundary_split_idx]
+                .Encode()) >= 0) {
+      next_grandparents_boundary_split_idx++;
       return true;
     }
   }

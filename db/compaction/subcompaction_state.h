@@ -143,6 +143,20 @@ class SubcompactionState {
         local_output_split_key_ = output_split_key;
       }
     }
+
+    // Populate the grandparent files for kRoundRobin compaction priority
+    if (compaction->immutable_options()->compaction_pri == kRoundRobin) {
+      const std::vector<FileMetaData*>& grandparents =
+          compaction->grandparents();
+      for (auto f : grandparents) {
+        if (IsInSubcompactRange(f->smallest.Encode(), icmp)) {
+          grandparents_boundaries.push_back(f->smallest);
+        }
+        if (IsInSubcompactRange(f->largest.Encode(), icmp)) {
+          grandparents_boundaries.push_back(f->largest);
+        }
+      }
+    }
   }
 
   SubcompactionState(SubcompactionState&& state) noexcept
@@ -168,6 +182,15 @@ class SubcompactionState {
     current_outputs_ = is_current_penultimate_level_
                            ? &penultimate_level_outputs_
                            : &compaction_outputs_;
+  }
+
+  bool IsInSubcompactRange(const Slice& key,
+                           const InternalKeyComparator* icmp) const {
+    assert(icmp != nullptr);
+    return (!end.has_value() || icmp->user_comparator()->Compare(
+                                    ExtractUserKey(key), end.value()) < 0) &&
+           (!start.has_value() || icmp->user_comparator()->Compare(
+                                      ExtractUserKey(key), start.value()) > 0);
   }
 
   bool HasPenultimateLevelOutputs() const {
@@ -240,11 +263,17 @@ class SubcompactionState {
   bool seen_key_ = false;
 
   // A flag determines if this subcompaction has been split by the cursor
-  bool is_split_ = false;
+  bool is_split_by_cursor_ = false;
 
   // We also maintain the output split key for each subcompaction to avoid
   // repetitive comparison in ShouldStopBefore()
   const InternalKey* local_output_split_key_ = nullptr;
+
+  // Grandparents' boundaries that fall into the subcompaction range, only
+  // populated for round-robin compaction priority
+  std::vector<InternalKey> grandparents_boundaries;
+  // The up-coming split index in grand parents' boundaries
+  size_t next_grandparents_boundary_split_idx = 0;
 
   // State kept for output being generated
   CompactionOutputs compaction_outputs_;
