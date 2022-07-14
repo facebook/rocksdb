@@ -48,6 +48,38 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key,
   return Status::NotFound("Blob not found in cache");
 }
 
+Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
+                                    CacheHandleGuard<std::string>* cached_blob,
+                                    PinnableSlice* blob) const {
+  assert(blob);
+  assert(!cache_key.empty());
+  assert(blob_cache_);
+
+  Status s;
+  const Cache::Priority priority = Cache::Priority::LOW;
+
+  // Objects to be put into the cache have to be heap-allocated and
+  // self-contained, i.e. own their contents. The Cache has to be able to take
+  // unique ownership of them. Therefore, we copy the blob into a string
+  // directly, and insert that into the cache.
+  std::unique_ptr<std::string> buf = std::make_unique<std::string>();
+  buf->assign(blob->data(), blob->size());
+
+  // TODO: support custom allocators and provide a better estimated memory
+  // usage using malloc_usable_size.
+  Cache::Handle* cache_handle = nullptr;
+  s = InsertEntryIntoCache(cache_key, buf.get(), buf->size(), &cache_handle,
+                           priority);
+  if (s.ok()) {
+    buf.release();
+    assert(cache_handle != nullptr);
+    *cached_blob =
+        CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);
+  }
+
+  return s;
+}
+
 Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
   cache_handle = blob_cache_->Lookup(key, statistics_);
@@ -62,9 +94,28 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   return cache_handle;
 }
 
+Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
+                                        size_t charge,
+                                        Cache::Handle** cache_handle,
+                                        Cache::Priority priority) const {
+  const Status s =
+      blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
+                          cache_handle, priority);
+  if (s.ok()) {
+    assert(*cache_handle != nullptr);
+    RecordTick(statistics_, BLOB_DB_CACHE_ADD);
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
+               blob_cache_->GetUsage(*cache_handle));
+  } else {
+    RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
+  }
+  return s;
+}
+
 Status BlobSource::GetBlob(const ReadOptions& read_options,
                            const Slice& user_key, uint64_t file_number,
-                           uint64_t offset, uint64_t value_size,
+                           uint64_t offset, uint64_t file_size,
+                           uint64_t value_size,
                            CompressionType compression_type,
                            FilePrefetchBuffer* prefetch_buffer,
                            PinnableSlice* value, uint64_t* bytes_read) {
@@ -72,7 +123,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   Status s;
 
-  const CacheKey cache_key = GetCacheKey(file_number, offset);
+  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
 
   CacheHandleGuard<std::string> blob_handle;
 
@@ -157,8 +208,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    s = PutBlobIntoCache(blob_cache_.get(), key, value, &blob_handle,
-                         statistics_);
+    s = PutBlobIntoCache(key, &blob_handle, value);
     if (!s.ok()) {
       return s;
     }
@@ -176,7 +226,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
   uint64_t total_bytes_read = 0;
   uint64_t bytes_read_in_file = 0;
 
-  for (auto& [file_number, blob_reqs_in_file] : blob_reqs) {
+  for (auto& [file_number, file_size, blob_reqs_in_file] : blob_reqs) {
     // sort blob_reqs_in_file by file offset.
     std::sort(
         blob_reqs_in_file.begin(), blob_reqs_in_file.end(),
@@ -184,8 +234,8 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
           return lhs.offset < rhs.offset;
         });
 
-    MultiGetBlobFromOneFile(read_options, file_number, blob_reqs_in_file,
-                            &bytes_read_in_file);
+    MultiGetBlobFromOneFile(read_options, file_number, file_size,
+                            blob_reqs_in_file, &bytes_read_in_file);
 
     total_bytes_read += bytes_read_in_file;
   }
@@ -197,6 +247,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
 
 void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
                                          uint64_t file_number,
+                                         uint64_t file_size,
                                          autovector<BlobReadRequest>& blob_reqs,
                                          uint64_t* bytes_read) {
   const size_t num_blobs = blob_reqs.size();
@@ -214,7 +265,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
   uint64_t total_bytes = 0;
   const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
-                                          std::numeric_limits<uint64_t>::max());
+                                          file_size);
 
   if (blob_cache_) {
     size_t cached_blob_count = 0;
@@ -322,8 +373,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
           const CacheKey cache_key =
               base_cache_key.WithOffset(_blob_reqs[i]->offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(blob_cache_.get(), key, _blob_reqs[i]->result,
-                               &blob_handle, statistics_);
+          s = PutBlobIntoCache(key, &blob_handle, _blob_reqs[i]->result);
           if (!s.ok()) {
             *_blob_reqs[i]->status = s;
           }
@@ -338,8 +388,9 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   }
 }
 
-bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t offset) const {
-  const CacheKey cache_key = GetCacheKey(file_number, offset);
+bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
+                                  uint64_t offset) const {
+  const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   const Slice key = cache_key.AsSlice();
 
   CacheHandleGuard<std::string> blob_handle;

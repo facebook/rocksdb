@@ -7900,7 +7900,7 @@ class PrepopulateBlobCacheJni {
   // Returns the equivalent org.rocksdb.PrepopulateBlobCache for the provided
   // C++ ROCKSDB_NAMESPACE::PrepopulateBlobCache enum
   static jbyte toJavaPrepopulateBlobCache(
-      const ROCKSDB_NAMESPACE::PrepopulateBlobCache& prepopulate_blob_cache) {
+      ROCKSDB_NAMESPACE::PrepopulateBlobCache prepopulate_blob_cache) {
     switch (prepopulate_blob_cache) {
       case ROCKSDB_NAMESPACE::kPrepopulateBlobDisable:
         return 0x0;

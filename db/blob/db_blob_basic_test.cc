@@ -1456,8 +1456,8 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
 
   DestroyAndReopen(options);
 
-  const size_t kNumBlobs = 10;
-  const size_t kValueSize = 100;
+  constexpr size_t kNumBlobs = 10;
+  constexpr size_t kValueSize = 100;
 
   std::string value(kValueSize, 'a');
 
@@ -1501,8 +1501,8 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
 
   DestroyAndReopen(options);
 
-  const size_t kNumBlobs = 10;
-  const size_t kValueSize = 100;
+  constexpr size_t kNumBlobs = 10;
+  constexpr size_t kValueSize = 100;
 
   std::string value(kValueSize, 'a');
 

@@ -393,36 +393,43 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
                                                  uint64_t blob_offset) const {
   Status s = Status::OK();
 
-  if (immutable_options_->blob_cache) {
-    bool warm_cache;
+  auto blob_cache = immutable_options_->blob_cache;
+  auto statistics = immutable_options_->statistics.get();
+  bool warm_cache = prepopulate_blob_cache_ == kPrepopulateBlobFlushOnly &&
+                    creation_reason_ == BlobFileCreationReason::kFlush;
 
-    switch (prepopulate_blob_cache_) {
-      case kPrepopulateBlobFlushOnly:
-        warm_cache = (creation_reason_ == BlobFileCreationReason::kFlush);
-        break;
-      case kPrepopulateBlobDisable:
-        warm_cache = false;
-        break;
-      default:
-        // missing case
-        assert(false);
-        warm_cache = false;
-    }
+  if (blob_cache && warm_cache) {
+    // The blob file during flush is unknown to be exactly how big it is.
+    // Therefore, we set the file size to kMaxOffsetStandardEncoding. For any
+    // max_offset <= this value, the same encoding scheme is guaranteed.
+    const OffsetableCacheKey base_cache_key(
+        db_id_, db_session_id_, blob_file_number,
+        OffsetableCacheKey::kMaxOffsetStandardEncoding);
+    const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
+    const Slice key = cache_key.AsSlice();
 
-    if (warm_cache) {
-      // The cache key does not take into account the real file size. This is
-      // because the blob file in the middle of the flush is unknown to be
-      // exactly how big it is. Therefore, we set the file size here to the
-      // uint64 maximum value to ensure that the warmed cache entries are
-      // available in subsequent inquiries.
-      const OffsetableCacheKey base_cache_key(
-          db_id_, db_session_id_, blob_file_number,
-          std::numeric_limits<uint64_t>::max() /* unknown blob file size */);
-      const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
-      CacheHandleGuard<std::string> blob_handle;
-      s = BlobSource::PutBlobIntoCache(immutable_options_->blob_cache.get(),
-                                       cache_key.AsSlice(), &blob, &blob_handle,
-                                       immutable_options_->statistics.get());
+    const Cache::Priority priority = Cache::Priority::LOW;
+
+    // Objects to be put into the cache have to be heap-allocated and
+    // self-contained, i.e. own their contents. The Cache has to be able to
+    // take unique ownership of them. Therefore, we copy the blob into a
+    // string directly, and insert that into the cache.
+    std::unique_ptr<std::string> buf = std::make_unique<std::string>();
+    buf->assign(blob.data(), blob.size());
+
+    // TODO: support custom allocators and provide a better estimated memory
+    // usage using malloc_usable_size.
+    Cache::Handle* cache_handle = nullptr;
+    s = blob_cache->Insert(key, buf.get(), buf->size(),
+                           &DeleteCacheEntry<std::string>, &cache_handle,
+                           priority);
+    if (s.ok()) {
+      buf.release();
+      RecordTick(statistics, BLOB_DB_CACHE_ADD);
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE,
+                 blob_cache->GetUsage(cache_handle));
+    } else {
+      RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
     }
   }
 

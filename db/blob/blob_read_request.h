@@ -52,6 +52,7 @@ struct BlobReadRequest {
 };
 
 using BlobFileReadRequests =
-    std::tuple<uint64_t /* file_number */, autovector<BlobReadRequest>>;
+    std::tuple<uint64_t /* file_number */, uint64_t /* file_size */,
+               autovector<BlobReadRequest>>;
 
 }  // namespace ROCKSDB_NAMESPACE

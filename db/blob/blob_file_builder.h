@@ -81,7 +81,6 @@ class BlobFileBuilder {
   Status CloseBlobFile();
   Status CloseBlobFileIfNeeded();
 
-  Status PutBlobIntoCache(const Slice& key, const Slice& blob) const;
   Status PutBlobIntoCacheIfNeeded(const Slice& blob, uint64_t blob_file_number,
                                   uint64_t blob_offset) const;
 
