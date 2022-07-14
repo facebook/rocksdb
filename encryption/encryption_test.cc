@@ -56,7 +56,7 @@ class EncryptionTest
       case EncryptionMethod::kAES256_CTR:
         cipher = EVP_aes_256_ctr();
         break;
-#if OPENSSL_VERSION_NUMBER >= 0x1010100fL
+#if OPENSSL_VERSION_NUMBER >= 0x1010100fL && !defined(OPENSSL_NO_SM4)
       // Openssl support SM4 after 1.1.1 release version.
       case EncryptionMethod::kSM4_CTR:
         cipher = EVP_sm4_ctr();
@@ -153,7 +153,7 @@ TEST_P(EncryptionTest, EncryptionTest) {
 }
 
 // Openssl support SM4 after 1.1.1 release version.
-#if OPENSSL_VERSION_NUMBER < 0x1010100fL
+#if OPENSSL_VERSION_NUMBER < 0x1010100fL || defined(OPENSSL_NO_SM4)
 INSTANTIATE_TEST_CASE_P(
     EncryptionTestInstance, EncryptionTest,
     testing::Combine(testing::Bool(),
