@@ -49,8 +49,7 @@ ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
 
 ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
   int probe = 0;
-  int slot =
-      FindElementOrAvailableSlot(h->key(), h->hash, probe);
+  int slot = FindElementOrAvailableSlot(h->key(), h->hash, probe);
   *old = nullptr;
   if (slot == -1) {
     return nullptr;
@@ -149,7 +148,9 @@ int ClockHandleTable::FindAvailableSlot(const Slice& key, int& probe) {
         }
         return false;
       },
-      [&](ClockHandle* h) { return h->IsEmpty(); }, // TODO(Guido) Is it safe without a ref?
+      [&](ClockHandle* h) {
+        return h->IsEmpty();
+      },  // TODO(Guido) Is it safe without a ref?
       [&](ClockHandle* h) { h->displacements++; }, probe);
   if (slot == -1) {
     Rollback(key, probe);
@@ -495,9 +496,9 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // replaced this element. Thus, by the time we take the lock and ref,
     // we could potentially be referencing a different element.
     // Before evicting the (potentially different) element, however, we re-check
-    // that it's unreferenced and marked as WILL_DELETE, so the eviction is safe.
-    // The bottomline is that we only guarantee that the input handle will be
-    // deleted, and possible another handle, and all deleted handles are safe
+    // that it's unreferenced and marked as WILL_DELETE, so the eviction is
+    // safe. The bottomline is that we only guarantee that the input handle will
+    // be deleted, and possible another handle, and all deleted handles are safe
     // to delete.
     // TODO(Guido) With lock-free inserts and deletes we may be able to
     // "atomically" transition to an exclusive ref, without creating a deadlock.
