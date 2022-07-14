@@ -29,26 +29,100 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
 
-// Clock cache implementation. This is based on FastLRUCache's open-addressed
-// hash table. Importantly, it stores elements in an array, and resolves
-// collision using a probing strategy. Visibility and referenceability of
-// elements works as usual. See fast_lru_cache.h for a detailed description.
+// Block cache implementation using a lock-free open-address hash table
+// and clock eviction.
+
+///////////////////////////////////////////////////////////////////////////////
+//                          Part 1: Handles' states
 //
-// The main difference with FastLRUCache is, not surprisingly, the eviction
-// algorithm
-// ---instead of an LRU list, we maintain a circular list with the elements
-// available for eviction, which the clock algorithm traverses to pick the next
-// victim. The clock list is represented using the array of handles, and we
-// simply mark those elements that are present in the list. This is done using
-// different clock flags, namely NONE, LOW, MEDIUM, HIGH, that represent
-// priorities: NONE means that the element is not part of the clock list, and
-// LOW to HIGH represent how close an element is from being evictable (LOW being
-// immediately evictable). When the clock pointer steps on an element that is
-// not immediately evictable, it decreases its priority.
+// Every slot in the hash table is a ClockHandle. A handle can be in a few
+// different states, that stem from the fact that handles can be externally
+// referenced and, thus, can't always be immediately evicted when a delete
+// operation is executed or when they are replaced by a new version (via an
+// insert of the same key). Concretely, the state of a handle is defined by the
+// following two properties:
+// (R) Externally referenced: A handle can be referenced externally, or not.
+//    Importantly, a handle can be evicted if and only if it's not
+//    referenced. In particular, when an handle becomes referenced, it's
+//    temporarily taken out of clock until all references to it are released.
+// (M) Marked for deletion (or invisible): An handle is marked for deletion
+//    when it can't be immediately deleted due to a reference. When this occurs,
+//    lookups will no longer be able to find it. Consequently, no more external
+//    references can be taken to the handle. When a handle is not marked for
+//    deletion, we say it's visible.
+// These properties induce 4 different states, with transitions defined as
+// follows:
+// - Not M --> M: When a handle is deleted or replaced by a new version, but
+//    not immediately evicted.
+// - M --> not M: This cannot happen. Once a handle is marked for deletion,
+//    there is no can't go back.
+// - R --> not R: When all references to an handle are released.
+// - Not R --> R: When an unreferenced handle becomes referenced. This can only
+//    happen if the handle is visible, since references to an handle can only be
+//    created when it's visible.
+//
+///////////////////////////////////////////////////////////////////////////////
+//                      Part 2: Hash table structure
+//
+// Internally, the cache uses an open-addressed hash table to index the handles.
+// We use tombstone counters to keep track of displacements. Probes are
+// generated with double-hashing (but the code can be easily modified to use
+// other probing schemes, like linear hashing). Because of the tombstones and
+// the two possible visibility states of a handle, the table slots (we use the
+// word "slot" to refer to handles that are not necessary valid key-value
+// elements) can be in 4 different states:
+// 1. Visible element: The slot contains an element in not M state.
+// 2. To-be-deleted element: The slot contains an element in M state.
+// 3. Tombstone: The slot doesn't contain an element, but there is some other
+//    element that probed this slot during its insertion.
+// 4. Empty: The slot is unused.
+// When a ghost is removed from the table, it can either transition to being a
+// tombstone or an empty slot, depending on the number of displacements of the
+// slot. In any case, the slot becomes available. When a handle is inserted
+// into that slot, it becomes a visible element again.
+//
+///////////////////////////////////////////////////////////////////////////////
+//                      Part 3: The clock algorithm
+//
+// We maintain a circular buffer with the handles available for eviction,
+// which the clock algorithm traverses (using a "clock pointer") to pick the
+// next victim. We use the array of handles as the circular buffer, and mark
+// the handles that are evictable. For this we use different clock flags, namely
+// NONE, LOW, MEDIUM, HIGH, that represent priorities: LOW, MEDIUM and HIGH
+// represent how close an element is from being evictable, LOW being immediately
+// evictable. NONE can mean three things:
+// (i) the slot doesn't contain an element, or
+// (ii) the slot contains an element that is in R state, or
+// (iii) the slot contains an element that was in R state but it's
+//      not any more, and the clock pointer has not swept through the
+//      slot since the element stopped being referenced.
+//
+// Importantly, the clock priority is not NONE if and only if the element is
+// not externally referenced. In particular, clock will never evict an element
+// that is referenced.
+//
+///////////////////////////////////////////////////////////////////////////////
 
-constexpr double kLoadFactor = 0.35;  // See fast_lru_cache.h.
+// The load factor p is a real number in (0, 1) such that at all
+// times at most a fraction p of all slots, without counting tombstones,
+// are occupied by elements. This means that the probability that a
+// random probe hits an empty slot is at most p, and thus at most 1/p probes
+// are required on average. For example, p = 70% implies that between 1 and 2
+// probes are needed on average (bear in mind that this reasoning doesn't
+// consider the effects of clustering over time).
+// Because the size of the hash table is always rounded up to the next
+// power of 2, p is really an upper bound on the actual load factor---the
+// actual load factor is anywhere between p/2 and p. This is a bit wasteful,
+// but bear in mind that slots only hold metadata, not actual values.
+// Since space cost is dominated by the values (the LSM blocks),
+// overprovisioning the table with metadata only increases the total cache space
+// usage by a tiny fraction.
+constexpr double kLoadFactor = 0.35;
 
-constexpr double kStrictLoadFactor = 0.7;  // See fast_lru_cache.h.
+// The user can exceed kLoadFactor if the sizes of the inserted values don't
+// match estimated_value_size, or if strict_capacity_limit == false. To
+// avoid performance to plunge, we set a strict upper bound on the load factor.
+constexpr double kStrictLoadFactor = 0.7;
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
@@ -127,13 +201,6 @@ struct ClockHandle {
     LOW = (1 << kClockPriorityOffset),
     MEDIUM = (2 << kClockPriorityOffset),
     HIGH = (3 << kClockPriorityOffset)
-    // Priority LOW means immediately evictable, and HIGH means farthest from
-    // evictable. Priority is NONE if and only if:
-    // (i) the handle is not an element, or
-    // (ii) the handle is an externally referenced element, or
-    // (iii) the handle is an element that was externally referenced but it's
-    //      not any more, and the clock_pointer_ has not swept through the
-    //      slot since the element stopped being referenced.
   };
 
   // The number of elements that hash to this slot or a lower one, but wind
@@ -429,8 +496,7 @@ class ClockHandleTable {
   // Returns an exclusive reference to h, and no references to old.
   ClockHandle* Insert(ClockHandle* h, ClockHandle** old);
 
-  // Removes h from the hash table. The handle must already be off
-  // the clock list.
+  // Removes h from the hash table. The handle must already be off clock.
   // Assumes the thread has an exclusive reference to h.
   void Remove(ClockHandle* h);
 
@@ -543,8 +609,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
   // Like Cache methods, but with an extra "hash" parameter.
   // Insert an item into the hash table and, if handle is null, insert into
-  // the clock list. Older items are evicted as necessary. If the cache is full
-  // and free_handle_on_fail is true, the item is deleted and handle is set to
+  // clock. Older items are evicted as necessary. If the cache is full and
+  // free_handle_on_fail is true, the item is deleted and handle is set to
   // nullptr.
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 Cache::DeleterFn deleter, Cache::Handle** handle,
@@ -595,13 +661,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
   void ClockRemove(ClockHandle* h);
 
-  // Assumes that the caller thread has an exclusive ref on h.
+  // Requires an exclusive ref on h.
   void Evict(ClockHandle* h);
 
   // Free some space following strict clock policy until enough space
-  // to hold (usage_ + charge) is freed or the clock list is empty
-  // This function is not thread safe - it needs to be executed while
-  // holding the mutex_.
+  // to hold (usage_ + charge) is freed or there are no evictable elements.
   void EvictFromClock(size_t charge, autovector<ClockHandle>* deleted);
 
   // Returns the charge of a single handle.

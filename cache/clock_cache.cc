@@ -95,7 +95,7 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
 }
 
 void ClockHandleTable::Remove(ClockHandle* h) {
-  assert(!h->IsInClock());  // Already off the clock list.
+  assert(!h->IsInClock());  // Already off clock.
   int probe = 0;
   FindSlot(
       h->key(), [&](ClockHandle* e) { return e == h; },
@@ -404,7 +404,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
     assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
     // Free the space following strict clock policy until enough space
-    // is freed or the clock list is empty.
+    // is freed or there are no evictable elements.
     EvictFromClock(tmp.total_charge, &last_reference_list);
     if ((usage_ + tmp.total_charge > capacity_ &&
          (strict_capacity_limit_ || handle == nullptr)) ||
