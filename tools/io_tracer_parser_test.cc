@@ -50,6 +50,8 @@ class IOTracerParserTest : public testing::Test {
     if (env_->FileExists(trace_file_path_).ok()) {
       EXPECT_OK(env_->DeleteFile(trace_file_path_));
     }
+
+    EXPECT_OK(db_->Close());
     if (db_ != nullptr) {
       Options options;
       options.env = env_;
@@ -194,6 +196,10 @@ TEST_F(IOTracerParserTest, TraceDBOpen) {
       EXPECT_OK(env_->DeleteFile(trace_file_path_));
     }
     ASSERT_OK(db_->Close());
+    if (db_ != nullptr) {
+      delete db_;
+      db_ = nullptr;
+    }
   }
   {
     // Reopen DB

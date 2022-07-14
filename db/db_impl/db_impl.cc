@@ -247,6 +247,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
 
+#ifndef ROCKSDB_LITE
   if (immutable_db_options_.io_trace_opts != nullptr) {
     if (!immutable_db_options_.io_trace_opts->io_trace_file_path.empty()) {
       std::unique_ptr<TraceWriter> trace_writer;
@@ -255,9 +256,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
           env_, immutable_db_options_.io_trace_opts->env_opts,
           immutable_db_options_.io_trace_opts->io_trace_file_path,
           &trace_writer);
-      StartIOTrace(TraceOptions(), std::move(trace_writer));
+      StartIOTrace(TraceOptions(), std::move(trace_writer))
+          .PermitUncheckedError();
     }
   }
+#endif  // ROCKSDB_LITE
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
