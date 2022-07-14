@@ -1449,7 +1449,7 @@ TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   // fill with new date
   RecoveryTestHelper::FillData(this, &options);
   // corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
   // verify
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
@@ -1602,7 +1602,10 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
   // Corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  // The offset here was 0.3 which cuts off right at the end of a
+  // valid fragment after wal zstd compression checksum is enabled,
+  // so changed the value to 0.33.
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
 
   // Verify
