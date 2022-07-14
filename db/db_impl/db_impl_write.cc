@@ -1661,10 +1661,11 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
       if (cfd->IsDropped()) {
         continue;
       }
-      if (!cfd->mem()->IsEmpty() && cfd->imm()->NumNotFlushed() == 0) {
+      if (!cfd->mem()->IsEmpty() &&
+          !cfd->imm()->IsFlushPendingOrRunning()) {
         // We only consider flush on CFs with bytes in the mutable memtable,
         // and no immutable memtables for which flush has yet to finish. If
-        // we triggered flush on CFs already pending flush, we would risk
+        // we triggered flush on CFs already trying to flush, we would risk
         // creating too many immutable memtables leading to write stalls.
         uint64_t seq = cfd->mem()->GetCreationSeq();
         if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
