@@ -31,8 +31,7 @@ BlobSource::BlobSource(const ImmutableOptions* ioptions,
       lowest_used_cache_tier_(ioptions->lowest_used_cache_tier) {
 #ifndef ROCKSDB_LITE
   auto bbto = ioptions->table_factory->GetOptions<BlockBasedTableOptions>();
-  if (bbto && bbto->block_cache && blob_cache_ &&
-      bbto->block_cache != blob_cache_ &&
+  if (bbto &&
       bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
               .charged == CacheEntryRoleOptions::Decision::kEnabled) {
     std::shared_ptr<ConcurrentCacheReservationManager> cache_res_mgr(

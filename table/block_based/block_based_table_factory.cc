@@ -713,6 +713,38 @@ Status BlockBasedTableFactory::ValidateOptions(
           kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
           " but block cache is disabled");
     }
+    if (role == CacheEntryRole::kBlobCache &&
+        options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
+      if (table_options_.no_block_cache) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but block cache is disabled");
+      }
+      if (cf_opts.blob_cache == nullptr) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but blob cache is not configured");
+      }
+      if (table_options_.block_cache == cf_opts.blob_cache) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but blob cache is the same as block cache");
+      }
+      if (cf_opts.blob_cache->GetCapacity() >
+          table_options_.block_cache->GetCapacity()) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but blob cache capacity is larger than block cache capacity");
+      }
+    }
   }
   {
     Status s = CheckCacheOptionCompatibility(table_options_);
