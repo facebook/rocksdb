@@ -324,6 +324,7 @@ void CompactionJob::AcquireSubcompactionResources(
       std::max(max_db_compactions - *bg_compaction_scheduled_ -
                    *bg_bottom_compaction_scheduled_,
                0);
+  db_mutex_->Lock();
   // Reservation only supports backgrdoun threads of which the priority is
   // between BOTTOM and HIGH. Need to degrade the priority to HIGH if the
   // origin thread_pri_ is higher than that. Similar to ReleaseThreads().
@@ -332,7 +333,6 @@ void CompactionJob::AcquireSubcompactionResources(
                                     available_bg_compactions_against_db_limit),
                            std::min(thread_pri_, Env::Priority::HIGH));
 
-  db_mutex_->AssertHeld();
   // Update bg_compaction_scheduled_ or bg_bottom_compaction_scheduled_
   // depending on if this compaction has the bottommost priority
   if (thread_pri_ == Env::Priority::BOTTOM) {
@@ -341,11 +341,13 @@ void CompactionJob::AcquireSubcompactionResources(
   } else {
     *bg_compaction_scheduled_ += extra_num_subcompaction_threads_reserved_;
   }
+  db_mutex_->Unlock();
 }
 
 void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
   // Do nothing when we have zero resources to shrink
   if (num_extra_resources == 0) return;
+  db_mutex_->Lock();
   // We cannot release threads more than what we reserved before
   int extra_num_subcompaction_threads_released = env_->ReleaseThreads(
       (int)num_extra_resources, std::min(thread_pri_, Env::Priority::HIGH));
@@ -353,8 +355,10 @@ void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
   // scheduled compactions for this compaction job
   extra_num_subcompaction_threads_reserved_ -=
       extra_num_subcompaction_threads_released;
+  // TODO (zichen): design a test case with new subcompaction partitioning
+  // when the number of actual partitions is less than the number of planned
+  // partitions
   assert(extra_num_subcompaction_threads_released == (int)num_extra_resources);
-  db_mutex_->AssertHeld();
   // Update bg_compaction_scheduled_ or bg_bottom_compaction_scheduled_
   // depending on if this compaction has the bottommost priority
   if (thread_pri_ == Env::Priority::BOTTOM) {
@@ -363,6 +367,7 @@ void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
   } else {
     *bg_compaction_scheduled_ -= extra_num_subcompaction_threads_released;
   }
+  db_mutex_->Unlock();
   TEST_SYNC_POINT("CompactionJob::ShrinkSubcompactionResources:0");
 }
 
@@ -373,7 +378,7 @@ void CompactionJob::ReleaseSubcompactionResources() {
   // The number of reserved threads becomes larger than 0 only if the
   // compaction prioity is round robin and there is no sufficient
   // sub-compactions available
-  db_mutex_->Lock();
+
   // The scheduled compaction must be no less than 1 + extra number
   // subcompactions using acquired resources since this compaction job has not
   // finished yet
@@ -382,7 +387,6 @@ void CompactionJob::ReleaseSubcompactionResources() {
          *bg_compaction_scheduled_ >=
              1 + extra_num_subcompaction_threads_reserved_);
   ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
-  db_mutex_->Unlock();
 }
 
 struct RangeWithSize {
@@ -421,7 +425,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // cause relatively small inaccuracy.
 
   auto* c = compact_->compaction;
-  if (c->max_subcompactions() <= 1 && c->immutable_options()->compaction_pri != kRoundRobin) {
+  if (c->max_subcompactions() <= 1 &&
+      !(c->immutable_options()->compaction_pri == kRoundRobin &&
+        c->immutable_options()->compaction_style == kCompactionStyleLevel)) {
     return;
   }
   auto* cfd = c->column_family_data();
@@ -479,13 +485,14 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // Get the number of planned subcompactions, may update reserve threads
   // and update extra_num_subcompaction_threads_reserved_ for round-robin
   uint64_t num_planned_subcompactions;
-  if (c->immutable_options()->compaction_pri == kRoundRobin) {
+  if (c->immutable_options()->compaction_pri == kRoundRobin &&
+      c->immutable_options()->compaction_style == kCompactionStyleLevel) {
     // For round-robin compaction prioity, we need to employ more
     // subcompactions (may exceed the max_subcompaction limit). The extra
     // subcompactions will be executed using reserved threads and taken into
     // account bg_compaction_scheduled or bg_bottom_compaction_scheduled.
 
-    // Initialized by the number of input files 
+    // Initialized by the number of input files
     num_planned_subcompactions = static_cast<uint64_t>(c->num_input_files(0));
     uint64_t max_subcompactions_limit = GetSubcompactionsLimit();
     if (max_subcompactions_limit < num_planned_subcompactions) {

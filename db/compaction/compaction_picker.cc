@@ -462,7 +462,7 @@ bool CompactionPicker::SetupOtherInputs(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, CompactionInputFiles* inputs,
     CompactionInputFiles* output_level_inputs, int* parent_index,
-    int base_index) {
+    int base_index, bool only_expand_towards_right) {
   assert(!inputs->empty());
   assert(output_level_inputs->empty());
   const int input_level = inputs->level;
@@ -515,8 +515,16 @@ bool CompactionPicker::SetupOtherInputs(
     InternalKey all_start, all_limit;
     GetRange(*inputs, *output_level_inputs, &all_start, &all_limit);
     bool try_overlapping_inputs = true;
-    vstorage->GetOverlappingInputs(input_level, &all_start, &all_limit,
-                                   &expanded_inputs.files, base_index, nullptr);
+    if (only_expand_towards_right) {
+      // Round-robin compaction only allows expansion towards the larger side.
+      vstorage->GetOverlappingInputs(input_level, &smallest, &all_limit,
+                                     &expanded_inputs.files, base_index,
+                                     nullptr);
+    } else {
+      vstorage->GetOverlappingInputs(input_level, &all_start, &all_limit,
+                                     &expanded_inputs.files, base_index,
+                                     nullptr);
+    }
     uint64_t expanded_inputs_size =
         TotalCompensatedFileSize(expanded_inputs.files);
     if (!ExpandInputsToCleanCut(cf_name, vstorage, &expanded_inputs)) {
