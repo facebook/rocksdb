@@ -37,6 +37,54 @@ class SeqnoTimeTest : public DBTestBase {
   }
 };
 
+TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
+  const int kNumTrigger = 4;
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+  const int kLastLevel = kNumLevels - 1;
+
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.preclude_last_level_data_seconds = 10000;
+  options.env = mock_env_.get();
+  options.bottommost_temperature = Temperature::kCold;
+  options.num_levels = kNumLevels;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicWorkerRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+
+  // Write files that are overlap and enough to trigger compaction
+  for (int i = 0; i < kNumTrigger; i++) {
+    for (int k = 0; k < kNumKeys; k++) {
+      ASSERT_OK(Put(Key(i * (kNumKeys - 1) + k), "value"));
+      dbfull()->TEST_WaitForPeridicWorkerRun(
+          [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->WaitForCompact(true));
+
+  // All data is hot, only output to penultimate level
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+
+
+  for (int i = 0; i < 100; i++) {
+    for (int k = 0; k < 200; k++) {
+      ASSERT_OK(Put(Key(4 * 198 + i * 198 + k), "value"));
+      dbfull()->TEST_WaitForPeridicWorkerRun(
+          [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->WaitForCompact(true));
+    std::cout << i << "->" << FilesPerLevel() << std::endl;
+  }
+
+  Close();
+}
+
 TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 10000;
