@@ -126,7 +126,7 @@ class BlobSource {
   // Callbacks for secondary blob cache
   static size_t SizeCallback(void* obj) {
     assert(obj != nullptr);
-    return static_cast<std::string*>(obj)->size();
+    return static_cast<const std::string*>(obj)->size();
   }
 
   static Status SaveToCallback(void* from_obj, size_t from_offset,
@@ -156,8 +156,9 @@ class BlobSource {
   std::shared_ptr<Cache> blob_cache_;
 
   // The control option of how the cache tiers will be used. Currently rocksdb
-  // support block/blob cache (volatile tier), secondary cache (non-volatile
-  // tier).
+  // support block/blob cache (volatile tier) and secondary cache (this tier
+  // isn't strictly speaking a non-volatile tier since the compressed cache in
+  // this tier is in volatile memory).
   const CacheTier lowest_used_cache_tier_;
 };
 

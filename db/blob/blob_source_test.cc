@@ -1088,19 +1088,12 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
   Random rnd(301);
 
-  std::vector<std::string> key_strs;
-  std::vector<std::string> blob_strs;
-  key_strs.push_back("key0");
-  blob_strs.push_back(rnd.RandomString(1010));
-  key_strs.push_back("key1");
-  blob_strs.push_back(rnd.RandomString(1020));
+  std::vector<std::string> key_strs{"key0", "key1"};
+  std::vector<std::string> blob_strs{rnd.RandomString(1010),
+                                     rnd.RandomString(1020)};
 
-  std::vector<Slice> keys;
-  std::vector<Slice> blobs;
-  keys.push_back({key_strs[0]});
-  blobs.push_back({blob_strs[0]});
-  keys.push_back({key_strs[1]});
-  blobs.push_back({blob_strs[1]});
+  std::vector<Slice> keys{key_strs[0], key_strs[1]};
+  std::vector<Slice> blobs{blob_strs[0], blob_strs[1]};
 
   std::vector<uint64_t> blob_offsets(keys.size());
   std::vector<uint64_t> blob_sizes(keys.size());
