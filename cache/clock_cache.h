@@ -281,8 +281,7 @@ struct ClockHandle {
     if (is_element) {
       flags |= IS_ELEMENT;
     } else {
-      // flags &= static_cast<uint8_t>(~IS_ELEMENT);
-      flags.fetch_and(~IS_ELEMENT);
+      flags &= static_cast<uint8_t>(~IS_ELEMENT);
     }
   }
 
@@ -302,8 +301,7 @@ struct ClockHandle {
     if (priority == Cache::Priority::HIGH) {
       flags |= Flags::CACHE_PRIORITY;
     } else {
-      // flags &= static_cast<uint8_t>(~Flags::CACHE_PRIORITY);
-      flags.fetch_and(~Flags::CACHE_PRIORITY);
+      flags &= static_cast<uint8_t>(~Flags::CACHE_PRIORITY);
     }
   }
 
@@ -312,8 +310,7 @@ struct ClockHandle {
   }
 
   void SetClockPriority(ClockPriority priority) {
-    // flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
-    flags.fetch_and(~Flags::CLOCK_PRIORITY);
+    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
     flags |= priority;
   }
 
@@ -481,7 +478,9 @@ struct ClockHandle {
     }
   }
 
-  inline void InternalToExternalRef() { refs++; }
+  inline void InternalToExternalRef() {
+    refs += kOneExternalRef - kOneInternalRef;
+  }
 
   // TODO(Guido) Same concern.
   inline void ExternalToExclusiveRef() {
@@ -676,6 +675,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
  private:
   friend class ClockCache;
 
+  // Inserting and removing from clock simply means setting the appropriate
+  // clock priority in the handle. An element is in clock if and only if its
+  // priority is not NONE (i.e., it's LOW, MEDIUM or HIGH). Thus, when the
+  // clock pointer sweeps through this handle, it won't consider the element
+  // for eviction if the priority is NONE.
   void ClockInsert(ClockHandle* h);
 
   void ClockRemove(ClockHandle* h);

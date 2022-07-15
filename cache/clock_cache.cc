@@ -52,7 +52,7 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
   int slot = FindElementOrAvailableSlot(h->key(), h->hash, probe);
   *old = nullptr;
   if (slot == -1) {
-    // The key is not already present, and there's no available slot to fit
+    // The key is not already present, and there's no available slot to place
     // the new copy.
     return nullptr;
   }
@@ -186,7 +186,14 @@ int ClockHandleTable::FindSlot(const Slice& key,
                                std::function<bool(ClockHandle*)> abort,
                                std::function<void(ClockHandle*)> update,
                                uint32_t& probe) {
+  // We use double-hashing probing. Every probe in the sequence is a
+  // pseudorandom integer, computed as a linear function of two random hashes,
+  // which we call base and increment. Specifically, the i-th probe is base + i
+  // * increment modulo the table size.
   uint32_t base = ModTableSize(Hash(key.data(), key.size(), kProbingSeed1));
+  // We use an odd increment, which is relatively prime with the power-of-two
+  // table size. This implies that we cycle back to the first probe only
+  // after probing every slot exactly once.
   uint32_t increment =
       ModTableSize((Hash(key.data(), key.size(), kProbingSeed2) << 1) | 1);
   uint32_t current = ModTableSize(base + probe * increment);
@@ -319,12 +326,12 @@ void ClockCacheShard::EvictFromClock(size_t charge,
 
     if (h->TryExclusiveRef()) {
       if (!h->IsInClock() && h->IsElement()) {
-        // We re-insert the element into clock.
-        // Why? Elements that are not in clock are either currently externally
-        // referenced or used to be---because we are holding an exclusive ref,
-        // we know we are in the latter case. This can only happen when the last
-        // external reference to an element was released, and the element was
-        // not immediately removed.
+        // We re-insert the element into clock (i.e., set it's priority to not
+        // NONE). Why? Elements that are not in clock are either currently
+        // externally referenced or used to be---because we are holding an
+        // exclusive ref, we know we are in the latter case. This can only
+        // happen when the last external reference to an element was released,
+        // and the element was not immediately removed.
         ClockInsert(h);
       }
 
@@ -471,6 +478,10 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
   ClockHandle* h = nullptr;
   h = table_.Lookup(key, hash);
   if (h != nullptr) {
+    // TODO(Guido) Comment from #10347: Here it looks like we have three atomic
+    // updates where it would be possible to combine into one CAS (more metadata
+    // under one atomic field) or maybe two atomic updates (one arithmetic, one
+    // bitwise). Something to think about optimizing.
     h->InternalToExternalRef();
     h->SetHit();
     // The handle is now referenced, so we take it out of clock.
