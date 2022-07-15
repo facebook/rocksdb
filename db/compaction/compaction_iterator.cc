@@ -1089,13 +1089,10 @@ void CompactionIterator::DecideOutputLevel() {
   output_to_penultimate_level_ = context.output_to_penultimate_level;
 #endif /* !NDEBUG */
 
-  if (ikey_.sequence > penultimate_level_cutoff_seqno_) {
-    output_to_penultimate_level_ = true;
-  }
-
-  // if the key is within the earliest snapshot, it has to output to the
-  // penultimate level.
-  if (ikey_.sequence > earliest_snapshot_) {
+  // if the key is newer than the cutoff sequence or within the earliest
+  // snapshot, it should output to the penultimate level.
+  if (ikey_.sequence > penultimate_level_cutoff_seqno_ ||
+      ikey_.sequence > earliest_snapshot_) {
     output_to_penultimate_level_ = true;
   }
 
