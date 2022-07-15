@@ -20,8 +20,8 @@
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
-#include "util/mutexlock.h"
 #include "util/distributed_mutex.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace lru_cache {
