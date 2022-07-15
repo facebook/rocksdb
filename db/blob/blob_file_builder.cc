@@ -12,7 +12,6 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_writer.h"
-#include "db/blob/blob_source.h"
 #include "db/event_helpers.h"
 #include "db/version_set.h"
 #include "file/filename.h"
