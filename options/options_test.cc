@@ -127,7 +127,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
-      {"prepopulate_blob_cache", "kPrepopulateBlobDisable"},
+      {"prepopulate_blob_cache", "PrepopulateBlobCache::kDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -267,7 +267,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
-  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, kPrepopulateBlobDisable);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -2358,7 +2358,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
-      {"prepopulate_blob_cache", "kPrepopulateBlobDisable"},
+      {"prepopulate_blob_cache", "PrepopulateBlobCache::kDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -2492,7 +2492,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
-  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, kPrepopulateBlobDisable);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";

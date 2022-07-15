@@ -246,9 +246,9 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATED         = 2, // No inplace update. Merged value set
 };
 
-enum PrepopulateBlobCache : uint8_t {
-  kPrepopulateBlobDisable = 0x0,    // Disable prepopulate blob cache
-  kPrepopulateBlobFlushOnly = 0x1,  // Prepopulate blobs during flush only
+enum class PrepopulateBlobCache : uint8_t {
+  kDisable = 0x0,    // Disable prepopulate blob cache
+  kFlushOnly = 0x1,  // Prepopulate blobs during flush only
 };
 
 struct AdvancedColumnFamilyOptions {
@@ -1009,7 +1009,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: disabled
   //
   // Dynamically changeable through the SetOptions() API
-  PrepopulateBlobCache prepopulate_blob_cache = kPrepopulateBlobDisable;
+  PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

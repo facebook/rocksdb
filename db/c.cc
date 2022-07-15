@@ -3146,7 +3146,7 @@ void rocksdb_options_set_prepopulate_blob_cache(rocksdb_options_t* opt, int t) {
 }
 
 int rocksdb_options_get_prepopulate_blob_cache(rocksdb_options_t* opt) {
-  return opt->rep.prepopulate_blob_cache;
+  return static_cast<int>(opt->rep.prepopulate_blob_cache);
 }
 
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {

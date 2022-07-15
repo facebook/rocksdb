@@ -270,9 +270,10 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
                         std::vector<std::string>{"0", "1", "2"});
-    options_tbl.emplace("prepopulate_blob_cache",
-                        std::vector<std::string>{"kPrepopulateBlobDisable",
-                                                 "kPrepopulateBlobFlushOnly"});
+    options_tbl.emplace(
+        "prepopulate_blob_cache",
+        std::vector<std::string>{"PrepopulateBlobCache::kDisable",
+                                 "PrepopulateBlobCache::kFlushOnly"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -2407,7 +2408,7 @@ void StressTest::Open(SharedState* shared) {
             ", blob cache num shard bits: %d, blob cache prepopulated: %s\n",
             FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
             FLAGS_blob_cache_numshardbits,
-            options_.prepopulate_blob_cache == kPrepopulateBlobFlushOnly
+            options_.prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
                 ? "flush only"
                 : "disable");
   } else {
@@ -3051,10 +3052,10 @@ void InitializeOptionsFromFlags(
     }
     switch (FLAGS_prepopulate_blob_cache) {
       case 0:
-        options.prepopulate_blob_cache = kPrepopulateBlobDisable;
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
         break;
       case 1:
-        options.prepopulate_blob_cache = kPrepopulateBlobFlushOnly;
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
         break;
       default:
         fprintf(stderr, "Unknown prepopulate blob cache mode\n");

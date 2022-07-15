@@ -1102,7 +1102,7 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log, "                 blob_file_starting_level: %d",
                  blob_file_starting_level);
   ROCKS_LOG_INFO(log, "                   prepopulate_blob_cache: %s",
-                 prepopulate_blob_cache == kPrepopulateBlobFlushOnly
+                 prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
                      ? "flush only"
                      : "disable");
   ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",

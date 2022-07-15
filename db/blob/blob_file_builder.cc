@@ -394,8 +394,9 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
   auto blob_cache = immutable_options_->blob_cache;
   auto statistics = immutable_options_->statistics.get();
-  bool warm_cache = prepopulate_blob_cache_ == kPrepopulateBlobFlushOnly &&
-                    creation_reason_ == BlobFileCreationReason::kFlush;
+  bool warm_cache =
+      prepopulate_blob_cache_ == PrepopulateBlobCache::kFlushOnly &&
+      creation_reason_ == BlobFileCreationReason::kFlush;
 
   if (blob_cache && warm_cache) {
     // The blob file during flush is unknown to be exactly how big it is.

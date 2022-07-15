@@ -1451,7 +1451,7 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
 
   options.enable_blob_files = true;
   options.create_if_missing = true;
-  options.prepopulate_blob_cache = kPrepopulateBlobFlushOnly;
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
   DestroyAndReopen(options);
@@ -1496,7 +1496,7 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
 
   options.enable_blob_files = true;
   options.create_if_missing = true;
-  options.prepopulate_blob_cache = kPrepopulateBlobFlushOnly;
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
   DestroyAndReopen(options);
@@ -1519,7 +1519,7 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
   }
 
   ASSERT_OK(dbfull()->SetOptions(
-      {{"prepopulate_blob_cache", "kPrepopulateBlobDisable"}}));
+      {{"prepopulate_blob_cache", "PrepopulateBlobCache::kDisable"}}));
 
   for (size_t i = 6; i <= kNumBlobs; i++) {
     ASSERT_OK(Put(std::to_string(i), value));

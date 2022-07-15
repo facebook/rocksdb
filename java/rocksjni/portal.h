@@ -7902,9 +7902,9 @@ class PrepopulateBlobCacheJni {
   static jbyte toJavaPrepopulateBlobCache(
       ROCKSDB_NAMESPACE::PrepopulateBlobCache prepopulate_blob_cache) {
     switch (prepopulate_blob_cache) {
-      case ROCKSDB_NAMESPACE::kPrepopulateBlobDisable:
+      case ROCKSDB_NAMESPACE::PrepopulateBlobCache::kDisable:
         return 0x0;
-      case ROCKSDB_NAMESPACE::kPrepopulateBlobFlushOnly:
+      case ROCKSDB_NAMESPACE::PrepopulateBlobCache::kFlushOnly:
         return 0x1;
       default:
         return 0x7f;  // undefined
@@ -7917,13 +7917,13 @@ class PrepopulateBlobCacheJni {
       jbyte jprepopulate_blob_cache) {
     switch (jprepopulate_blob_cache) {
       case 0x0:
-        return ROCKSDB_NAMESPACE::kPrepopulateBlobDisable;
+        return ROCKSDB_NAMESPACE::PrepopulateBlobCache::kDisable;
       case 0x1:
-        return ROCKSDB_NAMESPACE::kPrepopulateBlobFlushOnly;
+        return ROCKSDB_NAMESPACE::PrepopulateBlobCache::kFlushOnly;
       case 0x7F:
       default:
         // undefined/default
-        return ROCKSDB_NAMESPACE::kPrepopulateBlobDisable;
+        return ROCKSDB_NAMESPACE::PrepopulateBlobCache::kDisable;
     }
   }
 };

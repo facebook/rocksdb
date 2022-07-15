@@ -199,7 +199,7 @@ struct MutableCFOptions {
         blob_garbage_collection_force_threshold(0.0),
         blob_compaction_readahead_size(0),
         blob_file_starting_level(0),
-        prepopulate_blob_cache(kPrepopulateBlobDisable),
+        prepopulate_blob_cache(PrepopulateBlobCache::kDisable),
         max_sequential_skip_in_iterations(0),
         check_flush_compaction_key_order(true),
         paranoid_file_checks(false),

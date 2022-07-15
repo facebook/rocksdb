@@ -841,10 +841,10 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
                      prepopulate_blob_cache, exec_state_)) {
     switch (prepopulate_blob_cache) {
       case 0:
-        cf_opts->prepopulate_blob_cache = kPrepopulateBlobDisable;
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
         break;
       case 1:
-        cf_opts->prepopulate_blob_cache = kPrepopulateBlobFlushOnly;
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
         break;
       default:
         exec_state_ = LDBCommandExecuteResult::Failed(

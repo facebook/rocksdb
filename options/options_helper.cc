@@ -853,8 +853,8 @@ std::unordered_map<std::string, Temperature>
 
 std::unordered_map<std::string, PrepopulateBlobCache>
     OptionsHelper::prepopulate_blob_cache_string_map = {
-        {"kPrepopulateBlobDisable", kPrepopulateBlobDisable},
-        {"kPrepopulateBlobFlushOnly", kPrepopulateBlobFlushOnly}};
+        {"PrepopulateBlobCache::kDisable", PrepopulateBlobCache::kDisable},
+        {"PrepopulateBlobCache::kFlushOnly", PrepopulateBlobCache::kFlushOnly}};
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {
