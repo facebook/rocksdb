@@ -281,7 +281,8 @@ struct ClockHandle {
     if (is_element) {
       flags |= IS_ELEMENT;
     } else {
-      flags &= static_cast<uint8_t>(~IS_ELEMENT);
+      // flags &= static_cast<uint8_t>(~IS_ELEMENT);
+      flags.fetch_and(~IS_ELEMENT);
     }
   }
 
@@ -301,7 +302,8 @@ struct ClockHandle {
     if (priority == Cache::Priority::HIGH) {
       flags |= Flags::CACHE_PRIORITY;
     } else {
-      flags &= static_cast<uint8_t>(~Flags::CACHE_PRIORITY);
+      // flags &= static_cast<uint8_t>(~Flags::CACHE_PRIORITY);
+      flags.fetch_and(~Flags::CACHE_PRIORITY);
     }
   }
 
@@ -310,7 +312,8 @@ struct ClockHandle {
   }
 
   void SetClockPriority(ClockPriority priority) {
-    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
+    // flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
+    flags.fetch_and(~Flags::CLOCK_PRIORITY);
     flags |= priority;
   }
 
