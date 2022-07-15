@@ -112,8 +112,8 @@ namespace clock_cache {
 //   releasing the last reference.
 // - Insert and Erase still use a per-shard lock.
 //
-// Our hash table is lock-free, in the sense that some system-wide progress
-// is guaranteed, that is, some thread is always able to make progress.
+// Our hash table is lock-free, in the sense that system-wide progress is
+// guaranteed, i.e., some thread is always able to make progress.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -255,23 +255,11 @@ struct ClockHandle {
     key_data.fill(0);
   }
 
-  ClockHandle(const ClockHandle& other)
-      : value(other.value),
-        deleter(other.deleter),
-        hash(other.hash),
-        total_charge(other.total_charge),
-        key_data(other.key_data) {
-    refs.store(other.refs);
-    flags.store(other.flags);
-    displacements.store(other.displacements);
-    SetWillBeDeleted(other.WillBeDeleted());
-    SetIsElement(other.IsElement());
-    SetClockPriority(other.GetClockPriority());
-    SetCachePriority(other.GetCachePriority());
+  ClockHandle(const ClockHandle& other) {
+    *this = other;
   }
 
   void operator=(const ClockHandle& other) {
-    // TODO(Guido) Is there a better way to implement copy ctor + operator=?
     value = other.value;
     deleter = other.deleter;
     hash = other.hash;
