@@ -49,8 +49,8 @@ namespace clock_cache {
 //    when an operation attempts to delete it, but the handle is externally
 //    referenced, so it can't be immediately deleted. When this mark is placed,
 //    lookups will no longer be able to find it. Consequently, no more external
-//    references will be taken to the handle. When a handle is not marked for
-//    deletion, we say it's visible.
+//    references will be taken to the handle. When a handle is marked for
+//    deletion, we also say it's invisible.
 // These properties induce 4 different states, with transitions defined as
 // follows:
 // - Not M --> M: When a handle is deleted or replaced by a new version, but
@@ -148,7 +148,7 @@ struct ClockHandle {
   void* value;
   Cache::DeleterFn deleter;
   uint32_t hash;
-  size_t total_charge;  // TODO(opt): Only allow uint32_t?
+  size_t total_charge;
   std::array<char, kCacheKeySize> key_data;
 
   static constexpr uint8_t kExternalRefsOffset = 0;
@@ -185,8 +185,7 @@ struct ClockHandle {
     //    reference into an external reference in a single atomic arithmetic
     //    operation.
     // - Combining SHARED_REFS and WILL_BE_DELETED allows us to attempt to take
-    // a
-    //    shared reference and check whether the entry is marked for deletion
+    //    a shared reference and check whether the entry is marked for deletion
     //    in a single atomic arithmetic operation.
   };
 
@@ -512,21 +511,19 @@ class ClockHandleTable {
   ClockHandle* Insert(ClockHandle* h, ClockHandle** old);
 
   // Removes h from the hash table. The handle must already be off clock.
-  // Assumes the thread has an exclusive reference to h.
   void Remove(ClockHandle* h);
 
   // Assigns a copy of src to dst.
-  // Assumes the thread has an exclusive reference to dst.
   void Assign(ClockHandle* dst, ClockHandle* src);
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
-                           bool also_apply_if_will_be_deleted) {
+                           bool apply_if_will_be_deleted) {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
         if (h->IsElement() &&
-            (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
+            (apply_if_will_be_deleted || !h->WillBeDeleted())) {
           // Hand the internal ref over to func, which is now responsible
           // to release it.
           func(h);
@@ -540,12 +537,12 @@ class ClockHandleTable {
   template <typename T>
   void ConstApplyToEntriesRange(T func, uint32_t index_begin,
                                 uint32_t index_end,
-                                bool also_apply_if_will_be_deleted) const {
+                                bool apply_if_will_be_deleted) const {
     for (uint32_t i = index_begin; i < index_end; i++) {
       ClockHandle* h = &array_[i];
       if (h->TryExclusiveRef()) {
         if (h->IsElement() &&
-            (also_apply_if_will_be_deleted || !h->WillBeDeleted())) {
+            (apply_if_will_be_deleted || !h->WillBeDeleted())) {
           func(h);
         }
         h->ReleaseExclusiveRef();
@@ -577,22 +574,21 @@ class ClockHandleTable {
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that match(e) is true.
   // At every step, the function first tests whether match(e) holds.
-  // If it's false, it evaluates stop(e) to decide whether the
-  // search should stop, and in the affirmative case returns -1.
+  // If it's false, it evaluates abort(e) to decide whether the
+  // search should be aborted, and in the affirmative returns -1.
   // For every handle e probed except the last one, the function runs
-  // update(e). We say a probe to a handle e is stopping if match(e) is
-  // false and stop(e) is true. The argument probe is one more than the
-  // last non-stopping probe during the call. This is so that that the
-  // variable can be used as a pointer such that consecutive calls to
-  // FindSlot that find a matching handle (i.e., don't return -1)
-  // continue probing where the previous one left.
+  // update(e). We say a probe to a handle e is aborting if match(e) is
+  // false and abort(e) is true. The argument probe is one more than the
+  // last non-aborting probe during the call. This is so that that the
+  // variable can be used to keep track of progress across consecutive
+  // calls to FindSlot.
   inline int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
                       std::function<bool(ClockHandle*)> stop,
                       std::function<void(ClockHandle*)> update,
                       uint32_t& probe);
 
-  // After a failed FindSlot call, this function rolls back all
-  // displacement increments, starting from the 0-th probe.
+  // After a failed FindSlot call (i.e., with answer -1), this function
+  // decrements all displacements, starting from the 0-th probe.
   void Rollback(const Slice& key, uint32_t probe);
 
   // Number of hash bits used for table index.
