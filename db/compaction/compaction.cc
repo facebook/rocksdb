@@ -380,6 +380,7 @@ bool Compaction::IsTrivialMove() const {
   // filter to be applied to that level, and thus cannot be a trivial move.
 
   // Check if start level have files with overlapping ranges
+  fprintf(stdout, "JJJ7: trivial move: %d, output %d\n", SupportsPerKeyPlacement(), output_level_);
   if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false &&
       l0_files_might_overlap_) {
     // We cannot move files from L0 to L1 if the L0 files in the LSM-tree are
@@ -440,9 +441,10 @@ bool Compaction::IsTrivialMove() const {
     }
   }
 
-  if (SupportsPerKeyPlacement()) {
-    return false;
-  }
+
+//  if (SupportsPerKeyPlacement()) {
+//    return false;
+//  }
 
   return true;
 }

@@ -1058,7 +1058,9 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   ASSERT_OK(Put(Key(100), "value" + std::to_string(0)));
 
   ASSERT_OK(Flush());
+  std::cout << "JJJ00: start" << std::endl;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  std::cout << "JJJ00: end" << std::endl;
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
