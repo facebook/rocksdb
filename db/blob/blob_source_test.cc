@@ -1210,8 +1210,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto sec_handle1 = secondary_cache->Lookup(key1, create_cb, true, found);
       ASSERT_FALSE(found);
       ASSERT_NE(sec_handle1, nullptr);
-      ASSERT_TRUE(sec_handle1->IsReady());
-      ASSERT_NE(sec_handle1->Value(), nullptr);
+      ASSERT_EQ(sec_handle1->Value(), nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
@@ -1252,8 +1251,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto sec_handle1 = secondary_cache->Lookup(key1, create_cb, true, found);
       ASSERT_FALSE(found);
       ASSERT_NE(sec_handle1, nullptr);
-      ASSERT_TRUE(sec_handle1->IsReady());
-      ASSERT_NE(sec_handle1->Value(), nullptr);
+      ASSERT_EQ(sec_handle1->Value(), nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
@@ -1309,8 +1307,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
       ASSERT_FALSE(found);
       ASSERT_NE(sec_handle0, nullptr);
-      ASSERT_TRUE(sec_handle0->IsReady());
-      ASSERT_NE(sec_handle0->Value(), nullptr);
+      ASSERT_EQ(sec_handle0->Value(), nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[0]));
