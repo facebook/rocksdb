@@ -2979,7 +2979,7 @@ class Benchmark {
     if (capacity <= 0) {
       return nullptr;
     }
-    if (FLAGS_cache_type == "clock_cache") {
+    if (FLAGS_cache_uri == "clock_cache") {
       auto cache = ExperimentalNewClockCache(
           static_cast<size_t>(capacity), FLAGS_block_size,
           FLAGS_cache_numshardbits, false /*strict_capacity_limit*/,

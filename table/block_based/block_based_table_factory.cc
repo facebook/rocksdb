@@ -388,13 +388,27 @@ static std::unordered_map<std::string, OptionTypeInfo>
              offsetof(struct BlockBasedTableOptions, block_cache),
              OptionVerificationType::kNormal,
              (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize |
-              OptionTypeFlags::kAllowNull))},
+              OptionTypeFlags::kAllowNull))
+             .SetParseFunc([](const ConfigOptions& opts, const std::string&,
+                              const std::string& value, void* addr) {
+               auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
+               ConfigOptions copy = opts;
+               copy.invoke_prepare_options = true;
+               return Cache::CreateFromString(copy, value, cache);
+             })},
         {"block_cache_compressed",
          OptionTypeInfo::AsCustomSharedPtr<Cache>(
              offsetof(struct BlockBasedTableOptions, block_cache_compressed),
              OptionVerificationType::kNormal,
              (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize |
-              OptionTypeFlags::kAllowNull))},
+              OptionTypeFlags::kAllowNull))
+             .SetParseFunc([](const ConfigOptions& opts, const std::string&,
+                              const std::string& value, void* addr) {
+               auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
+               ConfigOptions copy = opts;
+               copy.invoke_prepare_options = true;
+               return Cache::CreateFromString(copy, value, cache);
+             })},
         {"max_auto_readahead_size",
          {offsetof(struct BlockBasedTableOptions, max_auto_readahead_size),
           OptionType::kSizeT, OptionVerificationType::kNormal,

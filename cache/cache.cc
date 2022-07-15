@@ -21,32 +21,26 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 #ifndef ROCKSDB_LITE
-static int RegisterBuiltinCache(ObjectLibrary& library,
-                                const std::string& /*arg*/) {
+int RegisterBuiltinCache(ObjectLibrary& library, const std::string& /*arg*/) {
   library.AddFactory<Cache>(
       lru_cache::LRUCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
          std::string* /* errmsg */) {
-        guard->reset(new lru_cache::LRUCache());
+        *guard = std::make_unique<lru_cache::LRUCache>();
         return guard->get();
       });
   library.AddFactory<Cache>(
       fast_lru_cache::LRUCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
          std::string* /* errmsg */) {
-        guard->reset(new fast_lru_cache::LRUCache());
+        *guard = std::make_unique<fast_lru_cache::LRUCache>();
         return guard->get();
       });
   library.AddFactory<Cache>(
-      ClockCache::kClassName(),
+      clock_cache::ClockCache::kClassName(),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
-         std::string* errmsg) {
-        std::unique_ptr<ClockCache> clock;
-        Status s = ClockCache::CreateClockCache(&clock);
-        if (!s.ok()) {
-          *errmsg = s.ToString();
-        }
-        guard->reset(clock.release());
+         std::string* /*errmsg*/) {
+        *guard = std::make_unique<clock_cache::ClockCache>();
         return guard->get();
       });
   //** Register AsIndividualId for the moment to pass the tests
@@ -57,7 +51,7 @@ static int RegisterBuiltinCache(ObjectLibrary& library,
           lru_cache::LRUCache::kClassName()),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
          std::string* /* errmsg */) {
-        guard->reset(new lru_cache::LRUCache());
+        *guard = std::make_unique<lru_cache::LRUCache>();
         return guard->get();
       });
   library.AddFactory<Cache>(
@@ -65,19 +59,15 @@ static int RegisterBuiltinCache(ObjectLibrary& library,
           fast_lru_cache::LRUCache::kClassName()),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
          std::string* /* errmsg */) {
-        guard->reset(new fast_lru_cache::LRUCache());
+        *guard = std::make_unique<fast_lru_cache::LRUCache>();
         return guard->get();
       });
   library.AddFactory<Cache>(
-      ObjectLibrary::PatternEntry::AsIndividualId(ClockCache::kClassName()),
+      ObjectLibrary::PatternEntry::AsIndividualId(
+          clock_cache::ClockCache::kClassName()),
       [](const std::string& /*uri*/, std::unique_ptr<Cache>* guard,
-         std::string* errmsg) {
-        std::unique_ptr<ClockCache> clock;
-        Status s = ClockCache::CreateClockCache(&clock);
-        if (!s.ok()) {
-          *errmsg = s.ToString();
-        }
-        guard->reset(clock.release());
+         std::string* /*errmsg*/) {
+        *guard = std::make_unique<clock_cache::ClockCache>();
         return guard->get();
       });
   size_t num_types;
@@ -164,9 +154,8 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
                                std::shared_ptr<Cache>* result) {
 #ifndef ROCKSDB_LITE
   static std::once_flag once;
-  std::call_once(once, [&]() {
-    RegisterBuiltinCache(*(ObjectLibrary::Default().get()), "");
-  });
+  std::call_once(
+      once, [&]() { RegisterBuiltinCache(*(ObjectLibrary::Default()), ""); });
 #endif  // ROCKSDB_LITE
   Status status;
   std::shared_ptr<Cache> cache;
@@ -183,10 +172,6 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
       cache = NewLRUCache(ParseSizeT(id));
     } else {
       status = NewSharedObject<Cache>(config_options, id, opt_map, &cache);
-      if (status.ok() && !config_options.invoke_prepare_options) {
-        // Always invoke PrepareOptions for a cache...
-        status = cache->PrepareOptions(config_options);
-      }
     }
   }
   if (status.ok()) {

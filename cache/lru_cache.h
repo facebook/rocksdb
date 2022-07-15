@@ -490,7 +490,6 @@ class LRUCache
   MemoryAllocator* memory_allocator() const override {
     return options_.memory_allocator.get();
   }
-  std::string GetPrintableOptions() const override;
 
   //  Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();

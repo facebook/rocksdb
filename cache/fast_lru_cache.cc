@@ -560,6 +560,11 @@ Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
   MutexLock l(&options_mutex_);
   if (shards_ != nullptr) {  // Already prepared
     return Status::OK();
+  } else if (options_.estimated_value_size <= 0 &&
+             options_.metadata_charge_policy == kDontChargeCacheMetadata) {
+    return Status::InvalidArgument(
+        "The estimated value size must be greater than zero or "
+        "The meta charge policy must be dont charge");
   } else if (options_.num_shard_bits >= 20) {
     return Status::InvalidArgument(
         "The cache cannot be sharded into too many fine pieces");
@@ -611,8 +616,10 @@ void LRUCache::SetCapacity(size_t capacity) {
   uint32_t num_shards = GetNumShards();
   const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
   MutexLock l(&options_mutex_);
-  for (uint32_t s = 0; s < num_shards; s++) {
-    GetShard(s)->SetCapacity(per_shard);
+  if (shards_ != nullptr) {
+    for (uint32_t s = 0; s < num_shards; s++) {
+      GetShard(s)->SetCapacity(per_shard);
+    }
   }
   options_.capacity = capacity;
 }
@@ -620,9 +627,10 @@ void LRUCache::SetCapacity(size_t capacity) {
 void LRUCache::SetStrictCapacityLimit(bool strict_capacity_limit) {
   uint32_t num_shards = GetNumShards();
   MutexLock l(&options_mutex_);
-
-  for (uint32_t s = 0; s < num_shards; s++) {
-    GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
+  if (shards_ != nullptr) {
+    for (uint32_t s = 0; s < num_shards; s++) {
+      GetShard(s)->SetStrictCapacityLimit(strict_capacity_limit);
+    }
   }
   options_.strict_capacity_limit = strict_capacity_limit;
 }
@@ -665,7 +673,32 @@ void LRUCache::DisownData() {
   }
 }
 
-std::string LRUCache::GetPrintableOptions() const { return ""; }
+std::string LRUCache::GetPrintableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  {
+    const int kBufferSize = 200;
+    char buffer[kBufferSize];
+
+    MutexLock l(&options_mutex_);
+    snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
+             options_.capacity);
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    num_shard_bits : %d\n",
+             GetNumShardBits());
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    strict_capacity_limit : %d\n",
+             options_.strict_capacity_limit);
+    ret.append(buffer);
+    snprintf(
+        buffer, kBufferSize, "    memory_allocator : %s\n",
+        options_.memory_allocator ? options_.memory_allocator->Name() : "None");
+    ret.append(buffer);
+  }
+  ret.append(GetShard(0)->GetPrintableOptions());
+
+  return ret;
+}
 }  // namespace fast_lru_cache
 
 std::shared_ptr<Cache> NewFastLRUCache(
