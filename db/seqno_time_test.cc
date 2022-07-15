@@ -38,7 +38,7 @@ class SeqnoTimeTest : public DBTestBase {
   }
 
   // make sure the file is not in cache, otherwise it won't have IO info
-  void ASSERT_KEY_TEMPERATURE(int key_id, Temperature expected_temperature) {
+  void AssertKetTemperature(int key_id, Temperature expected_temperature) {
     get_iostats_context()->Reset();
     IOStatsContext* iostats = get_iostats_context();
     std::string result = Get(Key(key_id));
@@ -102,7 +102,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
   // read a random key, which should be hot (kUnknown)
-  ASSERT_KEY_TEMPERATURE(20, Temperature::kUnknown);
+  AssertKetTemperature(20, Temperature::kUnknown);
 
   // Write more data, but still all hot until the 10th SST, as:
   // write a key every 10 seconds, 100 keys per SST, each SST takes 1000 seconds
@@ -140,7 +140,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   ASSERT_GT(hot_data_size, 0);
   ASSERT_GT(cold_data_size, 0);
   // the first a few key should be cold
-  ASSERT_KEY_TEMPERATURE(20, Temperature::kCold);
+  AssertKetTemperature(20, Temperature::kCold);
 
   // Wait some time, each time after compaction, the cold data size is
   // increasing and hot data size is decreasing
@@ -157,8 +157,8 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
     ASSERT_GT(cold_data_size, pre_cold);
 
     // the hot/cold data cut off range should be between i * 20 + 200 -> 250
-    ASSERT_KEY_TEMPERATURE(i * 20 + 250, Temperature::kUnknown);
-    ASSERT_KEY_TEMPERATURE(i * 20 + 200, Temperature::kCold);
+    AssertKetTemperature(i * 20 + 250, Temperature::kUnknown);
+    AssertKetTemperature(i * 20 + 200, Temperature::kCold);
   }
 
   // Wait again, all data should be cold after that
@@ -172,7 +172,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 
   // any random data should be cold
-  ASSERT_KEY_TEMPERATURE(1000, Temperature::kCold);
+  AssertKetTemperature(1000, Temperature::kCold);
 
   // close explicitly, because the env is local variable which will be released
   // first.
@@ -221,7 +221,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
   // read a random key, which should be hot (kUnknown)
-  ASSERT_KEY_TEMPERATURE(20, Temperature::kUnknown);
+  AssertKetTemperature(20, Temperature::kUnknown);
 
   // Adding more data to have mixed hot and cold data
   for (; sst_num < 14; sst_num++) {
@@ -247,7 +247,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   ASSERT_GT(hot_data_size, 0);
   ASSERT_GT(cold_data_size, 0);
   // the first a few key should be cold
-  ASSERT_KEY_TEMPERATURE(20, Temperature::kCold);
+  AssertKetTemperature(20, Temperature::kCold);
 
   // Wait some time, each it wait, the cold data is increasing and hot data is
   // decreasing
@@ -263,8 +263,8 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
     ASSERT_GT(cold_data_size, pre_cold);
 
     // the hot/cold cut_off key should be around i * 20 + 400 -> 450
-    ASSERT_KEY_TEMPERATURE(i * 20 + 450, Temperature::kUnknown);
-    ASSERT_KEY_TEMPERATURE(i * 20 + 400, Temperature::kCold);
+    AssertKetTemperature(i * 20 + 450, Temperature::kUnknown);
+    AssertKetTemperature(i * 20 + 400, Temperature::kCold);
   }
 
   // Wait again, all data should be cold after that
@@ -278,7 +278,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 
   // any random data should be cold
-  ASSERT_KEY_TEMPERATURE(1000, Temperature::kCold);
+  AssertKetTemperature(1000, Temperature::kCold);
 
   Close();
 }
