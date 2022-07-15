@@ -29,6 +29,9 @@ constexpr uint64_t kUnknownSeqnoTime = 0;
 // would be 300.
 // As it's a sorted list, the new entry is inserted from the back. The old data
 // will be popped from the front if they're no longer used.
+//
+// Note: the data struct is not thread safe, both read and write need to be
+//  synchronized by caller.
 class SeqnoToTimeMapping {
  public:
   // Maximum number of entries can be encoded into SST. The data is delta encode
