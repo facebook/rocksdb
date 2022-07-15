@@ -558,20 +558,17 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table,
   // remove the duplicates in to_insert
   auto cmp = [](const std::tuple<Slice, Slice, SequenceNumber>& a, const std::tuple<Slice, Slice, SequenceNumber>& b) {
     if (std::get<0>(a).data() < std::get<0>(b).data()) {
-      return -1;
+      return true;
     } else if (std::get<0>(a).data() > std::get<0>(b).data()) {
-      return 1;
+      return false;
     } else if (std::get<1>(a).data() < std::get<1>(b).data()) {
-      return -1;
+      return true;
     } else if (std::get<1>(a).data() > std::get<1>(b).data()) {
-      return 1;
+      return false;
     } else if (std::get<2>(a) < std::get<2>(b)) {
-      return -1;
-    } else if (std::get<2>(a) > std::get<2>(b)) {
-      return 1;
+      return true;
     } else {
-      return 0;
-    }
+      return false;
   };
   // start, end, tombstone seqnum
   std::set<std::tuple<Slice, Slice, SequenceNumber>, decltype(cmp)> to_insert(cmp);
