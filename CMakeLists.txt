@@ -532,6 +532,9 @@ endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin-memcmp")
+  # GCC 12 outputs too many false positive array-bounds warnings. Suppress it
+  # until fixed by the compiler.
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-array-bounds")
 endif()
 
 option(ROCKSDB_LITE "Build RocksDBLite version" OFF)
