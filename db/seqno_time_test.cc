@@ -70,7 +70,6 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   // All data is hot, only output to penultimate level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
 
-
   for (int i = 0; i < 100; i++) {
     for (int k = 0; k < 200; k++) {
       ASSERT_OK(Put(Key(4 * 198 + i * 198 + k), "value"));

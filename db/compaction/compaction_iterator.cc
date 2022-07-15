@@ -1110,8 +1110,6 @@ void CompactionIterator::DecideOutputLevel() {
         compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key);
     if (!safe_to_penultimate_level) {
       output_to_penultimate_level_ = false;
-      ROCKS_LOG_FATAL(info_log_,
-                      "JJJ1 not safe, so output to last");
       // It could happen when disable/enable `bottommost_temperature` while
       // holding a snapshot. When `bottommost_temperature` is not set
       // (==kUnknown), the data newer than any snapshot is pushed to the last
@@ -1127,10 +1125,6 @@ void CompactionIterator::DecideOutputLevel() {
             "per_key_placement is enabled");
       }
     }
-  }
-  if (!output_to_penultimate_level_) {
-    ROCKS_LOG_FATAL(info_log_,
-                    "JJJ2 output to last: %" PRIu64 ", %" PRIu64 ", %" PRIu64, ikey_.sequence, penultimate_level_cutoff_seqno_, earliest_snapshot_);
   }
 }
 

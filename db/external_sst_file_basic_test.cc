@@ -187,7 +187,6 @@ class ExternalSSTFileBasicTest
   std::string sst_files_dir_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
   bool random_rwfile_supported_;
-
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {
