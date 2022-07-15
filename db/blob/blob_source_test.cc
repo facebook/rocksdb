@@ -1034,11 +1034,12 @@ class BlobSecondaryCacheTest : public DBTestBase {
     // Set a small cache capacity to evict entries from the cache, and to test
     // that secondary cache is used properly.
     lru_cache_ops_.capacity = 1024;
-    lru_cache_ops_.num_shard_bits = 2;
+    lru_cache_ops_.num_shard_bits = 0;
+    lru_cache_ops_.strict_capacity_limit = true;
     lru_cache_ops_.metadata_charge_policy = kDontChargeCacheMetadata;
 
     secondary_cache_opts_.capacity = 8 << 20;  // 8 MB
-    secondary_cache_opts_.num_shard_bits = 2;
+    secondary_cache_opts_.num_shard_bits = 0;
     secondary_cache_opts_.metadata_charge_policy = kDontChargeCacheMetadata;
 
     // Read blobs from the secondary cache if they are not in the primary cache
@@ -1090,7 +1091,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   std::vector<std::string> key_strs;
   std::vector<std::string> blob_strs;
   key_strs.push_back("key0");
-  blob_strs.push_back(rnd.RandomString(1020));
+  blob_strs.push_back(rnd.RandomString(1010));
   key_strs.push_back("key1");
   blob_strs.push_back(rnd.RandomString(1020));
 
@@ -1181,21 +1182,22 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       const Slice key0 = cache_key.AsSlice();
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
-      blob_cache->Release(handle0);
 
-      bool found = false;
-      auto sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
-      ASSERT_TRUE(found);
+      // key0 should be in the secondary cache. After looking up key0 in the
+      // secondary cache, it will be erased from the secondary cache.
+      bool is_in_sec_cache = false;
+      auto sec_handle0 =
+          secondary_cache->Lookup(key0, create_cb, true, is_in_sec_cache);
+      ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
       auto value = static_cast<std::string*>(sec_handle0->Value());
       ASSERT_EQ(*value, blobs[0]);
       delete value;
 
-      // For blob source interface, after a cache miss occurs in the primary
-      // cache, key0 can be retrieved in the secondary cache.
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                               blob_offsets[0]));
+      // key0 doesn't exist in the blob cache
+      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
+                                                blob_offsets[0]));
     }
 
     // key1 should exist in the primary cache.
@@ -1206,111 +1208,59 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_NE(handle1, nullptr);
       blob_cache->Release(handle1);
 
-      bool found = false;
-      auto sec_handle1 = secondary_cache->Lookup(key1, create_cb, true, found);
-      ASSERT_FALSE(found);
-      ASSERT_NE(sec_handle1, nullptr);
-      ASSERT_EQ(sec_handle1->Value(), nullptr);
+      bool is_in_sec_cache = false;
+      auto sec_handle1 =
+          secondary_cache->Lookup(key1, create_cb, true, is_in_sec_cache);
+      ASSERT_FALSE(is_in_sec_cache);
+      ASSERT_EQ(sec_handle1, nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
     }
 
-    // key0 promotion should fail due to the blob cache being at capacity,
-    // but the lookup should still succeed
     {
-      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[0]);
-      const Slice key0 = cache_key.AsSlice();
-      auto handle0 = blob_cache->Lookup(key0, statistics);
-      ASSERT_EQ(handle0, nullptr);
-      blob_cache->Release(handle0);
+      // fetch key0 from the blob file to the primary cache.
+      ASSERT_OK(blob_source.GetBlob(
+          read_options, keys[0], file_number, blob_offsets[0], file_size,
+          blob_sizes[0], kNoCompression, nullptr /* prefetch_buffer */,
+          &values[0], nullptr /* bytes_read */));
+      ASSERT_EQ(values[0], blobs[0]);
 
-      bool found = false;
-      auto sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
-      ASSERT_TRUE(found);
-      ASSERT_NE(sec_handle0, nullptr);
-      ASSERT_TRUE(sec_handle0->IsReady());
-      auto value = static_cast<std::string*>(sec_handle0->Value());
-      ASSERT_EQ(*value, blobs[0]);
-      delete value;
-
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                               blob_offsets[0]));
-    }
-
-    // key1 should still be in the primary cache because key0 wasn't added back
-    // into it.
-    {
-      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
-      const Slice key1 = cache_key.AsSlice();
-      auto handle1 = blob_cache->Lookup(key1, statistics);
-      ASSERT_NE(handle1, nullptr);
-      blob_cache->Release(handle1);
-
-      bool found = false;
-      auto sec_handle1 = secondary_cache->Lookup(key1, create_cb, true, found);
-      ASSERT_FALSE(found);
-      ASSERT_NE(sec_handle1, nullptr);
-      ASSERT_EQ(sec_handle1->Value(), nullptr);
-
-      ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                               blob_offsets[1]));
-    }
-
-    // check if we can retrieve the same values we inserted even some of the
-    // key/value pairs are in the compressed secondary cache.
-    ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
-                                  blob_offsets[0], file_size, blob_sizes[0],
-                                  kNoCompression, nullptr /* prefetch_buffer */,
-                                  &values[0], nullptr /* bytes_read */));
-    ASSERT_EQ(values[0], blobs[0]);
-
-    ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
-                                  blob_offsets[1], file_size, blob_sizes[1],
-                                  kNoCompression, nullptr /* prefetch_buffer */,
-                                  &values[1], nullptr /* bytes_read */));
-    ASSERT_EQ(values[1], blobs[1]);
-
-    // key0 promotion should succeed due to key1 was erased from the primary
-    // cache.
-    {
-      CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
-      const Slice key1 = cache_key.AsSlice();
-      blob_cache->Erase(key1);
-
-      auto handle1 = blob_cache->Lookup(key1, statistics);
-      ASSERT_EQ(handle1, nullptr);
-      blob_cache->Release(handle1);
-
-      ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                                blob_offsets[1]));
-
-      cache_key = base_cache_key.WithOffset(blob_offsets[0]);
-      const Slice key0 = cache_key.AsSlice();
-
-      // before we promote key0 to the primary cache
-      bool found = false;
-      auto sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
-      ASSERT_TRUE(found);
-      ASSERT_NE(sec_handle0, nullptr);
-      ASSERT_TRUE(sec_handle0->IsReady());
-      auto value = static_cast<std::string*>(sec_handle0->Value());
-      ASSERT_EQ(*value, blobs[0]);
-      delete value;
-
+      // key0 should be in the primary cache.
+      CacheKey cache_key0 = base_cache_key.WithOffset(blob_offsets[0]);
+      const Slice key0 = cache_key0.AsSlice();
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
+      auto value = static_cast<std::string*>(blob_cache->Value(handle0));
+      ASSERT_EQ(*value, blobs[0]);
       blob_cache->Release(handle0);
 
-      // after we promote key0 to the primary cache
-      found = false;
-      sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
-      ASSERT_FALSE(found);
-      ASSERT_NE(sec_handle0, nullptr);
-      ASSERT_EQ(sec_handle0->Value(), nullptr);
+      // key1 is not in the primary cache, and it should be demoted to the
+      // secondary cache.
+      CacheKey cache_key1 = base_cache_key.WithOffset(blob_offsets[1]);
+      const Slice key1 = cache_key1.AsSlice();
+      auto handle1 = blob_cache->Lookup(key1, statistics);
+      ASSERT_EQ(handle1, nullptr);
 
+      // erase key0 from the primary cache.
+      blob_cache->Erase(key0);
+      handle0 = blob_cache->Lookup(key0, statistics);
+      ASSERT_EQ(handle0, nullptr);
+
+      // key1 promotion should succeed due to the primary cache being empty. we
+      // did't call secondary cache's Lookup() here, because it will remove the
+      // key but it won't be able to promote the key to the primary cache.
+      // Instead we use the end-to-end blob source API to promote the key to
+      // the primary cache.
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
-                                               blob_offsets[0]));
+                                               blob_offsets[1]));
+
+      // key1 should be in the primary cache.
+      handle1 = blob_cache->Lookup(key1, statistics);
+      ASSERT_NE(handle1, nullptr);
+      value = static_cast<std::string*>(blob_cache->Value(handle1));
+      ASSERT_EQ(*value, blobs[1]);
+      blob_cache->Release(handle1);
     }
   }
 }
