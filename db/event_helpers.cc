@@ -158,7 +158,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
         if (status.ok()) {
           jwriter << tmp.ToHumanString();
         } else {
-          jwriter << "N/A";
+          jwriter << "Invalid";
         }
       }
 

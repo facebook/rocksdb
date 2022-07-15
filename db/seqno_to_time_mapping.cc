@@ -238,7 +238,11 @@ bool SeqnoToTimeMapping::Resize(uint64_t min_time_duration,
 }
 
 Status SeqnoToTimeMapping::Sort() {
-  if (is_sorted_ || seqno_time_mapping_.empty()) {
+  if (is_sorted_) {
+    return Status::OK();
+  }
+  if (seqno_time_mapping_.empty()) {
+    is_sorted_ = true;
     return Status::OK();
   }
 

@@ -41,7 +41,6 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
-  const int kLastLevel = kNumLevels - 1;
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
@@ -56,10 +55,11 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   dbfull()->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
 
+  int sst_num = 0;
   // Write files that are overlap and enough to trigger compaction
-  for (int i = 0; i < kNumTrigger; i++) {
-    for (int k = 0; k < kNumKeys; k++) {
-      ASSERT_OK(Put(Key(i * (kNumKeys - 1) + k), "value"));
+  for (; sst_num < kNumTrigger; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
       dbfull()->TEST_WaitForPeridicWorkerRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
     }
@@ -69,17 +69,159 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
 
   // All data is hot, only output to penultimate level
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
-  for (int i = 0; i < 100; i++) {
-    for (int k = 0; k < 200; k++) {
-      ASSERT_OK(Put(Key(4 * 198 + i * 198 + k), "value"));
+  // Write more data, but still all hot until the 10th SST, as:
+  // write a key every 10 seconds, 100 keys per SST, each SST takes 1000 seconds
+  // The preclude_last_level_data_seconds is 10k
+  for (; sst_num < kNumTrigger * 2; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
       dbfull()->TEST_WaitForPeridicWorkerRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
     }
     ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->WaitForCompact(true));
-    std::cout << i << "->" << FilesPerLevel() << std::endl;
+    ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+    ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
   }
+
+  // Now we have both hot data and cold data
+  for (; sst_num < kNumTrigger * 3; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicWorkerRun(
+          [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->WaitForCompact(true));
+  }
+
+  uint64_t hot_data_size = GetSstSizeHelper(Temperature::kUnknown);
+  uint64_t cold_data_size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_GT(hot_data_size, 0);
+  ASSERT_GT(cold_data_size, 0);
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  // Wait some time, each time after compaction, the cold data size is
+  // increasing and hot data size is decreasing
+  for (int i = 0; i < 30; i++) {
+    dbfull()->TEST_WaitForPeridicWorkerRun(
+        [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(200)); });
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    uint64_t pre_hot = hot_data_size;
+    uint64_t pre_cold = cold_data_size;
+    hot_data_size = GetSstSizeHelper(Temperature::kUnknown);
+    cold_data_size = GetSstSizeHelper(Temperature::kCold);
+    ASSERT_LT(hot_data_size, pre_hot);
+    ASSERT_GT(cold_data_size, pre_cold);
+  }
+
+  // Wait again, all data should be cold after that
+  for (int i = 0; i < 5; i++) {
+    dbfull()->TEST_WaitForPeridicWorkerRun(
+        [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1000)); });
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // close explicitly, because the env is local variable which will be released
+  // first.
+  Close();
+}
+
+TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
+  const int kNumLevels = 7;
+  const int kNumKeys = 100;
+
+  Options options = CurrentOptions();
+  options.preclude_last_level_data_seconds = 10000;
+  options.env = mock_env_.get();
+  options.bottommost_temperature = Temperature::kCold;
+  options.num_levels = kNumLevels;
+  options.level_compaction_dynamic_level_bytes = true;
+  // TODO(zjay): for level compaction, auto-compaction may stuck in deadloop, if
+  //  the penultimate level score > 1, but the hot is not cold enough to compact
+  //  to last level, which will keep triggering compaction.
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // pass some time first, otherwise the first a few keys write time are going
+  // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
+  dbfull()->TEST_WaitForPeridicWorkerRun(
+      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+
+  int sst_num = 0;
+  // Write files that are overlap
+  for (; sst_num < 4; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicWorkerRun(
+          [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+    }
+    ASSERT_OK(Flush());
+  }
+
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // All data is hot, only output to penultimate level
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Adding more data to have mixed hot and cold data
+  for (; sst_num < 14; sst_num++) {
+    for (int i = 0; i < kNumKeys; i++) {
+      ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
+      dbfull()->TEST_WaitForPeridicWorkerRun(
+          [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
+    }
+    ASSERT_OK(Flush());
+  }
+  // TODO(zjay): all data become cold because of level 5 (penultimate level) is
+  //  the bottommost level, which converts the data to cold. PerKeyPlacement is
+  //  for the last level (level 6). Will be fixed by change the
+  //  bottommost_temperature to the last_level_temperature
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+
+  // Compact the files to the last level which should split the hot/cold data
+  MoveFilesToLevel(6);
+  uint64_t hot_data_size = GetSstSizeHelper(Temperature::kUnknown);
+  uint64_t cold_data_size = GetSstSizeHelper(Temperature::kCold);
+  ASSERT_GT(hot_data_size, 0);
+  ASSERT_GT(cold_data_size, 0);
+
+  // Wait some time, each it wait, the cold data is increasing and hot data is
+  // decreasing
+  for (int i = 0; i < 30; i++) {
+    dbfull()->TEST_WaitForPeridicWorkerRun(
+        [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(200)); });
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    uint64_t pre_hot = hot_data_size;
+    uint64_t pre_cold = cold_data_size;
+    hot_data_size = GetSstSizeHelper(Temperature::kUnknown);
+    cold_data_size = GetSstSizeHelper(Temperature::kCold);
+    ASSERT_LT(hot_data_size, pre_hot);
+    ASSERT_GT(cold_data_size, pre_cold);
+  }
+
+  // Wait again, all data should be cold after that
+  for (int i = 0; i < 5; i++) {
+    dbfull()->TEST_WaitForPeridicWorkerRun(
+        [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1000)); });
+    ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  }
+
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 
   Close();
 }
