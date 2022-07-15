@@ -87,7 +87,7 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
     Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
                                           void** out_obj,
                                           size_t* charge) -> Status {
-      *out_obj = reinterpret_cast<void*>(new char[size]);
+      *out_obj = new char[size];
       memcpy(*out_obj, buf, size);
       *charge = size;
       return Status::OK();

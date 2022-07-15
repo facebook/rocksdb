@@ -1131,6 +1131,17 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   read_options.verify_checksums = true;
 
   auto blob_cache = options_.blob_cache;
+  auto secondary_cache = lru_cache_ops_.secondary_cache;
+
+  Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
+                                        void** out_obj,
+                                        size_t* charge) -> Status {
+    *out_obj = new char[size];
+    memcpy(*out_obj, buf, size);
+    *charge = size;
+    return Status::OK();
+  };
+
   {
     // GetBlob
     std::vector<PinnableSlice> values(keys.size());
@@ -1153,7 +1164,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                   blob_offsets[1], file_size, blob_sizes[1],
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   &values[1], nullptr /* bytes_read */));
-    ASSERT_EQ(values[0], blobs[0]);
+    ASSERT_EQ(values[1], blobs[1]);
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[1]));
 
@@ -1170,8 +1181,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
       blob_cache->Release(handle0);
-      // after a cache miss occurs in the primary cache, key0 can be retrieved
-      // in the secondary cache.
+
+      bool found = false;
+      secondary_cache->Lookup(key0, create_cb, true, found);
+      ASSERT_TRUE(found);
+
+      // For blob source interface, after a cache miss occurs in the primary
+      // cache, key0 can be retrieved in the secondary cache.
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[0]));
     }
@@ -1183,6 +1199,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
       blob_cache->Release(handle1);
+
+      bool found = false;
+      secondary_cache->Lookup(key1, create_cb, true, found);
+      ASSERT_FALSE(found);
+
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
     }
@@ -1195,6 +1216,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
       blob_cache->Release(handle0);
+
+      bool found = false;
+      secondary_cache->Lookup(key0, create_cb, true, found);
+      ASSERT_TRUE(found);
+
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[0]));
     }
@@ -1207,6 +1233,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
       blob_cache->Release(handle1);
+
+      bool found = false;
+      secondary_cache->Lookup(key1, create_cb, true, found);
+      ASSERT_FALSE(found);
+
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
     }
@@ -1231,14 +1262,31 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key.AsSlice();
       blob_cache->Erase(key1);
+
+      auto handle1 = blob_cache->Lookup(key1, statistics);
+      ASSERT_EQ(handle1, nullptr);
+      blob_cache->Release(handle1);
+
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                 blob_offsets[1]));
 
       cache_key = base_cache_key.WithOffset(blob_offsets[0]);
       const Slice key0 = cache_key.AsSlice();
+
+      // before we promote key0 to the primary cache
+      bool found = false;
+      secondary_cache->Lookup(key0, create_cb, true, found);
+      ASSERT_TRUE(found);
+
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
       blob_cache->Release(handle0);
+
+      // after we promote key0 to the primary cache
+      found = false;
+      secondary_cache->Lookup(key0, create_cb, true, found);
+      ASSERT_FALSE(found);
+
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[0]));
     }
