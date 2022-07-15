@@ -18,10 +18,8 @@ package org.rocksdb;
  * system since it involves network traffic and higher latencies.</p>
  */
 public enum PrepopulateBlobCache {
-  PREPOPULATE_BLOB_DISABLE(
-      (byte) 0x0, "prepopulate_blob_disable", "PrepopulateBlobCache::kDisable"),
-  PREPOPULATE_BLOB_FLUSH_ONLY(
-      (byte) 0x1, "prepopulate_blob_flush_only", "PrepopulateBlobCache::kFlushOnly");
+  PREPOPULATE_BLOB_DISABLE((byte) 0x0, "prepopulate_blob_disable", "kDisable"),
+  PREPOPULATE_BLOB_FLUSH_ONLY((byte) 0x1, "prepopulate_blob_flush_only", "kFlushOnly");
 
   /**
    * <p>Get the PrepopulateBlobCache enumeration value by

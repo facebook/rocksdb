@@ -424,10 +424,11 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
                            &DeleteCacheEntry<std::string>, &cache_handle,
                            priority);
     if (s.ok()) {
-      buf.release();
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
       RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE,
                  blob_cache->GetUsage(cache_handle));
+      buf.release();
+      blob_cache->Release(cache_handle);
     } else {
       RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
     }
