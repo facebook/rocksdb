@@ -235,7 +235,7 @@ class InternalKeyComparator
 #ifdef NDEBUG
     final
 #endif
-    : public Comparator {
+    : public CompareInterface {
  private:
   UserComparatorWrapper user_comparator_;
 
@@ -249,17 +249,19 @@ class InternalKeyComparator
   //    this constructor to precompute the result of `Name()`. To avoid this
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
-  explicit InternalKeyComparator(const Comparator* c)
-      : Comparator(c->timestamp_size()), user_comparator_(c) {}
+  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
-  virtual const char* Name() const override;
-  virtual int Compare(const Slice& a, const Slice& b) const override;
+  int Compare(const Slice& a, const Slice& b) const override;
+
+  bool Equal(const Slice& a, const Slice& b) const {
+    // TODO Use user_comparator_.Equal(). Perhaps compare seqno before
+    // comparing the user key too.
+    return Compare(a, b) == 0;
+  }
+
   // Same as Compare except that it excludes the value type from comparison
-  virtual int CompareKeySeq(const Slice& a, const Slice& b) const;
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override;
-  virtual void FindShortSuccessor(std::string* key) const override;
+  int CompareKeySeq(const Slice& a, const Slice& b) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -273,9 +275,6 @@ class InternalKeyComparator
   // value `kDisableGlobalSequenceNumber`.
   int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
               SequenceNumber b_global_seqno) const;
-  virtual const Comparator* GetRootComparator() const override {
-    return user_comparator_.GetRootComparator();
-  }
 };
 
 // The class represent the internal key in encoded form.

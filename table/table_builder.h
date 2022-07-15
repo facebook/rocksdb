@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/table_properties_collector.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -109,7 +110,7 @@ struct TableBuilderOptions {
       const std::string& _column_family_name, int _level,
       bool _is_bottommost = false,
       TableFileCreationReason _reason = TableFileCreationReason::kMisc,
-      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
+      const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
       const std::string& _db_session_id = "",
       const uint64_t _target_file_size = 0, const uint64_t _cur_file_num = 0)
@@ -121,7 +122,6 @@ struct TableBuilderOptions {
         compression_opts(_compression_opts),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name),
-        creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
@@ -140,7 +140,6 @@ struct TableBuilderOptions {
   const CompressionOptions& compression_opts;
   const uint32_t column_family_id;
   const std::string& column_family_name;
-  const uint64_t creation_time;
   const int64_t oldest_key_time;
   const uint64_t target_file_size;
   const uint64_t file_creation_time;
@@ -222,6 +221,11 @@ class TableBuilder {
 
   // Return file checksum function name
   virtual const char* GetFileChecksumFuncName() const = 0;
+
+  // Set the sequence number to time mapping
+  virtual void SetSeqnoTimeTableProperties(
+      const std::string& /*encoded_seqno_to_time_mapping*/,
+      uint64_t /*oldest_ancestor_time*/){};
 };
 
 }  // namespace ROCKSDB_NAMESPACE
