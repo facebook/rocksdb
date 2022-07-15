@@ -132,6 +132,9 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
     ASSERT_OK(dbfull()->WaitForCompact(true));
   }
 
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   uint64_t hot_data_size = GetSstSizeHelper(Temperature::kUnknown);
   uint64_t cold_data_size = GetSstSizeHelper(Temperature::kCold);
   ASSERT_GT(hot_data_size, 0);
@@ -139,8 +142,6 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   // the first a few key should be cold
   ASSERT_KEY_TEMPERATURE(20, Temperature::kCold);
 
-  CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   // Wait some time, each time after compaction, the cold data size is
   // increasing and hot data size is decreasing
   for (int i = 0; i < 30; i++) {
