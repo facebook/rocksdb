@@ -286,6 +286,29 @@ std::string SeqnoToTimeMapping::ToHumanString() const {
   return ret;
 }
 
+SeqnoToTimeMapping SeqnoToTimeMapping::Copy(
+    SequenceNumber smallest_seqno) const {
+  SeqnoToTimeMapping ret;
+  auto it = std::upper_bound(seqno_time_mapping_.begin(),
+                             seqno_time_mapping_.end(), smallest_seqno);
+  if (it != seqno_time_mapping_.begin()) {
+    it--;
+  }
+  std::copy(it, seqno_time_mapping_.end(),
+            std::back_inserter(ret.seqno_time_mapping_));
+  return ret;
+}
+
+uint64_t SeqnoToTimeMapping::CalculateMaxCapacity(uint64_t min_time_duration,
+                                                  uint64_t max_time_duration) {
+  if (min_time_duration == 0) {
+    return 0;
+  }
+  return std::min(
+      kMaxSeqnoToTimeEntries,
+      max_time_duration * kMaxSeqnoTimePairsPerCF / min_time_duration);
+}
+
 SeqnoToTimeMapping::SeqnoTimePair SeqnoToTimeMapping::SeqnoTimePair::operator-(
     const SeqnoTimePair& other) const {
   SeqnoTimePair res;

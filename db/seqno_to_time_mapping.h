@@ -136,17 +136,7 @@ class SeqnoToTimeMapping {
   Status Sort();
 
   // copy the current obj from the given smallest_seqno.
-  SeqnoToTimeMapping Copy(SequenceNumber smallest_seqno) const {
-    SeqnoToTimeMapping ret;
-    auto it = std::upper_bound(seqno_time_mapping_.begin(),
-                               seqno_time_mapping_.end(), smallest_seqno);
-    if (it != seqno_time_mapping_.begin()) {
-      it--;
-    }
-    std::copy(it, seqno_time_mapping_.end(),
-              std::back_inserter(ret.seqno_time_mapping_));
-    return ret;
-  }
+  SeqnoToTimeMapping Copy(SequenceNumber smallest_seqno) const;
 
   // If the internal list is empty
   bool Empty() const { return seqno_time_mapping_.empty(); }
@@ -176,14 +166,7 @@ class SeqnoToTimeMapping {
   bool is_sorted_ = true;
 
   static uint64_t CalculateMaxCapacity(uint64_t min_time_duration,
-                                       uint64_t max_time_duration) {
-    if (min_time_duration == 0) {
-      return 0;
-    }
-    return std::min(
-        kMaxSeqnoToTimeEntries,
-        max_time_duration * kMaxSeqnoTimePairsPerCF / min_time_duration);
-  }
+                                       uint64_t max_time_duration);
 
   SeqnoTimePair& Last() {
     assert(!Empty());
