@@ -17,7 +17,6 @@
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
-#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace lru_cache {
@@ -454,7 +453,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
-  mutable DMutex mutex_;
+  mutable port::Mutex mutex_;
 
   std::shared_ptr<SecondaryCache> secondary_cache_;
 };
@@ -482,9 +481,6 @@ class LRUCache
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& handles) override;
-  std::shared_ptr<SecondaryCache> GetSecondaryCache() {
-    return secondary_cache_;
-  }
 
   //  Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
