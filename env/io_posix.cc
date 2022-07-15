@@ -750,14 +750,17 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                    bytes_read, read_again);
       int32_t res = cqe->res;
       if (res >= 0) {
-        if (bytes_read == 0 && read_again) {
-          Slice tmp_slice;
-          req->status =
-              Read(req->offset + req_wrap->finished_len,
-                   req->len - req_wrap->finished_len, options, &tmp_slice,
-                   req->scratch + req_wrap->finished_len, dbg);
-          req->result =
-              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+        if (bytes_read == 0) {
+          if (read_again) {
+            Slice tmp_slice;
+            req->status =
+                Read(req->offset + req_wrap->finished_len,
+                     req->len - req_wrap->finished_len, options, &tmp_slice,
+                     req->scratch + req_wrap->finished_len, dbg);
+            req->result =
+                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          }
+          // else It means EOF so no need to do anything.
         } else if (bytes_read < req_wrap->iov.iov_len) {
           incomplete_rq_list.push_back(req_wrap);
         }
