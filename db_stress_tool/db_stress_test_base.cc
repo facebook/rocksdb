@@ -8,8 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
-#include "util/compression.h"
 #include <iostream>
+
+#include "util/compression.h"
 #ifdef GFLAGS
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"

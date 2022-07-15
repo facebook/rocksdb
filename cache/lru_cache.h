@@ -8,9 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <iostream>
 #include <memory>
 #include <string>
-#include <iostream>
 
 #include "cache/sharded_cache.h"
 #include "port/lang.h"
