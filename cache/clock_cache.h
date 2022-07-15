@@ -276,7 +276,7 @@ struct ClockHandle {
 
   Slice key() const { return Slice(key_data.data(), kCacheKeySize); }
 
-  bool HasExternalRefs() const { return (refs & EXTERNAL_REFS) > 0; }
+  bool HasExternalRefs() const { return (refs & EXTERNAL_REFS) > 0;  }
 
   bool IsElement() const { return flags & IS_ELEMENT; }
 
