@@ -66,7 +66,8 @@ Status BuildTable(
     SequenceNumber job_snapshot, SnapshotChecker* snapshot_checker,
     bool paranoid_file_checks, InternalStats* internal_stats,
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
-    BlobFileCreationReason blob_creation_reason, EventLogger* event_logger,
+    BlobFileCreationReason blob_creation_reason,
+    const SeqnoToTimeMapping& seqno_to_time_mapping, EventLogger* event_logger,
     int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, Env::WriteLifeTimeHint write_hint,
     const std::string* full_history_ts_low,
@@ -260,6 +261,15 @@ Status BuildTable(
     if (!s.ok() || empty) {
       builder->Abandon();
     } else {
+      std::string seqno_time_mapping_str;
+      seqno_to_time_mapping.Encode(
+          seqno_time_mapping_str, meta->fd.smallest_seqno,
+          meta->fd.largest_seqno, meta->file_creation_time);
+      builder->SetSeqnoTimeTableProperties(
+          seqno_time_mapping_str,
+          ioptions.compaction_style == CompactionStyle::kCompactionStyleFIFO
+              ? meta->file_creation_time
+              : meta->oldest_ancester_time);
       s = builder->Finish();
     }
     if (io_status->ok()) {

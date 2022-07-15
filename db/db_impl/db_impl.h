@@ -36,6 +36,7 @@
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
 #include "db/trim_history_scheduler.h"
@@ -1158,7 +1159,8 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForStatsDumpRun(std::function<void()> callback) const;
+  void TEST_WaitForPeridicWorkerRun(std::function<void()> callback) const;
+  const SeqnoToTimeMapping& TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   uint64_t TEST_GetCurrentLogNumber() const {
@@ -1185,6 +1187,9 @@ class DBImpl : public DB {
 
   // flush LOG out of application buffer
   void FlushInfoLog();
+
+  // record current sequence number to time mapping
+  void RecordSeqnoToTimeMapping();
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1999,7 +2004,6 @@ class DBImpl : public DB {
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
 #ifndef ROCKSDB_LITE
-
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
                           const std::vector<std::string>& input_file_names,
@@ -2011,7 +2015,6 @@ class DBImpl : public DB {
   // Wait for current IngestExternalFile() calls to finish.
   // REQUIRES: mutex_ held
   void WaitForIngestFile();
-
 #else
   // IngestExternalFile is not supported in ROCKSDB_LITE so this function
   // will be no-op
@@ -2070,6 +2073,8 @@ class DBImpl : public DB {
 
   // Schedule background tasks
   Status StartPeriodicWorkScheduler();
+
+  Status RegisterRecordSeqnoTimeWorker();
 
   void PrintStatistics();
 
@@ -2498,12 +2503,6 @@ class DBImpl : public DB {
   // log is fully commited.
   bool unable_to_release_oldest_log_;
 
-  static const int KEEP_LOG_FILE_NUM = 1000;
-  // MSVC version 1800 still does not have constexpr for ::max()
-  static const uint64_t kNoTimeOut = std::numeric_limits<uint64_t>::max();
-
-  std::string db_absolute_path_;
-
   // Number of running IngestExternalFile() or CreateColumnFamilyWithImport()
   // calls.
   // REQUIRES: mutex held
@@ -2594,6 +2593,8 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+
+  SeqnoToTimeMapping seqno_time_mapping_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

@@ -593,7 +593,7 @@ extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
 
-extern void SnapshotGcThread(void* v);
+extern void TimestampedSnapshotsThread(void* v);
 
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 
@@ -613,8 +613,7 @@ extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
-extern std::string GenerateTimestampForRead();
-extern std::string NowNanosStr();
+extern std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

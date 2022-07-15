@@ -154,7 +154,8 @@ class CompactionPicker {
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty (at least on entry have one file)
   void GetRange(const std::vector<CompactionInputFiles>& inputs,
-                InternalKey* smallest, InternalKey* largest) const;
+                InternalKey* smallest, InternalKey* largest,
+                int exclude_level) const;
 
   int NumberLevels() const { return ioptions_.num_levels; }
 

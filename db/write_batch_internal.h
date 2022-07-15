@@ -240,7 +240,10 @@ class WriteBatchInternal {
     return wb.has_key_with_ts_;
   }
 
-  static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key);
+  // Update per-key value protection information on this write batch.
+  // If checksum is provided, the batch content is verfied against the checksum.
+  static Status UpdateProtectionInfo(WriteBatch* wb, size_t bytes_per_key,
+                                     uint64_t* checksum = nullptr);
 };
 
 // LocalSavePoint is similar to a scope guard

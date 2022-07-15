@@ -174,15 +174,23 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
 
+// EXPERIMENTAL Currently ClockCache is under development, although it's
+// already exposed in the public API. To avoid unreliable performance and
+// correctness issues, NewClockCache will temporarily return an LRUCache
+// constructed with the corresponding arguments.
+//
+// TODO(Guido) When ClockCache is complete, roll back to the old text:
+// ``
 // Similar to NewLRUCache, but create a cache based on clock algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
 // more detail.
-//
 // Return nullptr if it is not supported.
+// ``
 extern std::shared_ptr<Cache> NewClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy);
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy);
 
 class Cache {
  public:
@@ -288,7 +296,7 @@ class Cache {
   // Insert a mapping from key->value into the volatile cache only
   // and assign it with the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::Incomplete.
+  // return Status::MemoryLimit.
   //
   // If handle is not nullptr, returns a handle that corresponds to the
   // mapping. The caller must call this->Release(handle) when the returned
@@ -446,7 +454,7 @@ class Cache {
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::Incomplete.
+  // return Status::MemoryLimit.
   //
   // The helper argument is saved by the cache and will be used when the
   // inserted object is evicted or promoted to the secondary cache. It,

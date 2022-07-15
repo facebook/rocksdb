@@ -13,6 +13,7 @@
 
 #include "cache/cache_entry_roles.h"
 #include "cache/cache_key.h"
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "cache/lru_cache.h"
 #include "db/column_family.h"
@@ -250,7 +251,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   cache->SetStrictCapacityLimit(true);
   iter = db_->NewIterator(read_options);
   iter->Seek(std::to_string(kNumBlocks - 1));
-  ASSERT_TRUE(iter->status().IsIncomplete());
+  ASSERT_TRUE(iter->status().IsMemoryLimit());
   CheckCacheCounters(options, 1, 0, 0, 1);
   delete iter;
   iter = nullptr;
@@ -333,8 +334,10 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   ASSERT_EQ(usage, cache->GetPinnedUsage());
 
   // Load last key block.
-  ASSERT_EQ("Result incomplete: Insert failed due to LRU cache being full.",
-            Get(std::to_string(kNumBlocks - 1)));
+  ASSERT_EQ(
+      "Operation aborted: Memory limit reached: Insert failed due to LRU cache "
+      "being full.",
+      Get(std::to_string(kNumBlocks - 1)));
   // Failure will also record the miss counter.
   CheckCacheCounters(options, 1, 0, 0, 1);
   CheckCompressedCacheCounters(options, 1, 0, 1, 0);
@@ -933,9 +936,9 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
   int iterations_tested = 0;
   for (std::shared_ptr<Cache> base_cache :
        {NewLRUCache(capacity, num_shard_bits),
-        NewClockCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
-                      false /*strict_capacity_limit*/,
-                      kDefaultCacheMetadataChargePolicy),
+        ExperimentalNewClockCache(
+            capacity, 1 /*estimated_value_size*/, num_shard_bits,
+            false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy),
         NewFastLRUCache(capacity, 1 /*estimated_value_size*/, num_shard_bits,
                         false /*strict_capacity_limit*/,
                         kDefaultCacheMetadataChargePolicy)}) {

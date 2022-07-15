@@ -138,16 +138,13 @@ class FilePrefetchBuffer {
   // reader                : the file reader.
   // offset                : the file offset to start reading from.
   // n                     : the number of bytes to read.
-  // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
-  //                         bypass.
   // result                : if data already exists in the buffer, result will
   //                         be updated with the data.
   //
   // If data already exist in the buffer, it will return Status::OK, otherwise
   // it will send asynchronous request and return Status::TryAgain.
   Status PrefetchAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                       uint64_t offset, size_t n,
-                       Env::IOPriority rate_limiter_priority, Slice* result);
+                       uint64_t offset, size_t n, Slice* result);
 
   // Tries returning the data for a file read from this buffer if that data is
   // in the buffer.
@@ -246,9 +243,8 @@ class FilePrefetchBuffer {
               uint64_t chunk_len, uint64_t rounddown_start, uint32_t index);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                   Env::IOPriority rate_limiter_priority, uint64_t read_len,
-                   uint64_t chunk_len, uint64_t rounddown_start,
-                   uint32_t index);
+                   uint64_t read_len, uint64_t chunk_len,
+                   uint64_t rounddown_start, uint32_t index);
 
   // Copy the data from src to third buffer.
   void CopyDataToBuffer(uint32_t src, uint64_t& offset, size_t& length);

@@ -30,7 +30,7 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
 BlobSource::~BlobSource() = default;
 
 Status BlobSource::GetBlobFromCache(const Slice& cache_key,
-                                    CachableEntry<std::string>* blob) const {
+                                    CacheHandleGuard<std::string>* blob) const {
   assert(blob);
   assert(blob->IsEmpty());
   assert(blob_cache_);
@@ -39,9 +39,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key,
   Cache::Handle* cache_handle = nullptr;
   cache_handle = GetEntryFromCache(cache_key);
   if (cache_handle != nullptr) {
-    blob->SetCachedValue(
-        static_cast<std::string*>(blob_cache_->Value(cache_handle)),
-        blob_cache_.get(), cache_handle);
+    *blob = CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);
     return Status::OK();
   }
 
@@ -51,7 +49,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key,
 }
 
 Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
-                                    CachableEntry<std::string>* cached_blob,
+                                    CacheHandleGuard<std::string>* cached_blob,
                                     PinnableSlice* blob) const {
   assert(blob);
   assert(!cache_key.empty());
@@ -74,7 +72,8 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
                            priority);
   if (s.ok()) {
     assert(cache_handle != nullptr);
-    cached_blob->SetCachedValue(buf, blob_cache_.get(), cache_handle);
+    *cached_blob =
+        CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);
   }
 
   return s;
@@ -125,16 +124,32 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
 
-  CachableEntry<std::string> blob_entry;
+  CacheHandleGuard<std::string> blob_handle;
 
   // First, try to get the blob from the cache
   //
   // If blob cache is enabled, we'll try to read from it.
   if (blob_cache_) {
     Slice key = cache_key.AsSlice();
-    s = GetBlobFromCache(key, &blob_entry);
-    if (s.ok() && blob_entry.GetValue()) {
-      value->PinSelf(*blob_entry.GetValue());
+    s = GetBlobFromCache(key, &blob_handle);
+    if (s.ok() && blob_handle.GetValue()) {
+      {
+        value->Reset();
+        // To avoid copying the cached blob into the buffer provided by the
+        // application, we can simply transfer ownership of the cache handle to
+        // the target PinnableSlice. This has the potential to save a lot of
+        // CPU, especially with large blob values.
+        value->PinSlice(
+            *blob_handle.GetValue(),
+            [](void* arg1, void* arg2) {
+              Cache* const cache = static_cast<Cache*>(arg1);
+              Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
+              cache->Release(handle);
+            },
+            blob_handle.GetCache(), blob_handle.GetCacheHandle());
+        // Make the CacheHandleGuard relinquish ownership of the handle.
+        blob_handle.TransferTo(nullptr);
+      }
 
       // For consistency, the size of on-disk (possibly compressed) blob record
       // is assigned to bytes_read.
@@ -153,7 +168,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     }
   }
 
-  assert(blob_entry.IsEmpty());
+  assert(blob_handle.IsEmpty());
 
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   if (no_io) {
@@ -192,7 +207,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     // If filling cache is allowed and a cache is configured, try to put the
     // blob to the cache.
     Slice key = cache_key.AsSlice();
-    s = PutBlobIntoCache(key, &blob_entry, value);
+    s = PutBlobIntoCache(key, &blob_handle, value);
     if (!s.ok()) {
       return s;
     }
@@ -256,19 +271,37 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     for (size_t i = 0; i < num_blobs; ++i) {
       auto& req = blob_reqs[i];
 
-      CachableEntry<std::string> blob_entry;
+      CacheHandleGuard<std::string> blob_handle;
       const CacheKey cache_key = base_cache_key.WithOffset(req.offset);
       const Slice key = cache_key.AsSlice();
 
-      const Status s = GetBlobFromCache(key, &blob_entry);
+      const Status s = GetBlobFromCache(key, &blob_handle);
 
-      if (s.ok() && blob_entry.GetValue()) {
+      if (s.ok() && blob_handle.GetValue()) {
         assert(req.status);
         *req.status = s;
-        req.result->PinSelf(*blob_entry.GetValue());
+
+        {
+          req.result->Reset();
+          // To avoid copying the cached blob into the buffer provided by the
+          // application, we can simply transfer ownership of the cache handle
+          // to the target PinnableSlice. This has the potential to save a lot
+          // of CPU, especially with large blob values.
+          req.result->PinSlice(
+              *blob_handle.GetValue(),
+              [](void* arg1, void* arg2) {
+                Cache* const cache = static_cast<Cache*>(arg1);
+                Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
+                cache->Release(handle);
+              },
+              blob_handle.GetCache(), blob_handle.GetCacheHandle());
+          // Make the CacheHandleGuard relinquish ownership of the handle.
+          blob_handle.TransferTo(nullptr);
+        }
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
+
         // For consistency, the size of each on-disk (possibly compressed) blob
         // record is accumulated to total_bytes.
         uint64_t adjustment =
@@ -335,11 +368,11 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
       // the blob(s) to the cache.
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         if (_blob_reqs[i]->status->ok()) {
-          CachableEntry<std::string> blob_entry;
+          CacheHandleGuard<std::string> blob_handle;
           const CacheKey cache_key =
               base_cache_key.WithOffset(_blob_reqs[i]->offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(key, &blob_entry, _blob_reqs[i]->result);
+          s = PutBlobIntoCache(key, &blob_handle, _blob_reqs[i]->result);
           if (!s.ok()) {
             *_blob_reqs[i]->status = s;
           }
@@ -359,10 +392,10 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   const Slice key = cache_key.AsSlice();
 
-  CachableEntry<std::string> blob_entry;
-  const Status s = GetBlobFromCache(key, &blob_entry);
+  CacheHandleGuard<std::string> blob_handle;
+  const Status s = GetBlobFromCache(key, &blob_handle);
 
-  if (s.ok() && blob_entry.GetValue() != nullptr) {
+  if (s.ok() && blob_handle.GetValue() != nullptr) {
     return true;
   }
 
