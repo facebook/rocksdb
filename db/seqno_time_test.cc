@@ -222,7 +222,9 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   ASSERT_OK(db_->Close());
 }
 
-TEST_F(SeqnoTimeTest, MultiCFs) {
+// TODO(zjay): Disabled, until New CF bug with preclude_last_level_data_seconds
+//  is fixed
+TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 0;
   options.env = mock_env_.get();
@@ -467,28 +469,6 @@ TEST_F(SeqnoTimeTest, MappingAppend) {
   // new seqno with old time will be ignored
   ASSERT_FALSE(test.Append(12, 8));
   ASSERT_EQ(size, test.Size());
-
-  // with earliest_mem_seqno
-  ASSERT_TRUE(test.Append(14, 18, 1));
-  size++;
-  ASSERT_EQ(size, test.Size());
-
-  // even the earilest seqno is 7, we still need to keep 3 to track time for
-  // seqno [8, 9]
-  ASSERT_TRUE(test.Append(15, 20, 7));
-  size++;
-  ASSERT_EQ(size, test.Size());
-
-  // Now remove the oldest entry and update the latest one
-  ASSERT_TRUE(test.Append(15, 22, 11));
-  size--;
-  ASSERT_EQ(size, test.Size());
-
-  for (int i = 0; i < 10; i++) {
-    ASSERT_TRUE(test.Append(i + 100, i + 100, i));
-  }
-  // As the capacity is 10
-  ASSERT_EQ(10, test.Size());
 }
 
 TEST_F(SeqnoTimeTest, GetOldestApproximateTime) {

@@ -193,19 +193,8 @@ Status SeqnoToTimeMapping::SeqnoTimePair::Decode(Slice& input) {
   return Status::OK();
 }
 
-bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time,
-                                SequenceNumber min_first_mem_seqno) {
+bool SeqnoToTimeMapping::Append(SequenceNumber seqno, uint64_t time) {
   assert(is_sorted_);
-
-  // take the hint from caller and handle first_mem_seqno first
-  if (min_first_mem_seqno > 0) {
-    auto it = std::upper_bound(seqno_time_mapping_.begin(),
-                               seqno_time_mapping_.end(), min_first_mem_seqno);
-    if (it != seqno_time_mapping_.begin()) {
-      it--;
-      seqno_time_mapping_.erase(seqno_time_mapping_.begin(), it);
-    }
-  }
 
   // skip seq number 0, which may have special meaning, like zeroed out data
   if (seqno == 0) {

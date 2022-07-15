@@ -1297,7 +1297,7 @@ if(WITH_TESTS)
         db/perf_context_test.cc
         db/periodic_work_scheduler_test.cc
         db/plain_table_db_test.cc
-            db/seqno_time_test.cc
+        db/seqno_time_test.cc
         db/prefix_test.cc
         db/range_del_aggregator_test.cc
         db/range_tombstone_fragmenter_test.cc

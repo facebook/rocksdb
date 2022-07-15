@@ -2854,7 +2854,12 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   }  // InstrumentedMutexLock l(&mutex_)
 
   if (cf_options.preclude_last_level_data_seconds > 0) {
-    s = RegisterRecordSeqnoTimeWorker();
+    // TODO(zjay): Fix the timer issue and re-enable this.
+    ROCKS_LOG_ERROR(
+        immutable_db_options_.info_log,
+        "Creating column family with `preclude_last_level_data_seconds` needs "
+        "to restart DB to take effect");
+    //    s = RegisterRecordSeqnoTimeWorker();
   }
   sv_context.Clean();
   // this is outside the mutex
@@ -5593,15 +5598,6 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
 }
 
 void DBImpl::RecordSeqnoToTimeMapping() {
-  SequenceNumber min_first_mem_seqno = kMaxSequenceNumber;
-
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (cfd->ioptions()->preclude_last_level_data_seconds > 0) {
-      min_first_mem_seqno =
-          std::min(cfd->GetFirstMemtableSequenceNumber(), min_first_mem_seqno);
-    }
-  }
-
   // Get time first then sequence number, so the actual time of seqno is <=
   // unix_time recorded
   int64_t unix_time = 0;
@@ -5611,8 +5607,7 @@ void DBImpl::RecordSeqnoToTimeMapping() {
   bool appended = false;
   {
     InstrumentedMutexLock l(&mutex_);
-    appended =
-        seqno_time_mapping_.Append(seqno, unix_time, min_first_mem_seqno);
+    appended = seqno_time_mapping_.Append(seqno, unix_time);
   }
   if (!appended) {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,

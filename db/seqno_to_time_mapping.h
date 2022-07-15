@@ -98,11 +98,7 @@ class SeqnoToTimeMapping {
 
   // Append a new entry to the list. The new entry should be newer than the
   // existing ones. It maintains the internal sorted status.
-  // an optional `earliest_mem_seqno` could be given, so it can remove any data
-  // that is older than earliest_mem_seqno, which means the data is flushed
-  // and these entries are no longer needed.
-  bool Append(SequenceNumber seqno, uint64_t time,
-              SequenceNumber earliest_mem_seqno = 0);
+  bool Append(SequenceNumber seqno, uint64_t time);
 
   // Given a sequence number, estimate it's oldest time
   uint64_t GetOldestApproximateTime(SequenceNumber seqno) const;
