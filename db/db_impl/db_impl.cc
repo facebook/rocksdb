@@ -480,6 +480,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 #ifndef ROCKSDB_LITE
   if (periodic_work_scheduler_ != nullptr) {
     periodic_work_scheduler_->Unregister(this);
+    periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
   }
 #endif  // !ROCKSDB_LITE
 
@@ -786,6 +787,53 @@ Status DBImpl::StartPeriodicWorkScheduler() {
   return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
+#else
+  return Status::OK();
+#endif  // !ROCKSDB_LITE
+}
+
+Status DBImpl::RegisterRecordSeqnoTimeWorker() {
+#ifndef ROCKSDB_LITE
+  if (!periodic_work_scheduler_) {
+    return Status::OK();
+  }
+  uint64_t min_time_duration = std::numeric_limits<uint64_t>::max();
+  uint64_t max_time_duration = std::numeric_limits<uint64_t>::min();
+  {
+    InstrumentedMutexLock l(&mutex_);
+
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      uint64_t preclude_last_option =
+          cfd->ioptions()->preclude_last_level_data_seconds;
+      if (!cfd->IsDropped() && preclude_last_option > 0) {
+        min_time_duration = std::min(preclude_last_option, min_time_duration);
+        max_time_duration = std::max(preclude_last_option, max_time_duration);
+      }
+    }
+    if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
+      seqno_time_mapping_.Resize(0, 0);
+    } else {
+      seqno_time_mapping_.Resize(min_time_duration, max_time_duration);
+    }
+  }
+
+  uint64_t seqno_time_cadence = 0;
+  if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+    seqno_time_cadence =
+        min_time_duration / SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+  }
+
+  Status s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
+      this, seqno_time_cadence);
+  if (s.IsNotSupported()) {
+    // TODO: Fix the timer cannot cancel and re-add the same task
+    ROCKS_LOG_WARN(
+        immutable_db_options_.info_log,
+        "Updating seqno to time worker cadence is not supported yet, to make "
+        "the change effective, please reopen the DB instance.");
+    s = Status::OK();
+  }
+  return s;
 #else
   return Status::OK();
 #endif  // !ROCKSDB_LITE
@@ -2805,6 +2853,14 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
+  if (cf_options.preclude_last_level_data_seconds > 0) {
+    // TODO(zjay): Fix the timer issue and re-enable this.
+    ROCKS_LOG_ERROR(
+        immutable_db_options_.info_log,
+        "Creating column family with `preclude_last_level_data_seconds` needs "
+        "to restart DB to take effect");
+    //    s = RegisterRecordSeqnoTimeWorker();
+  }
   sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {
@@ -2891,6 +2947,10 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       is_snapshot_supported_ = new_is_snapshot_supported;
     }
     bg_cv_.SignalAll();
+  }
+
+  if (cfd->ioptions()->preclude_last_level_data_seconds > 0) {
+    s = RegisterRecordSeqnoTimeWorker();
   }
 
   if (s.ok()) {
@@ -5534,6 +5594,26 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
     return Status::OK();
   } else {
     return Status::NotSupported("This API only works if max_open_files = -1");
+  }
+}
+
+void DBImpl::RecordSeqnoToTimeMapping() {
+  // Get time first then sequence number, so the actual time of seqno is <=
+  // unix_time recorded
+  int64_t unix_time = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
+  SequenceNumber seqno = GetLatestSequenceNumber();
+  bool appended = false;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    appended = seqno_time_mapping_.Append(seqno, unix_time);
+  }
+  if (!appended) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Failed to insert sequence number to time entry: %" PRIu64
+                   " -> %" PRIu64,
+                   seqno, unix_time);
   }
 }
 #endif  // ROCKSDB_LITE

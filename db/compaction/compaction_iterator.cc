@@ -33,7 +33,8 @@ CompactionIterator::CompactionIterator(
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
-    const std::string* full_history_ts_low)
+    const std::string* full_history_ts_low,
+    const SequenceNumber max_seqno_allow_zero_out)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
@@ -42,7 +43,8 @@ CompactionIterator::CompactionIterator(
           manual_compaction_canceled,
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
-          compaction_filter, shutting_down, info_log, full_history_ts_low) {}
+          compaction_filter, shutting_down, info_log, full_history_ts_low,
+          max_seqno_allow_zero_out) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -58,7 +60,8 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
-    const std::string* full_history_ts_low)
+    const std::string* full_history_ts_low,
+    const SequenceNumber max_seqno_allow_zero_out)
     : input_(input, cmp,
              !compaction || compaction->DoesInputReferenceBlobFiles()),
       cmp_(cmp),
@@ -92,7 +95,8 @@ CompactionIterator::CompactionIterator(
           CreatePrefetchBufferCollectionIfNeeded(compaction_.get())),
       current_key_committed_(false),
       cmp_with_history_ts_low_(0),
-      level_(compaction_ == nullptr ? 0 : compaction_->level()) {
+      level_(compaction_ == nullptr ? 0 : compaction_->level()),
+      max_seqno_allow_zero_out_(max_seqno_allow_zero_out) {
   assert(snapshots_ != nullptr);
   bottommost_level_ = compaction_ == nullptr
                           ? false
@@ -1148,7 +1152,8 @@ void CompactionIterator::PrepareOutput() {
         !compaction_->allow_ingest_behind() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
-        !output_to_penultimate_level_) {
+        !output_to_penultimate_level_ &&
+        ikey_.sequence < max_seqno_allow_zero_out_) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(
