@@ -255,9 +255,7 @@ struct ClockHandle {
     key_data.fill(0);
   }
 
-  ClockHandle(const ClockHandle& other) {
-    *this = other;
-  }
+  ClockHandle(const ClockHandle& other) { *this = other; }
 
   void operator=(const ClockHandle& other) {
     value = other.value;
