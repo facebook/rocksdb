@@ -419,16 +419,13 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
     // TODO: support custom allocators and provide a better estimated memory
     // usage using malloc_usable_size.
-    Cache::Handle* cache_handle = nullptr;
     s = blob_cache->Insert(key, buf.get(), buf->size(),
-                           &DeleteCacheEntry<std::string>, &cache_handle,
-                           priority);
+                           &DeleteCacheEntry<std::string>,
+                           nullptr /* cache_handle */, priority);
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
-      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE,
-                 blob_cache->GetUsage(cache_handle));
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->size());
       buf.release();
-      blob_cache->Release(cache_handle);
     } else {
       RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);
     }
