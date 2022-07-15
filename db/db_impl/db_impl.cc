@@ -169,8 +169,7 @@ struct MultiGetColumnFamilyData {
   // SuperVersion for the column family obtained in a manner that ensures a
   // consistent view across all column families in the DB
   SuperVersion* super_version;
-  MultiGetColumnFamilyData(ColumnFamilyHandle* column_family,
-                            SuperVersion* sv)
+  MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, SuperVersion* sv)
       : cf(column_family),
         cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()),
         start(0),
@@ -178,7 +177,7 @@ struct MultiGetColumnFamilyData {
         super_version(sv) {}
 
   MultiGetColumnFamilyData(ColumnFamilyHandle* column_family, size_t first,
-                            size_t count, SuperVersion* sv)
+                           size_t count, SuperVersion* sv)
       : cf(column_family),
         cfd(static_cast<ColumnFamilyHandleImpl*>(cf)->cfd()),
         start(first),
@@ -188,17 +187,15 @@ struct MultiGetColumnFamilyData {
   MultiGetColumnFamilyData() = default;
 };
 
-template<class Iter>
-static inline
-auto iter_deref_func(const Iter& i) ->
-std::common_type_t<MultiGetColumnFamilyData*, decltype(&i->second)> {
+template <class Iter>
+static inline auto iter_deref_func(const Iter& i)
+    -> std::common_type_t<MultiGetColumnFamilyData*, decltype(&i->second)> {
   return &i->second;
 }
 
-template<class Iter>
-static inline
-auto iter_deref_func(const Iter& i) ->
-std::common_type_t<MultiGetColumnFamilyData*, decltype(&*i)> {
+template <class Iter>
+static inline auto iter_deref_func(const Iter& i)
+    -> std::common_type_t<MultiGetColumnFamilyData*, decltype(&*i)> {
   return &*i;
 }
 
@@ -2062,14 +2059,13 @@ std::vector<Status> DBImpl::MultiGet(
   if (auto ts = read_options.timestamp) {
     for (size_t i = 0; i < num_keys; ++i) {
       assert(column_family[i]);
-      stat_list[i] = FailIfTsMismatchCf(
-          column_family[i], *ts, /*ts_for_read=*/true);
+      stat_list[i] =
+          FailIfTsMismatchCf(column_family[i], *ts, /*ts_for_read=*/true);
       if (!stat_list[i].ok()) {
         should_fail = true;
       }
     }
-  }
-  else {
+  } else {
     for (size_t i = 0; i < num_keys; ++i) {
       assert(column_family[i]);
       stat_list[i] = FailIfCfHasTs(column_family[i]);
@@ -2113,7 +2109,7 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   bool unref_only = MultiCFSnapshot(read_options, nullptr, &multiget_cf_data,
-          &consistent_seqnum);
+                                    &consistent_seqnum);
 
   TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum1");
   TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum2");
@@ -2447,7 +2443,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
 
   SequenceNumber consistent_seqnum;
   bool unref_only = MultiCFSnapshot(read_options, nullptr, &multiget_cf_data,
-      &consistent_seqnum);
+                                    &consistent_seqnum);
 
   GetWithTimestampReadCallback timestamp_read_callback(0);
   ReadCallback* read_callback = nullptr;
@@ -2577,7 +2573,7 @@ void DBImpl::MultiGetWithCallback(
   size_t num_keys = sorted_keys->size();
   SequenceNumber consistent_seqnum;
   bool unref_only = MultiCFSnapshot(read_options, callback, &multiget_cf_data,
-      &consistent_seqnum);
+                                    &consistent_seqnum);
 #ifndef NDEBUG
   assert(!unref_only);
 #else
