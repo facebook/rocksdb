@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include <iostream>
 #include <memory>
 #include <string>
 
@@ -18,7 +17,6 @@
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
-#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace lru_cache {
@@ -235,13 +233,7 @@ struct LRUHandle {
   inline size_t GetCharge(
       CacheMetadataChargePolicy metadata_charge_policy) const {
     size_t meta_charge = CalcuMetaCharge(metadata_charge_policy);
-    if (total_charge < meta_charge) {
-      std::cout << total_charge << " " << meta_charge << std::endl;
-    }
-    std::cout << "key " << key_data << std::endl;
-    std::cout << "total_charge " << total_charge << std::endl;
-    std::cout << "meta_charge " << meta_charge << std::endl;
-    std::cout << "charge " << total_charge - meta_charge << std::endl;
+    assert(total_charge >= meta_charge);
     return total_charge - meta_charge;
   }
 };
@@ -461,7 +453,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
-  mutable DMutex mutex_;
+  mutable port::Mutex mutex_;
 
   std::shared_ptr<SecondaryCache> secondary_cache_;
 };
@@ -489,7 +481,6 @@ class LRUCache
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& handles) override;
-  std::string GetPrintableOptions() const override;
 
   //  Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
@@ -497,7 +488,6 @@ class LRUCache
   double GetHighPriPoolRatio();
 
  private:
-  friend class CompressedSecondaryCache;
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
   std::shared_ptr<SecondaryCache> secondary_cache_;
