@@ -1096,11 +1096,9 @@ DEFINE_int32(blob_cache_numshardbits, 6,
              "the block and blob caches are different "
              "(use_shared_block_and_blob_cache = false).");
 
-DEFINE_int32(
-    prepopulate_blob_cache,
-    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().prepopulate_blob_cache,
-    "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
-    "to disable and 1 to insert during flush.");
+DEFINE_int32(prepopulate_blob_cache, 0,
+             "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
+             "to disable and 1 to insert during flush.");
 
 #ifndef ROCKSDB_LITE
 
