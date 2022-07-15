@@ -292,11 +292,11 @@ void ClockCacheShard::ApplyToSomeEntries(
       index_begin, index_end, false);
 }
 
-void ClockCacheShard::ClockRemove(ClockHandle* h) {
+void ClockCacheShard::ClockOff(ClockHandle* h) {
   h->SetClockPriority(ClockHandle::ClockPriority::NONE);
 }
 
-void ClockCacheShard::ClockInsert(ClockHandle* h) {
+void ClockCacheShard::ClockOn(ClockHandle* h) {
   assert(!h->IsInClock());
   bool is_high_priority =
       h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
@@ -306,7 +306,7 @@ void ClockCacheShard::ClockInsert(ClockHandle* h) {
 }
 
 void ClockCacheShard::Evict(ClockHandle* h) {
-  ClockRemove(h);
+  ClockOff(h);
   table_.Remove(h);
   assert(usage_ >= h->total_charge);
   usage_ -= h->total_charge;
@@ -326,13 +326,13 @@ void ClockCacheShard::EvictFromClock(size_t charge,
 
     if (h->TryExclusiveRef()) {
       if (!h->IsInClock() && h->IsElement()) {
-        // We re-insert the element into clock (i.e., set it's priority to not
-        // NONE). Why? Elements that are not in clock are either currently
+        // We adjust the clock priority to make the element evictable again.
+        // Why? Elements that are not in clock are either currently
         // externally referenced or used to be---because we are holding an
         // exclusive ref, we know we are in the latter case. This can only
         // happen when the last external reference to an element was released,
         // and the element was not immediately removed.
-        ClockInsert(h);
+        ClockOn(h);
       }
 
       if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
@@ -455,8 +455,8 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       }
       if (handle == nullptr) {
         // If the user didn't provide a handle, no reference is taken,
-        // so we insert the element into clock.
-        ClockInsert(h);
+        // so we make the element evictable.
+        ClockOn(h);
         h->ReleaseExclusiveRef();
       } else {
         // The caller already holds a ref.
@@ -485,7 +485,7 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
     h->InternalToExternalRef();
     h->SetHit();
     // The handle is now referenced, so we take it out of clock.
-    ClockRemove(h);
+    ClockOff(h);
   }
   return reinterpret_cast<Cache::Handle*>(h);
 }

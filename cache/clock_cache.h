@@ -91,16 +91,19 @@ namespace clock_cache {
 // the handles that are evictable. For this we use different clock flags, namely
 // NONE, LOW, MEDIUM, HIGH, that represent priorities: LOW, MEDIUM and HIGH
 // represent how close an element is from being evictable, LOW being immediately
-// evictable. NONE can mean three things:
+// evictable. NONE means the slot is not evictable. This is due to one of the
+// following reasons:
 // (i) the slot doesn't contain an element, or
 // (ii) the slot contains an element that is in R state, or
 // (iii) the slot contains an element that was in R state but it's
 //      not any more, and the clock pointer has not swept through the
 //      slot since the element stopped being referenced.
 //
-// Importantly, the clock priority is not NONE if and only if the element is
-// not externally referenced. In particular, clock will never evict an element
-// that is referenced.
+// The priority NONE is really only important for case (iii), as in the other
+// two cases there are other metadata fields that already capture the state.
+// When an element stops being referenced (and is not deleted), the clock
+// algorithm must acknowledge this, and assign a non-NONE priority to make
+// the element evictable again.
 //
 ///////////////////////////////////////////////////////////////////////////////
 //                      Part 4: Synchronization
@@ -236,7 +239,7 @@ struct ClockHandle {
   //    to remain untouched, as well as modify any identity member
   //    or flag.
   // - displacements can be modified without holding a reference.
-  // - refs is only modified through appropiate functions to
+  // - refs is only modified through appropriate functions to
   //    take or release references.
 
   ClockHandle()
@@ -626,10 +629,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   void SetStrictCapacityLimit(bool strict_capacity_limit) override;
 
   // Like Cache methods, but with an extra "hash" parameter.
-  // Insert an item into the hash table and, if handle is null, insert into
-  // clock. Older items are evicted as necessary. If the cache is full and
-  // free_handle_on_fail is true, the item is deleted and handle is set to
-  // nullptr.
+  // Insert an item into the hash table and, if handle is null, make it
+  // evictable by the clock algorithm. Older items are evicted as necessary.
+  // If the cache is full and free_handle_on_fail is true, the item is deleted
+  // and handle is set to nullptr.
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 Cache::DeleterFn deleter, Cache::Handle** handle,
                 Cache::Priority priority) override;
@@ -675,14 +678,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
  private:
   friend class ClockCache;
 
-  // Inserting and removing from clock simply means setting the appropriate
-  // clock priority in the handle. An element is in clock if and only if its
-  // priority is not NONE (i.e., it's LOW, MEDIUM or HIGH). Thus, when the
-  // clock pointer sweeps through this handle, it won't consider the element
-  // for eviction if the priority is NONE.
-  void ClockInsert(ClockHandle* h);
+  // Makes an element evictable by clock.
+  void ClockOn(ClockHandle* h);
 
-  void ClockRemove(ClockHandle* h);
+  // Makes an element non-evictable.
+  void ClockOff(ClockHandle* h);
 
   // Requires an exclusive ref on h.
   void Evict(ClockHandle* h);
