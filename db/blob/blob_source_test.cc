@@ -1136,8 +1136,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
                                         void** out_obj,
                                         size_t* charge) -> Status {
-    *out_obj = new char[size];
-    memcpy(*out_obj, buf, size);
+    std::string* blob = new std::string();
+    blob->assign(static_cast<const char*>(buf), size);
+    *out_obj = blob;
     *charge = size;
     return Status::OK();
   };
@@ -1183,8 +1184,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle0);
 
       bool found = false;
-      secondary_cache->Lookup(key0, create_cb, true, found);
+      auto sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
       ASSERT_TRUE(found);
+      ASSERT_NE(sec_handle0, nullptr);
+      ASSERT_TRUE(sec_handle0->IsReady());
+      auto value = static_cast<std::string*>(sec_handle0->Value());
+      ASSERT_EQ(*value, blobs[0]);
+      delete value;
 
       // For blob source interface, after a cache miss occurs in the primary
       // cache, key0 can be retrieved in the secondary cache.
@@ -1201,8 +1207,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle1);
 
       bool found = false;
-      secondary_cache->Lookup(key1, create_cb, true, found);
+      auto sec_handle1 = secondary_cache->Lookup(key1, create_cb, true, found);
       ASSERT_FALSE(found);
+      ASSERT_NE(sec_handle1, nullptr);
+      ASSERT_TRUE(sec_handle1->IsReady());
+      ASSERT_NE(sec_handle1->Value(), nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
@@ -1218,8 +1227,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle0);
 
       bool found = false;
-      secondary_cache->Lookup(key0, create_cb, true, found);
+      auto sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
       ASSERT_TRUE(found);
+      ASSERT_NE(sec_handle0, nullptr);
+      ASSERT_TRUE(sec_handle0->IsReady());
+      auto value = static_cast<std::string*>(sec_handle0->Value());
+      ASSERT_EQ(*value, blobs[0]);
+      delete value;
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[0]));
@@ -1235,8 +1249,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle1);
 
       bool found = false;
-      secondary_cache->Lookup(key1, create_cb, true, found);
+      auto sec_handle1 = secondary_cache->Lookup(key1, create_cb, true, found);
       ASSERT_FALSE(found);
+      ASSERT_NE(sec_handle1, nullptr);
+      ASSERT_TRUE(sec_handle1->IsReady());
+      ASSERT_NE(sec_handle1->Value(), nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
@@ -1275,8 +1292,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
       // before we promote key0 to the primary cache
       bool found = false;
-      secondary_cache->Lookup(key0, create_cb, true, found);
+      auto sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
       ASSERT_TRUE(found);
+      ASSERT_NE(sec_handle0, nullptr);
+      ASSERT_TRUE(sec_handle0->IsReady());
+      auto value = static_cast<std::string*>(sec_handle0->Value());
+      ASSERT_EQ(*value, blobs[0]);
+      delete value;
 
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
@@ -1284,8 +1306,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
       // after we promote key0 to the primary cache
       found = false;
-      secondary_cache->Lookup(key0, create_cb, true, found);
+      sec_handle0 = secondary_cache->Lookup(key0, create_cb, true, found);
       ASSERT_FALSE(found);
+      ASSERT_NE(sec_handle0, nullptr);
+      ASSERT_TRUE(sec_handle0->IsReady());
+      ASSERT_NE(sec_handle0->Value(), nullptr);
 
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[0]));

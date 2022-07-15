@@ -133,10 +133,8 @@ class BlobSource {
                                size_t length, void* out) {
     assert(from_obj != nullptr);
     const std::string* buf = static_cast<const std::string*>(from_obj);
-    assert(length == buf->size());
-    assert(from_offset == 0);
-    (void)from_offset;
-    memcpy(out, buf, length);
+    assert(buf->size() >= from_offset + length);
+    memcpy(out, buf->data() + from_offset, length);
     return Status::OK();
   }
 
