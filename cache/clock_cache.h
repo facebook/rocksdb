@@ -518,7 +518,9 @@ class ClockHandleTable {
   // Removes h from the hash table. The handle must already be off clock.
   void Remove(ClockHandle* h);
 
-  // Assigns a copy of src to dst.
+  // Extracts the element information from a handle (src), and assigns it
+  // to a hash table slot (dst). Doesn't touch displacements and refs,
+  // which are maintained by the hash table algorithm.
   void Assign(ClockHandle* dst, ClockHandle* src);
 
   template <typename T>
