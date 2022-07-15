@@ -2061,13 +2061,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_delete(
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_delete_with_ts(
     rocksdb_sstfilewriter_t* writer, const char* key, size_t keylen,
     const char* ts, size_t tslen, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_delete_range(
+    rocksdb_sstfilewriter_t* writer, const char* begin_key, size_t begin_keylen,
+    const char* end_key, size_t end_keylen, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_finish(
     rocksdb_sstfilewriter_t* writer, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_file_size(
     rocksdb_sstfilewriter_t* writer, uint64_t* file_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_destroy(
     rocksdb_sstfilewriter_t* writer);
-
 extern ROCKSDB_LIBRARY_API rocksdb_ingestexternalfileoptions_t*
 rocksdb_ingestexternalfileoptions_create(void);
 extern ROCKSDB_LIBRARY_API void
