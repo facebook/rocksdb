@@ -70,6 +70,8 @@ struct ImmutableCFOptions {
 
   bool force_consistency_checks;
 
+  uint64_t preclude_last_level_data_seconds;
+
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor;
 
