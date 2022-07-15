@@ -308,7 +308,6 @@ struct ClockHandle {
     }
   }
 
-
   ClockPriority GetClockPriority() const {
     return static_cast<ClockPriority>(flags & Flags::CLOCK_PRIORITY);
   }
