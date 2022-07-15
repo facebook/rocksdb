@@ -279,14 +279,16 @@ Status SstFileWriter::Open(const std::string& file_path) {
     r->column_family_name = "";
     cf_id = TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
   }
+
+  // TODO: it would be better to set oldest_key_time to be used for getting the
+  //  approximate time of ingested keys.
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type, compression_opts,
       cf_id, r->column_family_name, unknown_level, false /* is_bottommost */,
-      TableFileCreationReason::kMisc, 0 /* creation_time */,
-      0 /* oldest_key_time */, 0 /* file_creation_time */,
-      "SST Writer" /* db_id */, r->db_session_id, 0 /* target_file_size */,
-      r->next_file_number);
+      TableFileCreationReason::kMisc, 0 /* oldest_key_time */,
+      0 /* file_creation_time */, "SST Writer" /* db_id */, r->db_session_id,
+      0 /* target_file_size */, r->next_file_number);
   // External SST files used to each get a unique session id. Now for
   // slightly better uniqueness probability in constructing cache keys, we
   // assign fake file numbers to each file (into table properties) and keep

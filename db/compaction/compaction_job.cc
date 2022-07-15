@@ -223,12 +223,12 @@ void CompactionJob::Prepare() {
 
   // Generate file_levels_ for compaction before making Iterator
   auto* c = compact_->compaction;
-  assert(c->column_family_data() != nullptr);
-  assert(c->column_family_data()->current()->storage_info()->NumLevelFiles(
+  ColumnFamilyData* cfd = c->column_family_data();
+  assert(cfd != nullptr);
+  assert(cfd->current()->storage_info()->NumLevelFiles(
              compact_->compaction->level()) > 0);
 
-  write_hint_ =
-      c->column_family_data()->CalculateSSTWriteHint(c->output_level());
+  write_hint_ = cfd->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
@@ -250,6 +250,43 @@ void CompactionJob::Prepare() {
     constexpr Slice* end = nullptr;
 
     compact_->sub_compact_states.emplace_back(c, start, end, /*sub_job_id*/ 0);
+  }
+
+  if (c->immutable_options()->preclude_last_level_data_seconds > 0) {
+    // TODO(zjay): move to a function
+    seqno_time_mapping_.SetMaxTimeDuration(
+        c->immutable_options()->preclude_last_level_data_seconds);
+    // setup seqno_time_mapping_
+    for (const auto& each_level : *c->inputs()) {
+      for (const auto& fmd : each_level.files) {
+        std::shared_ptr<const TableProperties> tp;
+        Status s = cfd->current()->GetTableProperties(&tp, fmd, nullptr);
+        if (s.ok()) {
+          seqno_time_mapping_.Add(tp->seqno_to_time_mapping)
+              .PermitUncheckedError();
+          seqno_time_mapping_.Add(fmd->fd.smallest_seqno,
+                                  fmd->oldest_ancester_time);
+        }
+      }
+    }
+
+    auto status = seqno_time_mapping_.Sort();
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Invalid sequence number to time mapping: Status: %s",
+                     status.ToString().c_str());
+    }
+    int64_t _current_time = 0;
+    status = db_options_.clock->GetCurrentTime(&_current_time);
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Failed to get current time in compaction: Status: %s",
+                     status.ToString().c_str());
+      max_seqno_allow_zero_out_ = 0;
+    } else {
+      max_seqno_allow_zero_out_ =
+          seqno_time_mapping_.TruncateOldEntries(_current_time);
+    }
   }
 }
 
@@ -989,7 +1026,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      db_options_.info_log, full_history_ts_low);
+      db_options_.info_log, full_history_ts_low, max_seqno_allow_zero_out_);
   c_iter->SeekToFirst();
 
   // Assign range delete aggregator to the target output level, which makes sure
@@ -1253,7 +1290,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   const uint64_t current_entries = outputs.NumEntries();
 
-  s = outputs.Finish(s);
+  s = outputs.Finish(s, seqno_time_mapping_);
 
   if (s.ok()) {
     // With accurate smallest and largest key, we can get a slightly more
@@ -1617,9 +1654,8 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
       sub_compact->compaction->output_compression_opts(), cfd->GetID(),
       cfd->GetName(), sub_compact->compaction->output_level(),
       bottommost_level_, TableFileCreationReason::kCompaction,
-      oldest_ancester_time, 0 /* oldest_key_time */, current_time, db_id_,
-      db_session_id_, sub_compact->compaction->max_output_file_size(),
-      file_number);
+      0 /* oldest_key_time */, current_time, db_id_, db_session_id_,
+      sub_compact->compaction->max_output_file_size(), file_number);
 
   outputs.NewBuilder(tboptions);
 

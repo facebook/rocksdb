@@ -670,6 +670,7 @@ set(SOURCES
         db/range_del_aggregator.cc
         db/range_tombstone_fragmenter.cc
         db/repair.cc
+        db/seqno_to_time_mapping.cc
         db/snapshot_impl.cc
         db/table_cache.cc
         db/table_properties_collector.cc
@@ -1296,6 +1297,7 @@ if(WITH_TESTS)
         db/perf_context_test.cc
         db/periodic_work_scheduler_test.cc
         db/plain_table_db_test.cc
+        db/seqno_time_test.cc
         db/prefix_test.cc
         db/range_del_aggregator_test.cc
         db/range_tombstone_fragmenter_test.cc

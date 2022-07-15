@@ -9,7 +9,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/range_tombstone_fragmenter.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/table_properties_collector.h"
 #include "logging/event_logger.h"
 #include "options/cf_options.h"
@@ -61,6 +63,7 @@ extern Status BuildTable(
     bool paranoid_file_checks, InternalStats* internal_stats,
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCreationReason blob_creation_reason,
+    const SeqnoToTimeMapping& seqno_to_time_mapping,
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr,

@@ -76,6 +76,7 @@ LIB_SOURCES =                                                   \
   db/range_del_aggregator.cc                                    \
   db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
+  db/seqno_to_time_mapping.cc                                   \
   db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
@@ -503,6 +504,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
   db/range_tombstone_fragmenter_test.cc                                 \
+  db/seqno_time_test.cc                                                 \
   db/table_properties_collector_test.cc                                 \
   db/version_builder_test.cc                                            \
   db/version_edit_test.cc                                               \
