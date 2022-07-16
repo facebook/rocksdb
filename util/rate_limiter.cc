@@ -253,7 +253,8 @@ GenericRateLimiter::GeneratePriorityIterationOrderLocked() {
 }
 
 void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
-  TEST_SYNC_POINT("GenericRateLimiter::RefillBytesAndGrantRequests");
+  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::RefillBytesAndGrantRequestsLocked",
+                           &request_mutex_);
   next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
