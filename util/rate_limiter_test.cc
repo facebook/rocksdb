@@ -202,7 +202,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     bool mid_pri_itereated_after_low_pri_set = false;
     bool pri_iteration_order_verified = false;
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForHighPri",
         [&](void* arg) {
           bool* high_pri_iterated_after_mid_low_pri = (bool*)arg;
@@ -212,7 +212,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
         });
 
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForMidPri",
         [&](void* arg) {
           bool* mid_pri_itereated_after_low_pri = (bool*)arg;
@@ -222,7 +222,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
         });
 
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PreReturnPriIterationOrder",
         [&](void* arg) {
           std::vector<Env::IOPriority>* pri_iteration_order =
@@ -249,13 +249,13 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     ASSERT_EQ(pri_iteration_order_verified, true);
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PreReturnPriIterationOrder");
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForMidPri");
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForHighPri");
   }
 }
