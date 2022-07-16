@@ -98,9 +98,20 @@ GenericRateLimiter::~GenericRateLimiter() {
 // This API allows user to dynamically change rate limiter's bytes per second.
 void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
+#ifndef ROCKSDB_LITE
+  // TODO: this mutates `options_` (a `GenericRateLimiterOptions`) without
+  // locking internally. That means clients are responsible to avoid calling
+  // `SetBytesPerSecond()` concurrently with any Configurable APIs.
   ConfigureFromMap(ConfigOptions(),
                    {{"rate_bytes_per_sec", std::to_string(bytes_per_second)}})
       .PermitUncheckedError();
+#else  // ROCKSDB_LITE
+  // TODO: if Configurable does one day support mutating options in LITE mode,
+  // this mutation will be susceptible to the same race condition as above.
+  MutexLock g(&request_mutex_);
+  options_.max_bytes_per_sec = bytes_per_second;
+  InitializeLocked();
+#endif
 }
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
