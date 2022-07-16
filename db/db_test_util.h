@@ -1345,6 +1345,8 @@ class DBTestBase : public testing::Test {
 #ifndef ROCKSDB_LITE
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
                                               std::string column_family_name);
+
+  uint64_t GetSstSizeHelper(Temperature temperature);
 #endif  // ROCKSDB_LITE
 
   uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {

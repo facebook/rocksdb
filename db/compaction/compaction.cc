@@ -440,6 +440,11 @@ bool Compaction::IsTrivialMove() const {
     }
   }
 
+  // PerKeyPlacement compaction should never be trivial move.
+  if (SupportsPerKeyPlacement()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -741,10 +746,10 @@ int Compaction::EvaluatePenultimateLevel(
     return kInvalidLevel;
   }
 
-  // TODO: will add public like `options.preclude_last_level_data_seconds` for
-  //  per_key_placement feature, will check that option here. Currently, only
-  //  set by unittest
-  bool supports_per_key_placement = false;
+  bool supports_per_key_placement =
+      immutable_options.preclude_last_level_data_seconds > 0;
+
+  // it could be overridden by unittest
   TEST_SYNC_POINT_CALLBACK("Compaction::SupportsPerKeyPlacement:Enabled",
                            &supports_per_key_placement);
   if (!supports_per_key_placement) {

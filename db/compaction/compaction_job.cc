@@ -282,9 +282,9 @@ void CompactionJob::Prepare() {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Failed to get current time in compaction: Status: %s",
                      status.ToString().c_str());
-      max_seqno_allow_zero_out_ = 0;
+      penultimate_level_cutoff_seqno_ = 0;
     } else {
-      max_seqno_allow_zero_out_ =
+      penultimate_level_cutoff_seqno_ =
           seqno_time_mapping_.TruncateOldEntries(_current_time);
     }
   }
@@ -1026,7 +1026,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       blob_file_builder.get(), db_options_.allow_data_in_errors,
       db_options_.enforce_single_del_contracts, manual_compaction_canceled_,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      db_options_.info_log, full_history_ts_low, max_seqno_allow_zero_out_);
+      db_options_.info_log, full_history_ts_low,
+      penultimate_level_cutoff_seqno_);
   c_iter->SeekToFirst();
 
   // Assign range delete aggregator to the target output level, which makes sure

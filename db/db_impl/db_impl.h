@@ -2594,6 +2594,8 @@ class DBImpl : public DB {
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
 
+  // seqno_time_mapping_ stores the sequence number to time mapping, it's not
+  // thread safe, both read and write need db mutex hold.
   SeqnoToTimeMapping seqno_time_mapping_;
 };
 
