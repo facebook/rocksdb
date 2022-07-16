@@ -558,6 +558,18 @@ Status StressTest::SetOptions(ThreadState* thread) {
     return GetOptionsFromString(options_, "", &copy_options);
   }
 #endif  // ROCKSDB_LITE
+  if (options_.rate_limiter != nullptr && thread->rand.Next() % 16 == 0) {
+    // When rate_limiter is enabled, cover `SetBytesPerSecond()` with 1/16
+    // chance.
+    if (thread->rand.Next() % 2 == 0) {
+      options_.rate_limiter->SetBytesPerSecond(FLAGS_rate_limiter_bytes_per_sec
+                                               << 1);
+    } else {
+      options_.rate_limiter->SetBytesPerSecond(
+          FLAGS_rate_limiter_bytes_per_sec >> 1);
+    }
+    return Status::OK();
+  }
   std::unordered_map<std::string, std::string> opts;
   std::string name =
       options_index_[thread->rand.Next() % options_index_.size()];
