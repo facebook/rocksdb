@@ -393,7 +393,8 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
       // guaranteed under any situation
       int32_t new_limit = (target << 1) >> (iter << 1);
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "GenericRateLimiter::RefillBytesAndGrantRequestsLocked", [&](void* arg) {
+          "GenericRateLimiter::RefillBytesAndGrantRequestsLocked",
+          [&](void* arg) {
             port::Mutex* request_mutex = static_cast<port::Mutex*>(arg);
             // We temporarily unlock the mutex so that the following
             // SetBytesPerSecond() can acquire it
@@ -401,10 +402,10 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
 
             limiter->SetBytesPerSecond(new_limit);
 
-            // We lock the mutex again so that the request thread can resume running
-            // with the mutex locked
+            // We lock the mutex again so that the request thread can resume
+            // running with the mutex locked
             request_mutex->Lock();
-      });
+          });
 
       Arg arg(target, Env::IO_HIGH, limiter);
       // TODO(lightmark): more test cases are welcome.
