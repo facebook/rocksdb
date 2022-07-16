@@ -349,7 +349,9 @@ Status GenericRateLimiter::TuneLocked() {
     new_bytes_per_sec = prev_bytes_per_sec;
   }
   if (new_bytes_per_sec != prev_bytes_per_sec) {
-    SetBytesPerSecond(new_bytes_per_sec);
+    rate_bytes_per_sec_ = new_bytes_per_sec;
+    refill_bytes_per_period_ =
+        CalculateRefillBytesPerPeriodLocked(rate_bytes_per_sec_);
   }
   num_drains_ = 0;
   return Status::OK();
