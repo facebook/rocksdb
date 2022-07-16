@@ -428,4 +428,25 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   return false;
 }
 
+// Callbacks for secondary blob cache
+size_t BlobSource::SizeCallback(void* obj) {
+  assert(obj != nullptr);
+  return static_cast<const std::string*>(obj)->size();
+}
+
+Status BlobSource::SaveToCallback(void* from_obj, size_t from_offset,
+                                  size_t length, void* out) {
+  assert(from_obj != nullptr);
+  const std::string* buf = static_cast<const std::string*>(from_obj);
+  assert(buf->size() >= from_offset + length);
+  memcpy(out, buf->data() + from_offset, length);
+  return Status::OK();
+}
+
+Cache::CacheItemHelper* BlobSource::GetCacheItemHelper() {
+  static Cache::CacheItemHelper cache_helper(SizeCallback, SaveToCallback,
+                                             &DeleteCacheEntry<std::string>);
+  return &cache_helper;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
