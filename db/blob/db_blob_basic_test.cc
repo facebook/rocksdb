@@ -1451,6 +1451,7 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
 
   options.enable_blob_files = true;
   options.create_if_missing = true;
+  options.disable_auto_compactions = true;
   options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
@@ -1463,17 +1464,20 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsDuringFlush) {
 
   for (size_t i = 1; i <= kNumBlobs; i++) {
     ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Put(std::to_string(i + kNumBlobs), value));  // Add some overlap
     ASSERT_OK(Flush());
-    ASSERT_EQ(i, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(i * 2, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
     ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
     ASSERT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_MISS));
-    ASSERT_EQ(i, options.statistics->getTickerCount(BLOB_DB_CACHE_HIT));
+    ASSERT_EQ(i * 2, options.statistics->getTickerCount(BLOB_DB_CACHE_HIT));
   }
 
   // Verify compaction not counted
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                               /*end=*/nullptr));
-  EXPECT_EQ(kNumBlobs, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
+  EXPECT_EQ(kNumBlobs * 2,
+            options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
 }
 
 #ifndef ROCKSDB_LITE
@@ -1496,6 +1500,7 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
 
   options.enable_blob_files = true;
   options.create_if_missing = true;
+  options.disable_auto_compactions = true;
   options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
@@ -1508,26 +1513,30 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
 
   for (size_t i = 1; i <= 5; i++) {
     ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Put(std::to_string(i + kNumBlobs), value));  // Add some overlap
     ASSERT_OK(Flush());
-    ASSERT_EQ(1, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
 
     ASSERT_EQ(value, Get(std::to_string(i)));
+    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
     ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
     ASSERT_EQ(0,
               options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
-    ASSERT_EQ(1, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
+    ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
   }
 
   ASSERT_OK(dbfull()->SetOptions({{"prepopulate_blob_cache", "kDisable"}}));
 
   for (size_t i = 6; i <= kNumBlobs; i++) {
     ASSERT_OK(Put(std::to_string(i), value));
+    ASSERT_OK(Put(std::to_string(i + kNumBlobs), value));  // Add some overlap
     ASSERT_OK(Flush());
     ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
 
     ASSERT_EQ(value, Get(std::to_string(i)));
-    ASSERT_EQ(1, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
-    ASSERT_EQ(1,
+    ASSERT_EQ(value, Get(std::to_string(i + kNumBlobs)));
+    ASSERT_EQ(2, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD));
+    ASSERT_EQ(2,
               options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS));
     ASSERT_EQ(0, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
   }
