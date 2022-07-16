@@ -152,9 +152,10 @@ class RateLimiter {
 //              the recent demand for background I/O.
 //
 // Thread-safety notes:
-// - `SetBytesPerSecond()` on the returned `RateLimiter` object must not run
-//   concurrently with configuration APIs affecting the same object, e.g.,
-//   `GetOptionsFromString()`.
+// - The object returned by this function is not thread-safe to use with
+//   Configurable APIs, e.g., `GetOptionsFromString()`. Furthermore, its
+//   `SetBytesPerSecond()` uses Configurable internally and is thus susceptible
+//   to race conditions when called while the rate limiter is in-use.
 extern RateLimiter* NewGenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us = 100 * 1000,
     int32_t fairness = 10,

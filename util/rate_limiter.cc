@@ -100,8 +100,7 @@ void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
 #ifndef ROCKSDB_LITE
   // TODO: this mutates `options_` (a `GenericRateLimiterOptions`) without
-  // locking internally. That means clients are responsible to avoid calling
-  // `SetBytesPerSecond()` concurrently with any Configurable APIs.
+  // locking internally.
   ConfigureFromMap(ConfigOptions(),
                    {{"rate_bytes_per_sec", std::to_string(bytes_per_second)}})
       .PermitUncheckedError();
