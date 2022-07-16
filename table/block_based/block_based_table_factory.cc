@@ -716,17 +716,7 @@ Status BlockBasedTableFactory::ValidateOptions(
     }
     if (role == CacheEntryRole::kBlobCache &&
         options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
-      if (strncmp(cf_opts.blob_cache->Name(), ChargedCache::kClassName(),
-                  strlen(ChargedCache::kClassName())) != 0) {
-        return Status::InvalidArgument(
-            "Enable CacheEntryRoleOptions::charged"
-            " for CacheEntryRole " +
-            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
-            " but blob cache is not a ChargedCache");
-      }
-      ChargedCache* charged_cache =
-          static_cast<ChargedCache*>(cf_opts.blob_cache.get());
-      if (charged_cache->GetCache() == nullptr) {
+      if (cf_opts.blob_cache == nullptr) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"
             " for CacheEntryRole " +
@@ -740,14 +730,14 @@ Status BlockBasedTableFactory::ValidateOptions(
             kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
             " but block cache is disabled");
       }
-      if (table_options_.block_cache.get() == charged_cache->GetCache()) {
+      if (table_options_.block_cache == cf_opts.blob_cache) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"
             " for CacheEntryRole " +
             kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
             " but blob cache is the same as block cache");
       }
-      if (charged_cache->GetCapacity() >
+      if (cf_opts.blob_cache->GetCapacity() >
           table_options_.block_cache->GetCapacity()) {
         return Status::InvalidArgument(
             "Enable CacheEntryRoleOptions::charged"

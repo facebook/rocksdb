@@ -1281,7 +1281,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
     std::shared_ptr<Cache> blob_cache = NewLRUCache(co);
     std::shared_ptr<Cache> block_cache = NewLRUCache(co);
 
-    options_.blob_cache = NewChargedCache(blob_cache, block_cache);
+    options_.blob_cache = blob_cache;
     options_.lowest_used_cache_tier = CacheTier::kVolatileTier;
 
     BlockBasedTableOptions block_based_options;
@@ -1371,7 +1371,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
                          blob_file_cache.get());
 
   ConcurrentCacheReservationManager* cache_res_mgr =
-      std::dynamic_pointer_cast<ChargedCache>(immutable_options.blob_cache)
+      static_cast<ChargedCache*>(blob_source.GetBlobCache())
           ->GetCacheReservationManager();
   ASSERT_NE(cache_res_mgr, nullptr);
 
