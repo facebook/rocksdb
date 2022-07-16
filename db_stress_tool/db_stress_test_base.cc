@@ -548,6 +548,8 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 
 Status StressTest::SetOptions(ThreadState* thread) {
   assert(FLAGS_set_options_one_in > 0);
+#ifndef ROCKSDB_LITE
+  // `GetOptionsFromString()` is not supported in LITE mode.
   if (thread->rand.Next() % 4 == 0) {
     // Configuring an options structure can reprepare its member option objects
     // that are not explicitly changed. Cover that here with 1/4 chance. If this
@@ -555,6 +557,7 @@ Status StressTest::SetOptions(ThreadState* thread) {
     Options copy_options(options_);
     return GetOptionsFromString(options_, "", &copy_options);
   }
+#endif  // ROCKSDB_LITE
   std::unordered_map<std::string, std::string> opts;
   std::string name =
       options_index_[thread->rand.Next() % options_index_.size()];
