@@ -270,10 +270,8 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
                         std::vector<std::string>{"0", "1", "2"});
-    options_tbl.emplace(
-        "prepopulate_blob_cache",
-        std::vector<std::string>{"PrepopulateBlobCache::kDisable",
-                                 "PrepopulateBlobCache::kFlushOnly"});
+    options_tbl.emplace("prepopulate_blob_cache",
+                        std::vector<std::string>{"kDisable", "kFlushOnly"});
   }
 
   options_table_ = std::move(options_tbl);

@@ -1518,8 +1518,7 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
     ASSERT_EQ(1, options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT));
   }
 
-  ASSERT_OK(dbfull()->SetOptions(
-      {{"prepopulate_blob_cache", "PrepopulateBlobCache::kDisable"}}));
+  ASSERT_OK(dbfull()->SetOptions({{"prepopulate_blob_cache", "kDisable"}}));
 
   for (size_t i = 6; i <= kNumBlobs; i++) {
     ASSERT_OK(Put(std::to_string(i), value));

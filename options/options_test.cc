@@ -127,7 +127,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
-      {"prepopulate_blob_cache", "PrepopulateBlobCache::kDisable"},
+      {"prepopulate_blob_cache", "kDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -2358,7 +2358,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
-      {"prepopulate_blob_cache", "PrepopulateBlobCache::kDisable"},
+      {"prepopulate_blob_cache", "kDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
