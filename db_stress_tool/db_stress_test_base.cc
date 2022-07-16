@@ -548,6 +548,13 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 
 Status StressTest::SetOptions(ThreadState* thread) {
   assert(FLAGS_set_options_one_in > 0);
+  if (thread->rand.Next() % 4 == 0) {
+    // Configuring an options structure can reprepare its member option objects
+    // that are not explicitly changed. Cover that here with 1/4 chance. If this
+    // behavior changes in the future we can remove this.
+    Options copy_options(options_);
+    return GetOptionsFromString(options_, "", &copy_options);
+  }
   std::unordered_map<std::string, std::string> opts;
   std::string name =
       options_index_[thread->rand.Next() % options_index_.size()];
