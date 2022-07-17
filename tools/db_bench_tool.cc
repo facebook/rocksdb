@@ -1096,6 +1096,10 @@ DEFINE_int32(blob_cache_numshardbits, 6,
              "the block and blob caches are different "
              "(use_shared_block_and_blob_cache = false).");
 
+DEFINE_int32(prepopulate_blob_cache, 0,
+             "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
+             "to disable and 1 to insert during flush.");
+
 #ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
@@ -4524,12 +4528,24 @@ class Benchmark {
           exit(1);
         }
       }
-      fprintf(stdout,
-              "Integrated BlobDB: blob cache enabled, block and blob caches "
-              "shared: %d, blob cache size %" PRIu64
-              ", blob cache num shard bits: %d\n",
-              FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
-              FLAGS_blob_cache_numshardbits);
+      switch (FLAGS_prepopulate_blob_cache) {
+        case 0:
+          options.prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+          break;
+        case 1:
+          options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+          break;
+        default:
+          fprintf(stderr, "Unknown prepopulate blob cache mode\n");
+          exit(1);
+      }
+      fprintf(
+          stdout,
+          "Integrated BlobDB: blob cache enabled, block and blob caches "
+          "shared: %d, blob cache size %" PRIu64
+          ", blob cache num shard bits: %d, hot/warm blobs prepopulated: %d\n",
+          FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+          FLAGS_blob_cache_numshardbits, FLAGS_prepopulate_blob_cache);
     } else {
       fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
     }

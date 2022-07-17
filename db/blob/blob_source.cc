@@ -63,15 +63,16 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   // self-contained, i.e. own their contents. The Cache has to be able to take
   // unique ownership of them. Therefore, we copy the blob into a string
   // directly, and insert that into the cache.
-  std::string* buf = new std::string();
+  std::unique_ptr<std::string> buf = std::make_unique<std::string>();
   buf->assign(blob->data(), blob->size());
 
   // TODO: support custom allocators and provide a better estimated memory
   // usage using malloc_usable_size.
   Cache::Handle* cache_handle = nullptr;
-  s = InsertEntryIntoCache(cache_key, buf, buf->size(), &cache_handle,
+  s = InsertEntryIntoCache(cache_key, buf.get(), buf->size(), &cache_handle,
                            priority);
   if (s.ok()) {
+    buf.release();
     assert(cache_handle != nullptr);
     *cached_blob =
         CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);

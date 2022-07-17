@@ -2104,6 +2104,17 @@ public class Options extends RocksObject
     return blobFileStartingLevel(nativeHandle_);
   }
 
+  @Override
+  public Options setPrepopulateBlobCache(final PrepopulateBlobCache prepopulateBlobCache) {
+    setPrepopulateBlobCache(nativeHandle_, prepopulateBlobCache.getValue());
+    return this;
+  }
+
+  @Override
+  public PrepopulateBlobCache prepopulateBlobCache() {
+    return PrepopulateBlobCache.getPrepopulateBlobCache(prepopulateBlobCache(nativeHandle_));
+  }
+
   //
   // END options for blobs (integrated BlobDB)
   //
@@ -2541,6 +2552,9 @@ public class Options extends RocksObject
   private native void setBlobFileStartingLevel(
       final long nativeHandle_, final int blobFileStartingLevel);
   private native int blobFileStartingLevel(final long nativeHandle_);
+  private native void setPrepopulateBlobCache(
+      final long nativeHandle_, final byte prepopulateBlobCache);
+  private native byte prepopulateBlobCache(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

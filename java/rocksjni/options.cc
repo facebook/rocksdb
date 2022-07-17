@@ -3885,6 +3885,31 @@ jint Java_org_rocksdb_Options_blobFileStartingLevel(JNIEnv*, jobject,
   return static_cast<jint>(opts->blob_file_starting_level);
 }
 
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setPrepopulateBlobCache
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setPrepopulateBlobCache(
+    JNIEnv*, jobject, jlong jhandle, jbyte jprepopulate_blob_cache_value) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  opts->prepopulate_blob_cache =
+      ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toCppPrepopulateBlobCache(
+          jprepopulate_blob_cache_value);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    prepopulateBlobCache
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_prepopulateBlobCache(JNIEnv*, jobject,
+                                                    jlong jhandle) {
+  auto* opts = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
+  return ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toJavaPrepopulateBlobCache(
+      opts->prepopulate_blob_cache);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::ColumnFamilyOptions
 
@@ -5715,6 +5740,34 @@ jint Java_org_rocksdb_ColumnFamilyOptions_blobFileStartingLevel(JNIEnv*,
   auto* opts =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
   return static_cast<jint>(opts->blob_file_starting_level);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setPrepopulateBlobCache
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setPrepopulateBlobCache(
+    JNIEnv*, jobject, jlong jhandle, jbyte jprepopulate_blob_cache_value) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  opts->prepopulate_blob_cache =
+      ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toCppPrepopulateBlobCache(
+          jprepopulate_blob_cache_value);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    prepopulateBlobCache
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_ColumnFamilyOptions_prepopulateBlobCache(JNIEnv*,
+                                                                jobject,
+                                                                jlong jhandle) {
+  auto* opts =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
+  return ROCKSDB_NAMESPACE::PrepopulateBlobCacheJni::toJavaPrepopulateBlobCache(
+      opts->prepopulate_blob_cache);
 }
 
 /////////////////////////////////////////////////////////////////////

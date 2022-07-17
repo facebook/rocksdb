@@ -99,6 +99,7 @@ using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::PerfContext;
 using ROCKSDB_NAMESPACE::PerfLevel;
 using ROCKSDB_NAMESPACE::PinnableSlice;
+using ROCKSDB_NAMESPACE::PrepopulateBlobCache;
 using ROCKSDB_NAMESPACE::RandomAccessFile;
 using ROCKSDB_NAMESPACE::Range;
 using ROCKSDB_NAMESPACE::RateLimiter;
@@ -3138,6 +3139,14 @@ int rocksdb_options_get_blob_file_starting_level(rocksdb_options_t* opt) {
 void rocksdb_options_set_blob_cache(rocksdb_options_t* opt,
                                     rocksdb_cache_t* blob_cache) {
   opt->rep.blob_cache = blob_cache->rep;
+}
+
+void rocksdb_options_set_prepopulate_blob_cache(rocksdb_options_t* opt, int t) {
+  opt->rep.prepopulate_blob_cache = static_cast<PrepopulateBlobCache>(t);
+}
+
+int rocksdb_options_get_prepopulate_blob_cache(rocksdb_options_t* opt) {
+  return static_cast<int>(opt->rep.prepopulate_blob_cache);
 }
 
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {

@@ -105,7 +105,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.blob_garbage_collection_force_threshold),
       blob_compaction_readahead_size(options.blob_compaction_readahead_size),
       blob_file_starting_level(options.blob_file_starting_level),
-      blob_cache(options.blob_cache) {
+      blob_cache(options.blob_cache),
+      prepopulate_blob_cache(options.prepopulate_blob_cache) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -428,6 +429,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                        blob_cache->Name());
       ROCKS_LOG_HEADER(log, "                          blob_cache options: %s",
                        blob_cache->GetPrintableOptions().c_str());
+      ROCKS_LOG_HEADER(
+          log, "                          blob_cache prepopulated: %s",
+          prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+              ? "flush only"
+              : "disabled");
     }
     ROCKS_LOG_HEADER(log, "Options.experimental_mempurge_threshold: %f",
                      experimental_mempurge_threshold);

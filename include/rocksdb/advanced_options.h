@@ -246,6 +246,11 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATED         = 2, // No inplace update. Merged value set
 };
 
+enum class PrepopulateBlobCache : uint8_t {
+  kDisable = 0x0,    // Disable prepopulate blob cache
+  kFlushOnly = 0x1,  // Prepopulate blobs during flush only
+};
+
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
   // The default and the minimum number is 2, so that when 1 write buffer
@@ -991,6 +996,20 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: nullptr (disabled)
   std::shared_ptr<Cache> blob_cache = nullptr;
+
+  // If enabled, prepopulate warm/hot blobs which are already in memory into
+  // blob cache at the time of flush. On a flush, the blob that is in memory (in
+  // memtables) get flushed to the device. If using Direct IO, additional IO is
+  // incurred to read this blob back into memory again, which is avoided by
+  // enabling this option. This further helps if the workload exhibits high
+  // temporal locality, where most of the reads go to recently written data.
+  // This also helps in case of the remote file system since it involves network
+  // traffic and higher latencies.
+  //
+  // Default: disabled
+  //
+  // Dynamically changeable through the SetOptions() API
+  PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

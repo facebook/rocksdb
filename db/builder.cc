@@ -188,10 +188,10 @@ Status BuildTable(
          blob_file_additions)
             ? new BlobFileBuilder(
                   versions, fs, &ioptions, &mutable_cf_options, &file_options,
-                  job_id, tboptions.column_family_id,
-                  tboptions.column_family_name, io_priority, write_hint,
-                  io_tracer, blob_callback, blob_creation_reason,
-                  &blob_file_paths, blob_file_additions)
+                  tboptions.db_id, tboptions.db_session_id, job_id,
+                  tboptions.column_family_id, tboptions.column_family_name,
+                  io_priority, write_hint, io_tracer, blob_callback,
+                  blob_creation_reason, &blob_file_paths, blob_file_additions)
             : nullptr);
 
     const std::atomic<bool> kManualCompactionCanceledFalse{false};
