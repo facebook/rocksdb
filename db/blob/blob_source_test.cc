@@ -13,7 +13,6 @@
 
 #include "cache/charged_cache.h"
 #include "cache/compressed_secondary_cache.h"
-#include "cache/sharded_cache.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
@@ -1481,7 +1480,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
                          blob_file_cache.get());
 
   ConcurrentCacheReservationManager* cache_res_mgr =
-      std::dynamic_pointer_cast<ChargedCache>(immutable_options.blob_cache)
+      static_cast<ChargedCache*>(blob_source.GetBlobCache())
           ->GetCacheReservationManager();
   ASSERT_NE(cache_res_mgr, nullptr);
 
