@@ -1,6 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-
 ## 7.5.0 (07/15/2022)
 ### New Features
 * Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
