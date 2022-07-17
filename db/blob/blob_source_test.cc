@@ -1420,7 +1420,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
 
     for (size_t i = 0; i < KNumBlobs; ++i) {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[i]);
-      options_.blob_cache->Erase(cache_key.AsSlice());
+      // We didn't call options_.blob_cache->Erase() here, this is because
+      // the cache wrapper's Erase() method must be called to update the
+      // cache usage after erasing the cache entry.
+      blob_source.GetBlobCache()->Erase(cache_key.AsSlice());
       if (i == KNumBlobs - 1) {
         // The last blob is not in the cache. cache_res_mgr should not reserve
         // any space for it.
