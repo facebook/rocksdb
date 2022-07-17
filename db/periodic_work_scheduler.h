@@ -7,82 +7,84 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl/db_impl.h"
 #include "util/timer.h"
 
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 
-// PeriodicWorkScheduler is a singleton object, which is scheduling/running
+using PeriodicTaskFunc = std::function<void()>;
+
+constexpr uint64_t kInvalidPeriodSec = 0;
+
+enum class PeriodicTaskType : uint8_t {
+  kDumpStats = 0,
+  kPersistStats,
+  kFlushInfoLog,
+  kRecordSeqnoTime,
+  kMax,
+};
+
+// PeriodicTaskScheduler is a singleton object, which is scheduling/running
 // DumpStats(), PersistStats(), and FlushInfoLog() for all DB instances. All DB
 // instances use the same object from `Default()`.
 //
 // Internally, it uses a single threaded timer object to run the periodic work
 // functions. Timer thread will always be started since the info log flushing
 // cannot be disabled.
-class PeriodicWorkScheduler {
+class PeriodicTaskScheduler {
  public:
-  static PeriodicWorkScheduler* Default();
+  explicit PeriodicTaskScheduler(Env& env) : env_(env) {}
 
-  PeriodicWorkScheduler() = delete;
-  PeriodicWorkScheduler(const PeriodicWorkScheduler&) = delete;
-  PeriodicWorkScheduler(PeriodicWorkScheduler&&) = delete;
-  PeriodicWorkScheduler& operator=(const PeriodicWorkScheduler&) = delete;
-  PeriodicWorkScheduler& operator=(PeriodicWorkScheduler&&) = delete;
+  Status Register(PeriodicTaskType task_type, const PeriodicTaskFunc& fn);
 
-  Status Register(DBImpl* dbi, unsigned int stats_dump_period_sec,
-                  unsigned int stats_persist_period_sec);
-  Status RegisterRecordSeqnoTimeWorker(DBImpl* dbi, uint64_t record_cadence);
+  Status Register(PeriodicTaskType task_type, const PeriodicTaskFunc& fn,
+                  uint64_t repeat_period_seconds);
 
-  void Unregister(DBImpl* dbi);
-  void UnregisterRecordSeqnoTimeWorker(DBImpl* dbi);
+  Status Unregister(PeriodicTaskType task_type);
+
+  void TEST_OverrideTimer(SystemClock* clock);
+
+  void TEST_WaitForRun(std::function<void()> callback) const {
+    if (timer_ != nullptr) {
+      timer_->TEST_WaitForRun(callback);
+    }
+  }
+
+  size_t TEST_GetValidTaskNum() const {
+    if (timer_ != nullptr) {
+      return timer_->TEST_GetPendingTaskNum();
+    }
+    return 0;
+  }
+
+  bool TEST_HasTask(PeriodicTaskType task_type) const {
+    auto it = tasks_map_.find(task_type);
+    return it != tasks_map_.end();
+  }
 
   // Periodically flush info log out of application buffer at a low frequency.
   // This improves debuggability in case of RocksDB hanging since it ensures the
   // log messages leading up to the hang will eventually become visible in the
   // log.
-  static const uint64_t kDefaultFlushInfoLogPeriodSec = 10;
-
- protected:
-  std::unique_ptr<Timer> timer;
-  // `timer_mu_` serves two purposes currently:
-  // (1) to ensure calls to `Start()` and `Shutdown()` are serialized, as
-  //     they are currently not implemented in a thread-safe way; and
-  // (2) to ensure the `Timer::Add()`s and `Timer::Start()` run atomically, and
-  //     the `Timer::Cancel()`s and `Timer::Shutdown()` run atomically.
-  port::Mutex timer_mu_;
-
-  explicit PeriodicWorkScheduler(const std::shared_ptr<SystemClock>& clock);
-
-  // Get the unique task name (prefix with db session id)
-  std::string GetTaskName(const DBImpl* dbi,
-                          const std::string& func_name) const;
-};
-
-#ifndef NDEBUG
-// PeriodicWorkTestScheduler is for unittest, which can specify the SystemClock
-// It also contains functions for unittest.
-class PeriodicWorkTestScheduler : public PeriodicWorkScheduler {
- public:
-  static PeriodicWorkTestScheduler* Default(
-      const std::shared_ptr<SystemClock>& clock);
-
-  void TEST_WaitForRun(std::function<void()> callback) const;
-
-  size_t TEST_GetValidTaskNum() const;
-
-  bool TEST_HasValidTask(const DBImpl* dbi, const std::string& func_name) const;
 
  private:
-  explicit PeriodicWorkTestScheduler(const std::shared_ptr<SystemClock>& clock);
-};
-#endif  // !NDEBUG
+  Timer* Default() {
+    static Timer timer(SystemClock::Default().get());
+    return &timer;
+  }
 
-struct PeriodicWorkTaskNames {
-  static const std::string kDumpStats;
-  static const std::string kPersistStats;
-  static const std::string kFlushInfoLog;
-  static const std::string kRecordSeqnoTime;
+  struct TaskInfo {
+    TaskInfo(std::string _name, uint64_t _repeat_every_sec)
+        : name(std::move(_name)), repeat_every_sec(_repeat_every_sec) {}
+    std::string name;
+    uint64_t repeat_every_sec;
+  };
+
+  std::map<PeriodicTaskType, TaskInfo> tasks_map_;
+
+  Timer* timer_ = Default();
+
+  Env& env_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

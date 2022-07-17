@@ -27,18 +27,16 @@ class PeriodicWorkSchedulerTest : public DBTestBase {
   void SetUp() override {
     mock_clock_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::StartPeriodicWorkScheduler:Init", [&](void* arg) {
-          auto* periodic_work_scheduler_ptr =
-              reinterpret_cast<PeriodicWorkScheduler**>(arg);
-          *periodic_work_scheduler_ptr =
-              PeriodicWorkTestScheduler::Default(mock_clock_);
+        "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+          auto periodic_work_scheduler_ptr =
+              reinterpret_cast<PeriodicTaskScheduler*>(arg);
+          periodic_work_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
   }
 };
 
 TEST_F(PeriodicWorkSchedulerTest, Basic) {
-  constexpr unsigned int kPeriodSec =
-      PeriodicWorkScheduler::kDefaultFlushInfoLogPeriodSec;
+  constexpr unsigned int kPeriodSec = 10;
   Close();
   Options options;
   options.stats_dump_period_sec = kPeriodSec;
@@ -70,9 +68,9 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
     mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1);
   });
 
-  auto scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
-  ASSERT_NE(nullptr, scheduler);
-  ASSERT_EQ(3, scheduler->TEST_GetValidTaskNum());
+  const PeriodicTaskScheduler& scheduler =
+      dbfull()->TEST_GetPeriodicWorkScheduler();
+  ASSERT_EQ(3, scheduler.TEST_GetValidTaskNum());
 
   ASSERT_EQ(1, dump_st_counter);
   ASSERT_EQ(1, pst_st_counter);
@@ -105,17 +103,14 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(4, flush_info_log_counter);
 
-  scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
-  ASSERT_EQ(1u, scheduler->TEST_GetValidTaskNum());
+  ASSERT_EQ(1u, scheduler.TEST_GetValidTaskNum());
 
   // Re-enable one task
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "5"}}));
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
-  ASSERT_NE(nullptr, scheduler);
-  ASSERT_EQ(2, scheduler->TEST_GetValidTaskNum());
+  ASSERT_EQ(2, scheduler.TEST_GetValidTaskNum());
 
   dbfull()->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
@@ -153,8 +148,9 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
   }
 
   auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1]);
-  auto scheduler = dbi->TEST_GetPeriodicWorkScheduler();
-  ASSERT_EQ(kInstanceNum * 3, scheduler->TEST_GetValidTaskNum());
+
+  const PeriodicTaskScheduler& scheduler = dbi->TEST_GetPeriodicWorkScheduler();
+  ASSERT_EQ(kInstanceNum * 3, scheduler.TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;
   dbi->TEST_WaitForPeridicWorkerRun(
@@ -217,15 +213,35 @@ TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
   std::string dbname = test::PerThreadDBPath("multi_env_test");
   DB* db;
   ASSERT_OK(DB::Open(options2, dbname, &db));
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
-
-  ASSERT_EQ(dbi->TEST_GetPeriodicWorkScheduler(),
-            dbfull()->TEST_GetPeriodicWorkScheduler());
 
   ASSERT_OK(db->Close());
   delete db;
   Close();
 }
+
+class MyClass {
+ public:
+  void Register() {
+    timer_->Add([&] { fprintf(stdout, "JJJ1\n"); }, "fn_sch_test", 0, 0);
+  }
+
+ private:
+  Timer* Default() {
+    static Timer timer(SystemClock::Default().get());
+    return &timer;
+  }
+
+  Timer* timer_ = Default();
+};
+
+TEST_F(PeriodicWorkSchedulerTest, TT1) {
+  MyClass my1;
+  my1.Register();
+
+  MyClass my2;
+  my2.Register();
+}
+
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 

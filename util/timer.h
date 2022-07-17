@@ -137,6 +137,7 @@ class Timer {
     if (thread_) {
       thread_->join();
     }
+    thread_.release();
     return true;
   }
 
@@ -187,11 +188,7 @@ class Timer {
     return ret;
   }
 
-  bool TEST_HasVaildTask(const std::string& func_name) const {
-    InstrumentedMutexLock l(&mutex_);
-    auto it = map_.find(func_name);
-    return it != map_.end() && it->second->IsValid();
-  }
+  void TEST_OverrideTimer(SystemClock* clock) { clock_ = clock; }
 #endif  // NDEBUG
 
  private:

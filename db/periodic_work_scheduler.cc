@@ -5,164 +5,89 @@
 
 #include "db/periodic_work_scheduler.h"
 
-#include "db/db_impl/db_impl.h"
 #include "rocksdb/system_clock.h"
 
 #ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 
-const std::string PeriodicWorkTaskNames::kDumpStats = "dump_st";
-const std::string PeriodicWorkTaskNames::kPersistStats = "pst_st";
-const std::string PeriodicWorkTaskNames::kFlushInfoLog = "flush_info_log";
-const std::string PeriodicWorkTaskNames::kRecordSeqnoTime = "record_seq_time";
+constexpr uint64_t kMicrosInSecond = 1000 * 1000;
 
-PeriodicWorkScheduler::PeriodicWorkScheduler(
-    const std::shared_ptr<SystemClock>& clock) {
-  timer = std::unique_ptr<Timer>(new Timer(clock.get()));
+// `timer_mu_` serves two purposes currently:
+// (1) to ensure calls to `Start()` and `Shutdown()` are serialized, as
+//     they are currently not implemented in a thread-safe way; and
+// (2) to ensure the `Timer::Add()`s and `Timer::Start()` run atomically, and
+//     the `Timer::Cancel()`s and `Timer::Shutdown()` run atomically.
+static port::Mutex timer_mu_;
+
+static const std::map<PeriodicTaskType, uint64_t> kDefaultPeriodSeconds = {
+    {PeriodicTaskType::kDumpStats, kInvalidPeriodSec},
+    {PeriodicTaskType::kPersistStats, kInvalidPeriodSec},
+    {PeriodicTaskType::kFlushInfoLog, 10},
+    {PeriodicTaskType::kRecordSeqnoTime, kInvalidPeriodSec},
+};
+
+Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
+                                       const PeriodicTaskFunc& fn) {
+  return Register(task_type, std::move(fn),
+                  kDefaultPeriodSeconds.at(task_type));
 }
 
-Status PeriodicWorkScheduler::Register(DBImpl* dbi,
-                                       unsigned int stats_dump_period_sec,
-                                       unsigned int stats_persist_period_sec) {
+Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
+                                       const PeriodicTaskFunc& fn,
+                                       uint64_t repeat_period_seconds) {
   MutexLock l(&timer_mu_);
   static std::atomic<uint64_t> initial_delay(0);
-  timer->Start();
-  if (stats_dump_period_sec > 0) {
-    bool succeeded = timer->Add(
-        [dbi]() { dbi->DumpStats(); },
-        GetTaskName(dbi, PeriodicWorkTaskNames::kDumpStats),
-        initial_delay.fetch_add(1) %
-            static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond,
-        static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond);
-    if (!succeeded) {
-      return Status::Aborted("Unable to add periodic task DumpStats");
-    }
+
+  if (repeat_period_seconds == kInvalidPeriodSec) {
+    return Status::InvalidArgument("Invalid task repeat period");
   }
-  if (stats_persist_period_sec > 0) {
-    bool succeeded = timer->Add(
-        [dbi]() { dbi->PersistStats(); },
-        GetTaskName(dbi, PeriodicWorkTaskNames::kPersistStats),
-        initial_delay.fetch_add(1) %
-            static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond,
-        static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond);
-    if (!succeeded) {
-      return Status::Aborted("Unable to add periodic task PersistStats");
+  auto it = tasks_map_.find(task_type);
+  if (it != tasks_map_.end()) {
+    // the task already exists and it's the same, no update needed
+    if (it->second.repeat_every_sec == repeat_period_seconds) {
+      return Status::OK();
     }
+    // cancel the existing one before register new one
+    timer_->Cancel(it->second.name);
+    tasks_map_.erase(it);
   }
-  bool succeeded =
-      timer->Add([dbi]() { dbi->FlushInfoLog(); },
-                 GetTaskName(dbi, PeriodicWorkTaskNames::kFlushInfoLog),
-                 initial_delay.fetch_add(1) % kDefaultFlushInfoLogPeriodSec *
-                     kMicrosInSecond,
-                 kDefaultFlushInfoLogPeriodSec * kMicrosInSecond);
+
+  timer_->Start();
+  std::string unique_id = env_.GenerateUniqueId();
+
+  bool succeeded = timer_->Add(
+      fn, unique_id,
+      (initial_delay.fetch_add(1) % repeat_period_seconds) * kMicrosInSecond,
+      repeat_period_seconds * kMicrosInSecond);
   if (!succeeded) {
-    return Status::Aborted("Unable to add periodic task FlushInfoLog");
+    return Status::Aborted("Failed to register periodic task");
+  }
+  auto result = tasks_map_.try_emplace(
+      task_type, TaskInfo{unique_id, repeat_period_seconds});
+  assert(result.second);
+  return Status::OK();
+}
+
+Status PeriodicTaskScheduler::Unregister(PeriodicTaskType task_type) {
+  MutexLock l(&timer_mu_);
+  auto it = tasks_map_.find(task_type);
+  if (it != tasks_map_.end()) {
+    timer_->Cancel(it->second.name);
+    tasks_map_.erase(it);
+  }
+  if (!timer_->HasPendingTask()) {
+    timer_->Shutdown();
   }
   return Status::OK();
 }
 
-Status PeriodicWorkScheduler::RegisterRecordSeqnoTimeWorker(
-    DBImpl* dbi, uint64_t record_cadence_sec) {
+void PeriodicTaskScheduler::TEST_OverrideTimer(SystemClock* clock) {
+  static Timer test_timer(clock);
+  test_timer.TEST_OverrideTimer(clock);
   MutexLock l(&timer_mu_);
-  timer->Start();
-  static std::atomic_uint64_t initial_delay(0);
-  bool succeeded = timer->Add(
-      [dbi]() { dbi->RecordSeqnoToTimeMapping(); },
-      GetTaskName(dbi, PeriodicWorkTaskNames::kRecordSeqnoTime),
-      initial_delay.fetch_add(1) % record_cadence_sec * kMicrosInSecond,
-      record_cadence_sec * kMicrosInSecond);
-  if (!succeeded) {
-    return Status::NotSupported(
-        "Updating seqno to time worker cadence is not supported yet");
-  }
-  return Status::OK();
+  timer_ = &test_timer;
 }
 
-void PeriodicWorkScheduler::UnregisterRecordSeqnoTimeWorker(DBImpl* dbi) {
-  MutexLock l(&timer_mu_);
-  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kRecordSeqnoTime));
-  if (!timer->HasPendingTask()) {
-    timer->Shutdown();
-  }
-}
-
-void PeriodicWorkScheduler::Unregister(DBImpl* dbi) {
-  MutexLock l(&timer_mu_);
-  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kDumpStats));
-  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kPersistStats));
-  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kFlushInfoLog));
-  if (!timer->HasPendingTask()) {
-    timer->Shutdown();
-  }
-}
-
-PeriodicWorkScheduler* PeriodicWorkScheduler::Default() {
-  // Always use the default SystemClock for the scheduler, as we only use the
-  // NowMicros which is the same for all clocks. The Env could only be
-  // overridden in test.
-  static PeriodicWorkScheduler scheduler(SystemClock::Default());
-  return &scheduler;
-}
-
-std::string PeriodicWorkScheduler::GetTaskName(
-    const DBImpl* dbi, const std::string& func_name) const {
-  std::string db_session_id;
-  // TODO: Should this error be ignored?
-  dbi->GetDbSessionId(db_session_id).PermitUncheckedError();
-  return db_session_id + ":" + func_name;
-}
-
-#ifndef NDEBUG
-
-// Get the static scheduler. For a new SystemClock, it needs to re-create the
-// internal timer, so only re-create it when there's no running task. Otherwise,
-// return the existing scheduler. Which means if the unittest needs to update
-// MockClock, Close all db instances and then re-open them.
-PeriodicWorkTestScheduler* PeriodicWorkTestScheduler::Default(
-    const std::shared_ptr<SystemClock>& clock) {
-  static PeriodicWorkTestScheduler scheduler(clock);
-  static port::Mutex mutex;
-  {
-    MutexLock l(&mutex);
-    if (scheduler.timer.get() != nullptr &&
-        scheduler.timer->TEST_GetPendingTaskNum() == 0) {
-      {
-        MutexLock timer_mu_guard(&scheduler.timer_mu_);
-        scheduler.timer->Shutdown();
-      }
-      scheduler.timer.reset(new Timer(clock.get()));
-    }
-  }
-  return &scheduler;
-}
-
-void PeriodicWorkTestScheduler::TEST_WaitForRun(
-    std::function<void()> callback) const {
-  if (timer != nullptr) {
-    timer->TEST_WaitForRun(callback);
-  }
-}
-
-size_t PeriodicWorkTestScheduler::TEST_GetValidTaskNum() const {
-  if (timer != nullptr) {
-    return timer->TEST_GetPendingTaskNum();
-  }
-  return 0;
-}
-
-bool PeriodicWorkTestScheduler::TEST_HasValidTask(
-    const DBImpl* dbi, const std::string& func_name) const {
-  if (timer == nullptr) {
-    return false;
-  }
-  return timer->TEST_HasVaildTask(GetTaskName(dbi, func_name));
-}
-
-PeriodicWorkTestScheduler::PeriodicWorkTestScheduler(
-    const std::shared_ptr<SystemClock>& clock)
-    : PeriodicWorkScheduler(clock) {}
-
-#endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

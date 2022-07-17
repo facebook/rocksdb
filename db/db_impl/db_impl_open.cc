@@ -2105,7 +2105,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    "DB::Open() failed: %s", s.ToString().c_str());
   }
   if (s.ok()) {
-    s = impl->StartPeriodicWorkScheduler();
+    s = impl->StartPeriodicTaskScheduler();
   }
 
   if (s.ok()) {

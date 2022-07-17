@@ -44,11 +44,10 @@ class StatsHistoryTest : public DBTestBase {
   void SetUp() override {
     mock_clock_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::StartPeriodicWorkScheduler:Init", [&](void* arg) {
-          auto* periodic_work_scheduler_ptr =
-              reinterpret_cast<PeriodicWorkScheduler**>(arg);
-          *periodic_work_scheduler_ptr =
-              PeriodicWorkTestScheduler::Default(mock_clock_);
+        "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+          auto periodic_work_scheduler_ptr =
+              reinterpret_cast<PeriodicTaskScheduler*>(arg);
+          periodic_work_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
   }
 };
