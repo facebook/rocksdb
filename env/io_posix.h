@@ -117,7 +117,11 @@ inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
       // comment
       // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
       // Fall back to pread in this case.
-      if (use_direct_io && !IsSectorAligned(finished_len, alignment)) {
+      bool is_sector_aligned = IsSectorAligned(finished_len, alignment);
+      TEST_SYNC_POINT_CALLBACK(
+          "UpdateResults::io_uring_result::SectorAlignment",
+          &is_sector_aligned);
+      if (use_direct_io && !is_sector_aligned) {
         // Bytes reads don't fill sectors. Should only happen at the end
         // of the file.
         req->result = Slice(req->scratch, finished_len);
