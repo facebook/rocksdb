@@ -1170,27 +1170,27 @@ DEFINE_bool(async_io, false,
 
 DEFINE_bool(charge_compression_dictionary_building_buffer, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kCompressionDictionaryBuildingBuffer");
 
 DEFINE_bool(charge_filter_construction, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kFilterConstruction");
 
 DEFINE_bool(charge_table_reader, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kBlockBasedTableReader");
 
 DEFINE_bool(charge_file_metadata, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kFileMetadata");
 
 DEFINE_bool(charge_blob_cache, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kBlobCache");
 
 DEFINE_uint64(backup_rate_limit, 0ull,

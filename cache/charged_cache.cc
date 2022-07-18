@@ -71,7 +71,8 @@ bool ChargedCache::Release(Cache::Handle* handle, bool useful,
   bool erased = cache_->Release(handle, useful, erase_if_last_ref);
   if (erased) {
     assert(cache_res_mgr_);
-    cache_res_mgr_->UpdateCacheReservation(memory_used_delta, false)
+    cache_res_mgr_
+        ->UpdateCacheReservation(memory_used_delta, /* increase */ false)
         .PermitUncheckedError();
   }
   return erased;
@@ -82,7 +83,8 @@ bool ChargedCache::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   bool erased = cache_->Release(handle, erase_if_last_ref);
   if (erased) {
     assert(cache_res_mgr_);
-    cache_res_mgr_->UpdateCacheReservation(memory_used_delta, false)
+    cache_res_mgr_
+        ->UpdateCacheReservation(memory_used_delta, /* increase */ false)
         .PermitUncheckedError();
   }
   return erased;
@@ -100,9 +102,12 @@ void ChargedCache::EraseUnRefEntries() {
   cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
 }
 
-std::shared_ptr<Cache> NewChargedCache(std::shared_ptr<Cache> cache,
-                                       std::shared_ptr<Cache> block_cache) {
-  return std::make_shared<ChargedCache>(cache, block_cache);
+void ChargedCache::SetCapacity(size_t capacity) {
+  cache_->SetCapacity(capacity);
+  // SetCapacity can result in evictions when the cache capacity is decreased,
+  // so we would want to update the cache reservation here as well.
+  assert(cache_res_mgr_);
+  cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

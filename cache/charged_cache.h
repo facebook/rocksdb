@@ -21,101 +21,95 @@ class ChargedCache : public Cache {
  public:
   ChargedCache(std::shared_ptr<Cache> cache,
                std::shared_ptr<Cache> block_cache);
-  virtual ~ChargedCache() = default;
+  ~ChargedCache() = default;
 
-  virtual Status Insert(const Slice& key, void* value, size_t charge,
-                        DeleterFn deleter, Handle** handle,
-                        Priority priority) override;
-  virtual Status Insert(const Slice& key, void* value,
-                        const CacheItemHelper* helper, size_t charge,
-                        Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) override;
+  Status Insert(const Slice& key, void* value, size_t charge, DeleterFn deleter,
+                Handle** handle, Priority priority) override;
+  Status Insert(const Slice& key, void* value, const CacheItemHelper* helper,
+                size_t charge, Handle** handle = nullptr,
+                Priority priority = Priority::LOW) override;
 
-  virtual Cache::Handle* Lookup(const Slice& key, Statistics* stats) override;
-  virtual Cache::Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
-                                const CreateCallback& create_cb,
-                                Priority priority, bool wait,
-                                Statistics* stats = nullptr) override;
+  Cache::Handle* Lookup(const Slice& key, Statistics* stats) override;
+  Cache::Handle* Lookup(const Slice& key, const CacheItemHelper* helper,
+                        const CreateCallback& create_cb, Priority priority,
+                        bool wait, Statistics* stats = nullptr) override;
 
-  virtual bool Release(Cache::Handle* handle, bool useful,
-                       bool erase_if_last_ref = false) override;
-  virtual bool Release(Cache::Handle* handle,
-                       bool erase_if_last_ref = false) override;
+  bool Release(Cache::Handle* handle, bool useful,
+               bool erase_if_last_ref = false) override;
+  bool Release(Cache::Handle* handle, bool erase_if_last_ref = false) override;
 
-  virtual void Erase(const Slice& key) override;
-  virtual void EraseUnRefEntries() override;
+  void Erase(const Slice& key) override;
+  void EraseUnRefEntries() override;
 
   static const char* kClassName() { return "ChargedCache"; }
-  inline virtual const char* Name() const override { return kClassName(); }
+  const char* Name() const override { return kClassName(); }
 
-  inline virtual uint64_t NewId() override { return cache_->NewId(); }
+  uint64_t NewId() override { return cache_->NewId(); }
 
-  inline virtual void SetCapacity(size_t capacity) override {
-    cache_->SetCapacity(capacity);
-  }
+  void SetCapacity(size_t capacity) override;
 
-  inline virtual void SetStrictCapacityLimit(
-      bool strict_capacity_limit) override {
+  void SetStrictCapacityLimit(bool strict_capacity_limit) override {
     cache_->SetStrictCapacityLimit(strict_capacity_limit);
   }
 
-  inline virtual bool HasStrictCapacityLimit() const override {
+  bool HasStrictCapacityLimit() const override {
     return cache_->HasStrictCapacityLimit();
   }
 
-  inline virtual void* Value(Cache::Handle* handle) override {
-    return cache_->Value(handle);
-  }
+  void* Value(Cache::Handle* handle) override { return cache_->Value(handle); }
 
-  inline virtual bool IsReady(Cache::Handle* handle) override {
+  bool IsReady(Cache::Handle* handle) override {
     return cache_->IsReady(handle);
   }
 
-  inline virtual void Wait(Cache::Handle* handle) override {
-    cache_->Wait(handle);
+  void Wait(Cache::Handle* handle) override { cache_->Wait(handle); }
+
+  void WaitAll(std::vector<Handle*>& handles) override {
+    cache_->WaitAll(handles);
   }
 
-  inline virtual bool Ref(Cache::Handle* handle) override {
-    return cache_->Ref(handle);
-  }
+  bool Ref(Cache::Handle* handle) override { return cache_->Ref(handle); }
 
-  inline virtual size_t GetCapacity() const override {
-    return cache_->GetCapacity();
-  }
+  size_t GetCapacity() const override { return cache_->GetCapacity(); }
 
-  inline virtual size_t GetUsage() const override { return cache_->GetUsage(); }
+  size_t GetUsage() const override { return cache_->GetUsage(); }
 
-  inline virtual size_t GetUsage(Cache::Handle* handle) const override {
+  size_t GetUsage(Cache::Handle* handle) const override {
     return cache_->GetUsage(handle);
   }
 
-  inline virtual size_t GetPinnedUsage() const override {
-    return cache_->GetPinnedUsage();
-  }
+  size_t GetPinnedUsage() const override { return cache_->GetPinnedUsage(); }
 
-  inline virtual size_t GetCharge(Cache::Handle* handle) const override {
+  size_t GetCharge(Cache::Handle* handle) const override {
     return cache_->GetCharge(handle);
   }
 
-  inline virtual Cache::DeleterFn GetDeleter(
-      Cache::Handle* handle) const override {
+  Cache::DeleterFn GetDeleter(Cache::Handle* handle) const override {
     return cache_->GetDeleter(handle);
   }
 
-  inline virtual void ApplyToAllEntries(
+  void ApplyToAllEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                Cache::DeleterFn deleter)>& callback,
       const Cache::ApplyToAllEntriesOptions& opts) override {
     cache_->ApplyToAllEntries(callback, opts);
   }
 
-  inline virtual std::string GetPrintableOptions() const override {
+  void ApplyToAllCacheEntries(void (*callback)(void* value, size_t charge),
+                              bool thread_safe) override {
+    cache_->ApplyToAllCacheEntries(callback, thread_safe);
+  }
+
+  std::string GetPrintableOptions() const override {
     return cache_->GetPrintableOptions();
   }
 
+  void DisownData() override { return cache_->DisownData(); }
+
   inline Cache* GetCache() const { return cache_.get(); }
 
-  inline ConcurrentCacheReservationManager* GetCacheReservationManager() const {
+  inline ConcurrentCacheReservationManager* TEST_GetCacheReservationManager()
+      const {
     return cache_res_mgr_.get();
   }
 

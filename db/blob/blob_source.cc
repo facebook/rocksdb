@@ -35,8 +35,8 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
   if (bbto &&
       bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
               .charged == CacheEntryRoleOptions::Decision::kEnabled) {
-    blob_cache_ =
-        NewChargedCache(immutable_options->blob_cache, bbto->block_cache);
+    blob_cache_ = std::make_shared<ChargedCache>(immutable_options->blob_cache,
+                                                 bbto->block_cache);
   }
 #endif  // ROCKSDB_LITE
 }

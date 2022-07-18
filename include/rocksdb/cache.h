@@ -127,9 +127,6 @@ extern std::shared_ptr<Cache> NewLRUCache(
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
-extern std::shared_ptr<Cache> NewChargedCache(
-    std::shared_ptr<Cache> cache, std::shared_ptr<Cache> block_cache);
-
 // EXPERIMENTAL
 // Options structure for configuring a SecondaryCache instance based on
 // LRUCache. The LRUCacheOptions.secondary_cache is not used and

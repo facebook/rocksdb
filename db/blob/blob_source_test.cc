@@ -1264,7 +1264,6 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 }
 
 class BlobSourceCacheReservationTest : public DBTestBase {
- protected:
  public:
   explicit BlobSourceCacheReservationTest()
       : DBTestBase("blob_source_cache_reservation_test",
@@ -1292,20 +1291,18 @@ class BlobSourceCacheReservationTest : public DBTestBase {
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
 
-    GenerateKeysAndBlobs();
-
     assert(db_->GetDbIdentity(db_id_).ok());
     assert(db_->GetDbSessionId(db_session_id_).ok());
   }
 
   void GenerateKeysAndBlobs() {
-    for (size_t i = 0; i < KNumBlobs; ++i) {
+    for (size_t i = 0; i < kNumBlobs; ++i) {
       key_strs_.push_back("key" + std::to_string(i));
       blob_strs_.push_back("blob" + std::to_string(i));
     }
 
     blob_file_size_ = BlobLogHeader::kSize;
-    for (size_t i = 0; i < KNumBlobs; ++i) {
+    for (size_t i = 0; i < kNumBlobs; ++i) {
       keys_.push_back({key_strs_[i]});
       blobs_.push_back({blob_strs_[i]});
       blob_file_size_ +=
@@ -1322,7 +1319,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
   static constexpr uint32_t kColumnFamilyId = 1;
   static constexpr bool kHasTTL = false;
   static constexpr uint64_t kBlobFileNumber = 1;
-  static constexpr size_t KNumBlobs = 16;
+  static constexpr size_t kNumBlobs = 16;
 
   std::vector<Slice> keys_;
   std::vector<Slice> blobs_;
@@ -1341,6 +1338,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
       test::PerThreadDBPath(
           env_, "BlobSourceCacheReservationTest_SimpleCacheReservation"),
       0);
+
+  GenerateKeysAndBlobs();
 
   DestroyAndReopen(options_);
 
@@ -1371,7 +1370,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
 
   ConcurrentCacheReservationManager* cache_res_mgr =
       static_cast<ChargedCache*>(blob_source.GetBlobCache())
-          ->GetCacheReservationManager();
+          ->TEST_GetCacheReservationManager();
   ASSERT_NE(cache_res_mgr, nullptr);
 
   ReadOptions read_options;
@@ -1382,7 +1381,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   {
     read_options.fill_cache = false;
 
-    for (size_t i = 0; i < KNumBlobs; ++i) {
+    for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
@@ -1399,7 +1398,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     // dummy entry. Therefore, cache reservation manager only reserves one dummy
     // entry here.
     uint64_t blob_bytes = 0;
-    for (size_t i = 0; i < KNumBlobs; ++i) {
+    for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
@@ -1417,24 +1416,23 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
                                       blob_file_size_);
     size_t blob_bytes = options_.blob_cache->GetUsage();
 
-    for (size_t i = 0; i < KNumBlobs; ++i) {
+    for (size_t i = 0; i < kNumBlobs; ++i) {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[i]);
       // We didn't call options_.blob_cache->Erase() here, this is because
       // the cache wrapper's Erase() method must be called to update the
       // cache usage after erasing the cache entry.
       blob_source.GetBlobCache()->Erase(cache_key.AsSlice());
-      if (i == KNumBlobs - 1) {
+      if (i == kNumBlobs - 1) {
         // The last blob is not in the cache. cache_res_mgr should not reserve
         // any space for it.
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       }
-      ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
-                blob_bytes - blob_sizes[i]);
+      blob_bytes -= blob_sizes[i];
+      ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
-      blob_bytes -= blob_sizes[i];
     }
   }
 }
@@ -1446,11 +1444,13 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
           "BlobSourceCacheReservationTest_IncreaseCacheReservationOnFullCache"),
       0);
 
+  GenerateKeysAndBlobs();
+
   DestroyAndReopen(options_);
 
   ImmutableOptions immutable_options(options_);
-  constexpr size_t blob_size = kSizeDummyEntry / (KNumBlobs / 2);
-  for (size_t i = 0; i < KNumBlobs; ++i) {
+  constexpr size_t blob_size = kSizeDummyEntry / (kNumBlobs / 2);
+  for (size_t i = 0; i < kNumBlobs; ++i) {
     blob_file_size_ -= blobs_[i].size();  // old blob size
     blob_strs_[i].resize(blob_size, '@');
     blobs_[i] = Slice(blob_strs_[i]);
@@ -1481,7 +1481,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
 
   ConcurrentCacheReservationManager* cache_res_mgr =
       static_cast<ChargedCache*>(blob_source.GetBlobCache())
-          ->GetCacheReservationManager();
+          ->TEST_GetCacheReservationManager();
   ASSERT_NE(cache_res_mgr, nullptr);
 
   ReadOptions read_options;
@@ -1492,7 +1492,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   {
     read_options.fill_cache = false;
 
-    for (size_t i = 0; i < KNumBlobs; ++i) {
+    for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
@@ -1508,14 +1508,14 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
     // Since we resized each blob to be kSizeDummyEntry / (num_blobs/ 2), we
     // should observe cache eviction for the second half blobs.
     uint64_t blob_bytes = 0;
-    for (size_t i = 0; i < KNumBlobs; ++i) {
+    for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
       blob_bytes += blob_sizes[i];
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
-      if (i >= KNumBlobs / 2) {
+      if (i >= kNumBlobs / 2) {
         ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), kSizeDummyEntry);
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
