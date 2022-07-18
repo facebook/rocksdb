@@ -453,11 +453,11 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
       is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     return nullptr;
   }
-  return NewRangeTombstoneIteratorInternal(read_options, read_seq);
+  return NewRangeTombstoneIteratorInternal(read_seq);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
-    const ReadOptions& /* read_options */, SequenceNumber read_seq) {
+    SequenceNumber read_seq) {
   // Build from cached fragmented_range_tombstone_list_ built in the write path
   return new FragmentedRangeTombstoneIterator(fragmented_range_tombstone_list_,
                                               comparator_.comparator, read_seq);
@@ -1028,7 +1028,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     if (!no_range_del) {
       std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
           NewRangeTombstoneIteratorInternal(
-              read_options, GetInternalKeySeqno(iter->lkey->internal_key())));
+              GetInternalKeySeqno(iter->lkey->internal_key())));
       iter->max_covering_tombstone_seq = std::max(
           iter->max_covering_tombstone_seq,
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
