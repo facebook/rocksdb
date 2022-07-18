@@ -824,22 +824,26 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   }
 
   Status s;
-  if (seqno_time_cadence == 0) {
-    periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
-  } else if (seqno_time_cadence != record_seqno_time_cadence_) {
-    s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
-        this, seqno_time_cadence);
-  }
-  if (s.ok()) {
-    record_seqno_time_cadence_ = seqno_time_cadence;
-  }
-  if (s.IsNotSupported()) {
-    // TODO: Fix the timer cannot cancel and re-add the same task
-    ROCKS_LOG_WARN(
-        immutable_db_options_.info_log,
-        "Updating seqno to time worker cadence is not supported yet, to make "
-        "the change effective, please reopen the DB instance.");
-    s = Status::OK();
+  if (seqno_time_cadence != record_seqno_time_cadence_) {
+    if (seqno_time_cadence == 0) {
+      periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
+    } else {
+      s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
+          this, seqno_time_cadence);
+    }
+
+    if (s.ok()) {
+      record_seqno_time_cadence_ = seqno_time_cadence;
+    }
+
+    if (s.IsNotSupported()) {
+      // TODO: Fix the timer cannot cancel and re-add the same task
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "Updating seqno to time worker cadence is not supported yet, to make "
+          "the change effective, please reopen the DB instance.");
+      s = Status::OK();
+    }
   }
 
   return s;
