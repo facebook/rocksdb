@@ -387,29 +387,21 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
           std::make_shared<GenericRateLimiter>(
               target, refill_period, 10, RateLimiter::Mode::kWritesOnly,
               SystemClock::Default(), false /* auto_tuned */);
-
-      // The idea behind is to start a request first, then before it refills,
-      // update limit to a different value (2X/0.5X). No starvation should be
-      // guaranteed under any situation
-      int32_t new_limit = (target << 1) >> (iter << 1);
-      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-          "GenericRateLimiter::RefillBytesAndGrantRequestsLocked",
-          [&](void* arg) {
-            port::Mutex* request_mutex = static_cast<port::Mutex*>(arg);
-            // We temporarily unlock the mutex so that the following
-            // SetBytesPerSecond() can acquire it
-            request_mutex->Unlock();
-
-            limiter->SetBytesPerSecond(new_limit);
-
-            // We lock the mutex again so that the request thread can resume
-            // running with the mutex locked
-            request_mutex->Lock();
-          });
-
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+          {{"GenericRateLimiter::Request",
+            "RateLimiterTest::LimitChangeTest:changeLimitStart"},
+           {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
+            "GenericRateLimiter::RefillBytesAndGrantRequests"}});
       Arg arg(target, Env::IO_HIGH, limiter);
+      // The idea behind is to start a request first, then before it refills,
+      // update limit to a different value (2X/0.5X). No starvation should
+      // be guaranteed under any situation
       // TODO(lightmark): more test cases are welcome.
       env->StartThread(writer, &arg);
+      int32_t new_limit = (target << 1) >> (iter << 1);
+      TEST_SYNC_POINT("RateLimiterTest::LimitChangeTest:changeLimitStart");
+      arg.limiter->SetBytesPerSecond(new_limit);
+      TEST_SYNC_POINT("RateLimiterTest::LimitChangeTest:changeLimitEnd");
       env->WaitForJoin();
       fprintf(stderr,
               "[COMPLETE] request size %" PRIi32 " KB, new limit %" PRIi32
