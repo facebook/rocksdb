@@ -1523,11 +1523,6 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
 }
 
 TEST_F(EnvPosixTest, MultiReadDirectIONonAlignedLargeNum) {
-#if !defined(OS_MACOSX) && !defined(OS_SOLARIS) && !defined(OS_AIX)
-  ROCKSDB_GTEST_SKIP("direct reads/writes are not supported");
-  return;
-#endif
-
   EnvOptions soptions;
   soptions.use_direct_reads = soptions.use_direct_writes = true;
   std::string fname = test::PerThreadDBPath(env_, "testfile");
