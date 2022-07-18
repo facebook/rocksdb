@@ -422,12 +422,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"db_host_id",
          {offsetof(struct ImmutableDBOptions, db_host_id), OptionType::kString,
           OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
+        // Temporarily deprecated due to race conditions (examples in PR 10375).
         {"rate_limiter",
-         OptionTypeInfo::AsCustomSharedPtr<RateLimiter>(
-             offsetof(struct ImmutableDBOptions, rate_limiter),
-             OptionVerificationType::kNormal,
-             OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
-
+         {offsetof(struct ImmutableDBOptions, rate_limiter),
+          OptionType::kUnknown, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
