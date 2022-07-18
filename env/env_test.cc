@@ -1527,17 +1527,18 @@ TEST_F(EnvPosixTest, MultiReadDirectIONonAlignedLargeNum) {
   soptions.use_direct_reads = soptions.use_direct_writes = true;
   std::string fname = test::PerThreadDBPath(env_, "testfile");
 
-  const size_t kTotalSize = 81920;
+  const size_t kBlockSize = 4096;
+  const size_t kDataSize = kPageSize;
+  const size_t kTotalSize = kBlockSize;
   Random rnd(301);
-  std::string expected_data = rnd.RandomString(kTotalSize);
-
   std::unique_ptr<WritableFile> wfile;
   size_t alignment = 0;
   // Create file.
   {
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
-
-    ASSERT_OK(wfile->Append(expected_data));
+    auto data_ptr = NewAligned(kDataSize, 'b');
+    Slice data_b(data_ptr.get(), kDataSize);
+    ASSERT_OK(wfile->PositionedAppend(data_b, kBlockSize));
     ASSERT_OK(wfile->Close());
   }
 
@@ -1606,7 +1607,7 @@ TEST_F(EnvPosixTest, MultiReadDirectIONonAlignedLargeNum) {
           reqs[i].offset;
 
       size_t new_capacity = Roundup(reqs[i].len, alignment);
-      data.emplace_back(NewAligned(new_capacity + alignment, 0));
+      data.emplace_back(NewAligned(new_capacity, 0));
       reqs[i].scratch = data.back().get();
     }
 
