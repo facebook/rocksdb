@@ -1160,7 +1160,7 @@ class DBImpl : public DB {
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForPeridicWorkerRun(std::function<void()> callback) const;
-  const SeqnoToTimeMapping& TEST_GetSeqnoToTimeMapping() const;
+  SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   uint64_t TEST_GetCurrentLogNumber() const {

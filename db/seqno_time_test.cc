@@ -662,8 +662,7 @@ TEST_F(SeqnoTimeTest, MultiInstancesBasic) {
     dbfull()->TEST_WaitForPeridicWorkerRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
-  const SeqnoToTimeMapping& seqno_to_time_mapping =
-      dbi->TEST_GetSeqnoToTimeMapping();
+  SeqnoToTimeMapping seqno_to_time_mapping = dbi->TEST_GetSeqnoToTimeMapping();
   ASSERT_GT(seqno_to_time_mapping.Size(), 10);
 
   for (int i = 0; i < kInstanceNum; i++) {
