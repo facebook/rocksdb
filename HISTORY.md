@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API changes
+* Removed Customizable support for RateLimiter and removed its CreateFromString() and Type() functions.
+
+### Bug Fixes
+* Fix a bug where `GenericRateLimiter` could revert the bandwidth set dynamically using `SetBytesPerSecond()` when a user configures a structure enclosing it, e.g., using `GetOptionsFromString()` to configure an `Options` that references an existing `RateLimiter` object.
 
 ## 7.5.0 (07/15/2022)
 ### New Features
