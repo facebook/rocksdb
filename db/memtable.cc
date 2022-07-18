@@ -111,7 +111,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
           ioptions.memtable_insert_with_hint_prefix_extractor.get()),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
-      approximate_memory_usage_(0) {
+      approximate_memory_usage_(0),
+      fragmented_range_tombstone_list_(
+          std::make_shared<FragmentedRangeTombstoneList>(
+              nullptr, comparator_.comparator)) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -454,17 +457,10 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
-    const ReadOptions& read_options, SequenceNumber read_seq) {
-  auto* unfragmented_iter = new MemTableIterator(
-      *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
-  auto fragmented_tombstone_list =
-      std::make_shared<FragmentedRangeTombstoneList>(
-          std::unique_ptr<InternalIterator>(unfragmented_iter),
-          comparator_.comparator);
-
-  auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
-      fragmented_tombstone_list, comparator_.comparator, read_seq);
-  return fragmented_iter;
+    const ReadOptions& /* read_options */, SequenceNumber read_seq) {
+  // Build from cached fragmented_range_tombstone_list_ built in the write path
+  return new FragmentedRangeTombstoneIterator(fragmented_range_tombstone_list_,
+                                              comparator_.comparator, read_seq);
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
@@ -661,6 +657,14 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
   if (type == kTypeRangeDeletion) {
+    // refresh cached fragmented tombstone list
+    auto* unfragmented_iter =
+        new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
+                             true /* use_range_del_table */);
+    fragmented_range_tombstone_list_ =
+        std::make_shared<FragmentedRangeTombstoneList>(
+            std::unique_ptr<InternalIterator>(unfragmented_iter),
+            comparator_.comparator);
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();

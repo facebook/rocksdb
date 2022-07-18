@@ -604,6 +604,11 @@ class MemTable {
   // Always returns non-null and assumes certain pre-checks are done
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq);
+
+  // The current fragmented range tombstones of this memtable.
+  // Updated when a new DeleteRange() is inserted into the memtable.
+  std::shared_ptr<FragmentedRangeTombstoneList>
+      fragmented_range_tombstone_list_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
