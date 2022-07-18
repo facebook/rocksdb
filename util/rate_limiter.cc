@@ -97,12 +97,16 @@ GenericRateLimiter::~GenericRateLimiter() {
 
 // This API allows user to dynamically change rate limiter's bytes per second.
 void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
-  assert(bytes_per_second > 0);
-  // TODO: Configurable may simultaneously mutate `options_` (a
-  // `GenericRateLimiterOptions`) without locking internally.
   MutexLock g(&request_mutex_);
-  options_.max_bytes_per_sec = bytes_per_second;
-  InitializeLocked();
+  SetBytesPerSecondLocked(bytes_per_second);
+}
+
+void GenericRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
+  assert(bytes_per_second > 0);
+  rate_bytes_per_sec_.store(bytes_per_second, std::memory_order_relaxed);
+  refill_bytes_per_period_.store(
+      CalculateRefillBytesPerPeriodLocked(bytes_per_second),
+      std::memory_order_relaxed);
 }
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
@@ -351,9 +355,7 @@ Status GenericRateLimiter::TuneLocked() {
     new_bytes_per_sec = prev_bytes_per_sec;
   }
   if (new_bytes_per_sec != prev_bytes_per_sec) {
-    rate_bytes_per_sec_ = new_bytes_per_sec;
-    refill_bytes_per_period_ =
-        CalculateRefillBytesPerPeriodLocked(rate_bytes_per_sec_);
+    SetBytesPerSecondLocked(new_bytes_per_sec);
   }
   num_drains_ = 0;
   return Status::OK();

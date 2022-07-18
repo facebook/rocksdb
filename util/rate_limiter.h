@@ -98,7 +98,7 @@ class GenericRateLimiter : public RateLimiter {
   virtual void TEST_SetClock(std::shared_ptr<SystemClock> clock) {
     MutexLock g(&request_mutex_);
     clock_ = std::move(clock);
-    next_refill_us_ = NowMicrosMonotonic();
+    next_refill_us_ = NowMicrosMonotonicLocked();
   }
 
  private:
@@ -106,6 +106,7 @@ class GenericRateLimiter : public RateLimiter {
   std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
   int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
   Status TuneLocked();
+  void SetBytesPerSecondLocked(int64_t bytes_per_second);
 
   uint64_t NowMicrosMonotonicLocked() {
     return clock_->NowNanos() / std::milli::den;
