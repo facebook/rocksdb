@@ -1522,6 +1522,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
   EnvOptions soptions;
   soptions.use_direct_reads = true;
@@ -1552,7 +1553,7 @@ TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
 #endif
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  const int num_reads = 1;
+  const int num_reads = 2;
   // Create requests
   std::vector<std::string> scratches;
   scratches.reserve(num_reads);
@@ -1565,28 +1566,34 @@ TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
 
   std::vector<std::unique_ptr<char, Deleter>> data;
 
-  size_t i = 0;
-  // Do alignment
-  reqs[i].offset = static_cast<uint64_t>(
-      TruncateToPageBoundary(alignment, static_cast<size_t>(/*offset=*/0)));
-  reqs[i].len =
-      Roundup(static_cast<size_t>(/*offset=*/0) + /*length=*/4096, alignment) -
-      reqs[i].offset;
+  std::vector<size_t> offsets = {0, 2047};
+  std::vector<size_t> lens = {2047, 4096 - 2047};
 
-  size_t new_capacity = Roundup(reqs[i].len, alignment);
-  data.emplace_back(NewAligned(new_capacity, 0));
-  reqs[i].scratch = data.back().get();
+  for (size_t i = 0; i < num_reads; i++) {
+    // Do alignment
+    reqs[i].offset = static_cast<uint64_t>(TruncateToPageBoundary(
+        alignment, static_cast<size_t>(/*offset=*/offsets[i])));
+    reqs[i].len =
+        Roundup(static_cast<size_t>(/*offset=*/offsets[i]) + /*length=*/lens[i],
+                alignment) -
+        reqs[i].offset;
+
+    size_t new_capacity = Roundup(reqs[i].len, alignment);
+    data.emplace_back(NewAligned(new_capacity, 0));
+    reqs[i].scratch = data.back().get();
+  }
 
   // Query the data
   ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
 
   // Validate results
-  for (i = 0; i < num_reads; ++i) {
+  for (size_t i = 0; i < num_reads; ++i) {
     ASSERT_OK(reqs[i].status);
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
+#endif  // ROCKSDB_LITE
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 void GenerateFilesAndRequest(Env* env, const std::string& fname,
