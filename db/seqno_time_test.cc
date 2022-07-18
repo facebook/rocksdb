@@ -665,6 +665,11 @@ TEST_F(SeqnoTimeTest, MultiInstancesBasic) {
   const SeqnoToTimeMapping& seqno_to_time_mapping =
       dbi->TEST_GetSeqnoToTimeMapping();
   ASSERT_GT(seqno_to_time_mapping.Size(), 10);
+
+  for (int i = 0; i < kInstanceNum; i++) {
+    ASSERT_OK(dbs[i]->Close());
+    delete dbs[i];
+  }
 }
 
 TEST_F(SeqnoTimeTest, SeqnoToTimeMappingUniversal) {
