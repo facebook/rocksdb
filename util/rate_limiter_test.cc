@@ -387,11 +387,14 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
           std::make_shared<GenericRateLimiter>(
               target, refill_period, 10, RateLimiter::Mode::kWritesOnly,
               SystemClock::Default(), false /* auto_tuned */);
+      // After "GenericRateLimiter::Request:1" the mutex is held until the bytes
+      // are refilled. This test could be improved to change the limit when lock
+      // is released in `TimedWait()`.
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
            {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
-            "GenericRateLimiter::RefillBytesAndGrantRequests"}});
+            "GenericRateLimiter::Request:1"}});
       Arg arg(target, Env::IO_HIGH, limiter);
       // The idea behind is to start a request first, then before it refills,
       // update limit to a different value (2X/0.5X). No starvation should
