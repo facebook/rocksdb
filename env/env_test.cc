@@ -1524,68 +1524,24 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
 
 TEST_F(EnvPosixTest, MultiReadDirectIONonAlignedLargeNum) {
   EnvOptions soptions;
-  soptions.use_direct_reads = soptions.use_direct_writes = true;
+  soptions.use_direct_reads = true;
+  soptions.use_direct_writes = false;
   std::string fname = test::PerThreadDBPath(env_, "testfile");
 
-  const size_t kBlockSize = 4096;
-  const size_t kDataSize = kPageSize;
-  const size_t kTotalSize = kBlockSize;
   Random rnd(301);
   std::unique_ptr<WritableFile> wfile;
   size_t alignment = 0;
   // Create file.
   {
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
-    auto data_ptr = NewAligned(kDataSize, 'b');
-    Slice data_b(data_ptr.get(), kDataSize);
-    ASSERT_OK(wfile->PositionedAppend(data_b, kBlockSize));
+    auto data_ptr = NewAligned(4095, 'b');
+    Slice data_b(data_ptr.get(), 4095);
+    ASSERT_OK(wfile->PositionedAppend(data_b, 0U));
     ASSERT_OK(wfile->Close());
   }
 
-  // More attempts to simulate more partial result sequences.
-  for (uint32_t attempt = 0; attempt < 20; attempt++) {
-    // Right now kIoUringDepth is hard coded as 256, so we need very large
-    // number of keys to cover the case of multiple rounds of submissions.
-    // Right now the test latency is still acceptable. If it ends up with
-    // too long, we can modify the io uring depth with SyncPoint here.
-    const int num_reads = rnd.Uniform(512) + 1;
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UpdateResults::io_uring_result", [&](void* arg) {
-          size_t& bytes_read = *static_cast<size_t*>(arg);
-          bytes_read = 0;
-        });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "UpdateResults::io_uring_result::SectorAlignment", [&](void* arg) {
-          bool& sector_aligned = *static_cast<bool*>(arg);
-          sector_aligned = false;
-        });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
-    // Generate (offset, len) pairs
-    std::set<int> start_offsets;
-    for (int i = 0; i < num_reads; i++) {
-      int rnd_off;
-      // No repeat offsets.
-      while (start_offsets.find(rnd_off = rnd.Uniform(81920)) !=
-             start_offsets.end()) {
-      }
-      start_offsets.insert(rnd_off);
-    }
-    std::vector<size_t> offsets;
-    std::vector<size_t> lens;
-    // std::set already sorted the offsets.
-    for (int so : start_offsets) {
-      offsets.push_back(so);
-    }
-    for (size_t i = 0; i + 1 < offsets.size(); i++) {
-      lens.push_back(static_cast<size_t>(
-          rnd.Uniform(static_cast<int>(offsets[i + 1] - offsets[i])) + 1));
-    }
-    lens.push_back(static_cast<size_t>(
-        rnd.Uniform(static_cast<int>(kTotalSize - offsets.back())) + 1));
-    ASSERT_EQ(num_reads, lens.size());
-
+  for (uint32_t attempt = 0; attempt < 5; attempt++) {
+    const int num_reads = 1;
     // Create requests
     std::vector<std::string> scratches;
     scratches.reserve(num_reads);
@@ -1598,24 +1554,22 @@ TEST_F(EnvPosixTest, MultiReadDirectIONonAlignedLargeNum) {
 
     std::vector<std::unique_ptr<char, Deleter>> data;
 
-    for (size_t i = 0; i < reqs.size(); ++i) {
-      // Do alignment
-      reqs[i].offset = static_cast<uint64_t>(
-          TruncateToPageBoundary(alignment, static_cast<size_t>(offsets[i])));
-      reqs[i].len =
-          Roundup(static_cast<size_t>(offsets[i]) + lens[i], alignment) -
-          reqs[i].offset;
+    size_t i = 0;
+    // Do alignment
+    reqs[i].offset = static_cast<uint64_t>(
+        TruncateToPageBoundary(alignment, static_cast<size_t>(0)));
+    reqs[i].len =
+        Roundup(static_cast<size_t>(0) + 4096, alignment) - reqs[i].offset;
 
-      size_t new_capacity = Roundup(reqs[i].len, alignment);
-      data.emplace_back(NewAligned(new_capacity, 0));
-      reqs[i].scratch = data.back().get();
-    }
+    size_t new_capacity = Roundup(reqs[i].len, alignment);
+    data.emplace_back(NewAligned(new_capacity, 0));
+    reqs[i].scratch = data.back().get();
 
     // Query the data
     ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
 
     // Validate results
-    for (int i = 0; i < num_reads; ++i) {
+    for (i = 0; i < num_reads; ++i) {
       ASSERT_OK(reqs[i].status);
     }
 
