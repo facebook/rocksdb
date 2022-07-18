@@ -1522,7 +1522,7 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
   }
 }
 
-TEST_F(EnvPosixTest, MultiReadDirectIONonAlignedLargeNum) {
+TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
   EnvOptions soptions;
   soptions.use_direct_reads = true;
   soptions.use_direct_writes = false;
@@ -1540,41 +1540,52 @@ TEST_F(EnvPosixTest, MultiReadDirectIONonAlignedLargeNum) {
     ASSERT_OK(wfile->Close());
   }
 
-  for (uint32_t attempt = 0; attempt < 5; attempt++) {
-    const int num_reads = 1;
-    // Create requests
-    std::vector<std::string> scratches;
-    scratches.reserve(num_reads);
-    std::vector<ReadRequest> reqs(num_reads);
-
-    std::unique_ptr<RandomAccessFile> file;
-    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
-    alignment = file->GetRequiredBufferAlignment();
-    ASSERT_EQ(num_reads, reqs.size());
-
-    std::vector<std::unique_ptr<char, Deleter>> data;
-
-    size_t i = 0;
-    // Do alignment
-    reqs[i].offset = static_cast<uint64_t>(
-        TruncateToPageBoundary(alignment, static_cast<size_t>(0)));
-    reqs[i].len =
-        Roundup(static_cast<size_t>(0) + 4096, alignment) - reqs[i].offset;
-
-    size_t new_capacity = Roundup(reqs[i].len, alignment);
-    data.emplace_back(NewAligned(new_capacity, 0));
-    reqs[i].scratch = data.back().get();
-
-    // Query the data
-    ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
-
-    // Validate results
-    for (i = 0; i < num_reads; ++i) {
-      ASSERT_OK(reqs[i].status);
-    }
-
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+  if (soptions.use_direct_reads) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+          int* val = static_cast<int*>(arg);
+          *val &= ~O_DIRECT;
+        });
   }
+#endif
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int num_reads = 1;
+  // Create requests
+  std::vector<std::string> scratches;
+  scratches.reserve(num_reads);
+  std::vector<ReadRequest> reqs(num_reads);
+
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+  alignment = file->GetRequiredBufferAlignment();
+  ASSERT_EQ(num_reads, reqs.size());
+
+  std::vector<std::unique_ptr<char, Deleter>> data;
+
+  size_t i = 0;
+  // Do alignment
+  reqs[i].offset = static_cast<uint64_t>(
+      TruncateToPageBoundary(alignment, static_cast<size_t>(/*offset=*/0)));
+  reqs[i].len =
+      Roundup(static_cast<size_t>(/*offset=*/0) + /*length=*/4096, alignment) -
+      reqs[i].offset;
+
+  size_t new_capacity = Roundup(reqs[i].len, alignment);
+  data.emplace_back(NewAligned(new_capacity, 0));
+  reqs[i].scratch = data.back().get();
+
+  // Query the data
+  ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
+
+  // Validate results
+  for (i = 0; i < num_reads; ++i) {
+    ASSERT_OK(reqs[i].status);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 #if defined(ROCKSDB_IOURING_PRESENT)
