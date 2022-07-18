@@ -12,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 ChargedCache::ChargedCache(std::shared_ptr<Cache> cache,
                            std::shared_ptr<Cache> block_cache)
     : cache_(cache),
-      cache_res_mgr_(new ConcurrentCacheReservationManager(
+      cache_res_mgr_(std::make_shared<ConcurrentCacheReservationManager>(
           std::make_shared<
               CacheReservationManagerImpl<CacheEntryRole::kBlobCache>>(
               block_cache))) {}
