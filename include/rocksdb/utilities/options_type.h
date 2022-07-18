@@ -101,14 +101,16 @@ enum class OptionTypeFlags : uint32_t {
   kCompareLoose = ConfigOptions::kSanityLevelLooselyCompatible,
   kCompareExact = ConfigOptions::kSanityLevelExactMatch,
 
-  kMutable = 0x0100,         // Option is mutable
-  kRawPointer = 0x0200,      // The option is stored as a raw pointer
-  kShared = 0x0400,          // The option is stored as a shared_ptr
-  kUnique = 0x0800,          // The option is stored as a unique_ptr
-  kAllowNull = 0x1000,       // The option can be null
-  kDontSerialize = 0x2000,   // Don't serialize the option
-  kDontPrepare = 0x4000,     // Don't prepare or sanitize this option
-  kStringNameOnly = 0x8000,  // The option serializes to a name only
+  kMutable = 0x00100,         // Option is mutable
+  kRawPointer = 0x00200,      // The option is stored as a raw pointer
+  kShared = 0x00400,          // The option is stored as a shared_ptr
+  kUnique = 0x00800,          // The option is stored as a unique_ptr
+  kAllowNull = 0x01000,       // The option can be null
+  kDontSerialize = 0x02000,   // Don't serialize the option
+  kDontPrepare = 0x04000,     // Don't prepare or sanitize this option
+  kStringNameOnly = 0x08000,  // The option serializes to a name only
+  kUseBaseAddress =
+      0x10000,  // Pass the base (instead of offset) to option functions
 };
 
 inline OptionTypeFlags operator|(const OptionTypeFlags &a,
