@@ -2,8 +2,8 @@
 title: "Per Key-Value Checksum"
 layout: post
 author:
-- ajkr
 - cbi42
+- ajkr
 category: blog
 ---
 
