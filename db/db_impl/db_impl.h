@@ -2544,6 +2544,8 @@ class DBImpl : public DB {
   // PeriodicWorkScheduler::Default(). Only in unittest, it can be overrided by
   // PeriodicWorkTestScheduler.
   PeriodicWorkScheduler* periodic_work_scheduler_;
+
+  uint64_t record_seqno_time_cadence_ = 0;
 #endif
 
   // When set, we use a separate queue for writes that don't write to memtable.

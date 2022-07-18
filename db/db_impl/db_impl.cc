@@ -823,8 +823,15 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
         min_time_duration / SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
   }
 
-  Status s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
-      this, seqno_time_cadence);
+  Status s;
+  if (seqno_time_cadence == 0) {
+    periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
+  } else {
+    s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(this, seqno_time_cadence);
+  }
+  if (s.ok()) {
+    record_seqno_time_cadence_ = seqno_time_cadence;
+  }
   if (s.IsNotSupported()) {
     // TODO: Fix the timer cannot cancel and re-add the same task
     ROCKS_LOG_WARN(
@@ -833,6 +840,7 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
         "the change effective, please reopen the DB instance.");
     s = Status::OK();
   }
+
   return s;
 #else
   return Status::OK();
