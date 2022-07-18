@@ -2545,6 +2545,8 @@ class DBImpl : public DB {
   // PeriodicWorkTestScheduler.
   PeriodicWorkScheduler* periodic_work_scheduler_;
 
+  // Current cadence of the periodic worker for recording sequence number to
+  // time.
   uint64_t record_seqno_time_cadence_ = 0;
 #endif
 
