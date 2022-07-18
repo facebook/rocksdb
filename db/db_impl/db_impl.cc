@@ -827,7 +827,8 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   if (seqno_time_cadence == 0) {
     periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
   } else {
-    s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(this, seqno_time_cadence);
+    s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
+        this, seqno_time_cadence);
   }
   if (s.ok()) {
     record_seqno_time_cadence_ = seqno_time_cadence;
