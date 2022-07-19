@@ -276,6 +276,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
   blob_garbage_collection_force_threshold=0.75
   blob_compaction_readahead_size=262144
   blob_file_starting_level=0
+  prepopulate_blob_cache=kDisable;
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0

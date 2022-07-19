@@ -7894,6 +7894,40 @@ class SanityLevelJni {
   }
 };
 
+// The portal class for org.rocksdb.PrepopulateBlobCache
+class PrepopulateBlobCacheJni {
+ public:
+  // Returns the equivalent org.rocksdb.PrepopulateBlobCache for the provided
+  // C++ ROCKSDB_NAMESPACE::PrepopulateBlobCache enum
+  static jbyte toJavaPrepopulateBlobCache(
+      ROCKSDB_NAMESPACE::PrepopulateBlobCache prepopulate_blob_cache) {
+    switch (prepopulate_blob_cache) {
+      case ROCKSDB_NAMESPACE::PrepopulateBlobCache::kDisable:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::PrepopulateBlobCache::kFlushOnly:
+        return 0x1;
+      default:
+        return 0x7f;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::PrepopulateBlobCache enum for
+  // the provided Java org.rocksdb.PrepopulateBlobCache
+  static ROCKSDB_NAMESPACE::PrepopulateBlobCache toCppPrepopulateBlobCache(
+      jbyte jprepopulate_blob_cache) {
+    switch (jprepopulate_blob_cache) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::PrepopulateBlobCache::kDisable;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::PrepopulateBlobCache::kFlushOnly;
+      case 0x7F:
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::PrepopulateBlobCache::kDisable;
+    }
+  }
+};
+
 // The portal class for org.rocksdb.AbstractListener.EnabledEventCallback
 class EnabledEventCallbackJni {
  public:

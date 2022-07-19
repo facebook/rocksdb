@@ -451,6 +451,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_file_starting_level),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"prepopulate_blob_cache",
+         OptionTypeInfo::Enum<PrepopulateBlobCache>(
+             offsetof(struct MutableCFOptions, prepopulate_blob_cache),
+             &prepopulate_blob_cache_string_map, OptionTypeFlags::kMutable)},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -1097,7 +1101,10 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_compaction_readahead_size);
   ROCKS_LOG_INFO(log, "                 blob_file_starting_level: %d",
                  blob_file_starting_level);
-
+  ROCKS_LOG_INFO(log, "                   prepopulate_blob_cache: %s",
+                 prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+                     ? "flush only"
+                     : "disable");
   ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
                  static_cast<int>(bottommost_temperature));
 }

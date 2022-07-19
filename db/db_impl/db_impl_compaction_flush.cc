@@ -3802,11 +3802,6 @@ void DBImpl::GetSnapshotContext(
 
 Status DBImpl::WaitForCompact(bool wait_unscheduled) {
   // Wait until the compaction completes
-
-  // TODO: a bug here. This function actually does not necessarily
-  // wait for compact. It actually waits for scheduled compaction
-  // OR flush to finish.
-
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||

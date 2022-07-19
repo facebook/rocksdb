@@ -40,7 +40,7 @@ SequenceNumber SeqnoToTimeMapping::TruncateOldEntries(const uint64_t now) {
 
   const uint64_t cut_off_time =
       now > max_time_duration_ ? now - max_time_duration_ : 0;
-  assert(cut_off_time < now);  // no overflow
+  assert(cut_off_time <= now);  // no overflow
 
   auto it = std::upper_bound(
       seqno_time_mapping_.begin(), seqno_time_mapping_.end(), cut_off_time,
@@ -238,7 +238,11 @@ bool SeqnoToTimeMapping::Resize(uint64_t min_time_duration,
 }
 
 Status SeqnoToTimeMapping::Sort() {
-  if (is_sorted_ || seqno_time_mapping_.empty()) {
+  if (is_sorted_) {
+    return Status::OK();
+  }
+  if (seqno_time_mapping_.empty()) {
+    is_sorted_ = true;
     return Status::OK();
   }
 

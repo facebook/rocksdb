@@ -78,17 +78,6 @@ class DBCompactionTest : public DBTestBase {
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {}
 
  protected:
-#ifndef ROCKSDB_LITE
-  uint64_t GetSstSizeHelper(Temperature temperature) {
-    std::string prop;
-    EXPECT_TRUE(dbfull()->GetProperty(
-        DB::Properties::kLiveSstFilesSizeAtTemperature +
-            std::to_string(static_cast<uint8_t>(temperature)),
-        &prop));
-    return static_cast<uint64_t>(std::atoi(prop.c_str()));
-  }
-#endif  // ROCKSDB_LITE
-
   /*
    * Verifies compaction stats of cfd are valid.
    *
