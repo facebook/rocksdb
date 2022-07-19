@@ -380,8 +380,7 @@ struct ClockHandle {
   }
 
   inline bool Matches(const Slice& some_key, uint32_t some_hash) const {
-    return this->IsElement() && this->hash == some_hash &&
-           this->key() == some_key;
+    return this->hash == some_hash && this->key() == some_key;
   }
 
   bool WillBeDeleted() const { return refs & WILL_BE_DELETED; }
@@ -437,14 +436,19 @@ struct ClockHandle {
   }
 
   // Repeatedly tries to take an exclusive reference, but stops as soon
-  // as an external reference is detected (in this case the wait would
-  // presumably be too long).
+  // as an external or exclusive reference is detected (in this case the
+  // wait would presumably be too long).
   inline bool SpinTryExclusiveRef() {
     uint32_t expected = 0;
     uint32_t will_be_deleted = 0;
+    int i = 0;
     while (!refs.compare_exchange_strong(expected,
                                          EXCLUSIVE_REF | will_be_deleted)) {
-      if (expected & EXTERNAL_REFS) {
+      printf("Shared: %i\n", (refs & SHARED_REFS) >> 15);
+      printf("External: %i\n", refs & EXTERNAL_REFS);
+      printf("Clock priority: %i\n", (flags & CLOCK_PRIORITY) >> kClockPriorityOffset);
+      printf("i: %i\n", i++);
+      if (expected & (EXTERNAL_REFS | EXCLUSIVE_REF)) {
         return false;
       }
       will_be_deleted = expected & WILL_BE_DELETED;
@@ -502,12 +506,9 @@ class ClockHandleTable {
       if (h->TryExclusiveRef()) {
         if (h->IsElement() &&
             (apply_if_will_be_deleted || !h->WillBeDeleted())) {
-          // Hand the internal ref over to func, which is now responsible
-          // to release it.
           func(h);
-        } else {
-          h->ReleaseExclusiveRef();
         }
+        h->ReleaseExclusiveRef();
       }
     }
   }
@@ -536,6 +537,10 @@ class ClockHandleTable {
 
   uint32_t GetOccupancy() const { return occupancy_; }
 
+  size_t GetUsage() const { return usage_; }
+
+  size_t GetCapacity() const { return capacity_; }
+
   // Returns x mod 2^{length_bits_}.
   uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
 
@@ -558,9 +563,9 @@ class ClockHandleTable {
     RemoveAll(key, hash, probe, deleted);
   }
 
- private:
-  friend class ClockCacheShard;
+  bool SpinTryRemove(ClockHandle* h, ClockHandle* deleted);
 
+ private:
   // Extracts the element information from a handle (src), and assigns it
   // to a hash table slot (dst). Doesn't touch displacements and refs,
   // which are maintained by the hash table algorithm.

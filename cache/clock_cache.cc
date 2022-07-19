@@ -45,7 +45,22 @@ ClockHandleTable::~ClockHandleTable() {
 }
 
 ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
-  ClockHandle* e = FindElement(key, hash);
+  uint32_t probe = 0;
+  ClockHandle* e = FindSlot(
+      key,
+      [&](ClockHandle* h) {
+        if (h->TryInternalRef()) {
+          if (h->IsElement() && h->Matches(key, hash)) {
+            return true;
+          }
+          h->ReleaseInternalRef();
+        }
+        return false;
+      },
+      [&](ClockHandle* h) { return h->displacements == 0; },
+      [&](ClockHandle* /*h*/) {}, probe);
+
+  // printf("Lookup: %i\n", probe);
 
   if (e != nullptr) {
     // TODO(Guido) Comment from #10347: Here it looks like we have three atomic
@@ -69,6 +84,8 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, autovector<ClockHandle>* d
     return nullptr;
   }
 
+  // printf("Insert: %i\n", probe);
+
   // The slot is empty or is a tombstone. And we have an exclusive ref.
   Assign(e, h);
   usage_ += e->total_charge;
@@ -82,7 +99,8 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h, autovector<ClockHandle>* d
     // The user wants to take a reference.
     e->ExclusiveToExternalRef();
   } else {
-    // The user doesn't want to take a reference, so we make it evictable.
+    // The user doesn't want to immediately take a reference, so we make
+    // it evictable.
     ClockOn(e);
     e->ReleaseExclusiveRef();
   }
@@ -107,6 +125,18 @@ bool ClockHandleTable::TryRemove(ClockHandle* h, autovector<ClockHandle>* delete
   if (h->TryExclusiveRef()) {
     if (h->WillBeDeleted()) {
       deleted->push_back(*h);
+      Remove(h);
+      return true;
+    }
+    h->ReleaseExclusiveRef();
+  }
+  return false;
+}
+
+bool ClockHandleTable::SpinTryRemove(ClockHandle* h, ClockHandle* deleted) {
+  if (h->SpinTryExclusiveRef()) {
+    if (h->WillBeDeleted()) {
+      *deleted = *h;
       Remove(h);
       return true;
     }
@@ -143,23 +173,6 @@ void ClockHandleTable::Remove(ClockHandle* h) {
   usage_ -= h->total_charge;
 }
 
-ClockHandle* ClockHandleTable::FindElement(const Slice& key, uint32_t hash) {
-  uint32_t probe = 0;
-  return FindSlot(
-      key,
-      [&](ClockHandle* h) {
-        if (h->TryInternalRef()) {
-          if (h->Matches(key, hash)) {
-            return true;
-          }
-          h->ReleaseInternalRef();
-        }
-        return false;
-      },
-      [&](ClockHandle* h) { return h->displacements == 0; },
-      [&](ClockHandle* /*h*/) {}, probe);
-}
-
 void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
                                   uint32_t& probe, autovector<ClockHandle>* deleted) {
   FindSlot(
@@ -167,7 +180,7 @@ void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
       [&](ClockHandle* h) {
         if (h->TryInternalRef()) {
           // TODO(Guido) This will not try to overwrite elements marked as WILL_BE_DELETED.
-          if (h->Matches(key, hash)) {
+          if (h->IsElement() && h->Matches(key, hash)) {
             h->SetWillBeDeleted(true);
             h->ReleaseInternalRef();
             if (TryRemove(h, deleted)) {
@@ -393,21 +406,12 @@ int ClockCacheShard::CalcHashBits(
   return FloorLog2((num_entries << 1) - 1);
 }
 
-void ClockCacheShard::SetCapacity(size_t capacity) {
+void ClockCacheShard::SetCapacity(size_t /*capacity*/) {
   assert(false);  // Not supported. TODO(Guido) Support it?
-  autovector<ClockHandle> last_reference_list;
-  table_.capacity_ = capacity;
-  table_.ClockEvict(0, &last_reference_list);
-
-  // Free the entries outside of the exclusive ref.
-  for (auto& h : last_reference_list) {
-    h.FreeData();
-  }
 }
 
-void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
+void ClockCacheShard::SetStrictCapacityLimit(bool /*strict_capacity_limit*/) {
   assert(false);  // Not supported. TODO(Guido) Support it?
-  strict_capacity_limit_ = strict_capacity_limit;
 }
 
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
@@ -435,7 +439,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   // Free the space following strict clock policy until enough space
   // is freed or there are no evictable elements.
   table_.ClockEvict(tmp.total_charge, &last_reference_list);
-  if ((table_.usage_ + tmp.total_charge > table_.capacity_ &&
+  if ((table_.GetUsage() + tmp.total_charge > table_.GetCapacity() &&
         (strict_capacity_limit_ || handle == nullptr)) ||
       table_.GetOccupancy() > table_.GetOccupancyLimit()) {
     if (handle == nullptr) {
@@ -458,8 +462,8 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     // Insert into the cache. Note that the cache might get larger than its
     // capacity if not enough space was freed up.
     ClockHandle* h = table_.Insert(&tmp, &last_reference_list, handle != nullptr);
-    assert(h != nullptr);  // We're below occupancy, so this insertion should
-                            // never fail.
+    assert(h != nullptr);   // The occupancy is way below the table size, so this insertion
+                            // should never fail.
     if (handle != nullptr) {
       *handle = reinterpret_cast<Cache::Handle*>(h);
     }
@@ -502,22 +506,10 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   bool will_be_deleted = refs & ClockHandle::WILL_BE_DELETED;
 
   if (last_reference && (will_be_deleted || erase_if_last_ref)) {
-    last_reference = false;
     ClockHandle copy;
     h->SetWillBeDeleted(true);
     h->ReleaseExternalRef();
-    if (h->SpinTryExclusiveRef()) {
-      // Check that it's still safe to delete.
-      if (h->WillBeDeleted()) {
-        copy = *h;
-        table_.Remove(h);
-        last_reference = true;
-      }
-      h->ReleaseExclusiveRef();
-    }
-
-    // Free the entry outside of the exclusive ref.
-    if (last_reference) {
+    if (table_.SpinTryRemove(h, &copy)) {
       copy.FreeData();
       return true;
     }
@@ -540,14 +532,14 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
 }
 
 size_t ClockCacheShard::GetUsage() const {
-  return table_.usage_;
+  return table_.GetUsage();
 }
 
 size_t ClockCacheShard::GetPinnedUsage() const {
-  // Computes the pinned usage scanning the whole hash table. This
-  // is slow, but avoid keeping an exact counter on the clock usage,
+  // Computes the pinned usage by scanning the whole hash table. This
+  // is slow, but avoids keeping an exact counter on the clock usage,
   // i.e., the number of not externally referenced elements.
-  // Why avoid this? Because Lookup removes elements from the clock
+  // Why avoid this counter? Because Lookup removes elements from the clock
   // list, so it would need to update the pinned usage every time,
   // which creates additional synchronization costs.
   size_t clock_usage = 0;
