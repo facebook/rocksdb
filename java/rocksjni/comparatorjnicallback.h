@@ -92,6 +92,8 @@ class ComparatorJniCallback : public JniCallback, public Comparator {
     virtual void FindShortestSeparator(
       std::string* start, const Slice& limit) const;
     virtual void FindShortSuccessor(std::string* key) const;
+    virtual bool CanKeysWithDifferentByteContentsBeEqual() const;
+
     const ComparatorJniCallbackOptions* m_options;
 
  private:

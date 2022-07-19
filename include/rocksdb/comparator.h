@@ -108,10 +108,11 @@ class Comparator : public Customizable, public CompareInterface {
     return false;
   }
 
-  // return true if two keys with different byte sequences can be regarded
-  // as equal by this comparator.
-  // The major use case is to determine if DataBlockHashIndex is compatible
-  // with the customized comparator.
+  // Return true if two keys with different byte sequences might be regarded
+  // as equal by this comparator (safe). Return false only if it is known that
+  // different byte sequences must be non-equal.
+  // This is used to detect whether hashing features such as hash indexes and
+  // Bloom filters are incompatible with the Comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
 
   // if it is a wrapped comparator, may return the root one.
