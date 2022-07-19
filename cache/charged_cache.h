@@ -21,7 +21,7 @@ class ChargedCache : public Cache {
  public:
   ChargedCache(std::shared_ptr<Cache> cache,
                std::shared_ptr<Cache> block_cache);
-  ~ChargedCache() = default;
+  ~ChargedCache() override = default;
 
   Status Insert(const Slice& key, void* value, size_t charge, DeleterFn deleter,
                 Handle** handle, Priority priority) override;
