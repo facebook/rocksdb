@@ -1160,7 +1160,7 @@ class DBImpl : public DB {
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   void TEST_WaitForPeridicWorkerRun(std::function<void()> callback) const;
-  const SeqnoToTimeMapping& TEST_GetSeqnoToTimeMapping() const;
+  SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   uint64_t TEST_GetCurrentLogNumber() const {
@@ -2544,6 +2544,10 @@ class DBImpl : public DB {
   // PeriodicWorkScheduler::Default(). Only in unittest, it can be overrided by
   // PeriodicWorkTestScheduler.
   PeriodicWorkScheduler* periodic_work_scheduler_;
+
+  // Current cadence of the periodic worker for recording sequence number to
+  // time.
+  uint64_t record_seqno_time_cadence_ = 0;
 #endif
 
   // When set, we use a separate queue for writes that don't write to memtable.
