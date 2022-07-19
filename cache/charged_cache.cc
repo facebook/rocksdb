@@ -61,7 +61,8 @@ Cache::Handle* ChargedCache::Lookup(const Slice& key,
   // cache. So we directly call the reservation manager to update the total
   // memory used in the cache.
   assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
+  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+      .PermitUncheckedError();
   return handle;
 }
 
@@ -93,13 +94,15 @@ bool ChargedCache::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 void ChargedCache::Erase(const Slice& key) {
   cache_->Erase(key);
   assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
+  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+      .PermitUncheckedError();
 }
 
 void ChargedCache::EraseUnRefEntries() {
   cache_->EraseUnRefEntries();
   assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
+  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+      .PermitUncheckedError();
 }
 
 void ChargedCache::SetCapacity(size_t capacity) {
@@ -107,7 +110,8 @@ void ChargedCache::SetCapacity(size_t capacity) {
   // SetCapacity can result in evictions when the cache capacity is decreased,
   // so we would want to update the cache reservation here as well.
   assert(cache_res_mgr_);
-  cache_res_mgr_->UpdateCacheReservation(GetUsage()).PermitUncheckedError();
+  cache_res_mgr_->UpdateCacheReservation(cache_->GetUsage())
+      .PermitUncheckedError();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
