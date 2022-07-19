@@ -8,6 +8,8 @@
 #include <cassert>
 #include <string>
 
+#include "cache/cache_reservation_manager.h"
+#include "cache/charged_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
 #include "monitoring/statistics.h"
@@ -25,7 +27,19 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       db_session_id_(db_session_id),
       statistics_(immutable_options->statistics.get()),
       blob_file_cache_(blob_file_cache),
-      blob_cache_(immutable_options->blob_cache) {}
+      blob_cache_(immutable_options->blob_cache),
+      lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {
+#ifndef ROCKSDB_LITE
+  auto bbto =
+      immutable_options->table_factory->GetOptions<BlockBasedTableOptions>();
+  if (bbto &&
+      bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
+              .charged == CacheEntryRoleOptions::Decision::kEnabled) {
+    blob_cache_ = std::make_shared<ChargedCache>(immutable_options->blob_cache,
+                                                 bbto->block_cache);
+  }
+#endif  // ROCKSDB_LITE
+}
 
 BlobSource::~BlobSource() = default;
 
@@ -62,15 +76,16 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   // self-contained, i.e. own their contents. The Cache has to be able to take
   // unique ownership of them. Therefore, we copy the blob into a string
   // directly, and insert that into the cache.
-  std::string* buf = new std::string();
+  std::unique_ptr<std::string> buf = std::make_unique<std::string>();
   buf->assign(blob->data(), blob->size());
 
   // TODO: support custom allocators and provide a better estimated memory
   // usage using malloc_usable_size.
   Cache::Handle* cache_handle = nullptr;
-  s = InsertEntryIntoCache(cache_key, buf, buf->size(), &cache_handle,
+  s = InsertEntryIntoCache(cache_key, buf.get(), buf->size(), &cache_handle,
                            priority);
   if (s.ok()) {
+    buf.release();
     assert(cache_handle != nullptr);
     *cached_blob =
         CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);
@@ -81,7 +96,24 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
 
 Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
-  cache_handle = blob_cache_->Lookup(key, statistics_);
+
+  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
+    Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
+                                          void** out_obj,
+                                          size_t* charge) -> Status {
+      std::string* blob = new std::string();
+      blob->assign(static_cast<const char*>(buf), size);
+      *out_obj = blob;
+      *charge = size;
+      return Status::OK();
+    };
+    cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
+                                       Cache::Priority::LOW,
+                                       true /* wait_for_cache */, statistics_);
+  } else {
+    cache_handle = blob_cache_->Lookup(key, statistics_);
+  }
+
   if (cache_handle != nullptr) {
     PERF_COUNTER_ADD(blob_cache_hit_count, 1);
     RecordTick(statistics_, BLOB_DB_CACHE_HIT);
@@ -97,9 +129,16 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
                                         size_t charge,
                                         Cache::Handle** cache_handle,
                                         Cache::Priority priority) const {
-  const Status s =
-      blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
-                          cache_handle, priority);
+  Status s;
+
+  if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
+    s = blob_cache_->Insert(key, value, GetCacheItemHelper(), charge,
+                            cache_handle, priority);
+  } else {
+    s = blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
+                            cache_handle, priority);
+  }
+
   if (s.ok()) {
     assert(*cache_handle != nullptr);
     RecordTick(statistics_, BLOB_DB_CACHE_ADD);
@@ -108,6 +147,7 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
   } else {
     RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
   }
+
   return s;
 }
 
@@ -400,6 +440,27 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   }
 
   return false;
+}
+
+// Callbacks for secondary blob cache
+size_t BlobSource::SizeCallback(void* obj) {
+  assert(obj != nullptr);
+  return static_cast<const std::string*>(obj)->size();
+}
+
+Status BlobSource::SaveToCallback(void* from_obj, size_t from_offset,
+                                  size_t length, void* out) {
+  assert(from_obj != nullptr);
+  const std::string* buf = static_cast<const std::string*>(from_obj);
+  assert(buf->size() >= from_offset + length);
+  memcpy(out, buf->data() + from_offset, length);
+  return Status::OK();
+}
+
+Cache::CacheItemHelper* BlobSource::GetCacheItemHelper() {
+  static Cache::CacheItemHelper cache_helper(SizeCallback, SaveToCallback,
+                                             &DeleteCacheEntry<std::string>);
+  return &cache_helper;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

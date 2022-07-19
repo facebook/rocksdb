@@ -99,6 +99,7 @@ using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::PerfContext;
 using ROCKSDB_NAMESPACE::PerfLevel;
 using ROCKSDB_NAMESPACE::PinnableSlice;
+using ROCKSDB_NAMESPACE::PrepopulateBlobCache;
 using ROCKSDB_NAMESPACE::RandomAccessFile;
 using ROCKSDB_NAMESPACE::Range;
 using ROCKSDB_NAMESPACE::RateLimiter;
@@ -3140,6 +3141,14 @@ void rocksdb_options_set_blob_cache(rocksdb_options_t* opt,
   opt->rep.blob_cache = blob_cache->rep;
 }
 
+void rocksdb_options_set_prepopulate_blob_cache(rocksdb_options_t* opt, int t) {
+  opt->rep.prepopulate_blob_cache = static_cast<PrepopulateBlobCache>(t);
+}
+
+int rocksdb_options_get_prepopulate_blob_cache(rocksdb_options_t* opt) {
+  return static_cast<int>(opt->rep.prepopulate_blob_cache);
+}
+
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
   opt->rep.num_levels = n;
 }
@@ -4897,6 +4906,15 @@ void rocksdb_sstfilewriter_delete_with_ts(rocksdb_sstfilewriter_t* writer,
                                           const char* ts, size_t tslen,
                                           char** errptr) {
   SaveError(errptr, writer->rep->Delete(Slice(key, keylen), Slice(ts, tslen)));
+}
+
+void rocksdb_sstfilewriter_delete_range(rocksdb_sstfilewriter_t* writer,
+                                        const char* begin_key,
+                                        size_t begin_keylen,
+                                        const char* end_key, size_t end_keylen,
+                                        char** errptr) {
+  SaveError(errptr, writer->rep->DeleteRange(Slice(begin_key, begin_keylen),
+                                             Slice(end_key, end_keylen)));
 }
 
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,

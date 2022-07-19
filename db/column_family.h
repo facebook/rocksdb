@@ -524,6 +524,8 @@ class ColumnFamilyData {
     return file_metadata_cache_res_mgr_;
   }
 
+  SequenceNumber GetFirstMemtableSequenceNumber() const;
+
   static const uint32_t kDummyColumnFamilyDataId;
 
   // Keep track of whether the mempurge feature was ever used.

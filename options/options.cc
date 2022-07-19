@@ -92,6 +92,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
       sample_for_compression(options.sample_for_compression),
+      preclude_last_level_data_seconds(
+          options.preclude_last_level_data_seconds),
       enable_blob_files(options.enable_blob_files),
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
@@ -103,7 +105,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.blob_garbage_collection_force_threshold),
       blob_compaction_readahead_size(options.blob_compaction_readahead_size),
       blob_file_starting_level(options.blob_file_starting_level),
-      blob_cache(options.blob_cache) {
+      blob_cache(options.blob_cache),
+      prepopulate_blob_cache(options.prepopulate_blob_cache) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -398,6 +401,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
+    ROCKS_LOG_HEADER(log, " Options.preclude_last_level_data_seconds: %" PRIu64,
+                     preclude_last_level_data_seconds);
     ROCKS_LOG_HEADER(log, "                      Options.enable_blob_files: %s",
                      enable_blob_files ? "true" : "false");
     ROCKS_LOG_HEADER(
@@ -424,6 +429,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                        blob_cache->Name());
       ROCKS_LOG_HEADER(log, "                          blob_cache options: %s",
                        blob_cache->GetPrintableOptions().c_str());
+      ROCKS_LOG_HEADER(
+          log, "                          blob_cache prepopulated: %s",
+          prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+              ? "flush only"
+              : "disabled");
     }
     ROCKS_LOG_HEADER(log, "Options.experimental_mempurge_threshold: %f",
                      experimental_mempurge_threshold);

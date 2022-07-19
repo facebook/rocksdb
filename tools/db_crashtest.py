@@ -349,6 +349,7 @@ blob_params = {
     "use_blob_cache": lambda: random.randint(0, 1),
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
+    "prepopulate_blob_cache": lambda: random.randint(0, 1),
 }
 
 ts_params = {

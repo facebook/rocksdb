@@ -571,12 +571,12 @@ enum class CacheEntryRole {
   // Filter's charge to account for
   // (new) bloom and ribbon filter construction's memory usage
   kFilterConstruction,
-  // BlockBasedTableReader's charge to account for
-  // its memory usage
+  // BlockBasedTableReader's charge to account for its memory usage
   kBlockBasedTableReader,
-  // FileMetadata's charge to account for
-  // its memory usage
+  // FileMetadata's charge to account for its memory usage
   kFileMetadata,
+  // Blob cache's charge to account for its memory usage
+  kBlobCache,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,

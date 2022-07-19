@@ -27,6 +27,7 @@
 #include "db/log_writer.h"
 #include "db/memtable_list.h"
 #include "db/range_del_aggregator.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
@@ -298,6 +299,17 @@ class CompactionJob {
   BlobFileCompletionCallback* blob_callback_;
 
   uint64_t GetCompactionId(SubcompactionState* sub_compact) const;
+
+  // Stores the sequence number to time mapping gathered from all input files
+  // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
+  SeqnoToTimeMapping seqno_time_mapping_;
+
+  // cutoff sequence number for penultimate level, only set when
+  // per_key_placement feature is enabled.
+  // If a key with sequence number larger than penultimate_level_cutoff_seqno_,
+  // it will be placed on the penultimate_level and seqnuence number won't be
+  // zeroed out.
+  SequenceNumber penultimate_level_cutoff_seqno_ = kMaxSequenceNumber;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
