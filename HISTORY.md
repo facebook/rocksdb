@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.4.4 (07/19/2022)
 ### Public API changes
 * Removed Customizable support for RateLimiter and removed its CreateFromString() and Type() functions.
 
