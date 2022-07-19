@@ -23,6 +23,7 @@ std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToCamelString{{
     "FilterConstruction",
     "BlockBasedTableReader",
     "FileMetadata",
+    "BlobCache",
     "Misc",
 }};
 
@@ -38,6 +39,7 @@ std::array<std::string, kNumCacheEntryRoles> kCacheEntryRoleToHyphenString{{
     "filter-construction",
     "block-based-table-reader",
     "file-metadata",
+    "blob-cache",
     "misc",
 }};
 

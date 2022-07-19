@@ -1170,23 +1170,28 @@ DEFINE_bool(async_io, false,
 
 DEFINE_bool(charge_compression_dictionary_building_buffer, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kCompressionDictionaryBuildingBuffer");
 
 DEFINE_bool(charge_filter_construction, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kFilterConstruction");
 
 DEFINE_bool(charge_table_reader, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kBlockBasedTableReader");
 
 DEFINE_bool(charge_file_metadata, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kFileMetadata");
+
+DEFINE_bool(charge_blob_cache, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of "
+            "CacheEntryRole::kBlobCache");
 
 DEFINE_uint64(backup_rate_limit, 0ull,
               "If non-zero, db_bench will rate limit reads and writes for DB "
@@ -4294,6 +4299,11 @@ class Benchmark {
            {/*.charged = */ FLAGS_charge_file_metadata
                 ? CacheEntryRoleOptions::Decision::kEnabled
                 : CacheEntryRoleOptions::Decision::kDisabled}});
+      block_based_options.cache_usage_options.options_overrides.insert(
+          {CacheEntryRole::kBlobCache,
+           {/*.charged = */ FLAGS_charge_blob_cache
+                ? CacheEntryRoleOptions::Decision::kEnabled
+                : CacheEntryRoleOptions::Decision::kDisabled}});
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
@@ -4369,6 +4379,46 @@ class Benchmark {
 
 #endif
       }
+
+      if (FLAGS_use_blob_cache) {
+        if (FLAGS_use_shared_block_and_blob_cache) {
+          options.blob_cache = cache_;
+        } else {
+          if (FLAGS_blob_cache_size > 0) {
+            LRUCacheOptions co;
+            co.capacity = FLAGS_blob_cache_size;
+            co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+            options.blob_cache = NewLRUCache(co);
+          } else {
+            fprintf(
+                stderr,
+                "Unable to create a standalone blob cache if blob_cache_size "
+                "<= 0.\n");
+            exit(1);
+          }
+        }
+        switch (FLAGS_prepopulate_blob_cache) {
+          case 0:
+            options.prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+            break;
+          case 1:
+            options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+            break;
+          default:
+            fprintf(stderr, "Unknown prepopulate blob cache mode\n");
+            exit(1);
+        }
+        fprintf(stdout,
+                "Integrated BlobDB: blob cache enabled, block and blob caches "
+                "shared: %d, blob cache size %" PRIu64
+                ", blob cache num shard bits: %d, hot/warm blobs prepopulated: "
+                "%d\n",
+                FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+                FLAGS_blob_cache_numshardbits, FLAGS_prepopulate_blob_cache);
+      } else {
+        fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+      }
+
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
     }
@@ -4511,44 +4561,6 @@ class Benchmark {
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;
-
-    if (FLAGS_use_blob_cache) {
-      if (FLAGS_use_shared_block_and_blob_cache) {
-        options.blob_cache = cache_;
-      } else {
-        if (FLAGS_blob_cache_size > 0) {
-          LRUCacheOptions co;
-          co.capacity = FLAGS_blob_cache_size;
-          co.num_shard_bits = FLAGS_blob_cache_numshardbits;
-          options.blob_cache = NewLRUCache(co);
-        } else {
-          fprintf(stderr,
-                  "Unable to create a standalone blob cache if blob_cache_size "
-                  "<= 0.\n");
-          exit(1);
-        }
-      }
-      switch (FLAGS_prepopulate_blob_cache) {
-        case 0:
-          options.prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
-          break;
-        case 1:
-          options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
-          break;
-        default:
-          fprintf(stderr, "Unknown prepopulate blob cache mode\n");
-          exit(1);
-      }
-      fprintf(
-          stdout,
-          "Integrated BlobDB: blob cache enabled, block and blob caches "
-          "shared: %d, blob cache size %" PRIu64
-          ", blob cache num shard bits: %d, hot/warm blobs prepopulated: %d\n",
-          FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
-          FLAGS_blob_cache_numshardbits, FLAGS_prepopulate_blob_cache);
-    } else {
-      fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
-    }
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {

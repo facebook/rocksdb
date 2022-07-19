@@ -484,9 +484,9 @@ class LRUCache
   virtual void WaitAll(std::vector<Handle*>& handles) override;
   std::string GetPrintableOptions() const override;
 
-  //  Retrieves number of elements in LRU, for unit test purpose only.
+  // Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
-  //  Retrieves high pri pool ratio.
+  // Retrieves high pri pool ratio.
   double GetHighPriPoolRatio();
 
  private:

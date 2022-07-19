@@ -141,6 +141,7 @@ DECLARE_bool(charge_compression_dictionary_building_buffer);
 DECLARE_bool(charge_filter_construction);
 DECLARE_bool(charge_table_reader);
 DECLARE_bool(charge_file_metadata);
+DECLARE_bool(charge_blob_cache);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
