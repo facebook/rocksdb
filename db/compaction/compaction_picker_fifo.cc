@@ -83,7 +83,12 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
           break;
         }
       }
-      total_size -= f->compensated_file_size;
+      // avoid underflow
+      if (total_size < f->compensated_file_size) {
+        total_size = 0;
+      } else {
+        total_size -= f->compensated_file_size;
+      }
       inputs[0].files.push_back(f);
     }
   }
