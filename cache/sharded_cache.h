@@ -86,7 +86,7 @@ class ShardedCache : public Cache {
                         DeleterFn deleter, Handle** handle,
                         Priority priority) override;
   virtual Status Insert(const Slice& key, void* value,
-                        const CacheItemHelper* helper, size_t chargge,
+                        const CacheItemHelper* helper, size_t charge,
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
