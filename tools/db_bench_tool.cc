@@ -4296,7 +4296,7 @@ class Benchmark {
       }
       if (FLAGS_cache_high_pri_pool_ratio + FLAGS_cache_low_pri_pool_ratio >
           1.0) {
-        sprintf(stderr,
+        fprintf(stderr,
                 "Sum of high_pri_pool_ratio and low_pri_pool_ratio "
                 "cannot exceed 1.0.\n");
       }
