@@ -5,6 +5,8 @@
 
 #include "cache/compressed_secondary_cache.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 
 #include "memory/memory_allocator.h"
@@ -171,23 +173,17 @@ CompressedSecondaryCache::SplitValueIntoChunks(
         current_chunk->charge = src_size;
         src_size = 0;
       } else {
-        for (size_t i = 0; i < malloc_bin_sizes_.size() - 1; ++i) {
-          if (src_size >= malloc_bin_sizes_[i] &&
-              src_size < malloc_bin_sizes_[i + 1]) {
-            current_chunk->charge = malloc_bin_sizes_[i];
-            ptr = AllocateBlock(current_chunk->charge,
-                                cache_options_.memory_allocator.get());
-            memcpy(ptr.get(), src_ptr, current_chunk->charge);
-            current_chunk->chunk_ptr = std::move(ptr);
-            src_size -= current_chunk->charge;
-            src_ptr += current_chunk->charge;
-          }
-        }
+        auto upper = std::upper_bound(malloc_bin_sizes_.begin(),
+                                      malloc_bin_sizes_.end(), src_size);
+        current_chunk->charge = *(--upper);
+        ptr = AllocateBlock(current_chunk->charge,
+                            cache_options_.memory_allocator.get());
+        memcpy(ptr.get(), src_ptr, current_chunk->charge);
+        current_chunk->chunk_ptr = std::move(ptr);
+        src_size -= current_chunk->charge;
+        src_ptr += current_chunk->charge;
       }
       if (src_size > 0) {
-        // std::unique_ptr<CacheValueChunk> next_chunk =
-        //     std::make_unique<CacheValueChunk>();
-        // current_chunk->next = std::move(next_chunk);
         current_chunk->next = std::make_unique<CacheValueChunk>();
         current_chunk = current_chunk->next.get();
       }

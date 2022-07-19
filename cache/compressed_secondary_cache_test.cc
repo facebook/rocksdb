@@ -527,20 +527,20 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.0);
     Random rnd(301);
-    // 2399 = 2048 + 320 + 31 , so there should be 3 chunks after split.
-    size_t str_size{2399};
+    // 10000 = 8192 + 1792 + 96 + 10 , so there should be 3 chunks after split.
+    size_t str_size{10000};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
-    size_t charge{2399};
+    size_t charge{str_size};
     std::unique_ptr<CacheValueChunk> chunks_head =
         sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
     ASSERT_EQ(charge, str_size + 3 * sizeof(CacheValueChunk));
 
     CacheValueChunk* current_chunk = chunks_head.get();
-    ASSERT_EQ(current_chunk->charge, 2048);
+    ASSERT_EQ(current_chunk->charge, 8192);
     current_chunk = current_chunk->next.get();
-    ASSERT_EQ(current_chunk->charge, 320);
+    ASSERT_EQ(current_chunk->charge, 1792);
     current_chunk = current_chunk->next.get();
-    ASSERT_EQ(current_chunk->charge, 31);
+    ASSERT_EQ(current_chunk->charge, 16);
   }
 
   void MergeChunksIntoValueTest() {

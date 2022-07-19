@@ -82,11 +82,10 @@ class CompressedSecondaryCache : public SecondaryCache {
 
  private:
   friend class CompressedSecondaryCacheTest;
-  // TODO add CACHE_LINE_SIZE info.
-  // TODO what should be min and max size here.
-  static constexpr std::array<uint16_t, 20> malloc_bin_sizes_{
-      64,  96,  128, 160, 192,  224,  256,  320,  384,   448,
-      512, 640, 768, 896, 1024, 2048, 4096, 8192, 16384, 32768};
+  static constexpr std::array<uint16_t, 32> malloc_bin_sizes_{
+      64,   96,   128,  160,  192,  224,   256,   320,   384,   448,  512,
+      640,  768,  896,  1024, 1280, 1536,  1792,  2048,  2560,  3072, 3584,
+      4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 32768};
   struct CacheValueChunk {
     CacheAllocationPtr chunk_ptr = nullptr;
     size_t charge = 0;
