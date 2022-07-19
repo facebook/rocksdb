@@ -274,7 +274,7 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
 
   Insert("f", Cache::Priority::LOW);
   Insert("g", Cache::Priority::LOW);
-  ValidateLRUList({ "v", "d", "e", "f", "g", "Z"}, 1, 2, 3);
+  ValidateLRUList({"v", "d", "e", "f", "g", "Z"}, 1, 2, 3);
   ASSERT_TRUE(Lookup("d"));
   ValidateLRUList({"v", "e", "f", "g", "Z", "d"}, 2, 2, 2);
 
