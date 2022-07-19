@@ -116,10 +116,6 @@ std::string InternalKey::DebugString(bool hex) const {
   return result;
 }
 
-const char* InternalKeyComparator::Name() const {
-  return "rocksdb.anonymous.InternalKeyComparator";
-}
-
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,
                                    const ParsedInternalKey& b) const {
   // Order by:
@@ -139,40 +135,6 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
     }
   }
   return r;
-}
-
-void InternalKeyComparator::FindShortestSeparator(std::string* start,
-                                                  const Slice& limit) const {
-  // Attempt to shorten the user portion of the key
-  Slice user_start = ExtractUserKey(*start);
-  Slice user_limit = ExtractUserKey(limit);
-  std::string tmp(user_start.data(), user_start.size());
-  user_comparator_.FindShortestSeparator(&tmp, user_limit);
-  if (tmp.size() <= user_start.size() &&
-      user_comparator_.Compare(user_start, tmp) < 0) {
-    // User key has become shorter physically, but larger logically.
-    // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
-               PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-    assert(this->Compare(*start, tmp) < 0);
-    assert(this->Compare(tmp, limit) < 0);
-    start->swap(tmp);
-  }
-}
-
-void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
-  Slice user_key = ExtractUserKey(*key);
-  std::string tmp(user_key.data(), user_key.size());
-  user_comparator_.FindShortSuccessor(&tmp);
-  if (tmp.size() <= user_key.size() &&
-      user_comparator_.Compare(user_key, tmp) < 0) {
-    // User key has become shorter physically, but larger logically.
-    // Tack on the earliest possible number to the shortened user key.
-    PutFixed64(&tmp,
-               PackSequenceAndType(kMaxSequenceNumber, kValueTypeForSeek));
-    assert(this->Compare(*key, tmp) < 0);
-    key->swap(tmp);
-  }
 }
 
 LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,

@@ -70,6 +70,7 @@ class LDBCommand {
   static const std::string ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD;
   static const std::string ARG_BLOB_COMPACTION_READAHEAD_SIZE;
   static const std::string ARG_BLOB_FILE_STARTING_LEVEL;
+  static const std::string ARG_PREPOPULATE_BLOB_CACHE;
   static const std::string ARG_DECODE_BLOB_INDEX;
   static const std::string ARG_DUMP_UNCOMPRESSED_BLOBS;
 

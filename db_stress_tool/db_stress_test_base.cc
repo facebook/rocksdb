@@ -10,6 +10,7 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
@@ -114,9 +115,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   }
 
   if (FLAGS_cache_type == "clock_cache") {
-    auto cache = NewClockCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                               num_shard_bits, false /*strict_capacity_limit*/,
-                               kDefaultCacheMetadataChargePolicy);
+    auto cache = ExperimentalNewClockCache(
+        static_cast<size_t>(capacity), FLAGS_block_size, num_shard_bits,
+        false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);
@@ -269,6 +270,8 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
                         std::vector<std::string>{"0", "1", "2"});
+    options_tbl.emplace("prepopulate_blob_cache",
+                        std::vector<std::string>{"kDisable", "kFlushOnly"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -2400,9 +2403,12 @@ void StressTest::Open(SharedState* shared) {
     fprintf(stdout,
             "Integrated BlobDB: blob cache enabled, block and blob caches "
             "shared: %d, blob cache size %" PRIu64
-            ", blob cache num shard bits: %d\n",
+            ", blob cache num shard bits: %d, blob cache prepopulated: %s\n",
             FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
-            FLAGS_blob_cache_numshardbits);
+            FLAGS_blob_cache_numshardbits,
+            options_.prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+                ? "flush only"
+                : "disable");
   } else {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
@@ -3041,6 +3047,17 @@ void InitializeOptionsFromFlags(
                 "<= 0.\n");
         exit(1);
       }
+    }
+    switch (FLAGS_prepopulate_blob_cache) {
+      case 0:
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+        break;
+      case 1:
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+        break;
+      default:
+        fprintf(stderr, "Unknown prepopulate blob cache mode\n");
+        exit(1);
     }
   }
 

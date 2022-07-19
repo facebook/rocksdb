@@ -32,8 +32,10 @@ class PeriodicWorkScheduler {
 
   Status Register(DBImpl* dbi, unsigned int stats_dump_period_sec,
                   unsigned int stats_persist_period_sec);
+  Status RegisterRecordSeqnoTimeWorker(DBImpl* dbi, uint64_t record_cadence);
 
   void Unregister(DBImpl* dbi);
+  void UnregisterRecordSeqnoTimeWorker(DBImpl* dbi);
 
   // Periodically flush info log out of application buffer at a low frequency.
   // This improves debuggability in case of RocksDB hanging since it ensures the
@@ -52,8 +54,9 @@ class PeriodicWorkScheduler {
 
   explicit PeriodicWorkScheduler(const std::shared_ptr<SystemClock>& clock);
 
- private:
-  std::string GetTaskName(DBImpl* dbi, const std::string& func_name);
+  // Get the unique task name (prefix with db session id)
+  std::string GetTaskName(const DBImpl* dbi,
+                          const std::string& func_name) const;
 };
 
 #ifndef NDEBUG
@@ -68,10 +71,19 @@ class PeriodicWorkTestScheduler : public PeriodicWorkScheduler {
 
   size_t TEST_GetValidTaskNum() const;
 
+  bool TEST_HasValidTask(const DBImpl* dbi, const std::string& func_name) const;
+
  private:
   explicit PeriodicWorkTestScheduler(const std::shared_ptr<SystemClock>& clock);
 };
 #endif  // !NDEBUG
+
+struct PeriodicWorkTaskNames {
+  static const std::string kDumpStats;
+  static const std::string kPersistStats;
+  static const std::string kFlushInfoLog;
+  static const std::string kRecordSeqnoTime;
+};
 
 }  // namespace ROCKSDB_NAMESPACE
 

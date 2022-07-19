@@ -272,6 +272,7 @@ DECLARE_bool(use_blob_cache);
 DECLARE_bool(use_shared_block_and_blob_cache);
 DECLARE_uint64(blob_cache_size);
 DECLARE_int32(blob_cache_numshardbits);
+DECLARE_int32(prepopulate_blob_cache);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);

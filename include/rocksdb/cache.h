@@ -187,9 +187,10 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 // Return nullptr if it is not supported.
 // ``
 extern std::shared_ptr<Cache> NewClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy);
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy);
 
 class Cache {
  public:
