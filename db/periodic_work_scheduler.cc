@@ -64,7 +64,9 @@ Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
   }
   auto result = tasks_map_.try_emplace(
       task_type, TaskInfo{unique_id, repeat_period_seconds});
-  assert(result.second);
+  if (!result.second) {
+    return Status::Aborted("Failed to add periodic task");
+  };
   return Status::OK();
 }
 
