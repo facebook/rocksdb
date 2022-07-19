@@ -421,35 +421,6 @@ void StressTest::PrintStatistics() {
   }
 }
 
-void StressTest::ReleaseOldTimestampedSnapshots(uint64_t ts) {
-#ifndef ROCKSDB_LITE
-  if (!txn_db_) {
-    return;
-  }
-  assert(txn_db_);
-  txn_db_->ReleaseTimestampedSnapshotsOlderThan(ts);
-#else
-  (void)ts;
-  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
-  exit(1);
-#endif  // ROCKSDB_LITE
-}
-
-std::pair<Status, std::shared_ptr<const Snapshot>>
-StressTest::CreateTimestampedSnapshot(uint64_t ts) {
-#ifndef ROCKSDB_LITE
-  if (!txn_db_) {
-    return std::make_pair(Status::InvalidArgument(), nullptr);
-  }
-  assert(txn_db_);
-  return txn_db_->CreateTimestampedSnapshot(ts);
-#else
-  (void)ts;
-  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
-  exit(1);
-#endif  // ROCKSDB_LITE
-}
-
 // Currently PreloadDb has to be single-threaded.
 void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
                                               SharedState* shared) {
@@ -594,6 +565,7 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
+  assert(txn_db_);
   Status s = txn->Prepare();
   std::shared_ptr<const Snapshot> timestamped_snapshot;
   if (s.ok()) {
@@ -602,9 +574,31 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
       uint64_t ts = db_stress_env->NowNanos();
       s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
                                           &timestamped_snapshot);
+
+      std::pair<Status, std::shared_ptr<const Snapshot>> res;
+      if (thread->tid == 0) {
+        uint64_t now = db_stress_env->NowNanos();
+        res = txn_db_->CreateTimestampedSnapshot(now);
+        if (res.first.ok()) {
+          assert(res.second);
+          assert(res.second->GetTimestamp() == now);
+          if (timestamped_snapshot) {
+            assert(res.second->GetTimestamp() >
+                   timestamped_snapshot->GetTimestamp());
+          }
+        } else {
+          assert(!res.second);
+        }
+      }
     } else {
       s = txn->Commit();
     }
+  }
+  if (thread && FLAGS_create_timestamped_snapshot_one_in > 0 &&
+      thread->rand.OneInOpt(50000)) {
+    uint64_t now = db_stress_env->NowNanos();
+    constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
+    txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
   }
   delete txn;
   return s;
