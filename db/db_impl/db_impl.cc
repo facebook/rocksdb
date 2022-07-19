@@ -494,8 +494,13 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 #ifndef ROCKSDB_LITE
   for (uint8_t task_type = 0;
        task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
-    periodic_task_scheduler_.Unregister(
+    Status s = periodic_task_scheduler_.Unregister(
         static_cast<PeriodicTaskType>(task_type));
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to unregister periodic task %d, status: %s",
+                     task_type, s.ToString().c_str());
+    }
   }
 #endif  // !ROCKSDB_LITE
 
