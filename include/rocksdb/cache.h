@@ -72,6 +72,18 @@ struct LRUCacheOptions {
   // BlockBasedTableOptions::cache_index_and_filter_blocks_with_high_priority.
   double high_pri_pool_ratio = 0.5;
 
+  // Percentage of cache reserved for low priority entries.
+  // If greater than zero, the LRU list will be split into a high-pri list, a
+  // low-pri list and a bottom-pri list. High-pri entries will be inserted to
+  // the tail of high-pri list, while low-pri entries will be first inserted to
+  // the low-pri list (the midpoint) and bottom-pri entries will be first
+  // inserted to the bottom-pri list (the midpoint). This is referred to as
+  // midpoint insertion strategy to make entries that never get hit in cache age
+  // out faster.
+  //
+  // See also high_pri_pool_ratio.
+  double low_pri_pool_ratio = 0.5;
+
   // If non-nullptr will use this allocator instead of system allocator when
   // allocating memory for cache blocks. Call this method before you start using
   // the cache!
@@ -96,6 +108,7 @@ struct LRUCacheOptions {
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
                   bool _strict_capacity_limit, double _high_pri_pool_ratio,
+                  double _low_pri_pool_ratio,
                   std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
                   bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
                   CacheMetadataChargePolicy _metadata_charge_policy =
@@ -104,6 +117,7 @@ struct LRUCacheOptions {
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
+        low_pri_pool_ratio(_low_pri_pool_ratio),
         memory_allocator(std::move(_memory_allocator)),
         use_adaptive_mutex(_use_adaptive_mutex),
         metadata_charge_policy(_metadata_charge_policy) {}
@@ -120,6 +134,7 @@ struct LRUCacheOptions {
 extern std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
+    double low_pri_pool_ratio = 0.5,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
     bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
     CacheMetadataChargePolicy metadata_charge_policy =
@@ -145,7 +160,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   CompressedSecondaryCacheOptions() {}
   CompressedSecondaryCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
-      double _high_pri_pool_ratio,
+      double _high_pri_pool_ratio, double _low_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
       bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy _metadata_charge_policy =
@@ -153,8 +168,9 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
       CompressionType _compression_type = CompressionType::kLZ4Compression,
       uint32_t _compress_format_version = 2)
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
-                        _high_pri_pool_ratio, std::move(_memory_allocator),
-                        _use_adaptive_mutex, _metadata_charge_policy),
+                        _high_pri_pool_ratio, _low_pri_pool_ratio,
+                        std::move(_memory_allocator), _use_adaptive_mutex,
+                        _metadata_charge_policy),
         compression_type(_compression_type),
         compress_format_version(_compress_format_version) {}
 };
@@ -164,6 +180,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits = -1,
     bool strict_capacity_limit = false, double high_pri_pool_ratio = 0.5,
+    double low_pri_pool_ratio = 0.5,
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
     bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
     CacheMetadataChargePolicy metadata_charge_policy =

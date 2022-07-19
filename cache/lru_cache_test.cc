@@ -41,13 +41,14 @@ class LRUCacheTest : public testing::Test {
   }
 
   void NewCache(size_t capacity, double high_pri_pool_ratio = 0.0,
+                double low_pri_pool_ratio = 1.0,
                 bool use_adaptive_mutex = kDefaultToAdaptiveMutex) {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
     new (cache_) LRUCacheShard(
         capacity, false /*strict_capcity_limit*/, high_pri_pool_ratio,
-        use_adaptive_mutex, kDontChargeCacheMetadata,
+        low_pri_pool_ratio, use_adaptive_mutex, kDontChargeCacheMetadata,
         24 /*max_upper_hash_bits*/, nullptr /*secondary_cache*/);
   }
 
@@ -77,7 +78,8 @@ class LRUCacheTest : public testing::Test {
 
   void ValidateLRUList(std::vector<std::string> keys,
                        size_t num_high_pri_pool_keys = 0,
-                       size_t num_low_pri_pool_keys = 0) {
+                       size_t num_low_pri_pool_keys = 0,
+                       size_t num_bottom_pri_pool_keys = 0) {
     LRUHandle* lru;
     LRUHandle* lru_low_pri;
     LRUHandle* lru_bottom_pri;
@@ -85,20 +87,23 @@ class LRUCacheTest : public testing::Test {
     LRUHandle* iter = lru;
     size_t high_pri_pool_keys = 0;
     size_t low_pri_pool_keys = 0;
+    size_t bottom_pri_pool_keys = 0;
     for (const auto& key : keys) {
       iter = iter->next;
       ASSERT_NE(lru, iter);
       ASSERT_EQ(key, iter->key().ToString());
       if (iter->InHighPriPool()) {
         high_pri_pool_keys++;
-      }
-      if (iter->InLowPriPool()) {
+      } else if (iter->InLowPriPool()) {
         low_pri_pool_keys++;
+      } else {
+        bottom_pri_pool_keys++;
       }
     }
     ASSERT_EQ(lru, iter->next);
     ASSERT_EQ(num_high_pri_pool_keys, high_pri_pool_keys);
     ASSERT_EQ(num_low_pri_pool_keys, low_pri_pool_keys);
+    ASSERT_EQ(num_bottom_pri_pool_keys, bottom_pri_pool_keys);
   }
 
  private:
@@ -131,9 +136,9 @@ TEST_F(LRUCacheTest, BasicLRU) {
   ValidateLRUList({"e", "z", "d", "u", "v"}, 0, 5);
 }
 
-TEST_F(LRUCacheTest, MidpointInsertion) {
-  // Allocate 2 cache entries to high-pri pool.
-  NewCache(5, 0.45);
+TEST_F(LRUCacheTest, LowPriorityMidpointInsertion) {
+  // Allocate 2 cache entries to high-pri pool and 3 to low-pri pool.
+  NewCache(5, /* high_pri_pool_ratio */ 0.40, /* low_pri_pool_ratio */ 0.60);
 
   Insert("a", Cache::Priority::LOW);
   Insert("b", Cache::Priority::LOW);
@@ -142,8 +147,8 @@ TEST_F(LRUCacheTest, MidpointInsertion) {
   Insert("y", Cache::Priority::HIGH);
   ValidateLRUList({"a", "b", "c", "x", "y"}, 2, 3);
 
-  // Low-pri entries will be inserted to the tail of low-pri list (the
-  // midpoint). After lookup, it will move to the tail of the full list.
+  // Low-pri entries inserted to the tail of low-pri list (the midpoint).
+  // After lookup, it will move to the tail of the full list.
   Insert("d", Cache::Priority::LOW);
   ValidateLRUList({"b", "c", "d", "x", "y"}, 2, 3);
   ASSERT_TRUE(Lookup("d"));
@@ -152,139 +157,170 @@ TEST_F(LRUCacheTest, MidpointInsertion) {
   // High-pri entries will be inserted to the tail of full list.
   Insert("z", Cache::Priority::HIGH);
   ValidateLRUList({"c", "x", "y", "d", "z"}, 2, 3);
+}
 
+TEST_F(LRUCacheTest, BottomPriorityMidpointInsertion) {
+  // Allocate 2 cache entries to high-pri pool and 2 to low-pri pool.
+  NewCache(6, /* high_pri_pool_ratio */ 0.35, /* low_pri_pool_ratio */ 0.35);
+
+  Insert("a", Cache::Priority::BOTTOM);
+  Insert("b", Cache::Priority::BOTTOM);
+  Insert("i", Cache::Priority::LOW);
+  Insert("j", Cache::Priority::LOW);
+  Insert("x", Cache::Priority::HIGH);
+  Insert("y", Cache::Priority::HIGH);
+  ValidateLRUList({"a", "b", "i", "j", "x", "y"}, 2, 2, 2);
+
+  // Low-pri entries will be inserted to the tail of low-pri list (the
+  // midpoint). After lookup, it will move to the tail of the full list.
+  Insert("k", Cache::Priority::LOW);
+  ValidateLRUList({"b", "i", "j", "k", "x", "y"}, 2, 2, 2);
+  ASSERT_TRUE(Lookup("k"));
+  ValidateLRUList({"b", "i", "j", "x", "y", "k"}, 2, 2, 2);
+
+  // High-pri entries will be inserted to the tail of full list.
+  Insert("z", Cache::Priority::HIGH);
+  ValidateLRUList({"i", "j", "x", "y", "k", "z"}, 2, 2, 2);
   Erase("x");
-  ValidateLRUList({"c", "y", "d", "z"}, 2, 2);
+  ValidateLRUList({"i", "j", "y", "k", "z"}, 2, 1, 2);
   Erase("y");
-  ValidateLRUList({"c", "d", "z"}, 2, 1);
+  ValidateLRUList({"i", "j", "k", "z"}, 2, 0, 2);
 
   // Bottom-pri entries will be inserted to the tail of bottom-pri list (the
   // midpoint).
-  Insert("h", Cache::Priority::BOTTOM);
-  ValidateLRUList({"h", "c", "d", "z"}, 2, 1);
-  Insert("i", Cache::Priority::BOTTOM);
-  ValidateLRUList({"h", "i", "c", "d", "z"}, 2, 1);
-  Insert("j", Cache::Priority::BOTTOM);
-  ValidateLRUList({"i", "j", "c", "d", "z"}, 2, 1);
+  Insert("c", Cache::Priority::BOTTOM);
+  ValidateLRUList({"i", "j", "c", "k", "z"}, 2, 0, 3);
+  Insert("d", Cache::Priority::BOTTOM);
+  ValidateLRUList({"i", "j", "c", "d", "k", "z"}, 2, 0, 4);
+  Insert("e", Cache::Priority::BOTTOM);
+  ValidateLRUList({"j", "c", "d", "e", "k", "z"}, 2, 0, 4);
 
   // Low-pri entries will be inserted to the tail of low-pri list (the
   // midpoint).
-  Insert("k", Cache::Priority::LOW);
-  ValidateLRUList({"j", "c", "k", "d", "z"}, 2, 2);
   Insert("l", Cache::Priority::LOW);
-  ValidateLRUList({"c", "k", "l", "d", "z"}, 2, 3);
+  ValidateLRUList({"c", "d", "e", "l", "k", "z"}, 2, 1, 3);
+  Insert("m", Cache::Priority::LOW);
+  ValidateLRUList({"d", "e", "l", "m", "k", "z"}, 2, 2, 2);
 
-  Erase("d");
-  ValidateLRUList({"c", "k", "l", "z"}, 1, 3);
+  Erase("k");
+  ValidateLRUList({"d", "e", "l", "m", "z"}, 1, 2, 2);
   Erase("z");
-  ValidateLRUList({"c", "k", "l"}, 0, 3);
+  ValidateLRUList({"d", "e", "l", "m"}, 0, 2, 2);
 
   // Bottom-pri entries will be inserted to the tail of bottom-pri list (the
   // midpoint).
-  Insert("m", Cache::Priority::BOTTOM);
-  ValidateLRUList({"m", "c", "k", "l"}, 0, 3);
+  Insert("f", Cache::Priority::BOTTOM);
+  ValidateLRUList({"d", "e", "f", "l", "m"}, 0, 2, 3);
+  Insert("g", Cache::Priority::BOTTOM);
+  ValidateLRUList({"d", "e", "f", "g", "l", "m"}, 0, 2, 4);
 
   // High-pri entries will be inserted to the tail of full list.
-  Insert("n", Cache::Priority::HIGH);
-  ValidateLRUList({"m", "c", "k", "l", "n"}, 1, 3);
   Insert("o", Cache::Priority::HIGH);
-  ValidateLRUList({"c", "k", "l", "n", "o"}, 2, 3);
+  ValidateLRUList({"e", "f", "g", "l", "m", "o"}, 1, 2, 3);
+  Insert("p", Cache::Priority::HIGH);
+  ValidateLRUList({"f", "g", "l", "m", "o", "p"}, 2, 2, 2);
 }
 
 TEST_F(LRUCacheTest, EntriesWithPriority) {
-  // Allocate 2 cache entries to high-pri pool.
-  NewCache(5, 0.45);
+  // Allocate 2 cache entries to high-pri pool and 2 to low-pri pool.
+  NewCache(6, /* high_pri_pool_ratio */ 0.35, /* low_pri_pool_ratio */ 0.35);
 
   Insert("a", Cache::Priority::LOW);
   Insert("b", Cache::Priority::LOW);
+  ValidateLRUList({"a", "b"}, 0, 2, 0);
+  // Low-pri entries can overflow to bottom-pri pool.
   Insert("c", Cache::Priority::LOW);
-  ValidateLRUList({"a", "b", "c"}, 0, 3);
+  ValidateLRUList({"a", "b", "c"}, 0, 2, 1);
 
-  // Low-pri entries can take high-pri pool capacity if available
+  // Bottom-pri entries can take high-pri pool capacity if available
+  Insert("t", Cache::Priority::LOW);
   Insert("u", Cache::Priority::LOW);
+  ValidateLRUList({"a", "b", "c", "t", "u"}, 0, 2, 3);
   Insert("v", Cache::Priority::LOW);
-  ValidateLRUList({"a", "b", "c", "u", "v"}, 0, 5);
+  ValidateLRUList({"a", "b", "c", "t", "u", "v"}, 0, 2, 4);
+  Insert("w", Cache::Priority::LOW);
+  ValidateLRUList({"b", "c", "t", "u", "v", "w"}, 0, 2, 4);
 
   Insert("X", Cache::Priority::HIGH);
   Insert("Y", Cache::Priority::HIGH);
-  ValidateLRUList({"c", "u", "v", "X", "Y"}, 2, 3);
+  ValidateLRUList({"t", "u", "v", "w", "X", "Y"}, 2, 2, 2);
 
   // High-pri entries can overflow to low-pri pool.
   Insert("Z", Cache::Priority::HIGH);
-  ValidateLRUList({"u", "v", "X", "Y", "Z"}, 2, 3);
+  ValidateLRUList({"u", "v", "w", "X", "Y", "Z"}, 2, 2, 2);
 
   // Low-pri entries will be inserted to head of low-pri pool.
   Insert("a", Cache::Priority::LOW);
-  ValidateLRUList({"v", "X", "a", "Y", "Z"}, 2, 3);
+  ValidateLRUList({"v", "w", "X", "a", "Y", "Z"}, 2, 2, 2);
 
   // Low-pri entries will be inserted to head of high-pri pool after lookup.
   ASSERT_TRUE(Lookup("v"));
-  ValidateLRUList({"X", "a", "Y", "Z", "v"}, 2, 3);
+  ValidateLRUList({"w", "X", "a", "Y", "Z", "v"}, 2, 2, 2);
 
   // High-pri entries will be inserted to the head of the list after lookup.
   ASSERT_TRUE(Lookup("X"));
-  ValidateLRUList({"a", "Y", "Z", "v", "X"}, 2, 3);
+  ValidateLRUList({"w", "a", "Y", "Z", "v", "X"}, 2, 2, 2);
   ASSERT_TRUE(Lookup("Z"));
-  ValidateLRUList({"a", "Y", "v", "X", "Z"}, 2, 3);
+  ValidateLRUList({"w", "a", "Y", "v", "X", "Z"}, 2, 2, 2);
 
   Erase("Y");
-  ValidateLRUList({"a", "v", "X", "Z"}, 2, 2);
+  ValidateLRUList({"w", "a", "v", "X", "Z"}, 2, 1, 2);
   Erase("X");
-  ValidateLRUList({"a", "v", "Z"}, 1, 2);
+  ValidateLRUList({"w", "a", "v", "Z"}, 1, 1, 2);
+
   Insert("d", Cache::Priority::LOW);
   Insert("e", Cache::Priority::LOW);
-  ValidateLRUList({"a", "v", "d", "e", "Z"}, 1, 4);
+  ValidateLRUList({"w", "a", "v", "d", "e", "Z"}, 1, 2, 3);
+
   Insert("f", Cache::Priority::LOW);
   Insert("g", Cache::Priority::LOW);
-  ValidateLRUList({"d", "e", "f", "g", "Z"}, 1, 4);
+  ValidateLRUList({ "v", "d", "e", "f", "g", "Z"}, 1, 2, 3);
   ASSERT_TRUE(Lookup("d"));
-  ValidateLRUList({"e", "f", "g", "Z", "d"}, 2, 3);
+  ValidateLRUList({"v", "e", "f", "g", "Z", "d"}, 2, 2, 2);
 
-  // Erase all entries.
+  // Erase some entries.
   Erase("e");
   Erase("f");
   Erase("Z");
+  ValidateLRUList({"v", "g", "d"}, 1, 1, 1);
 
   // Bottom-pri entries can take low- and high-pri pool capacity if available
-  Insert("u", Cache::Priority::BOTTOM);
-  ValidateLRUList({"u", "g", "d"}, 1, 1);
-  Insert("v", Cache::Priority::BOTTOM);
-  ValidateLRUList({"u", "v", "g", "d"}, 1, 1);
-  Insert("w", Cache::Priority::BOTTOM);
-  ValidateLRUList({"u", "v", "w", "g", "d"}, 1, 1);
+  Insert("o", Cache::Priority::BOTTOM);
+  ValidateLRUList({"v", "o", "g", "d"}, 1, 1, 2);
+  Insert("p", Cache::Priority::BOTTOM);
+  ValidateLRUList({"v", "o", "p", "g", "d"}, 1, 1, 3);
+  Insert("q", Cache::Priority::BOTTOM);
+  ValidateLRUList({"v", "o", "p", "q", "g", "d"}, 1, 1, 4);
 
   // High-pri entries can overflow to low-pri pool, and bottom-pri entries will
   // be evicted.
   Insert("x", Cache::Priority::HIGH);
-  ValidateLRUList({"v", "w", "g", "d", "x"}, 2, 1);
+  ValidateLRUList({"o", "p", "q", "g", "d", "x"}, 2, 1, 3);
   Insert("y", Cache::Priority::HIGH);
-  ValidateLRUList({"w", "g", "d", "x", "y"}, 2, 2);
+  ValidateLRUList({"p", "q", "g", "d", "x", "y"}, 2, 2, 2);
   Insert("z", Cache::Priority::HIGH);
-  ValidateLRUList({"g", "d", "x", "y", "z"}, 2, 3);
+  ValidateLRUList({"q", "g", "d", "x", "y", "z"}, 2, 2, 2);
 
   // Low-pri entries will be inserted to head of high-pri pool after lookup.
   ASSERT_TRUE(Lookup("g"));
-  ValidateLRUList({"d", "x", "y", "z", "g"}, 2, 3);
+  ValidateLRUList({"q", "d", "x", "y", "z", "g"}, 2, 2, 2);
 
   // High-pri entries will be inserted to head of high-pri pool after lookup.
   ASSERT_TRUE(Lookup("z"));
-  ValidateLRUList({"d", "x", "y", "g", "z"}, 2, 3);
+  ValidateLRUList({"q", "d", "x", "y", "g", "z"}, 2, 2, 2);
+
+  // Bottom-pri entries will be inserted to head of high-pri pool after lookup.
+  ASSERT_TRUE(Lookup("d"));
+  ValidateLRUList({"q", "x", "y", "g", "z", "d"}, 2, 2, 2);
 
   // Bottom-pri entries will be inserted to the tail of bottom-pri list (the
-  // midpoint). It will replace the head of low-pri pool if the cache is full.
+  // midpoint).
   Insert("m", Cache::Priority::BOTTOM);
-  ValidateLRUList({"m", "x", "y", "g", "z"}, 2, 2);
-
-  // To insert another bottom-pri entry, we must erase one of the low-pri
-  // entries or high-pri entries. Otherwise, the cache is already full and the
-  // new entry will replace the existing bottom-pri entry.
-  Erase("y");
-  Insert("n", Cache::Priority::BOTTOM);
-  ValidateLRUList({"m", "n", "x", "g", "z"}, 2, 1);
+  ValidateLRUList({"x", "m", "y", "g", "z", "d"}, 2, 2, 2);
 
   // Bottom-pri entries will be inserted to head of high-pri pool after lookup.
   ASSERT_TRUE(Lookup("m"));
-  ValidateLRUList({"n", "x", "g", "z", "m"}, 2, 2);
+  ValidateLRUList({"x", "y", "g", "z", "d", "m"}, 2, 2, 2);
 }
 
 // TODO: FastLRUCache and ClockCache use the same tests. We can probably remove
@@ -627,7 +663,7 @@ class TestSecondaryCache : public SecondaryCache {
 
   explicit TestSecondaryCache(size_t capacity)
       : num_inserts_(0), num_lookups_(0), inject_failure_(false) {
-    cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
+    cache_ = NewLRUCache(capacity, 0, false, 0.5, 0.5, nullptr,
                          kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   }
   ~TestSecondaryCache() override { cache_.reset(); }
@@ -867,8 +903,8 @@ Cache::CacheItemHelper LRUCacheSecondaryCacheTest::helper_fail_(
     LRUCacheSecondaryCacheTest::DeletionCallback);
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -911,8 +947,8 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -940,8 +976,8 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -980,8 +1016,8 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -1021,8 +1057,9 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
-  LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, 0.5,
+                       nullptr, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -1070,7 +1107,7 @@ TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -1167,8 +1204,8 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
 // insert and cache block_1 in the block cache (this is the different place
 // from TestSecondaryCacheCorrectness1)
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
-  LRUCacheOptions opts(6100, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(6100, 0, false, 0.5, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1260,7 +1297,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
 // cache all the blocks in the block cache and there is not secondary cache
 // insertion. 2 lookup is needed for the blocks.
 TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
-  LRUCacheOptions opts(1024 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions opts(1024 * 1024, 0, false, 0.5, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -1314,7 +1351,7 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
 }
 
 TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
-  LRUCacheOptions opts(8 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions opts(8 * 1024, 0, false, 0.5, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -1363,7 +1400,7 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
 TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -1455,8 +1492,8 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
-  LRUCacheOptions opts(1024, 2, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024, 2, false, 0.5, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(32 * 1024);
   opts.secondary_cache = secondary_cache;
@@ -1511,8 +1548,8 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
 // a sync point callback in TestSecondaryCache::Lookup. We then control the
 // lookup result by setting the ResultMap.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
-  LRUCacheOptions opts(1 << 20, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1 << 20, 0, false, 0.5, 0.5, nullptr,
+                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1594,15 +1631,16 @@ class LRUCacheWithStat : public LRUCache {
  public:
   LRUCacheWithStat(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
-      double _high_pri_pool_ratio,
+      double _high_pri_pool_ratio, double _low_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
       bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDontChargeCacheMetadata,
       const std::shared_ptr<SecondaryCache>& _secondary_cache = nullptr)
       : LRUCache(_capacity, _num_shard_bits, _strict_capacity_limit,
-                 _high_pri_pool_ratio, _memory_allocator, _use_adaptive_mutex,
-                 _metadata_charge_policy, _secondary_cache) {
+                 _high_pri_pool_ratio, _low_pri_pool_ratio, _memory_allocator,
+                 _use_adaptive_mutex, _metadata_charge_policy,
+                 _secondary_cache) {
     insert_count_ = 0;
     lookup_count_ = 0;
   }
@@ -1645,13 +1683,14 @@ class LRUCacheWithStat : public LRUCache {
 #ifndef ROCKSDB_LITE
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
-  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, 0.5, nullptr,
                              kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache(tmp_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
@@ -1722,8 +1761,9 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache_new(tmp_cache);
   table_options.block_cache = cache_new;
   table_options.block_size = 4 * 1024;
@@ -1780,13 +1820,14 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
 }
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
-  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, 0.5, nullptr,
                              kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache(tmp_cache);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
@@ -1884,8 +1925,9 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
+      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
+      cache_opts.secondary_cache);
   std::shared_ptr<Cache> cache_new(tmp_cache);
   table_options.block_cache = cache_new;
   table_options.block_size = 4 * 1024;
@@ -1951,7 +1993,7 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
 
 // Test the option not to use the secondary cache in a certain DB.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -2046,7 +2088,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
 // with new options, which set the lowest_used_cache_tier to
 // kNonVolatileBlockTier. So secondary cache will be used.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
@@ -2141,7 +2183,7 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
 // cache. We diable the secondary cache option for DB2.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, nullptr,
+  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
                        kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));

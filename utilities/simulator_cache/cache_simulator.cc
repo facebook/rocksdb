@@ -223,7 +223,7 @@ Status BlockCacheTraceSimulator::InitializeCaches() {
         ghost_cache.reset(new GhostCache(
             NewLRUCache(config.ghost_cache_capacity, /*num_shard_bits=*/1,
                         /*strict_capacity_limit=*/false,
-                        /*high_pri_pool_ratio=*/0)));
+                        /*high_pri_pool_ratio=*/0, /*low_pri_pool_ratio=*/1)));
         cache_name = cache_name.substr(kGhostCachePrefix.size());
       }
       if (cache_name == "lru") {
@@ -231,26 +231,29 @@ Status BlockCacheTraceSimulator::InitializeCaches() {
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
-                        /*high_pri_pool_ratio=*/0));
+                        /*high_pri_pool_ratio=*/0, /*low_pri_pool_ratio=*/1));
       } else if (cache_name == "lru_priority") {
         sim_cache = std::make_shared<PrioritizedCacheSimulator>(
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
-                        /*high_pri_pool_ratio=*/0.5));
+                        /*high_pri_pool_ratio=*/0.5,
+                        /*low_pri_pool_ratio=*/0.5));
       } else if (cache_name == "lru_hybrid") {
         sim_cache = std::make_shared<HybridRowBlockCacheSimulator>(
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
-                        /*high_pri_pool_ratio=*/0.5),
+                        /*high_pri_pool_ratio=*/0.5,
+                        /*low_pri_pool_ratio=*/0.5),
             /*insert_blocks_upon_row_kvpair_miss=*/true);
       } else if (cache_name == "lru_hybrid_no_insert_on_row_miss") {
         sim_cache = std::make_shared<HybridRowBlockCacheSimulator>(
             std::move(ghost_cache),
             NewLRUCache(simulate_cache_capacity, config.num_shard_bits,
                         /*strict_capacity_limit=*/false,
-                        /*high_pri_pool_ratio=*/0.5),
+                        /*high_pri_pool_ratio=*/0.5,
+                        /*low_pri_pool_ratio=*/0.5),
             /*insert_blocks_upon_row_kvpair_miss=*/false);
       } else {
         // Not supported.
