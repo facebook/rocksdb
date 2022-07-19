@@ -2805,6 +2805,13 @@ void VersionStorageInfo::ComputeCompactionScore(
   ComputeBottommostFilesMarkedForCompaction();
   if (mutable_cf_options.ttl > 0) {
     ComputeExpiredTtlFiles(immutable_options, mutable_cf_options.ttl);
+    if (immutable_options.compaction_pri == kRoundRobin &&
+        immutable_options.compaction_style == kCompactionStyleLevel) {
+      // Populate pre_expired_ttl_files_round_robin_ only if the compaction_pri_
+      // is kRoundRobin
+      ComputePreExpiredTtlFilesRoundRobin(immutable_options,
+                                          mutable_cf_options.ttl);
+    }
   }
   if (mutable_cf_options.periodic_compaction_seconds > 0) {
     ComputeFilesMarkedForPeriodicCompaction(
@@ -2866,6 +2873,50 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
             oldest_ancester_time < (current_time - ttl)) {
           expired_ttl_files_.emplace_back(level, f);
         }
+      }
+    }
+  }
+}
+
+void VersionStorageInfo::ComputePreExpiredTtlFilesRoundRobin(
+    const ImmutableOptions& ioptions, const uint64_t ttl) {
+  assert(ttl > 0);
+
+  pre_expired_ttl_files_round_robin_.clear();
+
+  int64_t _current_time;
+  auto status = ioptions.clock->GetCurrentTime(&_current_time);
+  if (!status.ok()) {
+    return;
+  }
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
+  for (int level = 1; level < num_levels() - 1; level++) {
+    if (files_[level].size() == 0) continue;
+
+    // Since only the file pointed by the cursor can be chosen to advance the
+    // cursor, we only need to determine if that file has pre-expired or not
+
+    FileMetaData* f_under_cursor = files_[level][0];
+    if (compact_cursor_[level].size() != 0 && files_[level].size() > 1) {
+      auto current_file_iter = std::lower_bound(
+          files_[level].begin(), files_[level].end(), compact_cursor_[level],
+          [&](const FileMetaData* f, const InternalKey& cursor) -> bool {
+            return internal_comparator_->Compare(cursor, f->smallest) > 0;
+          });
+      // Search the file that is pointed by the compact cursor
+      if (current_file_iter != files_[level].end()) {
+        f_under_cursor = *current_file_iter;
+      }
+    }
+
+    if (!f_under_cursor->being_compacted) {
+      FileTtlBooster ttl_booster(current_time, ttl, num_non_empty_levels_,
+                                 level);
+      if (ttl_booster.GetBoostScore(f_under_cursor) > 1) {
+        // GetBoostScore(f) > 1 means this file f has pre-expired with respect
+        // to boost ttl for this level
+        pre_expired_ttl_files_round_robin_.emplace_back(level, f_under_cursor);
       }
     }
   }

@@ -193,10 +193,15 @@ class VersionStorageInfo {
   // ComputeCompactionScore()
   void ComputeFilesMarkedForCompaction();
 
-  // This computes ttl_expired_files_ and is called by
+  // This computes expired_ttl_files_ and is called by
   // ComputeCompactionScore()
   void ComputeExpiredTtlFiles(const ImmutableOptions& ioptions,
                               const uint64_t ttl);
+
+  // This computes pre_expired_ttl_files_round_robin_ and is called by
+  // ComputeCompactionScore()
+  void ComputePreExpiredTtlFilesRoundRobin(const ImmutableOptions& ioptions,
+                                           const uint64_t ttl);
 
   // This computes files_marked_for_periodic_compaction_ and is called by
   // ComputeCompactionScore()
@@ -446,6 +451,14 @@ class VersionStorageInfo {
   // REQUIRES: ComputeCompactionScore has been called
   // REQUIRES: DB mutex held during access
   const autovector<std::pair<int, FileMetaData*>>&
+  PreExpiredTtlFilesRoundRobin() const {
+    assert(finalized_);
+    return pre_expired_ttl_files_round_robin_;
+  }
+
+  // REQUIRES: ComputeCompactionScore has been called
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>&
   FilesMarkedForPeriodicCompaction() const {
     assert(finalized_);
     return files_marked_for_periodic_compaction_;
@@ -666,6 +679,14 @@ class VersionStorageInfo {
       bottommost_files_marked_for_compaction_;
 
   autovector<std::pair<int, FileMetaData*>> files_marked_for_forced_blob_gc_;
+
+  // These files are considered pre-expired because we assign different ttls for
+  // different levels with the constraint that the summation of ttls from each
+  // level equals the user-specified ttl. This pre-expiration mechanism is
+  // currently only impelmented in kRoundRobin to accelerate advancing cursors,
+  // so we only need to determine if files pointed by the cursors are
+  // pre-expired or not
+  autovector<std::pair<int, FileMetaData*>> pre_expired_ttl_files_round_robin_;
 
   // Threshold for needing to mark another bottommost file. Maintain it so we
   // can quickly check when releasing a snapshot whether more bottommost files

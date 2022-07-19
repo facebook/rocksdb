@@ -97,6 +97,8 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
       return "ChangeTemperature";
     case CompactionReason::kForcedBlobGC:
       return "ForcedBlobGC";
+    case CompactionReason::kLevelRoundRobinTtlPreExpire:
+      return "RoundRobinFilePreExpireWithBoostTtl";
     case CompactionReason::kNumOfReasons:
       // fall through
     default:
@@ -1627,8 +1629,11 @@ Status CompactionJob::InstallCompactionResults(
                              stats.GetBytes());
   }
 
-  if (compaction->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
-      compaction->immutable_options()->compaction_pri == kRoundRobin) {
+  if (compaction->immutable_options()->compaction_pri == kRoundRobin &&
+      (compaction->compaction_reason() ==
+           CompactionReason::kLevelMaxLevelSize ||
+       compaction->compaction_reason() ==
+           CompactionReason::kLevelRoundRobinTtlPreExpire)) {
     int start_level = compaction->start_level();
     if (start_level > 0) {
       auto vstorage = compaction->input_version()->storage_info();

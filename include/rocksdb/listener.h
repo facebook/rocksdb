@@ -148,6 +148,9 @@ enum class CompactionReason : int {
   kChangeTemperature,
   // Compaction scheduled to force garbage collection of blob files
   kForcedBlobGC,
+  // [Level: kRoundRobin] files pointed by the compact cursor pre-expire with
+  // respect to boosted ttls (more can be found in db/compaction/file_pri.h
+  kLevelRoundRobinTtlPreExpire,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };

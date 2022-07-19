@@ -41,6 +41,9 @@ bool LevelCompactionPicker::NeedsCompaction(
       return true;
     }
   }
+  if (!vstorage->PreExpiredTtlFilesRoundRobin().empty()) {
+    return true;
+  }
   return false;
 }
 
@@ -273,6 +276,13 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     compaction_reason_ = CompactionReason::kForcedBlobGC;
     return;
   }
+
+  // Files pointed by compact cursor in kRoundRobin should respect boosted ttl
+  PickFileToCompact(vstorage_->PreExpiredTtlFilesRoundRobin(), true);
+  if (!start_level_inputs_.empty()) {
+    compaction_reason_ = CompactionReason::kLevelRoundRobinTtlPreExpire;
+    return;
+  }
 }
 
 bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
@@ -409,7 +419,8 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
     output_level_inputs_.level = output_level_;
     bool round_robin_expanding =
         ioptions_.compaction_pri == kRoundRobin &&
-        compaction_reason_ == CompactionReason::kLevelMaxLevelSize;
+        (compaction_reason_ == CompactionReason::kLevelMaxLevelSize ||
+         compaction_reason_ == CompactionReason::kLevelRoundRobinTtlPreExpire);
     if (round_robin_expanding) {
       SetupOtherFilesWithRoundRobinExpansion();
     }

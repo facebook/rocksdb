@@ -76,7 +76,6 @@ class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
       : DBTestBase("db_compaction_test", /*env_do_fsync=*/true) {}
-
  protected:
   /*
    * Verifies compaction stats of cfd are valid.
@@ -4339,6 +4338,90 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(6, periodic_compactions);
   ASSERT_EQ(6, ttl_compactions);
 
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, RoundRobinTtlBoosterPreExpire) {
+  const int kNumKeysPerFile = 50;
+  const int kValueSize = 1000;
+
+  Options options = CurrentOptions();
+  options.ttl = 32 * 60 * 60;  // 32 hours
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_open_files = -1;  // needed for both periodic and ttl compactions
+  options.target_file_size_base = uint64_t{kNumKeysPerFile * kValueSize};
+  options.max_bytes_for_level_base = 5 * uint64_t{kNumKeysPerFile * kValueSize};
+  options.compaction_pri = CompactionPri::kRoundRobin;
+  options.compression = kNoCompression;
+  options.num_levels = 3;
+  env_->SetMockSleep();
+  options.env = env_;
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 10; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(2 * i * kNumKeysPerFile + 2 * j),
+                    rnd.RandomString(kValueSize)));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  MoveFilesToLevel(2);
+  ASSERT_EQ("0,0,10", FilesPerLevel());
+
+  // file 1: [4*kNumKeysPerFile + 1 => 6*kNumKeysPerFile - 1]
+  // file 2: [6*kNumKeysPerFile + 1 => 8*kNumKeysPerFile - 1]
+  for (int i = 2; i < 4; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(2 * i * kNumKeysPerFile + 2 * j + 1),
+                    rnd.RandomString(kValueSize)));
+    }
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(1);
+  ASSERT_EQ("0,2,10", FilesPerLevel());
+
+  env_->MockSleepForSeconds(6 * 60);  // 6 minutes
+
+  int round_robin_pre_expire_compactions = 0;
+  for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(2 * i * kNumKeysPerFile + 2 * j + 1),
+                    rnd.RandomString(kValueSize)));
+    }
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(1);
+  // file 3: [1 => 2*kNumKeysPerFile - 1]
+  // file 4: [2*kNumKeysPerFile + 1 => 4*kNumKeysPerFile - 1]
+  ASSERT_EQ("0,4,10", FilesPerLevel());
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        auto compaction_reason = compaction->compaction_reason();
+        if (compaction_reason ==
+            CompactionReason::kLevelRoundRobinTtlPreExpire) {
+          round_robin_pre_expire_compactions++;
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // Since the boost_age_start_ is 31 hours, all files in L1 become pre-expired
+  // (but not expired according to the total ttl 32 hours. Since no auto
+  // compaction occurs before, the cursor for level 1 is still empty. Therefore,
+  // the newer file file1 will be chosen to compact, and then the cursor is
+  // advanced, next file2, file3, and file4 all pre-expire with respect to
+  // boosted ttl for level 1.
+  env_->MockSleepForSeconds(31 * 60 * 60 + 30 * 60);  // 31.5 hours
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(round_robin_pre_expire_compactions, 4);
+  ASSERT_EQ("1,0,14", FilesPerLevel());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
