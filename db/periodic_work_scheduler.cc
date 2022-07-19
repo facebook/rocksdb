@@ -81,12 +81,14 @@ Status PeriodicTaskScheduler::Unregister(PeriodicTaskType task_type) {
   return Status::OK();
 }
 
+#ifndef NDEBUG
 void PeriodicTaskScheduler::TEST_OverrideTimer(SystemClock* clock) {
   static Timer test_timer(clock);
   test_timer.TEST_OverrideTimer(clock);
   MutexLock l(&timer_mu_);
   timer_ = &test_timer;
 }
+#endif  // NDEBUG
 
 }  // namespace ROCKSDB_NAMESPACE
 

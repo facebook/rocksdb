@@ -137,7 +137,6 @@ class Timer {
     if (thread_) {
       thread_->join();
     }
-    thread_.release();
     return true;
   }
 
@@ -188,7 +187,10 @@ class Timer {
     return ret;
   }
 
-  void TEST_OverrideTimer(SystemClock* clock) { clock_ = clock; }
+  void TEST_OverrideTimer(SystemClock* clock) {
+    InstrumentedMutexLock l(&mutex_);
+    clock_ = clock;
+  }
 #endif  // NDEBUG
 
  private:

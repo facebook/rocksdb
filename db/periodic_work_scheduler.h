@@ -42,6 +42,7 @@ class PeriodicTaskScheduler {
 
   Status Unregister(PeriodicTaskType task_type);
 
+#ifndef NDEBUG
   void TEST_OverrideTimer(SystemClock* clock);
 
   void TEST_WaitForRun(std::function<void()> callback) const {
@@ -61,6 +62,7 @@ class PeriodicTaskScheduler {
     auto it = tasks_map_.find(task_type);
     return it != tasks_map_.end();
   }
+#endif  // NDEBUG
 
   // Periodically flush info log out of application buffer at a low frequency.
   // This improves debuggability in case of RocksDB hanging since it ensures the
