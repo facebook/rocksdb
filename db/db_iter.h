@@ -224,9 +224,11 @@ class DBIter final : public Iterator {
   bool ReverseToBackward();
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is smaller than iterator lower bound.
+  // target does not have timestamp.
   void SetSavedKeyToSeekTarget(const Slice& target);
   // Set saved_key_ to the seek key to target, with proper sequence number set.
   // It might get adjusted if the seek key is larger than iterator upper bound.
+  // target does not have timestamp.
   void SetSavedKeyToSeekForPrevTarget(const Slice& target);
   bool FindValueForCurrentKey();
   bool FindValueForCurrentKeyUsingSeek();
@@ -297,6 +299,8 @@ class DBIter final : public Iterator {
   // Retrieves the blob value for the specified user key using the given blob
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
+
+  bool SetWideColumnValueIfNeeded(const Slice& wide_columns_slice);
 
   Status Merge(const Slice* val, const Slice& user_key);
 
@@ -375,6 +379,9 @@ class DBIter final : public Iterator {
   const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
   std::string saved_timestamp_;
+
+  // Used only if timestamp_lb_ is not nullptr.
+  std::string saved_ikey_;
 };
 
 // Return a new iterator that converts internal keys (yielded by

@@ -387,7 +387,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, block_cache),
           OptionType::kUnknown, OptionVerificationType::kNormal,
           (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
-          // Parses the input vsalue as a Cache
+          // Parses the input value as a Cache
           [](const ConfigOptions& opts, const std::string&,
              const std::string& value, void* addr) {
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);
@@ -397,7 +397,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
           OptionType::kUnknown, OptionVerificationType::kNormal,
           (OptionTypeFlags::kCompareNever | OptionTypeFlags::kDontSerialize),
-          // Parses the input vsalue as a Cache
+          // Parses the input value as a Cache
           [](const ConfigOptions& opts, const std::string&,
              const std::string& value, void* addr) {
             auto* cache = static_cast<std::shared_ptr<Cache>*>(addr);

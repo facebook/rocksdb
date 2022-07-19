@@ -38,11 +38,15 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/compaction/compaction.cc",
         "db/compaction/compaction_iterator.cc",
         "db/compaction/compaction_job.cc",
+        "db/compaction/compaction_outputs.cc",
         "db/compaction/compaction_picker.cc",
         "db/compaction/compaction_picker_fifo.cc",
         "db/compaction/compaction_picker_level.cc",
         "db/compaction/compaction_picker_universal.cc",
+        "db/compaction/compaction_service_job.cc",
+        "db/compaction/compaction_state.cc",
         "db/compaction/sst_partitioner.cc",
+        "db/compaction/subcompaction_state.cc",
         "db/convenience.cc",
         "db/db_filesnapshot.cc",
         "db/db_impl/compacted_db_impl.cc",
@@ -81,6 +85,7 @@ cpp_library_wrapper(name="rocksdb_lib", srcs=[
         "db/range_del_aggregator.cc",
         "db/range_tombstone_fragmenter.cc",
         "db/repair.cc",
+        "db/seqno_to_time_mapping.cc",
         "db/snapshot_impl.cc",
         "db/table_cache.cc",
         "db/table_properties_collector.cc",
@@ -368,11 +373,15 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "db/compaction/compaction.cc",
         "db/compaction/compaction_iterator.cc",
         "db/compaction/compaction_job.cc",
+        "db/compaction/compaction_outputs.cc",
         "db/compaction/compaction_picker.cc",
         "db/compaction/compaction_picker_fifo.cc",
         "db/compaction/compaction_picker_level.cc",
         "db/compaction/compaction_picker_universal.cc",
+        "db/compaction/compaction_service_job.cc",
+        "db/compaction/compaction_state.cc",
         "db/compaction/sst_partitioner.cc",
+        "db/compaction/subcompaction_state.cc",
         "db/convenience.cc",
         "db/db_filesnapshot.cc",
         "db/db_impl/compacted_db_impl.cc",
@@ -411,6 +420,7 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "db/range_del_aggregator.cc",
         "db/range_tombstone_fragmenter.cc",
         "db/repair.cc",
+        "db/seqno_to_time_mapping.cc",
         "db/snapshot_impl.cc",
         "db/table_cache.cc",
         "db/table_properties_collector.cc",
@@ -5240,6 +5250,12 @@ cpp_unittest_wrapper(name="db_wal_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="db_wide_basic_test",
+            srcs=["db/wide/db_wide_basic_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="db_with_timestamp_basic_test",
             srcs=["db/db_with_timestamp_basic_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5674,6 +5690,12 @@ cpp_unittest_wrapper(name="ribbon_test",
             extra_compiler_flags=[])
 
 
+cpp_unittest_wrapper(name="seqno_time_test",
+            srcs=["db/seqno_time_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
 cpp_unittest_wrapper(name="sim_cache_test",
             srcs=["utilities/simulator_cache/sim_cache_test.cc"],
             deps=[":rocksdb_test_lib"],
@@ -5754,6 +5776,12 @@ cpp_unittest_wrapper(name="thread_list_test",
 
 cpp_unittest_wrapper(name="thread_local_test",
             srcs=["util/thread_local_test.cc"],
+            deps=[":rocksdb_test_lib"],
+            extra_compiler_flags=[])
+
+
+cpp_unittest_wrapper(name="tiered_compaction_test",
+            srcs=["db/compaction/tiered_compaction_test.cc"],
             deps=[":rocksdb_test_lib"],
             extra_compiler_flags=[])
 

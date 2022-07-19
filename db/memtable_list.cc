@@ -255,6 +255,15 @@ SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
   }
 }
 
+SequenceNumber MemTableListVersion::GetFirstSequenceNumber() const {
+  SequenceNumber min_first_seqno = kMaxSequenceNumber;
+  // The first memtable in the list might not be the oldest one with mempurge
+  for (const auto& m : memlist_) {
+    min_first_seqno = std::min(m->GetFirstSequenceNumber(), min_first_seqno);
+  }
+  return min_first_seqno;
+}
+
 // caller is responsible for referencing m
 void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable

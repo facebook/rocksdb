@@ -376,73 +376,80 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_1) {
   ASSERT_EQ(2, vstorage_.base_level());
   // level multiplier should be 3.5
   ASSERT_EQ(vstorage_.level_multiplier(), 5.0);
-  // Level size should be around 30,000, 105,000, 367,500
   ASSERT_EQ(40000U, vstorage_.MaxBytesForLevel(2));
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
+
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  // Only L0 hits compaction.
+  ASSERT_EQ(vstorage_.CompactionScoreLevel(0), 0);
 }
 
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_2) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.max_bytes_for_level_base = 10000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
 
   Add(0, 11U, "1", "2", 10000U);
   Add(0, 12U, "1", "2", 10000U);
   Add(0, 13U, "1", "2", 10000U);
 
+  // Level size should be around 10,000, 10,290, 51,450, 257,250
   Add(5, 4U, "1", "2", 1286250U);
-  Add(4, 5U, "1", "2", 200000U);
-  Add(3, 6U, "1", "2", 40000U);
-  Add(2, 7U, "1", "2", 8000U);
+  Add(4, 5U, "1", "2", 258000U);  // unadjusted score 1.003
+  Add(3, 6U, "1", "2", 53000U);   // unadjusted score 1.03
+  Add(2, 7U, "1", "2", 20000U);   // unadjusted score 1.94
 
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(0, logger_->log_count);
-  ASSERT_EQ(2, vstorage_.base_level());
-  // level multiplier should be 3.5
-  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
-  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
-  // Level size should be around 30,000, 105,000, 367,500
-  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
-  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
-  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+  ASSERT_EQ(1, vstorage_.base_level());
+  ASSERT_EQ(10000U, vstorage_.MaxBytesForLevel(1));
+  ASSERT_EQ(10290U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
+  ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
+
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  // Although L2 and l3 have higher unadjusted compaction score, considering
+  // a relatively large L0 being compacted down soon, L4 is picked up for
+  // compaction.
+  // L0 is still picked up for oversizing.
+  ASSERT_EQ(0, vstorage_.CompactionScoreLevel(0));
+  ASSERT_EQ(4, vstorage_.CompactionScoreLevel(1));
 }
 
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
-  mutable_cf_options_.max_bytes_for_level_base = 10000;
+  mutable_cf_options_.max_bytes_for_level_base = 20000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 5;
 
-  Add(0, 11U, "1", "2", 5000U);
-  Add(0, 12U, "1", "2", 5000U);
-  Add(0, 13U, "1", "2", 5000U);
-  Add(0, 14U, "1", "2", 5000U);
-  Add(0, 15U, "1", "2", 5000U);
-  Add(0, 16U, "1", "2", 5000U);
+  Add(0, 11U, "1", "2", 2500U);
+  Add(0, 12U, "1", "2", 2500U);
+  Add(0, 13U, "1", "2", 2500U);
+  Add(0, 14U, "1", "2", 2500U);
 
+  // Level size should be around 20,000, 53000, 258000
   Add(5, 4U, "1", "2", 1286250U);
-  Add(4, 5U, "1", "2", 200000U);
-  Add(3, 6U, "1", "2", 40000U);
-  Add(2, 7U, "1", "2", 8000U);
+  Add(4, 5U, "1", "2", 260000U);  // Unadjusted score 1.01, adjusted about 4.3
+  Add(3, 6U, "1", "2", 85000U);   // Unadjusted score 1.42, adjusted about 11.6
+  Add(2, 7U, "1", "2", 30000);    // Unadjusted score 1.5, adjusted about 10.0
 
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(0, logger_->log_count);
   ASSERT_EQ(2, vstorage_.base_level());
-  // level multiplier should be 3.5
-  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
-  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
-  // Level size should be around 30,000, 105,000, 367,500
-  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
-  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
-  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+  ASSERT_EQ(20000U, vstorage_.MaxBytesForLevel(2));
+
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  // Although L2 has higher unadjusted compaction score, considering
+  // a relatively large L0 being compacted down soon, L3 is picked up for
+  // compaction.
+
+  ASSERT_EQ(3, vstorage_.CompactionScoreLevel(0));
+  ASSERT_EQ(2, vstorage_.CompactionScoreLevel(1));
+  ASSERT_EQ(4, vstorage_.CompactionScoreLevel(2));
 }
 
 TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
@@ -1146,7 +1153,7 @@ class VersionSetTestBase {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     reactive_versions_ = std::make_shared<ReactiveVersionSet>(
         dbname_, &db_options_, env_options_, table_cache_.get(),
         &write_buffer_manager_, &write_controller_, nullptr);
@@ -1250,7 +1257,7 @@ class VersionSetTestBase {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     EXPECT_OK(versions_->Recover(column_families_, false));
   }
 
@@ -1756,7 +1763,7 @@ TEST_F(VersionSetTest, WalAddition) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, /*read_only=*/false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1823,7 +1830,7 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 2);
@@ -1876,7 +1883,7 @@ TEST_F(VersionSetTest, WalDeletion) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -1914,7 +1921,7 @@ TEST_F(VersionSetTest, WalDeletion) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2032,7 +2039,7 @@ TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
@@ -2068,7 +2075,7 @@ TEST_F(VersionSetTest, DeleteAllWals) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 0);
@@ -2110,7 +2117,7 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     std::string db_id;
     ASSERT_OK(
         new_versions->Recover(column_families_, /*read_only=*/false, &db_id));
@@ -2164,7 +2171,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     ASSERT_OK(vset->Recover(column_families_, /*read_only=*/false,
                             /*db_id=*/nullptr));
     for (auto* cfd : *(vset->GetColumnFamilySet())) {

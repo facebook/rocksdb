@@ -1261,11 +1261,11 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(test->dbname_, &db_options, file_options,
-                                  table_cache.get(), &write_buffer_manager,
-                                  &write_controller,
-                                  /*block_cache_tracer=*/nullptr,
-                                  /*io_tracer=*/nullptr, /*db_session_id*/ ""));
+    versions.reset(new VersionSet(
+        test->dbname_, &db_options, file_options, table_cache.get(),
+        &write_buffer_manager, &write_controller,
+        /*block_cache_tracer=*/nullptr,
+        /*io_tracer=*/nullptr, /*db_id*/ "", /*db_session_id*/ ""));
 
     wal_manager.reset(
         new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
@@ -1449,7 +1449,7 @@ TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   // fill with new date
   RecoveryTestHelper::FillData(this, &options);
   // corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
   // verify
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
@@ -1497,6 +1497,8 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   // The following make sure there are two bg flush threads.
   options.max_background_jobs = 8;
 
+  DestroyAndReopen(options);
+
   const std::string cf1_name("cf1");
   CreateAndReopenWithCF({cf1_name}, options);
   assert(handles_.size() == 2);
@@ -1512,10 +1514,13 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
   ASSERT_OK(db_->Put(WriteOptions(), handles_[1], "foo", "value"));
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
 
-  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[1]));
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[1]));
 
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "value"));
-  ASSERT_OK(dbfull()->TEST_FlushMemTable(false, true, handles_[0]));
+
+  ASSERT_OK(dbfull()->TEST_FlushMemTable(
+      /*wait=*/false, /*allow_write_stall=*/true, handles_[0]));
 
   bool called = false;
   SyncPoint::GetInstance()->DisableProcessing();
@@ -1597,7 +1602,10 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
   // Corrupt the wal
-  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+  // The offset here was 0.3 which cuts off right at the end of a
+  // valid fragment after wal zstd compression checksum is enabled,
+  // so changed the value to 0.33.
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .33,
                                  /*len%=*/.1, wal_file_id, trunc);
 
   // Verify

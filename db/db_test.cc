@@ -2897,6 +2897,15 @@ class ModelDB : public DB {
              const Slice& /*v*/) override {
     return Status::NotSupported();
   }
+
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported();
+  }
+
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;
@@ -4092,9 +4101,6 @@ class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
 
   ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
 
-  const char* Name() const override {
-    return "MockedRateLimiterWithNoOptionalAPI";
-  }
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
   }

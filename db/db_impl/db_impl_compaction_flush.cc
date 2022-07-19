@@ -212,8 +212,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
-      io_tracer_, db_id_, db_session_id_, cfd->GetFullHistoryTsLow(),
-      &blob_callback_);
+      io_tracer_, seqno_time_mapping_, db_id_, db_session_id_,
+      cfd->GetFullHistoryTsLow(), &blob_callback_);
   FileMetaData file_meta;
 
   Status s;
@@ -450,7 +450,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri, io_tracer_, db_id_, db_session_id_,
+        thread_pri, io_tracer_, seqno_time_mapping_, db_id_, db_session_id_,
         cfd->GetFullHistoryTsLow(), &blob_callback_));
   }
 
@@ -2237,7 +2237,7 @@ Status DBImpl::AtomicFlushMemTables(
 // This method tries to avoid write stall (similar to CompactRange() behavior)
 // it emulates how the SuperVersion / LSM would change if flush happens, checks
 // it against various constrains and delays flush if it'd cause write stall.
-// Called should check status and flush_needed to see if flush already happened.
+// Caller should check status and flush_needed to see if flush already happened.
 Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
                                                  bool* flush_needed) {
   {
@@ -2616,17 +2616,7 @@ void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
     assert(flush_req.size() == 1);
     ColumnFamilyData* cfd = flush_req[0].first;
     assert(cfd);
-    // Note: SchedulePendingFlush is always preceded
-    // with an imm()->FlushRequested() call. However,
-    // we want to make this code snipper more resilient to
-    // future changes. Therefore, we add the following if
-    // statement - note that calling it twice (or more)
-    // doesn't break anything.
-    if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
-      // If imm() contains silent memtables,
-      // requesting a flush will mark the imm_needed as true.
-      cfd->imm()->FlushRequested();
-    }
+
     if (!cfd->queued_for_flush() && cfd->imm()->IsFlushPending()) {
       cfd->Ref();
       cfd->set_queued_for_flush(true);
@@ -2775,11 +2765,13 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
 
     for (const auto& iter : flush_req) {
       ColumnFamilyData* cfd = iter.first;
-      if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
-        // If imm() contains silent memtables,
-        // requesting a flush will mark the imm_needed as true.
+      if (cfd->GetMempurgeUsed()) {
+        // If imm() contains silent memtables (e.g.: because
+        // MemPurge was activated), requesting a flush will
+        // mark the imm_needed as true.
         cfd->imm()->FlushRequested();
       }
+
       if (cfd->IsDropped() || !cfd->imm()->IsFlushPending()) {
         // can't flush this CF, try next one
         column_families_not_to_flush.push_back(cfd);
@@ -3316,7 +3308,15 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         moved_bytes += f->fd.GetFileSize();
       }
     }
-
+    if (c->compaction_reason() == CompactionReason::kLevelMaxLevelSize &&
+        c->immutable_options()->compaction_pri == kRoundRobin) {
+      int start_level = c->start_level();
+      if (start_level > 0) {
+        auto vstorage = c->input_version()->storage_info();
+        c->edit()->AddCompactCursor(
+            start_level, vstorage->GetNextCompactCursor(start_level));
+      }
+    }
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
@@ -3802,11 +3802,6 @@ void DBImpl::GetSnapshotContext(
 
 Status DBImpl::WaitForCompact(bool wait_unscheduled) {
   // Wait until the compaction completes
-
-  // TODO: a bug here. This function actually does not necessarily
-  // wait for compact. It actually waits for scheduled compaction
-  // OR flush to finish.
-
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||

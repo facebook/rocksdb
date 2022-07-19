@@ -187,7 +187,7 @@ class InternalIteratorBase : public Cleanable {
   virtual void SetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
 
  protected:
-  void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
+  void SeekForPrevImpl(const Slice& target, const CompareInterface* cmp) {
     Seek(target);
     if (!Valid()) {
       SeekToLast();

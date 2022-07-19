@@ -186,54 +186,13 @@ class BackupEngineImpl {
       const std::shared_ptr<SystemClock>& backup_rate_limiter_clock,
       const std::shared_ptr<SystemClock>& restore_rate_limiter_clock) {
     if (backup_rate_limiter_clock) {
-      assert(options_.backup_rate_limiter->IsInstanceOf(
-          GenericRateLimiter::kClassName()));
-      auto* backup_rate_limiter_options =
-          options_.backup_rate_limiter
-              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
-
-      assert(backup_rate_limiter_options);
-      RateLimiter::Mode backup_rate_limiter_mode;
-      if (!options_.backup_rate_limiter->IsRateLimited(
-              RateLimiter::OpType::kRead)) {
-        backup_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
-      } else if (!options_.backup_rate_limiter->IsRateLimited(
-                     RateLimiter::OpType::kWrite)) {
-        backup_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
-      } else {
-        backup_rate_limiter_mode = RateLimiter::Mode::kAllIo;
-      }
-      options_.backup_rate_limiter.reset(new GenericRateLimiter(
-          backup_rate_limiter_options->max_bytes_per_sec,
-          backup_rate_limiter_options->refill_period_us,
-          backup_rate_limiter_options->fairness, backup_rate_limiter_mode,
-          backup_rate_limiter_clock, backup_rate_limiter_options->auto_tuned));
+      static_cast<GenericRateLimiter*>(options_.backup_rate_limiter.get())
+          ->TEST_SetClock(backup_rate_limiter_clock);
     }
 
     if (restore_rate_limiter_clock) {
-      assert(options_.restore_rate_limiter->IsInstanceOf(
-          GenericRateLimiter::kClassName()));
-      auto* restore_rate_limiter_options =
-          options_.restore_rate_limiter
-              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
-      assert(restore_rate_limiter_options);
-
-      RateLimiter::Mode restore_rate_limiter_mode;
-      if (!options_.restore_rate_limiter->IsRateLimited(
-              RateLimiter::OpType::kRead)) {
-        restore_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
-      } else if (!options_.restore_rate_limiter->IsRateLimited(
-                     RateLimiter::OpType::kWrite)) {
-        restore_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
-      } else {
-        restore_rate_limiter_mode = RateLimiter::Mode::kAllIo;
-      }
-      options_.restore_rate_limiter.reset(new GenericRateLimiter(
-          restore_rate_limiter_options->max_bytes_per_sec,
-          restore_rate_limiter_options->refill_period_us,
-          restore_rate_limiter_options->fairness, restore_rate_limiter_mode,
-          restore_rate_limiter_clock,
-          restore_rate_limiter_options->auto_tuned));
+      static_cast<GenericRateLimiter*>(options_.restore_rate_limiter.get())
+          ->TEST_SetClock(restore_rate_limiter_clock);
     }
   }
 
@@ -1453,6 +1412,11 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
           if (type == kTableFile || type == kBlobFile) {
             io_st = db_fs_->GetFileSize(src_dirname + "/" + fname, io_options_,
                                         &size_bytes, nullptr);
+            if (!io_st.ok()) {
+              Log(options_.info_log, "GetFileSize is failed: %s",
+                  io_st.ToString().c_str());
+              return io_st;
+            }
           }
           EnvOptions src_env_options;
           switch (type) {
@@ -1479,18 +1443,16 @@ IOStatus BackupEngineImpl::CreateNewBackupWithMetadata(
               src_env_options = src_raw_env_options;
               break;
           }
-          if (io_st.ok()) {
-            io_st = AddBackupFileWorkItem(
-                live_dst_paths, backup_items_to_finish, new_backup_id,
-                options_.share_table_files &&
-                    (type == kTableFile || type == kBlobFile),
-                src_dirname, fname, src_env_options, rate_limiter, type,
-                size_bytes, db_options.statistics.get(), size_limit_bytes,
-                options_.share_files_with_checksum &&
-                    (type == kTableFile || type == kBlobFile),
-                options.progress_callback, "" /* contents */,
-                checksum_func_name, checksum_val, src_temperature);
-          }
+          io_st = AddBackupFileWorkItem(
+              live_dst_paths, backup_items_to_finish, new_backup_id,
+              options_.share_table_files &&
+                  (type == kTableFile || type == kBlobFile),
+              src_dirname, fname, src_env_options, rate_limiter, type,
+              size_bytes, db_options.statistics.get(), size_limit_bytes,
+              options_.share_files_with_checksum &&
+                  (type == kTableFile || type == kBlobFile),
+              options.progress_callback, "" /* contents */, checksum_func_name,
+              checksum_val, src_temperature);
           return io_st;
         } /* copy_file_cb */,
         [&](const std::string& fname, const std::string& contents,

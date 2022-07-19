@@ -66,7 +66,11 @@ enum ValueType : unsigned char {
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
   kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
-  kMaxValue = 0x7F                    // Not used for storing records.
+  kTypeWideColumnEntity = 0x16,
+  kTypeColumnFamilyWideColumnEntity = 0x17,  // WAL only
+  kTypeMaxValid,    // Should be after the last valid type, only used for
+                    // validation
+  kMaxValue = 0x7F  // Not used for storing records.
 };
 
 // Defined in dbformat.cc
@@ -76,8 +80,8 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex ||
-         kTypeDeletionWithTimestamp == t;
+  return t <= kTypeMerge || kTypeSingleDeletion == t || kTypeBlobIndex == t ||
+         kTypeDeletionWithTimestamp == t || kTypeWideColumnEntity == t;
 }
 
 // Checks whether a type is from user operation
@@ -233,10 +237,9 @@ class InternalKeyComparator
 #ifdef NDEBUG
     final
 #endif
-    : public Comparator {
+    : public CompareInterface {
  private:
   UserComparatorWrapper user_comparator_;
-  std::string name_;
 
  public:
   // `InternalKeyComparator`s constructed with the default constructor are not
@@ -248,22 +251,19 @@ class InternalKeyComparator
   //    this constructor to precompute the result of `Name()`. To avoid this
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
-  explicit InternalKeyComparator(const Comparator* c, bool named = true)
-      : Comparator(c->timestamp_size()), user_comparator_(c) {
-    if (named) {
-      name_ = "rocksdb.InternalKeyComparator:" +
-              std::string(user_comparator_.Name());
-    }
-  }
+  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
-  virtual const char* Name() const override;
-  virtual int Compare(const Slice& a, const Slice& b) const override;
+  int Compare(const Slice& a, const Slice& b) const override;
+
+  bool Equal(const Slice& a, const Slice& b) const {
+    // TODO Use user_comparator_.Equal(). Perhaps compare seqno before
+    // comparing the user key too.
+    return Compare(a, b) == 0;
+  }
+
   // Same as Compare except that it excludes the value type from comparison
-  virtual int CompareKeySeq(const Slice& a, const Slice& b) const;
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override;
-  virtual void FindShortSuccessor(std::string* key) const override;
+  int CompareKeySeq(const Slice& a, const Slice& b) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -277,9 +277,6 @@ class InternalKeyComparator
   // value `kDisableGlobalSequenceNumber`.
   int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
               SequenceNumber b_global_seqno) const;
-  virtual const Comparator* GetRootComparator() const override {
-    return user_comparator_.GetRootComparator();
-  }
 };
 
 // The class represent the internal key in encoded form.

@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "cache_key.h"
 #ifdef GFLAGS
 #include <cinttypes>
 #include <cstddef>
@@ -12,6 +13,7 @@
 #include <set>
 #include <sstream>
 
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
@@ -72,6 +74,11 @@ DEFINE_uint32(
 DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
 DEFINE_bool(skewed, false, "If true, skew the key access distribution");
+
+DEFINE_bool(lean, false,
+            "If true, no additional computation is performed besides cache "
+            "operations.");
+
 #ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
@@ -214,7 +221,8 @@ struct KeyGen {
     EncodeFixed64(key_data + 10, key);
     key_data[18] = char{4};
     EncodeFixed64(key_data + 19, key);
-    return Slice(&key_data[off], sizeof(key_data) - off);
+    assert(27 >= kCacheKeySize);
+    return Slice(&key_data[off], kCacheKeySize);
   }
 };
 
@@ -282,7 +290,9 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
+      cache_ = ExperimentalNewClockCache(
+          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
       if (!cache_) {
         fprintf(stderr, "Clock cache not supported.\n");
         exit(1);
@@ -321,8 +331,9 @@ class CacheBench {
     Random64 rnd(1);
     KeyGen keygen;
     for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
-      cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), createValue(rnd),
-                     &helper1, FLAGS_value_bytes);
+      Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_),
+                                createValue(rnd), &helper1, FLAGS_value_bytes);
+      assert(s.ok());
     }
   }
 
@@ -516,7 +527,6 @@ class CacheBench {
     StopWatchNano timer(clock);
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      timer.Start();
       Slice key = gen.GetRand(thread->rnd, max_key_, max_log_);
       uint64_t random_op = thread->rnd.Next();
       Cache::CreateCallback create_cb = [](const void* buf, size_t size,
@@ -528,6 +538,8 @@ class CacheBench {
         return Status::OK();
       };
 
+      timer.Start();
+
       if (random_op < lookup_insert_threshold_) {
         if (handle) {
           cache_->Release(handle);
@@ -537,13 +549,16 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         } else {
           // do insert
-          cache_->Insert(key, createValue(thread->rnd), &helper2,
-                         FLAGS_value_bytes, &handle);
+          Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
+                                    FLAGS_value_bytes, &handle);
+          assert(s.ok());
         }
       } else if (random_op < insert_threshold_) {
         if (handle) {
@@ -551,8 +566,9 @@ class CacheBench {
           handle = nullptr;
         }
         // do insert
-        cache_->Insert(key, createValue(thread->rnd), &helper3,
-                       FLAGS_value_bytes, &handle);
+        Status s = cache_->Insert(key, createValue(thread->rnd), &helper3,
+                                  FLAGS_value_bytes, &handle);
+        assert(s.ok());
       } else if (random_op < lookup_threshold_) {
         if (handle) {
           cache_->Release(handle);
@@ -562,9 +578,11 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         }
       } else if (random_op < erase_threshold_) {
         // do erase

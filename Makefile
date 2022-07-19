@@ -136,6 +136,7 @@ CXXFLAGS += $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 CFLAGS +=  $(PLATFORM_SHARED_CFLAGS) -DROCKSDB_DLL
 endif
 
+GIT_COMMAND ?= git
 ifeq ($(USE_COROUTINES), 1)
 	USE_FOLLY = 1
 	OPT += -DUSE_COROUTINES
@@ -1383,6 +1384,9 @@ db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIB
 db_readonly_with_timestamp_test: $(OBJ_DIR)/db/db_readonly_with_timestamp_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_wide_basic_test: $(OBJ_DIR)/db/wide/db_wide_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1499,6 +1503,9 @@ db_table_properties_test: $(OBJ_DIR)/db/db_table_properties_test.o $(TEST_LIBRAR
 
 log_write_bench: $(OBJ_DIR)/util/log_write_bench.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK) $(PROFILING_FLAGS)
+
+seqno_time_test: $(OBJ_DIR)/db/seqno_time_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
 
 plain_table_db_test: $(OBJ_DIR)/db/plain_table_db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
@@ -1777,6 +1784,9 @@ write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unpre
 	$(AM_LINK)
 
 timestamped_snapshot_test: $(OBJ_DIR)/utilities/transactions/timestamped_snapshot_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+tiered_compaction_test: $(OBJ_DIR)/db/compaction/tiered_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 sst_dump: $(OBJ_DIR)/tools/sst_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
@@ -2353,9 +2363,9 @@ commit_prereq:
 # integration.
 checkout_folly:
 	if [ -e third-party/folly ]; then \
-		cd third-party/folly && git fetch origin; \
+		cd third-party/folly && ${GIT_COMMAND} fetch origin; \
 	else \
-		cd third-party && git clone https://github.com/facebook/folly.git; \
+		cd third-party && ${GIT_COMMAND} clone https://github.com/facebook/folly.git; \
 	fi
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically

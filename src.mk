@@ -33,7 +33,11 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_picker_fifo.cc                       \
   db/compaction/compaction_picker_level.cc                      \
   db/compaction/compaction_picker_universal.cc                  \
+  db/compaction/compaction_service_job.cc                       \
+  db/compaction/compaction_state.cc                             \
+  db/compaction/compaction_outputs.cc                           \
   db/compaction/sst_partitioner.cc                              \
+  db/compaction/subcompaction_state.cc                          \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/db_impl/compacted_db_impl.cc                               \
@@ -72,6 +76,7 @@ LIB_SOURCES =                                                   \
   db/range_del_aggregator.cc                                    \
   db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
+  db/seqno_to_time_mapping.cc                                   \
   db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
@@ -433,6 +438,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/compaction/compaction_job_stats_test.cc                            \
   db/compaction/compaction_picker_test.cc                               \
   db/compaction/compaction_service_test.cc                              \
+  db/compaction/tiered_compaction_test.cc                               \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
@@ -498,11 +504,13 @@ TEST_MAIN_SOURCES =                                                     \
   db/repair_test.cc                                                     \
   db/range_del_aggregator_test.cc                                       \
   db/range_tombstone_fragmenter_test.cc                                 \
+  db/seqno_time_test.cc                                                 \
   db/table_properties_collector_test.cc                                 \
   db/version_builder_test.cc                                            \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
   db/wal_manager_test.cc                                                \
+  db/wide/db_wide_basic_test.cc                                         \
   db/wide/wide_column_serialization_test.cc                             \
   db/write_batch_test.cc                                                \
   db/write_callback_test.cc                                             \

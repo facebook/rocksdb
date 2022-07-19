@@ -156,7 +156,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
+      init_logger_creation_s_(),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only,
+                                          &init_logger_creation_s_)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -244,8 +246,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
-  // TODO: Check for an error here
-  env_->GetAbsolutePath(dbname, &db_absolute_path_).PermitUncheckedError();
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
@@ -263,7 +263,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_session_id_));
+                                 io_tracer_, db_id_, db_session_id_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -480,6 +480,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 #ifndef ROCKSDB_LITE
   if (periodic_work_scheduler_ != nullptr) {
     periodic_work_scheduler_->Unregister(this);
+    periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
   }
 #endif  // !ROCKSDB_LITE
 
@@ -575,38 +576,6 @@ Status DBImpl::CloseHelper() {
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
-
-  // For now, simply trigger a manual flush at close time
-  // on all the column families.
-  // TODO(bjlemaire): Check if this is needed. Also, in the
-  // future we can contemplate doing a more fine-grained
-  // flushing by first checking if there is a need for
-  // flushing (but need to implement something
-  // else than imm()->IsFlushPending() because the output
-  // memtables added to imm() don't trigger flushes).
-  if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
-    Status flush_ret;
-    mutex_.Unlock();
-    for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
-      if (immutable_db_options_.atomic_flush) {
-        flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
-                                         FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(
-              immutable_db_options_.info_log,
-              "Atomic flush memtables failed upon closing (mempurge).");
-        }
-      } else {
-        flush_ret =
-            FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                         "Flush memtables failed upon closing (mempurge).");
-        }
-      }
-    }
-    mutex_.Lock();
-  }
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
@@ -747,6 +716,9 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  // TODO: remove this.
+  init_logger_creation_s_.PermitUncheckedError();
+
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
   if (closed_) {
     return;
@@ -815,6 +787,53 @@ Status DBImpl::StartPeriodicWorkScheduler() {
   return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
+#else
+  return Status::OK();
+#endif  // !ROCKSDB_LITE
+}
+
+Status DBImpl::RegisterRecordSeqnoTimeWorker() {
+#ifndef ROCKSDB_LITE
+  if (!periodic_work_scheduler_) {
+    return Status::OK();
+  }
+  uint64_t min_time_duration = std::numeric_limits<uint64_t>::max();
+  uint64_t max_time_duration = std::numeric_limits<uint64_t>::min();
+  {
+    InstrumentedMutexLock l(&mutex_);
+
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      uint64_t preclude_last_option =
+          cfd->ioptions()->preclude_last_level_data_seconds;
+      if (!cfd->IsDropped() && preclude_last_option > 0) {
+        min_time_duration = std::min(preclude_last_option, min_time_duration);
+        max_time_duration = std::max(preclude_last_option, max_time_duration);
+      }
+    }
+    if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
+      seqno_time_mapping_.Resize(0, 0);
+    } else {
+      seqno_time_mapping_.Resize(min_time_duration, max_time_duration);
+    }
+  }
+
+  uint64_t seqno_time_cadence = 0;
+  if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+    seqno_time_cadence =
+        min_time_duration / SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+  }
+
+  Status s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
+      this, seqno_time_cadence);
+  if (s.IsNotSupported()) {
+    // TODO: Fix the timer cannot cancel and re-add the same task
+    ROCKS_LOG_WARN(
+        immutable_db_options_.info_log,
+        "Updating seqno to time worker cadence is not supported yet, to make "
+        "the change effective, please reopen the DB instance.");
+    s = Status::OK();
+  }
+  return s;
 #else
   return Status::OK();
 #endif  // !ROCKSDB_LITE
@@ -1471,12 +1490,12 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
     assert(wal.IsSyncing());
-    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.GetPreSyncSize() > 0) {
-      synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
-    }
 
     if (logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+          wal.GetPreSyncSize() > 0) {
+        synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
+      }
       logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
@@ -2834,6 +2853,14 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
+  if (cf_options.preclude_last_level_data_seconds > 0) {
+    // TODO(zjay): Fix the timer issue and re-enable this.
+    ROCKS_LOG_ERROR(
+        immutable_db_options_.info_log,
+        "Creating column family with `preclude_last_level_data_seconds` needs "
+        "to restart DB to take effect");
+    //    s = RegisterRecordSeqnoTimeWorker();
+  }
   sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {
@@ -2920,6 +2947,10 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       is_snapshot_supported_ = new_is_snapshot_supported;
     }
     bg_cv_.SignalAll();
+  }
+
+  if (cfd->ioptions()->preclude_last_level_data_seconds > 0) {
+    s = RegisterRecordSeqnoTimeWorker();
   }
 
   if (s.ok()) {
@@ -5563,6 +5594,26 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
     return Status::OK();
   } else {
     return Status::NotSupported("This API only works if max_open_files = -1");
+  }
+}
+
+void DBImpl::RecordSeqnoToTimeMapping() {
+  // Get time first then sequence number, so the actual time of seqno is <=
+  // unix_time recorded
+  int64_t unix_time = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
+  SequenceNumber seqno = GetLatestSequenceNumber();
+  bool appended = false;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    appended = seqno_time_mapping_.Append(seqno, unix_time);
+  }
+  if (!appended) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Failed to insert sequence number to time entry: %" PRIu64
+                   " -> %" PRIu64,
+                   seqno, unix_time);
   }
 }
 #endif  // ROCKSDB_LITE

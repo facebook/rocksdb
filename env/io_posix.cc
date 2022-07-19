@@ -200,23 +200,6 @@ bool IsSyncFileRangeSupported(int fd) {
 }  // anonymous namespace
 
 /*
- * DirectIOHelper
- */
-namespace {
-
-bool IsSectorAligned(const size_t off, size_t sector_size) {
-  assert((sector_size & (sector_size - 1)) == 0);
-  return (off & (sector_size - 1)) == 0;
-}
-
-#ifndef NDEBUG
-bool IsSectorAligned(const void* ptr, size_t sector_size) {
-  return uintptr_t(ptr) % sector_size == 0;
-}
-#endif
-}  // namespace
-
-/*
  * PosixSequentialFile
  */
 PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
@@ -760,24 +743,15 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
       FSReadRequest* req = req_wrap->req;
       size_t bytes_read = 0;
+      bool read_again = false;
       UpdateResult(cqe, filename_, req->len, req_wrap->iov.iov_len,
-                   false /*async_read*/, req_wrap->finished_len, req,
-                   bytes_read);
+                   false /*async_read*/, use_direct_io(),
+                   GetRequiredBufferAlignment(), req_wrap->finished_len, req,
+                   bytes_read, read_again);
       int32_t res = cqe->res;
       if (res >= 0) {
         if (bytes_read == 0) {
-          /// cqe->res == 0 can means EOF, or can mean partial results. See
-          // comment
-          // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
-          // Fall back to pread in this case.
-          if (use_direct_io() &&
-              !IsSectorAligned(req_wrap->finished_len,
-                               GetRequiredBufferAlignment())) {
-            // Bytes reads don't fill sectors. Should only happen at the end
-            // of the file.
-            req->result = Slice(req->scratch, req_wrap->finished_len);
-            req->status = IOStatus::OK();
-          } else {
+          if (read_again) {
             Slice tmp_slice;
             req->status =
                 Read(req->offset + req_wrap->finished_len,
@@ -786,6 +760,7 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
             req->result =
                 Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
           }
+          // else It means EOF so no need to do anything.
         } else if (bytes_read < req_wrap->iov.iov_len) {
           incomplete_rq_list.push_back(req_wrap);
         }
@@ -910,19 +885,15 @@ IOStatus PosixRandomAccessFile::ReadAsync(
     args = nullptr;
   };
 
-  Posix_IOHandle* posix_handle = new Posix_IOHandle();
-  *io_handle = static_cast<void*>(posix_handle);
-  *del_fn = deletefn;
-
   // Initialize Posix_IOHandle.
-  posix_handle->iu = iu;
+  Posix_IOHandle* posix_handle =
+      new Posix_IOHandle(iu, cb, cb_arg, req.offset, req.len, req.scratch,
+                         use_direct_io(), GetRequiredBufferAlignment());
   posix_handle->iov.iov_base = req.scratch;
   posix_handle->iov.iov_len = req.len;
-  posix_handle->cb = cb;
-  posix_handle->cb_arg = cb_arg;
-  posix_handle->offset = req.offset;
-  posix_handle->len = req.len;
-  posix_handle->scratch = req.scratch;
+
+  *io_handle = static_cast<void*>(posix_handle);
+  *del_fn = deletefn;
 
   // Step 3: io_uring_sqe_set_data
   struct io_uring_sqe* sqe;

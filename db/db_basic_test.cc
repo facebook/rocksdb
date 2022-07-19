@@ -2467,35 +2467,37 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   SetPerfLevel(kEnableCount);
   get_perf_context()->Reset();
 
-  // First key is not in the prefix_extractor domain
   ASSERT_OK(Put("k", "v0"));
   ASSERT_OK(Put("kk1", "v1"));
   ASSERT_OK(Put("kk2", "v2"));
   ASSERT_OK(Put("kk3", "v3"));
   ASSERT_OK(Put("kk4", "v4"));
-  std::vector<std::string> mem_keys(
+  std::vector<std::string> keys(
       {"k", "kk1", "kk2", "kk3", "kk4", "rofl", "lmho"});
-  std::vector<std::string> inmem_values;
-  inmem_values = MultiGet(mem_keys, nullptr);
-  ASSERT_EQ(inmem_values[0], "v0");
-  ASSERT_EQ(inmem_values[1], "v1");
-  ASSERT_EQ(inmem_values[2], "v2");
-  ASSERT_EQ(inmem_values[3], "v3");
-  ASSERT_EQ(inmem_values[4], "v4");
+  std::vector<std::string> expected(
+      {"v0", "v1", "v2", "v3", "v4", "NOT_FOUND", "NOT_FOUND"});
+  std::vector<std::string> values;
+  values = MultiGet(keys, nullptr);
+  ASSERT_EQ(values, expected);
+  // One key ("k") is not queried against the filter because it is outside
+  // the prefix_extractor domain, leaving 6 keys with queried prefixes.
   ASSERT_EQ(get_perf_context()->bloom_memtable_miss_count, 2);
-  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 5);
+  ASSERT_EQ(get_perf_context()->bloom_memtable_hit_count, 4);
   ASSERT_OK(Flush());
 
-  std::vector<std::string> keys({"k", "kk1", "kk2", "kk3", "kk4"});
-  std::vector<std::string> values;
   get_perf_context()->Reset();
   values = MultiGet(keys, nullptr);
-  ASSERT_EQ(values[0], "v0");
-  ASSERT_EQ(values[1], "v1");
-  ASSERT_EQ(values[2], "v2");
-  ASSERT_EQ(values[3], "v3");
-  ASSERT_EQ(values[4], "v4");
-  // Filter hits for 4 in-domain keys
+  ASSERT_EQ(values, expected);
+  ASSERT_EQ(get_perf_context()->bloom_sst_miss_count, 2);
+  ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
+
+  // Also check Get stat
+  get_perf_context()->Reset();
+  for (size_t i = 0; i < keys.size(); ++i) {
+    values[i] = Get(keys[i]);
+  }
+  ASSERT_EQ(values, expected);
+  ASSERT_EQ(get_perf_context()->bloom_sst_miss_count, 2);
   ASSERT_EQ(get_perf_context()->bloom_sst_hit_count, 4);
 }
 
@@ -2616,13 +2618,20 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[0], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  for (size_t i = 0; i < kNumInserts + kNumDeletes + kNumUpdates; i++) {
+    if (i % 3 == 0) {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeDeletion");
+    } else {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeValue");
+    }
+  }
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
 
   // Check non-default column family
@@ -2635,10 +2644,20 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[1], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
+}
+
+TEST_F(DBBasicTest, ValueTypeString) {
+  KeyVersion key_version;
+  // when adding new type, please also update `value_type_string_map`
+  for (unsigned char i = ValueType::kTypeDeletion; i < ValueType::kTypeMaxValid;
+       i++) {
+    key_version.type = i;
+    ASSERT_TRUE(key_version.GetTypeName() != "Invalid");
+  }
 }
 #endif  // !ROCKSDB_LITE
 
@@ -4143,7 +4162,7 @@ TEST_F(DBBasicTest, FailOpenIfLoggerCreationFail) {
 
   Status s = TryReopen(options);
   ASSERT_EQ(nullptr, options.info_log);
-  ASSERT_TRUE(s.IsAborted());
+  ASSERT_TRUE(s.IsIOError());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -4193,7 +4212,9 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 }
 
-TEST_F(DBBasicTest, ManualWalSync) {
+// TODO: re-enable after we provide finer-grained control for WAL tracking to
+// meet the needs of different use cases, durability levels and recovery modes.
+TEST_F(DBBasicTest, DISABLED_ManualWalSync) {
   Options options = CurrentOptions();
   options.track_and_verify_wals_in_manifest = true;
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;

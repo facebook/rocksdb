@@ -37,15 +37,18 @@ inline bool IsAligned(size_t alignment, const void* ptr) {
 }  // namespace
 
 std::string GetWindowsErrSz(DWORD err) {
-  LPSTR lpMsgBuf;
+  std::string Err;
+  LPSTR lpMsgBuf = nullptr;
   FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
                      FORMAT_MESSAGE_IGNORE_INSERTS,
                  NULL, err,
                  0,  // Default language
                  reinterpret_cast<LPSTR>(&lpMsgBuf), 0, NULL);
 
-  std::string Err = lpMsgBuf;
-  LocalFree(lpMsgBuf);
+  if (lpMsgBuf) {
+    Err = lpMsgBuf;
+    LocalFree(lpMsgBuf);
+  }
   return Err;
 }
 
