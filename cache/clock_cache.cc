@@ -26,13 +26,16 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
 
-ClockHandleTable::ClockHandleTable(int hash_bits)
+ClockHandleTable::ClockHandleTable(size_t capacity, int hash_bits)
     : length_bits_(hash_bits),
       length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_(0),
       occupancy_limit_(static_cast<uint32_t>((uint32_t{1} << length_bits_) *
                                              kStrictLoadFactor)),
-      array_(new ClockHandle[size_t{1} << length_bits_]) {
+      array_(new ClockHandle[size_t{1} << length_bits_]),
+      clock_pointer_(0),
+      usage_(0),
+      capacity_(capacity) {
   assert(hash_bits <= 32);
 }
 
@@ -42,70 +45,48 @@ ClockHandleTable::~ClockHandleTable() {
 }
 
 ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
-  uint32_t probe = 0;
-  int slot = FindElement(key, hash, probe);
-  return (slot == -1) ? nullptr : &array_[slot];
+  ClockHandle* e = FindElement(key, hash);
+
+  if (e != nullptr) {
+    // TODO(Guido) Comment from #10347: Here it looks like we have three atomic
+    // updates where it would be possible to combine into one CAS (more metadata
+    // under one atomic field) or maybe two atomic updates (one arithmetic, one
+    // bitwise). Something to think about optimizing.
+    e->InternalToExternalRef();
+    e->SetHit();
+    // The handle is now referenced, so we take it out of clock.
+    ClockOff(e);
+  }
+
+  return e;
 }
 
-ClockHandle* ClockHandleTable::Insert(ClockHandle* h, ClockHandle** old) {
+ClockHandle* ClockHandleTable::Insert(ClockHandle* h, autovector<ClockHandle>* deleted, bool take_reference) {
   uint32_t probe = 0;
-  int slot = FindElementOrAvailableSlot(h->key(), h->hash, probe);
-  *old = nullptr;
-  if (slot == -1) {
-    // The key is not already present, and there's no available slot to place
-    // the new copy.
+  ClockHandle* e = FindAvailableSlot(h->key(), h->hash, probe, deleted);
+  if (e == nullptr) {
+    // No available slot to place the handle.
     return nullptr;
   }
 
-  if (!array_[slot].IsElement()) {
-    // The slot is empty or is a tombstone.
-    ClockHandle* new_entry = &array_[slot];
-    new_entry->InternalToExclusiveRef();
-    Assign(new_entry, h);
-    if (new_entry->displacements == 0) {
-      // The slot was empty.
-      return new_entry;
-    }
-    // It used to be a tombstone, so there may already be a copy of the
+  // The slot is empty or is a tombstone. And we have an exclusive ref.
+  Assign(e, h);
+  usage_ += e->total_charge;
+  if (e->displacements != 0) {
+    // It used to be a tombstone, so there may already be copies of the
     // key in the table.
-    slot = FindElement(h->key(), h->hash, probe);
-    if (slot == -1) {
-      // Nope, no existing copy of the key.
-      return new_entry;
-    }
-    ClockHandle* old_entry = &array_[slot];
-    old_entry->ReleaseInternalRef();
-    *old = old_entry;
-    return new_entry;
-  } else {
-    // There is an existing copy of the key.
-    ClockHandle* old_entry = &array_[slot];
-    old_entry->ReleaseInternalRef();
-    *old = old_entry;
-    // Find an available slot for the new element.
-    old_entry->displacements++;
-    slot = FindAvailableSlot(h->key(), probe);
-    if (slot == -1) {
-      // No available slots.
-      return nullptr;
-    }
-    ClockHandle* new_entry = &array_[slot];
-    new_entry->InternalToExclusiveRef();
-    Assign(new_entry, h);
-    return new_entry;
+    RemoveAll(h->key(), h->hash, probe, deleted);
   }
-}
 
-void ClockHandleTable::Remove(ClockHandle* h) {
-  assert(!h->IsInClock());  // Already off clock.
-  uint32_t probe = 0;
-  FindSlot(
-      h->key(), [&](ClockHandle* e) { return e == h; },
-      [&](ClockHandle* /*e*/) { return false; },
-      [&](ClockHandle* e) { e->displacements--; }, probe);
-  h->SetWillBeDeleted(false);
-  h->SetIsElement(false);
-  occupancy_--;
+  if (take_reference) {
+    // The user wants to take a reference.
+    e->ExclusiveToExternalRef();
+  } else {
+    // The user doesn't want to take a reference, so we make it evictable.
+    ClockOn(e);
+    e->ReleaseExclusiveRef();
+  }
+  return e;
 }
 
 void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
@@ -117,13 +98,53 @@ void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
   dst->key_data = src->key_data;
   dst->flags.store(0);
   dst->SetIsElement(true);
-  dst->SetClockPriority(ClockHandle::ClockPriority::NONE);
   dst->SetCachePriority(src->GetCachePriority());
+  // dst->SetClockPriority(ClockHandle::ClockPriority::NONE);
   occupancy_++;
 }
 
-int ClockHandleTable::FindElement(const Slice& key, uint32_t hash,
-                                  uint32_t& probe) {
+bool ClockHandleTable::TryRemove(ClockHandle* h, autovector<ClockHandle>* deleted) {
+  if (h->TryExclusiveRef()) {
+    if (h->WillBeDeleted()) {
+      deleted->push_back(*h);
+      Remove(h);
+      return true;
+    }
+    h->ReleaseExclusiveRef();
+  }
+  return false;
+}
+
+void ClockHandleTable::ClockOff(ClockHandle* h) {
+  h->SetClockPriority(ClockHandle::ClockPriority::NONE);
+}
+
+void ClockHandleTable::ClockOn(ClockHandle* h) {
+  assert(!h->IsInClock());
+  bool is_high_priority =
+      h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
+  h->SetClockPriority(static_cast<ClockHandle::ClockPriority>(
+      is_high_priority * ClockHandle::ClockPriority::HIGH +
+      (1 - is_high_priority) * ClockHandle::ClockPriority::MEDIUM));
+}
+
+// Requires exclusive ref.
+void ClockHandleTable::Remove(ClockHandle* h) {
+  ClockOff(h);
+  uint32_t probe = 0;
+  FindSlot(
+      h->key(), [&](ClockHandle* e) { return e == h; },
+      [&](ClockHandle* /*e*/) { return false; },
+      [&](ClockHandle* e) { e->displacements--; }, probe);
+  h->SetWillBeDeleted(false);
+  h->SetIsElement(false);
+  occupancy_--;
+  assert(usage_ >= h->total_charge);
+  usage_ -= h->total_charge;
+}
+
+ClockHandle* ClockHandleTable::FindElement(const Slice& key, uint32_t hash) {
+  uint32_t probe = 0;
   return FindSlot(
       key,
       [&](ClockHandle* h) {
@@ -139,49 +160,79 @@ int ClockHandleTable::FindElement(const Slice& key, uint32_t hash,
       [&](ClockHandle* /*h*/) {}, probe);
 }
 
-int ClockHandleTable::FindAvailableSlot(const Slice& key, uint32_t& probe) {
-  int slot = FindSlot(
+void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
+                                  uint32_t& probe, autovector<ClockHandle>* deleted) {
+  FindSlot(
       key,
       [&](ClockHandle* h) {
         if (h->TryInternalRef()) {
-          if (!h->IsElement()) {
-            return true;
+          // TODO(Guido) This will not try to overwrite elements marked as WILL_BE_DELETED.
+          if (h->Matches(key, hash)) {
+            h->SetWillBeDeleted(true);
+            h->ReleaseInternalRef();
+            if (TryRemove(h, deleted)) {
+              h->ReleaseExclusiveRef();
+            }
+            return false;
           }
           h->ReleaseInternalRef();
         }
         return false;
       },
-      [&](ClockHandle* /*h*/) { return false; },
-      [&](ClockHandle* h) { h->displacements++; }, probe);
-  if (slot == -1) {
-    Rollback(key, probe);
-  }
-  return slot;
+      [&](ClockHandle* h) { return h->displacements == 0; },
+      [&](ClockHandle* /*h*/) {}, probe);
 }
 
-int ClockHandleTable::FindElementOrAvailableSlot(const Slice& key,
-                                                 uint32_t hash,
-                                                 uint32_t& probe) {
-  int slot = FindSlot(
+ClockHandle* ClockHandleTable::FindAvailableSlot(const Slice& key,
+                                          uint32_t hash,
+                                          uint32_t& probe, autovector<ClockHandle>* deleted) {
+  ClockHandle* e = FindSlot(
       key,
       [&](ClockHandle* h) {
+        // To read the handle, first acquire a shared ref.
         if (h->TryInternalRef()) {
-          if (!h->IsElement() || h->Matches(key, hash)) {
-            return true;
+          // TODO(Guido) This will not try to overwrite elements marked as WILL_BE_DELETED.
+          if (h->IsElement()) {
+            // The slot is not available.
+            if (h->Matches(key, hash)) {
+              // The key we're inserting is already in the table, so we
+              // try to delete it. When we are able to delete the handle,
+              // the slot becomes available, so we stop probing.
+              // Notice that in this case TryRemove returns an exclusive ref.
+              h->SetWillBeDeleted(true);
+              h->ReleaseInternalRef();
+              if (TryRemove(h, deleted)) {
+                return true;
+              }
+              return false;
+            }
+            h->ReleaseInternalRef();
+            return false;
           }
+
+          // Available slot.
           h->ReleaseInternalRef();
+          // Try to acquire an exclusive ref. If we fail, continue probing.
+          if (h->SpinTryExclusiveRef()) {
+            // Check that the slot is still available.
+            // TODO(Guido) We can avoid re-checking if we use a dirty bit.
+            if (!h->IsElement()) {
+              return true;
+            }
+            h->ReleaseExclusiveRef();
+          }
         }
         return false;
       },
       [&](ClockHandle* /*h*/) { return false; },
       [&](ClockHandle* h) { h->displacements++; }, probe);
-  if (slot == -1) {
+  if (e == nullptr) {
     Rollback(key, probe);
   }
-  return slot;
+  return e;
 }
 
-int ClockHandleTable::FindSlot(const Slice& key,
+ClockHandle* ClockHandleTable::FindSlot(const Slice& key,
                                std::function<bool(ClockHandle*)> match,
                                std::function<bool(ClockHandle*)> abort,
                                std::function<void(ClockHandle*)> update,
@@ -201,14 +252,14 @@ int ClockHandleTable::FindSlot(const Slice& key,
     ClockHandle* h = &array_[current];
     if (current == base && probe > 0) {
       // We looped back.
-      return -1;
+      return nullptr;
     }
     if (match(h)) {
       probe++;
-      return current;
+      return h;
     }
     if (abort(h)) {
-      return -1;
+      return nullptr;
     }
     probe++;
     update(h);
@@ -226,32 +277,63 @@ void ClockHandleTable::Rollback(const Slice& key, uint32_t probe) {
   }
 }
 
+void ClockHandleTable::ClockEvict(size_t charge,
+                                     autovector<ClockHandle>* deleted) {
+  // TODO(Guido) When an element is in the probe sequence of a
+  // hot element, it will be hard to get an exclusive ref.
+  // We may need a mechanism to avoid that an element sits forever
+  // in cache waiting to be evicted.
+  assert(charge <= capacity_);
+  uint32_t max_iterations = GetTableSize();
+  size_t usage_local = usage_;
+  // TODO(Guido) Evict more than strictly necessary?
+  while (usage_local + charge > capacity_ && max_iterations--) {
+    uint32_t clock_pointer_local = ModTableSize(clock_pointer_++);
+    ClockHandle* h = &array_[clock_pointer_local];
+
+    if (h->TryExclusiveRef()) {
+      if (!h->IsInClock() && h->IsElement()) {
+        // We adjust the clock priority to make the element evictable again.
+        // Why? Elements that are not in clock are either currently
+        // externally referenced or used to be---because we are holding an
+        // exclusive ref, we know we are in the latter case. This can only
+        // happen when the last external reference to an element was released,
+        // and the element was not immediately removed.
+        ClockOn(h);
+      }
+
+      if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
+        deleted->push_back(*h);
+        Remove(h);
+      } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
+        h->DecreaseClockPriority();
+      }
+      h->ReleaseExclusiveRef();
+    }
+  }
+}
+
 ClockCacheShard::ClockCacheShard(
     size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy)
-    : capacity_(capacity),
-      strict_capacity_limit_(strict_capacity_limit),
-      clock_pointer_(0),
+    : strict_capacity_limit_(strict_capacity_limit),
       table_(
-          CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)),
-      usage_(0) {
+          capacity, CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)) {
   set_metadata_charge_policy(metadata_charge_policy);
 }
 
 void ClockCacheShard::EraseUnRefEntries() {
   autovector<ClockHandle> last_reference_list;
-  {
-    DMutexLock l(mutex_);
-    table_.ApplyToEntriesRange(
-        [this, &last_reference_list](ClockHandle* h) {
-          // Externally unreferenced element.
-          last_reference_list.push_back(*h);
-          Evict(h);
-        },
-        0, table_.GetTableSize(), true);
-  }
 
-  // Free the entry outside of the mutex for performance reasons.
+  table_.ApplyToEntriesRange(
+      [this, &last_reference_list](ClockHandle* h) {
+        // Externally unreferenced element.
+        last_reference_list.push_back(*h);
+        table_.Remove(h);
+      },
+      0, table_.GetTableSize(), true);
+
+  // Free the entries outside of the exclusive ref.
   for (auto& h : last_reference_list) {
     h.FreeData();
   }
@@ -264,7 +346,6 @@ void ClockCacheShard::ApplyToSomeEntries(
   // The state is essentially going to be the starting hash, which works
   // nicely even if we resize between calls because we use upper-most
   // hash bits for table indexes.
-  DMutexLock l(mutex_);
   uint32_t length_bits = table_.GetLengthBits();
   uint32_t length = table_.GetTableSize();
 
@@ -292,60 +373,6 @@ void ClockCacheShard::ApplyToSomeEntries(
       index_begin, index_end, false);
 }
 
-void ClockCacheShard::ClockOff(ClockHandle* h) {
-  h->SetClockPriority(ClockHandle::ClockPriority::NONE);
-}
-
-void ClockCacheShard::ClockOn(ClockHandle* h) {
-  assert(!h->IsInClock());
-  bool is_high_priority =
-      h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
-  h->SetClockPriority(static_cast<ClockHandle::ClockPriority>(
-      is_high_priority * ClockHandle::ClockPriority::HIGH +
-      (1 - is_high_priority) * ClockHandle::ClockPriority::MEDIUM));
-}
-
-void ClockCacheShard::Evict(ClockHandle* h) {
-  ClockOff(h);
-  table_.Remove(h);
-  assert(usage_ >= h->total_charge);
-  usage_ -= h->total_charge;
-}
-
-void ClockCacheShard::EvictFromClock(size_t charge,
-                                     autovector<ClockHandle>* deleted) {
-  // TODO(Guido) When an element is in the probe sequence of a
-  // hot element, it will be hard to get an exclusive ref.
-  // We may need a mechanism to avoid that an element sits forever
-  // in cache waiting to be evicted.
-  assert(charge <= capacity_);
-  uint32_t max_iterations = table_.GetTableSize();
-  while (usage_ + charge > capacity_ && max_iterations--) {
-    ClockHandle* h = &table_.array_[clock_pointer_];
-    clock_pointer_ = table_.ModTableSize(clock_pointer_ + 1);
-
-    if (h->TryExclusiveRef()) {
-      if (!h->IsInClock() && h->IsElement()) {
-        // We adjust the clock priority to make the element evictable again.
-        // Why? Elements that are not in clock are either currently
-        // externally referenced or used to be---because we are holding an
-        // exclusive ref, we know we are in the latter case. This can only
-        // happen when the last external reference to an element was released,
-        // and the element was not immediately removed.
-        ClockOn(h);
-      }
-
-      if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
-        deleted->push_back(*h);
-        Evict(h);
-      } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
-        h->DecreaseClockPriority();
-      }
-      h->ReleaseExclusiveRef();
-    }
-  }
-}
-
 size_t ClockCacheShard::CalcEstimatedHandleCharge(
     size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
@@ -369,13 +396,10 @@ int ClockCacheShard::CalcHashBits(
 void ClockCacheShard::SetCapacity(size_t capacity) {
   assert(false);  // Not supported. TODO(Guido) Support it?
   autovector<ClockHandle> last_reference_list;
-  {
-    DMutexLock l(mutex_);
-    capacity_ = capacity;
-    EvictFromClock(0, &last_reference_list);
-  }
+  table_.capacity_ = capacity;
+  table_.ClockEvict(0, &last_reference_list);
 
-  // Free the entry outside of the mutex for performance reasons.
+  // Free the entries outside of the exclusive ref.
   for (auto& h : last_reference_list) {
     h.FreeData();
   }
@@ -383,7 +407,6 @@ void ClockCacheShard::SetCapacity(size_t capacity) {
 
 void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   assert(false);  // Not supported. TODO(Guido) Support it?
-  DMutexLock l(mutex_);
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
@@ -408,65 +431,45 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
   Status s = Status::OK();
   autovector<ClockHandle> last_reference_list;
-  {
-    DMutexLock l(mutex_);
-
-    assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
-    // Free the space following strict clock policy until enough space
-    // is freed or there are no evictable elements.
-    EvictFromClock(tmp.total_charge, &last_reference_list);
-    if ((usage_ + tmp.total_charge > capacity_ &&
-         (strict_capacity_limit_ || handle == nullptr)) ||
-        table_.GetOccupancy() == table_.GetOccupancyLimit()) {
-      if (handle == nullptr) {
-        // Don't insert the entry but still return ok, as if the entry inserted
-        // into cache and get evicted immediately.
-        last_reference_list.push_back(tmp);
-      } else {
-        if (table_.GetOccupancy() == table_.GetOccupancyLimit()) {
-          // TODO: Consider using a distinct status for this case, but usually
-          // it will be handled the same way as reaching charge capacity limit
-          s = Status::MemoryLimit(
-              "Insert failed because all slots in the hash table are full.");
-        } else {
-          s = Status::MemoryLimit(
-              "Insert failed because the total charge has exceeded the "
-              "capacity.");
-        }
-      }
+  assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
+  // Free the space following strict clock policy until enough space
+  // is freed or there are no evictable elements.
+  table_.ClockEvict(tmp.total_charge, &last_reference_list);
+  if ((table_.usage_ + tmp.total_charge > table_.capacity_ &&
+        (strict_capacity_limit_ || handle == nullptr)) ||
+      table_.GetOccupancy() > table_.GetOccupancyLimit()) {
+    if (handle == nullptr) {
+      // Don't insert the entry but still return ok, as if the entry inserted
+      // into cache and get evicted immediately.
+      last_reference_list.push_back(tmp);
     } else {
-      // Insert into the cache. Note that the cache might get larger than its
-      // capacity if not enough space was freed up.
-      ClockHandle* old;
-      ClockHandle* h = table_.Insert(&tmp, &old);
-      assert(h != nullptr);  // We're below occupancy, so this insertion should
-                             // never fail.
-      usage_ += h->total_charge;
-      if (old != nullptr) {
-        s = Status::OkOverwritten();
-        assert(!old->WillBeDeleted());
-        old->SetWillBeDeleted(true);
-        // Try to evict the old copy of the element.
-        if (old->TryExclusiveRef()) {
-          last_reference_list.push_back(*old);
-          Evict(old);
-          old->ReleaseExclusiveRef();
-        }
-      }
-      if (handle == nullptr) {
-        // If the user didn't provide a handle, no reference is taken,
-        // so we make the element evictable.
-        ClockOn(h);
-        h->ReleaseExclusiveRef();
+      if (table_.GetOccupancy() > table_.GetOccupancyLimit()) {
+        // TODO: Consider using a distinct status for this case, but usually
+        // it will be handled the same way as reaching charge capacity limit
+        s = Status::MemoryLimit(
+            "Insert failed because all slots in the hash table are full.");
       } else {
-        // The caller already holds a ref.
-        h->ExclusiveToExternalRef();
-        *handle = reinterpret_cast<Cache::Handle*>(h);
+        s = Status::MemoryLimit(
+            "Insert failed because the total charge has exceeded the "
+            "capacity.");
       }
+    }
+  } else {
+    // Insert into the cache. Note that the cache might get larger than its
+    // capacity if not enough space was freed up.
+    ClockHandle* h = table_.Insert(&tmp, &last_reference_list, handle != nullptr);
+    assert(h != nullptr);  // We're below occupancy, so this insertion should
+                            // never fail.
+    if (handle != nullptr) {
+      *handle = reinterpret_cast<Cache::Handle*>(h);
+    }
+
+    if (last_reference_list.size() > 0) {
+      s = Status::OkOverwritten();
     }
   }
 
-  // Free the entry outside of the mutex for performance reasons.
+  // Free the entries outside of the exclusive ref.
   for (auto& h : last_reference_list) {
     h.FreeData();
   }
@@ -475,19 +478,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 }
 
 Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
-  ClockHandle* h = nullptr;
-  h = table_.Lookup(key, hash);
-  if (h != nullptr) {
-    // TODO(Guido) Comment from #10347: Here it looks like we have three atomic
-    // updates where it would be possible to combine into one CAS (more metadata
-    // under one atomic field) or maybe two atomic updates (one arithmetic, one
-    // bitwise). Something to think about optimizing.
-    h->InternalToExternalRef();
-    h->SetHit();
-    // The handle is now referenced, so we take it out of clock.
-    ClockOff(h);
-  }
-  return reinterpret_cast<Cache::Handle*>(h);
+  return reinterpret_cast<Cache::Handle*>(table_.Lookup(key, hash));
 }
 
 bool ClockCacheShard::Ref(Cache::Handle* h) {
@@ -498,86 +489,58 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
 
 bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   // In contrast with LRUCache's Release, this function won't delete the handle
-  // when the reference is the last one and the cache is above capacity. Space
+  // when the cache is above capacity and the reference is the last one. Space
   // is only freed up by EvictFromClock (called by Insert when space is needed)
-  // and Erase.
+  // and Erase. We do this to avoid an extra atomic read of the variable usage_.
   if (handle == nullptr) {
     return false;
   }
 
   ClockHandle* h = reinterpret_cast<ClockHandle*>(handle);
-  uint32_t hash = h->hash;
-  uint32_t refs = h->ReleaseExternalRef();
-  bool last_reference = !(refs & ClockHandle::EXTERNAL_REFS);
+  uint32_t refs = h->refs;
+  bool last_reference = ((refs & ClockHandle::EXTERNAL_REFS) == 1);
   bool will_be_deleted = refs & ClockHandle::WILL_BE_DELETED;
 
   if (last_reference && (will_be_deleted || erase_if_last_ref)) {
-    // At this point we want to evict the element, so we need to take
-    // a lock and an exclusive reference. But there's a problem:
-    // as soon as we released the last reference, an Insert or Erase could've
-    // replaced this element, and by the time we take the lock and ref
-    // we could potentially be referencing a different element.
-    // Thus, before evicting the (potentially different) element, we need to
-    // re-check that it's unreferenced and marked as WILL_BE_DELETED, so the
-    // eviction is safe. Additionally, we check that the hash doesn't change,
-    // which will detect, most of the time, whether the element is a different
-    // one. The bottomline is that we only guarantee that the input handle will
-    // be deleted, and occasionally also another handle, but in any case all
-    // deleted handles are safe to delete.
-    // TODO(Guido) With lock-free inserts and deletes we may be able to
-    // "atomically" transition to an exclusive ref, without creating a deadlock.
+    last_reference = false;
     ClockHandle copy;
-    {
-      DMutexLock l(mutex_);
-      if (h->TrySpinExclusiveRef()) {
-        will_be_deleted = h->refs & ClockHandle::WILL_BE_DELETED;
-        // Check that it's still safe to delete.
-        if (h->IsElement() && (will_be_deleted || erase_if_last_ref) &&
-            h->hash == hash) {
-          copy = *h;
-          Evict(h);
-        }
-        h->ReleaseExclusiveRef();
-      } else {
-        // An external ref was detected.
-        return false;
+    h->SetWillBeDeleted(true);
+    h->ReleaseExternalRef();
+    if (h->SpinTryExclusiveRef()) {
+      // Check that it's still safe to delete.
+      if (h->WillBeDeleted()) {
+        copy = *h;
+        table_.Remove(h);
+        last_reference = true;
       }
+      h->ReleaseExclusiveRef();
     }
 
-    // Free the entry outside of the mutex for performance reasons.
-    copy.FreeData();
-    return true;
+    // Free the entry outside of the exclusive ref.
+    if (last_reference) {
+      copy.FreeData();
+      return true;
+    }
+  } else {
+    h->ReleaseExternalRef();
   }
 
   return false;
 }
 
 void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
-  ClockHandle copy;
-  bool last_reference = false;
-  {
-    DMutexLock l(mutex_);
-    ClockHandle* h = table_.Lookup(key, hash);
-    if (h != nullptr) {
-      h->SetWillBeDeleted(true);
-      h->ReleaseInternalRef();
-      if (h->TryExclusiveRef()) {
-        copy = *h;
-        Evict(h);
-        last_reference = true;
-        h->ReleaseExclusiveRef();
-      }
-    }
-  }
-  // Free the entry outside of the mutex for performance reasons.
-  if (last_reference) {
-    copy.FreeData();
+  autovector<ClockHandle> last_reference_list;
+  uint32_t probe = 0;
+  table_.RemoveAll(key, hash, probe, &last_reference_list);
+
+  // Free the entries outside of the exclusive ref.
+  for (auto& h : last_reference_list) {
+    h.FreeData();
   }
 }
 
 size_t ClockCacheShard::GetUsage() const {
-  DMutexLock l(mutex_);
-  return usage_;
+  return table_.usage_;
 }
 
 size_t ClockCacheShard::GetPinnedUsage() const {
@@ -587,8 +550,6 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   // Why avoid this? Because Lookup removes elements from the clock
   // list, so it would need to update the pinned usage every time,
   // which creates additional synchronization costs.
-  DMutexLock l(mutex_);
-
   size_t clock_usage = 0;
 
   table_.ConstApplyToEntriesRange(

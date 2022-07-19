@@ -407,7 +407,7 @@ struct ClockHandle {
 
   // Releases an external ref. Returns the new value (this is useful to
   // avoid an extra atomic read).
-  inline uint32_t ReleaseExternalRef() { return refs -= kOneExternalRef; }
+  inline void ReleaseExternalRef() { refs -= kOneExternalRef; }
 
   // Take an external ref, assuming there is already one external ref
   // to the handle.
@@ -439,7 +439,7 @@ struct ClockHandle {
   // Repeatedly tries to take an exclusive reference, but stops as soon
   // as an external reference is detected (in this case the wait would
   // presumably be too long).
-  inline bool TrySpinExclusiveRef() {
+  inline bool SpinTryExclusiveRef() {
     uint32_t expected = 0;
     uint32_t will_be_deleted = 0;
     while (!refs.compare_exchange_strong(expected,
@@ -455,9 +455,7 @@ struct ClockHandle {
 
   inline void ReleaseExclusiveRef() { refs.fetch_and(~EXCLUSIVE_REF); }
 
-  // The following functions are for upgrading and downgrading refs.
-  // They guarantee atomicity, i.e., no exclusive refs to the handle
-  // can be taken by a different thread during the conversion.
+  // The following functions are for downgrading refs.
 
   inline void ExclusiveToInternalRef() {
     refs += kOneInternalRef;
@@ -469,59 +467,32 @@ struct ClockHandle {
     ReleaseExclusiveRef();
   }
 
-  // TODO(Guido) Do we want to bound the loop and prepare the
-  // algorithms to react to a failure?
-  inline void InternalToExclusiveRef() {
-    uint32_t expected = kOneInternalRef;
-    uint32_t will_be_deleted = 0;
-    while (!refs.compare_exchange_strong(expected,
-                                         EXCLUSIVE_REF | will_be_deleted)) {
-      will_be_deleted = expected & WILL_BE_DELETED;
-      expected = kOneInternalRef | will_be_deleted;
-    }
-  }
-
   inline void InternalToExternalRef() {
     refs += kOneExternalRef - kOneInternalRef;
-  }
-
-  // TODO(Guido) Same concern.
-  inline void ExternalToExclusiveRef() {
-    uint32_t expected = kOneExternalRef;
-    uint32_t will_be_deleted = 0;
-    while (!refs.compare_exchange_strong(expected,
-                                         EXCLUSIVE_REF | will_be_deleted)) {
-      will_be_deleted = expected & WILL_BE_DELETED;
-      expected = kOneExternalRef | will_be_deleted;
-    }
   }
 
 };  // struct ClockHandle
 
 class ClockHandleTable {
  public:
-  explicit ClockHandleTable(int hash_bits);
+  explicit ClockHandleTable(size_t capacity, int hash_bits);
   ~ClockHandleTable();
 
   // Returns a pointer to a visible element matching the key/hash, or
   // nullptr if not present.
   ClockHandle* Lookup(const Slice& key, uint32_t hash);
 
+  ClockHandle* FindElement(const Slice& key, uint32_t hash);
+
+  ClockHandle* FindAvailableSlot(const Slice& key, uint32_t hash, uint32_t& probe, autovector<ClockHandle>* deleted);
+
   // Inserts a copy of h into the hash table.
   // Returns a pointer to the inserted handle, or nullptr if no slot
   // available was found. If an existing visible element matching the
-  // key/hash is already present in the hash table, the argument old
-  // is set to point to it; otherwise, it's set to nullptr.
-  // Returns an exclusive reference to h, and no references to old.
-  ClockHandle* Insert(ClockHandle* h, ClockHandle** old);
-
-  // Removes h from the hash table. The handle must already be off clock.
-  void Remove(ClockHandle* h);
-
-  // Extracts the element information from a handle (src), and assigns it
-  // to a hash table slot (dst). Doesn't touch displacements and refs,
-  // which are maintained by the hash table algorithm.
-  void Assign(ClockHandle* dst, ClockHandle* src);
+  // key/hash is already present in the hash table, the function marks
+  // it as WILL_BE_DELETED.
+  // Returns an exclusive reference to h.
+  ClockHandle* Insert(ClockHandle* h, autovector<ClockHandle>* deleted, bool take_reference);
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
@@ -568,15 +539,32 @@ class ClockHandleTable {
   // Returns x mod 2^{length_bits_}.
   uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
 
+  // Makes an element evictable by clock.
+  void ClockOn(ClockHandle* h);
+
+  // Makes an element non-evictable.
+  void ClockOff(ClockHandle* h);
+
+  void ClockEvict(size_t charge, autovector<ClockHandle>* deleted);
+
+  // Requires an exclusive ref on h.
+  void Remove(ClockHandle* h);
+
+  void RemoveAll(const Slice& key, uint32_t hash,
+                                  uint32_t& probe, autovector<ClockHandle>* deleted);
+
+  void RemoveAll(const Slice& key, uint32_t hash, autovector<ClockHandle>* deleted) {
+    uint32_t probe = 0;
+    RemoveAll(key, hash, probe, deleted);
+  }
+
  private:
   friend class ClockCacheShard;
 
-  int FindElement(const Slice& key, uint32_t hash, uint32_t& probe);
-
-  int FindAvailableSlot(const Slice& key, uint32_t& probe);
-
-  int FindElementOrAvailableSlot(const Slice& key, uint32_t hash,
-                                 uint32_t& probe);
+  // Extracts the element information from a handle (src), and assigns it
+  // to a hash table slot (dst). Doesn't touch displacements and refs,
+  // which are maintained by the hash table algorithm.
+  void Assign(ClockHandle* dst, ClockHandle* src);
 
   // Returns the index of the first slot probed (hashing with
   // the given key) with a handle e such that match(e) is true.
@@ -589,7 +577,7 @@ class ClockHandleTable {
   // last non-aborting probe during the call. This is so that that the
   // variable can be used to keep track of progress across consecutive
   // calls to FindSlot.
-  inline int FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
+  inline ClockHandle* FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
                       std::function<bool(ClockHandle*)> stop,
                       std::function<void(ClockHandle*)> update,
                       uint32_t& probe);
@@ -597,6 +585,8 @@ class ClockHandleTable {
   // After a failed FindSlot call (i.e., with answer -1), this function
   // decrements all displacements, starting from the 0-th probe.
   void Rollback(const Slice& key, uint32_t probe);
+
+  bool TryRemove(ClockHandle* h, autovector<ClockHandle>* deleted);
 
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
@@ -612,6 +602,14 @@ class ClockHandleTable {
   uint32_t occupancy_limit_;
 
   std::unique_ptr<ClockHandle[]> array_;
+
+  uint32_t clock_pointer_;
+
+  // Memory size for entries residing in the cache.
+  std::atomic<size_t> usage_;
+
+  // Initialized before use.
+  size_t capacity_;
 };  // class ClockHandleTable
 
 // A single shard of sharded cache.
@@ -680,15 +678,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
  private:
   friend class ClockCache;
 
-  // Makes an element evictable by clock.
-  void ClockOn(ClockHandle* h);
-
-  // Makes an element non-evictable.
-  void ClockOff(ClockHandle* h);
-
-  // Requires an exclusive ref on h.
-  void Evict(ClockHandle* h);
-
   // Free some space following strict clock policy until enough space
   // to hold (usage_ + charge) is freed or there are no evictable elements.
   void EvictFromClock(size_t charge, autovector<ClockHandle>* deleted);
@@ -703,13 +692,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   static int CalcHashBits(size_t capacity, size_t estimated_value_size,
                           CacheMetadataChargePolicy metadata_charge_policy);
 
-  // Initialized before use.
-  size_t capacity_;
-
   // Whether to reject insertion if cache reaches its full capacity.
-  bool strict_capacity_limit_;
-
-  uint32_t clock_pointer_;
+  std::atomic<bool> strict_capacity_limit_;
 
   // ------------^^^^^^^^^^^^^-----------
   // Not frequently modified data members
@@ -723,9 +707,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   // Frequently modified data members
   // ------------vvvvvvvvvvvvv-----------
   ClockHandleTable table_;
-
-  // Memory size for entries residing in the cache.
-  size_t usage_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
