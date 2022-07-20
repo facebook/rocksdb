@@ -3814,6 +3814,10 @@ class Benchmark {
     perf_context.EnablePerLevelPerfContext();
     thread->stats.Start(thread->tid);
     (arg->bm->*(arg->method))(thread);
+    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
+      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
+                               get_perf_context()->ToString());
+    }
     thread->stats.Stop();
 
     {
@@ -5743,10 +5747,6 @@ class Benchmark {
 
     delete iter;
     thread->stats.AddBytes(bytes);
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
   }
 
   void ReadToRowCache(ThreadState* thread) {
@@ -5800,11 +5800,6 @@ class Benchmark {
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
-
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
   }
 
   void ReadReverse(ThreadState* thread) {
@@ -5896,11 +5891,6 @@ class Benchmark {
              found, read, nonexist);
 
     thread->stats.AddMessage(msg);
-
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
   }
 
   int64_t GetRandomKey(Random64* rand) {
@@ -6036,11 +6026,6 @@ class Benchmark {
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
-
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
   }
 
   // Calls MultiGet over a list of keys from a random distribution.
@@ -6602,11 +6587,6 @@ class Benchmark {
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
-
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
   }
 
   void IteratorCreation(ThreadState* thread) {
@@ -6756,10 +6736,6 @@ class Benchmark {
              found, read);
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
   }
 
   void SeekRandomWhileWriting(ThreadState* thread) {
@@ -7782,11 +7758,6 @@ class Benchmark {
       snprintf(msg, sizeof(msg), "( batches:%" PRIu64 " )", transactions_done);
     }
     thread->stats.AddMessage(msg);
-
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
     thread->stats.AddBytes(static_cast<int64_t>(inserter.GetBytesInserted()));
   }
 
@@ -7965,10 +7936,6 @@ class Benchmark {
              read);
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
-    if (FLAGS_perf_level > ROCKSDB_NAMESPACE::PerfLevel::kDisable) {
-      thread->stats.AddMessage(std::string("PERF_CONTEXT:\n") +
-                               get_perf_context()->ToString());
-    }
   }
 
   void TimeSeriesWrite(ThreadState* thread) {
