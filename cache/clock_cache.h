@@ -129,6 +129,9 @@ constexpr double kLoadFactor = 0.35;
 // avoid a performance drop, we set a strict upper bound on the load factor.
 constexpr double kStrictLoadFactor = 0.7;
 
+// Maximum number of spins when trying to acquire an exclusive ref.
+constexpr uint32_t kSpinsPerTry = 100000;
+
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
 constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
@@ -243,7 +246,15 @@ struct ClockHandle {
     key_data.fill(0);
   }
 
-  ClockHandle(const ClockHandle& other) { *this = other; }
+  // The copy constructor is only used to copy a handle for immediate
+  // deletion. We need to copy because the slot may become re-used
+  // before the deletion is completed. We only copy the necessary
+  // members to carry out the deletion; in particular, we don't need
+  // the atomic members.
+  ClockHandle(const ClockHandle& other)
+      : value(other.value), deleter(other.deleter) {
+    key_data = other.key_data;
+  }
 
   void operator=(const ClockHandle& other) {
     value = other.value;
@@ -415,13 +426,13 @@ struct ClockHandle {
   inline bool SpinTryExclusiveRef() {
     uint32_t expected = 0;
     uint32_t will_be_deleted = 0;
-    // int i = 0;
+    uint32_t spins = kSpinsPerTry;
     while (!refs.compare_exchange_strong(expected,
-                                         EXCLUSIVE_REF | will_be_deleted)) {
-      // printf("Shared: %i\n", (refs & SHARED_REFS) >> 15);
-      // printf("External: %i\n", refs & EXTERNAL_REFS);
-      // printf("Clock priority: %i\n", (flags & CLOCK_PRIORITY) >>
-      // kClockPriorityOffset); printf("i: %i\n", i++);
+                                         EXCLUSIVE_REF | will_be_deleted) &&
+           spins--) {
+      // TODO(Guido) What is the right way to bound the spinning? Do we also
+      // want to yield after some number of unsuccessful tries? How many spins
+      // in total?
       if (expected & (EXTERNAL_REFS | EXCLUSIVE_REF)) {
         return false;
       }

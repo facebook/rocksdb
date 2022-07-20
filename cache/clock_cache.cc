@@ -59,8 +59,6 @@ ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
       [&](ClockHandle* h) { return h->displacements == 0; },
       [&](ClockHandle* /*h*/) {}, probe);
 
-  // printf("Lookup: %i\n", probe);
-
   if (e != nullptr) {
     // TODO(Guido) Comment from #10347: Here it looks like we have three atomic
     // updates where it would be possible to combine into one CAS (more metadata
@@ -84,8 +82,6 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h,
     // No available slot to place the handle.
     return nullptr;
   }
-
-  // printf("Insert: %i\n", probe);
 
   // The slot is empty or is a tombstone. And we have an exclusive ref.
   Assign(e, h);
@@ -324,10 +320,12 @@ void ClockHandleTable::ClockRun(size_t charge,
           ClockOn(h);
         }
 
-        if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
+        ClockHandle::ClockPriority priority = h->GetClockPriority();
+
+        if (priority == ClockHandle::ClockPriority::LOW) {
           Remove(h, deleted);
           usage_local -= h->total_charge;
-        } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
+        } else if (priority > ClockHandle::ClockPriority::LOW) {
           h->DecreaseClockPriority();
         }
       }
