@@ -312,6 +312,7 @@ void ClockHandleTable::ClockRun(size_t charge,
     if (h->TryExclusiveRef()) {
       if (h->WillBeDeleted()) {
         Remove(h, deleted);
+        usage_local -= h->total_charge;
       } else {
         if (!h->IsInClock() && h->IsElement()) {
           // We adjust the clock priority to make the element evictable again.
@@ -325,6 +326,7 @@ void ClockHandleTable::ClockRun(size_t charge,
 
         if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
           Remove(h, deleted);
+          usage_local -= h->total_charge;
         } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
           h->DecreaseClockPriority();
         }
