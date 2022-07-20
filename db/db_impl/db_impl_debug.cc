@@ -12,7 +12,7 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "monitoring/thread_status_updater.h"
 #include "util/cast_util.h"
 
@@ -302,12 +302,11 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
 }
 
 #ifndef ROCKSDB_LITE
-void DBImpl::TEST_WaitForPeridicWorkerRun(
-    std::function<void()> callback) const {
+void DBImpl::TEST_WaitForPeridicTaskRun(std::function<void()> callback) const {
   periodic_task_scheduler_.TEST_WaitForRun(callback);
 }
 
-const PeriodicTaskScheduler& DBImpl::TEST_GetPeriodicWorkScheduler() const {
+const PeriodicTaskScheduler& DBImpl::TEST_GetPeriodicTaskScheduler() const {
   return periodic_task_scheduler_;
 }
 

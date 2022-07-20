@@ -3,21 +3,23 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 
 #include "rocksdb/system_clock.h"
 
 #ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 
-constexpr uint64_t kMicrosInSecond = 1000 * 1000;
-
-// `timer_mu_` serves two purposes currently:
+// `timer_mutex` is a global mutex serves 3 purposes currently:
 // (1) to ensure calls to `Start()` and `Shutdown()` are serialized, as
 //     they are currently not implemented in a thread-safe way; and
 // (2) to ensure the `Timer::Add()`s and `Timer::Start()` run atomically, and
 //     the `Timer::Cancel()`s and `Timer::Shutdown()` run atomically.
-static port::Mutex timer_mu_;
+// (3) protect tasks_map_ in PeriodicTaskScheduler
+// Note: It's not efficient to have a static global mutex, for
+// PeriodicTaskScheduler it should be okay, as the operations are called
+// infrequently.
+static port::Mutex timer_mutex;
 
 static const std::map<PeriodicTaskType, uint64_t> kDefaultPeriodSeconds = {
     {PeriodicTaskType::kDumpStats, kInvalidPeriodSec},
@@ -28,14 +30,13 @@ static const std::map<PeriodicTaskType, uint64_t> kDefaultPeriodSeconds = {
 
 Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
                                        const PeriodicTaskFunc& fn) {
-  return Register(task_type, std::move(fn),
-                  kDefaultPeriodSeconds.at(task_type));
+  return Register(task_type, fn, kDefaultPeriodSeconds.at(task_type));
 }
 
 Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
                                        const PeriodicTaskFunc& fn,
                                        uint64_t repeat_period_seconds) {
-  MutexLock l(&timer_mu_);
+  MutexLock l(&timer_mutex);
   static std::atomic<uint64_t> initial_delay(0);
 
   if (repeat_period_seconds == kInvalidPeriodSec) {
@@ -71,7 +72,7 @@ Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
 }
 
 Status PeriodicTaskScheduler::Unregister(PeriodicTaskType task_type) {
-  MutexLock l(&timer_mu_);
+  MutexLock l(&timer_mutex);
   auto it = tasks_map_.find(task_type);
   if (it != tasks_map_.end()) {
     timer_->Cancel(it->second.name);
@@ -87,7 +88,7 @@ Status PeriodicTaskScheduler::Unregister(PeriodicTaskType task_type) {
 void PeriodicTaskScheduler::TEST_OverrideTimer(SystemClock* clock) {
   static Timer test_timer(clock);
   test_timer.TEST_OverrideTimer(clock);
-  MutexLock l(&timer_mu_);
+  MutexLock l(&timer_mutex);
   timer_ = &test_timer;
 }
 #endif  // NDEBUG

@@ -32,7 +32,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
@@ -1144,7 +1144,7 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForPeridicWorkerRun(std::function<void()> callback) const;
+  void TEST_WaitForPeridicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
@@ -1159,7 +1159,7 @@ class DBImpl : public DB {
   }
 
 #ifndef ROCKSDB_LITE
-  const PeriodicTaskScheduler& TEST_GetPeriodicWorkScheduler() const;
+  const PeriodicTaskScheduler& TEST_GetPeriodicTaskScheduler() const;
 #endif  // !ROCKSDB_LITE
 
 #endif  // NDEBUG
@@ -2608,11 +2608,10 @@ class DBImpl : public DB {
 
 #ifndef ROCKSDB_LITE
   // Scheduler to run DumpStats(), PersistStats(), and FlushInfoLog().
-  // Currently, it always use a global instance from
-  // PeriodicTaskScheduler::Default(). Only in unittest, it can be overrided by
-  // PeriodicWorkTestScheduler.
+  // Currently, internally it has a global timer instance for running the tasks.
   PeriodicTaskScheduler periodic_task_scheduler_;
 
+  // It contains the implementations for each periodic task.
   std::map<PeriodicTaskType, const PeriodicTaskFunc> periodic_task_functions_;
 #endif
 

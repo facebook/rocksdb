@@ -87,6 +87,8 @@ class PeriodicTaskScheduler {
   Timer* timer_ = Default();
 
   Env& env_;
+
+  static constexpr uint64_t kMicrosInSecond = 1000U * 1000U;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
