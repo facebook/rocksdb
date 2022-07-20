@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "memory/memory_allocator.h"
+#include "monitoring/statistics.h"
 #include "util/compression.h"
 #include "util/string_util.h"
 
@@ -41,7 +42,7 @@ CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
 
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-    bool& is_in_sec_cache) {
+    Statistics* stats, bool& is_in_sec_cache) {
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
