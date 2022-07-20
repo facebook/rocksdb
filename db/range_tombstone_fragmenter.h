@@ -76,6 +76,8 @@ struct FragmentedRangeTombstoneList {
     return total_tombstone_payload_bytes_;
   }
 
+  static void DecodeRangeTombstoneValue(Slice* value, std::vector<SequenceNumber>& tombstone_seqs);
+
  private:
   // Given an ordered range tombstone iterator unfragmented_tombstones,
   // "fragment" the tombstones into non-overlapping pieces, and store them in
