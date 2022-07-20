@@ -1109,6 +1109,10 @@ void DBImpl::DumpStats() {
   PrintStatistics();
 }
 
+// Periodically flush info log out of application buffer at a low frequency.
+// This improves debuggability in case of RocksDB hanging since it ensures the
+// log messages leading up to the hang will eventually become visible in the
+// log.
 void DBImpl::FlushInfoLog() {
   if (shutdown_initiated_) {
     return;

@@ -457,8 +457,6 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   ASSERT_OK(db_->Close());
 }
 
-// TODO(zjay): Disabled, until New CF bug with preclude_last_level_data_seconds
-//  is fixed
 TEST_F(SeqnoTimeTest, MultiCFs) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 0;

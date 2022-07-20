@@ -1,4 +1,5 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -217,29 +218,6 @@ TEST_F(PeriodicTaskSchedulerTest, MultiEnv) {
   ASSERT_OK(db->Close());
   delete db;
   Close();
-}
-
-class MyClass {
- public:
-  void Register() {
-    timer_->Add([&] { fprintf(stdout, "JJJ1\n"); }, "fn_sch_test", 0, 0);
-  }
-
- private:
-  Timer* Default() {
-    static Timer timer(SystemClock::Default().get());
-    return &timer;
-  }
-
-  Timer* timer_ = Default();
-};
-
-TEST_F(PeriodicTaskSchedulerTest, TT1) {
-  MyClass my1;
-  my1.Register();
-
-  MyClass my2;
-  my2.Register();
 }
 
 #endif  // !ROCKSDB_LITE
