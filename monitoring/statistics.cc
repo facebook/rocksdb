@@ -233,7 +233,11 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_CACHE_ADD, "rocksdb.blobdb.cache.add"},
     {BLOB_DB_CACHE_ADD_FAILURES, "rocksdb.blobdb.cache.add.failures"},
     {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
-    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"}};
+    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"},
+    {COMP_SEC_CACHE_BYTES_COMPRESSED,
+     "rocksdb.compressed.secondary.cache.bytes.compressed"},
+    {COMP_SEC_CACHE_BYTES_UNCOMPRESSED,
+     "rocksdb.compressed.secondary.cache.bytes.uncompressed"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},

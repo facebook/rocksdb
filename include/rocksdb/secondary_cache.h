@@ -72,7 +72,7 @@ class SecondaryCache : public Customizable {
   // handle is possibly erased from the secondary cache after the Lookup.
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
-      bool& is_in_sec_cache) = 0;
+      Statistics* stats, bool& is_in_sec_cache) = 0;
 
   // At the discretion of the implementation, erase the data associated
   // with key
