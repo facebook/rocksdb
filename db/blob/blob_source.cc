@@ -108,7 +108,7 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
       return Status::OK();
     };
     cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
-                                       Cache::Priority::LOW,
+                                       Cache::Priority::BOTTOM,
                                        true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);
