@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_garbage_meter.h"
 #include "db/compaction/compaction.h"
@@ -52,7 +54,7 @@ class SubcompactionState {
   // The boundaries of the key-range this compaction is interested in. No two
   // sub-compactions may have overlapping key-ranges.
   // 'start' is inclusive, 'end' is exclusive, and nullptr means unbounded
-  const Slice *start, *end;
+  const std::optional<Slice> start, end;
 
   // The return status of this sub-compaction
   Status status;
@@ -117,8 +119,8 @@ class SubcompactionState {
   SubcompactionState(const SubcompactionState&) = delete;
   SubcompactionState& operator=(const SubcompactionState&) = delete;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
-                     uint32_t _sub_job_id)
+  SubcompactionState(Compaction* c, const std::optional<Slice> _start,
+                     const std::optional<Slice> _end, uint32_t _sub_job_id)
       : compaction(c),
         start(_start),
         end(_end),

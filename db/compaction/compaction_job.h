@@ -292,7 +292,7 @@ class CompactionJob {
   bool paranoid_file_checks_;
   bool measure_io_stats_;
   // Stores the Slices that designate the boundaries for each subcompaction
-  std::vector<Slice> boundaries_;
+  std::vector<std::string> boundaries_;
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
   std::string trim_ts_;

@@ -165,6 +165,11 @@ class TableCache {
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       bool no_io = false);
 
+  Status ApproximateKeyAnchors(const ReadOptions& ro,
+                               const InternalKeyComparator& internal_comparator,
+                               const FileDescriptor& file_meta,
+                               std::vector<TableReader::Anchor>& anchors);
+
   // Return total memory usage of the table reader of the file.
   // 0 if table reader of the file is not loaded.
   size_t GetMemoryUsageByTableReader(

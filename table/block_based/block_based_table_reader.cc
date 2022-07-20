@@ -2045,6 +2045,43 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   }
 }
 
+Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
+                                              std::vector<Anchor>& anchors) {
+  IndexBlockIter iiter_on_stack;
+  auto iiter = NewIndexIterator(
+      read_options, /*disable_prefix_seek=*/false, &iiter_on_stack,
+      /*get_context=*/nullptr, /*lookup_context=*/nullptr);
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+  if (iiter != &iiter_on_stack) {
+    iiter_unique_ptr.reset(iiter);
+  }
+
+  const uint64_t kMaxNumAnchors = uint64_t{128};
+  uint64_t num_blocks = this->GetTableProperties()->num_data_blocks;
+  uint64_t num_blocks_per_anchor = num_blocks / kMaxNumAnchors;
+
+  uint64_t count = 0;
+  std::string last_key;
+  uint64_t range_size = 0;
+  uint64_t prev_offset = 0;
+  for (iiter->SeekToFirst(); iiter->Valid(); iiter->Next()) {
+    const BlockHandle& bh = iiter->value().handle;
+    range_size += bh.offset() + bh.size() - prev_offset;
+    prev_offset = bh.offset() + bh.size();
+    if (++count % num_blocks_per_anchor == 0) {
+      count = 0;
+      anchors.emplace_back(iiter->user_key(), range_size);
+      range_size = 0;
+    } else {
+      last_key = iiter->user_key().ToString();
+    }
+  }
+  if (count != 0) {
+    anchors.emplace_back(last_key, range_size);
+  }
+  return Status::OK();
+}
+
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* prefix_extractor,
