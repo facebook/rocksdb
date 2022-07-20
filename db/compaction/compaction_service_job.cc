@@ -265,8 +265,8 @@ Status CompactionServiceCompactionJob::Run() {
   Slice end = compaction_input_.end;
   compact_->sub_compact_states.emplace_back(
       c,
-      compaction_input_.has_begin ? std::optional<Slice>(begin) : std::nullopt,
-      compaction_input_.has_end ? std::optional<Slice>(end) : std::nullopt,
+      compaction_input_.has_begin ? std::optional<Slice>(begin) : std::optional<Slice>(),
+      compaction_input_.has_end ? std::optional<Slice>(end) : std::optional<Slice>(),
       /*sub_job_id*/ 0);
 
   log_buffer_->FlushBufferToLog();

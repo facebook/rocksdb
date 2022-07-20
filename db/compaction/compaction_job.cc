@@ -9,8 +9,6 @@
 
 #include "db/compaction/compaction_job.h"
 
-#include <bits/stdint-uintn.h>
-
 #include <algorithm>
 #include <cinttypes>
 #include <memory>
