@@ -49,6 +49,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   if (lru_handle == nullptr) {
     return handle;
   }
+  size_t handle_value_charge = cache_->GetCharge(lru_handle);
 
   CacheAllocationPtr* ptr =
       reinterpret_cast<CacheAllocationPtr*>(cache_->Value(lru_handle));
@@ -57,24 +58,26 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   Status s;
 
   if (cache_options_.compression_type == kNoCompression) {
-    s = create_cb(ptr->get(), cache_->GetCharge(lru_handle), &value, &charge);
+    s = create_cb(ptr->get(), handle_value_charge, &value, &charge);
   } else {
     UncompressionContext uncompression_context(cache_options_.compression_type);
     UncompressionInfo uncompression_info(uncompression_context,
                                          UncompressionDict::GetEmptyDict(),
                                          cache_options_.compression_type);
 
+    RecordTick(stats, COMP_SEC_CACHE_BYTES_COMPRESSED, handle_value_charge);
     size_t uncompressed_size = 0;
     CacheAllocationPtr uncompressed;
-    uncompressed = UncompressData(
-        uncompression_info, (char*)ptr->get(), cache_->GetCharge(lru_handle),
-        &uncompressed_size, cache_options_.compress_format_version,
-        cache_options_.memory_allocator.get());
+    uncompressed = UncompressData(uncompression_info, (char*)ptr->get(),
+                                  handle_value_charge, &uncompressed_size,
+                                  cache_options_.compress_format_version,
+                                  cache_options_.memory_allocator.get());
 
     if (!uncompressed) {
       cache_->Release(lru_handle, /* erase_if_last_ref */ true);
       return handle;
     }
+    RecordTick(stats, COMP_SEC_CACHE_BYTES_UNCOMPRESSED, uncompressed_size);
     s = create_cb(uncompressed.get(), uncompressed_size, &value, &charge);
   }
 

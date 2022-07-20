@@ -448,9 +448,9 @@ enum Tickers : uint32_t {
   // # of bytes written into blob cache.
   BLOB_DB_CACHE_BYTES_WRITE,
 
-  // Number of bytes of compressed/uncompressed values
-  // for CompressedSecondaryCache.
+  // Number of bytes of compressed values in CompressedSecondaryCache.
   COMP_SEC_CACHE_BYTES_COMPRESSED,
+  // Number of bytes of uncompressed values in CompressedSecondaryCache.
   COMP_SEC_CACHE_BYTES_UNCOMPRESSED,
 
   TICKER_ENUM_MAX

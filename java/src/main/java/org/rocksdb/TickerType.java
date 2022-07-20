@@ -836,6 +836,16 @@ public enum TickerType {
      */
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
 
+    /**
+     * # of bytes of compressed value in CompressedSecondaryCache.
+     */
+    COMP_SEC_CACHE_BYTES_COMPRESSED((byte) -0x35),
+
+    /**
+     * # of bytes of uncompressed value in CompressedSecondaryCache.
+     */
+    COMP_SEC_CACHE_BYTES_UNCOMPRESSED((byte) -0x36),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;
