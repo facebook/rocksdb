@@ -302,6 +302,32 @@ struct RangeWithSize {
 };
 
 void CompactionJob::GenSubcompactionBoundaries() {
+  // The goal is to find some boundary keys so that we can evenly partition
+  // the compaction input data into max_subcompactions ranges.
+  // For every input file, we ask TableReader to estimate 128 anchor points
+  // that evenly partition the input file into 128 ranges and the range
+  // sizes. This can be calculated by scanning index blocks of the file.
+  // Once we have the anchor points for all the input files, we merge them
+  // together and try to find keys dividing ranges evenly.
+  // For example, if we have two input files, and each returns following
+  // ranges:
+  //   File1: (a1, 1000), (b1, 1200), (c1, 1100)
+  //   File2: (a2, 1100), (b2, 1000), (c2, 1000)
+  // We total sort the keys to following:
+  //  (a1, 1000), (a2, 1100), (b1, 1200), (b2, 1000), (c1, 1100), (c2, 1000)
+  // We calculate the total size by adding up all ranges' size, which is 6400.
+  // If we would like to partition into 2 subcompactions, the target of the
+  // range size is 3200. Based on the size, we take "b1" as the partition key
+  // since the first three ranges would hit 3200.
+  //
+  // Note that the ranges are actually overlapping. For example, in the example
+  // above, the range ending with "b1" is overlapping with the range ending with
+  // "b2". So the size 1000+1100+1200 is an underestimation of data size up to
+  // "b1". In extreme cases where we only compact N L0 files, a range can
+  // overlap with N-1 other ranges. Since we requested a relatively large number
+  // (128) of ranges from each input files, even N range overlapping would
+  // cause relatively small inaccuracy.
+
   auto* c = compact_->compaction;
   if (c->max_subcompactions() <= 1) {
     return;
@@ -346,7 +372,11 @@ void CompactionJob::GenSubcompactionBoundaries() {
       }
     }
   }
-  // Not the most efficient implementation. We could merge sort.
+  // Here we total sort all the anchor points across all files and go through
+  // them in the sorted order to find partitioning boundaries.
+  // Not the most efficient implementation. A much more efficient algorithm
+  // probably exists. But they are more complex. If performance turns out to
+  // be a problem, we can optimize.
   std::sort(
       all_anchors.begin(), all_anchors.end(),
       [cfd_comparator](TableReader::Anchor& a, TableReader::Anchor& b) -> bool {

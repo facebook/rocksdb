@@ -2047,6 +2047,13 @@ void BlockBasedTable::FullFilterKeysMayMatch(
 
 Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
                                               std::vector<Anchor>& anchors) {
+  // We iterator the whole index block here. More efficient implementation
+  // is possible if we push this operation into IndexReader. For example, we
+  // can directly sample from restart block entries in the index block and
+  // only read keys needed. Here we take a simple solution. Performance is
+  // likely not to be a problem. We are compacting the whole file, so all
+  // keys will be read out anyway. An extra read to index block might be
+  // a small share of the overhead. We can try to optimize if needed.
   IndexBlockIter iiter_on_stack;
   auto iiter = NewIndexIterator(
       read_options, /*disable_prefix_seek=*/false, &iiter_on_stack,
