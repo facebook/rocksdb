@@ -17,7 +17,6 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
-#include "util/distributed_mutex.h"
 #include "util/hash.h"
 #include "util/math.h"
 #include "util/random.h"
@@ -29,13 +28,13 @@ namespace clock_cache {
 ClockHandleTable::ClockHandleTable(size_t capacity, int hash_bits)
     : length_bits_(hash_bits),
       length_bits_mask_((uint32_t{1} << length_bits_) - 1),
-      occupancy_(0),
       occupancy_limit_(static_cast<uint32_t>((uint32_t{1} << length_bits_) *
                                              kStrictLoadFactor)),
+      capacity_(capacity),
       array_(new ClockHandle[size_t{1} << length_bits_]),
       clock_pointer_(0),
-      usage_(0),
-      capacity_(capacity) {
+      occupancy_(0),
+      usage_(0) {
   assert(hash_bits <= 32);
 }
 
@@ -127,8 +126,7 @@ bool ClockHandleTable::TryRemove(ClockHandle* h,
                                  autovector<ClockHandle>* deleted) {
   if (h->TryExclusiveRef()) {
     if (h->WillBeDeleted()) {
-      deleted->push_back(*h);
-      Remove(h);
+      Remove(h, deleted);
       return true;
     }
     h->ReleaseExclusiveRef();
@@ -136,11 +134,11 @@ bool ClockHandleTable::TryRemove(ClockHandle* h,
   return false;
 }
 
-bool ClockHandleTable::SpinTryRemove(ClockHandle* h, ClockHandle* deleted) {
+bool ClockHandleTable::SpinTryRemove(ClockHandle* h,
+                                     autovector<ClockHandle>* deleted) {
   if (h->SpinTryExclusiveRef()) {
     if (h->WillBeDeleted()) {
-      *deleted = *h;
-      Remove(h);
+      Remove(h, deleted);
       return true;
     }
     h->ReleaseExclusiveRef();
@@ -161,8 +159,9 @@ void ClockHandleTable::ClockOn(ClockHandle* h) {
       (1 - is_high_priority) * ClockHandle::ClockPriority::MEDIUM));
 }
 
-// Requires an exclusive ref.
-void ClockHandleTable::Remove(ClockHandle* h) {
+void ClockHandleTable::Remove(ClockHandle* h,
+                              autovector<ClockHandle>* deleted) {
+  deleted->push_back(*h);
   ClockOff(h);
   uint32_t probe = 0;
   FindSlot(
@@ -312,8 +311,7 @@ void ClockHandleTable::ClockRun(size_t charge,
 
     if (h->TryExclusiveRef()) {
       if (h->WillBeDeleted()) {
-        deleted->push_back(*h);
-        Remove(h);
+        Remove(h, deleted);
       } else {
         if (!h->IsInClock() && h->IsElement()) {
           // We adjust the clock priority to make the element evictable again.
@@ -326,8 +324,7 @@ void ClockHandleTable::ClockRun(size_t charge,
         }
 
         if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
-          deleted->push_back(*h);
-          Remove(h);
+          Remove(h, deleted);
         } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
           h->DecreaseClockPriority();
         }
@@ -352,8 +349,7 @@ void ClockCacheShard::EraseUnRefEntries() {
   table_.ApplyToEntriesRange(
       [this, &last_reference_list](ClockHandle* h) {
         // Externally unreferenced element.
-        last_reference_list.push_back(*h);
-        table_.Remove(h);
+        table_.Remove(h, &last_reference_list);
       },
       0, table_.GetTableSize(), true);
 
@@ -518,12 +514,12 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   bool will_be_deleted = refs & ClockHandle::WILL_BE_DELETED;
 
   if (last_reference && (will_be_deleted || erase_if_last_ref)) {
-    ClockHandle copy;
+    autovector<ClockHandle> deleted;
     h->SetWillBeDeleted(true);
     h->ReleaseExternalRef();
-    if (table_.SpinTryRemove(h, &copy)) {
+    if (table_.SpinTryRemove(h, &deleted)) {
       h->ReleaseExclusiveRef();
-      copy.FreeData();
+      deleted.front().FreeData();
       return true;
     }
   } else {
@@ -564,10 +560,6 @@ size_t ClockCacheShard::GetPinnedUsage() const {
       0, table_.GetTableSize(), true);
 
   return clock_usage;
-}
-
-std::string ClockCacheShard::GetPrintableOptions() const {
-  return std::string{};
 }
 
 ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,

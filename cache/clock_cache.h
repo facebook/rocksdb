@@ -23,7 +23,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
-#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -410,9 +409,9 @@ struct ClockHandle {
                                         EXCLUSIVE_REF | will_be_deleted);
   }
 
-  // Repeatedly tries to take an exclusive reference, but stops as soon
-  // as an external or exclusive reference is detected (in this case the
-  // wait would presumably be too long).
+  // Repeatedly tries to take an exclusive reference, but aborts as soon
+  // as an external or exclusive reference is detected (since in this case
+  // the wait would presumably be too long).
   inline bool SpinTryExclusiveRef() {
     uint32_t expected = 0;
     uint32_t will_be_deleted = 0;
@@ -490,8 +489,8 @@ class ClockHandleTable {
   // insert an element with the given charge.
   void ClockRun(size_t charge, autovector<ClockHandle>* deleted);
 
-  // Remove h from the hash table. Requires an exclusive ref on h.
-  void Remove(ClockHandle* h);
+  // Remove h from the hash table. Requires an exclusive ref to h.
+  void Remove(ClockHandle* h, autovector<ClockHandle>* deleted);
 
   // Remove from the hash table all handles with matching key/hash along a
   // probe sequence, starting from the given probe number.
@@ -504,8 +503,13 @@ class ClockHandleTable {
     RemoveAll(key, hash, probe, deleted);
   }
 
-  // Tries to remove a handle from
-  bool SpinTryRemove(ClockHandle* h, ClockHandle* deleted);
+  // Tries to remove h from the hash table. If succeeds, hands over an
+  // exclusive ref to h.
+  bool TryRemove(ClockHandle* h, autovector<ClockHandle>* deleted);
+
+  // Similar to TryRemove, except that it spins, increasing the chances of
+  // success. Requires that the caller thread has no shared ref to h.
+  bool SpinTryRemove(ClockHandle* h, autovector<ClockHandle>* deleted);
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
@@ -576,6 +580,7 @@ class ClockHandleTable {
                                std::function<void(ClockHandle*)> update,
                                uint32_t& probe);
 
+  // TODO(Guido) Comment.
   ClockHandle* FindAvailableSlot(const Slice& key, uint32_t hash,
                                  uint32_t& probe,
                                  autovector<ClockHandle>* deleted);
@@ -584,30 +589,42 @@ class ClockHandleTable {
   // decrements all displacements, starting from the 0-th probe.
   void Rollback(const Slice& key, uint32_t probe);
 
-  bool TryRemove(ClockHandle* h, autovector<ClockHandle>* deleted);
-
   // Number of hash bits used for table index.
   // The size of the table is 1 << length_bits_.
-  int length_bits_;
+  const int length_bits_;
 
   // For faster computation of ModTableSize.
   const uint32_t length_bits_mask_;
 
-  // Number of elements in the table.
-  uint32_t occupancy_;
-
   // Maximum number of elements the user can store in the table.
-  uint32_t occupancy_limit_;
+  const uint32_t occupancy_limit_;
 
+  // Initialized before use.
+  const size_t capacity_;
+
+  // ------------^^^^^^^^^^^^^-----------
+  // Not frequently modified data members
+  // ------------------------------------
+  //
+  // We separate data members that are updated frequently from the ones that
+  // are not frequently updated so that they don't share the same cache line
+  // which will lead into false cache sharing
+  //
+  // ------------------------------------
+  // Frequently modified data members
+  // ------------vvvvvvvvvvvvv-----------
+
+  // Array of slots comprising the hash table.
   std::unique_ptr<ClockHandle[]> array_;
 
-  uint32_t clock_pointer_;
+  // Clock algorithm sweep pointer.
+  std::atomic<uint32_t> clock_pointer_;
+
+  // Number of elements in the table.
+  std::atomic<uint32_t> occupancy_;
 
   // Memory size for entries residing in the cache.
   std::atomic<size_t> usage_;
-
-  // Initialized before use.
-  size_t capacity_;
 };  // class ClockHandleTable
 
 // A single shard of sharded cache.
@@ -671,7 +688,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
 
   void EraseUnRefEntries() override;
 
-  std::string GetPrintableOptions() const override;
+  std::string GetPrintableOptions() const override { return std::string{}; }
 
  private:
   friend class ClockCache;
@@ -693,23 +710,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   // Whether to reject insertion if cache reaches its full capacity.
   std::atomic<bool> strict_capacity_limit_;
 
-  // ------------^^^^^^^^^^^^^-----------
-  // Not frequently modified data members
-  // ------------------------------------
-  //
-  // We separate data members that are updated frequently from the ones that
-  // are not frequently updated so that they don't share the same cache line
-  // which will lead into false cache sharing
-  //
-  // ------------------------------------
-  // Frequently modified data members
-  // ------------vvvvvvvvvvvvv-----------
   ClockHandleTable table_;
-
-  // mutex_ protects the following state.
-  // We don't count mutex_ as the cache's internal state so semantically we
-  // don't mind mutex_ invoking the non-const actions.
-  mutable DMutex mutex_;
 };  // class ClockCacheShard
 
 class ClockCache
