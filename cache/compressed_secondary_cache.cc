@@ -71,6 +71,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
       cache_->Release(lru_handle, /* erase_if_last_ref */ true);
       return handle;
     }
+    RecordTick(stats, COMP_SEC_CACHE_BYTES_UNCOMPRESSED, uncompressed_size);
     s = create_cb(uncompressed.get(), uncompressed_size, &value, &charge);
   }
 
