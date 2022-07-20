@@ -76,7 +76,9 @@ ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
   return e;
 }
 
-ClockHandle* ClockHandleTable::Insert(ClockHandle* h, autovector<ClockHandle>* deleted, bool take_reference) {
+ClockHandle* ClockHandleTable::Insert(ClockHandle* h,
+                                      autovector<ClockHandle>* deleted,
+                                      bool take_reference) {
   uint32_t probe = 0;
   ClockHandle* e = FindAvailableSlot(h->key(), h->hash, probe, deleted);
   if (e == nullptr) {
@@ -121,7 +123,8 @@ void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
   occupancy_++;
 }
 
-bool ClockHandleTable::TryRemove(ClockHandle* h, autovector<ClockHandle>* deleted) {
+bool ClockHandleTable::TryRemove(ClockHandle* h,
+                                 autovector<ClockHandle>* deleted) {
   if (h->TryExclusiveRef()) {
     if (h->WillBeDeleted()) {
       deleted->push_back(*h);
@@ -174,12 +177,14 @@ void ClockHandleTable::Remove(ClockHandle* h) {
 }
 
 void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
-                                  uint32_t& probe, autovector<ClockHandle>* deleted) {
+                                 uint32_t& probe,
+                                 autovector<ClockHandle>* deleted) {
   FindSlot(
       key,
       [&](ClockHandle* h) {
         if (h->TryInternalRef()) {
-          // TODO(Guido) This will not try to overwrite elements marked as WILL_BE_DELETED.
+          // TODO(Guido) This will not try to overwrite elements marked as
+          // WILL_BE_DELETED.
           if (h->IsElement() && h->Matches(key, hash)) {
             h->SetWillBeDeleted(true);
             h->ReleaseInternalRef();
@@ -196,15 +201,16 @@ void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
       [&](ClockHandle* /*h*/) {}, probe);
 }
 
-ClockHandle* ClockHandleTable::FindAvailableSlot(const Slice& key,
-                                          uint32_t hash,
-                                          uint32_t& probe, autovector<ClockHandle>* deleted) {
+ClockHandle* ClockHandleTable::FindAvailableSlot(
+    const Slice& key, uint32_t hash, uint32_t& probe,
+    autovector<ClockHandle>* deleted) {
   ClockHandle* e = FindSlot(
       key,
       [&](ClockHandle* h) {
         // To read the handle, first acquire a shared ref.
         if (h->TryInternalRef()) {
-          // TODO(Guido) This will not try to overwrite elements marked as WILL_BE_DELETED.
+          // TODO(Guido) This will not try to overwrite elements marked as
+          // WILL_BE_DELETED.
           if (h->IsElement()) {
             // The slot is not available.
             if (h->Matches(key, hash)) {
@@ -245,11 +251,10 @@ ClockHandle* ClockHandleTable::FindAvailableSlot(const Slice& key,
   return e;
 }
 
-ClockHandle* ClockHandleTable::FindSlot(const Slice& key,
-                               std::function<bool(ClockHandle*)> match,
-                               std::function<bool(ClockHandle*)> abort,
-                               std::function<void(ClockHandle*)> update,
-                               uint32_t& probe) {
+ClockHandle* ClockHandleTable::FindSlot(
+    const Slice& key, std::function<bool(ClockHandle*)> match,
+    std::function<bool(ClockHandle*)> abort,
+    std::function<void(ClockHandle*)> update, uint32_t& probe) {
   // We use double-hashing probing. Every probe in the sequence is a
   // pseudorandom integer, computed as a linear function of two random hashes,
   // which we call base and increment. Specifically, the i-th probe is base + i
@@ -291,7 +296,7 @@ void ClockHandleTable::Rollback(const Slice& key, uint32_t probe) {
 }
 
 void ClockHandleTable::ClockRun(size_t charge,
-                                     autovector<ClockHandle>* deleted) {
+                                autovector<ClockHandle>* deleted) {
   // TODO(Guido) When an element is in the probe sequence of a
   // hot element, it will be hard to get an exclusive ref.
   // We may need a mechanism to avoid that an element sits forever
@@ -301,7 +306,8 @@ void ClockHandleTable::ClockRun(size_t charge,
   size_t usage_local = usage_;
   // TODO(Guido) Evict more than strictly necessary?
   while (usage_local + charge > capacity_ && max_iterations--) {
-    uint32_t clock_pointer_local = ModTableSize(clock_pointer_++);  // (x mod 2^a) mod 2^b = x mod 2^b for a >= b.
+    uint32_t clock_pointer_local = ModTableSize(
+        clock_pointer_++);  // (x mod 2^a) mod 2^b = x mod 2^b for a >= b.
     ClockHandle* h = &array_[clock_pointer_local];
 
     if (h->TryExclusiveRef()) {
@@ -335,8 +341,8 @@ ClockCacheShard::ClockCacheShard(
     size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy)
     : strict_capacity_limit_(strict_capacity_limit),
-      table_(
-          capacity, CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)) {
+      table_(capacity, CalcHashBits(capacity, estimated_value_size,
+                                    metadata_charge_policy)) {
   set_metadata_charge_policy(metadata_charge_policy);
 }
 
@@ -445,7 +451,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   // is freed or there are no evictable elements.
   table_.ClockRun(tmp.total_charge, &last_reference_list);
   if ((table_.GetUsage() + tmp.total_charge > table_.GetCapacity() &&
-        (strict_capacity_limit_ || handle == nullptr)) ||
+       (strict_capacity_limit_ || handle == nullptr)) ||
       table_.GetOccupancy() > table_.GetOccupancyLimit()) {
     if (handle == nullptr) {
       // Don't insert the entry but still return ok, as if the entry inserted
@@ -466,9 +472,10 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   } else {
     // Insert into the cache. Note that the cache might get larger than its
     // capacity if not enough space was freed up.
-    ClockHandle* h = table_.Insert(&tmp, &last_reference_list, handle != nullptr);
-    assert(h != nullptr);   // The occupancy is way below the table size, so this insertion
-                            // should never fail.
+    ClockHandle* h =
+        table_.Insert(&tmp, &last_reference_list, handle != nullptr);
+    assert(h != nullptr);  // The occupancy is way below the table size, so this
+                           // insertion should never fail.
     if (handle != nullptr) {
       *handle = reinterpret_cast<Cache::Handle*>(h);
     }
@@ -537,9 +544,7 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
   }
 }
 
-size_t ClockCacheShard::GetUsage() const {
-  return table_.GetUsage();
-}
+size_t ClockCacheShard::GetUsage() const { return table_.GetUsage(); }
 
 size_t ClockCacheShard::GetPinnedUsage() const {
   // Computes the pinned usage by scanning the whole hash table. This

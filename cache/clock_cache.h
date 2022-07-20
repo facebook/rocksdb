@@ -165,7 +165,8 @@ struct ClockHandle {
 
     // Shared references (i.e., external and internal references) and exclusive
     // references are similar to RW locks (external and internal references are
-    // read locks, and exclusive references are write locks). We prioritize readers,
+    // read locks, and exclusive references are write locks). We prioritize
+    // readers,
     // which not only don't use locks, but don't even use compare-and-swap
     // operations (which are much slower than atomic arithmetic/bit operations).
     // Using our own implementation of RW locks allows us to save many atomic
@@ -420,8 +421,8 @@ struct ClockHandle {
                                          EXCLUSIVE_REF | will_be_deleted)) {
       // printf("Shared: %i\n", (refs & SHARED_REFS) >> 15);
       // printf("External: %i\n", refs & EXTERNAL_REFS);
-      // printf("Clock priority: %i\n", (flags & CLOCK_PRIORITY) >> kClockPriorityOffset);
-      // printf("i: %i\n", i++);
+      // printf("Clock priority: %i\n", (flags & CLOCK_PRIORITY) >>
+      // kClockPriorityOffset); printf("i: %i\n", i++);
       if (expected & (EXTERNAL_REFS | EXCLUSIVE_REF)) {
         return false;
       }
@@ -458,7 +459,6 @@ struct ClockHandle {
 
 };  // struct ClockHandle
 
-
 class ClockHandleTable {
  public:
   explicit ClockHandleTable(size_t capacity, int hash_bits);
@@ -477,7 +477,8 @@ class ClockHandleTable {
   // autovector deleted. When take_reference is true, the function hands
   // over an external reference on the handle, and otherwise no reference is
   // produced.
-  ClockHandle* Insert(ClockHandle* h, autovector<ClockHandle>* deleted, bool take_reference);
+  ClockHandle* Insert(ClockHandle* h, autovector<ClockHandle>* deleted,
+                      bool take_reference);
 
   // Assigns h the appropriate clock priority, making it evictable.
   void ClockOn(ClockHandle* h);
@@ -494,10 +495,11 @@ class ClockHandleTable {
 
   // Remove from the hash table all handles with matching key/hash along a
   // probe sequence, starting from the given probe number.
-  void RemoveAll(const Slice& key, uint32_t hash,
-                                  uint32_t& probe, autovector<ClockHandle>* deleted);
+  void RemoveAll(const Slice& key, uint32_t hash, uint32_t& probe,
+                 autovector<ClockHandle>* deleted);
 
-  void RemoveAll(const Slice& key, uint32_t hash, autovector<ClockHandle>* deleted) {
+  void RemoveAll(const Slice& key, uint32_t hash,
+                 autovector<ClockHandle>* deleted) {
     uint32_t probe = 0;
     RemoveAll(key, hash, probe, deleted);
   }
@@ -568,12 +570,15 @@ class ClockHandleTable {
   // last non-aborting probe during the call. This is so that that the
   // variable can be used to keep track of progress across consecutive
   // calls to FindSlot.
-  inline ClockHandle* FindSlot(const Slice& key, std::function<bool(ClockHandle*)> match,
-                      std::function<bool(ClockHandle*)> stop,
-                      std::function<void(ClockHandle*)> update,
-                      uint32_t& probe);
+  inline ClockHandle* FindSlot(const Slice& key,
+                               std::function<bool(ClockHandle*)> match,
+                               std::function<bool(ClockHandle*)> stop,
+                               std::function<void(ClockHandle*)> update,
+                               uint32_t& probe);
 
-  ClockHandle* FindAvailableSlot(const Slice& key, uint32_t hash, uint32_t& probe, autovector<ClockHandle>* deleted);
+  ClockHandle* FindAvailableSlot(const Slice& key, uint32_t hash,
+                                 uint32_t& probe,
+                                 autovector<ClockHandle>* deleted);
 
   // After a failed FindSlot call (i.e., with answer -1), this function
   // decrements all displacements, starting from the 0-th probe.
