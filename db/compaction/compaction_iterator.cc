@@ -283,8 +283,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     if (CompactionFilter::Decision::kUndetermined == filter) {
       filter = compaction_filter_->FilterV2(
           level_, filter_key, value_type,
-          blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
-          compaction_filter_skip_until_.rep());
+          kTypeBlobIndex == ikey_.type ? blob_value_ : value_,
+          &compaction_filter_value_, compaction_filter_skip_until_.rep());
     }
     iter_stats_.total_filter_time +=
         env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
