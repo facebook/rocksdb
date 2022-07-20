@@ -158,7 +158,7 @@ void ClockHandleTable::ClockOn(ClockHandle* h) {
       (1 - is_high_priority) * ClockHandle::ClockPriority::MEDIUM));
 }
 
-// Requires exclusive ref.
+// Requires an exclusive ref.
 void ClockHandleTable::Remove(ClockHandle* h) {
   ClockOff(h);
   uint32_t probe = 0;
@@ -290,7 +290,7 @@ void ClockHandleTable::Rollback(const Slice& key, uint32_t probe) {
   }
 }
 
-void ClockHandleTable::ClockEvict(size_t charge,
+void ClockHandleTable::ClockRun(size_t charge,
                                      autovector<ClockHandle>* deleted) {
   // TODO(Guido) When an element is in the probe sequence of a
   // hot element, it will be hard to get an exclusive ref.
@@ -301,25 +301,30 @@ void ClockHandleTable::ClockEvict(size_t charge,
   size_t usage_local = usage_;
   // TODO(Guido) Evict more than strictly necessary?
   while (usage_local + charge > capacity_ && max_iterations--) {
-    uint32_t clock_pointer_local = ModTableSize(clock_pointer_++);
+    uint32_t clock_pointer_local = ModTableSize(clock_pointer_++);  // (x mod 2^a) mod 2^b = x mod 2^b for a >= b.
     ClockHandle* h = &array_[clock_pointer_local];
 
     if (h->TryExclusiveRef()) {
-      if (!h->IsInClock() && h->IsElement()) {
-        // We adjust the clock priority to make the element evictable again.
-        // Why? Elements that are not in clock are either currently
-        // externally referenced or used to be---because we are holding an
-        // exclusive ref, we know we are in the latter case. This can only
-        // happen when the last external reference to an element was released,
-        // and the element was not immediately removed.
-        ClockOn(h);
-      }
-
-      if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
+      if (h->WillBeDeleted()) {
         deleted->push_back(*h);
         Remove(h);
-      } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
-        h->DecreaseClockPriority();
+      } else {
+        if (!h->IsInClock() && h->IsElement()) {
+          // We adjust the clock priority to make the element evictable again.
+          // Why? Elements that are not in clock are either currently
+          // externally referenced or used to be---because we are holding an
+          // exclusive ref, we know we are in the latter case. This can only
+          // happen when the last external reference to an element was released,
+          // and the element was not immediately removed.
+          ClockOn(h);
+        }
+
+        if (h->GetClockPriority() == ClockHandle::ClockPriority::LOW) {
+          deleted->push_back(*h);
+          Remove(h);
+        } else if (h->GetClockPriority() > ClockHandle::ClockPriority::LOW) {
+          h->DecreaseClockPriority();
+        }
       }
       h->ReleaseExclusiveRef();
     }
@@ -438,7 +443,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   assert(table_.GetOccupancy() <= table_.GetOccupancyLimit());
   // Free the space following strict clock policy until enough space
   // is freed or there are no evictable elements.
-  table_.ClockEvict(tmp.total_charge, &last_reference_list);
+  table_.ClockRun(tmp.total_charge, &last_reference_list);
   if ((table_.GetUsage() + tmp.total_charge > table_.GetCapacity() &&
         (strict_capacity_limit_ || handle == nullptr)) ||
       table_.GetOccupancy() > table_.GetOccupancyLimit()) {
@@ -510,6 +515,7 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     h->SetWillBeDeleted(true);
     h->ReleaseExternalRef();
     if (table_.SpinTryRemove(h, &copy)) {
+      h->ReleaseExclusiveRef();
       copy.FreeData();
       return true;
     }

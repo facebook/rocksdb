@@ -29,10 +29,10 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
 
-// Block cache implementation using a lock-free open-address hash table
-// and clock eviction.
+// An experimental (under development!) alternative to LRUCache, using a
+// lock-free open-address hash table and clock eviction.
 
-///////////////////////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
 //                          Part 1: Handles
 //
 // Every slot in the hash table is a ClockHandle. A handle can be in a few
@@ -45,24 +45,26 @@ namespace clock_cache {
 //    Importantly, a handle can be evicted if and only if it's not
 //    referenced. In particular, when an handle becomes referenced, it's
 //    temporarily taken out of clock until all references to it are released.
-// (M) Marked for deletion (or invisible): An handle is marked for deletion
-//    when an operation attempts to delete it, but the handle is externally
-//    referenced, so it can't be immediately deleted. When this mark is placed,
-//    lookups will no longer be able to find it. Consequently, no more external
-//    references will be taken to the handle. When a handle is marked for
-//    deletion, we also say it's invisible.
+// (M) Marked for deletion (or invisible): An handle becomes marked for deletion
+//    when an operation tries to delete it. When the handle is externally
+//    referenced, it can't be immediately deleted and the attempt fails.
+//    In these cases, the mark will be used later by the eviction algorithm.
+//    When this mark is placed, lookups are no longer be able to find the
+//    handle. Consequently, no more external references can be taken to the
+//    handle. For this reason, When a handle is marked for deletion, we also
+//    say it's invisible.
 // These properties induce 4 different states, with transitions defined as
 // follows:
 // - Not M --> M: When a handle is deleted or replaced by a new version, but
 //    not immediately evicted.
 // - M --> not M: This cannot happen. Once a handle is marked for deletion,
-//    there is no can't go back.
+//    there is no way back.
 // - R --> not R: When all references to an handle are released.
 // - Not R --> R: When an unreferenced handle becomes referenced. This can only
 //    happen if the handle is visible, since references to an handle can only be
 //    created when it's visible.
 //
-///////////////////////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
 //                      Part 2: Hash table structure
 //
 // Internally, the cache uses an open-addressed hash table to index the handles.
@@ -82,7 +84,7 @@ namespace clock_cache {
 // slot. In any case, the slot becomes available. When a handle is inserted
 // into that slot, it becomes a visible element again.
 //
-///////////////////////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
 //                      Part 3: The clock algorithm
 //
 // We maintain a circular buffer with the handles available for eviction,
@@ -105,20 +107,7 @@ namespace clock_cache {
 // algorithm must acknowledge this, and assign a non-NONE priority to make
 // the element evictable again.
 //
-///////////////////////////////////////////////////////////////////////////////
-//                      Part 4: Synchronization
-//
-// We provide the following synchronization guarantees:
-// - Lookup is lock-free.
-// - Release is lock-free, unless (i) no references to the element are left,
-//   and (ii) it was marked for deletion or the user wishes to delete if
-//   releasing the last reference.
-// - Insert and Erase still use a per-shard lock.
-//
-// Our hash table is lock-free, in the sense that system-wide progress is
-// guaranteed, i.e., some thread is always able to make progress.
-//
-///////////////////////////////////////////////////////////////////////////////
+//-----------------------------------------------------------------------------
 
 // The load factor p is a real number in (0, 1) such that at all
 // times at most a fraction p of all slots, without counting tombstones,
@@ -138,14 +127,12 @@ constexpr double kLoadFactor = 0.35;
 
 // The user can exceed kLoadFactor if the sizes of the inserted values don't
 // match estimated_value_size, or if strict_capacity_limit == false. To
-// avoid performance to plunge, we set a strict upper bound on the load factor.
+// avoid a performance drop, we set a strict upper bound on the load factor.
 constexpr double kStrictLoadFactor = 0.7;
 
 // Arbitrary seeds.
 constexpr uint32_t kProbingSeed1 = 0xbc9f1d34;
 constexpr uint32_t kProbingSeed2 = 0x7a2bb9d5;
-
-// An experimental (under development!) alternative to LRUCache.
 
 struct ClockHandle {
   void* value;
@@ -177,16 +164,15 @@ struct ClockHandle {
     WILL_BE_DELETED = uint32_t{1} << kWillBeDeletedOffset  // Bit 31
 
     // Shared references (i.e., external and internal references) and exclusive
-    // references are our custom implementation of RW locks---external and
-    // internal references are read locks, and exclusive references are write
-    // locks. We prioritize readers, which never block; in fact, they don't even
-    // use compare-and-swap operations. Using our own implementation of RW locks
-    // allows us to save many atomic operations by packing data more carefully.
-    // In particular:
+    // references are similar to RW locks (external and internal references are
+    // read locks, and exclusive references are write locks). We prioritize readers,
+    // which not only don't use locks, but don't even use compare-and-swap
+    // operations (which are much slower than atomic arithmetic/bit operations).
+    // Using our own implementation of RW locks allows us to save many atomic
+    // operations by adequately packing data. In particular:
     // - Combining EXTERNAL_REFS and SHARED_REFS allows us to convert an
-    // internal
-    //    reference into an external reference in a single atomic arithmetic
-    //    operation.
+    //    internal reference into an external reference in a single atomic
+    //    arithmetic operation.
     // - Combining SHARED_REFS and WILL_BE_DELETED allows us to attempt to take
     //    a shared reference and check whether the entry is marked for deletion
     //    in a single atomic arithmetic operation.
@@ -276,58 +262,6 @@ struct ClockHandle {
 
   Slice key() const { return Slice(key_data.data(), kCacheKeySize); }
 
-  bool HasExternalRefs() const { return (refs & EXTERNAL_REFS) > 0; }
-
-  bool IsElement() const { return flags & IS_ELEMENT; }
-
-  void SetIsElement(bool is_element) {
-    if (is_element) {
-      flags |= IS_ELEMENT;
-    } else {
-      flags &= static_cast<uint8_t>(~IS_ELEMENT);
-    }
-  }
-
-  bool HasHit() const { return flags & HAS_HIT; }
-
-  void SetHit() { flags |= HAS_HIT; }
-
-  bool IsInClock() const {
-    return GetClockPriority() != ClockHandle::ClockPriority::NONE;
-  }
-
-  Cache::Priority GetCachePriority() const {
-    return static_cast<Cache::Priority>(flags & CACHE_PRIORITY);
-  }
-
-  void SetCachePriority(Cache::Priority priority) {
-    if (priority == Cache::Priority::HIGH) {
-      flags |= Flags::CACHE_PRIORITY;
-    } else {
-      flags &= static_cast<uint8_t>(~Flags::CACHE_PRIORITY);
-    }
-  }
-
-  ClockPriority GetClockPriority() const {
-    return static_cast<ClockPriority>(flags & Flags::CLOCK_PRIORITY);
-  }
-
-  void SetClockPriority(ClockPriority priority) {
-    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
-    flags |= priority;
-  }
-
-  void DecreaseClockPriority() {
-    uint8_t p = static_cast<uint8_t>(flags & Flags::CLOCK_PRIORITY) >>
-                kClockPriorityOffset;
-    assert(p > 0);
-    p--;
-    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
-    ClockPriority new_priority =
-        static_cast<ClockPriority>(p << kClockPriorityOffset);
-    flags |= new_priority;
-  }
-
   void FreeData() {
     if (deleter) {
       (*deleter)(key(), value);
@@ -371,6 +305,58 @@ struct ClockHandle {
     return total_charge - meta_charge;
   }
 
+  // flags functions.
+
+  bool IsElement() const { return flags & IS_ELEMENT; }
+
+  void SetIsElement(bool is_element) {
+    if (is_element) {
+      flags |= IS_ELEMENT;
+    } else {
+      flags &= static_cast<uint8_t>(~IS_ELEMENT);
+    }
+  }
+
+  bool HasHit() const { return flags & HAS_HIT; }
+
+  void SetHit() { flags |= HAS_HIT; }
+
+  Cache::Priority GetCachePriority() const {
+    return static_cast<Cache::Priority>(flags & CACHE_PRIORITY);
+  }
+
+  void SetCachePriority(Cache::Priority priority) {
+    if (priority == Cache::Priority::HIGH) {
+      flags |= Flags::CACHE_PRIORITY;
+    } else {
+      flags &= static_cast<uint8_t>(~Flags::CACHE_PRIORITY);
+    }
+  }
+
+  bool IsInClock() const {
+    return GetClockPriority() != ClockHandle::ClockPriority::NONE;
+  }
+
+  ClockPriority GetClockPriority() const {
+    return static_cast<ClockPriority>(flags & Flags::CLOCK_PRIORITY);
+  }
+
+  void SetClockPriority(ClockPriority priority) {
+    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
+    flags |= priority;
+  }
+
+  void DecreaseClockPriority() {
+    uint8_t p = static_cast<uint8_t>(flags & Flags::CLOCK_PRIORITY) >>
+                kClockPriorityOffset;
+    assert(p > 0);
+    p--;
+    flags &= static_cast<uint8_t>(~Flags::CLOCK_PRIORITY);
+    ClockPriority new_priority =
+        static_cast<ClockPriority>(p << kClockPriorityOffset);
+    flags |= new_priority;
+  }
+
   inline bool IsEmpty() const {
     return !this->IsElement() && this->displacements == 0;
   }
@@ -383,7 +369,9 @@ struct ClockHandle {
     return this->hash == some_hash && this->key() == some_key;
   }
 
-  bool WillBeDeleted() const { return refs & WILL_BE_DELETED; }
+  // refs functions.
+
+  inline bool WillBeDeleted() const { return refs & WILL_BE_DELETED; }
 
   void SetWillBeDeleted(bool will_be_deleted) {
     if (will_be_deleted) {
@@ -393,28 +381,7 @@ struct ClockHandle {
     }
   }
 
-  // The following functions are for taking and releasing refs.
-
-  // Tries to take an external ref. Returns true iff it succeeds.
-  inline bool TryExternalRef() {
-    if (!((refs += kOneExternalRef) & (EXCLUSIVE_REF | WILL_BE_DELETED))) {
-      return true;
-    }
-    refs -= kOneExternalRef;
-    return false;
-  }
-
-  // Releases an external ref. Returns the new value (this is useful to
-  // avoid an extra atomic read).
-  inline void ReleaseExternalRef() { refs -= kOneExternalRef; }
-
-  // Take an external ref, assuming there is already one external ref
-  // to the handle.
-  void Ref() {
-    // TODO(Guido) Is it okay to assume that the existing external reference
-    // survives until this function returns?
-    refs += kOneExternalRef;
-  }
+  bool HasExternalRefs() const { return (refs & EXTERNAL_REFS) > 0; }
 
   // Tries to take an internal ref. Returns true iff it succeeds.
   inline bool TryInternalRef() {
@@ -425,7 +392,14 @@ struct ClockHandle {
     return false;
   }
 
-  inline void ReleaseInternalRef() { refs -= kOneInternalRef; }
+  // Tries to take an external ref. Returns true iff it succeeds.
+  inline bool TryExternalRef() {
+    if (!((refs += kOneExternalRef) & (EXCLUSIVE_REF | WILL_BE_DELETED))) {
+      return true;
+    }
+    refs -= kOneExternalRef;
+    return false;
+  }
 
   // Tries to take an exclusive ref. Returns true iff it succeeds.
   inline bool TryExclusiveRef() {
@@ -441,13 +415,13 @@ struct ClockHandle {
   inline bool SpinTryExclusiveRef() {
     uint32_t expected = 0;
     uint32_t will_be_deleted = 0;
-    int i = 0;
+    // int i = 0;
     while (!refs.compare_exchange_strong(expected,
                                          EXCLUSIVE_REF | will_be_deleted)) {
-      printf("Shared: %i\n", (refs & SHARED_REFS) >> 15);
-      printf("External: %i\n", refs & EXTERNAL_REFS);
-      printf("Clock priority: %i\n", (flags & CLOCK_PRIORITY) >> kClockPriorityOffset);
-      printf("i: %i\n", i++);
+      // printf("Shared: %i\n", (refs & SHARED_REFS) >> 15);
+      // printf("External: %i\n", refs & EXTERNAL_REFS);
+      // printf("Clock priority: %i\n", (flags & CLOCK_PRIORITY) >> kClockPriorityOffset);
+      // printf("i: %i\n", i++);
       if (expected & (EXTERNAL_REFS | EXCLUSIVE_REF)) {
         return false;
       }
@@ -457,46 +431,79 @@ struct ClockHandle {
     return true;
   }
 
-  inline void ReleaseExclusiveRef() { refs.fetch_and(~EXCLUSIVE_REF); }
-
-  // The following functions are for downgrading refs.
-
-  inline void ExclusiveToInternalRef() {
-    refs += kOneInternalRef;
-    ReleaseExclusiveRef();
+  // Take an external ref, assuming there is already one external ref
+  // to the handle.
+  void Ref() {
+    // TODO(Guido) Is it okay to assume that the existing external reference
+    // survives until this function returns?
+    refs += kOneExternalRef;
   }
 
+  inline void ReleaseExternalRef() { refs -= kOneExternalRef; }
+
+  inline void ReleaseInternalRef() { refs -= kOneInternalRef; }
+
+  inline void ReleaseExclusiveRef() { refs.fetch_and(~EXCLUSIVE_REF); }
+
+  // Downgrade an exclusive ref to external.
   inline void ExclusiveToExternalRef() {
     refs += kOneExternalRef;
     ReleaseExclusiveRef();
   }
 
+  // Convert an internal ref into external.
   inline void InternalToExternalRef() {
     refs += kOneExternalRef - kOneInternalRef;
   }
 
 };  // struct ClockHandle
 
+
 class ClockHandleTable {
  public:
   explicit ClockHandleTable(size_t capacity, int hash_bits);
   ~ClockHandleTable();
 
-  // Returns a pointer to a visible element matching the key/hash, or
-  // nullptr if not present.
+  // Returns a pointer to a visible handle matching the key/hash, or
+  // nullptr if not present. When an actual handle is produced, an
+  // internal reference is handed over.
   ClockHandle* Lookup(const Slice& key, uint32_t hash);
 
-  ClockHandle* FindElement(const Slice& key, uint32_t hash);
-
-  ClockHandle* FindAvailableSlot(const Slice& key, uint32_t hash, uint32_t& probe, autovector<ClockHandle>* deleted);
-
-  // Inserts a copy of h into the hash table.
-  // Returns a pointer to the inserted handle, or nullptr if no slot
-  // available was found. If an existing visible element matching the
-  // key/hash is already present in the hash table, the function marks
-  // it as WILL_BE_DELETED.
-  // Returns an exclusive reference to h.
+  // Inserts a copy of h into the hash table. Returns a pointer to the
+  // inserted handle, or nullptr if no available slot was found. Every
+  // existing visible handle matching the key is already present in the
+  // hash table is marked as WILL_BE_DELETED. The deletion is also attempted,
+  // and, if the attempt is successful, the handle is inserted into the
+  // autovector deleted. When take_reference is true, the function hands
+  // over an external reference on the handle, and otherwise no reference is
+  // produced.
   ClockHandle* Insert(ClockHandle* h, autovector<ClockHandle>* deleted, bool take_reference);
+
+  // Assigns h the appropriate clock priority, making it evictable.
+  void ClockOn(ClockHandle* h);
+
+  // Makes h non-evictable.
+  void ClockOff(ClockHandle* h);
+
+  // Runs the clock eviction algorithm until there is enough space to
+  // insert an element with the given charge.
+  void ClockRun(size_t charge, autovector<ClockHandle>* deleted);
+
+  // Remove h from the hash table. Requires an exclusive ref on h.
+  void Remove(ClockHandle* h);
+
+  // Remove from the hash table all handles with matching key/hash along a
+  // probe sequence, starting from the given probe number.
+  void RemoveAll(const Slice& key, uint32_t hash,
+                                  uint32_t& probe, autovector<ClockHandle>* deleted);
+
+  void RemoveAll(const Slice& key, uint32_t hash, autovector<ClockHandle>* deleted) {
+    uint32_t probe = 0;
+    RemoveAll(key, hash, probe, deleted);
+  }
+
+  // Tries to remove a handle from
+  bool SpinTryRemove(ClockHandle* h, ClockHandle* deleted);
 
   template <typename T>
   void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end,
@@ -544,27 +551,6 @@ class ClockHandleTable {
   // Returns x mod 2^{length_bits_}.
   uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
 
-  // Makes an element evictable by clock.
-  void ClockOn(ClockHandle* h);
-
-  // Makes an element non-evictable.
-  void ClockOff(ClockHandle* h);
-
-  void ClockEvict(size_t charge, autovector<ClockHandle>* deleted);
-
-  // Requires an exclusive ref on h.
-  void Remove(ClockHandle* h);
-
-  void RemoveAll(const Slice& key, uint32_t hash,
-                                  uint32_t& probe, autovector<ClockHandle>* deleted);
-
-  void RemoveAll(const Slice& key, uint32_t hash, autovector<ClockHandle>* deleted) {
-    uint32_t probe = 0;
-    RemoveAll(key, hash, probe, deleted);
-  }
-
-  bool SpinTryRemove(ClockHandle* h, ClockHandle* deleted);
-
  private:
   // Extracts the element information from a handle (src), and assigns it
   // to a hash table slot (dst). Doesn't touch displacements and refs,
@@ -586,6 +572,8 @@ class ClockHandleTable {
                       std::function<bool(ClockHandle*)> stop,
                       std::function<void(ClockHandle*)> update,
                       uint32_t& probe);
+
+  ClockHandle* FindAvailableSlot(const Slice& key, uint32_t hash, uint32_t& probe, autovector<ClockHandle>* deleted);
 
   // After a failed FindSlot call (i.e., with answer -1), this function
   // decrements all displacements, starting from the 0-th probe.
