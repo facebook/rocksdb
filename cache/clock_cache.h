@@ -493,7 +493,8 @@ class ClockHandleTable {
   void Remove(ClockHandle* h, autovector<ClockHandle>* deleted);
 
   // Remove from the hash table all handles with matching key/hash along a
-  // probe sequence, starting from the given probe number.
+  // probe sequence, starting from the given probe number. Doesn't
+  // require any references.
   void RemoveAll(const Slice& key, uint32_t hash, uint32_t& probe,
                  autovector<ClockHandle>* deleted);
 
