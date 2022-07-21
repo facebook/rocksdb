@@ -354,6 +354,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
   cf_opt->blob_garbage_collection_force_threshold =
       rnd->Uniform(10000) / 10000.0;
+  cf_opt->blob_garbage_collection_space_amp_limit = rnd->Uniform(5);
 
   // int options
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);

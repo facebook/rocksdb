@@ -1069,6 +1069,13 @@ DEFINE_double(blob_garbage_collection_force_threshold,
               "[Integrated BlobDB] The threshold for the ratio of garbage in "
               "the oldest blob files for forcing garbage collection.");
 
+DEFINE_double(blob_garbage_collection_space_amp_limit,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_space_amp_limit,
+              "[Integrated BlobDB] The space amplification limit for the "
+              "entire blob files for forcing garbage collection. It only takes "
+              "effect if enable_blob_garbage_collection is true.");
+
 DEFINE_uint64(blob_compaction_readahead_size,
               ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
                   .blob_compaction_readahead_size,
@@ -4565,6 +4572,8 @@ class Benchmark {
         FLAGS_blob_garbage_collection_age_cutoff;
     options.blob_garbage_collection_force_threshold =
         FLAGS_blob_garbage_collection_force_threshold;
+    options.blob_garbage_collection_space_amp_limit =
+        FLAGS_blob_garbage_collection_space_amp_limit;
     options.blob_compaction_readahead_size =
         FLAGS_blob_compaction_readahead_size;
     options.blob_file_starting_level = FLAGS_blob_file_starting_level;

@@ -266,6 +266,8 @@ bool StressTest::BuildOptionsTable() {
         std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
     options_tbl.emplace("blob_garbage_collection_force_threshold",
                         std::vector<std::string>{"0.5", "0.75", "1.0"});
+    options_tbl.emplace("blob_garbage_collection_space_amp_limit",
+                        std::vector<std::string>{"1.0", "2.0", "4.0"});
     options_tbl.emplace("blob_compaction_readahead_size",
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
@@ -2382,14 +2384,15 @@ void StressTest::Open(SharedState* shared) {
           "Integrated BlobDB: blob files enabled %d, min blob size %" PRIu64
           ", blob file size %" PRIu64
           ", blob compression type %s, blob GC enabled %d, cutoff %f, force "
-          "threshold %f, blob compaction readahead size %" PRIu64
-          ", blob file starting level %d\n",
+          "threshold %f, space amp limit %f, blob compaction readahead size "
+          "%" PRIu64 ", blob file starting level %d\n",
           options_.enable_blob_files, options_.min_blob_size,
           options_.blob_file_size,
           CompressionTypeToString(options_.blob_compression_type).c_str(),
           options_.enable_blob_garbage_collection,
           options_.blob_garbage_collection_age_cutoff,
           options_.blob_garbage_collection_force_threshold,
+          options_.blob_garbage_collection_space_amp_limit,
           options_.blob_compaction_readahead_size,
           options_.blob_file_starting_level);
 
@@ -3028,6 +3031,8 @@ void InitializeOptionsFromFlags(
       FLAGS_blob_garbage_collection_age_cutoff;
   options.blob_garbage_collection_force_threshold =
       FLAGS_blob_garbage_collection_force_threshold;
+  options.blob_garbage_collection_space_amp_limit =
+      FLAGS_blob_garbage_collection_space_amp_limit;
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 

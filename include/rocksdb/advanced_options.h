@@ -894,7 +894,8 @@ struct AdvancedColumnFamilyOptions {
   // of indirection for reads. See also the options min_blob_size,
   // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
   // blob_garbage_collection_age_cutoff,
-  // blob_garbage_collection_force_threshold, and blob_compaction_readahead_size
+  // blob_garbage_collection_force_threshold,
+  // blob_garbage_collection_space_amp_limit and blob_compaction_readahead_size
   // below.
   //
   // Default: false
@@ -967,6 +968,18 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   double blob_garbage_collection_force_threshold = 1.0;
+
+  // Enable customers to directly set a space amplification target for BlobDB.
+  // If this limit is breached, it triggers a special type of compaction
+  // targeting the SST files that point to the oldest blob files (potentially
+  // repeatedly, until the limit is satisified).
+  // Note that enable_blob_garbage_collection has to be set in order for this
+  // option to have any effect.
+  //
+  // Default: 5.0
+  //
+  // Dynamically changeable through the SetOptions() API
+  double blob_garbage_collection_space_amp_limit = 5.0;
 
   // Compaction readahead for blob files.
   //

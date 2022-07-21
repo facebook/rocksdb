@@ -1420,6 +1420,12 @@ Status ColumnFamilyData::ValidateOptions(
           "The garbage ratio threshold for forcing blob garbage collection "
           "should be in the range [0.0, 1.0].");
     }
+    if (cf_options.blob_garbage_collection_space_amp_limit < 0.0 ||
+        cf_options.blob_garbage_collection_space_amp_limit > 10.0) {
+      return Status::InvalidArgument(
+          "The space amplification limit for forcing blob garbage collection "
+          "should be in the range [0.0, 10.0].");
+    }
   }
 
   if (cf_options.compaction_style == kCompactionStyleFIFO &&

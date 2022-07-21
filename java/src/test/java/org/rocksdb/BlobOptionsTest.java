@@ -210,11 +210,11 @@ public class BlobOptionsTest {
         .isEqualTo(new String[] {"enable_blob_files", "min_blob_size", "blob_file_size",
             "blob_compression_type", "enable_blob_garbage_collection",
             "blob_garbage_collection_age_cutoff", "blob_garbage_collection_force_threshold",
-            "blob_compaction_readahead_size", "blob_file_starting_level",
-            "prepopulate_blob_cache"});
+            "blob_garbage_collection_space_amp_limit", "blob_compaction_readahead_size",
+            "blob_file_starting_level", "prepopulate_blob_cache"});
     assertThat(options.getValues())
         .isEqualTo(new String[] {"false", "4096", "2048", "LZ4_COMPRESSION", "false", "0.91",
-            "0.96", "1024", "0", "PREPOPULATE_BLOB_DISABLE"});
+            "0.96", "5.0", "1024", "0", "PREPOPULATE_BLOB_DISABLE"});
   }
 
   /**

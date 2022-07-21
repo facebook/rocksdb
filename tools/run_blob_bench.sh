@@ -53,6 +53,7 @@ function display_usage() {
   echo -e "\tENABLE_BLOB_GC\t\t\tEnable blob garbage collection (default: 1)"
   echo -e "\tBLOB_GC_AGE_CUTOFF\t\tBlob garbage collection age cutoff (default: 0.25)"
   echo -e "\tBLOB_GC_FORCE_THRESHOLD\t\tThreshold for forcing garbage collection of the oldest blob files (default: 1.0)"
+  echo -e "\tBLOB_GC_SPACE_AMP_LIMIT\t\tSpace amplification limit for forcing garbage collection of the oldest blob files (default: 5.0)"
   echo -e "\tBLOB_COMPACTION_READAHEAD_SIZE\tBlob compaction readahead size (default: 0)"
   echo -e "\tBLOB_FILE_STARTING_LEVEL\t\tBlob file starting level (default: 0)"
   echo -e "\tUSE_BLOB_CACHE\t\t\tEnable blob cache. (default: 1)"
@@ -118,6 +119,7 @@ blob_compression_type=${BLOB_COMPRESSION_TYPE:-lz4}
 enable_blob_garbage_collection=${ENABLE_BLOB_GC:-1}
 blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
 blob_garbage_collection_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1.0}
+blob_garbage_collection_space_amp_limit=${BLOB_GC_SPACE_AMP_LIMIT:-5.0}
 blob_compaction_readahead_size=${BLOB_COMPACTION_READAHEAD_SIZE:-0}
 blob_file_starting_level=${BLOB_FILE_STARTING_LEVEL:-0}
 use_blob_cache=${USE_BLOB_CACHE:-1}
@@ -153,6 +155,7 @@ echo -e "Compression type for blob files:\t$blob_compression_type"
 echo -e "Blob GC enabled:\t\t\t$enable_blob_garbage_collection"
 echo -e "Blob GC age cutoff:\t\t\t$blob_garbage_collection_age_cutoff"
 echo -e "Blob GC force threshold:\t\t$blob_garbage_collection_force_threshold"
+echo -e "Blob GC space amp limit:\t\t$blob_garbage_collection_space_amp_limit"
 echo -e "Blob compaction readahead size:\t\t$blob_compaction_readahead_size"
 echo -e "Blob file starting level:\t\t$blob_file_starting_level"
 echo -e "Blob cache enabled:\t\t\t$use_blob_cache"
@@ -199,6 +202,7 @@ PARAMS_GC="$PARAMS \
   --enable_blob_garbage_collection=$enable_blob_garbage_collection \
   --blob_garbage_collection_age_cutoff=$blob_garbage_collection_age_cutoff \
   --blob_garbage_collection_force_threshold=$blob_garbage_collection_force_threshold \
+  --blob_garbage_collection_space_amp_limit=$blob_garbage_collection_space_amp_limit \
   --blob_compaction_readahead_size=$blob_compaction_readahead_size"
 
 # bulk load (using fillrandom) + compact
