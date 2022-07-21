@@ -166,11 +166,12 @@ struct ClockHandle {
     WILL_BE_DELETED = uint32_t{1} << kWillBeDeletedOffset  // Bit 31
 
     // Shared references (i.e., external and internal references) and exclusive
-    // references are similar to RW locks (external and internal references are
-    // read locks, and exclusive references are write locks). We prioritize
-    // readers,
-    // which not only don't use locks, but don't even use compare-and-swap
-    // operations (which are much slower than atomic arithmetic/bit operations).
+    // references are functionally equivalent to RW locks (external and internal
+    // references are read locks, and exclusive references are write locks).
+    // Importantly, attempting to take a reference never blocks the thread.
+    // We prioritize readers---not only they don't use locks, but also don't use
+    // compare-and-swap operations (which are much slower than atomic
+    // arithmetic/bit operations).
     // Using our own implementation of RW locks allows us to save many atomic
     // operations by adequately packing data. In particular:
     // - Combining EXTERNAL_REFS and SHARED_REFS allows us to convert an
@@ -178,7 +179,8 @@ struct ClockHandle {
     //    arithmetic operation.
     // - Combining SHARED_REFS and WILL_BE_DELETED allows us to attempt to take
     //    a shared reference and check whether the entry is marked for deletion
-    //    in a single atomic arithmetic operation.
+    //    (to decide if we should abort the attempt) in a single atomic
+    //    arithmetic operation.
   };
 
   static constexpr uint32_t kOneInternalRef = 0x8000;
@@ -222,14 +224,13 @@ struct ClockHandle {
   //    that a shared reference allows are:
   //      * set CLOCK_PRIORITY to NONE;
   //      * set the HAS_HIT bit.
-  //    Notice that these two types of updates are idempotent, so
+  //      * set the WILL_BE_DELETED bit.
+  //    Notice that these three types of updates are idempotent, so
   //    they don't require synchronization across shared references.
   // - Use an exclusive reference when we want identity members
   //    to remain untouched, as well as modify any identity member
   //    or flag.
   // - displacements can be modified without holding a reference.
-  // - refs is only modified through appropriate functions to
-  //    take or release references.
 
   ClockHandle()
       : value(nullptr),
@@ -246,9 +247,10 @@ struct ClockHandle {
     key_data.fill(0);
   }
 
-  // The copy constructor is only used to copy a handle for immediate
-  // deletion. We need to copy because the slot may become re-used
-  // before the deletion is completed. We only copy the necessary
+
+  // The copy ctor and assignment operator are only used to copy a handle
+  // for immediate deletion. (We need to copy because the slot may become
+  // re-used before the deletion is completed.) We only copy the necessary
   // members to carry out the deletion; in particular, we don't need
   // the atomic members.
   ClockHandle(const ClockHandle& other)
@@ -259,16 +261,7 @@ struct ClockHandle {
   void operator=(const ClockHandle& other) {
     value = other.value;
     deleter = other.deleter;
-    hash = other.hash;
-    total_charge = other.total_charge;
-    refs.store(other.refs);
     key_data = other.key_data;
-    flags.store(other.flags);
-    SetWillBeDeleted(other.WillBeDeleted());
-    SetIsElement(other.IsElement());
-    SetClockPriority(other.GetClockPriority());
-    SetCachePriority(other.GetCachePriority());
-    displacements.store(other.displacements);
   }
 
   Slice key() const { return Slice(key_data.data(), kCacheKeySize); }
@@ -433,9 +426,8 @@ struct ClockHandle {
     while (!refs.compare_exchange_strong(expected,
                                          EXCLUSIVE_REF | will_be_deleted) &&
            spins--) {
-      // TODO(Guido) What is the right way to bound the spinning? Do we also
-      // want to yield after some number of unsuccessful tries? How many spins
-      // in total?
+      // TODO(Guido) What is the right way to bound the spinning? Should we also
+      // yield after some number of unsuccessful tries? How many spins in total?
       if (expected & (EXTERNAL_REFS | EXCLUSIVE_REF)) {
         return false;
       }
@@ -578,24 +570,28 @@ class ClockHandleTable {
   // which are maintained by the hash table algorithm.
   void Assign(ClockHandle* dst, ClockHandle* src);
 
-  // Returns the index of the first slot probed (hashing with
-  // the given key) with a handle e such that match(e) is true.
-  // At every step, the function first tests whether match(e) holds.
-  // If it's false, it evaluates abort(e) to decide whether the
-  // search should be aborted, and in the affirmative returns -1.
-  // For every handle e probed except the last one, the function runs
-  // update(e). We say a probe to a handle e is aborting if match(e) is
-  // false and abort(e) is true. The argument probe is one more than the
-  // last non-aborting probe during the call. This is so that that the
-  // variable can be used to keep track of progress across consecutive
-  // calls to FindSlot.
+  // Returns the first slot in the probe sequence, starting from the given
+  // probe number, with a handle e such that match(e) is true. At every
+  // step, the function first tests whether match(e) holds. If this is false,
+  // it evaluates abort(e) to decide whether the search should be aborted,
+  // and in the affirmative returns -1. For every handle e probed except
+  // the last one, the function runs update(e).
+  // The probe parameter is modified as follows. We say a probe to a handle
+  // e is aborting if match(e) is false and abort(e) is true. Then the final
+  // value of probe is one more than the last non-aborting probe during the
+  // call. This is so that that the variable can be used to keep track of
+  // progress across consecutive calls to FindSlot.
   inline ClockHandle* FindSlot(const Slice& key,
                                std::function<bool(ClockHandle*)> match,
                                std::function<bool(ClockHandle*)> stop,
                                std::function<void(ClockHandle*)> update,
                                uint32_t& probe);
 
-  // TODO(Guido) Comment.
+  // Returns an available slot for the given key. All copies of the
+  // key found along the probing sequence until an available slot is
+  // found are marked for deletion. On each of them, a deletion is
+  // attempted, and when the attempt succeeds the slot is assigned to
+  // the new copy of the element.
   ClockHandle* FindAvailableSlot(const Slice& key, uint32_t hash,
                                  uint32_t& probe,
                                  autovector<ClockHandle>* deleted);
