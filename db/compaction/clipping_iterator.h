@@ -35,6 +35,7 @@ class ClippingIterator : public InternalIterator {
     if (start_) {
       iter_->Seek(*start_);
     } else {
+      iter_->SeekToFirst();
     }
 
     UpdateAndEnforceUpperBound();
