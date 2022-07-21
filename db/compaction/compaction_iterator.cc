@@ -214,6 +214,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   CompactionFilter::Decision filter = CompactionFilter::Decision::kUndetermined;
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
+  blob_value_.Reset();
   CompactionFilter::ValueType value_type =
       ikey_.type == kTypeValue ? CompactionFilter::ValueType::kValue
                                : CompactionFilter::ValueType::kBlobIndex;
@@ -228,7 +229,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   {
     StopWatchNano timer(clock_, report_detailed_time_);
     if (kTypeBlobIndex == ikey_.type) {
-      blob_value_.Reset();
       filter = compaction_filter_->FilterBlobByKey(
           level_, filter_key, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
@@ -283,8 +283,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     if (CompactionFilter::Decision::kUndetermined == filter) {
       filter = compaction_filter_->FilterV2(
           level_, filter_key, value_type,
-          kTypeBlobIndex == ikey_.type ? blob_value_ : value_,
-          &compaction_filter_value_, compaction_filter_skip_until_.rep());
+          blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
+          compaction_filter_skip_until_.rep());
     }
     iter_stats_.total_filter_time +=
         env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
