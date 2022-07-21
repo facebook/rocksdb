@@ -202,7 +202,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     bool mid_pri_itereated_after_low_pri_set = false;
     bool pri_iteration_order_verified = false;
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForHighPri",
         [&](void* arg) {
           bool* high_pri_iterated_after_mid_low_pri = (bool*)arg;
@@ -212,7 +212,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
         });
 
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForMidPri",
         [&](void* arg) {
           bool* mid_pri_itereated_after_low_pri = (bool*)arg;
@@ -222,7 +222,7 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
         });
 
     SyncPoint::GetInstance()->SetCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PreReturnPriIterationOrder",
         [&](void* arg) {
           std::vector<Env::IOPriority>* pri_iteration_order =
@@ -249,13 +249,13 @@ TEST_F(RateLimiterTest, GeneratePriorityIterationOrder) {
     ASSERT_EQ(pri_iteration_order_verified, true);
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PreReturnPriIterationOrder");
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForMidPri");
     SyncPoint::GetInstance()->ClearCallBack(
-        "GenericRateLimiter::GeneratePriorityIterationOrder::"
+        "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
         "PostRandomOneInFairnessForHighPri");
   }
 }
@@ -387,11 +387,14 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
           std::make_shared<GenericRateLimiter>(
               target, refill_period, 10, RateLimiter::Mode::kWritesOnly,
               SystemClock::Default(), false /* auto_tuned */);
+      // After "GenericRateLimiter::Request:1" the mutex is held until the bytes
+      // are refilled. This test could be improved to change the limit when lock
+      // is released in `TimedWait()`.
       ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
            {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
-            "GenericRateLimiter::RefillBytesAndGrantRequests"}});
+            "GenericRateLimiter::Request:1"}});
       Arg arg(target, Env::IO_HIGH, limiter);
       // The idea behind is to start a request first, then before it refills,
       // update limit to a different value (2X/0.5X). No starvation should
