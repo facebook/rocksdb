@@ -459,8 +459,9 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
     SequenceNumber read_seq) {
   // Build from cached fragmented_range_tombstone_list_ built in the write path
-  return new FragmentedRangeTombstoneIterator(fragmented_range_tombstone_list_,
-                                              comparator_.comparator, read_seq);
+  return new FragmentedRangeTombstoneIterator(
+      std::atomic_load(&fragmented_range_tombstone_list_),
+      comparator_.comparator, read_seq);
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
@@ -661,10 +662,10 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     auto* unfragmented_iter =
         new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
                              true /* use_range_del_table */);
-    fragmented_range_tombstone_list_ =
-        std::make_shared<FragmentedRangeTombstoneList>(
-            std::unique_ptr<InternalIterator>(unfragmented_iter),
-            comparator_.comparator);
+    std::atomic_store(&fragmented_range_tombstone_list_,
+                      std::make_shared<FragmentedRangeTombstoneList>(
+                          std::unique_ptr<InternalIterator>(unfragmented_iter),
+                          comparator_.comparator));
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
