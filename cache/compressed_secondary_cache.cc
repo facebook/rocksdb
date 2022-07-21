@@ -45,13 +45,13 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   std::unique_ptr<CacheValueChunk>* ptr =
       reinterpret_cast<std::unique_ptr<CacheValueChunk>*>(
           cache_->Value(lru_handle));
-  size_t handle_value_charge = 0;
+  size_t handle_value_charge{0};
   CacheAllocationPtr handle_value =
       MergeChunksIntoValue(ptr->get(), handle_value_charge);
 
   Status s;
-  void* value = nullptr;
-  size_t charge = 0;
+  void* value{nullptr};
+  size_t charge{0};
   if (cache_options_.compression_type == kNoCompression) {
     s = create_cb(handle_value.get(), handle_value_charge, &value, &charge);
   } else {
@@ -60,7 +60,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
                                          UncompressionDict::GetEmptyDict(),
                                          cache_options_.compression_type);
 
-    size_t uncompressed_size = 0;
+    size_t uncompressed_size{0};
     CacheAllocationPtr uncompressed;
     uncompressed = UncompressData(uncompression_info, (char*)handle_value.get(),
                                   handle_value_charge, &uncompressed_size,
@@ -101,7 +101,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
   if (cache_options_.compression_type != kNoCompression) {
     CompressionOptions compression_opts;
     CompressionContext compression_context(cache_options_.compression_type);
-    uint64_t sample_for_compression = 0;
+    uint64_t sample_for_compression{0};
     CompressionInfo compression_info(
         compression_opts, compression_context, CompressionDict::GetEmptyDict(),
         cache_options_.compression_type, sample_for_compression);
@@ -130,7 +130,7 @@ void CompressedSecondaryCache::Erase(const Slice& key) { cache_->Erase(key); }
 std::string CompressedSecondaryCache::GetPrintableOptions() const {
   std::string ret;
   ret.reserve(20000);
-  const int kBufferSize = 200;
+  const int kBufferSize{200};
   char buffer[kBufferSize];
   ret.append(cache_->GetPrintableOptions());
   snprintf(buffer, kBufferSize, "    compression_type : %s\n",
@@ -149,7 +149,7 @@ CompressedSecondaryCache::SplitValueIntoChunks(
   assert(!value.empty());
   // If charge > the max size
   const char* src_ptr = value.data();
-  size_t src_size = charge;
+  size_t src_size{charge};
   CacheAllocationPtr ptr;
 
   std::unique_ptr<CacheValueChunk> head = std::make_unique<CacheValueChunk>();
@@ -207,7 +207,7 @@ CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
   CacheAllocationPtr ptr =
       AllocateBlock(charge, cache_options_.memory_allocator.get());
   current_chunk = head;
-  size_t pos = 0;
+  size_t pos{0};
   while (current_chunk != nullptr) {
     memcpy(ptr.get() + pos, current_chunk->chunk_ptr.get(),
            current_chunk->charge);

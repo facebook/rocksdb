@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "cache/lru_cache.h"
 #include "memory/jemalloc_nodump_allocator.h"
 #include "memory/memory_allocator.h"
 #include "rocksdb/compression_type.h"
@@ -137,7 +138,6 @@ class CompressedSecondaryCacheTest : public testing::Test {
     CompressedSecondaryCacheOptions opts;
     opts.capacity = 2048;
     opts.num_shard_bits = 0;
-    opts.metadata_charge_policy = kDontChargeCacheMetadata;
 
     if (sec_cache_is_compressed) {
       if (!LZ4_Supported()) {
@@ -180,7 +180,6 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     secondary_cache_opts.capacity = 1100;
     secondary_cache_opts.num_shard_bits = 0;
-    secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
     std::shared_ptr<SecondaryCache> sec_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
@@ -238,34 +237,35 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     secondary_cache_opts.capacity = 2300;
     secondary_cache_opts.num_shard_bits = 0;
-    secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
-    LRUCacheOptions lru_cache_opts(1024, 0, false, 0.5, nullptr,
+    LRUCacheOptions lru_cache_opts(1300, 0, false, 0.5, nullptr,
                                    kDefaultToAdaptiveMutex,
-                                   kDontChargeCacheMetadata);
+                                   kDefaultCacheMetadataChargePolicy);
     lru_cache_opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(lru_cache_opts);
     std::shared_ptr<Statistics> stats = CreateDBStatistics();
 
     Random rnd(301);
 
-    std::string str1 = rnd.RandomString(1010);
+    std::string str1;
+    test::CompressibleString(&rnd, 0.5, 1001, &str1);
     std::string str1_clone{str1};
     TestItem* item1 = new TestItem(str1.data(), str1.length());
     ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
 
-    std::string str2 = rnd.RandomString(1020);
+    std::string str2;
+    test::CompressibleString(&rnd, 0.5, 1012, &str2);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
-    // After Insert, lru cache contains k2 and secondary cache contains k1.
+    // After Insert, cache contains k2 and secondary cache contains k1.
     ASSERT_OK(cache->Insert("k2", item2, &CompressedSecondaryCacheTest::helper_,
                             str2.length()));
 
-    std::string str3 = rnd.RandomString(1020);
+    std::string str3;
+    test::CompressibleString(&rnd, 0.5, 1024, &str3);
     TestItem* item3 = new TestItem(str3.data(), str3.length());
-    // After Insert, lru cache contains k3 and secondary cache contains k1 and
-    // k2
+    // After Insert, cache contains k3 and secondary cache contains k1 and k2.
     ASSERT_OK(cache->Insert("k3", item3, &CompressedSecondaryCacheTest::helper_,
                             str3.length()));
 
@@ -290,7 +290,6 @@ class CompressedSecondaryCacheTest : public testing::Test {
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
-
     ASSERT_NE(handle, nullptr);
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);
@@ -319,19 +318,19 @@ class CompressedSecondaryCacheTest : public testing::Test {
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
     }
 
-    secondary_cache_opts.capacity = 2048;
+    secondary_cache_opts.capacity = 2300;
     secondary_cache_opts.num_shard_bits = 0;
-    secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
     LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                         kDontChargeCacheMetadata);
+                         kDefaultCacheMetadataChargePolicy);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
     Random rnd(301);
-    std::string str1 = rnd.RandomString(1020);
+    std::string str1;
+    test::CompressibleString(&rnd, 0.5, 1001, &str1);
     auto item1 =
         std::unique_ptr<TestItem>(new TestItem(str1.data(), str1.length()));
     ASSERT_NOK(cache->Insert("k1", item1.get(), nullptr, str1.length()));
@@ -364,25 +363,27 @@ class CompressedSecondaryCacheTest : public testing::Test {
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
     }
 
-    secondary_cache_opts.capacity = 2048;
+    secondary_cache_opts.capacity = 2300;
     secondary_cache_opts.num_shard_bits = 0;
-    secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
 
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
-    LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                         kDontChargeCacheMetadata);
+    LRUCacheOptions opts(1200, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+                         kDefaultCacheMetadataChargePolicy);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
     Random rnd(301);
-    std::string str1 = rnd.RandomString(1020);
+    std::string str1;
+    test::CompressibleString(&rnd, 0.5, 1001, &str1);
     TestItem* item1 = new TestItem(str1.data(), str1.length());
     ASSERT_OK(cache->Insert("k1", item1,
                             &CompressedSecondaryCacheTest::helper_fail_,
                             str1.length()));
-    std::string str2 = rnd.RandomString(1020);
+
+    std::string str2;
+    test::CompressibleString(&rnd, 0.5, 1002, &str2);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // k1 should be demoted to the secondary cache.
     ASSERT_OK(cache->Insert("k2", item2,
@@ -420,25 +421,26 @@ class CompressedSecondaryCacheTest : public testing::Test {
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
     }
 
-    secondary_cache_opts.capacity = 2048;
+    secondary_cache_opts.capacity = 2300;
     secondary_cache_opts.num_shard_bits = 0;
-    secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
 
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
-    LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                         kDontChargeCacheMetadata);
+    LRUCacheOptions opts(1200, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+                         kDefaultCacheMetadataChargePolicy);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
     Random rnd(301);
-    std::string str1 = rnd.RandomString(1020);
+    std::string str1;
+    test::CompressibleString(&rnd, 0.5, 1001, &str1);
     TestItem* item1 = new TestItem(str1.data(), str1.length());
     ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
 
-    std::string str2 = rnd.RandomString(1020);
+    std::string str2;
+    test::CompressibleString(&rnd, 0.5, 1002, &str2);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // k1 should be demoted to the secondary cache.
     ASSERT_OK(cache->Insert("k2", item2, &CompressedSecondaryCacheTest::helper_,
@@ -476,24 +478,28 @@ class CompressedSecondaryCacheTest : public testing::Test {
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
     }
 
-    secondary_cache_opts.capacity = 2048;
+    secondary_cache_opts.capacity = 2300;
     secondary_cache_opts.num_shard_bits = 0;
-    secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
 
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
-    LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, nullptr,
-                         kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+    LRUCacheOptions opts(1200, 0, /*strict_capacity_limit=*/true, 0.5, nullptr,
+                         kDefaultToAdaptiveMutex,
+                         kDefaultCacheMetadataChargePolicy);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
     Random rnd(301);
-    std::string str1 = rnd.RandomString(1020);
+    std::string str1;
+    test::CompressibleString(&rnd, 0.5, 1001, &str1);
     TestItem* item1 = new TestItem(str1.data(), str1.length());
     ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
-    std::string str2 = rnd.RandomString(1020);
+
+    std::string str2;
+    test::CompressibleString(&rnd, 0.5, 1002, &str2);
+    std::string str2_clone{str2};
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // k1 should be demoted to the secondary cache.
     ASSERT_OK(cache->Insert("k2", item2, &CompressedSecondaryCacheTest::helper_,
@@ -504,8 +510,9 @@ class CompressedSecondaryCacheTest : public testing::Test {
                             test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle2, nullptr);
     cache->Release(handle2);
-    // k1 promotion should fail due to the block cache being at capacity,
-    // but the lookup should still succeed
+
+    // k1 promotion should fail because cache is at capacity and
+    // strict_capacity_limit is true, but the lookup should still succeed.
     Cache::Handle* handle1;
     handle1 = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                             test_item_creator, Cache::Priority::LOW, true);
