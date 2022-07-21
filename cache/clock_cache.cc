@@ -86,6 +86,10 @@ ClockHandle* ClockHandleTable::Insert(ClockHandle* h,
   // The slot is empty or is a tombstone. And we have an exclusive ref.
   Assign(e, h);
   usage_ += e->total_charge;
+  // TODO(Guido) The following can probably be run outside of the exclusive
+  // ref. I had a bad case in mind: multiple inserts could annihilate
+  // each. Although I think this is impossible, I'm not sure my mental
+  // proof covers every case.
   if (e->displacements != 0) {
     // It used to be a tombstone, so there may already be copies of the
     // key in the table.

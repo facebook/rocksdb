@@ -129,7 +129,7 @@ constexpr double kLoadFactor = 0.35;
 // avoid a performance drop, we set a strict upper bound on the load factor.
 constexpr double kStrictLoadFactor = 0.7;
 
-// Maximum number of spins when trying to acquire an exclusive ref.
+// Maximum number of spins when trying to acquire a ref.
 constexpr uint32_t kSpinsPerTry = 100000;
 
 // Arbitrary seeds.
@@ -413,6 +413,9 @@ struct ClockHandle {
   }
 
   // Tries to take an exclusive ref. Returns true iff it succeeds.
+  // TODO(Guido) After every TryExclusiveRef call, we always call WillBeDeleted().
+  // We could save an atomic read by having an output parameter with the
+  // last value of refs.
   inline bool TryExclusiveRef() {
     uint32_t will_be_deleted = refs & WILL_BE_DELETED;
     uint32_t expected = will_be_deleted;
