@@ -413,9 +413,9 @@ struct ClockHandle {
   }
 
   // Tries to take an exclusive ref. Returns true iff it succeeds.
-  // TODO(Guido) After every TryExclusiveRef call, we always call WillBeDeleted().
-  // We could save an atomic read by having an output parameter with the
-  // last value of refs.
+  // TODO(Guido) After every TryExclusiveRef call, we always call
+  // WillBeDeleted(). We could save an atomic read by having an output parameter
+  // with the last value of refs.
   inline bool TryExclusiveRef() {
     uint32_t will_be_deleted = refs & WILL_BE_DELETED;
     uint32_t expected = will_be_deleted;
