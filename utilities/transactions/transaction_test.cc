@@ -6511,7 +6511,7 @@ TEST_P(TransactionTest, WriteWithBulkCreatedColumnFamilies) {
   ASSERT_OK(db->CreateColumnFamilies(cf_options, cf_names, &cf_handles));
   ASSERT_OK(db->Put(write_options, cf_handles[0], "foo", "bar"));
   ASSERT_OK(db->DropColumnFamilies(cf_handles));
-  
+
   for (auto* h : cf_handles) {
     delete h;
   }
