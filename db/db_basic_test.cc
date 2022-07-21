@@ -2618,13 +2618,20 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
     ASSERT_OK(Delete(std::to_string(i)));
   }
   std::vector<KeyVersion> key_versions;
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[0], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  for (size_t i = 0; i < kNumInserts + kNumDeletes + kNumUpdates; i++) {
+    if (i % 3 == 0) {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeDeletion");
+    } else {
+      ASSERT_EQ(key_versions[i].GetTypeName(), "TypeValue");
+    }
+  }
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[0], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates, key_versions.size());
 
   // Check non-default column family
@@ -2637,10 +2644,20 @@ TEST_F(DBBasicTest, GetAllKeyVersions) {
   for (size_t i = 0; i + 1 != kNumDeletes; ++i) {
     ASSERT_OK(Delete(1, std::to_string(i)));
   }
-  ASSERT_OK(ROCKSDB_NAMESPACE::GetAllKeyVersions(
-      db_, handles_[1], Slice(), Slice(), std::numeric_limits<size_t>::max(),
-      &key_versions));
+  ASSERT_OK(GetAllKeyVersions(db_, handles_[1], Slice(), Slice(),
+                              std::numeric_limits<size_t>::max(),
+                              &key_versions));
   ASSERT_EQ(kNumInserts + kNumDeletes + kNumUpdates - 3, key_versions.size());
+}
+
+TEST_F(DBBasicTest, ValueTypeString) {
+  KeyVersion key_version;
+  // when adding new type, please also update `value_type_string_map`
+  for (unsigned char i = ValueType::kTypeDeletion; i < ValueType::kTypeMaxValid;
+       i++) {
+    key_version.type = i;
+    ASSERT_TRUE(key_version.GetTypeName() != "Invalid");
+  }
 }
 #endif  // !ROCKSDB_LITE
 

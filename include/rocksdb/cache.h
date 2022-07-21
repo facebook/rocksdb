@@ -187,9 +187,10 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
 // Return nullptr if it is not supported.
 // ``
 extern std::shared_ptr<Cache> NewClockCache(
-    size_t capacity, size_t estimated_value_size, int num_shard_bits,
-    bool strict_capacity_limit,
-    CacheMetadataChargePolicy metadata_charge_policy);
+    size_t capacity, int num_shard_bits = -1,
+    bool strict_capacity_limit = false,
+    CacheMetadataChargePolicy metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy);
 
 class Cache {
  public:
@@ -570,12 +571,12 @@ enum class CacheEntryRole {
   // Filter's charge to account for
   // (new) bloom and ribbon filter construction's memory usage
   kFilterConstruction,
-  // BlockBasedTableReader's charge to account for
-  // its memory usage
+  // BlockBasedTableReader's charge to account for its memory usage
   kBlockBasedTableReader,
-  // FileMetadata's charge to account for
-  // its memory usage
+  // FileMetadata's charge to account for its memory usage
   kFileMetadata,
+  // Blob cache's charge to account for its memory usage
+  kBlobCache,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.
   kMisc,

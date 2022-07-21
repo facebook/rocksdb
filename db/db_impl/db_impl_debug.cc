@@ -302,7 +302,8 @@ size_t DBImpl::TEST_GetWalPreallocateBlockSize(
 }
 
 #ifndef ROCKSDB_LITE
-void DBImpl::TEST_WaitForStatsDumpRun(std::function<void()> callback) const {
+void DBImpl::TEST_WaitForPeridicWorkerRun(
+    std::function<void()> callback) const {
   if (periodic_work_scheduler_ != nullptr) {
     static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_)
         ->TEST_WaitForRun(callback);
@@ -312,6 +313,12 @@ void DBImpl::TEST_WaitForStatsDumpRun(std::function<void()> callback) const {
 PeriodicWorkTestScheduler* DBImpl::TEST_GetPeriodicWorkScheduler() const {
   return static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_);
 }
+
+SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
+  InstrumentedMutexLock l(&mutex_);
+  return seqno_time_mapping_;
+}
+
 #endif  // !ROCKSDB_LITE
 
 size_t DBImpl::TEST_EstimateInMemoryStatsHistorySize() const {

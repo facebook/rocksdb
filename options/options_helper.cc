@@ -257,6 +257,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->blob_compaction_readahead_size =
       moptions.blob_compaction_readahead_size;
   cf_opts->blob_file_starting_level = moptions.blob_file_starting_level;
+  cf_opts->prepopulate_blob_cache = moptions.prepopulate_blob_cache;
 
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =
@@ -306,6 +307,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
   cf_opts->blob_cache = ioptions.blob_cache;
+  cf_opts->preclude_last_level_data_seconds =
+      ioptions.preclude_last_level_data_seconds;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
@@ -847,6 +850,11 @@ std::unordered_map<std::string, Temperature>
         {"kHot", Temperature::kHot},
         {"kWarm", Temperature::kWarm},
         {"kCold", Temperature::kCold}};
+
+std::unordered_map<std::string, PrepopulateBlobCache>
+    OptionsHelper::prepopulate_blob_cache_string_map = {
+        {"kDisable", PrepopulateBlobCache::kDisable},
+        {"kFlushOnly", PrepopulateBlobCache::kFlushOnly}};
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {

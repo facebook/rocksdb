@@ -529,7 +529,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // If it was the last reference, and the entry is either not secondary
     // cache compatible (i.e a dummy entry for accounting), or is secondary
     // cache compatible and has a non-null value, then decrement the cache
-    // usage. If value is null in the latter case, taht means the lookup
+    // usage. If value is null in the latter case, that means the lookup
     // failed and we didn't charge the cache.
     if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value)) {
       assert(usage_ >= e->total_charge);
@@ -755,6 +755,17 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
       shard->Promote(lru_handle);
     }
   }
+}
+
+std::string LRUCache::GetPrintableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  ret.append(ShardedCache::GetPrintableOptions());
+  if (secondary_cache_) {
+    ret.append("  secondary_cache:\n");
+    ret.append(secondary_cache_->GetPrintableOptions());
+  }
+  return ret;
 }
 
 }  // namespace lru_cache

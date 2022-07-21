@@ -5,6 +5,7 @@
 
 #include "rocksdb/table_properties.h"
 
+#include "db/seqno_to_time_mapping.h"
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -164,6 +165,12 @@ std::string TableProperties::ToString(
                  s.ok() ? UniqueIdToHumanString(id) : "N/A", prop_delim,
                  kv_delim);
 
+  SeqnoToTimeMapping seq_time_mapping;
+  s = seq_time_mapping.Add(seqno_to_time_mapping);
+  AppendProperty(result, "Sequence number to time mapping",
+                 s.ok() ? seq_time_mapping.ToHumanString() : "N/A", prop_delim,
+                 kv_delim);
+
   return result;
 }
 
@@ -307,6 +314,8 @@ const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.slow.data.size";
 const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
     "rocksdb.sample_for_compression.fast.data.size";
+const std::string TablePropertiesNames::kSequenceNumberTimeMapping =
+    "rocksdb.seqno.time.map";
 
 #ifndef NDEBUG
 // WARNING: TEST_SetRandomTableProperties assumes the following layout of

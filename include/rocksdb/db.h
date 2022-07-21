@@ -410,7 +410,7 @@ class DB {
   // UNDER CONSTRUCTION -- DO NOT USE
   virtual Status PutEntity(const WriteOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           const WideColumns& columns) = 0;
+                           const WideColumns& columns);
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"

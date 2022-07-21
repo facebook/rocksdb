@@ -36,6 +36,7 @@
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
 #include "db/trim_history_scheduler.h"
@@ -1158,7 +1159,8 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForStatsDumpRun(std::function<void()> callback) const;
+  void TEST_WaitForPeridicWorkerRun(std::function<void()> callback) const;
+  SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   uint64_t TEST_GetCurrentLogNumber() const {
@@ -1185,6 +1187,9 @@ class DBImpl : public DB {
 
   // flush LOG out of application buffer
   void FlushInfoLog();
+
+  // record current sequence number to time mapping
+  void RecordSeqnoToTimeMapping();
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -2069,6 +2074,8 @@ class DBImpl : public DB {
   // Schedule background tasks
   Status StartPeriodicWorkScheduler();
 
+  Status RegisterRecordSeqnoTimeWorker();
+
   void PrintStatistics();
 
   size_t EstimateInMemoryStatsHistorySize() const;
@@ -2537,6 +2544,10 @@ class DBImpl : public DB {
   // PeriodicWorkScheduler::Default(). Only in unittest, it can be overrided by
   // PeriodicWorkTestScheduler.
   PeriodicWorkScheduler* periodic_work_scheduler_;
+
+  // Current cadence of the periodic worker for recording sequence number to
+  // time.
+  uint64_t record_seqno_time_cadence_ = 0;
 #endif
 
   // When set, we use a separate queue for writes that don't write to memtable.
@@ -2586,6 +2597,10 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+
+  // seqno_time_mapping_ stores the sequence number to time mapping, it's not
+  // thread safe, both read and write need db mutex hold.
+  SeqnoToTimeMapping seqno_time_mapping_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {
