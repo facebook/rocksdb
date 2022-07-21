@@ -526,6 +526,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
+      "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
       "preclude_last_level_data_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"

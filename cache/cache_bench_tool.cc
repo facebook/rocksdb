@@ -74,6 +74,11 @@ DEFINE_uint32(
 DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
 DEFINE_bool(skewed, false, "If true, skew the key access distribution");
+
+DEFINE_bool(lean, false,
+            "If true, no additional computation is performed besides cache "
+            "operations.");
+
 #ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
@@ -522,7 +527,6 @@ class CacheBench {
     StopWatchNano timer(clock);
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      timer.Start();
       Slice key = gen.GetRand(thread->rnd, max_key_, max_log_);
       uint64_t random_op = thread->rnd.Next();
       Cache::CreateCallback create_cb = [](const void* buf, size_t size,
@@ -534,6 +538,8 @@ class CacheBench {
         return Status::OK();
       };
 
+      timer.Start();
+
       if (random_op < lookup_insert_threshold_) {
         if (handle) {
           cache_->Release(handle);
@@ -543,9 +549,11 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         } else {
           // do insert
           Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
@@ -570,9 +578,11 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         }
       } else if (random_op < erase_threshold_) {
         // do erase

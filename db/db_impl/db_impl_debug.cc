@@ -314,7 +314,8 @@ PeriodicWorkTestScheduler* DBImpl::TEST_GetPeriodicWorkScheduler() const {
   return static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_);
 }
 
-const SeqnoToTimeMapping& DBImpl::TEST_GetSeqnoToTimeMapping() const {
+SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
+  InstrumentedMutexLock l(&mutex_);
   return seqno_time_mapping_;
 }
 

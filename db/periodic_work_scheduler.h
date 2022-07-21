@@ -57,9 +57,6 @@ class PeriodicWorkScheduler {
   // Get the unique task name (prefix with db session id)
   std::string GetTaskName(const DBImpl* dbi,
                           const std::string& func_name) const;
-
- private:
-  uint64_t record_seqno_time_cadence_ = 0;
 };
 
 #ifndef NDEBUG

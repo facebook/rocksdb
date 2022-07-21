@@ -34,7 +34,7 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    const SequenceNumber max_seqno_allow_zero_out)
+    const SequenceNumber penultimate_level_cutoff_seqno)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
@@ -44,7 +44,7 @@ CompactionIterator::CompactionIterator(
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
           compaction_filter, shutting_down, info_log, full_history_ts_low,
-          max_seqno_allow_zero_out) {}
+          penultimate_level_cutoff_seqno) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -61,7 +61,7 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
     const std::string* full_history_ts_low,
-    const SequenceNumber max_seqno_allow_zero_out)
+    const SequenceNumber penultimate_level_cutoff_seqno)
     : input_(input, cmp,
              !compaction || compaction->DoesInputReferenceBlobFiles()),
       cmp_(cmp),
@@ -96,7 +96,7 @@ CompactionIterator::CompactionIterator(
       current_key_committed_(false),
       cmp_with_history_ts_low_(0),
       level_(compaction_ == nullptr ? 0 : compaction_->level()),
-      max_seqno_allow_zero_out_(max_seqno_allow_zero_out) {
+      penultimate_level_cutoff_seqno_(penultimate_level_cutoff_seqno) {
   assert(snapshots_ != nullptr);
   bottommost_level_ = compaction_ == nullptr
                           ? false
@@ -1081,8 +1081,7 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
 void CompactionIterator::DecideOutputLevel() {
 #ifndef NDEBUG
-  // TODO: will be set by sequence number or key range, for now, it will only be
-  // set by unittest
+  // Could be overridden by unittest
   PerKeyPlacementContext context(level_, ikey_.user_key, value_,
                                  ikey_.sequence);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
@@ -1090,9 +1089,10 @@ void CompactionIterator::DecideOutputLevel() {
   output_to_penultimate_level_ = context.output_to_penultimate_level;
 #endif /* !NDEBUG */
 
-  // if the key is within the earliest snapshot, it has to output to the
-  // penultimate level.
-  if (ikey_.sequence > earliest_snapshot_) {
+  // if the key is newer than the cutoff sequence or within the earliest
+  // snapshot, it should output to the penultimate level.
+  if (ikey_.sequence > penultimate_level_cutoff_seqno_ ||
+      ikey_.sequence > earliest_snapshot_) {
     output_to_penultimate_level_ = true;
   }
 
@@ -1153,7 +1153,7 @@ void CompactionIterator::PrepareOutput() {
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
         !output_to_penultimate_level_ &&
-        ikey_.sequence < max_seqno_allow_zero_out_) {
+        ikey_.sequence < penultimate_level_cutoff_seqno_) {
       if (ikey_.type == kTypeDeletion ||
           (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
         ROCKS_LOG_FATAL(
