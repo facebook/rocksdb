@@ -54,20 +54,20 @@ GenericRateLimiter::GenericRateLimiter(
       rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
                                      : rate_bytes_per_sec),
       refill_bytes_per_period_(
-          CalculateRefillBytesPerPeriod(rate_bytes_per_sec_)),
+          CalculateRefillBytesPerPeriodLocked(rate_bytes_per_sec_)),
       clock_(clock),
       stop_(false),
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
       available_bytes_(0),
-      next_refill_us_(NowMicrosMonotonic()),
+      next_refill_us_(NowMicrosMonotonicLocked()),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       wait_until_refill_pending_(false),
       auto_tuned_(auto_tuned),
       num_drains_(0),
       max_bytes_per_sec_(rate_bytes_per_sec),
-      tuned_time_(NowMicrosMonotonic()) {
+      tuned_time_(NowMicrosMonotonicLocked()) {
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     total_requests_[i] = 0;
     total_bytes_through_[i] = 0;
@@ -97,10 +97,15 @@ GenericRateLimiter::~GenericRateLimiter() {
 
 // This API allows user to dynamically change rate limiter's bytes per second.
 void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
+  MutexLock g(&request_mutex_);
+  SetBytesPerSecondLocked(bytes_per_second);
+}
+
+void GenericRateLimiter::SetBytesPerSecondLocked(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
-  rate_bytes_per_sec_ = bytes_per_second;
+  rate_bytes_per_sec_.store(bytes_per_second, std::memory_order_relaxed);
   refill_bytes_per_period_.store(
-      CalculateRefillBytesPerPeriod(bytes_per_second),
+      CalculateRefillBytesPerPeriodLocked(bytes_per_second),
       std::memory_order_relaxed);
 }
 
@@ -115,10 +120,10 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   if (auto_tuned_) {
     static const int kRefillsPerTune = 100;
-    std::chrono::microseconds now(NowMicrosMonotonic());
+    std::chrono::microseconds now(NowMicrosMonotonicLocked());
     if (now - tuned_time_ >=
         kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
-      Status s = Tune();
+      Status s = TuneLocked();
       s.PermitUncheckedError();  //**TODO: What to do on error?
     }
   }
@@ -152,7 +157,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   // (1) Waiting for the next refill time.
   // (2) Refilling the bytes and granting requests.
   do {
-    int64_t time_until_refill_us = next_refill_us_ - NowMicrosMonotonic();
+    int64_t time_until_refill_us = next_refill_us_ - NowMicrosMonotonicLocked();
     if (time_until_refill_us > 0) {
       if (wait_until_refill_pending_) {
         // Somebody is performing (1). Trust we'll be woken up when our request
@@ -173,7 +178,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     } else {
       // Whichever thread reaches here first performs duty (2) as described
       // above.
-      RefillBytesAndGrantRequests();
+      RefillBytesAndGrantRequestsLocked();
       if (r.granted) {
         // If there is any remaining requests, make sure there exists at least
         // one candidate is awake for future duties by signaling a front request
@@ -215,7 +220,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 }
 
 std::vector<Env::IOPriority>
-GenericRateLimiter::GeneratePriorityIterationOrder() {
+GenericRateLimiter::GeneratePriorityIterationOrderLocked() {
   std::vector<Env::IOPriority> pri_iteration_order(Env::IO_TOTAL /* 4 */);
   // We make Env::IO_USER a superior priority by always iterating its queue
   // first
@@ -223,12 +228,12 @@ GenericRateLimiter::GeneratePriorityIterationOrder() {
 
   bool high_pri_iterated_after_mid_low_pri = rnd_.OneIn(fairness_);
   TEST_SYNC_POINT_CALLBACK(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
       "PostRandomOneInFairnessForHighPri",
       &high_pri_iterated_after_mid_low_pri);
   bool mid_pri_itereated_after_low_pri = rnd_.OneIn(fairness_);
   TEST_SYNC_POINT_CALLBACK(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
       "PostRandomOneInFairnessForMidPri",
       &mid_pri_itereated_after_low_pri);
 
@@ -247,15 +252,16 @@ GenericRateLimiter::GeneratePriorityIterationOrder() {
   }
 
   TEST_SYNC_POINT_CALLBACK(
-      "GenericRateLimiter::GeneratePriorityIterationOrder::"
+      "GenericRateLimiter::GeneratePriorityIterationOrderLocked::"
       "PreReturnPriIterationOrder",
       &pri_iteration_order);
   return pri_iteration_order;
 }
 
-void GenericRateLimiter::RefillBytesAndGrantRequests() {
-  TEST_SYNC_POINT("GenericRateLimiter::RefillBytesAndGrantRequests");
-  next_refill_us_ = NowMicrosMonotonic() + refill_period_us_;
+void GenericRateLimiter::RefillBytesAndGrantRequestsLocked() {
+  TEST_SYNC_POINT_CALLBACK(
+      "GenericRateLimiter::RefillBytesAndGrantRequestsLocked", &request_mutex_);
+  next_refill_us_ = NowMicrosMonotonicLocked() + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -264,7 +270,7 @@ void GenericRateLimiter::RefillBytesAndGrantRequests() {
   }
 
   std::vector<Env::IOPriority> pri_iteration_order =
-      GeneratePriorityIterationOrder();
+      GeneratePriorityIterationOrderLocked();
 
   for (int i = Env::IO_LOW; i < Env::IO_TOTAL; ++i) {
     assert(!pri_iteration_order.empty());
@@ -293,7 +299,7 @@ void GenericRateLimiter::RefillBytesAndGrantRequests() {
   }
 }
 
-int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
+int64_t GenericRateLimiter::CalculateRefillBytesPerPeriodLocked(
     int64_t rate_bytes_per_sec) {
   if (std::numeric_limits<int64_t>::max() / rate_bytes_per_sec <
       refill_period_us_) {
@@ -305,7 +311,7 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
   }
 }
 
-Status GenericRateLimiter::Tune() {
+Status GenericRateLimiter::TuneLocked() {
   const int kLowWatermarkPct = 50;
   const int kHighWatermarkPct = 90;
   const int kAdjustFactorPct = 5;
@@ -314,7 +320,7 @@ Status GenericRateLimiter::Tune() {
   const int kAllowedRangeFactor = 20;
 
   std::chrono::microseconds prev_tuned_time = tuned_time_;
-  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic());
+  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonicLocked());
 
   int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
                                std::chrono::microseconds(refill_period_us_) -
@@ -349,7 +355,7 @@ Status GenericRateLimiter::Tune() {
     new_bytes_per_sec = prev_bytes_per_sec;
   }
   if (new_bytes_per_sec != prev_bytes_per_sec) {
-    SetBytesPerSecond(new_bytes_per_sec);
+    SetBytesPerSecondLocked(new_bytes_per_sec);
   }
   num_drains_ = 0;
   return Status::OK();

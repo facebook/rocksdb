@@ -316,23 +316,28 @@ DEFINE_bool(cache_index_and_filter_blocks, false,
 
 DEFINE_bool(charge_compression_dictionary_building_buffer, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kCompressionDictionaryBuildingBuffer");
 
 DEFINE_bool(charge_filter_construction, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kFilterConstruction");
 
 DEFINE_bool(charge_table_reader, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kBlockBasedTableReader");
 
 DEFINE_bool(charge_file_metadata, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "kFileMetadata");
+
+DEFINE_bool(charge_blob_cache, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of "
+            "kBlobCache");
 
 DEFINE_int32(
     top_level_index_pinning,

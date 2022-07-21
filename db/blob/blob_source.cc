@@ -8,6 +8,8 @@
 #include <cassert>
 #include <string>
 
+#include "cache/cache_reservation_manager.h"
+#include "cache/charged_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
 #include "monitoring/statistics.h"
@@ -26,7 +28,18 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
       statistics_(immutable_options->statistics.get()),
       blob_file_cache_(blob_file_cache),
       blob_cache_(immutable_options->blob_cache),
-      lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {}
+      lowest_used_cache_tier_(immutable_options->lowest_used_cache_tier) {
+#ifndef ROCKSDB_LITE
+  auto bbto =
+      immutable_options->table_factory->GetOptions<BlockBasedTableOptions>();
+  if (bbto &&
+      bbto->cache_usage_options.options_overrides.at(CacheEntryRole::kBlobCache)
+              .charged == CacheEntryRoleOptions::Decision::kEnabled) {
+    blob_cache_ = std::make_shared<ChargedCache>(immutable_options->blob_cache,
+                                                 bbto->block_cache);
+  }
+#endif  // ROCKSDB_LITE
+}
 
 BlobSource::~BlobSource() = default;
 

@@ -598,6 +598,7 @@ set(SOURCES
         cache/cache_entry_roles.cc
         cache/cache_key.cc
         cache/cache_reservation_manager.cc
+        cache/charged_cache.cc
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
         cache/fast_lru_cache.cc
