@@ -37,7 +37,9 @@ Key-value pairs have multiple representations in RocksDB: in [WriteBatch](https:
 
 Besides user key and value, RocksDB includes internal metadata in the per key-value checksum calculation. Depending on the representation, internal metadata consists of some combination of sequence number, operation type, and column family ID. Note that since timestamp (when enabled) is part of the user key it is protected as well.
 
-The protection info consists of the XOR’d result of the xxh3 hash for all the protected components. Using XOR introduces a risk that swapping corruptions (e.g., key becomes the value and the value becomes the key) are undetectable. However, we think this is a reasonable tradeoff for the advantage it provides: we can efficiently transform protection info for different representations.
+The protection info consists of the XOR’d result of the xxh3 hash for all the protected components. This allows us to efficiently transform protection info for different representations. See below for an example converting WriteBatch protection info to memtable protection info.
+
+A risk of using XOR is the possibility of swapping corruptions (e.g., key becomes the value and the value becomes the key). To mitigate this risk, we use an independent seed for hashing each type of component.
 
 The following two figures illustrate how protection info in WriteBatch and memtable are calculated from a key-value’s components.
 

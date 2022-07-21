@@ -92,30 +92,32 @@ class GenericRateLimiter : public RateLimiter {
   }
 
   virtual int64_t GetBytesPerSecond() const override {
-    return rate_bytes_per_sec_;
+    return rate_bytes_per_sec_.load(std::memory_order_relaxed);
   }
 
   virtual void TEST_SetClock(std::shared_ptr<SystemClock> clock) {
     MutexLock g(&request_mutex_);
     clock_ = std::move(clock);
-    next_refill_us_ = NowMicrosMonotonic();
+    next_refill_us_ = NowMicrosMonotonicLocked();
   }
 
  private:
-  void RefillBytesAndGrantRequests();
-  std::vector<Env::IOPriority> GeneratePriorityIterationOrder();
-  int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
-  Status Tune();
+  void RefillBytesAndGrantRequestsLocked();
+  std::vector<Env::IOPriority> GeneratePriorityIterationOrderLocked();
+  int64_t CalculateRefillBytesPerPeriodLocked(int64_t rate_bytes_per_sec);
+  Status TuneLocked();
+  void SetBytesPerSecondLocked(int64_t bytes_per_second);
 
-  uint64_t NowMicrosMonotonic() { return clock_->NowNanos() / std::milli::den; }
+  uint64_t NowMicrosMonotonicLocked() {
+    return clock_->NowNanos() / std::milli::den;
+  }
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
   const int64_t refill_period_us_;
 
-  int64_t rate_bytes_per_sec_;
-  // This variable can be changed dynamically.
+  std::atomic<int64_t> rate_bytes_per_sec_;
   std::atomic<int64_t> refill_bytes_per_period_;
   std::shared_ptr<SystemClock> clock_;
 
