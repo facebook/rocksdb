@@ -2066,6 +2066,9 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
   const uint64_t kMaxNumAnchors = uint64_t{128};
   uint64_t num_blocks = this->GetTableProperties()->num_data_blocks;
   uint64_t num_blocks_per_anchor = num_blocks / kMaxNumAnchors;
+  if (num_blocks_per_anchor == 0) {
+    num_blocks_per_anchor = 1;
+  }
 
   uint64_t count = 0;
   std::string last_key;
