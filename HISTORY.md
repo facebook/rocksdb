@@ -21,6 +21,7 @@
 
 ## Behavior Changes
 * For track_and_verify_wals_in_manifest, revert to the original behavior before #10087: syncing of live WAL file is not tracked, and we track only the synced sizes of **closed** WALs. (PR #10330).
+* DB::Write does not hold global `mutex_` if this db instance does not need to switch wal and mem-table (#7516).
 
 ## 6.29.5 (03/29/2022)
 ### Bug Fixes
