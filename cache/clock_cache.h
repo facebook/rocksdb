@@ -247,7 +247,6 @@ struct ClockHandle {
     key_data.fill(0);
   }
 
-
   // The copy ctor and assignment operator are only used to copy a handle
   // for immediate deletion. (We need to copy because the slot may become
   // re-used before the deletion is completed.) We only copy the necessary
