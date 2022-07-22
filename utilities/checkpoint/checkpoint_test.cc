@@ -915,6 +915,51 @@ TEST_F(CheckpointTest, CheckpointWithDbPath) {
   delete checkpoint;
 }
 
+TEST_F(CheckpointTest, PutRaceWithCheckpointTrackedWalSync) {
+  // Repro for a race condition where a user write comes in after the checkpoint
+  // syncs WAL for `track_and_verify_wals_in_manifest` but before the
+  // corresponding MANIFEST update. With the bug, that scenario resulted in an
+  // unopenable DB with error "Corruption: Size mismatch: WAL ...".
+  Options options = CurrentOptions();
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_env.get();
+  options.track_and_verify_wals_in_manifest = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "val1"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWAL:BeforeMarkLogsSynced:1",
+      [this](void* /* arg */) { ASSERT_OK(Put("key2", "val2")); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::unique_ptr<Checkpoint> checkpoint;
+  {
+    Checkpoint* checkpoint_ptr;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint_ptr));
+    checkpoint.reset(checkpoint_ptr);
+  }
+
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
+
+  // Ensure callback ran.
+  ASSERT_EQ("val2", Get("key2"));
+
+  Close();
+
+  // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
+  // DB WAL.
+  fault_env->DropUnsyncedFileData();
+
+  // Before the bug fix, reopening the DB would fail because the MANIFEST's
+  // AddWal entry indicated the WAL should be synced through "key2" -> "val2".
+  Reopen(options);
+
+  // Need to close before `fault_env` goes out of scope.
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/write_callback.h"
 #include "monitoring/instrumented_mutex.h"
@@ -122,6 +123,7 @@ class WriteThread {
     size_t batch_cnt;  // if non-zero, number of sub-batches in the write batch
     size_t protection_bytes_per_key;
     PreReleaseCallback* pre_release_callback;
+    PostMemTableCallback* post_memtable_callback;
     uint64_t log_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
     WriteCallback* callback;
@@ -147,6 +149,7 @@ class WriteThread {
           batch_cnt(0),
           protection_bytes_per_key(0),
           pre_release_callback(nullptr),
+          post_memtable_callback(nullptr),
           log_used(0),
           log_ref(0),
           callback(nullptr),
@@ -160,7 +163,8 @@ class WriteThread {
     Writer(const WriteOptions& write_options, WriteBatch* _batch,
            WriteCallback* _callback, uint64_t _log_ref, bool _disable_memtable,
            size_t _batch_cnt = 0,
-           PreReleaseCallback* _pre_release_callback = nullptr)
+           PreReleaseCallback* _pre_release_callback = nullptr,
+           PostMemTableCallback* _post_memtable_callback = nullptr)
         : batch(_batch),
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
@@ -170,6 +174,7 @@ class WriteThread {
           batch_cnt(_batch_cnt),
           protection_bytes_per_key(_batch->GetProtectionBytesPerKey()),
           pre_release_callback(_pre_release_callback),
+          post_memtable_callback(_post_memtable_callback),
           log_used(0),
           log_ref(_log_ref),
           callback(_callback),

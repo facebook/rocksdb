@@ -95,8 +95,9 @@ FlushJob::FlushJob(
     Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const std::string& db_id, const std::string& db_session_id,
-    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
+    const SeqnoToTimeMapping& seqno_time_mapping, const std::string& db_id,
+    const std::string& db_session_id, std::string full_history_ts_low,
+    BlobFileCompletionCallback* blob_callback)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -128,7 +129,8 @@ FlushJob::FlushJob(
       io_tracer_(io_tracer),
       clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)),
-      blob_callback_(blob_callback) {
+      blob_callback_(blob_callback),
+      db_impl_seqno_time_mapping_(seqno_time_mapping) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -211,6 +213,13 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
   TEST_SYNC_POINT("FlushJob::Start");
   db_mutex_->AssertHeld();
   assert(pick_memtable_called);
+  // Mempurge threshold can be dynamically changed.
+  // For sake of consistency, mempurge_threshold is
+  // saved locally to maintain consistency in each
+  // FlushJob::Run call.
+  double mempurge_threshold =
+      mutable_cf_options_.experimental_mempurge_threshold;
+
   AutoThreadOperationStageUpdater stage_run(
       ThreadStatus::STAGE_FLUSH_RUN);
   if (mems_.empty()) {
@@ -238,9 +247,11 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker, FileMetaData* file_meta,
     prev_cpu_read_nanos = IOSTATS(cpu_read_nanos);
   }
   Status mempurge_s = Status::NotFound("No MemPurge.");
-  if ((db_options_.experimental_mempurge_threshold > 0.0) &&
+  if ((mempurge_threshold > 0.0) &&
       (cfd_->GetFlushReason() == FlushReason::kWriteBufferFull) &&
-      (!mems_.empty()) && MemPurgeDecider()) {
+      (!mems_.empty()) && MemPurgeDecider(mempurge_threshold) &&
+      !(db_options_.atomic_flush)) {
+    cfd_->SetMempurgeUsed();
     mempurge_s = MemPurge();
     if (!mempurge_s.ok()) {
       // Mempurge is typically aborted when the output
@@ -628,8 +639,7 @@ Status FlushJob::MemPurge() {
   return s;
 }
 
-bool FlushJob::MemPurgeDecider() {
-  double threshold = db_options_.experimental_mempurge_threshold;
+bool FlushJob::MemPurgeDecider(double threshold) {
   // Never trigger mempurge if threshold is not a strictly positive value.
   if (!(threshold > 0.0)) {
     return false;
@@ -779,10 +789,11 @@ bool FlushJob::MemPurgeDecider() {
       estimated_useful_payload +=
           (mt->ApproximateMemoryUsage()) * (useful_payload * 1.0 / payload);
 
-      ROCKS_LOG_INFO(
-          db_options_.info_log,
-          "Mempurge sampling - found garbage ratio from sampling: %f.\n",
-          (payload - useful_payload) * 1.0 / payload);
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "Mempurge sampling [CF %s] - found garbage ratio from "
+                     "sampling: %f. Threshold is %f\n",
+                     cfd_->GetName().c_str(),
+                     (payload - useful_payload) * 1.0 / payload, threshold);
     } else {
       ROCKS_LOG_WARN(db_options_.info_log,
                      "Mempurge sampling: null payload measured, and collected "
@@ -804,6 +815,13 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t start_micros = clock_->NowMicros();
   const uint64_t start_cpu_micros = clock_->CPUMicros();
   Status s;
+
+  SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
+  if (!db_impl_seqno_time_mapping_.Empty()) {
+    // make a local copy, as the seqno_time_mapping from db_impl is not thread
+    // safe, which will be used while not holding the db_mutex.
+    seqno_to_time_mapping_ = db_impl_seqno_time_mapping_.Copy(smallest_seqno);
+  }
 
   std::vector<BlobFileAddition> blob_file_additions;
 
@@ -893,18 +911,13 @@ Status FlushJob::WriteLevel0Table() {
           "FlushJob::WriteLevel0Table:oldest_ancester_time",
           &oldest_ancester_time);
       meta_.oldest_ancester_time = oldest_ancester_time;
-
       meta_.file_creation_time = current_time;
-
-      uint64_t creation_time = (cfd_->ioptions()->compaction_style ==
-                                CompactionStyle::kCompactionStyleFIFO)
-                                   ? current_time
-                                   : meta_.oldest_ancester_time;
 
       uint64_t num_input_entries = 0;
       uint64_t memtable_payload_bytes = 0;
       uint64_t memtable_garbage_bytes = 0;
       IOStatus io_s;
+
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
       TableBuilderOptions tboptions(
@@ -912,8 +925,8 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->int_tbl_prop_collector_factories(), output_compression_,
           mutable_cf_options_.compression_opts, cfd_->GetID(), cfd_->GetName(),
           0 /* level */, false /* is_bottommost */,
-          TableFileCreationReason::kFlush, creation_time, oldest_key_time,
-          current_time, db_id_, db_session_id_, 0 /* target_file_size */,
+          TableFileCreationReason::kFlush, oldest_key_time, current_time,
+          db_id_, db_session_id_, 0 /* target_file_size */,
           meta_.fd.GetNumber());
       const SequenceNumber job_snapshot_seq =
           job_context_->GetJobSnapshotSequence();
@@ -924,10 +937,10 @@ Status FlushJob::WriteLevel0Table() {
           earliest_write_conflict_snapshot_, job_snapshot_seq,
           snapshot_checker_, mutable_cf_options_.paranoid_file_checks,
           cfd_->internal_stats(), &io_s, io_tracer_,
-          BlobFileCreationReason::kFlush, event_logger_, job_context_->job_id,
-          io_priority, &table_properties_, write_hint, full_history_ts_low,
-          blob_callback_, &num_input_entries, &memtable_payload_bytes,
-          &memtable_garbage_bytes);
+          BlobFileCreationReason::kFlush, seqno_to_time_mapping_, event_logger_,
+          job_context_->job_id, io_priority, &table_properties_, write_hint,
+          full_history_ts_low, blob_callback_, &num_input_entries,
+          &memtable_payload_bytes, &memtable_garbage_bytes);
       // TODO: Cleanup io_status in BuildTable and table builders
       assert(!s.ok() || io_s.ok());
       io_s.PermitUncheckedError();

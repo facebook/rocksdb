@@ -17,6 +17,22 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 
+// The general interface for comparing two Slices are defined for both of
+// Comparator and some internal data structures.
+class CompareInterface {
+ public:
+  virtual ~CompareInterface() {}
+
+  // Three-way comparison.  Returns value:
+  //   < 0 iff "a" < "b",
+  //   == 0 iff "a" == "b",
+  //   > 0 iff "a" > "b"
+  // Note that Compare(a, b) also compares timestamp if timestamp size is
+  // non-zero. For the same user key with different timestamps, larger (newer)
+  // timestamp comes first.
+  virtual int Compare(const Slice& a, const Slice& b) const = 0;
+};
+
 // A Comparator object provides a total order across slices that are
 // used as keys in an sstable or a database.  A Comparator implementation
 // must be thread-safe since rocksdb may invoke its methods concurrently
@@ -25,7 +41,7 @@ class Slice;
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
-class Comparator : public Customizable {
+class Comparator : public Customizable, public CompareInterface {
  public:
   Comparator() : timestamp_size_(0) {}
 
@@ -47,24 +63,6 @@ class Comparator : public Customizable {
                                  const Comparator** comp);
   static const char* Type() { return "Comparator"; }
 
-  // Three-way comparison.  Returns value:
-  //   < 0 iff "a" < "b",
-  //   == 0 iff "a" == "b",
-  //   > 0 iff "a" > "b"
-  // Note that Compare(a, b) also compares timestamp if timestamp size is
-  // non-zero. For the same user key with different timestamps, larger (newer)
-  // timestamp comes first.
-  virtual int Compare(const Slice& a, const Slice& b) const = 0;
-
-  // Compares two slices for equality. The following invariant should always
-  // hold (and is the default implementation):
-  //   Equal(a, b) iff Compare(a, b) == 0
-  // Overwrite only if equality comparisons can be done more efficiently than
-  // three-way comparisons.
-  virtual bool Equal(const Slice& a, const Slice& b) const {
-    return Compare(a, b) == 0;
-  }
-
   // The name of the comparator.  Used to check for comparator
   // mismatches (i.e., a DB created with one comparator is
   // accessed using a different comparator.
@@ -76,6 +74,15 @@ class Comparator : public Customizable {
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
   const char* Name() const override = 0;
+
+  // Compares two slices for equality. The following invariant should always
+  // hold (and is the default implementation):
+  //   Equal(a, b) iff Compare(a, b) == 0
+  // Overwrite only if equality comparisons can be done more efficiently than
+  // three-way comparisons.
+  virtual bool Equal(const Slice& a, const Slice& b) const {
+    return Compare(a, b) == 0;
+  }
 
   // Advanced functions: these are used to reduce the space requirements
   // for internal data structures like index blocks.
@@ -91,11 +98,11 @@ class Comparator : public Customizable {
   // i.e., an implementation of this method that does nothing is correct.
   virtual void FindShortSuccessor(std::string* key) const = 0;
 
-  // if it is a wrapped comparator, may return the root one.
-  // return itself it is not wrapped.
-  virtual const Comparator* GetRootComparator() const { return this; }
-
   // given two keys, determine if t is the successor of s
+  // BUG: only return true if no other keys starting with `t` are ordered
+  // before `t`. Otherwise, the auto_prefix_mode can omit entries within
+  // iterator bounds that have same prefix as upper bound but different
+  // prefix from seek key.
   virtual bool IsSameLengthImmediateSuccessor(const Slice& /*s*/,
                                               const Slice& /*t*/) const {
     return false;
@@ -106,6 +113,10 @@ class Comparator : public Customizable {
   // The major use case is to determine if DataBlockHashIndex is compatible
   // with the customized comparator.
   virtual bool CanKeysWithDifferentByteContentsBeEqual() const { return true; }
+
+  // if it is a wrapped comparator, may return the root one.
+  // return itself it is not wrapped.
+  virtual const Comparator* GetRootComparator() const { return this; }
 
   inline size_t timestamp_size() const { return timestamp_size_; }
 

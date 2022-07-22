@@ -1676,6 +1676,15 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
   }
   return result;
 }
+
+uint64_t DBTestBase::GetSstSizeHelper(Temperature temperature) {
+  std::string prop;
+  EXPECT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature +
+          std::to_string(static_cast<uint8_t>(temperature)),
+      &prop));
+  return static_cast<uint64_t>(std::atoi(prop.c_str()));
+}
 #endif  // ROCKSDB_LITE
 
 void VerifySstUniqueIds(const TablePropertiesCollection& props) {
@@ -1744,5 +1753,6 @@ template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kFilterConstruction>;
 template class TargetCacheChargeTrackingCache<
     CacheEntryRole::kBlockBasedTableReader>;
+template class TargetCacheChargeTrackingCache<CacheEntryRole::kFileMetadata>;
 
 }  // namespace ROCKSDB_NAMESPACE

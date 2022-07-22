@@ -95,8 +95,8 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
   }
 
   BlockPrefixIndex* prefix_index = nullptr;
-  assert(rep->internal_prefix_transform.get() != nullptr);
-  s = BlockPrefixIndex::Create(rep->internal_prefix_transform.get(),
+  assert(rep->table_prefix_extractor);
+  s = BlockPrefixIndex::Create(rep->table_prefix_extractor.get(),
                                prefixes_contents.data,
                                prefixes_meta_contents.data, &prefix_index);
   // TODO: log error

@@ -25,6 +25,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
@@ -72,6 +73,7 @@ class FlushJob {
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+           const SeqnoToTimeMapping& seq_time_mapping,
            const std::string& db_id = "", const std::string& db_session_id = "",
            std::string full_history_ts_low = "",
            BlobFileCompletionCallback* blob_callback = nullptr);
@@ -122,7 +124,7 @@ class FlushJob {
   // recommend all users not to set this flag as true given that the MemPurge
   // process has not matured yet.
   Status MemPurge();
-  bool MemPurgeDecider();
+  bool MemPurgeDecider(double threshold);
   // The rate limiter priority (io_priority) is determined dynamically here.
   Env::IOPriority GetRateLimiterPriorityForWrite();
 #ifndef ROCKSDB_LITE
@@ -191,6 +193,11 @@ class FlushJob {
 
   const std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+
+  // reference to the seqno_time_mapping_ in db_impl.h, not safe to read without
+  // db mutex
+  const SeqnoToTimeMapping& db_impl_seqno_time_mapping_;
+  SeqnoToTimeMapping seqno_to_time_mapping_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

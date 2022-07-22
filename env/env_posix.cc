@@ -302,6 +302,10 @@ class PosixEnv : public CompositeEnv {
 
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override;
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override;
+
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     assert(thread_status_updater_);
     return thread_status_updater_->GetThreadList(thread_list);
@@ -435,6 +439,16 @@ int PosixEnv::UnSchedule(void* arg, Priority pri) {
 unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {
   assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
   return thread_pools_[pri].GetQueueLen();
+}
+
+int PosixEnv::ReserveThreads(int threads_to_reserved, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReserveThreads(threads_to_reserved);
+}
+
+int PosixEnv::ReleaseThreads(int threads_to_released, Priority pri) {
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
+  return thread_pools_[pri].ReleaseThreads(threads_to_released);
 }
 
 struct StartThreadState {

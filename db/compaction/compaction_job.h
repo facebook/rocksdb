@@ -20,12 +20,14 @@
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
+#include "db/compaction/compaction_outputs.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
 #include "db/log_writer.h"
 #include "db/memtable_list.h"
 #include "db/range_del_aggregator.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
@@ -47,6 +49,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Arena;
+class CompactionState;
 class ErrorHandler;
 class MemTable;
 class SnapshotChecker;
@@ -56,11 +59,91 @@ class Version;
 class VersionEdit;
 class VersionSet;
 
+class SubcompactionState;
+
 // CompactionJob is responsible for executing the compaction. Each (manual or
 // automated) compaction corresponds to a CompactionJob object, and usually
 // goes through the stages of `Prepare()`->`Run()`->`Install()`. CompactionJob
 // will divide the compaction into subcompactions and execute them in parallel
 // if needed.
+//
+// CompactionJob has 2 main stats:
+// 1. CompactionJobStats compaction_job_stats_
+//    CompactionJobStats is a public data structure which is part of Compaction
+//    event listener that rocksdb share the job stats with the user.
+//    Internally it's an aggregation of all the compaction_job_stats from each
+//    `SubcompactionState`:
+//                                           +------------------------+
+//                                           | SubcompactionState     |
+//                                           |                        |
+//                                +--------->|   compaction_job_stats |
+//                                |          |                        |
+//                                |          +------------------------+
+// +------------------------+     |
+// | CompactionJob          |     |          +------------------------+
+// |                        |     |          | SubcompactionState     |
+// |   compaction_job_stats +-----+          |                        |
+// |                        |     +--------->|   compaction_job_stats |
+// |                        |     |          |                        |
+// +------------------------+     |          +------------------------+
+//                                |
+//                                |          +------------------------+
+//                                |          | SubcompactionState     |
+//                                |          |                        |
+//                                +--------->+   compaction_job_stats |
+//                                |          |                        |
+//                                |          +------------------------+
+//                                |
+//                                |          +------------------------+
+//                                |          |       ...              |
+//                                +--------->+                        |
+//                                           +------------------------+
+//
+// 2. CompactionStatsFull compaction_stats_
+//    `CompactionStatsFull` is an internal stats about the compaction, which
+//    is eventually sent to `ColumnFamilyData::internal_stats_` and used for
+//    logging and public metrics.
+//    Internally, it's an aggregation of stats_ from each `SubcompactionState`.
+//    It has 2 parts, normal stats about the main compaction information and
+//    the penultimate level output stats.
+//    `SubcompactionState` maintains the CompactionOutputs for normal output and
+//    the penultimate level output if exists, the per_level stats is
+//    stored with the outputs.
+//                                                +---------------------------+
+//                                                | SubcompactionState        |
+//                                                |                           |
+//                                                | +----------------------+  |
+//                                                | | CompactionOutputs    |  |
+//                                                | | (normal output)      |  |
+//                                            +---->|   stats_             |  |
+//                                            |   | +----------------------+  |
+//                                            |   |                           |
+//                                            |   | +----------------------+  |
+// +--------------------------------+         |   | | CompactionOutputs    |  |
+// | CompactionJob                  |         |   | | (penultimate_level)  |  |
+// |                                |    +--------->|   stats_             |  |
+// |   compaction_stats_            |    |    |   | +----------------------+  |
+// |    +-------------------------+ |    |    |   |                           |
+// |    |stats (normal)           |------|----+   +---------------------------+
+// |    +-------------------------+ |    |    |
+// |                                |    |    |
+// |    +-------------------------+ |    |    |   +---------------------------+
+// |    |penultimate_level_stats  +------+    |   | SubcompactionState        |
+// |    +-------------------------+ |    |    |   |                           |
+// |                                |    |    |   | +----------------------+  |
+// |                                |    |    |   | | CompactionOutputs    |  |
+// +--------------------------------+    |    |   | | (normal output)      |  |
+//                                       |    +---->|   stats_             |  |
+//                                       |        | +----------------------+  |
+//                                       |        |                           |
+//                                       |        | +----------------------+  |
+//                                       |        | | CompactionOutputs    |  |
+//                                       |        | | (penultimate_level)  |  |
+//                                       +--------->|   stats_             |  |
+//                                                | +----------------------+  |
+//                                                |                           |
+//                                                +---------------------------+
+
 class CompactionJob {
  public:
   CompactionJob(
@@ -107,11 +190,6 @@ class CompactionJob {
   IOStatus io_status() const { return io_status_; }
 
  protected:
-  struct SubcompactionState;
-  // CompactionJob state
-  struct CompactionState;
-
-  void AggregateStatistics();
   void UpdateCompactionStats();
   void LogCompaction();
   virtual void RecordCompactionIOStats();
@@ -122,7 +200,7 @@ class CompactionJob {
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
   CompactionState* compact_;
-  InternalStats::CompactionStats compaction_stats_;
+  InternalStats::CompactionStatsFull compaction_stats_;
   const ImmutableDBOptions& db_options_;
   const MutableDBOptions mutable_db_options_copy_;
   LogBuffer* log_buffer_;
@@ -134,6 +212,8 @@ class CompactionJob {
   Env::WriteLifeTimeHint write_hint_;
 
   IOStatus io_status_;
+
+  CompactionJobStats* compaction_job_stats_;
 
  private:
   friend class CompactionJobTestBase;
@@ -150,15 +230,14 @@ class CompactionJob {
 
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
-  void AllocateCompactionOutputFileNumbers();
 
-  Status FinishCompactionOutputFile(
-      const Status& input_status, SubcompactionState* sub_compact,
-      CompactionRangeDelAggregator* range_del_agg,
-      CompactionIterationStats* range_del_out_stats,
-      const Slice* next_table_min_key = nullptr);
+  Status FinishCompactionOutputFile(const Status& input_status,
+                                    SubcompactionState* sub_compact,
+                                    CompactionOutputs& outputs,
+                                    const Slice& next_table_min_key);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
-  Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
+  Status OpenCompactionOutputFile(SubcompactionState* sub_compact,
+                                  CompactionOutputs& outputs);
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
   void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
@@ -167,19 +246,11 @@ class CompactionJob {
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
-#ifndef ROCKSDB_LITE
-  void BuildSubcompactionJobInfo(
-      SubcompactionState* sub_compact,
-      SubcompactionJobInfo* subcompaction_job_info) const;
-#endif  // ROCKSDB_LITE
-
   void NotifyOnSubcompactionBegin(SubcompactionState* sub_compact);
 
   void NotifyOnSubcompactionCompleted(SubcompactionState* sub_compact);
 
   uint32_t job_id_;
-
-  CompactionJobStats* compaction_job_stats_;
 
   // DBImpl state
   const std::string& dbname_;
@@ -222,14 +293,23 @@ class CompactionJob {
   bool measure_io_stats_;
   // Stores the Slices that designate the boundaries for each subcompaction
   std::vector<Slice> boundaries_;
-  // Stores the approx size of keys covered in the range of each subcompaction
-  std::vector<uint64_t> sizes_;
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
   std::string trim_ts_;
   BlobFileCompletionCallback* blob_callback_;
 
-  uint64_t GetCompactionId(SubcompactionState* sub_compact);
+  uint64_t GetCompactionId(SubcompactionState* sub_compact) const;
+
+  // Stores the sequence number to time mapping gathered from all input files
+  // it also collects the smallest_seqno -> oldest_ancester_time from the SST.
+  SeqnoToTimeMapping seqno_time_mapping_;
+
+  // cutoff sequence number for penultimate level, only set when
+  // per_key_placement feature is enabled.
+  // If a key with sequence number larger than penultimate_level_cutoff_seqno_,
+  // it will be placed on the penultimate_level and seqnuence number won't be
+  // zeroed out.
+  SequenceNumber penultimate_level_cutoff_seqno_ = kMaxSequenceNumber;
 
   // Get table file name in where it's outputting to, which should also be in
   // `output_directory_`.
@@ -265,7 +345,6 @@ struct CompactionServiceInput {
   std::string begin;
   bool has_end = false;
   std::string end;
-  uint64_t approx_size = 0;
 
   // serialization interface to read and write the object
   static Status Read(const std::string& data_str, CompactionServiceInput* obj);
@@ -357,7 +436,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
       const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
       const std::atomic<bool>& manual_compaction_canceled,
       const std::string& db_id, const std::string& db_session_id,
-      const std::string& output_path,
+      std::string output_path,
       const CompactionServiceInput& compaction_service_input,
       CompactionServiceResult* compaction_service_result);
 

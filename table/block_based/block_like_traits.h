@@ -72,15 +72,10 @@ class BlocklikeTraits<BlockContents> {
     return Status::OK();
   }
 
-  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType block_type) {
-    if (block_type == BlockType::kDeprecatedFilter) {
-      return GetCacheItemHelperForRole<
-          BlockContents, CacheEntryRole::kDeprecatedFilterBlock>();
-    } else {
-      // E.g. compressed cache
-      return GetCacheItemHelperForRole<BlockContents,
-                                       CacheEntryRole::kOtherBlock>();
-    }
+  static Cache::CacheItemHelper* GetCacheItemHelper(BlockType /*block_type*/) {
+    // E.g. compressed cache
+    return GetCacheItemHelperForRole<BlockContents,
+                                     CacheEntryRole::kOtherBlock>();
   }
 };
 

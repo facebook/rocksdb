@@ -10,6 +10,7 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
@@ -36,16 +37,7 @@ std::shared_ptr<const FilterPolicy> CreateFilterPolicy() {
     return BlockBasedTableOptions().filter_policy;
   }
   const FilterPolicy* new_policy;
-  if (FLAGS_use_block_based_filter) {
-    if (FLAGS_ribbon_starting_level < 999) {
-      fprintf(
-          stderr,
-          "Cannot combine use_block_based_filter and ribbon_starting_level\n");
-      exit(1);
-    } else {
-      new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, true);
-    }
-  } else if (FLAGS_ribbon_starting_level >= 999) {
+  if (FLAGS_ribbon_starting_level >= 999) {
     // Use Bloom API
     new_policy = NewBloomFilterPolicy(FLAGS_bloom_bits, false);
   } else {
@@ -66,6 +58,7 @@ StressTest::StressTest()
 #ifndef ROCKSDB_LITE
       txn_db_(nullptr),
 #endif
+      db_aptr_(nullptr),
       clock_(db_stress_env->GetSystemClock().get()),
       new_column_family_name_(1),
       num_times_reopened_(0),
@@ -122,14 +115,18 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   }
 
   if (FLAGS_cache_type == "clock_cache") {
-    auto cache = NewClockCache((size_t)capacity);
+    auto cache = ExperimentalNewClockCache(
+        static_cast<size_t>(capacity), FLAGS_block_size, num_shard_bits,
+        false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);
     }
     return cache;
   } else if (FLAGS_cache_type == "fast_lru_cache") {
-    return NewFastLRUCache((size_t)capacity, num_shard_bits);
+    return NewFastLRUCache(static_cast<size_t>(capacity), FLAGS_block_size,
+                           num_shard_bits, false /*strict_capacity_limit*/,
+                           kDefaultCacheMetadataChargePolicy);
   } else if (FLAGS_cache_type == "lru_cache") {
     LRUCacheOptions opts;
     opts.capacity = capacity;
@@ -199,6 +196,8 @@ bool StressTest::BuildOptionsTable() {
       {"memtable_huge_page_size", {"0", std::to_string(2 * 1024 * 1024)}},
       {"max_successive_merges", {"0", "2", "4"}},
       {"inplace_update_num_locks", {"100", "200", "300"}},
+      // TODO: re-enable once internal task T124324915 is fixed.
+      // {"experimental_mempurge_threshold", {"0.0", "1.0"}},
       // TODO(ljin): enable test for this option
       // {"disable_auto_compactions", {"100", "200", "300"}},
       {"level0_file_num_compaction_trigger",
@@ -271,6 +270,8 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
                         std::vector<std::string>{"0", "1", "2"});
+    options_tbl.emplace("prepopulate_blob_cache",
+                        std::vector<std::string>{"kDisable", "kFlushOnly"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -462,7 +463,7 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
           std::string ts_str;
           Slice ts;
           if (FLAGS_user_timestamp_size > 0) {
-            ts_str = NowNanosStr();
+            ts_str = GetNowNanos();
             ts = ts_str;
             s = db_->Put(write_opts, cfh, key, ts, v);
           } else {
@@ -560,13 +561,44 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   return s;
 }
 
-Status StressTest::CommitTxn(Transaction* txn) {
+Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
+  assert(txn_db_);
   Status s = txn->Prepare();
+  std::shared_ptr<const Snapshot> timestamped_snapshot;
   if (s.ok()) {
-    s = txn->Commit();
+    if (thread && FLAGS_create_timestamped_snapshot_one_in &&
+        thread->rand.OneIn(FLAGS_create_timestamped_snapshot_one_in)) {
+      uint64_t ts = db_stress_env->NowNanos();
+      s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
+                                          &timestamped_snapshot);
+
+      std::pair<Status, std::shared_ptr<const Snapshot>> res;
+      if (thread->tid == 0) {
+        uint64_t now = db_stress_env->NowNanos();
+        res = txn_db_->CreateTimestampedSnapshot(now);
+        if (res.first.ok()) {
+          assert(res.second);
+          assert(res.second->GetTimestamp() == now);
+          if (timestamped_snapshot) {
+            assert(res.second->GetTimestamp() >
+                   timestamped_snapshot->GetTimestamp());
+          }
+        } else {
+          assert(!res.second);
+        }
+      }
+    } else {
+      s = txn->Commit();
+    }
+  }
+  if (thread && FLAGS_create_timestamped_snapshot_one_in > 0 &&
+      thread->rand.OneInOpt(50000)) {
+    uint64_t now = db_stress_env->NowNanos();
+    constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
+    txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
   }
   delete txn;
   return s;
@@ -601,6 +633,7 @@ void StressTest::OperateDb(ThreadState* thread) {
     write_opts.sync = true;
   }
   write_opts.disableWAL = FLAGS_disable_wal;
+  write_opts.protection_bytes_per_key = FLAGS_batch_protection_bytes_per_key;
   const int prefix_bound = static_cast<int>(FLAGS_readpercent) +
                            static_cast<int>(FLAGS_prefixpercent);
   const int write_bound = prefix_bound + static_cast<int>(FLAGS_writepercent);
@@ -835,10 +868,10 @@ void StressTest::OperateDb(ThreadState* thread) {
       Slice read_ts;
       Slice write_ts;
       if (ShouldAcquireMutexOnKey() && FLAGS_user_timestamp_size > 0) {
-        read_ts_str = GenerateTimestampForRead();
+        read_ts_str = GetNowNanos();
         read_ts = read_ts_str;
         read_opts.timestamp = &read_ts;
-        write_ts_str = NowNanosStr();
+        write_ts_str = GetNowNanos();
         write_ts = write_ts_str;
       }
 
@@ -983,6 +1016,11 @@ Status StressTest::TestIterate(ThreadState* thread,
   ReadOptions readoptionscopy = read_opts;
   readoptionscopy.snapshot = snapshot;
 
+  std::string read_ts_str;
+  Slice read_ts_slice;
+  MaybeUseOlderTimestampForRangeScan(thread, read_ts_str, read_ts_slice,
+                                     readoptionscopy);
+
   bool expect_total_order = false;
   if (thread->rand.OneIn(16)) {
     // When prefix extractor is used, it's useful to cover total order seek.
@@ -1085,6 +1123,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     // `FLAGS_rate_limit_user_ops` to avoid slowing any validation.
     ReadOptions cmp_ro;
     cmp_ro.timestamp = readoptionscopy.timestamp;
+    cmp_ro.iter_start_ts = readoptionscopy.iter_start_ts;
     cmp_ro.snapshot = snapshot;
     cmp_ro.total_order_seek = true;
     ColumnFamilyHandle* cmp_cfh =
@@ -1192,6 +1231,14 @@ void StressTest::VerifyIterator(ThreadState* thread,
                                 const Slice& seek_key,
                                 const std::string& op_logs, bool* diverged) {
   if (*diverged) {
+    return;
+  }
+
+  if (ro.iter_start_ts != nullptr) {
+    assert(FLAGS_user_timestamp_size > 0);
+    // We currently do not verify iterator when dumping history of internal
+    // keys.
+    *diverged = true;
     return;
   }
 
@@ -1537,7 +1584,7 @@ Status StressTest::TestBackupRestore(
     std::string ts_str;
     Slice ts;
     if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GenerateTimestampForRead();
+      ts_str = GetNowNanos();
       ts = ts_str;
       read_opts.timestamp = &ts;
     }
@@ -1728,7 +1775,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       Slice ts;
       ReadOptions read_opts;
       if (FLAGS_user_timestamp_size > 0) {
-        ts_str = GenerateTimestampForRead();
+        ts_str = GetNowNanos();
         ts = ts_str;
         read_opts.timestamp = &ts;
       }
@@ -1788,6 +1835,16 @@ void StressTest::TestGetProperty(ThreadState* thread) const {
   };
   unknownPropertyNames.insert(levelPropertyNames.begin(),
                               levelPropertyNames.end());
+
+  std::unordered_set<std::string> blobCachePropertyNames = {
+      DB::Properties::kBlobCacheCapacity,
+      DB::Properties::kBlobCacheUsage,
+      DB::Properties::kBlobCachePinnedUsage,
+  };
+  if (db_->GetOptions().blob_cache == nullptr) {
+    unknownPropertyNames.insert(blobCachePropertyNames.begin(),
+                                blobCachePropertyNames.end());
+  }
 
   std::string prop;
   for (const auto& ppt_name_and_info : InternalStats::ppt_name_to_info) {
@@ -1945,7 +2002,7 @@ void StressTest::TestAcquireSnapshot(ThreadState* thread,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GenerateTimestampForRead();
+    ts_str = GetNowNanos();
     ts = ts_str;
     ropt.timestamp = &ts;
   }
@@ -2098,7 +2155,7 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   std::string ts_str;
   Slice ts;
   if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GenerateTimestampForRead();
+    ts_str = GetNowNanos();
     ts = ts_str;
     ro.timestamp = &ts;
   }
@@ -2240,6 +2297,25 @@ void StressTest::PrintEnv() const {
           FLAGS_periodic_compaction_seconds);
   fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",
           FLAGS_compaction_ttl);
+  const char* compaction_pri = "";
+  switch (FLAGS_compaction_pri) {
+    case kByCompensatedSize:
+      compaction_pri = "kByCompensatedSize";
+      break;
+    case kOldestLargestSeqFirst:
+      compaction_pri = "kOldestLargestSeqFirst";
+      break;
+    case kOldestSmallestSeqFirst:
+      compaction_pri = "kOldestSmallestSeqFirst";
+      break;
+    case kMinOverlappingRatio:
+      compaction_pri = "kMinOverlappingRatio";
+      break;
+    case kRoundRobin:
+      compaction_pri = "kRoundRobin";
+      break;
+  }
+  fprintf(stdout, "Compaction Pri            : %s\n", compaction_pri);
   fprintf(stdout, "Background Purge          : %d\n",
           static_cast<int>(FLAGS_avoid_unnecessary_blocking_io));
   fprintf(stdout, "Write DB ID to manifest   : %d\n",
@@ -2316,6 +2392,20 @@ void StressTest::Open(SharedState* shared) {
           options_.blob_garbage_collection_force_threshold,
           options_.blob_compaction_readahead_size,
           options_.blob_file_starting_level);
+
+  if (FLAGS_use_blob_cache) {
+    fprintf(stdout,
+            "Integrated BlobDB: blob cache enabled, block and blob caches "
+            "shared: %d, blob cache size %" PRIu64
+            ", blob cache num shard bits: %d, blob cache prepopulated: %s\n",
+            FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
+            FLAGS_blob_cache_numshardbits,
+            options_.prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+                ? "flush only"
+                : "disable");
+  } else {
+    fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
+  }
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
@@ -2519,7 +2609,13 @@ void StressTest::Open(SharedState* shared) {
         fflush(stderr);
       }
       assert(s.ok());
-      db_ = txn_db_;
+
+      // Do not swap the order of the following.
+      {
+        db_ = txn_db_;
+        db_aptr_.store(txn_db_, std::memory_order_release);
+      }
+
       // after a crash, rollback to commit recovered transactions
       std::vector<Transaction*> trans;
       txn_db_->GetAllPreparedTransactions(&trans);
@@ -2633,6 +2729,75 @@ void StressTest::Reopen(ThreadState* thread) {
   }
 }
 
+void StressTest::MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                                      std::string& ts_str,
+                                                      Slice& ts_slice,
+                                                      ReadOptions& read_opts) {
+  if (FLAGS_user_timestamp_size == 0) {
+    return;
+  }
+
+  assert(thread);
+  if (!thread->rand.OneInOpt(3)) {
+    return;
+  }
+
+  const SharedState* const shared = thread->shared;
+  assert(shared);
+  const uint64_t start_ts = shared->GetStartTimestamp();
+
+  uint64_t now = db_stress_env->NowNanos();
+
+  assert(now > start_ts);
+  uint64_t time_diff = now - start_ts;
+  uint64_t ts = start_ts + (thread->rand.Next64() % time_diff);
+  ts_str.clear();
+  PutFixed64(&ts_str, ts);
+  ts_slice = ts_str;
+  read_opts.timestamp = &ts_slice;
+}
+
+void StressTest::MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                                    std::string& ts_str,
+                                                    Slice& ts_slice,
+                                                    ReadOptions& read_opts) {
+  if (FLAGS_user_timestamp_size == 0) {
+    return;
+  }
+
+  assert(thread);
+  if (!thread->rand.OneInOpt(3)) {
+    return;
+  }
+
+  const Slice* const saved_ts = read_opts.timestamp;
+  assert(saved_ts != nullptr);
+
+  const SharedState* const shared = thread->shared;
+  assert(shared);
+  const uint64_t start_ts = shared->GetStartTimestamp();
+
+  uint64_t now = db_stress_env->NowNanos();
+
+  assert(now > start_ts);
+  uint64_t time_diff = now - start_ts;
+  uint64_t ts = start_ts + (thread->rand.Next64() % time_diff);
+  ts_str.clear();
+  PutFixed64(&ts_str, ts);
+  ts_slice = ts_str;
+  read_opts.timestamp = &ts_slice;
+
+  if (!thread->rand.OneInOpt(3)) {
+    return;
+  }
+
+  ts_str.clear();
+  PutFixed64(&ts_str, start_ts);
+  ts_slice = ts_str;
+  read_opts.iter_start_ts = &ts_slice;
+  read_opts.timestamp = saved_ts;
+}
+
 void CheckAndSetOptionsForUserTimestamp(Options& options) {
   assert(FLAGS_user_timestamp_size > 0);
   const Comparator* const cmp = test::BytewiseComparatorWithU64TsWrapper();
@@ -2661,10 +2826,6 @@ void CheckAndSetOptionsForUserTimestamp(Options& options) {
     exit(1);
   }
 #endif  // !ROCKSDB_LITE
-  if (FLAGS_enable_compaction_filter) {
-    fprintf(stderr, "CompactionFilter not supported with timestamp.\n");
-    exit(1);
-  }
   if (FLAGS_test_cf_consistency || FLAGS_test_batches_snapshots) {
     fprintf(stderr,
             "Due to per-key ts-seq ordering constraint, only the (default) "
@@ -2735,6 +2896,16 @@ void InitializeOptionsFromFlags(
        {/*.charged = */ FLAGS_charge_table_reader
             ? CacheEntryRoleOptions::Decision::kEnabled
             : CacheEntryRoleOptions::Decision::kDisabled}});
+  block_based_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kFileMetadata,
+       {/*.charged = */ FLAGS_charge_file_metadata
+            ? CacheEntryRoleOptions::Decision::kEnabled
+            : CacheEntryRoleOptions::Decision::kDisabled}});
+  block_based_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kBlobCache,
+       {/*.charged = */ FLAGS_charge_blob_cache
+            ? CacheEntryRoleOptions::Decision::kEnabled
+            : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
       static_cast<uint32_t>(FLAGS_format_version);
   block_based_options.index_block_restart_interval =
@@ -2747,6 +2918,9 @@ void InitializeOptionsFromFlags(
       FLAGS_detect_filter_construct_corruption;
   block_based_options.index_type =
       static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
+  block_based_options.data_block_index_type =
+      static_cast<BlockBasedTableOptions::DataBlockIndexType>(
+          FLAGS_data_block_index_type);
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
@@ -2768,6 +2942,8 @@ void InitializeOptionsFromFlags(
   options.max_background_flushes = FLAGS_max_background_flushes;
   options.compaction_style =
       static_cast<ROCKSDB_NAMESPACE::CompactionStyle>(FLAGS_compaction_style);
+  options.compaction_pri =
+      static_cast<ROCKSDB_NAMESPACE::CompactionPri>(FLAGS_compaction_pri);
   if (FLAGS_prefix_size >= 0) {
     options.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
   }
@@ -2855,6 +3031,35 @@ void InitializeOptionsFromFlags(
   options.blob_compaction_readahead_size = FLAGS_blob_compaction_readahead_size;
   options.blob_file_starting_level = FLAGS_blob_file_starting_level;
 
+  if (FLAGS_use_blob_cache) {
+    if (FLAGS_use_shared_block_and_blob_cache) {
+      options.blob_cache = cache;
+    } else {
+      if (FLAGS_blob_cache_size > 0) {
+        LRUCacheOptions co;
+        co.capacity = FLAGS_blob_cache_size;
+        co.num_shard_bits = FLAGS_blob_cache_numshardbits;
+        options.blob_cache = NewLRUCache(co);
+      } else {
+        fprintf(stderr,
+                "Unable to create a standalone blob cache if blob_cache_size "
+                "<= 0.\n");
+        exit(1);
+      }
+    }
+    switch (FLAGS_prepopulate_blob_cache) {
+      case 0:
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+        break;
+      case 1:
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+        break;
+      default:
+        fprintf(stderr, "Unknown prepopulate blob cache mode\n");
+        exit(1);
+    }
+  }
+
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
 
@@ -2895,6 +3100,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_user_timestamp_size > 0) {
     CheckAndSetOptionsForUserTimestamp(options);
   }
+
+  options.allow_data_in_errors = FLAGS_allow_data_in_errors;
 }
 
 void InitializeOptionsGeneral(

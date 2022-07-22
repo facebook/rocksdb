@@ -125,6 +125,13 @@ class IOStatus : public Status {
     return IOStatus(kIOError, kIOFenced, msg, msg2);
   }
 
+  static IOStatus Aborted(SubCode msg = kNone) {
+    return IOStatus(kAborted, msg);
+  }
+  static IOStatus Aborted(const Slice& msg, const Slice& msg2 = Slice()) {
+    return IOStatus(kAborted, msg, msg2);
+  }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   // std::string ToString() const;

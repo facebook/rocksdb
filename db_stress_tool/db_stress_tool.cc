@@ -265,15 +265,19 @@ int db_stress_tool(int argc, char** argv) {
         "test_batches_snapshots  must all be 0 when using compaction filter\n");
     exit(1);
   }
-  if (FLAGS_batch_protection_bytes_per_key > 0 &&
-      !FLAGS_test_batches_snapshots) {
-    fprintf(stderr,
-            "Error: test_batches_snapshots must be enabled when "
-            "batch_protection_bytes_per_key > 0\n");
-    exit(1);
-  }
   if (FLAGS_test_multi_ops_txns) {
     CheckAndSetOptionsForMultiOpsTxnStressTest();
+  }
+
+  if (FLAGS_create_timestamped_snapshot_one_in > 0) {
+    if (!FLAGS_use_txn) {
+      fprintf(stderr, "timestamped snapshot supported only in TransactionDB\n");
+      exit(1);
+    } else if (FLAGS_txn_write_policy != 0) {
+      fprintf(stderr,
+              "timestamped snapshot supported only in write-committed\n");
+      exit(1);
+    }
   }
 
 #ifndef NDEBUG

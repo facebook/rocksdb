@@ -839,6 +839,135 @@ TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
   WaitThreadPoolsEmpty();
 }
 
+TEST_P(EnvPosixTestWithParam, ReserveThreads) {
+  // Initialize the background thread to 1 in case other threads exist
+  // from the last unit test
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+  ASSERT_EQ(env_->GetBackgroundThreads(Env::HIGH), 1);
+  constexpr int kWaitMicros = 10000000;  // 10seconds
+  std::vector<test::SleepingBackgroundTask> tasks(4);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  // Set the sync point to ensure thread 0 can terminate
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ThreadPoolImpl::BGThread::Termination:th0",
+        "EnvTest::ReserveThreads:0"}});
+  // Empty the thread pool to ensure all the threads can start later
+  env_->SetBackgroundThreads(0, Env::Priority::HIGH);
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:0");
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  // Set the sync point to ensure threads start and pass the sync point
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ThreadPoolImpl::BGThread::Start:th0", "EnvTest::ReserveThreads:1"},
+       {"ThreadPoolImpl::BGThread::Start:th1", "EnvTest::ReserveThreads:2"},
+       {"ThreadPoolImpl::BGThread::Start:th2", "EnvTest::ReserveThreads:3"},
+       {"ThreadPoolImpl::BGThread::Start:th3", "EnvTest::ReserveThreads:4"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Set number of thread to 3 first.
+  env_->SetBackgroundThreads(3, Env::Priority::HIGH);
+  ASSERT_EQ(env_->GetBackgroundThreads(Env::HIGH), 3);
+  // Add sync points to ensure all 3 threads start
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:1");
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:2");
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:3");
+  // Reserve 2 threads
+  ASSERT_EQ(2, env_->ReserveThreads(2, Env::Priority::HIGH));
+
+  // Schedule 3 tasks. Task 0 running (in this context, doing
+  // SleepingBackgroundTask); Task 1, 2 waiting; 3 reserved threads.
+  for (size_t i = 0; i < 3; i++) {
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &tasks[i],
+                   Env::Priority::HIGH);
+  }
+  ASSERT_FALSE(tasks[0].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_EQ(2U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[0].IsSleeping());
+  ASSERT_TRUE(!tasks[1].IsSleeping());
+  ASSERT_TRUE(!tasks[2].IsSleeping());
+
+  // Release 2 threads. Task 0, 1, 2 running; 0 reserved thread.
+  ASSERT_EQ(2, env_->ReleaseThreads(2, Env::Priority::HIGH));
+  ASSERT_FALSE(tasks[1].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_FALSE(tasks[2].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[1].IsSleeping());
+  ASSERT_TRUE(tasks[2].IsSleeping());
+  // No more threads can be reserved
+  ASSERT_EQ(0, env_->ReserveThreads(3, Env::Priority::HIGH));
+  // Expand the number of background threads so that the last thread
+  // is waiting
+  env_->SetBackgroundThreads(4, Env::Priority::HIGH);
+  // Add sync point to ensure the 4th thread starts
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:4");
+  // As the thread pool is expanded, we can reserve one more thread
+  ASSERT_EQ(1, env_->ReserveThreads(3, Env::Priority::HIGH));
+  // No more threads can be reserved
+  ASSERT_EQ(0, env_->ReserveThreads(3, Env::Priority::HIGH));
+
+  // Reset the sync points for the next iteration in BGThread or the
+  // next time Submit() is called
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ThreadPoolImpl::BGThread::WaitingThreadsInc",
+        "EnvTest::ReserveThreads:5"},
+       {"ThreadPoolImpl::BGThread::Termination", "EnvTest::ReserveThreads:6"},
+       {"ThreadPoolImpl::Submit::Enqueue", "EnvTest::ReserveThreads:7"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  tasks[0].WakeUp();
+  ASSERT_FALSE(tasks[0].TimedWaitUntilDone(kWaitMicros));
+  // Add sync point to ensure the number of waiting threads increases
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:5");
+  // 1 more thread can be reserved
+  ASSERT_EQ(1, env_->ReserveThreads(3, Env::Priority::HIGH));
+  // 2 reserved threads now
+
+  // Currently, two threads are blocked since the number of waiting
+  // threads is equal to the number of reserved threads (i.e., 2).
+  // If we reduce the number of background thread to 1, at least one thread
+  // will be the last excessive thread (here we have no control over the
+  // number of excessive threads because thread order does not
+  // necessarily follows the schedule order, but we ensure that the last thread
+  // shall not run any task by expanding the thread pool after we schedule
+  // the tasks), and thus they(it) become(s) unblocked, the number of waiting
+  // threads decreases to 0 or 1, but the number of reserved threads is still 2
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+
+  // Task 1,2 running; 2 reserved threads, however, in fact, we only have
+  // 0 or 1 waiting thread in the thread pool, proved by the
+  // following test, we CANNOT reserve 2 threads even though we just
+  // release 2
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:6");
+  ASSERT_EQ(2, env_->ReleaseThreads(2, Env::Priority::HIGH));
+  ASSERT_GT(2, env_->ReserveThreads(2, Env::Priority::HIGH));
+
+  // Every new task will be put into the queue at this point
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &tasks[3],
+                 Env::Priority::HIGH);
+  TEST_SYNC_POINT("EnvTest::ReserveThreads:7");
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(!tasks[3].IsSleeping());
+
+  // Set the number of threads to 3 so that Task 3 can dequeue
+  env_->SetBackgroundThreads(3, Env::Priority::HIGH);
+  // Wakup Task 1
+  tasks[1].WakeUp();
+  ASSERT_FALSE(tasks[1].TimedWaitUntilDone(kWaitMicros));
+  // Task 2, 3 running (Task 3 dequeue); 0 or 1 reserved thread
+  ASSERT_FALSE(tasks[3].TimedWaitUntilSleeping(kWaitMicros));
+  ASSERT_TRUE(tasks[3].IsSleeping());
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+  // At most 1 thread can be released
+  ASSERT_GT(2, env_->ReleaseThreads(3, Env::Priority::HIGH));
+  tasks[2].WakeUp();
+  ASSERT_FALSE(tasks[2].TimedWaitUntilDone(kWaitMicros));
+  tasks[3].WakeUp();
+  ASSERT_FALSE(tasks[3].TimedWaitUntilDone(kWaitMicros));
+  WaitThreadPoolsEmpty();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 #if (defined OS_LINUX || defined OS_WIN)
 // Travis doesn't support fallocate or getting unique ID from files for whatever
 // reason.
@@ -1271,8 +1400,8 @@ TEST_P(EnvPosixTestWithParam, MultiRead) {
             }
           }
         });
-    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     std::unique_ptr<RandomAccessFile> file;
     std::vector<ReadRequest> reqs(3);
     std::vector<std::unique_ptr<char, Deleter>> data;
@@ -1392,6 +1521,79 @@ TEST_F(EnvPosixTest, MultiReadNonAlignedLargeNum) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(EnvPosixTest, NonAlignedDirectIOMultiReadBeyondFileSize) {
+  EnvOptions soptions;
+  soptions.use_direct_reads = true;
+  soptions.use_direct_writes = false;
+  std::string fname = test::PerThreadDBPath(env_, "testfile");
+
+  Random rnd(301);
+  std::unique_ptr<WritableFile> wfile;
+  size_t alignment = 0;
+  // Create file.
+  {
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    auto data_ptr = NewAligned(4095, 'b');
+    Slice data_b(data_ptr.get(), 4095);
+    ASSERT_OK(wfile->PositionedAppend(data_b, 0U));
+    ASSERT_OK(wfile->Close());
+  }
+
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX) && !defined(OS_OPENBSD) && !defined(OS_FREEBSD)
+  if (soptions.use_direct_reads) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+          int* val = static_cast<int*>(arg);
+          *val &= ~O_DIRECT;
+        });
+  }
+#endif
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  const int num_reads = 2;
+  // Create requests
+  std::vector<std::string> scratches;
+  scratches.reserve(num_reads);
+  std::vector<ReadRequest> reqs(num_reads);
+
+  std::unique_ptr<RandomAccessFile> file;
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+  alignment = file->GetRequiredBufferAlignment();
+  ASSERT_EQ(num_reads, reqs.size());
+
+  std::vector<std::unique_ptr<char, Deleter>> data;
+
+  std::vector<size_t> offsets = {0, 2047};
+  std::vector<size_t> lens = {2047, 4096 - 2047};
+
+  for (size_t i = 0; i < num_reads; i++) {
+    // Do alignment
+    reqs[i].offset = static_cast<uint64_t>(TruncateToPageBoundary(
+        alignment, static_cast<size_t>(/*offset=*/offsets[i])));
+    reqs[i].len =
+        Roundup(static_cast<size_t>(/*offset=*/offsets[i]) + /*length=*/lens[i],
+                alignment) -
+        reqs[i].offset;
+
+    size_t new_capacity = Roundup(reqs[i].len, alignment);
+    data.emplace_back(NewAligned(new_capacity, 0));
+    reqs[i].scratch = data.back().get();
+  }
+
+  // Query the data
+  ASSERT_OK(file->MultiRead(reqs.data(), reqs.size()));
+
+  // Validate results
+  for (size_t i = 0; i < num_reads; ++i) {
+    ASSERT_OK(reqs[i].status);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif  // ROCKSDB_LITE
 
 #if defined(ROCKSDB_IOURING_PRESENT)
 void GenerateFilesAndRequest(Env* env, const std::string& fname,
@@ -1980,7 +2182,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
   // Cannot open non-existing file.
   ASSERT_NOK(env_->NewRandomRWFile(path, &file, EnvOptions()));
 
-  // Create the file using WriteableFile
+  // Create the file using WritableFile
   {
     std::unique_ptr<WritableFile> wf;
     ASSERT_OK(env_->NewWritableFile(path, &wf, EnvOptions()));
@@ -2109,7 +2311,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
   ASSERT_NOK(env_->NewRandomRWFile(path, &file, EnvOptions()));
 #endif
 
-  // Create the file using WriteableFile
+  // Create the file using WritableFile
   {
     std::unique_ptr<WritableFile> wf;
     ASSERT_OK(env_->NewWritableFile(path, &wf, EnvOptions()));

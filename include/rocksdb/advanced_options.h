@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
@@ -54,6 +55,11 @@ enum CompactionPri : char {
   // and its size is the smallest. It in many cases can optimize write
   // amplification.
   kMinOverlappingRatio = 0x3,
+  // Keeps a cursor(s) of the successor of the file (key range) was/were
+  // compacted before, and always picks the next files (key range) in that
+  // level. The file picking process will cycle through all the files in a
+  // round-robin manner.
+  kRoundRobin = 0x4,
 };
 
 struct CompactionOptionsFIFO {
@@ -111,7 +117,7 @@ struct CompressionOptions {
   //
   // The amount of data buffered can be limited by `max_dict_buffer_bytes`. This
   // buffered memory is charged to the block cache when there is a block cache.
-  // If block cache insertion fails with `Status::Incomplete` (i.e., it is
+  // If block cache insertion fails with `Status::MemoryLimit` (i.e., it is
   // full), we finalize the dictionary with whatever data we have and then stop
   // buffering.
   //
@@ -227,7 +233,7 @@ enum class Temperature : uint8_t {
 };
 
 // The control option of how the cache tiers will be used. Currently rocksdb
-// support block cahe (volatile tier), secondary cache (non-volatile tier).
+// support block cache (volatile tier), secondary cache (non-volatile tier).
 // In the future, we may add more caching layers.
 enum class CacheTier : uint8_t {
   kVolatileTier = 0,
@@ -238,6 +244,11 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATE_FAILED   = 0, // Nothing to update
   UPDATED_INPLACE = 1, // Value updated inplace
   UPDATED         = 2, // No inplace update. Merged value set
+};
+
+enum class PrepopulateBlobCache : uint8_t {
+  kDisable = 0x0,    // Disable prepopulate blob cache
+  kFlushOnly = 0x1,  // Prepopulate blobs during flush only
 };
 
 struct AdvancedColumnFamilyOptions {
@@ -338,6 +349,23 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   size_t inplace_update_num_locks = 10000;
+
+  // [experimental]
+  // Used to activate or deactive the Mempurge feature (memtable garbage
+  // collection). (deactivated by default). At every flush, the total useful
+  // payload (total entries minus garbage entries) is estimated as a ratio
+  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
+  // compared to this `threshold` value:
+  //     - if ratio<threshold: the flush is replaced by a mempurge operation
+  //     - else: a regular flush operation takes place.
+  // Threshold values:
+  //   0.0: mempurge deactivated (default).
+  //   1.0: recommended threshold value.
+  //   >1.0 : aggressive mempurge.
+  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
+  //   ratios.
+  // [experimental]
+  double experimental_mempurge_threshold = 0.0;
 
   // existing_value - pointer to previous value (from both memtable and sst).
   //                  nullptr if key doesn't exist
@@ -851,6 +879,15 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
 
+  // EXPERIMENTAL
+  // The feature is still in development and is incomplete.
+  // If this option is set, when data insert time is within this time range, it
+  // will be precluded from the last level.
+  // 0 means no key will be precluded from the last level.
+  //
+  // Default: 0 (disable the feature)
+  uint64_t preclude_last_level_data_seconds = 0;
+
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write
   // amplification for large-value use cases at the cost of introducing a level
@@ -952,6 +989,27 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   int blob_file_starting_level = 0;
+
+  // This feature is WORK IN PROGRESS
+  // If non-NULL use the specified cache for blobs.
+  // If NULL, rocksdb will not use a blob cache.
+  //
+  // Default: nullptr (disabled)
+  std::shared_ptr<Cache> blob_cache = nullptr;
+
+  // If enabled, prepopulate warm/hot blobs which are already in memory into
+  // blob cache at the time of flush. On a flush, the blob that is in memory (in
+  // memtables) get flushed to the device. If using Direct IO, additional IO is
+  // incurred to read this blob back into memory again, which is avoided by
+  // enabling this option. This further helps if the workload exhibits high
+  // temporal locality, where most of the reads go to recently written data.
+  // This also helps in case of the remote file system since it involves network
+  // traffic and higher latencies.
+  //
+  // Default: disabled
+  //
+  // Dynamically changeable through the SetOptions() API
+  PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

@@ -48,6 +48,15 @@ class DBImplReadOnly : public DBImpl {
                      const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
+  using DBImpl::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   using DBImpl::Merge;
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,

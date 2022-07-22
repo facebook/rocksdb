@@ -33,18 +33,6 @@ namespace ROCKSDB_NAMESPACE {
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("db_test2", /*env_do_fsync=*/true) {}
-
- protected:
-#ifndef ROCKSDB_LITE
-  uint64_t GetSstSizeHelper(Temperature temperature) {
-    std::string prop;
-    EXPECT_TRUE(dbfull()->GetProperty(
-        DB::Properties::kLiveSstFilesSizeAtTemperature +
-            std::to_string(static_cast<uint8_t>(temperature)),
-        &prop));
-    return static_cast<uint64_t>(std::atoi(prop.c_str()));
-  }
-#endif  // ROCKSDB_LITE
 };
 
 #ifndef ROCKSDB_LITE
@@ -2371,7 +2359,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
     GenerateNewRandomFile(&rnd);
   }
   CompactRangeOptions cro;
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,8", FilesPerLevel(0));
 
@@ -6376,86 +6364,85 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ReadOptions ro;
     ro.total_order_seek = false;
     ro.auto_prefix_mode = true;
+
+    const auto stat = BLOOM_FILTER_PREFIX_CHECKED;
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(0, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    std::string ub_str = "b9";
-    Slice ub(ub_str);
+    Slice ub;
     ro.iterate_upper_bound = &ub;
 
+    ub = "b9";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    ub_str = "z";
-    ub = Slice(ub_str);
+    ub = "z";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(1, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
-    ub_str = "c";
-    ub = Slice(ub_str);
+    ub = "c";
     {
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(2, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+    }
+
+    ub = "c1";
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek("b1");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
     }
 
     // The same queries without recreating iterator
     {
-      ub_str = "b9";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
-
       std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      ub = "b9";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
       ASSERT_OK(iterator->status());
 
-      ub_str = "z";
-      ub = Slice(ub_str);
-
+      ub = "z";
       iterator->Seek("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("x1", iterator->key().ToString());
-      ASSERT_EQ(3, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "c";
-      ub = Slice(ub_str);
-
+      ub = "c";
       iterator->Seek("b1");
       ASSERT_FALSE(iterator->Valid());
-      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "b9";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
+      ub = "b9";
       iterator->SeekForPrev("b1");
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
-      ASSERT_EQ(4, TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED));
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
 
-      ub_str = "zz";
-      ub = Slice(ub_str);
-      ro.iterate_upper_bound = &ub;
+      ub = "zz";
       iterator->SeekToLast();
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("y1", iterator->key().ToString());
@@ -6463,6 +6450,136 @@ TEST_F(DBTest2, AutoPrefixMode1) {
       iterator->SeekToFirst();
       ASSERT_TRUE(iterator->Valid());
       ASSERT_EQ("a1", iterator->key().ToString());
+    }
+
+    // Similar, now with reverse comparator
+    // Technically, we are violating axiom 2 of prefix_extractors, but
+    // it should be revised because of major use-cases using
+    // ReverseBytewiseComparator with capped/fixed prefix Seek. (FIXME)
+    options.comparator = ReverseBytewiseComparator();
+    options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+    DestroyAndReopen(options);
+
+    ASSERT_OK(Put("a1", large_value));
+    ASSERT_OK(Put("x1", large_value));
+    ASSERT_OK(Put("y1", large_value));
+    ASSERT_OK(Flush());
+
+    {
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+
+      ub = "b1";
+      iterator->Seek("b9");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      ub = "b1";
+      iterator->Seek("z");
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("y1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b1";
+      iterator->Seek("c");
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b";
+      iterator->Seek("c9");
+      ASSERT_FALSE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "a";
+      iterator->Seek("b9");
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b";
+      iterator->Seek("a");
+      ASSERT_FALSE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // matches BytewiseComparator::IsSameLengthImmediateSuccessor. Upper
+      // comparing before seek key prevents a real bug from surfacing.
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "b1";
+      iterator->SeekForPrev("b9");
+      ASSERT_TRUE(iterator->Valid());
+      // Fails if ReverseBytewiseComparator::IsSameLengthImmediateSuccessor
+      // is "correctly" implemented.
+      ASSERT_EQ("x1", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+
+      ub = "a";
+      iterator->SeekToLast();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("a1", iterator->key().ToString());
+
+      iterator->SeekToFirst();
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("y1", iterator->key().ToString());
+    }
+
+    // Now something a bit different, related to "short" keys that
+    // auto_prefix_mode can omit. See "BUG" section of auto_prefix_mode.
+    options.comparator = BytewiseComparator();
+    for (const auto config : {"fixed:2", "capped:2"}) {
+      ASSERT_OK(SliceTransform::CreateFromString(ConfigOptions(), config,
+                                                 &options.prefix_extractor));
+
+      // FIXME: kHashSearch, etc. requires all keys be InDomain
+      if (StartsWith(config, "fixed") &&
+          (table_options.index_type == BlockBasedTableOptions::kHashSearch ||
+           StartsWith(options.memtable_factory->Name(), "Hash"))) {
+        continue;
+      }
+      DestroyAndReopen(options);
+
+      const char* a_end_stuff = "a\xffXYZ";
+      const char* b_begin_stuff = "b\x00XYZ";
+      ASSERT_OK(Put("a", large_value));
+      ASSERT_OK(Put("b", large_value));
+      ASSERT_OK(Put(Slice(b_begin_stuff, 3), large_value));
+      ASSERT_OK(Put("c", large_value));
+      ASSERT_OK(Flush());
+
+      // control showing valid optimization with auto_prefix mode
+      ub = Slice(a_end_stuff, 4);
+      ro.iterate_upper_bound = &ub;
+
+      std::unique_ptr<Iterator> iterator(db_->NewIterator(ro));
+      iterator->Seek(Slice(a_end_stuff, 2));
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      // test, cannot be validly optimized with auto_prefix_mode
+      ub = Slice(b_begin_stuff, 2);
+      ro.iterate_upper_bound = &ub;
+
+      iterator->Seek(Slice(a_end_stuff, 2));
+      // !!! BUG !!! See "BUG" section of auto_prefix_mode.
+      ASSERT_FALSE(iterator->Valid());
+      EXPECT_EQ(1, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
+
+      // To prove that is the wrong result, now use total order seek
+      ReadOptions tos_ro = ro;
+      tos_ro.total_order_seek = true;
+      tos_ro.auto_prefix_mode = false;
+      iterator.reset(db_->NewIterator(tos_ro));
+      iterator->Seek(Slice(a_end_stuff, 2));
+      ASSERT_TRUE(iterator->Valid());
+      ASSERT_EQ("b", iterator->key().ToString());
+      EXPECT_EQ(0, TestGetAndResetTickerCount(options, stat));
+      ASSERT_OK(iterator->status());
     }
   } while (ChangeOptions(kSkipPlainTable));
 }
@@ -7304,6 +7421,45 @@ TEST_F(DBTest2, SstUniqueIdVerify) {
   // Reopen with verification should fail
   options.verify_sst_unique_id_in_manifest = true;
   s = TryReopen(options);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
+TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
+  const int kNumSst = 3;
+  const int kLevel0Trigger = 4;
+  auto options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kLevel0Trigger;
+
+  CreateAndReopenWithCF({"one", "two"}, options);
+
+  // generate good SSTs
+  for (int cf_num : {0, 2}) {
+    for (int i = 0; i < kNumSst; i++) {
+      for (int j = 0; j < 100; j++) {
+        ASSERT_OK(Put(cf_num, Key(i * 10 + j), "value"));
+      }
+      ASSERT_OK(Flush(cf_num));
+    }
+  }
+
+  // generate SSTs with bad unique id
+  SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
+        auto props = static_cast<TableProperties*>(props_vs);
+        // update table property session_id to a different one
+        props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  for (int i = 0; i < kNumSst; i++) {
+    for (int j = 0; j < 100; j++) {
+      ASSERT_OK(Put(1, Key(i * 10 + j), "value"));
+    }
+    ASSERT_OK(Flush(1));
+  }
+
+  // Reopen with verification should report corruption
+  options.verify_sst_unique_id_in_manifest = true;
+  auto s = TryReopenWithColumnFamilies({"default", "one", "two"}, options);
   ASSERT_TRUE(s.IsCorruption());
 }
 

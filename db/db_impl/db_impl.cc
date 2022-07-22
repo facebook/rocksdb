@@ -101,6 +101,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/defer.h"
+#include "util/distributed_mutex.h"
 #include "util/hash_containers.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -145,6 +146,8 @@ void DumpSupportInfo(Logger* logger) {
   }
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
                    crc32c::IsFastCrc32Supported().c_str());
+
+  ROCKS_LOG_HEADER(logger, "DMutex implementation: %s", DMutex::kName());
 }
 }  // namespace
 
@@ -153,7 +156,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
+      init_logger_creation_s_(),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only,
+                                          &init_logger_creation_s_)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -180,7 +185,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       log_dir_synced_(false),
       log_empty_(true),
       persist_stats_cf_handle_(nullptr),
-      log_sync_cv_(&mutex_),
+      log_sync_cv_(&log_write_mutex_),
       total_log_size_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
@@ -241,8 +246,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
-  // TODO: Check for an error here
-  env_->GetAbsolutePath(dbname, &db_absolute_path_).PermitUncheckedError();
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
@@ -260,7 +263,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
                                  &write_controller_, &block_cache_tracer_,
-                                 io_tracer_, db_session_id_));
+                                 io_tracer_, db_id_, db_session_id_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -270,6 +273,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
 
+  max_total_wal_size_.store(mutable_db_options_.max_total_wal_size,
+                            std::memory_order_relaxed);
   if (write_buffer_manager_) {
     wbm_stall_.reset(new WBMStallInterface());
   }
@@ -477,6 +482,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 #ifndef ROCKSDB_LITE
   if (periodic_work_scheduler_ != nullptr) {
     periodic_work_scheduler_->Unregister(this);
+    periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
   }
 #endif  // !ROCKSDB_LITE
 
@@ -509,6 +515,19 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     return;
   }
   WaitForBackgroundWork();
+}
+
+Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
+  size_t num_snapshots = 0;
+  ReleaseTimestampedSnapshotsOlderThan(std::numeric_limits<uint64_t>::max(),
+                                       &num_snapshots);
+
+  // If there is unreleased snapshot, fail the close call
+  if (num_snapshots > 0) {
+    return Status::Aborted("Cannot close DB with unreleased snapshot.");
+  }
+
+  return Status::OK();
 }
 
 Status DBImpl::CloseHelper() {
@@ -560,38 +579,6 @@ Status DBImpl::CloseHelper() {
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
 
-  // For now, simply trigger a manual flush at close time
-  // on all the column families.
-  // TODO(bjlemaire): Check if this is needed. Also, in the
-  // future we can contemplate doing a more fine-grained
-  // flushing by first checking if there is a need for
-  // flushing (but need to implement something
-  // else than imm()->IsFlushPending() because the output
-  // memtables added to imm() don't trigger flushes).
-  if (immutable_db_options_.experimental_mempurge_threshold > 0.0) {
-    Status flush_ret;
-    mutex_.Unlock();
-    for (ColumnFamilyData* cf : *versions_->GetColumnFamilySet()) {
-      if (immutable_db_options_.atomic_flush) {
-        flush_ret = AtomicFlushMemTables({cf}, FlushOptions(),
-                                         FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(
-              immutable_db_options_.info_log,
-              "Atomic flush memtables failed upon closing (mempurge).");
-        }
-      } else {
-        flush_ret =
-            FlushMemTable(cf, FlushOptions(), FlushReason::kManualFlush);
-        if (!flush_ret.ok()) {
-          ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                         "Flush memtables failed upon closing (mempurge).");
-        }
-      }
-    }
-    mutex_.Lock();
-  }
-
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
     for (const auto& iter : flush_req) {
@@ -640,26 +627,28 @@ Status DBImpl::CloseHelper() {
     job_context.Clean();
     mutex_.Lock();
   }
-
-  for (auto l : logs_to_free_) {
-    delete l;
-  }
-  for (auto& log : logs_) {
-    uint64_t log_number = log.writer->get_log_number();
-    Status s = log.ClearWriter();
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "Unable to Sync WAL file %s with error -- %s",
-          LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
-          s.ToString().c_str());
-      // Retain the first error
-      if (ret.ok()) {
-        ret = s;
+  {
+    InstrumentedMutexLock lock(&log_write_mutex_);
+    for (auto l : logs_to_free_) {
+      delete l;
+    }
+    for (auto& log : logs_) {
+      uint64_t log_number = log.writer->get_log_number();
+      Status s = log.ClearWriter();
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            immutable_db_options_.info_log,
+            "Unable to Sync WAL file %s with error -- %s",
+            LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
+            s.ToString().c_str());
+        // Retain the first error
+        if (ret.ok()) {
+          ret = s;
+        }
       }
     }
+    logs_.clear();
   }
-  logs_.clear();
 
   // Table cache may have table handles holding blocks from the block cache.
   // We need to release them before the block cache is destroyed. The block
@@ -731,12 +720,23 @@ Status DBImpl::CloseHelper() {
 Status DBImpl::CloseImpl() { return CloseHelper(); }
 
 DBImpl::~DBImpl() {
+  // TODO: remove this.
+  init_logger_creation_s_.PermitUncheckedError();
+
   InstrumentedMutexLock closing_lock_guard(&closing_mutex_);
-  if (!closed_) {
-    closed_ = true;
-    closing_status_ = CloseHelper();
-    closing_status_.PermitUncheckedError();
+  if (closed_) {
+    return;
   }
+
+  closed_ = true;
+
+  {
+    const Status s = MaybeReleaseTimestampedSnapshotsAndCheck();
+    s.PermitUncheckedError();
+  }
+
+  closing_status_ = CloseImpl();
+  closing_status_.PermitUncheckedError();
 }
 
 void DBImpl::MaybeIgnoreError(Status* s) const {
@@ -791,8 +791,69 @@ Status DBImpl::StartPeriodicWorkScheduler() {
   return periodic_work_scheduler_->Register(
       this, mutable_db_options_.stats_dump_period_sec,
       mutable_db_options_.stats_persist_period_sec);
-#endif  // !ROCKSDB_LITE
+#else
   return Status::OK();
+#endif  // !ROCKSDB_LITE
+}
+
+Status DBImpl::RegisterRecordSeqnoTimeWorker() {
+#ifndef ROCKSDB_LITE
+  if (!periodic_work_scheduler_) {
+    return Status::OK();
+  }
+  uint64_t min_time_duration = std::numeric_limits<uint64_t>::max();
+  uint64_t max_time_duration = std::numeric_limits<uint64_t>::min();
+  {
+    InstrumentedMutexLock l(&mutex_);
+
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      uint64_t preclude_last_option =
+          cfd->ioptions()->preclude_last_level_data_seconds;
+      if (!cfd->IsDropped() && preclude_last_option > 0) {
+        min_time_duration = std::min(preclude_last_option, min_time_duration);
+        max_time_duration = std::max(preclude_last_option, max_time_duration);
+      }
+    }
+    if (min_time_duration == std::numeric_limits<uint64_t>::max()) {
+      seqno_time_mapping_.Resize(0, 0);
+    } else {
+      seqno_time_mapping_.Resize(min_time_duration, max_time_duration);
+    }
+  }
+
+  uint64_t seqno_time_cadence = 0;
+  if (min_time_duration != std::numeric_limits<uint64_t>::max()) {
+    seqno_time_cadence =
+        min_time_duration / SeqnoToTimeMapping::kMaxSeqnoTimePairsPerCF;
+  }
+
+  Status s;
+  if (seqno_time_cadence != record_seqno_time_cadence_) {
+    if (seqno_time_cadence == 0) {
+      periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
+    } else {
+      s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
+          this, seqno_time_cadence);
+    }
+
+    if (s.ok()) {
+      record_seqno_time_cadence_ = seqno_time_cadence;
+    }
+
+    if (s.IsNotSupported()) {
+      // TODO: Fix the timer cannot cancel and re-add the same task
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log,
+          "Updating seqno to time worker cadence is not supported yet, to make "
+          "the change effective, please reopen the DB instance.");
+      s = Status::OK();
+    }
+  }
+
+  return s;
+#else
+  return Status::OK();
+#endif  // !ROCKSDB_LITE
 }
 
 // esitmate the total size of stats_history_
@@ -1051,6 +1112,7 @@ Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
+  mutex_.AssertHeld();
   if (!job_context->logs_to_free.empty()) {
     for (auto l : job_context->logs_to_free) {
       AddToLogsToFreeQueue(l);
@@ -1228,6 +1290,11 @@ Status DBImpl::SetDBOptions(
             new_options.stats_persist_period_sec);
         mutex_.Lock();
       }
+      if (new_options.max_total_wal_size !=
+          mutable_db_options_.max_total_wal_size) {
+        max_total_wal_size_.store(new_options.max_total_wal_size,
+                                  std::memory_order_release);
+      }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
@@ -1342,19 +1409,20 @@ Status DBImpl::FlushWAL(bool sync) {
 }
 
 Status DBImpl::SyncWAL() {
+  TEST_SYNC_POINT("DBImpl::SyncWAL:Begin");
   autovector<log::Writer*, 1> logs_to_sync;
   bool need_log_dir_sync;
   uint64_t current_log_number;
 
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     assert(!logs_.empty());
 
     // This SyncWAL() call only cares about logs up to this number.
     current_log_number = logfile_number_;
 
     while (logs_.front().number <= current_log_number &&
-           logs_.front().getting_synced) {
+           logs_.front().IsSyncing()) {
       log_sync_cv_.Wait();
     }
     // First check that logs are safe to sync in background.
@@ -1371,8 +1439,7 @@ Status DBImpl::SyncWAL() {
     for (auto it = logs_.begin();
          it != logs_.end() && it->number <= current_log_number; ++it) {
       auto& log = *it;
-      assert(!log.getting_synced);
-      log.getting_synced = true;
+      log.PrepareForSync();
       logs_to_sync.push_back(log.writer);
     }
 
@@ -1405,16 +1472,34 @@ Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
+  VersionEdit synced_wals;
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     if (status.ok()) {
-      status = MarkLogsSynced(current_log_number, need_log_dir_sync);
+      MarkLogsSynced(current_log_number, need_log_dir_sync, &synced_wals);
     } else {
       MarkLogsNotSynced(current_log_number);
     }
   }
+  if (status.ok() && synced_wals.IsWalAddition()) {
+    InstrumentedMutexLock l(&mutex_);
+    status = ApplyWALToManifest(&synced_wals);
+  }
+
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
+  return status;
+}
+
+Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
+  // not empty, write to MANIFEST.
+  mutex_.AssertHeld();
+  Status status =
+      versions_->LogAndApplyToDefaultColumnFamily(synced_wals, &mutex_);
+  if (!status.ok() && versions_->io_status().IsIOError()) {
+    status = error_handler_.SetBGError(versions_->io_status(),
+                                       BackgroundErrorReason::kManifestWrite);
+  }
   return status;
 }
 
@@ -1437,54 +1522,39 @@ Status DBImpl::UnlockWAL() {
   return Status::OK();
 }
 
-Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
-  mutex_.AssertHeld();
+void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
+                            VersionEdit* synced_wals) {
+  log_write_mutex_.AssertHeld();
   if (synced_dir && logfile_number_ == up_to) {
     log_dir_synced_ = true;
   }
-  VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
-    assert(wal.getting_synced);
-    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-        wal.writer->file()->GetFileSize() > 0) {
-      synced_wals.AddWal(wal.number,
-                         WalMetadata(wal.writer->file()->GetFileSize()));
-    }
+    assert(wal.IsSyncing());
 
     if (logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+          wal.GetPreSyncSize() > 0) {
+        synced_wals->AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
+      }
       logs_to_free_.push_back(wal.ReleaseWriter());
-      // To modify logs_ both mutex_ and log_write_mutex_ must be held
-      InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
-      wal.getting_synced = false;
+      wal.FinishSync();
       ++it;
     }
   }
   assert(logs_.empty() || logs_[0].number > up_to ||
-         (logs_.size() == 1 && !logs_[0].getting_synced));
-
-  Status s;
-  if (synced_wals.IsWalAddition()) {
-    // not empty, write to MANIFEST.
-    s = versions_->LogAndApplyToDefaultColumnFamily(&synced_wals, &mutex_);
-    if (!s.ok() && versions_->io_status().IsIOError()) {
-      s = error_handler_.SetBGError(versions_->io_status(),
-                                    BackgroundErrorReason::kManifestWrite);
-    }
-  }
+         (logs_.size() == 1 && !logs_[0].IsSyncing()));
   log_sync_cv_.SignalAll();
-  return s;
 }
 
 void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
-  mutex_.AssertHeld();
+  log_write_mutex_.AssertHeld();
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
-    assert(wal.getting_synced);
-    wal.getting_synced = false;
+    wal.FinishSync();
   }
   log_sync_cv_.SignalAll();
 }
@@ -1721,6 +1791,8 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
+  assert(value != nullptr);
+  value->Reset();
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
@@ -1797,11 +1869,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     // data for the snapshot, so the reader would see neither data that was be
     // visible to the snapshot before compaction nor the newer data inserted
     // afterwards.
-    if (last_seq_same_as_publish_seq_) {
-      snapshot = versions_->LastSequence();
-    } else {
-      snapshot = versions_->LastPublishedSequence();
-    }
+    snapshot = GetLastPublishedSequence();
     if (get_impl_options.callback) {
       // The unprep_seqs are not published for write unprepared, so it could be
       // that max_visible_seq is larger. Seek to the std::max of the two.
@@ -2194,11 +2262,7 @@ bool DBImpl::MultiCFSnapshot(
       // version because a flush happening in between may compact away data for
       // the snapshot, but the snapshot is earlier than the data overwriting it,
       // so users may see wrong results.
-      if (last_seq_same_as_publish_seq_) {
-        *snapshot = versions_->LastSequence();
-      } else {
-        *snapshot = versions_->LastPublishedSequence();
-      }
+      *snapshot = GetLastPublishedSequence();
     }
   } else {
     // If we end up with the same issue of memtable geting sealed during 2
@@ -2229,11 +2293,7 @@ bool DBImpl::MultiCFSnapshot(
           // acquire the lock so we're sure to succeed
           mutex_.Lock();
         }
-        if (last_seq_same_as_publish_seq_) {
-          *snapshot = versions_->LastSequence();
-        } else {
-          *snapshot = versions_->LastPublishedSequence();
-        }
+        *snapshot = GetLastPublishedSequence();
       } else {
         *snapshot =
             static_cast_with_check<const SnapshotImpl>(read_options.snapshot)
@@ -2340,6 +2400,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    values[i].Reset();
     key_context.emplace_back(column_families[i], keys[i], &values[i],
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
@@ -2486,6 +2547,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options,
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
   sorted_keys.resize(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
+    values[i].Reset();
     key_context.emplace_back(column_family, keys[i], &values[i],
                              timestamps ? &timestamps[i] : nullptr,
                              &statuses[i]);
@@ -2819,6 +2881,14 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
+  if (cf_options.preclude_last_level_data_seconds > 0) {
+    // TODO(zjay): Fix the timer issue and re-enable this.
+    ROCKS_LOG_ERROR(
+        immutable_db_options_.info_log,
+        "Creating column family with `preclude_last_level_data_seconds` needs "
+        "to restart DB to take effect");
+    //    s = RegisterRecordSeqnoTimeWorker();
+  }
   sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {
@@ -2905,6 +2975,10 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       is_snapshot_supported_ = new_is_snapshot_supported;
     }
     bg_cv_.SignalAll();
+  }
+
+  if (cfd->ioptions()->preclude_last_level_data_seconds > 0) {
+    s = RegisterRecordSeqnoTimeWorker();
   }
 
   if (s.ok()) {
@@ -3170,6 +3244,48 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 }
 #endif  // ROCKSDB_LITE
 
+std::pair<Status, std::shared_ptr<const Snapshot>>
+DBImpl::CreateTimestampedSnapshot(SequenceNumber snapshot_seq, uint64_t ts) {
+  assert(ts != std::numeric_limits<uint64_t>::max());
+
+  auto ret = CreateTimestampedSnapshotImpl(snapshot_seq, ts, /*lock=*/true);
+  return ret;
+}
+
+std::shared_ptr<const SnapshotImpl> DBImpl::GetTimestampedSnapshot(
+    uint64_t ts) const {
+  InstrumentedMutexLock lock_guard(&mutex_);
+  return timestamped_snapshots_.GetSnapshot(ts);
+}
+
+void DBImpl::ReleaseTimestampedSnapshotsOlderThan(uint64_t ts,
+                                                  size_t* remaining_total_ss) {
+  autovector<std::shared_ptr<const SnapshotImpl>> snapshots_to_release;
+  {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    timestamped_snapshots_.ReleaseSnapshotsOlderThan(ts, snapshots_to_release);
+  }
+  snapshots_to_release.clear();
+
+  if (remaining_total_ss) {
+    InstrumentedMutexLock lock_guard(&mutex_);
+    *remaining_total_ss = static_cast<size_t>(snapshots_.count());
+  }
+}
+
+Status DBImpl::GetTimestampedSnapshots(
+    uint64_t ts_lb, uint64_t ts_ub,
+    std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots) const {
+  if (ts_lb >= ts_ub) {
+    return Status::InvalidArgument(
+        "timestamp lower bound must be smaller than upper bound");
+  }
+  timestamped_snapshots.clear();
+  InstrumentedMutexLock lock_guard(&mutex_);
+  timestamped_snapshots_.GetSnapshots(ts_lb, ts_ub, timestamped_snapshots);
+  return Status::OK();
+}
+
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
   int64_t unix_time = 0;
@@ -3179,6 +3295,8 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
 
   if (lock) {
     mutex_.Lock();
+  } else {
+    mutex_.AssertHeld();
   }
   // returns null if the underlying memtable does not support snapshot.
   if (!is_snapshot_supported_) {
@@ -3188,15 +3306,122 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
     delete s;
     return nullptr;
   }
-  auto snapshot_seq = last_seq_same_as_publish_seq_
-                          ? versions_->LastSequence()
-                          : versions_->LastPublishedSequence();
+  auto snapshot_seq = GetLastPublishedSequence();
   SnapshotImpl* snapshot =
       snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
   if (lock) {
     mutex_.Unlock();
   }
   return snapshot;
+}
+
+std::pair<Status, std::shared_ptr<const SnapshotImpl>>
+DBImpl::CreateTimestampedSnapshotImpl(SequenceNumber snapshot_seq, uint64_t ts,
+                                      bool lock) {
+  int64_t unix_time = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
+  SnapshotImpl* s = new SnapshotImpl;
+
+  const bool need_update_seq = (snapshot_seq != kMaxSequenceNumber);
+
+  if (lock) {
+    mutex_.Lock();
+  } else {
+    mutex_.AssertHeld();
+  }
+  // returns null if the underlying memtable does not support snapshot.
+  if (!is_snapshot_supported_) {
+    if (lock) {
+      mutex_.Unlock();
+    }
+    delete s;
+    return std::make_pair(
+        Status::NotSupported("Memtable does not support snapshot"), nullptr);
+  }
+
+  // Caller is not write thread, thus didn't provide a valid snapshot_seq.
+  // Obtain seq from db.
+  if (!need_update_seq) {
+    snapshot_seq = GetLastPublishedSequence();
+  }
+
+  std::shared_ptr<const SnapshotImpl> latest =
+      timestamped_snapshots_.GetSnapshot(std::numeric_limits<uint64_t>::max());
+
+  // If there is already a latest timestamped snapshot, then we need to do some
+  // checks.
+  if (latest) {
+    uint64_t latest_snap_ts = latest->GetTimestamp();
+    SequenceNumber latest_snap_seq = latest->GetSequenceNumber();
+    assert(latest_snap_seq <= snapshot_seq);
+    bool needs_create_snap = true;
+    Status status;
+    std::shared_ptr<const SnapshotImpl> ret;
+    if (latest_snap_ts > ts) {
+      // A snapshot created later cannot have smaller timestamp than a previous
+      // timestamped snapshot.
+      needs_create_snap = false;
+      std::ostringstream oss;
+      oss << "snapshot exists with larger timestamp " << latest_snap_ts << " > "
+          << ts;
+      status = Status::InvalidArgument(oss.str());
+    } else if (latest_snap_ts == ts) {
+      if (latest_snap_seq == snapshot_seq) {
+        // We are requesting the same sequence number and timestamp, thus can
+        // safely reuse (share) the current latest timestamped snapshot.
+        needs_create_snap = false;
+        ret = latest;
+      } else if (latest_snap_seq < snapshot_seq) {
+        // There may have been writes to the database since the latest
+        // timestamped snapshot, yet we are still requesting the same
+        // timestamp. In this case, we cannot create the new timestamped
+        // snapshot.
+        needs_create_snap = false;
+        std::ostringstream oss;
+        oss << "Allocated seq is " << snapshot_seq
+            << ", while snapshot exists with smaller seq " << latest_snap_seq
+            << " but same timestamp " << ts;
+        status = Status::InvalidArgument(oss.str());
+      }
+    }
+    if (!needs_create_snap) {
+      if (lock) {
+        mutex_.Unlock();
+      }
+      delete s;
+      return std::make_pair(status, ret);
+    } else {
+      status.PermitUncheckedError();
+    }
+  }
+
+  SnapshotImpl* snapshot =
+      snapshots_.New(s, snapshot_seq, unix_time,
+                     /*is_write_conflict_boundary=*/true, ts);
+
+  std::shared_ptr<const SnapshotImpl> ret(
+      snapshot,
+      std::bind(&DBImpl::ReleaseSnapshot, this, std::placeholders::_1));
+  timestamped_snapshots_.AddSnapshot(ret);
+
+  // Caller is from write thread, and we need to update database's sequence
+  // number.
+  if (need_update_seq) {
+    assert(versions_);
+    if (last_seq_same_as_publish_seq_) {
+      versions_->SetLastSequence(snapshot_seq);
+    } else {
+      // TODO: support write-prepared/write-unprepared transactions with two
+      // write queues.
+      assert(false);
+    }
+  }
+
+  if (lock) {
+    mutex_.Unlock();
+  }
+  return std::make_pair(Status::OK(), ret);
 }
 
 namespace {
@@ -3224,11 +3449,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
-      if (last_seq_same_as_publish_seq_) {
-        oldest_snapshot = versions_->LastSequence();
-      } else {
-        oldest_snapshot = versions_->LastPublishedSequence();
-      }
+      oldest_snapshot = GetLastPublishedSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }
@@ -4119,13 +4340,14 @@ Status DBImpl::Close() {
   if (closed_) {
     return closing_status_;
   }
+
   {
-    InstrumentedMutexLock l(&mutex_);
-    // If there is unreleased snapshot, fail the close call
-    if (!snapshots_.empty()) {
-      return Status::Aborted("Cannot close DB with unreleased snapshot.");
+    const Status s = MaybeReleaseTimestampedSnapshotsAndCheck();
+    if (!s.ok()) {
+      return s;
     }
   }
+
   closing_status_ = CloseImpl();
   closed_ = true;
   return closing_status_;
@@ -5400,6 +5622,26 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
     return Status::OK();
   } else {
     return Status::NotSupported("This API only works if max_open_files = -1");
+  }
+}
+
+void DBImpl::RecordSeqnoToTimeMapping() {
+  // Get time first then sequence number, so the actual time of seqno is <=
+  // unix_time recorded
+  int64_t unix_time = 0;
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
+  SequenceNumber seqno = GetLatestSequenceNumber();
+  bool appended = false;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    appended = seqno_time_mapping_.Append(seqno, unix_time);
+  }
+  if (!appended) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Failed to insert sequence number to time entry: %" PRIu64
+                   " -> %" PRIu64,
+                   seqno, unix_time);
   }
 }
 #endif  // ROCKSDB_LITE

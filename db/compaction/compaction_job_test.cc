@@ -208,11 +208,11 @@ class CompactionJobTestBase : public testing::Test {
         mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
-                                 /*block_cache_tracer=*/nullptr,
-                                 /*io_tracer=*/nullptr, /*db_session_id*/ "")),
+        versions_(new VersionSet(
+            dbname_, &db_options_, env_options_, table_cache_.get(),
+            &write_buffer_manager_, &write_controller_,
+            /*block_cache_tracer=*/nullptr,
+            /*io_tracer=*/nullptr, /*db_id*/ "", /*db_session_id*/ "")),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
@@ -444,7 +444,7 @@ class CompactionJobTestBase : public testing::Test {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                       /*db_session_id*/ ""));
+                       /*db_id*/ "", /*db_session_id*/ ""));
     compaction_job_stats_.Reset();
     ASSERT_OK(SetIdentityFile(env_, dbname_));
 
@@ -480,6 +480,17 @@ class CompactionJobTestBase : public testing::Test {
 
     ASSERT_OK(versions_->Recover(column_families, false));
     cfd_ = versions_->GetColumnFamilySet()->GetDefault();
+  }
+
+  void RunLastLevelCompaction(
+      const std::vector<std::vector<FileMetaData*>>& input_files,
+      std::function<void(Compaction& comp)>&& verify_func,
+      const std::vector<SequenceNumber>& snapshots = {}) {
+    const int kLastLevel = cf_options_.num_levels - 1;
+    verify_per_key_placement_ = std::move(verify_func);
+    mock::KVVector empty_map;
+    RunCompaction(input_files, empty_map, snapshots, kMaxSequenceNumber,
+                  kLastLevel, false);
   }
 
   void RunCompaction(
@@ -571,6 +582,12 @@ class CompactionJobTestBase : public testing::Test {
     if (check_get_priority) {
       CheckGetRateLimiterPriority(compaction_job);
     }
+
+    if (verify_per_key_placement_) {
+      // Verify per_key_placement compaction
+      assert(compaction.SupportsPerKeyPlacement());
+      verify_per_key_placement_(compaction);
+    }
   }
 
   void CheckGetRateLimiterPriority(CompactionJob& compaction_job) {
@@ -620,6 +637,7 @@ class CompactionJobTestBase : public testing::Test {
   std::string full_history_ts_low_;
   const std::function<std::string(uint64_t)> encode_u64_ts_;
   bool test_io_priority_;
+  std::function<void(Compaction& comp)> verify_per_key_placement_;
 };
 
 // TODO(icanadi) Make it simpler once we mock out VersionSet
@@ -1311,6 +1329,75 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_number */ 19);
 }
 
+TEST_F(CompactionJobTest, VerifyPenultimateLevelOutput) {
+  cf_options_.bottommost_temperature = Temperature::kCold;
+  SyncPoint::GetInstance()->SetCallBack(
+      "Compaction::SupportsPerKeyPlacement:Enabled", [&](void* arg) {
+        auto supports_per_key_placement = static_cast<bool*>(arg);
+        *supports_per_key_placement = true;
+      });
+
+  std::atomic_uint64_t latest_cold_seq = 0;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionIterator::PrepareOutput.context", [&](void* arg) {
+        auto context = static_cast<PerKeyPlacementContext*>(arg);
+        context->output_to_penultimate_level =
+            context->seq_num > latest_cold_seq;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  NewDB();
+
+  // Add files on different levels that may overlap
+  auto file0_1 = mock::MakeMockFile({{KeyStr("z", 12U, kTypeValue), "val"}});
+  AddMockFile(file0_1);
+
+  auto file1_1 = mock::MakeMockFile({{KeyStr("b", 10U, kTypeValue), "val"},
+                                     {KeyStr("f", 11U, kTypeValue), "val"}});
+  AddMockFile(file1_1, 1);
+  auto file1_2 = mock::MakeMockFile({{KeyStr("j", 12U, kTypeValue), "val"},
+                                     {KeyStr("k", 13U, kTypeValue), "val"}});
+  AddMockFile(file1_2, 1);
+  auto file1_3 = mock::MakeMockFile({{KeyStr("p", 14U, kTypeValue), "val"},
+                                     {KeyStr("u", 15U, kTypeValue), "val"}});
+  AddMockFile(file1_3, 1);
+
+  auto file2_1 = mock::MakeMockFile({{KeyStr("f", 8U, kTypeValue), "val"},
+                                     {KeyStr("h", 9U, kTypeValue), "val"}});
+  AddMockFile(file2_1, 2);
+  auto file2_2 = mock::MakeMockFile({{KeyStr("m", 6U, kTypeValue), "val"},
+                                     {KeyStr("p", 7U, kTypeValue), "val"}});
+  AddMockFile(file2_2, 2);
+
+  auto file3_1 = mock::MakeMockFile({{KeyStr("g", 2U, kTypeValue), "val"},
+                                     {KeyStr("k", 3U, kTypeValue), "val"}});
+  AddMockFile(file3_1, 3);
+  auto file3_2 = mock::MakeMockFile({{KeyStr("v", 4U, kTypeValue), "val"},
+                                     {KeyStr("x", 5U, kTypeValue), "val"}});
+  AddMockFile(file3_2, 3);
+
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto files0 = cfd->current()->storage_info()->LevelFiles(0);
+  auto files1 = cfd->current()->storage_info()->LevelFiles(1);
+  auto files2 = cfd->current()->storage_info()->LevelFiles(2);
+  auto files3 = cfd->current()->storage_info()->LevelFiles(3);
+
+  RunLastLevelCompaction(
+      {files0, files1, files2, files3}, /*verify_func=*/[&](Compaction& comp) {
+        for (char c = 'a'; c <= 'z'; c++) {
+          std::string c_str;
+          c_str = c;
+          const Slice key(c_str);
+          if (c == 'a') {
+            ASSERT_FALSE(comp.WithinPenultimateLevelOutputRange(key));
+          } else {
+            ASSERT_TRUE(comp.WithinPenultimateLevelOutputRange(key));
+          }
+        }
+      });
+}
+
 TEST_F(CompactionJobTest, NoEnforceSingleDeleteContract) {
   db_options_.enforce_single_del_contracts = false;
   NewDB();
@@ -1360,7 +1447,6 @@ TEST_F(CompactionJobTest, InputSerialization) {
   if (input.has_end) {
     input.end = rnd.RandomBinaryString(rnd.Uniform(kStrMaxLen));
   }
-  input.approx_size = rnd64.Uniform(UINT64_MAX);
 
   std::string output;
   ASSERT_OK(input.Write(&output));

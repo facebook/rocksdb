@@ -277,6 +277,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
   Status SetReadTimestampForValidation(TxnTimestamp ts) override;
   Status SetCommitTimestamp(TxnTimestamp ts) override;
+  TxnTimestamp GetCommitTimestamp() const override { return commit_timestamp_; }
 
  private:
   template <typename TValue>

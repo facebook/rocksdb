@@ -56,7 +56,7 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
-  Status CommitTxn(Transaction* txn);
+  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
 
   Status RollbackTxn(Transaction* txn);
 #endif
@@ -227,6 +227,15 @@ class StressTest {
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
 
+  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                            std::string& ts_str,
+                                            Slice& ts_slice,
+                                            ReadOptions& read_opts);
+
+  void MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                          std::string& ts_str, Slice& ts_slice,
+                                          ReadOptions& read_opts);
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
@@ -234,6 +243,10 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
 #endif
+
+  // Currently only used in MultiOpsTxnsStressTest
+  std::atomic<DB*> db_aptr_;
+
   Options options_;
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;

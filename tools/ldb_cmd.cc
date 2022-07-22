@@ -102,6 +102,8 @@ const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
 const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
     "blob_file_starting_level";
+const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
+    "prepopulate_blob_cache";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
@@ -556,6 +558,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
                                   ARG_BLOB_COMPACTION_READAHEAD_SIZE,
                                   ARG_BLOB_FILE_STARTING_LEVEL,
+                                  ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -830,6 +833,23 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_BLOB_FILE_STARTING_LEVEL + " must be >= 0.");
+    }
+  }
+
+  int prepopulate_blob_cache;
+  if (ParseIntOption(option_map_, ARG_PREPOPULATE_BLOB_CACHE,
+                     prepopulate_blob_cache, exec_state_)) {
+    switch (prepopulate_blob_cache) {
+      case 0:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+        break;
+      case 1:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+        break;
+      default:
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            ARG_PREPOPULATE_BLOB_CACHE +
+            " must be 0 (disable) or 1 (flush only).");
     }
   }
 
@@ -1306,7 +1326,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1448,7 +1468,7 @@ Status GetLiveFilesChecksumInfoFromVersionSet(Options options,
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
                                   immutable_db_options.fs.get());
@@ -2255,7 +2275,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   WriteBufferManager wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr,
-                      /*db_session_id*/ "");
+                      /*db_id*/ "", /*db_session_id*/ "");
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));

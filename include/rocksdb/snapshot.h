@@ -25,6 +25,8 @@ class Snapshot {
   // 00:00:00 (UTC).
   virtual int64_t GetUnixTime() const = 0;
 
+  virtual uint64_t GetTimestamp() const = 0;
+
  protected:
   virtual ~Snapshot();
 };

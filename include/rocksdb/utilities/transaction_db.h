@@ -458,6 +458,42 @@ class TransactionDB : public StackableDB {
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
+  // Create a snapshot and assign ts to it. Return the snapshot to caller. The
+  // snapshot-timestamp mapping is also tracked by the database.
+  // Caller must ensure there are no active writes when this API is called.
+  virtual std::pair<Status, std::shared_ptr<const Snapshot>>
+  CreateTimestampedSnapshot(TxnTimestamp ts) = 0;
+
+  // Return the latest timestamped snapshot if present.
+  std::shared_ptr<const Snapshot> GetLatestTimestampedSnapshot() const {
+    return GetTimestampedSnapshot(kMaxTxnTimestamp);
+  }
+  // Return the snapshot correponding to given timestamp. If ts is
+  // kMaxTxnTimestamp, then we return the latest timestamped snapshot if
+  // present. Othersise, we return the snapshot whose timestamp is equal to
+  // `ts`. If no such snapshot exists, then we return null.
+  virtual std::shared_ptr<const Snapshot> GetTimestampedSnapshot(
+      TxnTimestamp ts) const = 0;
+  // Release timestamped snapshots whose timestamps are less than or equal to
+  // ts.
+  virtual void ReleaseTimestampedSnapshotsOlderThan(TxnTimestamp ts) = 0;
+
+  // Get all timestamped snapshots which will be stored in
+  // timestamped_snapshots.
+  Status GetAllTimestampedSnapshots(
+      std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots)
+      const {
+    return GetTimestampedSnapshots(/*ts_lb=*/0, /*ts_ub=*/kMaxTxnTimestamp,
+                                   timestamped_snapshots);
+  }
+
+  // Get all timestamped snapshots whose timestamps fall within [ts_lb, ts_ub).
+  // timestamped_snapshots will be cleared and contain returned snapshots.
+  virtual Status GetTimestampedSnapshots(
+      TxnTimestamp ts_lb, TxnTimestamp ts_ub,
+      std::vector<std::shared_ptr<const Snapshot>>& timestamped_snapshots)
+      const = 0;
+
  protected:
   // To Create an TransactionDB, call Open()
   // The ownership of db is transferred to the base StackableDB
