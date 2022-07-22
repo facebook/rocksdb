@@ -1472,7 +1472,7 @@ TEST_P(ExternalSSTFileBasicTest, IngestFileWithBadBlockChecksum) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
-      "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
+      "BlockBasedTableBuilder::WriteMaybeCompressedBlock:TamperWithChecksum",
       change_checksum);
   SyncPoint::GetInstance()->EnableProcessing();
   int file_id = 0;

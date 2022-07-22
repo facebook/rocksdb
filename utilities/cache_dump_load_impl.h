@@ -103,14 +103,9 @@ class CacheDumperImpl : public CacheDumper {
   IOStatus DumpCacheEntriesToWriter() override;
 
  private:
-  IOStatus WriteRawBlock(uint64_t timestamp, CacheDumpUnitType type,
-                         const Slice& key, void* value, size_t len,
-                         uint32_t checksum);
-
+  IOStatus WriteBlock(CacheDumpUnitType type, const Slice& key,
+                      const Slice& value);
   IOStatus WriteHeader();
-
-  IOStatus WriteCacheBlock(const CacheDumpUnitType type, const Slice& key,
-                           void* value, size_t len);
   IOStatus WriteFooter();
   bool ShouldFilterOut(const Slice& key);
   std::function<void(const Slice&, void*, size_t, Cache::DeleterFn)>
