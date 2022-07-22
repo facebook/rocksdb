@@ -5659,18 +5659,10 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
     for (int j = 0; j != kNumKeysPerFile; ++j) {
       ASSERT_OK(Put(Key(j), rnd.RandomString(990)));
     }
-    if (0 == i) {
-      // When we reach here, the memtables have kNumKeysPerFile keys. Note that
-      // flush is not yet triggered. We need to write an extra key so that the
-      // write path will call PreprocessWrite and flush the previous key-value
-      // pairs to e flushed. After that, there will be the newest key in the
-      // memtable, and a bunch of L0 files. Since there is already one key in
-      // the memtable, then for i = 1, 2, ..., we do not have to write this
-      // extra key to trigger flush.
-      ASSERT_OK(Put("", ""));
+    if (i > 0) {
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      ASSERT_EQ(NumTableFilesAtLevel(0 /*level*/, 0 /*cf*/), i);
     }
-    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
-    ASSERT_EQ(NumTableFilesAtLevel(0 /*level*/, 0 /*cf*/), i + 1);
   }
   // When we reach this point, there will be level0_stop_writes_trigger L0
   // files and one extra key (99) in memory, which overlaps with the external

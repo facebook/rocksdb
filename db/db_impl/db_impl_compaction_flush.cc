@@ -82,9 +82,10 @@ bool DBImpl::RequestCompactionToken(ColumnFamilyData* cfd, bool force,
   return false;
 }
 
-IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
+IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
+                                VersionEdit* synced_wals) {
   TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
-  mutex_.AssertHeld();
+  InstrumentedMutexLock l(&log_write_mutex_);
   autovector<log::Writer*, 1> logs_to_sync;
   uint64_t current_log_number = logfile_number_;
   while (logs_.front().number < current_log_number &&
@@ -100,7 +101,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
 
   IOStatus io_s;
   if (!logs_to_sync.empty()) {
-    mutex_.Unlock();
+    log_write_mutex_.Unlock();
 
     assert(job_context);
 
@@ -128,12 +129,12 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
 
     TEST_SYNC_POINT_CALLBACK("DBImpl::SyncClosedLogs:BeforeReLock",
                              /*arg=*/nullptr);
-    mutex_.Lock();
+    log_write_mutex_.Lock();
 
     // "number <= current_log_number - 1" is equivalent to
     // "number < current_log_number".
     if (io_s.ok()) {
-      io_s = status_to_io_status(MarkLogsSynced(current_log_number - 1, true));
+      MarkLogsSynced(current_log_number - 1, true, synced_wals);
     } else {
       MarkLogsNotSynced(current_log_number - 1);
     }
@@ -220,8 +221,16 @@ Status DBImpl::FlushMemTableToOutputFile(
   bool need_cancel = false;
   IOStatus log_io_s = IOStatus::OK();
   if (needs_to_sync_closed_wals) {
-    // SyncClosedLogs() may unlock and re-lock the db_mutex.
-    log_io_s = SyncClosedLogs(job_context);
+    // SyncClosedLogs() may unlock and re-lock the log_write_mutex multiple
+    // times.
+    VersionEdit synced_wals;
+    mutex_.Unlock();
+    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    mutex_.Lock();
+    if (log_io_s.ok() && synced_wals.IsWalAddition()) {
+      log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+    }
+
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
       error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
@@ -474,7 +483,14 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
-    log_io_s = SyncClosedLogs(job_context);
+    VersionEdit synced_wals;
+    mutex_.Unlock();
+    log_io_s = SyncClosedLogs(job_context, &synced_wals);
+    mutex_.Lock();
+    if (log_io_s.ok() && synced_wals.IsWalAddition()) {
+      log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+    }
+
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
       if (total_log_size_ > 0) {

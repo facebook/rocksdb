@@ -99,6 +99,7 @@
 
 ### Behavior changes
 * DB::Open(), DB::OpenAsSecondary() will fail if a Logger cannot be created (#9984)
+* DB::Write does not hold global `mutex_` if this db instance does not need to switch wal and mem-table (#7516).
 * Removed support for reading Bloom filters using obsolete block-based filter format. (Support for writing such filters was dropped in 7.0.) For good read performance on old DBs using these filters, a full compaction is required.
 * Per KV checksum in write batch is verified before a write batch is written to WAL to detect any corruption to the write batch (#10114).
 
