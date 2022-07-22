@@ -5,6 +5,9 @@
 
 #include "cache/compressed_secondary_cache.h"
 
+#include <gtest/gtest.h>
+#include <sys/stat.h>
+
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
@@ -86,10 +89,13 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
   void BasicTestHelper(std::shared_ptr<SecondaryCache> sec_cache) {
     std::shared_ptr<Statistics> stats = CreateDBStatistics();
+    Statistics* statistics = stats.get();
+    assert(statistics);
+
     bool is_in_sec_cache{true};
     // Lookup an non-existent key.
     std::unique_ptr<SecondaryCacheResultHandle> handle0 = sec_cache->Lookup(
-        "k0", test_item_creator, true, stats.get(), is_in_sec_cache);
+        "k0", test_item_creator, true, statistics, is_in_sec_cache);
     ASSERT_EQ(handle0, nullptr);
 
     Random rnd(301);
@@ -101,7 +107,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
                                 &CompressedSecondaryCacheTest::helper_));
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1 = sec_cache->Lookup(
-        "k1", test_item_creator, true, stats.get(), is_in_sec_cache);
+        "k1", test_item_creator, true, statistics, is_in_sec_cache);
     ASSERT_NE(handle1, nullptr);
     ASSERT_FALSE(is_in_sec_cache);
 
@@ -112,7 +118,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     // Lookup the first item again.
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
-        "k1", test_item_creator, true, stats.get(), is_in_sec_cache);
+        "k1", test_item_creator, true, statistics, is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the second item.
@@ -122,7 +128,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_OK(sec_cache->Insert("k2", &item2,
                                 &CompressedSecondaryCacheTest::helper_));
     std::unique_ptr<SecondaryCacheResultHandle> handle2 = sec_cache->Lookup(
-        "k2", test_item_creator, true, stats.get(), is_in_sec_cache);
+        "k2", test_item_creator, true, statistics, is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -200,11 +206,22 @@ class CompressedSecondaryCacheTest : public testing::Test {
                                 &CompressedSecondaryCacheTest::helper_));
     bool is_in_sec_cache{false};
     std::shared_ptr<Statistics> stats = CreateDBStatistics();
+    Statistics* statistics = stats.get();
+    assert(statistics);
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
-        "k1", test_item_creator, true, stats.get(), is_in_sec_cache);
+        "k1", test_item_creator, true, statistics, is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
     std::unique_ptr<SecondaryCacheResultHandle> handle2 = sec_cache->Lookup(
-        "k2", test_item_creator, true, stats.get(), is_in_sec_cache);
+        "k2", test_item_creator, true, statistics, is_in_sec_cache);
+    if (sec_cache_is_compressed && LZ4_Supported()) {
+      ASSERT_EQ(statistics->getTickerCount(COMP_SEC_CACHE_BYTES_UNCOMPRESSED),
+                200);
+      // str2 (RandomString) has low compression ratio and handle has metadata
+      // charge.
+      ASSERT_EQ(statistics->getTickerCount(COMP_SEC_CACHE_BYTES_COMPRESSED),
+                204);
+    }
+
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -214,7 +231,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // Create Fails.
     SetFailCreate(true);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 = sec_cache->Lookup(
-        "k2", test_item_creator, true, stats.get(), is_in_sec_cache);
+        "k2", test_item_creator, true, statistics, is_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     // Save Fails.
@@ -248,6 +265,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     lru_cache_opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(lru_cache_opts);
     std::shared_ptr<Statistics> stats = CreateDBStatistics();
+    Statistics* statistics = stats.get();
+    assert(statistics);
 
     Random rnd(301);
 
@@ -275,7 +294,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     Cache::Handle* handle;
     handle = cache->Lookup("k3", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
-                           stats.get());
+                           statistics);
     ASSERT_NE(handle, nullptr);
     TestItem* val3 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val3, nullptr);
@@ -285,14 +304,14 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // Lookup an non-existent key.
     handle = cache->Lookup("k0", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
-                           stats.get());
+                           statistics);
     ASSERT_EQ(handle, nullptr);
 
     // This Lookup should promote k1 and erase k1 from the secondary cache,
     // then k3 is demoted. So k2 and k3 are in the secondary cache.
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
-                           stats.get());
+                           statistics);
     ASSERT_NE(handle, nullptr);
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);
@@ -301,7 +320,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
-                           stats.get());
+                           statistics);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
 
