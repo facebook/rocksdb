@@ -2773,7 +2773,7 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // ROCKSDB_LITE
 
 // Group commit test:
-#if !defined(TRAVIS) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 // Disable this test temporarily on Travis and appveyor as it fails
 // intermittently. Github issue: #4151
 namespace {
@@ -2850,7 +2850,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));
 }
-#endif  // TRAVIS
+#endif  // OS_WIN
 
 namespace {
 using KVMap = std::map<std::string, std::string>;
