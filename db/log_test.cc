@@ -203,9 +203,7 @@ class LogTest
         // support record checksum yet.
         uint64_t actual_record_checksum =
             XXH3_64bits(record.data(), record.size());
-        if (actual_record_checksum != record_checksum) {
-          assert(actual_record_checksum == record_checksum);
-        }
+        assert(actual_record_checksum == record_checksum);
       }
       return record.ToString();
     } else {
