@@ -185,7 +185,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       log_dir_synced_(false),
       log_empty_(true),
       persist_stats_cf_handle_(nullptr),
-      log_sync_cv_(&mutex_),
+      log_sync_cv_(&log_write_mutex_),
       total_log_size_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
@@ -273,6 +273,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
 
+  max_total_wal_size_.store(mutable_db_options_.max_total_wal_size,
+                            std::memory_order_relaxed);
   if (write_buffer_manager_) {
     wbm_stall_.reset(new WBMStallInterface());
   }
@@ -625,26 +627,28 @@ Status DBImpl::CloseHelper() {
     job_context.Clean();
     mutex_.Lock();
   }
-
-  for (auto l : logs_to_free_) {
-    delete l;
-  }
-  for (auto& log : logs_) {
-    uint64_t log_number = log.writer->get_log_number();
-    Status s = log.ClearWriter();
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "Unable to Sync WAL file %s with error -- %s",
-          LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
-          s.ToString().c_str());
-      // Retain the first error
-      if (ret.ok()) {
-        ret = s;
+  {
+    InstrumentedMutexLock lock(&log_write_mutex_);
+    for (auto l : logs_to_free_) {
+      delete l;
+    }
+    for (auto& log : logs_) {
+      uint64_t log_number = log.writer->get_log_number();
+      Status s = log.ClearWriter();
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            immutable_db_options_.info_log,
+            "Unable to Sync WAL file %s with error -- %s",
+            LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
+            s.ToString().c_str());
+        // Retain the first error
+        if (ret.ok()) {
+          ret = s;
+        }
       }
     }
+    logs_.clear();
   }
-  logs_.clear();
 
   // Table cache may have table handles holding blocks from the block cache.
   // We need to release them before the block cache is destroyed. The block
@@ -1108,6 +1112,7 @@ Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
+  mutex_.AssertHeld();
   if (!job_context->logs_to_free.empty()) {
     for (auto l : job_context->logs_to_free) {
       AddToLogsToFreeQueue(l);
@@ -1285,6 +1290,11 @@ Status DBImpl::SetDBOptions(
             new_options.stats_persist_period_sec);
         mutex_.Lock();
       }
+      if (new_options.max_total_wal_size !=
+          mutable_db_options_.max_total_wal_size) {
+        max_total_wal_size_.store(new_options.max_total_wal_size,
+                                  std::memory_order_release);
+      }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
@@ -1405,7 +1415,7 @@ Status DBImpl::SyncWAL() {
   uint64_t current_log_number;
 
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     assert(!logs_.empty());
 
     // This SyncWAL() call only cares about logs up to this number.
@@ -1462,16 +1472,34 @@ Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
+  VersionEdit synced_wals;
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     if (status.ok()) {
-      status = MarkLogsSynced(current_log_number, need_log_dir_sync);
+      MarkLogsSynced(current_log_number, need_log_dir_sync, &synced_wals);
     } else {
       MarkLogsNotSynced(current_log_number);
     }
   }
+  if (status.ok() && synced_wals.IsWalAddition()) {
+    InstrumentedMutexLock l(&mutex_);
+    status = ApplyWALToManifest(&synced_wals);
+  }
+
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
+  return status;
+}
+
+Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
+  // not empty, write to MANIFEST.
+  mutex_.AssertHeld();
+  Status status =
+      versions_->LogAndApplyToDefaultColumnFamily(synced_wals, &mutex_);
+  if (!status.ok() && versions_->io_status().IsIOError()) {
+    status = error_handler_.SetBGError(versions_->io_status(),
+                                       BackgroundErrorReason::kManifestWrite);
+  }
   return status;
 }
 
@@ -1494,12 +1522,12 @@ Status DBImpl::UnlockWAL() {
   return Status::OK();
 }
 
-Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
-  mutex_.AssertHeld();
+void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
+                            VersionEdit* synced_wals) {
+  log_write_mutex_.AssertHeld();
   if (synced_dir && logfile_number_ == up_to) {
     log_dir_synced_ = true;
   }
-  VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
     assert(wal.IsSyncing());
@@ -1507,11 +1535,9 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     if (logs_.size() > 1) {
       if (immutable_db_options_.track_and_verify_wals_in_manifest &&
           wal.GetPreSyncSize() > 0) {
-        synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
+        synced_wals->AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
       }
       logs_to_free_.push_back(wal.ReleaseWriter());
-      // To modify logs_ both mutex_ and log_write_mutex_ must be held
-      InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
       wal.FinishSync();
@@ -1520,22 +1546,11 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   }
   assert(logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].IsSyncing()));
-
-  Status s;
-  if (synced_wals.IsWalAddition()) {
-    // not empty, write to MANIFEST.
-    s = versions_->LogAndApplyToDefaultColumnFamily(&synced_wals, &mutex_);
-    if (!s.ok() && versions_->io_status().IsIOError()) {
-      s = error_handler_.SetBGError(versions_->io_status(),
-                                    BackgroundErrorReason::kManifestWrite);
-    }
-  }
   log_sync_cv_.SignalAll();
-  return s;
 }
 
 void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
-  mutex_.AssertHeld();
+  log_write_mutex_.AssertHeld();
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
