@@ -154,7 +154,8 @@ void ClockHandleTable::ClockOn(ClockHandle* h) {
   bool is_high_priority =
       h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
   h->SetClockPriority(static_cast<ClockHandle::ClockPriority>(
-      is_high_priority ? ClockHandle::ClockPriority::HIGH : ClockHandle::ClockPriority::MEDIUM));
+      is_high_priority ? ClockHandle::ClockPriority::HIGH
+                       : ClockHandle::ClockPriority::MEDIUM));
 }
 
 void ClockHandleTable::Remove(ClockHandle* h,
@@ -563,7 +564,8 @@ size_t ClockCacheShard::GetPinnedUsage() const {
 ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
                        int num_shard_bits, bool strict_capacity_limit,
                        CacheMetadataChargePolicy metadata_charge_policy)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit), num_shards_(1 << num_shard_bits) {
+    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit),
+      num_shards_(1 << num_shard_bits) {
   assert(estimated_value_size > 0 ||
          metadata_charge_policy != kDontChargeCacheMetadata);
   shards_ = reinterpret_cast<ClockCacheShard*>(
