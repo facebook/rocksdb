@@ -442,7 +442,7 @@ Cache::Handle* LRUCacheShard::Lookup(
     assert(create_cb && helper->del_cb);
     bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
-        secondary_cache_->Lookup(key, create_cb, wait, is_in_sec_cache);
+        secondary_cache_->Lookup(key, create_cb, wait, stats, is_in_sec_cache);
     if (secondary_handle != nullptr) {
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
