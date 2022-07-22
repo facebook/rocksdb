@@ -78,7 +78,7 @@ public class BlobOptionsTest {
       assertThat(options.blobFileSize()).isEqualTo(268435456L);
       assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
       assertThat(options.blobGarbageCollectionForceThreshold()).isEqualTo(1.0);
-      assertThat(builder.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(5.0);
+      assertThat(options.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(5.0);
       assertThat(options.blobCompactionReadaheadSize()).isEqualTo(0);
       assertThat(options.prepopulateBlobCache())
           .isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
