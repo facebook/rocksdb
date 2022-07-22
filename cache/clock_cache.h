@@ -130,6 +130,7 @@ constexpr double kLoadFactor = 0.35;
 constexpr double kStrictLoadFactor = 0.7;
 
 // Maximum number of spins when trying to acquire a ref.
+// TODO(Guido) This value is arbitrary. What is a good value for this?
 constexpr uint32_t kSpinsPerTry = 100000;
 
 // Arbitrary seeds.
@@ -172,15 +173,24 @@ struct ClockHandle {
     // We prioritize readers---not only they don't use locks, but also don't use
     // compare-and-swap operations (which are much slower than atomic
     // arithmetic/bit operations).
-    // Using our own implementation of RW locks allows us to save many atomic
-    // operations by adequately packing data. In particular:
-    // - Combining EXTERNAL_REFS and SHARED_REFS allows us to convert an
-    //    internal reference into an external reference in a single atomic
-    //    arithmetic operation.
-    // - Combining SHARED_REFS and WILL_BE_DELETED allows us to attempt to take
-    //    a shared reference and check whether the entry is marked for deletion
-    //    (to decide if we should abort the attempt) in a single atomic
-    //    arithmetic operation.
+    // Internal references are used by threads to read slots during a probing
+    // sequence. External references are used to indicate that a slot is
+    // referenced by the user. Distinguishing internal from external references
+    // is useful for two reasons: The first one is that internal references are
+    // short lived, but external references may not. This is helpful when
+    // acquiring an exclusive ref: if there is are external references to the
+    // item, it's probably not worth waiting until they go away.
+    // The second one is that we can precisely determine when there are no more
+    // external references to a handle, and proceed to mark it for deletion.
+
+    // By packing these 4 data fields we can execute the following operations
+    // efficiently:
+    // - Convert an internal reference into an external reference in a single
+    //    atomic arithmetic operation.
+    // - Attempt to take a shared reference using a single atomic arithmetic
+    //    operation. This is because we can increment the internal ref count
+    //    as well as checking whether the entry is marked for deletion using a
+    //    single atomic arithmetic operation (and one non-atomic comparison).
   };
 
   static constexpr uint32_t kOneInternalRef = 0x8000;
@@ -425,6 +435,7 @@ struct ClockHandle {
     while (!refs.compare_exchange_strong(expected,
                                          EXCLUSIVE_REF | will_be_deleted) &&
            spins--) {
+      std::this_thread::yield();
       // TODO(Guido) What is the right way to bound the spinning? Should we also
       // yield after some number of unsuccessful tries? How many spins in total?
       if (expected & (EXTERNAL_REFS | EXCLUSIVE_REF)) {

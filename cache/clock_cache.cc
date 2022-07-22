@@ -118,7 +118,6 @@ void ClockHandleTable::Assign(ClockHandle* dst, ClockHandle* src) {
   dst->flags.store(0);
   dst->SetIsElement(true);
   dst->SetCachePriority(src->GetCachePriority());
-  // dst->SetClockPriority(ClockHandle::ClockPriority::NONE);
   occupancy_++;
 }
 
@@ -155,8 +154,7 @@ void ClockHandleTable::ClockOn(ClockHandle* h) {
   bool is_high_priority =
       h->HasHit() || h->GetCachePriority() == Cache::Priority::HIGH;
   h->SetClockPriority(static_cast<ClockHandle::ClockPriority>(
-      is_high_priority * ClockHandle::ClockPriority::HIGH +
-      (1 - is_high_priority) * ClockHandle::ClockPriority::MEDIUM));
+      is_high_priority ? ClockHandle::ClockPriority::HIGH : ClockHandle::ClockPriority::MEDIUM));
 }
 
 void ClockHandleTable::Remove(ClockHandle* h,
