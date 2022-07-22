@@ -12,10 +12,10 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
-#include <optional>
 
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
@@ -607,24 +607,21 @@ class MemTable {
   // Always returns non-null and assumes certain pre-checks are done
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq);
-  KeyHandle FormatEntry(SequenceNumber s, ValueType type,
-                        const Slice& key, /* user key */
-                        const Slice& value,
-                        std::unique_ptr<MemTableRep>& table,
-                        char** out_buf,
-                        uint32_t* encoded_len,
-                        const std::set<SequenceNumber, std::greater<SequenceNumber>>& tombstone_seqs);
-  bool InsertKey(std::unique_ptr<MemTableRep>& table,
-                 KeyHandle handle, SequenceNumber s,
-                 ValueType type,
+  KeyHandle FormatEntry(
+      SequenceNumber s, ValueType type, const Slice& key, /* user key */
+      const Slice& value, std::unique_ptr<MemTableRep>& table, char** out_buf,
+      uint32_t* encoded_len,
+      const std::set<SequenceNumber, std::greater<SequenceNumber>>&
+          tombstone_seqs,
+      Slice* key_slice = nullptr);
+  bool InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
+                 SequenceNumber s, ValueType type,
                  const Slice& key, /* user key */
-                 const Slice& value,
-                 uint32_t encoded_len,
-                 uint32_t* inserted_entries,
-                 uint32_t* inserted_len,
+                 const Slice& value, uint32_t encoded_len,
+                 uint32_t* inserted_entries, uint32_t* inserted_len,
                  std::function<bool(MemTableRep*, KeyHandle)> insert);
-  std::optional<SequenceNumber> MaxCoveringTombstoneSeqnum(const ReadOptions& read_options,
-                                                             const LookupKey& key);
+  std::optional<SequenceNumber> MaxCoveringTombstoneSeqnum(
+      const ReadOptions& read_options, const LookupKey& key);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

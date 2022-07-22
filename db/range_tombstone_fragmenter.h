@@ -40,7 +40,8 @@ struct FragmentedRangeTombstoneList {
   FragmentedRangeTombstoneList(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       const InternalKeyComparator& icmp, bool for_compaction = false,
-      const std::vector<SequenceNumber>& snapshots = {}, bool from_memtable=false);
+      const std::vector<SequenceNumber>& snapshots = {},
+      bool from_memtable = false);
 
   std::vector<RangeTombstoneStack>::const_iterator begin() const {
     return tombstones_.begin();
@@ -76,7 +77,8 @@ struct FragmentedRangeTombstoneList {
     return total_tombstone_payload_bytes_;
   }
 
-  static void DecodeRangeTombstoneValue(Slice* value, std::vector<SequenceNumber>& tombstone_seqs);
+  static void DecodeRangeTombstoneValue(
+      Slice* value, std::vector<SequenceNumber>& tombstone_seqs);
 
  private:
   // Given an ordered range tombstone iterator unfragmented_tombstones,
