@@ -538,6 +538,11 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size,
       } while (remaining > 0 || uncompressed_size == kBlockSize);
 
       if (fragment_checksum != nullptr) {
+        // We can remove this check by updating hash_state_ directly,
+        // but that requires resetting hash_state_ for full and first types
+        // for edge cases like consecutive fist type records.
+        // Leaving the check as is since it is cleaner and can revert to the
+        // above approach if it causes performance impact.
         *fragment_checksum = XXH3_64bits_digest(uncompress_hash_state_);
         uint64_t actual_checksum = XXH3_64bits(uncompressed_record_.data(),
                                                uncompressed_record_.size());
