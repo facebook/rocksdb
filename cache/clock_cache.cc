@@ -563,10 +563,9 @@ size_t ClockCacheShard::GetPinnedUsage() const {
 ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
                        int num_shard_bits, bool strict_capacity_limit,
                        CacheMetadataChargePolicy metadata_charge_policy)
-    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
+    : ShardedCache(capacity, num_shard_bits, strict_capacity_limit), num_shards_(1 << num_shard_bits) {
   assert(estimated_value_size > 0 ||
          metadata_charge_policy != kDontChargeCacheMetadata);
-  num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<ClockCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(ClockCacheShard) * num_shards_));
   size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;

@@ -687,20 +687,26 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
                         Statistics* /*stats*/) override {
     return Lookup(key, hash);
   }
+
   Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
 
   bool Release(Cache::Handle* handle, bool /*useful*/,
                bool erase_if_last_ref) override {
     return Release(handle, erase_if_last_ref);
   }
+
   bool IsReady(Cache::Handle* /*handle*/) override { return true; }
+
   void Wait(Cache::Handle* /*handle*/) override {}
 
   bool Ref(Cache::Handle* handle) override;
+
   bool Release(Cache::Handle* handle, bool erase_if_last_ref = false) override;
+
   void Erase(const Slice& key, uint32_t hash) override;
 
   size_t GetUsage() const override;
+
   size_t GetPinnedUsage() const override;
 
   void ApplyToSomeEntries(
@@ -745,19 +751,28 @@ class ClockCache
              bool strict_capacity_limit,
              CacheMetadataChargePolicy metadata_charge_policy =
                  kDontChargeCacheMetadata);
+
   ~ClockCache() override;
+
   const char* Name() const override { return "ClockCache"; }
+
   CacheShard* GetShard(uint32_t shard) override;
+
   const CacheShard* GetShard(uint32_t shard) const override;
+
   void* Value(Handle* handle) override;
+
   size_t GetCharge(Handle* handle) const override;
+
   uint32_t GetHash(Handle* handle) const override;
+
   DeleterFn GetDeleter(Handle* handle) const override;
+
   void DisownData() override;
 
  private:
   ClockCacheShard* shards_ = nullptr;
-  int num_shards_ = 0;
+  int num_shards_;
 };  // class ClockCache
 
 }  // namespace clock_cache
