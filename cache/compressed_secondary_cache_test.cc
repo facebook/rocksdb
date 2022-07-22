@@ -85,10 +85,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
   void SetFailCreate(bool fail) { fail_create_ = fail; }
 
   void BasicTestHelper(std::shared_ptr<SecondaryCache> sec_cache) {
+    std::shared_ptr<Statistics> stats = CreateDBStatistics();
     bool is_in_sec_cache{true};
     // Lookup an non-existent key.
-    std::unique_ptr<SecondaryCacheResultHandle> handle0 =
-        sec_cache->Lookup("k0", test_item_creator, true, is_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle0 = sec_cache->Lookup(
+        "k0", test_item_creator, true, stats.get(), is_in_sec_cache);
     ASSERT_EQ(handle0, nullptr);
 
     Random rnd(301);
@@ -99,8 +100,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
 
-    std::unique_ptr<SecondaryCacheResultHandle> handle1 =
-        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1 = sec_cache->Lookup(
+        "k1", test_item_creator, true, stats.get(), is_in_sec_cache);
     ASSERT_NE(handle1, nullptr);
     ASSERT_FALSE(is_in_sec_cache);
 
@@ -110,8 +111,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_EQ(memcmp(val1->Buf(), item1.Buf(), item1.Size()), 0);
 
     // Lookup the first item again.
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
-        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
+        "k1", test_item_creator, true, stats.get(), is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
     // Insert and Lookup the second item.
@@ -120,8 +121,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     TestItem item2(str2.data(), str2.length());
     ASSERT_OK(sec_cache->Insert("k2", &item2,
                                 &CompressedSecondaryCacheTest::helper_));
-    std::unique_ptr<SecondaryCacheResultHandle> handle2 =
-        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2 = sec_cache->Lookup(
+        "k2", test_item_creator, true, stats.get(), is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -198,11 +199,12 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_OK(sec_cache->Insert("k2", &item2,
                                 &CompressedSecondaryCacheTest::helper_));
     bool is_in_sec_cache{false};
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 =
-        sec_cache->Lookup("k1", test_item_creator, true, is_in_sec_cache);
+    std::shared_ptr<Statistics> stats = CreateDBStatistics();
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
+        "k1", test_item_creator, true, stats.get(), is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
-    std::unique_ptr<SecondaryCacheResultHandle> handle2 =
-        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2 = sec_cache->Lookup(
+        "k2", test_item_creator, true, stats.get(), is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
@@ -211,8 +213,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     // Create Fails.
     SetFailCreate(true);
-    std::unique_ptr<SecondaryCacheResultHandle> handle2_1 =
-        sec_cache->Lookup("k2", test_item_creator, true, is_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2_1 = sec_cache->Lookup(
+        "k2", test_item_creator, true, stats.get(), is_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     // Save Fails.

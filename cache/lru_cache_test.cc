@@ -592,7 +592,7 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool& is_in_sec_cache) override {
+      Statistics* /*stats*/, bool& is_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
