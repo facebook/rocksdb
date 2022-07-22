@@ -180,8 +180,6 @@ void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
       key,
       [&](ClockHandle* h) {
         if (h->TryInternalRef()) {
-          // TODO(Guido) This will not try to overwrite elements marked as
-          // WILL_BE_DELETED.
           if (h->IsElement() && h->Matches(key, hash)) {
             h->SetWillBeDeleted(true);
             h->ReleaseInternalRef();
@@ -206,15 +204,14 @@ ClockHandle* ClockHandleTable::FindAvailableSlot(
       [&](ClockHandle* h) {
         // To read the handle, first acquire a shared ref.
         if (h->TryInternalRef()) {
-          // TODO(Guido) This will not try to overwrite elements marked as
-          // WILL_BE_DELETED.
           if (h->IsElement()) {
             // The slot is not available.
-            if (h->Matches(key, hash)) {
-              // The key we're inserting is already in the table, so we
-              // try to delete it. When we are able to delete the handle,
-              // the slot becomes available, so we stop probing.
-              // Notice that in this case TryRemove returns an exclusive ref.
+            // TODO(Guido) Is it worth testing h->WillBeDeleted()?
+            if (h->WillBeDeleted() || h->Matches(key, hash)) {
+              // The slot can be freed up, or the key we're inserting is already
+              // in the table, so we try to delete it. When the attempt is
+              // successful, the slot becomes available, so we stop probing.
+              // Notice that in that case TryRemove returns an exclusive ref.
               h->SetWillBeDeleted(true);
               h->ReleaseInternalRef();
               if (TryRemove(h, deleted)) {
@@ -231,7 +228,6 @@ ClockHandle* ClockHandleTable::FindAvailableSlot(
           // Try to acquire an exclusive ref. If we fail, continue probing.
           if (h->SpinTryExclusiveRef()) {
             // Check that the slot is still available.
-            // TODO(Guido) We can avoid re-checking if we use a dirty bit.
             if (!h->IsElement()) {
               return true;
             }

@@ -31,8 +31,8 @@ namespace clock_cache {
 // An experimental (under development!) alternative to LRUCache, using a
 // lock-free open-address hash table and clock eviction.
 
-//-----------------------------------------------------------------------------
-//                          Part 1: Handles
+//
+//                        Part 1: Handles
 //
 // Every slot in the hash table is a ClockHandle. A handle can be in a few
 // different states, that stem from the fact that handles can be externally
@@ -63,8 +63,8 @@ namespace clock_cache {
 //    happen if the handle is visible, since references to an handle can only be
 //    created when it's visible.
 //
-//-----------------------------------------------------------------------------
-//                      Part 2: Hash table structure
+//
+//                        Part 2: Hash table structure
 //
 // Internally, the cache uses an open-addressed hash table to index the handles.
 // We use tombstone counters to keep track of displacements. Probes are
@@ -83,8 +83,8 @@ namespace clock_cache {
 // slot. In any case, the slot becomes available. When a handle is inserted
 // into that slot, it becomes a visible element again.
 //
-//-----------------------------------------------------------------------------
-//                      Part 3: The clock algorithm
+//
+//                        Part 3: The clock algorithm
 //
 // We maintain a circular buffer with the handles available for eviction,
 // which the clock algorithm traverses (using a "clock pointer") to pick the
@@ -106,7 +106,7 @@ namespace clock_cache {
 // algorithm must acknowledge this, and assign a non-NONE priority to make
 // the element evictable again.
 //
-//-----------------------------------------------------------------------------
+//
 
 // The load factor p is a real number in (0, 1) such that at all
 // times at most a fraction p of all slots, without counting tombstones,
@@ -183,7 +183,7 @@ struct ClockHandle {
     // The second one is that we can precisely determine when there are no more
     // external references to a handle, and proceed to mark it for deletion.
 
-    // By packing these 4 data fields we can execute the following operations
+    // By packing these 4 data fields we can support the following operations
     // efficiently:
     // - Convert an internal reference into an external reference in a single
     //    atomic arithmetic operation.
@@ -520,8 +520,8 @@ class ClockHandleTable {
     RemoveAll(key, hash, probe, deleted);
   }
 
-  // Tries to remove h from the hash table. If succeeds, hands over an
-  // exclusive ref to h.
+  // Tries to remove h from the hash table. If the attempt is successful,
+  // the function hands over an exclusive ref to h.
   bool TryRemove(ClockHandle* h, autovector<ClockHandle>* deleted);
 
   // Similar to TryRemove, except that it spins, increasing the chances of
@@ -606,8 +606,9 @@ class ClockHandleTable {
                                  uint32_t& probe,
                                  autovector<ClockHandle>* deleted);
 
-  // After a failed FindSlot call (i.e., with answer -1), this function
-  // decrements all displacements, starting from the 0-th probe.
+  // After a failed FindSlot call (i.e., with answer -1) in
+  // FindAvailableSlot, this function fixes all displacements
+  // starting from the 0-th probe.
   void Rollback(const Slice& key, uint32_t probe);
 
   // Number of hash bits used for table index.
@@ -620,7 +621,7 @@ class ClockHandleTable {
   // Maximum number of elements the user can store in the table.
   const uint32_t occupancy_limit_;
 
-  // Initialized before use.
+  // Maximum total charge of all elements stored in the table.
   const size_t capacity_;
 
   // ------------^^^^^^^^^^^^^-----------
