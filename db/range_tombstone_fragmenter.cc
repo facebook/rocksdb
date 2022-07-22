@@ -209,7 +209,7 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
     if (from_memtable) {
       // todo: the process for memtable v2 can be potentially optimized.
       std::vector<SequenceNumber> tombstone_seqs;
-      DecodeRangeTombstoneValue(&tombstone_end_key, tombstone_seqs);
+      DecodeRangeTombstoneValue(&tombstone_end_key, &tombstone_seqs);
       total_tombstone_payload_bytes_ += tombstone_end_key.size();
       for (auto s : tombstone_seqs) {
         cur_end_keys.emplace(tombstone_end_key, s, kTypeRangeDeletion);
@@ -238,15 +238,17 @@ bool FragmentedRangeTombstoneList::ContainsRange(SequenceNumber lower,
 }
 
 void FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(
-    Slice* value, std::vector<SequenceNumber>& tombstone_seqs) {
+    Slice* value, std::vector<SequenceNumber>* tombstone_seqs) {
   uint32_t count = 0;
   GetVarint32(value, &count);
   *value = Slice(value->data(), value->size() - 8 * count);
   const char* p = value->data() + value->size();
-  for (; count > 0; count--) {
-    auto s = DecodeFixed64(p);
-    tombstone_seqs.push_back(s);
-    p += 8;
+  if (tombstone_seqs) {
+    for (; count > 0; count--) {
+      auto s = DecodeFixed64(p);
+      tombstone_seqs->push_back(s);
+      p += 8;
+    }
   }
 }
 

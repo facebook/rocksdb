@@ -610,7 +610,7 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
     last_start_key = tombstone_start_key;
     std::vector<SequenceNumber> tombstone_seqs;
     FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key,
-                                                            tombstone_seqs);
+                                                            &tombstone_seqs);
     int start_compare = user_comparator->Compare(key, tombstone_start_key);
     if (start_compare > 0) {
       int end_compare = user_comparator->Compare(value, tombstone_end_key);
@@ -754,52 +754,35 @@ std::optional<SequenceNumber> MemTable::MaxCoveringTombstoneSeqnum(
     return std::nullopt;
   }
 
-  iter->SeekForPrev(key.internal_key());
-  SequenceNumber read_seq = GetInternalKeySeqno(key.internal_key());
-  auto const& user_comparator = comparator_.comparator.user_comparator();
-  if (iter->Valid()) {
-    Slice tombstone_start_key = ExtractUserKey(iter->key());
-    Slice tombstone_end_key = iter->value();
-    std::vector<SequenceNumber> tombstone_seqs;
-    FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key,
-                                                            tombstone_seqs);
-    int start_compare =
-        user_comparator->Compare(key.user_key(), tombstone_start_key);
-    int end_compare =
-        user_comparator->Compare(key.user_key(), tombstone_end_key);
-    if (start_compare > 0 && end_compare < 0) {
-      ParsedInternalKey k(tombstone_start_key, read_seq, kTypeRangeDeletion);
-      std::string s;
-      AppendInternalKey(&s, k);
-      iter->Seek(Slice(s.data(), s.size()));
-    } else if (start_compare > 0) {
-      iter->Next();
-    }
-  } else {
-    iter->Seek(key.internal_key());
+  Slice user_key = key.user_key();
+  ParsedInternalKey seek_internal_key(user_key, 0, kTypeRangeDeletion);
+  std::string seek_key;
+  AppendInternalKey(&seek_key, seek_internal_key);
+  iter->SeekForPrev(Slice(seek_key.data(), seek_key.size()));
+  if (!iter->Valid()) {
+    return std::nullopt;
+  }
+  Slice tombstone_end_key = iter->value();
+  FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key, nullptr);
+  if (comparator_.comparator.user_comparator()->Compare(user_key, tombstone_end_key) >= 0) {
+    return std::nullopt;
   }
 
-  std::optional<SequenceNumber> max_seq;
-  // if we store Tombstone seqnum instead of Fragment seqnum in key, we can
-  // avoid this iteration.
-  if (iter->Valid()) {
-    Slice tombstone_start_key = ExtractUserKey(iter->key());
-    Slice tombstone_end_key = iter->value();
-    std::vector<SequenceNumber> tombstone_seqs;
-    FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key,
-                                                            tombstone_seqs);
-    if (user_comparator->Compare(tombstone_start_key, key.user_key()) > 0 ||
-        user_comparator->Compare(tombstone_end_key, key.user_key()) <= 0) {
-      return max_seq;
-    }
-    for (auto s : tombstone_seqs) {
-      if (s <= read_seq) {
-        max_seq = max_seq ? std::max(*max_seq, s) : s;
-        return max_seq;
-      }
+  ParsedInternalKey k(ExtractUserKey(iter->key()), kMaxSequenceNumber, kTypeRangeDeletion);
+  std::string s;
+  AppendInternalKey(&s, k);
+  iter->Seek(Slice(s.data(), s.size()));
+
+  tombstone_end_key = iter->value();
+  std::vector<SequenceNumber> tombstone_seqs;
+  FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key, &tombstone_seqs);
+  SequenceNumber read_seq = GetInternalKeySeqno(key.internal_key());
+  for (auto t: tombstone_seqs) {
+    if (t <= read_seq) {
+      return t;
     }
   }
-  return max_seq;
+  return std::nullopt;
 }
 
 Status MemTable::Add(SequenceNumber s, ValueType type,

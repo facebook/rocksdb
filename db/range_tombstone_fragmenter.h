@@ -78,7 +78,7 @@ struct FragmentedRangeTombstoneList {
   }
 
   static void DecodeRangeTombstoneValue(
-      Slice* value, std::vector<SequenceNumber>& tombstone_seqs);
+      Slice* value, std::vector<SequenceNumber>* tombstone_seqs);
 
  private:
   // Given an ordered range tombstone iterator unfragmented_tombstones,
