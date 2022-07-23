@@ -2209,6 +2209,16 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   WaitForFlush(2);
   // 3 files for default column families, 1 file for column family [two], zero
   // files for column family [one], because it's empty
+
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  if (metadata.size() != 4) {
+    int i = 0;
+    for (const auto& meta : metadata) {
+      std::cout << i++ << ": " << meta.column_family_name << ", " << meta.level
+                << ", " << meta.file_type << std::endl;
+    }
+  }
   AssertCountLiveFiles(4);
 
   ASSERT_OK(Flush(0));
