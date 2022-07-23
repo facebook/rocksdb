@@ -492,7 +492,7 @@ TEST_F(DBTest, PutSingleDeleteGet) {
     ASSERT_EQ("v2", Get(1, "foo2"));
     ASSERT_OK(SingleDelete(1, "foo"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -645,7 +645,7 @@ TEST_F(DBTest, SingleDeleteFlush) {
 
     ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction beccaus they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -668,7 +668,7 @@ TEST_F(DBTest, SingleDeletePutFlush) {
     ASSERT_OK(Flush(1));
 
     ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction beccaus they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -1993,7 +1993,7 @@ TEST_F(DBTest, UnremovableSingleDelete) {
     ASSERT_EQ("first", Get(1, "foo", snapshot));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
     db_->ReleaseSnapshot(snapshot);
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
