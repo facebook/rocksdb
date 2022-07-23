@@ -2218,6 +2218,7 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
       std::cout << i++ << ": " << meta.column_family_name << ", " << meta.level
                 << ", " << meta.file_type << std::endl;
     }
+    env_->SleepForMicroseconds(1000000000);
   }
   AssertCountLiveFiles(4);
 
