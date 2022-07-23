@@ -780,14 +780,13 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator(Arena* alloc_arena) {
         }
       } else {
         auto* skip_list_header = GetSkipListBucketHeader(bucket);
-        if (skip_list_header != nullptr) {
-          // Is a skip list
-          MemtableSkipList::Iterator itr(&skip_list_header->skip_list);
-          for (itr.SeekToFirst(); itr.Valid(); itr.Next()) {
-            list->Insert(itr.key());
-            count++;
+        assert(skip_list_header != nullptr);
+        // Is a skip list
+        MemtableSkipList::Iterator itr(&skip_list_header->skip_list);
+        for (itr.SeekToFirst(); itr.Valid(); itr.Next()) {
+          list->Insert(itr.key());
+          count++;
           }
-        }
       }
     }
     if (if_log_bucket_dist_when_flash_) {
