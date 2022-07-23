@@ -2063,10 +2063,10 @@ Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
     iiter_unique_ptr.reset(iiter);
   }
 
-  // If needed the threshold could be more adaptive. For example, it can be based
-  // on size, so that a larger will be sampled to more partitions than a smaller
-  // file. The size might also need to be passed in by the caller based on total
-  // compaction size.
+  // If needed the threshold could be more adaptive. For example, it can be
+  // based on size, so that a larger will be sampled to more partitions than a
+  // smaller file. The size might also need to be passed in by the caller based
+  // on total compaction size.
   const uint64_t kMaxNumAnchors = uint64_t{128};
   uint64_t num_blocks = this->GetTableProperties()->num_data_blocks;
   uint64_t num_blocks_per_anchor = num_blocks / kMaxNumAnchors;
