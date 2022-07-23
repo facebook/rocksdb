@@ -539,7 +539,7 @@ Status TableCache::ApproximateKeyAnchors(
       t = GetTableReaderFromHandle(handle);
     }
   }
-  if (s.ok()) {
+  if (s.ok() && t != nullptr) {
     s = t->ApproximateKeyAnchors(ro, anchors);
   }
   if (handle != nullptr) {
