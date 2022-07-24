@@ -3012,7 +3012,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     // factor to multiply the value of (total blob bytes - garbage blob bytes)
     // to get an estimate of the live blob bytes from the user's perspective.
     double total_data_size = 0;
-    for (size_t level = 0; level < num_levels(); level++) {
+    for (int level = 0; level < num_levels(); level++) {
       total_data_size += TotalFileSize(files_[level]);
     }
     double lsm_tree_space_amp = EstimateLiveDataSize() / total_data_size;
