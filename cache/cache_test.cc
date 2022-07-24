@@ -446,8 +446,8 @@ TEST_P(CacheTest, EvictionPolicy) {
   Insert(100, 101);
   Insert(200, 201);
 
-  // Frequently used entry must be kept around
-  for (int i = 0; i < kCacheSize * 2; i++) {
+  // Frequently used entry must be kept around.
+  for (int i = 0; i < 2 * kCacheSize; i++) {
     Insert(1000+i, 2000+i);
     ASSERT_EQ(101, Lookup(100));
   }
@@ -469,8 +469,8 @@ TEST_P(CacheTest, ExternalRefPinsEntries) {
       // the below insertions should push out the cache entry.
       cache_->Release(h);
     }
-    // double cache size because the usage bit in block cache prevents 100 from
-    // being evicted in the first kCacheSize iterations
+    // Many times the cache size because clock won't evict 100 in the first
+    // kCacheSize iterations.
     for (int j = 0; j < 2 * kCacheSize + 100; j++) {
       Insert(1000 + j, 2000 + j);
     }
@@ -500,9 +500,7 @@ TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(303, 104);
 
   // Insert entries much more than cache capacity.
-  double load_factor =
-      std::min(fast_lru_cache::kLoadFactor, clock_cache::kLoadFactor);
-  for (int i = 0; i < 2 * static_cast<int>(kCacheSize / load_factor); i++) {
+  for (int i = 0; i < 10 * kCacheSize; i++) {
     Insert(1000 + i, 2000 + i);
   }
 
@@ -590,7 +588,7 @@ TEST_P(CacheTest, HeavyEntries) {
   const int kHeavy = 10;
   int added = 0;
   int index = 0;
-  while (added < 2*kCacheSize) {
+  while (added < 2 * kCacheSize) {
     const int weight = (index & 1) ? kLight : kHeavy;
     Insert(index, 1000+index, weight);
     added += weight;

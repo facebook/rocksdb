@@ -271,6 +271,7 @@ struct ClockHandle {
     value = other.value;
     deleter = other.deleter;
     key_data = other.key_data;
+    total_charge = other.total_charge;
   }
 
   Slice key() const { return Slice(key_data.data(), kCacheKeySize); }
@@ -503,7 +504,7 @@ class ClockHandleTable {
 
   // Runs the clock eviction algorithm until there is enough space to
   // insert an element with the given charge.
-  void ClockRun(size_t charge, autovector<ClockHandle>* deleted);
+  void ClockRun(size_t charge);
 
   // Remove h from the hash table. Requires an exclusive ref to h.
   void Remove(ClockHandle* h, autovector<ClockHandle>* deleted);
@@ -519,6 +520,8 @@ class ClockHandleTable {
     uint32_t probe = 0;
     RemoveAll(key, hash, probe, deleted);
   }
+
+  void Free(autovector<ClockHandle>* deleted);
 
   // Tries to remove h from the hash table. If the attempt is successful,
   // the function hands over an exclusive ref to h.
@@ -624,24 +627,19 @@ class ClockHandleTable {
   // Maximum total charge of all elements stored in the table.
   const size_t capacity_;
 
-  // ------------^^^^^^^^^^^^^-----------
-  // Not frequently modified data members
-  // ------------------------------------
-  //
-  // We separate data members that are updated frequently from the ones that
-  // are not frequently updated so that they don't share the same cache line
-  // which will lead into false cache sharing
-  //
-  // ------------------------------------
-  // Frequently modified data members
-  // ------------vvvvvvvvvvvvv-----------
+  // We partition the following members into different cache lines,
+  // depending on which operations depend on them, to avoid false
+  // sharing.
 
+  ALIGN_AS(CACHE_LINE_SIZE)
   // Array of slots comprising the hash table.
   std::unique_ptr<ClockHandle[]> array_;
 
+  ALIGN_AS(CACHE_LINE_SIZE)
   // Clock algorithm sweep pointer.
   std::atomic<uint32_t> clock_pointer_;
 
+  ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.
   std::atomic<uint32_t> occupancy_;
 
