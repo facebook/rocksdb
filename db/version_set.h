@@ -220,7 +220,8 @@ class VersionStorageInfo {
   // REQUIRES: DB mutex held
   void ComputeFilesMarkedForForcedBlobGC(
       double blob_garbage_collection_age_cutoff,
-      double blob_garbage_collection_force_threshold);
+      double blob_garbage_collection_force_threshold,
+      double blob_garbage_collection_space_amp_limit);
 
   bool level0_non_overlapping() const {
     return level0_non_overlapping_;

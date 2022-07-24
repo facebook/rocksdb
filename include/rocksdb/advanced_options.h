@@ -976,10 +976,10 @@ struct AdvancedColumnFamilyOptions {
   // Note that enable_blob_garbage_collection has to be set in order for this
   // option to have any effect.
   //
-  // Default: 5.0
+  // Default: 0.0 (disable)
   //
   // Dynamically changeable through the SetOptions() API
-  double blob_garbage_collection_space_amp_limit = 5.0;
+  double blob_garbage_collection_space_amp_limit = 0.0;
 
   // Compaction readahead for blob files.
   //
