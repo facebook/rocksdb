@@ -39,8 +39,13 @@ ClockHandleTable::ClockHandleTable(size_t capacity, int hash_bits)
 }
 
 ClockHandleTable::~ClockHandleTable() {
-  ApplyToEntriesRange([](ClockHandle* h) { h->FreeData(); }, 0, GetTableSize(),
-                      true);
+  // Assumes there are no references (of any type) to any slot in the table.
+  for (uint32_t i = 0; i < GetTableSize(); i++) {
+    ClockHandle* h = &array_[i];
+    if (h->IsElement()) {
+      h->FreeData();
+    }
+  }
 }
 
 ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
@@ -195,6 +200,11 @@ void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
 }
 
 void ClockHandleTable::Free(autovector<ClockHandle>* deleted) {
+  if (deleted->size() == 0) {
+    // Avoid unnecessarily reading usage_ and occupancy_.
+    return;
+  }
+
   size_t deleted_charge = 0;
   for (auto& h : *deleted) {
     deleted_charge += h.total_charge;
@@ -300,8 +310,8 @@ void ClockHandleTable::Rollback(const Slice& key, uint32_t probe) {
 void ClockHandleTable::ClockRun(size_t charge) {
   // TODO(Guido) When an element is in the probe sequence of a
   // hot element, it will be hard to get an exclusive ref.
-  // We may need a mechanism to prevent an element  from sitting
-  // forever in cache waiting to be evicted.
+  // Do we need a mechanism to prevent an element from sitting
+  // for a long time in cache waiting to be evicted?
   assert(charge <= capacity_);
   autovector<ClockHandle> deleted;
   uint32_t max_iterations =
@@ -321,10 +331,11 @@ void ClockHandleTable::ClockRun(size_t charge) {
           if (!h->IsInClock() && h->IsElement()) {
             // We adjust the clock priority to make the element evictable again.
             // Why? Elements that are not in clock are either currently
-            // externally referenced or used to be---because we are holding an
+            // externally referenced or used to be. Because we are holding an
             // exclusive ref, we know we are in the latter case. This can only
             // happen when the last external reference to an element was
             // released, and the element was not immediately removed.
+
             ClockOn(h);
           }
           ClockHandle::ClockPriority priority = h->GetClockPriority();
@@ -383,7 +394,7 @@ void ClockCacheShard::ApplyToSomeEntries(
   uint32_t index_begin = *state >> (32 - length_bits);
   uint32_t index_end = index_begin + average_entries_per_lock;
   if (index_end >= length) {
-    // Going to end
+    // Going to end.
     index_end = length;
     *state = UINT32_MAX;
   } else {
@@ -420,11 +431,11 @@ int ClockCacheShard::CalcHashBits(
 }
 
 void ClockCacheShard::SetCapacity(size_t /*capacity*/) {
-  assert(false);  // Not supported. TODO(Guido) Support it?
+  assert(false);  // Not supported.
 }
 
 void ClockCacheShard::SetStrictCapacityLimit(bool /*strict_capacity_limit*/) {
-  assert(false);  // Not supported. TODO(Guido) Support it?
+  assert(false);  // Not supported.
 }
 
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,

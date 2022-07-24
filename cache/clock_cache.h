@@ -28,85 +28,136 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace clock_cache {
 
-// An experimental (under development!) alternative to LRUCache, using a
-// lock-free open-address hash table and clock eviction.
+// An experimental alternative to LRUCache, using a lock-free, open-addressed
+// hash table and clock eviction.
 
+// ----------------------------------------------------------------------------
+// 1. INTRODUCTION
 //
-//                        Part 1: Handles
-//
-// Every slot in the hash table is a ClockHandle. A handle can be in a few
-// different states, that stem from the fact that handles can be externally
-// referenced and, thus, can't always be immediately evicted when a delete
-// operation is executed or when they are replaced by a new version (via an
-// insert of the same key). Concretely, the state of a handle is defined by the
-// following two properties:
-// (R) Externally referenced: A handle can be referenced externally, or not.
-//    Importantly, a handle can be evicted if and only if it's not
-//    referenced. In particular, when an handle becomes referenced, it's
-//    temporarily taken out of clock until all references to it are released.
-// (M) Marked for deletion (or invisible): An handle becomes marked for deletion
-//    when an operation tries to delete it. When the handle is externally
-//    referenced, it can't be immediately deleted and the attempt fails.
-//    In these cases, the mark will be used later by the eviction algorithm.
-//    When this mark is placed, lookups are no longer be able to find the
-//    handle. Consequently, no more external references can be taken to the
-//    handle. For this reason, When a handle is marked for deletion, we also
-//    say it's invisible.
-// These properties induce 4 different states, with transitions defined as
-// follows:
-// - Not M --> M: When a handle is deleted or replaced by a new version, but
-//    not immediately evicted.
-// - M --> not M: This cannot happen. Once a handle is marked for deletion,
-//    there is no way back.
-// - R --> not R: When all references to an handle are released.
-// - Not R --> R: When an unreferenced handle becomes referenced. This can only
-//    happen if the handle is visible, since references to an handle can only be
-//    created when it's visible.
+// In RocksDB, a Cache is a concurrent unordered dictionary that supports
+// external references (a.k.a. user references). A ClockCache is a type of Cache
+// that uses the clock algorithm as its eviction policy. Internally, a
+// ClockCache is an open-addressed hash table that stores all KV pairs in a
+// large array. Every slot in the hash table is a ClockHandle, which holds a KV
+// pair plus some additional metadata that controls the different aspects of the
+// cache: external references, the hashing mechanism, concurrent access and the
+// clock algorithm.
 //
 //
-//                        Part 2: Hash table structure
+// 2. EXTERNAL REFERENCES
 //
-// Internally, the cache uses an open-addressed hash table to index the handles.
-// We use tombstone counters to keep track of displacements. Probes are
-// generated with double-hashing (but the code can be easily modified to use
-// other probing schemes, like linear hashing). Because of the tombstones and
-// the two possible visibility states of a handle, the table slots (we use the
-// word "slot" to refer to handles that are not necessary valid key-value
-// elements) can be in 4 different states:
-// 1. Visible element: The slot contains an element in not M state.
-// 2. To-be-deleted element: The slot contains an element in M state.
-// 3. Tombstone: The slot doesn't contain an element, but there is some other
+// An externally referenced handle can't be deleted (either evicted by the clock
+// algorithm, or explicitly deleted) or replaced by a new version (via an insert
+// of the same key) until all external references to it have been released by
+// the users. ClockHandles have two members to support external references:
+// - EXTERNAL_REFS counter: The number of external refs. When EXTERNAL_REFS > 0,
+// the handle
+//    is externally referenced. Updates that intend to modify the handle will
+//    refrain from doing so. Eventually, when all references are released, we
+//    have EXTERNAL_REFS == 0, and updates can operate normally on the handle.
+// - WILL_BE_DELETED flag: An handle is marked for deletion when an operation
+//    decides the handle should be deleted. This happens either when the last
+//    reference to a handle is released (and the release operation is instructed
+//    to delete on last reference) or on when a delete operation is called on
+//    the item. This flag is needed because an externally referenced handle
+//    can't be immediately deleted. In these cases, the flag will be later read
+//    and acted upon by the eviction algorithm. Importantly, WILL_BE_DELETED is
+//    used not only to defer deletions, but also as a barrier for external
+//    references: once WILL_BE_DELETED is set, lookups (which are the means to
+//    take new external references) will ignore the handle. For this reason,
+//    when WILL_BE_DELETED is set, we say the handle is invisible (and
+//    otherwise, that it's visible).
+//
+//
+// 3. HASHING AND COLLISION RESOLUTION
+//
+// ClockCache uses an open-addressed hash table to store the handles.
+// We use a variant of tombstones to manage collisions: every slot keeps a
+// count of how many KV pairs that are currently in the cache have probed the
+// slot in an attempt to insert. Probes are generated with double-hashing
+// (although the code can be easily modified to use other probing schemes, like
+// linear probing).
+//
+// A slot in the hash table can be in a few different states:
+// - Element: The slot contains an element. This is indicated with the
+//    IS_ELEMENT flag. Element can be sub-classified depending on the
+//    value of WILL_BE_DELETED:
+//    * Visible element.
+//    * Invisible element.
+// - Tombstone: The slot doesn't contain an element, but there is some other
 //    element that probed this slot during its insertion.
-// 4. Empty: The slot is unused.
-// When a ghost is removed from the table, it can either transition to being a
-// tombstone or an empty slot, depending on the number of displacements of the
-// slot. In any case, the slot becomes available. When a handle is inserted
-// into that slot, it becomes a visible element again.
+// - Empty: The slot is unused---it's neither an element nor a tombstone.
+//
+// A slot cycles through the following sequence of states:
+// empty or tombstone --> visible element --> invisible element -->
+// empty or tombstone. Initially a slot is available---it's either
+// empty or a tombstone. As soon as a KV pair is written into the slot, it
+// becomes a visible element. At some point, the handle will be deleted
+// by an explicit delete operation, the eviction algorithm, or an overwriting
+// insert. In either case, the handle is marked for deletion. When the an
+// attempt to delete the element finally succeeds, the slot is freed up
+// and becomes available again.
 //
 //
-//                        Part 3: The clock algorithm
+// 4. CONCURRENCY
 //
-// We maintain a circular buffer with the handles available for eviction,
-// which the clock algorithm traverses (using a "clock pointer") to pick the
-// next victim. We use the hash table array as the circular buffer, and mark
-// the handles that are evictable. For this we use different clock flags, namely
-// NONE, LOW, MEDIUM, HIGH, that represent priorities: LOW, MEDIUM and HIGH
-// represent how close an element is from being evictable, LOW being immediately
-// evictable. NONE means the slot is not evictable. This is due to one of the
-// following reasons:
-// (i) the slot doesn't contain an element, or
-// (ii) the slot contains an element that is in R state, or
-// (iii) the slot contains an element that was in R state but it's
-//      not any more, and the clock pointer has not swept through the
-//      slot since the element stopped being referenced.
+// ClockCache is lock-free. At a high level, we synchronize the operations
+// using a read-prioritized, non-blocking variant of RW locks on every slot of
+// the hash table. To do this we generalize the concept of reference:
+// - Internal reference: Taken by a thread that is attempting to read a slot
+//    or do a very precise type of update.
+// - Exclusive reference: Taken by a thread that is attempting to write a
+//    a slot extensively.
 //
-// The priority NONE is really only important for case (iii), as in the other
-// two cases there are other metadata fields that already capture the state.
-// When an element stops being referenced (and is not deleted), the clock
-// algorithm must acknowledge this, and assign a non-NONE priority to make
-// the element evictable again.
+// We defer the precise definitions to the comments in the code below.
+// A crucial feature of our references is that attempting to take one never
+// blocks the thread. Another important feature is that readers are
+// prioritized, as they use extremely fast synchronization primitives---they
+// use atomic arithmetic/bit operations, but no compare-and-swaps (which are
+// much slower).
+//
+// Internal references are used by threads to read slots during a probing
+// sequence, making them the most common references (probing is performed
+// in almost every operation, not just lookups). During a lookup, once
+// the target element is found, and just before the handle is handed over
+// to the user, an internal reference is converted into an external reference.
+// During an update operation, once the target slot is found, an internal
+// reference is converted into an exclusive reference. Interestingly, we can't
+// upgrade from internal to exclusive atomically, or we run the risk of
+// deadlock. One of the challenges our data structure solves is to guarantee
+// updates are safe even without atomic reference upgrades.
+//
+// Distinguishing internal from external references is useful for two reasons:
+// - Internal references are short lived, but external references may not.
+//    This is helpful when acquiring an exclusive ref: if there is are external
+//    references to the item, it's probably not worth waiting until they go
+//    away.
+// - We can precisely determine when there are no more external references to a
+//    handle, and proceed to mark it for deletion. This is useful when users
+//    release external references.
 //
 //
+// 5. CLOCK ALGORITHM
+//
+// Using a "clock pointer", the clock algorithm circularly sweeps through the
+// hash table to find the next victim. Recall that handles that are referenced
+// are not evictable; the clock algorithm never picks those. We use different
+// clock priorities: NONE, LOW, MEDIUM and HIGH. Priorities LOW, MEDIUM and HIGH
+// represent how close an element is from being evicted, LOW being the closest
+// to evicted. NONE means the slot is not evictable. NONE priority is used in
+// one of the following cases:
+// (a) the slot doesn't contain an element, or
+// (b) the slot contains an externally referenced element, or
+// (c) the slot contains an element that used to be externally referenced, but
+//      it's not any more, and the clock pointer has not swept through the
+//      slot since the element stopped being externally referenced.
+//
+// The priority NONE is especially important in case (c) (in the other
+// two cases there are other metadata fields that already characterize the
+// state): when an element stops being referenced (and is not immediately
+// deleted), the clock algorithm must be able to detect it, and make the element
+// evictable again.
+// ----------------------------------------------------------------------------
 
 // The load factor p is a real number in (0, 1) such that at all
 // times at most a fraction p of all slots, without counting tombstones,
@@ -130,7 +181,8 @@ constexpr double kLoadFactor = 0.35;
 constexpr double kStrictLoadFactor = 0.7;
 
 // Maximum number of spins when trying to acquire a ref.
-// TODO(Guido) This value is arbitrary. What is a good value for this?
+// TODO(Guido) This value was set arbitrarily. Is it appropriate?
+// What's the best way to bound the spinning?
 constexpr uint32_t kSpinsPerTry = 100000;
 
 // Arbitrary seeds.
@@ -144,60 +196,6 @@ struct ClockHandle {
   size_t total_charge;
   std::array<char, kCacheKeySize> key_data;
 
-  static constexpr uint8_t kExternalRefsOffset = 0;
-  static constexpr uint8_t kSharedRefsOffset = 15;
-  static constexpr uint8_t kExclusiveRefOffset = 30;
-  static constexpr uint8_t kWillBeDeletedOffset = 31;
-
-  enum Refs : uint32_t {
-    // Number of external references to the slot.
-    EXTERNAL_REFS = ((uint32_t{1} << 15) - 1)
-                    << kExternalRefsOffset,  // Bits 0, ..., 14
-    // Number of internal references plus external references to the slot.
-    SHARED_REFS = ((uint32_t{1} << 15) - 1)
-                  << kSharedRefsOffset,  // Bits 15, ..., 29
-    // Whether a thread has an exclusive reference to the slot.
-    EXCLUSIVE_REF = uint32_t{1} << kExclusiveRefOffset,  // Bit 30
-    // Whether the handle will be deleted soon. When this bit is set, new
-    // internal
-    // or external references to this handle stop being accepted.
-    // There is an exception: external references can be created from
-    // existing external references, or converting from existing internal
-    // references.
-    WILL_BE_DELETED = uint32_t{1} << kWillBeDeletedOffset  // Bit 31
-
-    // Shared references (i.e., external and internal references) and exclusive
-    // references are functionally equivalent to RW locks (external and internal
-    // references are read locks, and exclusive references are write locks).
-    // Importantly, attempting to take a reference never blocks the thread.
-    // We prioritize readers---not only they don't use locks, but also don't use
-    // compare-and-swap operations (which are much slower than atomic
-    // arithmetic/bit operations).
-    // Internal references are used by threads to read slots during a probing
-    // sequence. External references are used to indicate that a slot is
-    // referenced by the user. Distinguishing internal from external references
-    // is useful for two reasons: The first one is that internal references are
-    // short lived, but external references may not. This is helpful when
-    // acquiring an exclusive ref: if there is are external references to the
-    // item, it's probably not worth waiting until they go away.
-    // The second one is that we can precisely determine when there are no more
-    // external references to a handle, and proceed to mark it for deletion.
-
-    // By packing these 4 data fields we can support the following operations
-    // efficiently:
-    // - Convert an internal reference into an external reference in a single
-    //    atomic arithmetic operation.
-    // - Attempt to take a shared reference using a single atomic arithmetic
-    //    operation. This is because we can increment the internal ref count
-    //    as well as checking whether the entry is marked for deletion using a
-    //    single atomic arithmetic operation (and one non-atomic comparison).
-  };
-
-  static constexpr uint32_t kOneInternalRef = 0x8000;
-  static constexpr uint32_t kOneExternalRef = 0x8001;
-
-  std::atomic<uint32_t> refs;
-
   static constexpr uint8_t kIsElementOffset = 1;
   static constexpr uint8_t kClockPriorityOffset = 2;
   static constexpr uint8_t kIsHitOffset = 4;
@@ -210,7 +208,7 @@ struct ClockHandle {
     CLOCK_PRIORITY = 3 << kClockPriorityOffset,
     // Whether the handle has been looked up after its insertion.
     HAS_HIT = 1 << kIsHitOffset,
-    // The value of Cache::Priority for the handle.
+    // The value of Cache::Priority of the handle.
     CACHE_PRIORITY = 1 << kCachePriorityOffset,
   };
 
@@ -227,29 +225,67 @@ struct ClockHandle {
   // up in this slot or a higher one.
   std::atomic<uint32_t> displacements;
 
-  // Synchronization rules:
-  // - Use a shared reference when we want the handle's identity
-  //    members (key_data, hash, value and IS_ELEMENT flag) to
-  //    remain untouched, but not modify them. The only updates
-  //    that a shared reference allows are:
-  //      * set CLOCK_PRIORITY to NONE;
-  //      * set the HAS_HIT bit.
-  //      * set the WILL_BE_DELETED bit.
-  //    Notice that these three types of updates are idempotent, so
-  //    they don't require synchronization across shared references.
-  // - Use an exclusive reference when we want identity members
-  //    to remain untouched, as well as modify any identity member
-  //    or flag.
-  // - displacements can be modified without holding a reference.
+  static constexpr uint8_t kExternalRefsOffset = 0;
+  static constexpr uint8_t kSharedRefsOffset = 15;
+  static constexpr uint8_t kExclusiveRefOffset = 30;
+  static constexpr uint8_t kWillBeDeletedOffset = 31;
+
+  enum Refs : uint32_t {
+    // Synchronization model:
+    // - An external reference guarantees that hash, value, key_data
+    //    and the IS_ELEMENT flag are not modified. Doesn't allow
+    //    any writes.
+    // - An internal reference has the same guarantees as an
+    //    external reference, and additionally allows the following
+    //    idempotent updates on the handle:
+    //      * set CLOCK_PRIORITY to NONE;
+    //      * set the HAS_HIT bit;
+    //      * set the WILL_BE_DELETED bit.
+    // - A shared reference is either an external reference or an
+    //    internal reference.
+    // - An exclusive reference guarantees that no other thread has a shared
+    //    or exclusive reference to the handle, and allows writes
+    //    on the handle.
+
+    // Number of external references to the slot.
+    EXTERNAL_REFS = ((uint32_t{1} << 15) - 1)
+                    << kExternalRefsOffset,  // Bits 0, ..., 14
+    // Number of internal references plus external references to the slot.
+    SHARED_REFS = ((uint32_t{1} << 15) - 1)
+                  << kSharedRefsOffset,  // Bits 15, ..., 29
+    // Whether a thread has an exclusive reference to the slot.
+    EXCLUSIVE_REF = uint32_t{1} << kExclusiveRefOffset,  // Bit 30
+    // Whether the handle will be deleted soon. When this bit is set, new
+    // internal
+    // or external references to this handle stop being accepted.
+    // There is an exception: external references can be created from
+    // existing external references, or converting from existing internal
+    // references.
+    WILL_BE_DELETED = uint32_t{1} << kWillBeDeletedOffset  // Bit 31
+
+    // Having these 4 fields in a single variable allows us to support the
+    // following operations efficiently:
+    // - Convert an internal reference into an external reference in a single
+    //    atomic arithmetic operation.
+    // - Attempt to take a shared reference using a single atomic arithmetic
+    //    operation. This is because we can increment the internal ref count
+    //    as well as checking whether the entry is marked for deletion using a
+    //    single atomic arithmetic operation (and one non-atomic comparison).
+  };
+
+  static constexpr uint32_t kOneInternalRef = 0x8000;
+  static constexpr uint32_t kOneExternalRef = 0x8001;
+
+  std::atomic<uint32_t> refs;
 
   ClockHandle()
       : value(nullptr),
         deleter(nullptr),
         hash(0),
         total_charge(0),
-        refs(0),
         flags(0),
-        displacements(0) {
+        displacements(0),
+        refs(0) {
     SetWillBeDeleted(false);
     SetIsElement(false);
     SetClockPriority(ClockPriority::NONE);
@@ -260,12 +296,9 @@ struct ClockHandle {
   // The copy ctor and assignment operator are only used to copy a handle
   // for immediate deletion. (We need to copy because the slot may become
   // re-used before the deletion is completed.) We only copy the necessary
-  // members to carry out the deletion; in particular, we don't need
+  // members to carry out the deletion. In particular, we don't need
   // the atomic members.
-  ClockHandle(const ClockHandle& other)
-      : value(other.value), deleter(other.deleter) {
-    key_data = other.key_data;
-  }
+  ClockHandle(const ClockHandle& other) { *this = other; }
 
   void operator=(const ClockHandle& other) {
     value = other.value;
@@ -427,8 +460,8 @@ struct ClockHandle {
   }
 
   // Repeatedly tries to take an exclusive reference, but aborts as soon
-  // as an external or exclusive reference is detected (since in this case
-  // the wait would presumably be too long).
+  // as an external or exclusive reference is detected (since the wait
+  // would presumably be too long).
   inline bool SpinTryExclusiveRef() {
     uint32_t expected = 0;
     uint32_t will_be_deleted = 0;
@@ -437,8 +470,6 @@ struct ClockHandle {
                                          EXCLUSIVE_REF | will_be_deleted) &&
            spins--) {
       std::this_thread::yield();
-      // TODO(Guido) What is the right way to bound the spinning? Should we also
-      // yield after some number of unsuccessful tries? How many spins in total?
       if (expected & (EXTERNAL_REFS | EXCLUSIVE_REF)) {
         return false;
       }
@@ -610,7 +641,7 @@ class ClockHandleTable {
                                  autovector<ClockHandle>* deleted);
 
   // After a failed FindSlot call (i.e., with answer -1) in
-  // FindAvailableSlot, this function fixes all displacements
+  // FindAvailableSlot, this function fixes all displacements's
   // starting from the 0-th probe.
   void Rollback(const Slice& key, uint32_t probe);
 
@@ -627,9 +658,9 @@ class ClockHandleTable {
   // Maximum total charge of all elements stored in the table.
   const size_t capacity_;
 
-  // We partition the following members into different cache lines,
-  // depending on which operations depend on them, to avoid false
-  // sharing.
+  // We partition the following members into different cache lines
+  // to avoid false sharing among Lookup, Release, Erase and Insert
+  // operations in ClockCacheShard.
 
   ALIGN_AS(CACHE_LINE_SIZE)
   // Array of slots comprising the hash table.
