@@ -4958,6 +4958,22 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   ASSERT_EQ(*delimiter, "&&");
 }
 
+TEST_F(ConfigOptionsTest, ConfiguringOptionsDoesNotRevertRateLimiterBandwidth) {
+  // Regression test for bug where rate limiter's dynamically set bandwidth
+  // could be silently reverted when configuring an options structure with an
+  // existing `rate_limiter`.
+  Options base_options;
+  base_options.rate_limiter.reset(
+      NewGenericRateLimiter(1 << 20 /* rate_bytes_per_sec */));
+  Options copy_options(base_options);
+
+  base_options.rate_limiter->SetBytesPerSecond(2 << 20);
+  ASSERT_EQ(2 << 20, base_options.rate_limiter->GetBytesPerSecond());
+
+  ASSERT_OK(GetOptionsFromString(base_options, "", &copy_options));
+  ASSERT_EQ(2 << 20, base_options.rate_limiter->GetBytesPerSecond());
+}
+
 INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,
                         ::testing::Bool());
 #endif  // !ROCKSDB_LITE

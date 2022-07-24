@@ -639,6 +639,38 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   Close();
 }
 
+TEST_F(SeqnoTimeTest, MultiInstancesBasic) {
+  const int kInstanceNum = 2;
+
+  Options options = CurrentOptions();
+  options.preclude_last_level_data_seconds = 10000;
+  options.env = mock_env_.get();
+  options.stats_dump_period_sec = 0;
+  options.stats_persist_period_sec = 0;
+
+  auto dbs = std::vector<DB*>(kInstanceNum);
+  for (int i = 0; i < kInstanceNum; i++) {
+    ASSERT_OK(
+        DB::Open(options, test::PerThreadDBPath(std::to_string(i)), &(dbs[i])));
+  }
+
+  // Make sure the second instance has the worker enabled
+  auto dbi = static_cast_with_check<DBImpl>(dbs[1]);
+  WriteOptions wo;
+  for (int i = 0; i < 200; i++) {
+    ASSERT_OK(dbi->Put(wo, Key(i), "value"));
+    dbfull()->TEST_WaitForPeridicWorkerRun(
+        [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
+  }
+  SeqnoToTimeMapping seqno_to_time_mapping = dbi->TEST_GetSeqnoToTimeMapping();
+  ASSERT_GT(seqno_to_time_mapping.Size(), 10);
+
+  for (int i = 0; i < kInstanceNum; i++) {
+    ASSERT_OK(dbs[i]->Close());
+    delete dbs[i];
+  }
+}
+
 TEST_F(SeqnoTimeTest, SeqnoToTimeMappingUniversal) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;

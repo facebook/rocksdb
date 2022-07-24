@@ -1166,8 +1166,6 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
   }
 }
 
-// This test is too slow for travis
-#ifndef TRAVIS
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
@@ -1249,7 +1247,6 @@ TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccess) {
   printf("\n");
 }
 #endif  // !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
-#endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasic) {

@@ -146,10 +146,12 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: lock is held
-  // Update the compact cursor and advance the file index so that it can point
-  // to the next cursor
-  const InternalKey& GetNextCompactCursor(int level) {
-    int cmp_idx = next_file_to_compact_by_size_[level] + 1;
+  // Update the compact cursor and advance the file index using increment
+  // so that it can point to the next cursor (increment means the number of
+  // input files in this level of the last compaction)
+  const InternalKey& GetNextCompactCursor(int level, size_t increment) {
+    int cmp_idx = next_file_to_compact_by_size_[level] + (int)increment;
+    assert(cmp_idx <= (int)files_by_compaction_pri_[level].size());
     // TODO(zichen): may need to update next_file_to_compact_by_size_
     // for parallel compaction.
     InternalKey new_cursor;
