@@ -202,7 +202,7 @@ void ClockHandleTable::Free(autovector<ClockHandle>* deleted) {
   }
   assert(usage_ >= deleted_charge);
   usage_ -= deleted_charge;
-  occupancy_ -= deleted->size();
+  occupancy_ -= static_cast<uint32_t>(deleted->size());
 }
 
 ClockHandle* ClockHandleTable::FindAvailableSlot(
