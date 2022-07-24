@@ -194,7 +194,7 @@ void ClockHandleTable::RemoveAll(const Slice& key, uint32_t hash,
       [&](ClockHandle* /*h*/) {}, probe);
 }
 
-void ClockHandleTable::Free(autovector<ClockHandle> *deleted) {
+void ClockHandleTable::Free(autovector<ClockHandle>* deleted) {
   size_t deleted_charge = 0;
   for (auto& h : *deleted) {
     deleted_charge += h.total_charge;
@@ -304,7 +304,8 @@ void ClockHandleTable::ClockRun(size_t charge) {
   // forever in cache waiting to be evicted.
   assert(charge <= capacity_);
   autovector<ClockHandle> deleted;
-  uint32_t max_iterations = 1 + static_cast<uint32_t>(GetTableSize() * kLoadFactor);
+  uint32_t max_iterations =
+      1 + static_cast<uint32_t>(GetTableSize() * kLoadFactor);
   size_t usage_local = usage_;
   while (usage_local + charge > capacity_ && max_iterations--) {
     uint32_t steps = 1 + static_cast<uint32_t>(1 / kLoadFactor);
@@ -322,8 +323,8 @@ void ClockHandleTable::ClockRun(size_t charge) {
             // Why? Elements that are not in clock are either currently
             // externally referenced or used to be---because we are holding an
             // exclusive ref, we know we are in the latter case. This can only
-            // happen when the last external reference to an element was released,
-            // and the element was not immediately removed.
+            // happen when the last external reference to an element was
+            // released, and the element was not immediately removed.
             ClockOn(h);
           }
           ClockHandle::ClockPriority priority = h->GetClockPriority();
@@ -481,8 +482,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   } else {
     // Insert into the cache. Note that the cache might get larger than its
     // capacity if not enough space was freed up.
-    ClockHandle* h =
-        table_.Insert(&tmp, &deleted, handle != nullptr);
+    ClockHandle* h = table_.Insert(&tmp, &deleted, handle != nullptr);
     assert(h != nullptr);  // The occupancy is way below the table size, so this
                            // insertion should never fail.
     if (handle != nullptr) {
