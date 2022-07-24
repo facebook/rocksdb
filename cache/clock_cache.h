@@ -51,10 +51,10 @@ namespace clock_cache {
 // of the same key) until all external references to it have been released by
 // the users. ClockHandles have two members to support external references:
 // - EXTERNAL_REFS counter: The number of external refs. When EXTERNAL_REFS > 0,
-// the handle
-//    is externally referenced. Updates that intend to modify the handle will
-//    refrain from doing so. Eventually, when all references are released, we
-//    have EXTERNAL_REFS == 0, and updates can operate normally on the handle.
+//    the handle is externally referenced. Updates that intend to modify the
+//    handle will refrain from doing so. Eventually, when all references are
+//    released, we have EXTERNAL_REFS == 0, and updates can operate normally on
+//    the handle.
 // - WILL_BE_DELETED flag: An handle is marked for deletion when an operation
 //    decides the handle should be deleted. This happens either when the last
 //    reference to a handle is released (and the release operation is instructed
@@ -64,7 +64,7 @@ namespace clock_cache {
 //    and acted upon by the eviction algorithm. Importantly, WILL_BE_DELETED is
 //    used not only to defer deletions, but also as a barrier for external
 //    references: once WILL_BE_DELETED is set, lookups (which are the means to
-//    take new external references) will ignore the handle. For this reason,
+//    acquire new external references) will ignore the handle. For this reason,
 //    when WILL_BE_DELETED is set, we say the handle is invisible (and
 //    otherwise, that it's visible).
 //
@@ -122,10 +122,12 @@ namespace clock_cache {
 // the target element is found, and just before the handle is handed over
 // to the user, an internal reference is converted into an external reference.
 // During an update operation, once the target slot is found, an internal
-// reference is converted into an exclusive reference. Interestingly, we can't
-// upgrade from internal to exclusive atomically, or we may run into a
-// deadlock. One of the challenges our implementation solves is to guarantee
-// updates are thread-safe even without atomic upgrades of references.
+// reference is converted into an exclusive reference. Interestingly, we
+// can't atomically upgrade from internal to exclusive, or we may run into a
+// deadlock. Releasing the internal reference and then taking an exclusive
+// reference avoids the deadlock, but then the handle may change inbetween.
+// One of the key observations we use in our implementation is that we can
+// make up for this lack of atomicity using IS_ELEMENT and WILL_BE_DELETED.
 //
 // Distinguishing internal from external references is useful for two reasons:
 // - Internal references are short lived, but external references are typically
