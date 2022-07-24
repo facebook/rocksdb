@@ -161,8 +161,32 @@ class ChangeLevelConflictsWithAuto
   ChangeLevelConflictsWithAuto() : DBCompactionTest() {}
 };
 
-namespace {
+// Param = true: grab the compaction pressure token (enable
+// parallel compactions)
+// Param = false: Not grab the token (no parallel compactions)
+class RoundRobinSubcompactionsAgainstPressureToken
+    : public DBCompactionTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  RoundRobinSubcompactionsAgainstPressureToken() {
+    grab_pressure_token_ = GetParam();
+  }
+  bool grab_pressure_token_;
+};
 
+class RoundRobinSubcompactionsAgainstResources
+    : public DBCompactionTest,
+      public ::testing::WithParamInterface<std::tuple<int, int>> {
+ public:
+  RoundRobinSubcompactionsAgainstResources() {
+    total_low_pri_threads_ = std::get<0>(GetParam());
+    max_compaction_limits_ = std::get<1>(GetParam());
+  }
+  int total_low_pri_threads_;
+  int max_compaction_limits_;
+};
+
+namespace {
 class FlushedFileCollector : public EventListener {
  public:
   FlushedFileCollector() {}
@@ -5305,6 +5329,187 @@ TEST_F(DBCompactionTest, PersistRoundRobinCompactCursor) {
     }
   }
 }
+
+TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
+  const int kKeysPerBuffer = 100;
+  Options options = CurrentOptions();
+  options.num_levels = 4;
+  options.max_bytes_for_level_multiplier = 2;
+  options.level0_file_num_compaction_trigger = 4;
+  options.target_file_size_base = kKeysPerBuffer * 1024;
+  options.compaction_pri = CompactionPri::kRoundRobin;
+  options.max_bytes_for_level_base = 8 * kKeysPerBuffer * 1024;
+  options.disable_auto_compactions = true;
+  // Setup 7 threads but limited subcompactions so that
+  // RoundRobin requires extra compactions from reserved threads
+  options.max_subcompactions = 1;
+  options.max_background_compactions = 7;
+  options.max_compaction_bytes = 100000000;
+  DestroyAndReopen(options);
+  env_->SetBackgroundThreads(7, Env::LOW);
+
+  Random rnd(301);
+  const std::vector<int> files_per_level = {0, 15, 25};
+  for (int lvl = 2; lvl > 0; lvl--) {
+    for (int i = 0; i < files_per_level[lvl]; i++) {
+      for (int j = 0; j < kKeysPerBuffer; j++) {
+        // Add (lvl-1) to ensure nearly equivallent number of files
+        // in L2 are overlapped with fils selected to compact from
+        // L1
+        ASSERT_OK(Put(Key(2 * i * kKeysPerBuffer + 2 * j + (lvl - 1)),
+                      rnd.RandomString(1010)));
+      }
+      ASSERT_OK(Flush());
+    }
+    MoveFilesToLevel(lvl);
+    ASSERT_EQ(files_per_level[lvl], NumTableFilesAtLevel(lvl, 0));
+  }
+  // 15 files in L1; 25 files in L2
+
+  // This is a variable for making sure the following callback is called
+  // and the assertions in it are indeed excuted.
+  bool num_planned_subcompactions_verified = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::GenSubcompactionBoundaries:0", [&](void* arg) {
+        uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
+        if (grab_pressure_token_) {
+          // 7 files are selected for round-robin under auto
+          // compaction. The number of planned subcompaction is restricted by
+          // the limited number of max_background_compactions
+          ASSERT_EQ(num_planned_subcompactions, 7);
+        } else {
+          ASSERT_EQ(num_planned_subcompactions, 1);
+        }
+        num_planned_subcompactions_verified = true;
+      });
+
+  // The following 3 dependencies have to be added to ensure the auto
+  // compaction and the pressure token is correctly enabled. Same for
+  // RoundRobinSubcompactionsUsingResources and
+  // DBCompactionTest.RoundRobinSubcompactionsShrinkResources
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"RoundRobinSubcompactionsAgainstPressureToken:0",
+        "BackgroundCallCompaction:0"},
+       {"CompactionJob::AcquireSubcompactionResources:0",
+        "RoundRobinSubcompactionsAgainstPressureToken:1"},
+       {"RoundRobinSubcompactionsAgainstPressureToken:2",
+        "CompactionJob::AcquireSubcompactionResources:1"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstPressureToken:0");
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstPressureToken:1");
+  std::unique_ptr<WriteControllerToken> pressure_token;
+  if (grab_pressure_token_) {
+    pressure_token =
+        dbfull()->TEST_write_controler().GetCompactionPressureToken();
+  }
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstPressureToken:2");
+
+  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_TRUE(num_planned_subcompactions_verified);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+INSTANTIATE_TEST_CASE_P(RoundRobinSubcompactionsAgainstPressureToken,
+                        RoundRobinSubcompactionsAgainstPressureToken,
+                        testing::Bool());
+
+TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
+  const int kKeysPerBuffer = 200;
+  Options options = CurrentOptions();
+  options.num_levels = 4;
+  options.level0_file_num_compaction_trigger = 3;
+  options.target_file_size_base = kKeysPerBuffer * 1024;
+  options.compaction_pri = CompactionPri::kRoundRobin;
+  options.max_bytes_for_level_base = 30 * kKeysPerBuffer * 1024;
+  options.disable_auto_compactions = true;
+  options.max_subcompactions = 1;
+  options.max_background_compactions = max_compaction_limits_;
+  // Set a large number for max_compaction_bytes so that one round-robin
+  // compaction is enough to make post-compaction L1 size less than
+  // the maximum size (this test assumes only one round-robin compaction
+  // is triggered by kLevelMaxLevelSize)
+  options.max_compaction_bytes = 100000000;
+
+  DestroyAndReopen(options);
+  env_->SetBackgroundThreads(total_low_pri_threads_, Env::LOW);
+
+  Random rnd(301);
+  const std::vector<int> files_per_level = {0, 40, 100};
+  for (int lvl = 2; lvl > 0; lvl--) {
+    for (int i = 0; i < files_per_level[lvl]; i++) {
+      for (int j = 0; j < kKeysPerBuffer; j++) {
+        // Add (lvl-1) to ensure nearly equivallent number of files
+        // in L2 are overlapped with fils selected to compact from
+        // L1
+        ASSERT_OK(Put(Key(2 * i * kKeysPerBuffer + 2 * j + (lvl - 1)),
+                      rnd.RandomString(1010)));
+      }
+      ASSERT_OK(Flush());
+    }
+    MoveFilesToLevel(lvl);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(files_per_level[lvl], NumTableFilesAtLevel(lvl, 0));
+  }
+
+  // 40 files in L1; 100 files in L2
+  // This is a variable for making sure the following callback is called
+  // and the assertions in it are indeed excuted.
+  bool num_planned_subcompactions_verified = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::GenSubcompactionBoundaries:0", [&](void* arg) {
+        uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
+        // More than 10 files are selected for round-robin under auto
+        // compaction. The number of planned subcompaction is restricted by
+        // the minimum number between available threads and compaction limits
+        ASSERT_EQ(num_planned_subcompactions - options.max_subcompactions,
+                  std::min(total_low_pri_threads_, max_compaction_limits_) - 1);
+        num_planned_subcompactions_verified = true;
+      });
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"RoundRobinSubcompactionsAgainstResources:0",
+        "BackgroundCallCompaction:0"},
+       {"CompactionJob::AcquireSubcompactionResources:0",
+        "RoundRobinSubcompactionsAgainstResources:1"},
+       {"RoundRobinSubcompactionsAgainstResources:2",
+        "CompactionJob::AcquireSubcompactionResources:1"},
+       {"CompactionJob::ReleaseSubcompactionResources:0",
+        "RoundRobinSubcompactionsAgainstResources:3"},
+       {"RoundRobinSubcompactionsAgainstResources:4",
+        "CompactionJob::ReleaseSubcompactionResources:1"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:0");
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:1");
+  auto pressure_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:2");
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:3");
+  // We can reserve more threads now except one is being used
+  ASSERT_EQ(total_low_pri_threads_ - 1,
+            env_->ReserveThreads(total_low_pri_threads_, Env::Priority::LOW));
+  ASSERT_EQ(
+      total_low_pri_threads_ - 1,
+      env_->ReleaseThreads(total_low_pri_threads_ - 1, Env::Priority::LOW));
+  TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:4");
+  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_TRUE(num_planned_subcompactions_verified);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+INSTANTIATE_TEST_CASE_P(RoundRobinSubcompactionsAgainstResources,
+                        RoundRobinSubcompactionsAgainstResources,
+                        ::testing::Values(std::make_tuple(1, 5),
+                                          std::make_tuple(5, 1),
+                                          std::make_tuple(10, 5),
+                                          std::make_tuple(5, 10),
+                                          std::make_tuple(10, 10)));
 
 TEST_F(DBCompactionTest, RoundRobinCutOutputAtCompactCursor) {
   Options options = CurrentOptions();

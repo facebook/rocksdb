@@ -134,12 +134,12 @@ class SubcompactionState {
     // Invalid output_split_key indicates that we do not need to split
     if (output_split_key != nullptr) {
       // We may only split the output when the cursor is in the range. Split
-      if ((!end.has_value() || icmp->user_comparator()->Compare(
-                                   ExtractUserKey(output_split_key->Encode()),
-                                   ExtractUserKey(end.value())) < 0) &&
+      if ((!end.has_value() ||
+           icmp->user_comparator()->Compare(
+               ExtractUserKey(output_split_key->Encode()), end.value()) < 0) &&
           (!start.has_value() || icmp->user_comparator()->Compare(
                                      ExtractUserKey(output_split_key->Encode()),
-                                     ExtractUserKey(start.value())) > 0)) {
+                                     start.value()) > 0)) {
         local_output_split_key_ = output_split_key;
       }
     }

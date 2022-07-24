@@ -123,7 +123,8 @@ CompactionJob::CompactionJob(
     const std::atomic<bool>& manual_compaction_canceled,
     const std::string& db_id, const std::string& db_session_id,
     std::string full_history_ts_low, std::string trim_ts,
-    BlobFileCompletionCallback* blob_callback)
+    BlobFileCompletionCallback* blob_callback, int* bg_compaction_scheduled,
+    int* bg_bottom_compaction_scheduled)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
       db_options_(db_options),
@@ -162,9 +163,13 @@ CompactionJob::CompactionJob(
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
       trim_ts_(std::move(trim_ts)),
-      blob_callback_(blob_callback) {
+      blob_callback_(blob_callback),
+      extra_num_subcompaction_threads_reserved_(0),
+      bg_compaction_scheduled_(bg_compaction_scheduled),
+      bg_bottom_compaction_scheduled_(bg_bottom_compaction_scheduled) {
   assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
+
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
                                     db_options_.enable_thread_tracking);
@@ -291,6 +296,99 @@ void CompactionJob::Prepare() {
   }
 }
 
+uint64_t CompactionJob::GetSubcompactionsLimit() {
+  return extra_num_subcompaction_threads_reserved_ +
+         std::max(
+             std::uint64_t(1),
+             static_cast<uint64_t>(compact_->compaction->max_subcompactions()));
+}
+
+void CompactionJob::AcquireSubcompactionResources(
+    int num_extra_required_subcompactions) {
+  TEST_SYNC_POINT("CompactionJob::AcquireSubcompactionResources:0");
+  TEST_SYNC_POINT("CompactionJob::AcquireSubcompactionResources:1");
+  int max_db_compactions =
+      DBImpl::GetBGJobLimits(
+          mutable_db_options_copy_.max_background_flushes,
+          mutable_db_options_copy_.max_background_compactions,
+          mutable_db_options_copy_.max_background_jobs,
+          versions_->GetColumnFamilySet()
+              ->write_controller()
+              ->NeedSpeedupCompaction())
+          .max_compactions;
+  // Apply min function first since We need to compute the extra subcompaction
+  // against compaction limits. And then try to reserve threads for extra
+  // subcompactions. The actual number of reserved threads could be less than
+  // the desired number.
+  int available_bg_compactions_against_db_limit =
+      std::max(max_db_compactions - *bg_compaction_scheduled_ -
+                   *bg_bottom_compaction_scheduled_,
+               0);
+  db_mutex_->Lock();
+  // Reservation only supports backgrdoun threads of which the priority is
+  // between BOTTOM and HIGH. Need to degrade the priority to HIGH if the
+  // origin thread_pri_ is higher than that. Similar to ReleaseThreads().
+  extra_num_subcompaction_threads_reserved_ =
+      env_->ReserveThreads(std::min(num_extra_required_subcompactions,
+                                    available_bg_compactions_against_db_limit),
+                           std::min(thread_pri_, Env::Priority::HIGH));
+
+  // Update bg_compaction_scheduled_ or bg_bottom_compaction_scheduled_
+  // depending on if this compaction has the bottommost priority
+  if (thread_pri_ == Env::Priority::BOTTOM) {
+    *bg_bottom_compaction_scheduled_ +=
+        extra_num_subcompaction_threads_reserved_;
+  } else {
+    *bg_compaction_scheduled_ += extra_num_subcompaction_threads_reserved_;
+  }
+  db_mutex_->Unlock();
+}
+
+void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
+  // Do nothing when we have zero resources to shrink
+  if (num_extra_resources == 0) return;
+  db_mutex_->Lock();
+  // We cannot release threads more than what we reserved before
+  int extra_num_subcompaction_threads_released = env_->ReleaseThreads(
+      (int)num_extra_resources, std::min(thread_pri_, Env::Priority::HIGH));
+  // Update the number of reserved threads and the number of background
+  // scheduled compactions for this compaction job
+  extra_num_subcompaction_threads_reserved_ -=
+      extra_num_subcompaction_threads_released;
+  // TODO (zichen): design a test case with new subcompaction partitioning
+  // when the number of actual partitions is less than the number of planned
+  // partitions
+  assert(extra_num_subcompaction_threads_released == (int)num_extra_resources);
+  // Update bg_compaction_scheduled_ or bg_bottom_compaction_scheduled_
+  // depending on if this compaction has the bottommost priority
+  if (thread_pri_ == Env::Priority::BOTTOM) {
+    *bg_bottom_compaction_scheduled_ -=
+        extra_num_subcompaction_threads_released;
+  } else {
+    *bg_compaction_scheduled_ -= extra_num_subcompaction_threads_released;
+  }
+  db_mutex_->Unlock();
+  TEST_SYNC_POINT("CompactionJob::ShrinkSubcompactionResources:0");
+}
+
+void CompactionJob::ReleaseSubcompactionResources() {
+  if (extra_num_subcompaction_threads_reserved_ == 0) {
+    return;
+  }
+  // The number of reserved threads becomes larger than 0 only if the
+  // compaction prioity is round robin and there is no sufficient
+  // sub-compactions available
+
+  // The scheduled compaction must be no less than 1 + extra number
+  // subcompactions using acquired resources since this compaction job has not
+  // finished yet
+  assert(*bg_bottom_compaction_scheduled_ >=
+             1 + extra_num_subcompaction_threads_reserved_ ||
+         *bg_compaction_scheduled_ >=
+             1 + extra_num_subcompaction_threads_reserved_);
+  ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
+}
+
 struct RangeWithSize {
   Range range;
   uint64_t size;
@@ -327,7 +425,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // cause relatively small inaccuracy.
 
   auto* c = compact_->compaction;
-  if (c->max_subcompactions() <= 1) {
+  if (c->max_subcompactions() <= 1 &&
+      !(c->immutable_options()->compaction_pri == kRoundRobin &&
+        c->immutable_options()->compaction_style == kCompactionStyleLevel)) {
     return;
   }
   auto* cfd = c->column_family_data();
@@ -342,6 +442,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
   std::vector<TableReader::Anchor> all_anchors;
   int start_lvl = c->start_level();
   int out_lvl = c->output_level();
+
   for (size_t lvl_idx = 0; lvl_idx < c->num_input_levels(); lvl_idx++) {
     int lvl = c->level(lvl_idx);
     if (lvl >= start_lvl && lvl <= out_lvl) {
@@ -381,9 +482,44 @@ void CompactionJob::GenSubcompactionBoundaries() {
         return cfd_comparator->Compare(a.user_key, b.user_key) < 0;
       });
 
+  // Get the number of planned subcompactions, may update reserve threads
+  // and update extra_num_subcompaction_threads_reserved_ for round-robin
+  uint64_t num_planned_subcompactions;
+  if (c->immutable_options()->compaction_pri == kRoundRobin &&
+      c->immutable_options()->compaction_style == kCompactionStyleLevel) {
+    // For round-robin compaction prioity, we need to employ more
+    // subcompactions (may exceed the max_subcompaction limit). The extra
+    // subcompactions will be executed using reserved threads and taken into
+    // account bg_compaction_scheduled or bg_bottom_compaction_scheduled.
+
+    // Initialized by the number of input files
+    num_planned_subcompactions = static_cast<uint64_t>(c->num_input_files(0));
+    uint64_t max_subcompactions_limit = GetSubcompactionsLimit();
+    if (max_subcompactions_limit < num_planned_subcompactions) {
+      // Assert two pointers are not empty so that we can use extra
+      // subcompactions against db compaction limits
+      assert(bg_bottom_compaction_scheduled_ != nullptr);
+      assert(bg_compaction_scheduled_ != nullptr);
+      // Reserve resources when max_subcompaction is not sufficient
+      AcquireSubcompactionResources(
+          (int)(num_planned_subcompactions - max_subcompactions_limit));
+      // Subcompactions limit changes after acquiring additional resources.
+      // Need to call GetSubcompactionsLimit() again to update the number
+      // of planned subcompactions
+      num_planned_subcompactions =
+          std::min(num_planned_subcompactions, GetSubcompactionsLimit());
+    }
+  } else {
+    num_planned_subcompactions = GetSubcompactionsLimit();
+  }
+
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::GenSubcompactionBoundaries:0",
+                           &num_planned_subcompactions);
+  if (num_planned_subcompactions == 1) return;
+
   // Group the ranges into subcompactions
   uint64_t target_range_size = std::max(
-      total_size / static_cast<uint64_t>(c->max_subcompactions()),
+      total_size / num_planned_subcompactions,
       MaxFileSizeForLevel(
           *(c->mutable_cf_options()), out_lvl,
           c->immutable_options()->compaction_style, base_level,
@@ -395,16 +531,24 @@ void CompactionJob::GenSubcompactionBoundaries() {
 
   uint64_t next_threshold = target_range_size;
   uint64_t cumulative_size = 0;
+  uint64_t num_actual_subcompactions = 1U;
   for (TableReader::Anchor& anchor : all_anchors) {
     cumulative_size += anchor.range_size;
     if (cumulative_size > next_threshold) {
       next_threshold += target_range_size;
+      num_actual_subcompactions++;
       boundaries_.push_back(anchor.user_key);
     }
-    if (boundaries_.size() + 1 >= uint64_t{c->max_subcompactions()}) {
+    if (num_actual_subcompactions == num_planned_subcompactions) {
       break;
     }
   }
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::GenSubcompactionBoundaries:1",
+                           &num_actual_subcompactions);
+  // Shrink extra subcompactions resources when extra resrouces are acquired
+  ShrinkSubcompactionResources(
+      std::min((int)(num_planned_subcompactions - num_actual_subcompactions),
+               extra_num_subcompaction_threads_reserved_));
 }
 
 Status CompactionJob::Run() {
@@ -567,6 +711,7 @@ Status CompactionJob::Run() {
     for (auto& thread : thread_pool) {
       thread.join();
     }
+
     for (const auto& state : compact_->sub_compact_states) {
       if (!state.status.ok()) {
         status = state.status;
@@ -574,6 +719,10 @@ Status CompactionJob::Run() {
       }
     }
   }
+
+  ReleaseSubcompactionResources();
+  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:0");
+  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:1");
 
   TablePropertiesCollection tp;
   for (const auto& state : compact_->sub_compact_states) {
@@ -1484,7 +1633,8 @@ Status CompactionJob::InstallCompactionResults(
     if (start_level > 0) {
       auto vstorage = compaction->input_version()->storage_info();
       edit->AddCompactCursor(start_level,
-                             vstorage->GetNextCompactCursor(start_level));
+                             vstorage->GetNextCompactCursor(
+                                 start_level, compaction->num_input_files(0)));
     }
   }
 
