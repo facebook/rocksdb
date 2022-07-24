@@ -123,15 +123,15 @@ namespace clock_cache {
 // to the user, an internal reference is converted into an external reference.
 // During an update operation, once the target slot is found, an internal
 // reference is converted into an exclusive reference. Interestingly, we can't
-// upgrade from internal to exclusive atomically, or we run the risk of
-// deadlock. One of the challenges our data structure solves is to guarantee
-// updates are safe even without atomic reference upgrades.
+// upgrade from internal to exclusive atomically, or we may run into a
+// deadlock. One of the challenges our implementation solves is to guarantee
+// updates are thread-safe even without atomic upgrades of references.
 //
 // Distinguishing internal from external references is useful for two reasons:
-// - Internal references are short lived, but external references may not.
-//    This is helpful when acquiring an exclusive ref: if there is are external
-//    references to the item, it's probably not worth waiting until they go
-//    away.
+// - Internal references are short lived, but external references are typically
+//    not. This is helpful when acquiring an exclusive ref: if there are any
+//    external references to the item, it's probably not worth waiting until
+//    they go away.
 // - We can precisely determine when there are no more external references to a
 //    handle, and proceed to mark it for deletion. This is useful when users
 //    release external references.
@@ -139,24 +139,18 @@ namespace clock_cache {
 //
 // 5. CLOCK ALGORITHM
 //
-// Using a "clock pointer", the clock algorithm circularly sweeps through the
-// hash table to find the next victim. Recall that handles that are referenced
-// are not evictable; the clock algorithm never picks those. We use different
-// clock priorities: NONE, LOW, MEDIUM and HIGH. Priorities LOW, MEDIUM and HIGH
-// represent how close an element is from being evicted, LOW being the closest
-// to evicted. NONE means the slot is not evictable. NONE priority is used in
-// one of the following cases:
+// The clock algorithm circularly sweeps through the hash table to find the next
+// victim. Recall that handles that are referenced are not evictable; the clock
+// algorithm never picks those. We use different clock priorities: NONE, LOW,
+// MEDIUM and HIGH. Priorities LOW, MEDIUM and HIGH represent how close an
+// element is from being evicted, LOW being the closest to evicted. NONE means
+// the slot is not evictable. NONE priority is used in one of the following
+// cases:
 // (a) the slot doesn't contain an element, or
 // (b) the slot contains an externally referenced element, or
-// (c) the slot contains an element that used to be externally referenced, but
-//      it's not any more, and the clock pointer has not swept through the
-//      slot since the element stopped being externally referenced.
-//
-// The priority NONE is especially important in case (c) (in the other
-// two cases there are other metadata fields that already characterize the
-// state): when an element stops being referenced (and is not immediately
-// deleted), the clock algorithm must be able to detect it, and make the element
-// evictable again.
+// (c) the slot contains an element that used to be externally referenced,
+//      and the clock pointer has not swept through the slot since the element
+//      stopped being externally referenced.
 // ----------------------------------------------------------------------------
 
 // The load factor p is a real number in (0, 1) such that at all
