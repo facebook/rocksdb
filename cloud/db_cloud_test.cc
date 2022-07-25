@@ -1094,6 +1094,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   cloud_env_options_.keep_local_sst_files = true;
   std::string value;
 
+  cloud_env_options_.resync_on_open = true;
   OpenDB();
   CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(aenv_.get());
   auto firstManifestFile =
@@ -1109,6 +1110,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   EXPECT_EQ(files.size(), 2);
   CloseDB();
 
+  cloud_env_options_.resync_on_open = false;
   // Open again, with no destination bucket
   cloud_env_options_.dest_bucket.SetBucketName("");
   cloud_env_options_.dest_bucket.SetObjectPath("");
@@ -1128,6 +1130,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   // Open in a different directory with destination bucket set
   dbname_ = secondDB;
   cloud_env_options_.dest_bucket = cloud_env_options_.src_bucket;
+  cloud_env_options_.resync_on_open = true;
   OpenDB();
   ASSERT_OK(db_->Put(WriteOptions(), "Third", "DifferentFile"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -1137,6 +1140,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   dbname_ = firstDB;
   cloud_env_options_.dest_bucket.SetBucketName("");
   cloud_env_options_.dest_bucket.SetObjectPath("");
+  cloud_env_options_.resync_on_open = false;
   OpenDB();
   // Changes to the cloud database should make no difference for us. This is an
   // important check because we should not reinitialize from the cloud if we
@@ -1148,6 +1152,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
   // Reopen in the first directory, this time with destination path
   dbname_ = firstDB;
   cloud_env_options_.dest_bucket = cloud_env_options_.src_bucket;
+  cloud_env_options_.resync_on_open = true;
   OpenDB();
   // Changes to the cloud database should be pulled down now.
   ASSERT_OK(db_->Get(ReadOptions(), "Third", &value));
@@ -1172,6 +1177,7 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
 // enables us to run in that configuration for extended amount of time (1 hour
 // by default) without any issues -- the last CLOUDMANIFEST writer wins.
 TEST_F(CloudTest, TwoConcurrentWriters) {
+  cloud_env_options_.resync_on_open = true;
   auto firstDB = dbname_;
   auto secondDB = dbname_ + "-1";
 
