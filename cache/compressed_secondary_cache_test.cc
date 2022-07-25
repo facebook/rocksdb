@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 
 #include "cache/lru_cache.h"
 #include "memory/jemalloc_nodump_allocator.h"
@@ -540,67 +541,71 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // 10000 = 8192 + 1792 + 96 + 10 , so there should be 3 chunks after split.
     size_t str_size{10000};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
-    size_t charge{str_size};
-    std::unique_ptr<CacheValueChunk> chunks_head =
+    size_t charge{0};
+    CacheValueChunk* chunks_head =
         sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
-    ASSERT_EQ(charge, str_size + 3 * sizeof(CacheValueChunk));
+    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
 
-    CacheValueChunk* current_chunk = chunks_head.get();
-    ASSERT_EQ(current_chunk->charge, 8192);
-    current_chunk = current_chunk->next.get();
-    ASSERT_EQ(current_chunk->charge, 1792);
-    current_chunk = current_chunk->next.get();
-    ASSERT_EQ(current_chunk->charge, 16);
+    CacheValueChunk* current_chunk = chunks_head;
+    ASSERT_EQ(current_chunk->size, 8192);
+    current_chunk = current_chunk->next;
+    ASSERT_EQ(current_chunk->size, 1792);
+    current_chunk = current_chunk->next;
+    ASSERT_EQ(current_chunk->size, 16);
+
+    while (chunks_head != nullptr) {
+      CacheValueChunk* tmp_chunk = chunks_head;
+      chunks_head = chunks_head->next;
+      tmp_chunk->Free();
+    }
   }
 
   void MergeChunksIntoValueTest() {
-    JemallocAllocatorOptions jopts;
-    std::shared_ptr<MemoryAllocator> allocator;
-    std::string msg;
-    // allocator can be nullptr for this test.
-    if (JemallocNodumpAllocator::IsSupported(&msg)) {
-      NewJemallocNodumpAllocator(jopts, &allocator);
-    }
-
     using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
-    std::unique_ptr<CacheValueChunk> chunks_head =
-        std::make_unique<CacheValueChunk>();
-    CacheValueChunk* current_chunk = chunks_head.get();
     Random rnd(301);
     size_t size1{2048};
     std::string str1 = rnd.RandomString(static_cast<int>(size1));
-    CacheAllocationPtr ptr = AllocateBlock(size1, allocator.get());
-    memcpy(ptr.get(), str1.data(), size1);
-    current_chunk->chunk_ptr = std::move(ptr);
-    current_chunk->charge = size1;
-    current_chunk->next = std::make_unique<CacheValueChunk>();
-    current_chunk = current_chunk->next.get();
+    CacheValueChunk* current_chunk = reinterpret_cast<CacheValueChunk*>(
+        new char[sizeof(CacheValueChunk) - 1 + size1]);
+    CacheValueChunk* chunks_head = current_chunk;
+    memcpy(current_chunk->data, str1.data(), size1);
+    current_chunk->size = size1;
 
     size_t size2{256};
     std::string str2 = rnd.RandomString(static_cast<int>(size2));
-    ptr = AllocateBlock(size2, allocator.get());
-    memcpy(ptr.get(), str2.data(), size2);
-    current_chunk->chunk_ptr = std::move(ptr);
-    current_chunk->charge = size2;
-    current_chunk->next = std::make_unique<CacheValueChunk>();
-    current_chunk = current_chunk->next.get();
+    CacheValueChunk* new_chunk = reinterpret_cast<CacheValueChunk*>(
+        new char[sizeof(CacheValueChunk) - 1 + size2]);
+    current_chunk->next = new_chunk;
+    current_chunk = current_chunk->next;
+    memcpy(current_chunk->data, str2.data(), size2);
+    current_chunk->size = size2;
 
     size_t size3{31};
     std::string str3 = rnd.RandomString(static_cast<int>(size3));
-    ptr = AllocateBlock(size3, allocator.get());
-    memcpy(ptr.get(), str3.data(), size3);
-    current_chunk->chunk_ptr = std::move(ptr);
-    current_chunk->charge = size3;
+    new_chunk = reinterpret_cast<CacheValueChunk*>(
+        new char[sizeof(CacheValueChunk) - 1 + size3]);
+    current_chunk->next = new_chunk;
+    current_chunk = current_chunk->next;
+    memcpy(current_chunk->data, str3.data(), size3);
+    current_chunk->size = size3;
+    current_chunk->next = nullptr;
+
     std::string str = str1 + str2 + str3;
 
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.0);
     size_t charge = 0;
     CacheAllocationPtr value =
-        sec_cache->MergeChunksIntoValue(chunks_head.get(), charge);
+        sec_cache->MergeChunksIntoValue(chunks_head, charge);
     ASSERT_EQ(charge, size1 + size2 + size3);
     std::string value_str{value.get(), charge};
     ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
+
+    while (chunks_head != nullptr) {
+      CacheValueChunk* tmp_chunk = chunks_head;
+      chunks_head = chunks_head->next;
+      tmp_chunk->Free();
+    }
   }
 
  private:

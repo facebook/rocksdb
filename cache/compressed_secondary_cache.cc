@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <memory>
 
 #include "memory/memory_allocator.h"
@@ -42,18 +43,17 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     return handle;
   }
 
-  std::unique_ptr<CacheValueChunk>* ptr =
-      reinterpret_cast<std::unique_ptr<CacheValueChunk>*>(
-          cache_->Value(lru_handle));
+  CacheValueChunk* handle_value =
+      reinterpret_cast<CacheValueChunk*>(cache_->Value(lru_handle));
   size_t handle_value_charge{0};
-  CacheAllocationPtr handle_value =
-      MergeChunksIntoValue(ptr->get(), handle_value_charge);
+  CacheAllocationPtr merged_value =
+      MergeChunksIntoValue(handle_value, handle_value_charge);
 
   Status s;
   void* value{nullptr};
   size_t charge{0};
   if (cache_options_.compression_type == kNoCompression) {
-    s = create_cb(handle_value.get(), handle_value_charge, &value, &charge);
+    s = create_cb(merged_value.get(), handle_value_charge, &value, &charge);
   } else {
     UncompressionContext uncompression_context(cache_options_.compression_type);
     UncompressionInfo uncompression_info(uncompression_context,
@@ -62,7 +62,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
     size_t uncompressed_size{0};
     CacheAllocationPtr uncompressed;
-    uncompressed = UncompressData(uncompression_info, (char*)handle_value.get(),
+    uncompressed = UncompressData(uncompression_info, (char*)merged_value.get(),
                                   handle_value_charge, &uncompressed_size,
                                   cache_options_.compress_format_version,
                                   cache_options_.memory_allocator.get());
@@ -115,14 +115,12 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
     }
 
     val = Slice(compressed_val);
-    size = compressed_val.size();
   }
 
-  std::unique_ptr<CacheValueChunk> value_chunks_head =
-      SplitValueIntoChunks(val, cache_options_.compression_type, size);
-  std::unique_ptr<CacheValueChunk>* buf =
-      new std::unique_ptr<CacheValueChunk>(std::move(value_chunks_head));
-  return cache_->Insert(key, buf, size, DeletionCallback);
+  size_t charge{0};
+  CacheValueChunk* value_chunks_head =
+      SplitValueIntoChunks(val, cache_options_.compression_type, charge);
+  return cache_->Insert(key, value_chunks_head, charge, DeletionCallback);
 }
 
 void CompressedSecondaryCache::Erase(const Slice& key) { cache_->Erase(key); }
@@ -142,55 +140,46 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
   return ret;
 }
 
-std::unique_ptr<CompressedSecondaryCache::CacheValueChunk>
+CompressedSecondaryCache::CacheValueChunk*
 CompressedSecondaryCache::SplitValueIntoChunks(
     const Slice& value, const CompressionType compression_type,
     size_t& charge) {
   assert(!value.empty());
-  // If charge > the max size
   const char* src_ptr = value.data();
-  size_t src_size{charge};
+  size_t src_size{value.size()};
   CacheAllocationPtr ptr;
 
-  std::unique_ptr<CacheValueChunk> head = std::make_unique<CacheValueChunk>();
-  CacheValueChunk* current_chunk = head.get();
+  CacheValueChunk dummy_head = CacheValueChunk();
+  CacheValueChunk* current_chunk = &dummy_head;
   // Do not split when value size is large or there is no compression.
-  if (src_size >= malloc_bin_sizes_.back() ||
-      compression_type == kNoCompression) {
-    charge += sizeof(*current_chunk);
-    ptr = AllocateBlock(src_size, cache_options_.memory_allocator.get());
-    memcpy(ptr.get(), src_ptr, src_size);
-    current_chunk->chunk_ptr = std::move(ptr);
-    current_chunk->charge = src_size;
-
-  } else {
-    while (src_size > 0) {
-      charge += sizeof(*current_chunk);
-      if (src_size <= malloc_bin_sizes_.front()) {
-        ptr = AllocateBlock(src_size, cache_options_.memory_allocator.get());
-        memcpy(ptr.get(), src_ptr, src_size);
-        current_chunk->chunk_ptr = std::move(ptr);
-        current_chunk->charge = src_size;
-        src_size = 0;
-      } else {
-        auto upper = std::upper_bound(malloc_bin_sizes_.begin(),
-                                      malloc_bin_sizes_.end(), src_size);
-        current_chunk->charge = *(--upper);
-        ptr = AllocateBlock(current_chunk->charge,
-                            cache_options_.memory_allocator.get());
-        memcpy(ptr.get(), src_ptr, current_chunk->charge);
-        current_chunk->chunk_ptr = std::move(ptr);
-        src_size -= current_chunk->charge;
-        src_ptr += current_chunk->charge;
-      }
-      if (src_size > 0) {
-        current_chunk->next = std::make_unique<CacheValueChunk>();
-        current_chunk = current_chunk->next.get();
-      }
+  size_t chunk_size{0};
+  size_t tmp_size{0};
+  while (src_size > 0) {
+    auto upper = std::upper_bound(malloc_bin_sizes_.begin(),
+                                  malloc_bin_sizes_.end(), src_size);
+    if (src_size >= malloc_bin_sizes_.back() ||
+        *upper <= malloc_bin_sizes_.front() ||
+        *upper - src_size < malloc_bin_sizes_.front() ||
+        compression_type == kNoCompression) {
+      tmp_size = src_size;
+    } else {
+      tmp_size = *(--upper);
     }
-  }
 
-  return head;
+    chunk_size = sizeof(CacheValueChunk) - 1 + tmp_size;
+    CacheValueChunk* new_chunk =
+        reinterpret_cast<CacheValueChunk*>(new char[chunk_size]);
+    current_chunk->next = new_chunk;
+    current_chunk = current_chunk->next;
+    memcpy(current_chunk->data, src_ptr, tmp_size);
+    current_chunk->size = tmp_size;
+    charge += chunk_size;
+    src_ptr += tmp_size;
+    src_size -= tmp_size;
+  }
+  current_chunk->next = nullptr;
+
+  return dummy_head.next;
 }
 
 CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
@@ -199,20 +188,20 @@ CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
       reinterpret_cast<const CacheValueChunk*>(chunks_head);
   const CacheValueChunk* current_chunk = head;
   charge = 0;
-  while (current_chunk != nullptr && current_chunk->charge > 0) {
-    charge += current_chunk->charge;
-    current_chunk = current_chunk->next.get();
+  while (current_chunk != nullptr && current_chunk->size > 0) {
+    charge += current_chunk->size;
+    current_chunk = current_chunk->next;
   }
 
   CacheAllocationPtr ptr =
       AllocateBlock(charge, cache_options_.memory_allocator.get());
+
   current_chunk = head;
   size_t pos{0};
   while (current_chunk != nullptr) {
-    memcpy(ptr.get() + pos, current_chunk->chunk_ptr.get(),
-           current_chunk->charge);
-    pos += current_chunk->charge;
-    current_chunk = current_chunk->next.get();
+    memcpy(ptr.get() + pos, current_chunk->data, current_chunk->size);
+    pos += current_chunk->size;
+    current_chunk = current_chunk->next;
   }
 
   return ptr;
@@ -220,7 +209,12 @@ CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
 
 void CompressedSecondaryCache::DeletionCallback(const Slice& /*key*/,
                                                 void* obj) {
-  delete reinterpret_cast<std::unique_ptr<CacheValueChunk>*>(obj);
+  CacheValueChunk* chunks_head = reinterpret_cast<CacheValueChunk*>(obj);
+  while (chunks_head != nullptr) {
+    CacheValueChunk* tmp_chunk = chunks_head;
+    chunks_head = chunks_head->next;
+    tmp_chunk->Free();
+  }
   obj = nullptr;
 }
 

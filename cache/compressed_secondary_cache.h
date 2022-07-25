@@ -86,18 +86,22 @@ class CompressedSecondaryCache : public SecondaryCache {
       64,   96,   128,  160,  192,  224,   256,   320,   384,   448,  512,
       640,  768,  896,  1024, 1280, 1536,  1792,  2048,  2560,  3072, 3584,
       4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 32768};
+
   struct CacheValueChunk {
-    CacheAllocationPtr chunk_ptr{nullptr};
-    size_t charge{0};
-    std::unique_ptr<CacheValueChunk> next{nullptr};
+    CacheValueChunk* next;
+    size_t size;
+    // Beginning of the chunk data (MUST BE THE LAST FIELD IN THIS STRUCT!)
+    char data[1];
+
+    void Free() { delete[] reinterpret_cast<char*>(this); }
   };
 
   // Split value into chunks to better fit into jemalloc bins. The chunks
   // are stored in CacheValueChunk and extra charge is needed for each chunk,
   // so the cache charge is recalculated here.
-  std::unique_ptr<CacheValueChunk> SplitValueIntoChunks(
-      const Slice& value, const CompressionType compression_type,
-      size_t& charge);
+  CacheValueChunk* SplitValueIntoChunks(const Slice& value,
+                                        const CompressionType compression_type,
+                                        size_t& charge);
 
   // After merging chunks, the extra charge for each chunk is removed, so
   // the charge is recalculated.
