@@ -637,6 +637,19 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
+  // No blob files eligible for GC due to the age cutoff even though the blob
+  // space amp limit is enabled.
+
+  {
+    constexpr double age_cutoff = 0.1;
+    constexpr double force_threshold = 0.0;
+    constexpr double space_amp_limit = 1.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
   // Part of the oldest batch of blob files (specifically, #12 and #13) is
   // ineligible for GC due to the age cutoff
 
@@ -648,6 +661,39 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
                                                 space_amp_limit);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (2.0) is too low to trigger the GC.
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.0;
+    constexpr double space_amp_limit = 3.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (2.0) is high enough to trigger the
+  // GC.
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.0;
+    constexpr double space_amp_limit = 1.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
+    ASSERT_EQ(ssts_to_be_compacted.size(), 1);
+
+    const autovector<std::pair<int, FileMetaData*>>
+        expected_ssts_to_be_compacted{{level, level_files[0]}};
+
+    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
   }
 
   // Oldest batch is eligible based on age cutoff but its overall garbage ratio
@@ -670,6 +716,39 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCSingleBatch) {
     constexpr double age_cutoff = 1.0;
     constexpr double force_threshold = 0.5;
     constexpr double space_amp_limit = 0.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
+    ASSERT_EQ(ssts_to_be_compacted.size(), 1);
+
+    const autovector<std::pair<int, FileMetaData*>>
+        expected_ssts_to_be_compacted{{level, level_files[0]}};
+
+    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
+  }
+
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (2.0) is too low to trigger the GC.
+
+  {
+    constexpr double age_cutoff = 1.0;
+    constexpr double force_threshold = 0.5;
+    constexpr double space_amp_limit = 3.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (2.0) is high enough to trigger the
+  // GC.
+
+  {
+    constexpr double age_cutoff = 1.0;
+    constexpr double force_threshold = 0.5;
+    constexpr double space_amp_limit = 2.0;
     vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
                                                 space_amp_limit);
 
@@ -792,6 +871,19 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
+  // No blob files eligible for GC due to the age cutoff even though the blob
+  // space amp limit is enabled.
+
+  {
+    constexpr double age_cutoff = 0.1;
+    constexpr double force_threshold = 0.0;
+    constexpr double space_amp_limit = 1.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
   // Part of the oldest batch of blob files (specifically, the second file) is
   // ineligible for GC due to the age cutoff
 
@@ -805,6 +897,50 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
   }
 
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (12.0) is too low to trigger the
+  // GC.
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.0;
+    constexpr double space_amp_limit = 20.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (12.0) is high enough to trigger
+  // the GC.
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.0;
+    constexpr double space_amp_limit = 10.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    auto ssts_to_be_compacted = vstorage_.FilesMarkedForForcedBlobGC();
+    ASSERT_EQ(ssts_to_be_compacted.size(), 2);
+
+    std::sort(ssts_to_be_compacted.begin(), ssts_to_be_compacted.end(),
+              [](const std::pair<int, FileMetaData*>& lhs,
+                 const std::pair<int, FileMetaData*>& rhs) {
+                assert(lhs.second);
+                assert(rhs.second);
+                return lhs.second->fd.GetNumber() < rhs.second->fd.GetNumber();
+              });
+
+    const autovector<std::pair<int, FileMetaData*>>
+        expected_ssts_to_be_compacted{{level, level_files[0]},
+                                      {level, level_files[1]}};
+
+    ASSERT_EQ(ssts_to_be_compacted[0], expected_ssts_to_be_compacted[0]);
+    ASSERT_EQ(ssts_to_be_compacted[1], expected_ssts_to_be_compacted[1]);
+  }
+
   // Oldest batch is eligible based on age cutoff but its overall garbage ratio
   // is below threshold
 
@@ -816,6 +952,19 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
                                                 space_amp_limit);
 
     ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Ignore the force threshold. Instead, use the space amp limit to trigger the
+  // GC.
+
+  {
+    constexpr double age_cutoff = 0.5;
+    constexpr double force_threshold = 0.6;
+    constexpr double space_amp_limit = 2.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_EQ(vstorage_.FilesMarkedForForcedBlobGC().size(), 2);
   }
 
   // Oldest batch is eligible based on age cutoff and its overall garbage ratio
@@ -856,6 +1005,34 @@ TEST_F(VersionStorageInfoTest, ForcedBlobGCMultipleBatches) {
     constexpr double age_cutoff = 0.75;
     constexpr double force_threshold = 0.6;
     constexpr double space_amp_limit = 0.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_TRUE(vstorage_.FilesMarkedForForcedBlobGC().empty());
+  }
+
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (7.99) is high enough to trigger
+  // the GC.
+
+  {
+    constexpr double age_cutoff = 0.75;
+    constexpr double force_threshold = 0.6;
+    constexpr double space_amp_limit = 7.0;
+    vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
+                                                space_amp_limit);
+
+    ASSERT_EQ(vstorage_.FilesMarkedForForcedBlobGC().size(), 2);
+  }
+
+  // Enable the space amp limit to trigger the GC, and ignore the force
+  // threshold. The estimated blob space amp (7.99) is too low to trigger the
+  // GC.
+
+  {
+    constexpr double age_cutoff = 0.75;
+    constexpr double force_threshold = 0.6;
+    constexpr double space_amp_limit = 8.0;
     vstorage_.ComputeFilesMarkedForForcedBlobGC(age_cutoff, force_threshold,
                                                 space_amp_limit);
 

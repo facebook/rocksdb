@@ -84,7 +84,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD +
              "=<double,e.g.:0.25>\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT +
-             "=<double,e.g.:5.0>\n");
+             "=<double,e.g.:0.0>\n");
   ret.append("  --" + LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE +
              "=<int,e.g.:2097152>\n");
 

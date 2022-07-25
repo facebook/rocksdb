@@ -90,7 +90,7 @@ function display_usage() {
   echo -e "\tBLOB_COMPRESSION_TYPE\tValue for blob_compression_type"
   echo -e "\tBLOB_GC_AGE_CUTOFF\tValue for blob_garbage_collection_age_cutoff"
   echo -e "\tBLOB_GC_FORCE_THRESHOLD\tValue for blob_garbage_collection_force_threshold"
-  echo -e "\tBLOB_GC_SPACE_AMP_LIMIT\tValue for blob_garbage_collection_space_amp_limit (default: 5.0)"
+  echo -e "\tBLOB_GC_SPACE_AMP_LIMIT\tValue for blob_garbage_collection_space_amp_limit (default: 0.0 disabled)"
   echo -e "\tBLOB_FILE_STARTING_LEVEL\t\tBlob file starting level (default: 0)"
   echo -e "\tUSE_BLOB_CACHE\t\t\tEnable blob cache (default: 1)"
   echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache (default: 1)"
@@ -236,7 +236,7 @@ blob_file_size=${BLOB_FILE_SIZE:-$(( 256 * $M ))}
 blob_compression_type=${BLOB_COMPRESSION_TYPE:-${compression_type}}
 blob_gc_age_cutoff=${BLOB_GC_AGE_CUTOFF:-"0.25"}
 blob_gc_force_threshold=${BLOB_GC_FORCE_THRESHOLD:-1}
-blob_gc_space_amp_limit=${BLOB_GC_SPACE_AMP_LIMIT:-"5.0"}
+blob_gc_space_amp_limit=${BLOB_GC_SPACE_AMP_LIMIT:-0}
 blob_file_starting_level=${BLOB_FILE_STARTING_LEVEL:-0}
 use_blob_cache=${USE_BLOB_CACHE:-1}
 use_shared_block_and_blob_cache=${USE_SHARED_BLOCK_AND_BLOB_CACHE:-1}

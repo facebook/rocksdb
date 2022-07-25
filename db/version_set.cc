@@ -3011,15 +3011,14 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
     // live KVs take up two thirds of the LSM. Then, we can use the same 2/3
     // factor to multiply the value of (total blob bytes - garbage blob bytes)
     // to get an estimate of the live blob bytes from the user's perspective.
-    double total_data_size = 0;
+    double total_ssts_size = 0;
     for (int level = 0; level < num_levels(); level++) {
-      total_data_size += TotalFileSize(files_[level]);
+      total_ssts_size += TotalFileSize(files_[level]);
     }
-    double lsm_tree_space_amp = EstimateLiveDataSize() / total_data_size;
+    double lsm_tree_space_amp = total_ssts_size / EstimateLiveSSTsSize();
 
     double sum_live_blob_bytes =
-        (1 / lsm_tree_space_amp) *
-        (sum_total_blob_bytes - sum_garbage_blob_bytes);
+        (sum_total_blob_bytes - sum_garbage_blob_bytes) / lsm_tree_space_amp;
     double blob_gc_space_amp = sum_total_blob_bytes / sum_live_blob_bytes;
 
     if (blob_gc_space_amp < blob_garbage_collection_space_amp_limit) {
@@ -3918,7 +3917,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableOptions& ioptions,
   }
 }
 
-uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
+uint64_t VersionStorageInfo::EstimateLiveSSTsSize() const {
   // Estimate the live data size by adding up the size of a maximal set of
   // sst files with no range overlap in same or higher level. The less
   // compacted, the more optimistic (smaller) this estimate is. Also,
@@ -3950,6 +3949,12 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
       }
     }
   }
+
+  return size;
+}
+
+uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
+  uint64_t size = EstimateLiveSSTsSize();
 
   // For BlobDB, the result also includes the exact value of live bytes in the
   // blob files of the version.

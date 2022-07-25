@@ -821,14 +821,15 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
   if (ParseDoubleOption(option_map_,
                         ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT,
                         blob_garbage_collection_space_amp_limit, exec_state_)) {
-    if (blob_garbage_collection_space_amp_limit >= 1 &&
-        blob_garbage_collection_space_amp_limit <= 10) {
+    if (blob_garbage_collection_space_amp_limit == 0 ||
+        (blob_garbage_collection_space_amp_limit >= 1 &&
+         blob_garbage_collection_space_amp_limit <= 50)) {
       cf_opts->blob_garbage_collection_space_amp_limit =
           blob_garbage_collection_space_amp_limit;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_BLOB_GARBAGE_COLLECTION_SPACE_AMP_LIMIT +
-          " must be >= 1 and <= 10.");
+          " must be == 0 (disabled) or >= 1 and <= 50 (enabled).");
     }
   }
 

@@ -267,7 +267,7 @@ bool StressTest::BuildOptionsTable() {
     options_tbl.emplace("blob_garbage_collection_force_threshold",
                         std::vector<std::string>{"0.5", "0.75", "1.0"});
     options_tbl.emplace("blob_garbage_collection_space_amp_limit",
-                        std::vector<std::string>{"1.0", "2.0", "4.0"});
+                        std::vector<std::string>{"0.0", "2.0", "4.0"});
     options_tbl.emplace("blob_compaction_readahead_size",
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
