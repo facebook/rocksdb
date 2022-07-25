@@ -189,7 +189,8 @@ class CompactionPicker {
                         VersionStorageInfo* vstorage,
                         CompactionInputFiles* inputs,
                         CompactionInputFiles* output_level_inputs,
-                        int* parent_index, int base_index);
+                        int* parent_index, int base_index,
+                        bool only_expand_towards_right = false);
 
   void GetGrandparents(VersionStorageInfo* vstorage,
                        const CompactionInputFiles& inputs,

@@ -83,7 +83,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
           break;
         }
       }
-      total_size -= f->compensated_file_size;
+      total_size -= f->fd.file_size;
       inputs[0].files.push_back(f);
     }
   }
@@ -191,7 +191,7 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
 
   for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
     auto f = *ritr;
-    total_size -= f->compensated_file_size;
+    total_size -= f->fd.file_size;
     inputs[0].files.push_back(f);
     char tmp_fsize[16];
     AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
