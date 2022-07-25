@@ -41,6 +41,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
@@ -4045,6 +4046,57 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   for (auto state : compression_state) {
     DoCompressionTest(state);
   }
+}
+
+TEST_F(GeneralTableTest, ApproximateKeyAnchors) {
+  Random rnd(301);
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  std::string tmp;
+  for (int i = 1000; i < 9000; i++) {
+    c.Add(std::to_string(i), rnd.RandomString(2000));
+  }
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  InternalKeyComparator ikc(options.comparator);
+  options.compression = kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 4096;
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
+
+  std::vector<TableReader::Anchor> anchors;
+  ASSERT_OK(c.GetTableReader()->ApproximateKeyAnchors(ReadOptions(), anchors));
+  // The target is 128 anchors. But in reality it can be slightly more or fewer.
+  ASSERT_GT(anchors.size(), 120);
+  ASSERT_LT(anchors.size(), 140);
+
+  // We have around 8000 keys. With 128 anchors, in average 62.5 keys per
+  // anchor. Here we take a rough range and estimate the distance between
+  // anchors is between 50 and 100.
+  // Total data size is about 18,000,000, so each anchor range is about
+  // 140,625. We also take a rough range.
+  int prev_num = 1000;
+  // Non-last anchor
+  for (size_t i = 0; i + 1 < anchors.size(); i++) {
+    auto& anchor = anchors[i];
+    ASSERT_GT(anchor.range_size, 100000);
+    ASSERT_LT(anchor.range_size, 200000);
+
+    // Key might be shortened, so fill 0 in the end if it is the case.
+    std::string key_cpy = anchor.user_key;
+    key_cpy.append(4 - key_cpy.size(), '0');
+    int num = std::stoi(key_cpy);
+    ASSERT_GT(num - prev_num, 50);
+    ASSERT_LT(num - prev_num, 100);
+    prev_num = num;
+  }
+
+  ASSERT_EQ("8999", anchors.back().user_key);
+  ASSERT_LT(anchors.back().range_size, 200000);
+
+  c.ResetTableReader();
 }
 
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)

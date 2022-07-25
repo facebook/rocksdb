@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_garbage_meter.h"
 #include "db/compaction/compaction.h"
@@ -52,7 +54,7 @@ class SubcompactionState {
   // The boundaries of the key-range this compaction is interested in. No two
   // sub-compactions may have overlapping key-ranges.
   // 'start' is inclusive, 'end' is exclusive, and nullptr means unbounded
-  const Slice *start, *end;
+  const std::optional<Slice> start, end;
 
   // The return status of this sub-compaction
   Status status;
@@ -117,8 +119,8 @@ class SubcompactionState {
   SubcompactionState(const SubcompactionState&) = delete;
   SubcompactionState& operator=(const SubcompactionState&) = delete;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
-                     uint32_t _sub_job_id)
+  SubcompactionState(Compaction* c, const std::optional<Slice> _start,
+                     const std::optional<Slice> _end, uint32_t _sub_job_id)
       : compaction(c),
         start(_start),
         end(_end),
@@ -132,12 +134,12 @@ class SubcompactionState {
     // Invalid output_split_key indicates that we do not need to split
     if (output_split_key != nullptr) {
       // We may only split the output when the cursor is in the range. Split
-      if ((end == nullptr || icmp->user_comparator()->Compare(
-                                 ExtractUserKey(output_split_key->Encode()),
-                                 ExtractUserKey(*end)) < 0) &&
-          (start == nullptr || icmp->user_comparator()->Compare(
-                                   ExtractUserKey(output_split_key->Encode()),
-                                   ExtractUserKey(*start)) > 0)) {
+      if ((!end.has_value() ||
+           icmp->user_comparator()->Compare(
+               ExtractUserKey(output_split_key->Encode()), end.value()) < 0) &&
+          (!start.has_value() || icmp->user_comparator()->Compare(
+                                     ExtractUserKey(output_split_key->Encode()),
+                                     start.value()) > 0)) {
         local_output_split_key_ = output_split_key;
       }
     }
