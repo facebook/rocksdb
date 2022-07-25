@@ -2814,7 +2814,7 @@ void VersionStorageInfo::ComputeCompactionScore(
   if (mutable_cf_options.enable_blob_garbage_collection) {
     if (mutable_cf_options.blob_garbage_collection_age_cutoff > 0.0 &&
         (mutable_cf_options.blob_garbage_collection_force_threshold < 1.0 ||
-         mutable_cf_options.blob_garbage_collection_space_amp_limit > 0.0)) {
+         mutable_cf_options.blob_garbage_collection_space_amp_limit >= 1.0)) {
       ComputeFilesMarkedForForcedBlobGC(
           mutable_cf_options.blob_garbage_collection_age_cutoff,
           mutable_cf_options.blob_garbage_collection_force_threshold,
@@ -2990,7 +2990,7 @@ void VersionStorageInfo::ComputeFilesMarkedForForcedBlobGC(
 
   assert(cutoff_count <= blob_files_.size());
 
-  if (blob_garbage_collection_space_amp_limit > 0.0) {
+  if (blob_garbage_collection_space_amp_limit >= 1.0) {
     for (; count < cutoff_count; ++count) {
       const auto& meta = blob_files_[count];
       assert(meta);
