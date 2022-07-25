@@ -53,14 +53,12 @@ public class TransactionTest extends AbstractTransactionTest {
 
   @Test
   public void prepare_commit() throws RocksDBException {
-
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
     final byte[] v12 = "value12".getBytes(UTF_8);
 
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions()) {
-
       try (final Transaction txn = dbContainer.beginTransaction()) {
         txn.put(k1, v1);
         txn.commit();
@@ -81,14 +79,12 @@ public class TransactionTest extends AbstractTransactionTest {
 
   @Test
   public void prepare_rollback() throws RocksDBException {
-
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
     final byte[] v12 = "value12".getBytes(UTF_8);
 
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions()) {
-
       try (final Transaction txn = dbContainer.beginTransaction()) {
         txn.put(k1, v1);
         txn.commit();
@@ -109,14 +105,12 @@ public class TransactionTest extends AbstractTransactionTest {
 
   @Test
   public void prepare_read_prepared_commit() throws RocksDBException {
-
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
     final byte[] v12 = "value12".getBytes(UTF_8);
 
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions()) {
-
       try (final Transaction txn = dbContainer.beginTransaction()) {
         txn.put(k1, v1);
         txn.commit();
@@ -142,14 +136,12 @@ public class TransactionTest extends AbstractTransactionTest {
 
   @Test
   public void prepare_read_prepared_rollback() throws RocksDBException {
-
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
     final byte[] v12 = "value12".getBytes(UTF_8);
 
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions()) {
-
       try (final Transaction txn = dbContainer.beginTransaction()) {
         txn.put(k1, v1);
         txn.commit();
@@ -417,7 +409,6 @@ public class TransactionTest extends AbstractTransactionTest {
       assertThat(txn.getId()).isNotNull();
     }
   }
-
 
   @Override
   public TransactionDBContainer startDb() throws RocksDBException {

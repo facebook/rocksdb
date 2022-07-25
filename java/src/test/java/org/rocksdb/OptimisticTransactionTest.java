@@ -5,27 +5,23 @@
 
 package org.rocksdb;
 
-import org.junit.Test;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Assertions.*;
+import org.junit.Test;
 
 public class OptimisticTransactionTest extends AbstractTransactionTest {
-
   @Test
   public void prepare_commit() throws RocksDBException {
-
     final byte[] k1 = "key1".getBytes(UTF_8);
     final byte[] v1 = "value1".getBytes(UTF_8);
     final byte[] v12 = "value12".getBytes(UTF_8);
 
     try (final DBContainer dbContainer = startDb();
          final ReadOptions readOptions = new ReadOptions()) {
-
       try (final Transaction txn = dbContainer.beginTransaction()) {
         txn.put(k1, v1);
         txn.commit();
@@ -37,7 +33,8 @@ public class OptimisticTransactionTest extends AbstractTransactionTest {
 
         failBecauseExceptionWasNotThrown(RocksDBException.class);
       } catch (final RocksDBException e) {
-        assertThat(e.getMessage()).contains("Two phase commit not supported for optimistic transactions");
+        assertThat(e.getMessage())
+            .contains("Two phase commit not supported for optimistic transactions");
       }
     }
   }
