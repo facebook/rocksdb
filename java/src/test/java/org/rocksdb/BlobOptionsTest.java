@@ -78,7 +78,7 @@ public class BlobOptionsTest {
       assertThat(options.blobFileSize()).isEqualTo(268435456L);
       assertThat(options.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
       assertThat(options.blobGarbageCollectionForceThreshold()).isEqualTo(1.0);
-      assertThat(options.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(5.0);
+      assertThat(options.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(0.0);
       assertThat(options.blobCompactionReadaheadSize()).isEqualTo(0);
       assertThat(options.prepopulateBlobCache())
           .isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
@@ -123,7 +123,7 @@ public class BlobOptionsTest {
       assertThat(columnFamilyOptions.blobFileSize()).isEqualTo(268435456L);
       assertThat(columnFamilyOptions.blobGarbageCollectionAgeCutoff()).isEqualTo(0.25);
       assertThat(columnFamilyOptions.blobGarbageCollectionForceThreshold()).isEqualTo(1.0);
-      assertThat(columnFamilyOptions.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(5.0);
+      assertThat(columnFamilyOptions.blobGarbageCollectionSpaceAmplificationLimit()).isEqualTo(0.0);
       assertThat(columnFamilyOptions.blobCompactionReadaheadSize()).isEqualTo(0);
 
       assertThat(columnFamilyOptions.setEnableBlobFiles(true)).isEqualTo(columnFamilyOptions);
