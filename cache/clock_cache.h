@@ -638,7 +638,7 @@ class ClockHandleTable {
 
   // After a failed FindSlot call (i.e., with answer -1) in
   // FindAvailableSlot, this function fixes all displacements's
-  // starting from the 0-th probe.
+  // starting from the 0-th probe, until the given probe.
   void Rollback(const Slice& key, uint32_t probe);
 
   // Number of hash bits used for table index.
