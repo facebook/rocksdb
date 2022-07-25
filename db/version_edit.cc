@@ -852,6 +852,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
       r.append(" unique_id(internal): ");
       UniqueId64x2 id = f.unique_id;
       r.append(InternalUniqueIdToHumanString(&id));
+      r.append(" public_unique_id: ");
+      InternalUniqueIdToExternal(&id);
+      r.append(UniqueIdToHumanString(EncodeUniqueIdBytes(&id)));
     }
   }
 
