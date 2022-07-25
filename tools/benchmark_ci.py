@@ -7,18 +7,17 @@
 '''Run benchmark_compare.sh on the most recent build, for CI
 '''
 
-
 import argparse
 import glob
 import os
 import re
 import shutil
-import stat
 import subprocess
 import sys
 import logging
 
 logging.basicConfig(level=logging.INFO)
+
 
 class Config:
     def __init__(self, args):
@@ -49,10 +48,11 @@ class Config:
                           'SUBCOMPACTIONS',
                           'COMPACTION_STYLE']
 
+
 def read_version(config):
-    majorRegex = re.compile('#define ROCKSDB_MAJOR\s([0-9]+)')
-    minorRegex = re.compile('#define ROCKSDB_MINOR\s([0-9]+)')
-    patchRegex = re.compile('#define ROCKSDB_PATCH\s([0-9]+)')
+    majorRegex = re.compile(r'#define ROCKSDB_MAJOR\s([0-9]+)')
+    minorRegex = re.compile(r'#define ROCKSDB_MINOR\s([0-9]+)')
+    patchRegex = re.compile(r'#define ROCKSDB_PATCH\s([0-9]+)')
     with open(config.version_file, 'r') as reader:
         major = None
         minor = None
@@ -65,17 +65,19 @@ def read_version(config):
             elif patch is None:
                 patch = patchRegex.match(line)
 
-            if patch != None:
+            if patch is not None:
                 break
 
-        if patch != None:
-            return (major.group(1),minor.group(1),patch.group(1))
-    
+        if patch is not None:
+            return (major.group(1), minor.group(1), patch.group(1))
+
     # Didn't complete a match
     return None
 
+
 def prepare(version_str, config):
-    old_files = glob.glob(f"{config.results_dir}/{version_str}/**", recursive=True)
+    old_files = glob.glob(f"{config.results_dir}/{version_str}/**",
+                          recursive=True)
     for f in old_files:
         if os.path.isfile(f):
             logging.debug(f"remove file {f}")
@@ -86,26 +88,31 @@ def prepare(version_str, config):
             os.rmdir(f)
 
     db_bench_vers = f"{config.benchmark_cwd}/db_bench.{version_str}"
-    
+
     # Create a symlink to the db_bench executable
     os.symlink(f"{os.getcwd()}/db_bench", db_bench_vers)
 
+
 def results(version_str, config):
     # Copy the report TSV file back to the top level of results
-    shutil.copyfile(f"{config.results_dir}/{version_str}/report.tsv", f"{config.results_dir}/report.tsv")
+    shutil.copyfile(f"{config.results_dir}/{version_str}/report.tsv",
+                    f"{config.results_dir}/report.tsv")
+
 
 def cleanup(version_str, config):
     # Remove the symlink to the db_bench executable
     db_bench_vers = f"{config.benchmark_cwd}/db_bench.{version_str}"
     os.remove(db_bench_vers)
 
+
 def get_benchmark_env():
     env = []
     for key in Config.benchmark_env_keys:
         value = os.getenv(key)
-        if not value is None:
+        if value is not None:
             env.append((key, value))
     return env
+
 
 def main():
     '''Tool for running benchmark_compare.sh on the most recent build, for CI
@@ -132,7 +139,8 @@ def main():
 
     version = read_version(config)
     if version is None:
-        raise Exception(f"Could not read RocksDB version from {config.version_file}")
+        raise Exception(
+            f"Could not read RocksDB version from {config.version_file}")
     version_str = f"{version[0]}.{version[1]}.{version[2]}"
     logging.info(f"Run benchmark_ci with RocksDB version {version_str}")
 
@@ -142,15 +150,16 @@ def main():
         env = get_benchmark_env()
         env.append(('NUM_KEYS', args.num_keys))
         cmd = [config.benchmark_script,
-            config.data_dir, config.results_dir, version_str]
+               config.data_dir, config.results_dir, version_str]
         logging.info(f"Run {cmd} env={env} cwd={config.benchmark_cwd}")
-        subprocess.run(cmd,env=dict(env),cwd=config.benchmark_cwd)
+        subprocess.run(cmd, env=dict(env), cwd=config.benchmark_cwd)
 
         results(version_str, config)
     finally:
         cleanup(version_str, config)
-    
+
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main())
