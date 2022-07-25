@@ -527,6 +527,27 @@ Status TableCache::GetTableProperties(
   return s;
 }
 
+Status TableCache::ApproximateKeyAnchors(
+    const ReadOptions& ro, const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& fd, std::vector<TableReader::Anchor>& anchors) {
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (t == nullptr) {
+    s = FindTable(ro, file_options_, internal_comparator, fd, &handle);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+  }
+  if (s.ok() && t != nullptr) {
+    s = t->ApproximateKeyAnchors(ro, anchors);
+  }
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
+  return s;
+}
+
 size_t TableCache::GetMemoryUsageByTableReader(
     const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,

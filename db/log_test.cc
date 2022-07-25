@@ -960,12 +960,19 @@ TEST_P(CompressionLogTest, Fragmentation) {
     return;
   }
   ASSERT_OK(SetupTestEnv());
-  Write("small");
-  Write(BigString("medium", 50000));
-  Write(BigString("large", 100000));
-  ASSERT_EQ("small", Read());
-  ASSERT_EQ(BigString("medium", 50000), Read());
-  ASSERT_EQ(BigString("large", 100000), Read());
+  Random rnd(301);
+  const std::vector<std::string> wal_entries = {
+      "small",
+      rnd.RandomBinaryString(3 * kBlockSize / 2),  // Spans into block 2
+      rnd.RandomBinaryString(3 * kBlockSize),      // Spans into block 5
+  };
+  for (const std::string& wal_entry : wal_entries) {
+    Write(wal_entry);
+  }
+
+  for (const std::string& wal_entry : wal_entries) {
+    ASSERT_EQ(wal_entry, Read());
+  }
   ASSERT_EQ("EOF", Read());
 }
 
