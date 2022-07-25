@@ -139,7 +139,7 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "    compression_type : %s\n",
            CompressionTypeToString(cache_options_.compression_type).c_str());
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "    compression_type : %d\n",
+  snprintf(buffer, kBufferSize, "    compress_format_version : %d\n",
            cache_options_.compress_format_version);
   ret.append(buffer);
   return ret;

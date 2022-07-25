@@ -186,6 +186,12 @@ class Timer {
     }
     return ret;
   }
+
+  bool TEST_HasVaildTask(const std::string& func_name) const {
+    InstrumentedMutexLock l(&mutex_);
+    auto it = map_.find(func_name);
+    return it != map_.end() && it->second->IsValid();
+  }
 #endif  // NDEBUG
 
  private:

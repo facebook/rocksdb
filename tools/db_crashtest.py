@@ -349,6 +349,7 @@ blob_params = {
     "use_blob_cache": lambda: random.randint(0, 1),
     "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
     "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
+    "prepopulate_blob_cache": lambda: random.randint(0, 1),
 }
 
 ts_params = {
@@ -403,6 +404,7 @@ multiops_txn_default_params = {
     "rollback_one_in":  4,
     # Re-enable once we have a compaction for MultiOpsTxnStressTest
     "enable_compaction_filter": 0,
+    "create_timestamped_snapshot_one_in": 50,
 }
 
 multiops_wc_txn_params = {
@@ -423,8 +425,8 @@ multiops_wp_txn_params = {
     "checkpoint_one_in": 0,
     # Required to be 1 in order to use commit-time-batch
     "use_only_the_last_commit_time_batch_for_recovery": 1,
-    "recycle_log_file_num": 0,
     "clear_wp_commit_cache_one_in": 10,
+    "create_timestamped_snapshot_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):

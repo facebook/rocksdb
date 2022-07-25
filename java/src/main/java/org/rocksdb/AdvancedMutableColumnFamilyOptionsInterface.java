@@ -801,6 +801,29 @@ public interface AdvancedMutableColumnFamilyOptionsInterface<
    */
   int blobFileStartingLevel();
 
+  /**
+   * Set a certain prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param prepopulateBlobCache the prepopulate blob cache option
+   *
+   * @return the reference to the current options.
+   */
+  T setPrepopulateBlobCache(final PrepopulateBlobCache prepopulateBlobCache);
+
+  /**
+   * Get the prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * @return the current prepopulate blob cache option.
+   */
+  PrepopulateBlobCache prepopulateBlobCache();
+
   //
   // END options for blobs (integrated BlobDB)
   //

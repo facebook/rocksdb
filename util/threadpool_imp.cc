@@ -100,6 +100,30 @@ struct ThreadPoolImpl::Impl {
   // Set the thread priority.
   void SetThreadPriority(Env::Priority priority) { priority_ = priority; }
 
+  int ReserveThreads(int threads_to_be_reserved) {
+    std::unique_lock<std::mutex> lock(mu_);
+    // We can reserve at most num_waiting_threads_ in total so the number of
+    // threads that can be reserved might be fewer than the desired one. In
+    // rare cases, num_waiting_threads_ could be less than reserved_threads
+    // due to SetBackgroundThreadInternal or last excessive threads. If that
+    // happens, we cannot reserve any other threads.
+    int reserved_threads_in_success =
+        std::min(std::max(num_waiting_threads_ - reserved_threads_, 0),
+                 threads_to_be_reserved);
+    reserved_threads_ += reserved_threads_in_success;
+    return reserved_threads_in_success;
+  }
+
+  int ReleaseThreads(int threads_to_be_released) {
+    std::unique_lock<std::mutex> lock(mu_);
+    // We cannot release more than reserved_threads_
+    int released_threads_in_success =
+        std::min(reserved_threads_, threads_to_be_released);
+    reserved_threads_ -= released_threads_in_success;
+    WakeUpAllThreads();
+    return released_threads_in_success;
+  }
+
 private:
  static void BGThreadWrapper(void* arg);
 
@@ -110,6 +134,16 @@ private:
 
  int total_threads_limit_;
  std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
+ // Number of reserved threads, managed by ReserveThreads(..) and
+ // ReleaseThreads(..), if num_waiting_threads_ is no larger than
+ // reserved_threads_, its thread will be blocked to ensure the reservation
+ // mechanism
+ int reserved_threads_;
+ // Number of waiting threads (Maximum number of threads that can be
+ // reserved), in rare cases, num_waiting_threads_ could be less than
+ // reserved_threads due to SetBackgroundThreadInternal or last
+ // excessive threads.
+ int num_waiting_threads_;
  bool exit_all_threads_;
  bool wait_for_jobs_to_complete_;
 
@@ -135,6 +169,8 @@ inline ThreadPoolImpl::Impl::Impl()
       env_(nullptr),
       total_threads_limit_(0),
       queue_len_(),
+      reserved_threads_(0),
+      num_waiting_threads_(0),
       exit_all_threads_(false),
       wait_for_jobs_to_complete_(false),
       queue_(),
@@ -155,6 +191,8 @@ void ThreadPoolImpl::Impl::JoinThreads(bool wait_for_jobs_to_complete) {
   // prevent threads from being recreated right after they're joined, in case
   // the user is concurrently submitting jobs.
   total_threads_limit_ = 0;
+  reserved_threads_ = 0;
+  num_waiting_threads_ = 0;
 
   lock.unlock();
 
@@ -189,10 +227,23 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     // Wait until there is an item that is ready to run
     std::unique_lock<std::mutex> lock(mu_);
     // Stop waiting if the thread needs to do work or needs to terminate.
+    // Increase num_waiting_threads_ once this task has started waiting
+    num_waiting_threads_++;
+
+    TEST_SYNC_POINT("ThreadPoolImpl::BGThread::WaitingThreadsInc");
+    TEST_IDX_SYNC_POINT("ThreadPoolImpl::BGThread::Start:th", thread_id);
+    // When not exist_all_threads and the current thread id is not the last
+    // excessive thread, it may be blocked due to 3 reasons: 1) queue is empty
+    // 2) it is the excessive thread (not the last one)
+    // 3) the number of waiting threads is not greater than reserved threads
+    // (i.e, no available threads due to full reservation")
     while (!exit_all_threads_ && !IsLastExcessiveThread(thread_id) &&
-           (queue_.empty() || IsExcessiveThread(thread_id))) {
+           (queue_.empty() || IsExcessiveThread(thread_id) ||
+            num_waiting_threads_ <= reserved_threads_)) {
       bgsignal_.wait(lock);
     }
+    // Decrease num_waiting_threads_ once the thread is not waiting
+    num_waiting_threads_--;
 
     if (exit_all_threads_) {  // mechanism to let BG threads exit safely
 
@@ -209,11 +260,13 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
       auto& terminating_thread = bgthreads_.back();
       terminating_thread.detach();
       bgthreads_.pop_back();
-
       if (HasExcessiveThread()) {
         // There is still at least more excessive thread to terminate.
         WakeUpAllThreads();
       }
+      TEST_IDX_SYNC_POINT("ThreadPoolImpl::BGThread::Termination:th",
+                          thread_id);
+      TEST_SYNC_POINT("ThreadPoolImpl::BGThread::Termination");
       break;
     }
 
@@ -333,7 +386,6 @@ int ThreadPoolImpl::Impl::GetBackgroundThreads() {
 void ThreadPoolImpl::Impl::StartBGThreads() {
   // Start background thread if necessary
   while ((int)bgthreads_.size() < total_threads_limit_) {
-
     port::Thread p_t(&BGThreadWrapper,
       new BGThreadMetadata(this, bgthreads_.size()));
 
@@ -367,7 +419,7 @@ void ThreadPoolImpl::Impl::Submit(std::function<void()>&& schedule,
 
   // Add to priority queue
   queue_.push_back(BGItem());
-
+  TEST_SYNC_POINT("ThreadPoolImpl::Submit::Enqueue");
   auto& item = queue_.back();
   item.tag = tag;
   item.function = std::move(schedule);
@@ -496,6 +548,17 @@ Env::Priority ThreadPoolImpl::GetThreadPriority() const {
 // Set the thread priority.
 void ThreadPoolImpl::SetThreadPriority(Env::Priority priority) {
   impl_->SetThreadPriority(priority);
+}
+
+// Reserve a specific number of threads, prevent them from running other
+// functions The number of reserved threads could be fewer than the desired one
+int ThreadPoolImpl::ReserveThreads(int threads_to_be_reserved) {
+  return impl_->ReserveThreads(threads_to_be_reserved);
+}
+
+// Release a specific number of threads
+int ThreadPoolImpl::ReleaseThreads(int threads_to_be_released) {
+  return impl_->ReleaseThreads(threads_to_be_released);
 }
 
 ThreadPool* NewThreadPool(int num_threads) {

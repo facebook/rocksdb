@@ -9,7 +9,6 @@
 
 #pragma once
 
-#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -19,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 // Exceptions MUST NOT propagate out of overridden functions into RocksDB,
 // because RocksDB is not exception-safe. This could cause undefined behavior
 // including data loss, unreported corruption, deadlocks, and more.
-class RateLimiter : public Customizable {
+class RateLimiter {
  public:
   enum class OpType {
     kRead,
@@ -32,19 +31,10 @@ class RateLimiter : public Customizable {
     kAllIo,
   };
 
-  static const char* Type() { return "RateLimiter"; }
-  static Status CreateFromString(const ConfigOptions& options,
-                                 const std::string& value,
-                                 std::shared_ptr<RateLimiter>* result);
-
   // For API compatibility, default to rate-limiting writes only.
-  explicit RateLimiter(Mode mode = Mode::kWritesOnly);
+  explicit RateLimiter(Mode mode = Mode::kWritesOnly) : mode_(mode) {}
 
   virtual ~RateLimiter() {}
-
-  // Deprecated. Will be removed in a major release. Derived classes
-  // should implement this method.
-  virtual const char* Name() const override { return ""; }
 
   // This API allows user to dynamically change rate limiter's bytes per second.
   // REQUIRED: bytes_per_second > 0
@@ -135,7 +125,7 @@ class RateLimiter : public Customizable {
   Mode GetMode() { return mode_; }
 
  private:
-  Mode mode_;
+  const Mode mode_;
 };
 
 // Create a RateLimiter object, which can be shared among RocksDB instances to
