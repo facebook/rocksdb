@@ -43,3 +43,29 @@ lru_cache_ops.secondary_cache = NewCompressedSecondaryCache(secondary_cache_opts
 // Enable the blob cache
 options.blob_cache = NewLRUCache(lru_cache_ops);
 ```
+
+In RocksDB, we designed a new abstraction interface called [BlobSource](https://github.com/facebook/rocksdb/blob/7.5.fb/db/blob/blob_source.h#L26-L136) for blob read logic that gives all users access to blobs, whether they are in the blob cache, secondary cache, or (remote) storage. Blobs can be potentially read both while handling user reads (`Get`, `MultiGet`, or iterator) and during compaction (while dealing with compaction filters, Merges, or garbage collection) but eventually all blob reads go through `Version::GetBlob` or, for MultiGet, `Version::MultiGetBlob` (and then get dispatched to the interface -- `BlobSource`).
+
+In addition to the above, we added blob cache tickers, performance context statistics, and DB properties to expose the capacity and current usage of the blob cache and monitor its performance.
+
+* Added new DB properties "rocksdb.blob-cache-capacity", "rocksdb.blob-cache-usage", "rocksdb.blob-cache-pinned-usage" to show blob cache usage.
+* Added new perf context statistics `blob_cache_hit_count`, `blob_read_count`, `blob_read_byte`, `blob_read_time`, `blob_checksum_time` and `blob_decompress_time`.
+* Added new tickers `BLOB_DB_CACHE_MISS`, `BLOB_DB_CACHE_HIT`, `BLOB_DB_CACHE_ADD`, `BLOB_DB_CACHE_ADD_FAILURES`, `BLOB_DB_CACHE_BYTES_READ` and `BLOB_DB_CACHE_BYTES_WRITE`.
+
+For example, the following code snippet shows how to use the new BlobDB tickers to minitor the blob cache behavior:
+
+```c++
+options_.statistics = CreateDBStatistics();
+Statistics* statistics = options_.statistics.get();
+// blob cache operations ...
+statistics->getTickerCount(BLOB_DB_CACHE_MISS);
+statistics->getTickerCount(BLOB_DB_CACHE_HIT);
+statistics->getTickerCount(BLOB_DB_CACHE_ADD);
+statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ);
+statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE);
+```
+
+More examples about how to use the new blob cache API can be found in the [blob_db_test.cc](https://github.com/facebook/rocksdb/blob/7.5.fb/db/blob/blob_source_test.cc).
+
+## Global Memory Limit
+
