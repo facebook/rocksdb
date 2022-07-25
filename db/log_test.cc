@@ -194,8 +194,17 @@ class LogTest
     std::string scratch;
     Slice record;
     bool ret = false;
-    ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode);
+    uint64_t record_checksum;
+    ret = reader_->ReadRecord(&record, &scratch, wal_recovery_mode,
+                              &record_checksum);
     if (ret) {
+      if (!allow_retry_read_) {
+        // allow_retry_read_ means using FragmentBufferedReader which does not
+        // support record checksum yet.
+        uint64_t actual_record_checksum =
+            XXH3_64bits(record.data(), record.size());
+        assert(actual_record_checksum == record_checksum);
+      }
       return record.ToString();
     } else {
       return "EOF";
