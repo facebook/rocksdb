@@ -1025,8 +1025,6 @@ TEST_F(CreateCacheTest, ClockCache) {
   // cache->SetCapacity(1024U * 1024U); Currently ClockCache does not support
   // SetCapacity
   ASSERT_EQ(cache->GetCapacity(), 1024U * 1024U);
-  cache->SetStrictCapacityLimit(true);
-  ASSERT_EQ(cache->HasStrictCapacityLimit(), true);
 
   config_options_.invoke_prepare_options = true;
   ASSERT_OK(Cache::CreateFromString(config_options_,
