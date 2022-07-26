@@ -1710,8 +1710,20 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
 
 Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname) {
   std::string cloudmanifest = CloudManifestFile(local_dbname);
+
+  // TODO(wei): following check is to make sure we maintain the same behavior
+  // as before. Once we double check every service has right resync_on_open set,
+  // we should remove.
+  bool resync_on_open = cloud_env_options.resync_on_open;
+  if (SrcMatchesDest() && !resync_on_open) {
+    Log(InfoLogLevel::WARN_LEVEL, info_log_,
+        "[cloud_env_impl] FetchCloudManifest: Src bucket matches dest bucket "
+        "but resync_on_open not enabled. Force enabling it for now");
+    resync_on_open = true;
+  }
+
   // If resync_on_open is false and we have a local cloud manifest, do nothing.
-  if (!cloud_env_options.resync_on_open && GetBaseEnv()->FileExists(cloudmanifest).ok()) {
+  if (!resync_on_open && GetBaseEnv()->FileExists(cloudmanifest).ok()) {
     // nothing to do here, we have our cloud manifest
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
         "[cloud_env_impl] FetchCloudManifest: Nothing to do, %s exists and "
