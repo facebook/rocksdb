@@ -548,6 +548,8 @@ void Compaction::ReleaseCompactionFiles(Status status) {
   MarkFilesBeingCompacted(false);
   if (cfd_) {
     cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
+  } else {
+    status.PermitUncheckedError();
   }
 }
 
