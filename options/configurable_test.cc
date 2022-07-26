@@ -313,9 +313,9 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   config_options_.invoke_prepare_options = true;
   ASSERT_OK(c->ConfigureFromMap(config_options_, {}));
   ASSERT_EQ(*cp, 1);
-  // ASSERT_EQ(*up, 1);
+  ASSERT_EQ(*up, 1);
   ASSERT_OK(c->ConfigureFromString(config_options_, "prepared=0"));
-  // ASSERT_EQ(*up, 2);
+  ASSERT_EQ(*up, 2);
   ASSERT_EQ(*cp, 1);
 
   ASSERT_NOK(c->ConfigureFromString(config_options_, "prepared=-2"));

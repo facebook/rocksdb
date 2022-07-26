@@ -41,25 +41,23 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   // We ignore the invoke_prepare_options here intentionally,
   // as if you are here, you must have called PrepareOptions explicitly.
   Status status = Status::OK();
-  if (opts.invoke_prepare_options) {
 #ifndef ROCKSDB_LITE
-    for (auto opt_iter : options_) {
-      if (opt_iter.type_map != nullptr) {
-        for (auto map_iter : *(opt_iter.type_map)) {
-          auto& opt_info = map_iter.second;
-          if (opt_info.ShouldPrepare()) {
-            status = opt_info.Prepare(opts, map_iter.first, opt_iter.opt_ptr);
-            if (!status.ok()) {
-              return status;
-            }
+  for (auto opt_iter : options_) {
+    if (opt_iter.type_map != nullptr) {
+      for (auto map_iter : *(opt_iter.type_map)) {
+        auto& opt_info = map_iter.second;
+        if (opt_info.ShouldPrepare()) {
+          status = opt_info.Prepare(opts, map_iter.first, opt_iter.opt_ptr);
+          if (!status.ok()) {
+            return status;
           }
         }
       }
     }
-#endif  // ROCKSDB_LITE
   }
-  printf("MJR: Prepared Configurable %p = %s\n", this,
-         status.ToString().c_str());
+#else
+  (void)opts;
+#endif  // ROCKSDB_LITE
   return status;
 }
 
@@ -151,12 +149,13 @@ Status Configurable::ConfigureOptions(
     std::unordered_map<std::string, std::string>* unused) {
   std::string curr_opts;
   Status s;
-  ConfigOptions copy = config_options;
   if (!opts_map.empty()) {
     // There are options in the map.
     // Save the current configuration in curr_opts and then configure the
     // options, but do not prepare them now.  We will do all the prepare when
     // the configuration is complete.
+    ConfigOptions copy = config_options;
+    copy.invoke_prepare_options = false;
 #ifndef ROCKSDB_LITE
     if (!config_options.ignore_unknown_options) {
       // If we are not ignoring unused, get the defaults in case we need to
@@ -170,9 +169,7 @@ Status Configurable::ConfigureOptions(
     s = ConfigurableHelper::ConfigureOptions(copy, *this, opts_map, unused);
   }
   if (config_options.invoke_prepare_options && s.ok()) {
-    // We are supposed to prepare the options and all is good
-    copy.invoke_prepare_options = false;
-    s = PrepareOptions(copy);
+    s = PrepareOptions(config_options);
   }
 #ifndef ROCKSDB_LITE
   if (!s.ok() && !curr_opts.empty()) {
@@ -321,8 +318,6 @@ Status ConfigurableHelper::ConfigureSomeOptions(
   std::string elem_name;
   int found = 1;
   std::unordered_set<std::string> unsupported;
-  std::vector<std::string> prepare;
-
   // While there are unused properties and we processed at least one,
   // go through the remaining unused properties and attempt to configure them.
   while (found > 0 && !options->empty()) {
@@ -349,8 +344,6 @@ Status ConfigurableHelper::ConfigureSomeOptions(
           it = options->erase(it);
           if (!s.ok()) {
             result = s;
-          } else if (opt_info->ShouldPrepare()) {
-            prepare.push_back(opt_name);
           }
         }
       }
@@ -362,23 +355,6 @@ Status ConfigurableHelper::ConfigureSomeOptions(
     auto it = options->find(u);
     if (it != options->end()) {
       options->erase(it);
-    }
-  }
-
-  if (config_options.invoke_prepare_options && !prepare.empty()) {
-    ConfigOptions copy = config_options;
-    copy.invoke_prepare_options = false;
-    for (const auto& it : prepare) {
-      const auto opt_info = OptionTypeInfo::Find(it, type_map, &elem_name);
-      assert(opt_info != nullptr);
-      Status s = opt_info->Prepare(copy, it, opt_ptr);
-      printf("MJR: Preparing Option[%p] (%s)=%s\n", opt_ptr, it.c_str(),
-             s.ToString().c_str());
-      if (!s.ok()) {
-        if (!notsup.ok()) notsup.PermitUncheckedError();
-        if (!result.ok()) result.PermitUncheckedError();
-        return s;
-      }
     }
   }
   if (config_options.ignore_unknown_options) {
