@@ -42,6 +42,8 @@ class WalMetadata {
   uint64_t GetSyncedSizeInBytes() const { return synced_size_bytes_; }
 
  private:
+  friend bool operator==(const WalMetadata& lhs, const WalMetadata& rhs);
+  friend bool operator!=(const WalMetadata& lhs, const WalMetadata& rhs);
   // The size of WAL is unknown, used when the WAL is not synced yet or is
   // empty.
   constexpr static uint64_t kUnknownWalSize =
@@ -50,6 +52,14 @@ class WalMetadata {
   // Size of the most recently synced WAL in bytes.
   uint64_t synced_size_bytes_ = kUnknownWalSize;
 };
+
+inline bool operator==(const WalMetadata& lhs, const WalMetadata& rhs) {
+  return lhs.synced_size_bytes_ == rhs.synced_size_bytes_;
+}
+
+inline bool operator!=(const WalMetadata& lhs, const WalMetadata& rhs) {
+  return !(lhs == rhs);
+}
 
 // These tags are persisted to MANIFEST, so it's part of the user API.
 enum class WalAdditionTag : uint32_t {

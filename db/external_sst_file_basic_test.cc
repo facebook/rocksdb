@@ -187,16 +187,6 @@ class ExternalSSTFileBasicTest
   std::string sst_files_dir_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_test_env_;
   bool random_rwfile_supported_;
-#ifndef ROCKSDB_LITE
-  uint64_t GetSstSizeHelper(Temperature temperature) {
-    std::string prop;
-    EXPECT_TRUE(dbfull()->GetProperty(
-        DB::Properties::kLiveSstFilesSizeAtTemperature +
-            std::to_string(static_cast<uint8_t>(temperature)),
-        &prop));
-    return static_cast<uint64_t>(std::atoi(prop.c_str()));
-  }
-#endif  // ROCKSDB_LITE
 };
 
 TEST_F(ExternalSSTFileBasicTest, Basic) {

@@ -76,6 +76,9 @@ class LevelCompactionBuilder {
   // files if needed.
   bool SetupOtherL0FilesIfNeeded();
 
+  // Compaction with round-robin compaction priority allows more files to be
+  // picked to form a large compaction
+  void SetupOtherFilesWithRoundRobinExpansion();
   // Based on initial files, setup other files need to be compacted
   // in this compaction, accordingly.
   bool SetupOtherInputsIfNeeded();
@@ -84,7 +87,9 @@ class LevelCompactionBuilder {
 
   // For the specfied level, pick a file that we want to compact.
   // Returns false if there is no file to compact.
-  // If it returns true, inputs->files.size() will be exactly one.
+  // If it returns true, inputs->files.size() will be exactly one for
+  // all compaction priorities except round-robin. For round-robin,
+  // multiple consecutive files may be put into inputs->files.
   // If level is 0 and there is already a compaction on that level, this
   // function will return false.
   bool PickFileToCompact();
@@ -278,16 +283,141 @@ bool LevelCompactionBuilder::SetupOtherL0FilesIfNeeded() {
   return true;
 }
 
+void LevelCompactionBuilder::SetupOtherFilesWithRoundRobinExpansion() {
+  // We only expand when the start level is not L0 under round robin
+  assert(start_level_ >= 1);
+
+  // For round-robin compaction priority, we have 3 constraints when picking
+  // multiple files.
+  // Constraint 1: We can only pick consecutive files
+  //  -> Constraint 1a: When a file is being compacted (or some input files
+  //                    are being compacted after expanding, we cannot
+  //                    choose it and have to stop choosing more files
+  //  -> Constraint 1b: When we reach the last file (with largest keys), we
+  //                    cannot choose more files (the next file will be the
+  //                    first one)
+  // Constraint 2: We should ensure the total compaction bytes (including the
+  //               overlapped files from the next level) is no more than
+  //               mutable_cf_options_.max_compaction_bytes
+  // Constraint 3: We try our best to pick as many files as possible so that
+  //               the post-compaction level size is less than
+  //               MaxBytesForLevel(start_level_)
+  // Constraint 4: We do not expand if it is possible to apply a trivial move
+  // Constraint 5 (TODO): Try to pick minimal files to split into the target
+  //               number of subcompactions
+  TEST_SYNC_POINT("LevelCompactionPicker::RoundRobin");
+
+  // Only expand the inputs when we have selected a file in start_level_inputs_
+  if (start_level_inputs_.size() == 0) return;
+
+  uint64_t start_lvl_bytes_no_compacting = 0;
+  uint64_t curr_bytes_to_compact = 0;
+  uint64_t start_lvl_max_bytes_to_compact = 0;
+  const std::vector<FileMetaData*>& level_files =
+      vstorage_->LevelFiles(start_level_);
+  // Constraint 3 (pre-calculate the ideal max bytes to compact)
+  for (auto f : level_files) {
+    if (!f->being_compacted) {
+      start_lvl_bytes_no_compacting += f->compensated_file_size;
+    }
+  }
+  if (start_lvl_bytes_no_compacting >
+      vstorage_->MaxBytesForLevel(start_level_)) {
+    start_lvl_max_bytes_to_compact = start_lvl_bytes_no_compacting -
+                                     vstorage_->MaxBytesForLevel(start_level_);
+  }
+
+  size_t start_index = vstorage_->FilesByCompactionPri(start_level_)[0];
+  InternalKey smallest, largest;
+  // Constraint 4 (No need to check again later)
+  compaction_picker_->GetRange(start_level_inputs_, &smallest, &largest);
+  CompactionInputFiles output_level_inputs;
+  output_level_inputs.level = output_level_;
+  vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
+                                  &output_level_inputs.files);
+  if (output_level_inputs.empty()) {
+    if (TryExtendNonL0TrivialMove((int)start_index)) {
+      return;
+    }
+  }
+  // Constraint 3
+  if (start_level_inputs_[0]->compensated_file_size >=
+      start_lvl_max_bytes_to_compact) {
+    return;
+  }
+  CompactionInputFiles tmp_start_level_inputs;
+  tmp_start_level_inputs = start_level_inputs_;
+  // TODO (zichen): Future parallel round-robin may also need to update this
+  // Constraint 1b (only expand till the end)
+  for (size_t i = start_index + 1; i < level_files.size(); i++) {
+    auto* f = level_files[i];
+    if (f->being_compacted) {
+      // Constraint 1a
+      return;
+    }
+
+    tmp_start_level_inputs.files.push_back(f);
+    if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                    &tmp_start_level_inputs) ||
+        compaction_picker_->FilesRangeOverlapWithCompaction(
+            {tmp_start_level_inputs}, output_level_)) {
+      // Constraint 1a
+      tmp_start_level_inputs.clear();
+      return;
+    }
+
+    curr_bytes_to_compact = 0;
+    for (auto start_lvl_f : tmp_start_level_inputs.files) {
+      curr_bytes_to_compact += start_lvl_f->compensated_file_size;
+    }
+
+    // Check whether any output level files are locked
+    compaction_picker_->GetRange(tmp_start_level_inputs, &smallest, &largest);
+    vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
+                                    &output_level_inputs.files);
+    if (!output_level_inputs.empty() &&
+        !compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                    &output_level_inputs)) {
+      // Constraint 1a
+      tmp_start_level_inputs.clear();
+      return;
+    }
+
+    uint64_t start_lvl_curr_bytes_to_compact = curr_bytes_to_compact;
+    for (auto output_lvl_f : output_level_inputs.files) {
+      curr_bytes_to_compact += output_lvl_f->compensated_file_size;
+    }
+    if (curr_bytes_to_compact > mutable_cf_options_.max_compaction_bytes) {
+      // Constraint 2
+      tmp_start_level_inputs.clear();
+      return;
+    }
+
+    start_level_inputs_.files = tmp_start_level_inputs.files;
+    // Constraint 3
+    if (start_lvl_curr_bytes_to_compact > start_lvl_max_bytes_to_compact) {
+      return;
+    }
+  }
+}
+
 bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
   // Setup input files from output level. For output to L0, we only compact
   // spans of files that do not interact with any pending compactions, so don't
   // need to consider other levels.
   if (output_level_ != 0) {
     output_level_inputs_.level = output_level_;
+    bool round_robin_expanding =
+        ioptions_.compaction_pri == kRoundRobin &&
+        compaction_reason_ == CompactionReason::kLevelMaxLevelSize;
+    if (round_robin_expanding) {
+      SetupOtherFilesWithRoundRobinExpansion();
+    }
     if (!is_l0_trivial_move_ &&
         !compaction_picker_->SetupOtherInputs(
             cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs_,
-            &output_level_inputs_, &parent_index_, base_index_)) {
+            &output_level_inputs_, &parent_index_, base_index_,
+            round_robin_expanding)) {
       return false;
     }
 
@@ -606,9 +736,6 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       // user-key overlap.
       start_level_inputs_.clear();
 
-      // To ensure every file is selcted in a round-robin manner, we cannot
-      // skip the current file. So we return false and wait for the next time
-      // we can pick this file to compact
       if (ioptions_.compaction_pri == kRoundRobin) {
         return false;
       }
@@ -641,6 +768,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
         continue;
       }
     }
+
     base_index_ = index;
     break;
   }

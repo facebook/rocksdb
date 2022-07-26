@@ -1116,7 +1116,7 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   CreateColumnFamilies({"one", "two", "three"});
   ColumnFamilyOptions default_cf, one, two, three;
   // setup options. all column families have max_write_buffer_number setup to 10
-  // "default" -> 100KB memtable, start flushing immediatelly
+  // "default" -> 100KB memtable, start flushing immediately
   // "one" -> 200KB memtable, start flushing with two immutable memtables
   // "two" -> 1MB memtable, start flushing with three immutable memtables
   // "three" -> 90KB memtable, start flushing with four immutable memtables
