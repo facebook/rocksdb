@@ -53,6 +53,7 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
                                                1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
+    // TODO(Guido) Don't we need to roll back displacements here?
     return nullptr;
   }
 

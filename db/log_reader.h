@@ -151,8 +151,10 @@ class Reader {
   std::unique_ptr<char[]> uncompressed_buffer_;
   // Reusable uncompressed record
   std::string uncompressed_record_;
-  // Used for stream hashing log record
+  // Used for stream hashing fragment content in ReadRecord()
   XXH3_state_t* hash_state_;
+  // Used for stream hashing uncompressed buffer in ReadPhysicalRecord()
+  XXH3_state_t* uncompress_hash_state_;
 
   // Extend record types with the following special values
   enum {
@@ -173,7 +175,11 @@ class Reader {
   };
 
   // Return type, or one of the preceding special values
-  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
+  // If WAL compressioned is enabled, fragment_checksum is the checksum of the
+  // fragment computed from the orginal buffer containinng uncompressed
+  // fragment.
+  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size,
+                                  uint64_t* fragment_checksum = nullptr);
 
   // Read some more
   bool ReadMore(size_t* drop_size, int *error);

@@ -1280,6 +1280,37 @@ public class ColumnFamilyOptions extends RocksObject
     return blobFileStartingLevel(nativeHandle_);
   }
 
+  /**
+   * Set a certain prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * Dynamically changeable through
+   * {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}.
+   *
+   * @param prepopulateBlobCache the prepopulate blob cache option
+   *
+   * @return the reference to the current options.
+   */
+  @Override
+  public ColumnFamilyOptions setPrepopulateBlobCache(
+      final PrepopulateBlobCache prepopulateBlobCache) {
+    setPrepopulateBlobCache(nativeHandle_, prepopulateBlobCache.getValue());
+    return this;
+  }
+
+  /**
+   * Get the prepopulate blob cache option.
+   *
+   * Default: 0
+   *
+   * @return the current prepopulate blob cache option.
+   */
+  @Override
+  public PrepopulateBlobCache prepopulateBlobCache() {
+    return PrepopulateBlobCache.getPrepopulateBlobCache(prepopulateBlobCache(nativeHandle_));
+  }
+
   //
   // END options for blobs (integrated BlobDB)
   //
@@ -1488,6 +1519,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setBlobFileStartingLevel(
       final long nativeHandle_, final int blobFileStartingLevel);
   private native int blobFileStartingLevel(final long nativeHandle_);
+  private native void setPrepopulateBlobCache(
+      final long nativeHandle_, final byte prepopulateBlobCache);
+  private native byte prepopulateBlobCache(final long nativeHandle_);
 
   // instance variables
   // NOTE: If you add new member variables, please update the copy constructor above!

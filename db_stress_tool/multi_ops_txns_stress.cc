@@ -1382,6 +1382,13 @@ Status MultiOpsTxnsStressTest::CommitAndCreateTimestampedSnapshotIfNeeded(
   } else {
     s = txn.Commit();
   }
+  assert(txn_db_);
+  if (FLAGS_create_timestamped_snapshot_one_in > 0 &&
+      thread->rand.OneInOpt(50000)) {
+    uint64_t now = db_stress_env->NowNanos();
+    constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
+    txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
+  }
   return s;
 }
 

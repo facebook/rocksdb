@@ -194,6 +194,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
   src/main/java/org/rocksdb/PlainTableConfig.java
+  src/main/java/org/rocksdb/PrepopulateBlobCache.java
   src/main/java/org/rocksdb/Priority.java
   src/main/java/org/rocksdb/Range.java
   src/main/java/org/rocksdb/RateLimiter.java
