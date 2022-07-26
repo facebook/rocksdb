@@ -287,12 +287,15 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
 }
 
+// TODO: This test takes longer than expected on ClockCache. This is
+// because the values size estimate at construction is too sloppy.
+// Fix this.
+// Why is it so slow? The cache is constructed with an estimate of 1, but
+// then the charge is claimed to be 21. This will cause the hash table
+// to be extremely sparse, which in turn means clock needs to scan too
+// many slots to find victims.
 TEST_P(CacheTest, PinnedUsageTest) {
   auto type = GetParam();
-  if (type == kClock) {
-    // TODO(Guido) Remove once ClockCache is fixed.
-    return;
-  }
 
   // cache is std::shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 200000;
@@ -557,10 +560,6 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 
 TEST_P(CacheTest, EvictEmptyCache) {
   auto type = GetParam();
-  if (type == kClock) {
-    // TODO(Guido) Remove this when clock cache is fixed.
-    return;
-  }
 
   // Insert item large than capacity to trigger eviction on empty cache.
   auto cache = NewCache(1, 0, false);
@@ -753,9 +752,9 @@ TEST_P(CacheTest, SetCapacity) {
 
 TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
+  if (type == kFast) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache only support a limited number of "
+        "FastLRUCache only supports a limited number of "
         "inserts beyond "
         "capacity.");
     return;
@@ -813,7 +812,7 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 TEST_P(CacheTest, OverCapacity) {
   auto type = GetParam();
   if (type == kClock) {
-    // TODO(Guido) Remove when ClockCache gets fixed.
+    ROCKSDB_GTEST_BYPASS("Requires LRU eviction policy.");
     return;
   }
   size_t n = 10;
