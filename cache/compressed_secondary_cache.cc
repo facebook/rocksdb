@@ -152,30 +152,35 @@ CompressedSecondaryCache::SplitValueIntoChunks(
   CacheValueChunk dummy_head = CacheValueChunk();
   CacheValueChunk* current_chunk = &dummy_head;
   // Do not split when value size is large or there is no compression.
-  size_t chunk_size{0};
+  size_t predicted_chunk_size{0};
+  size_t actual_chunk_size{0};
   size_t tmp_size{0};
   while (src_size > 0) {
-    auto upper = std::upper_bound(malloc_bin_sizes_.begin(),
-                                  malloc_bin_sizes_.end(), src_size);
-    if (src_size >= malloc_bin_sizes_.back() ||
-        *upper <= malloc_bin_sizes_.front() ||
-        *upper - src_size < malloc_bin_sizes_.front() ||
+    predicted_chunk_size = sizeof(CacheValueChunk) - 1 + src_size;
+    auto upper =
+        std::upper_bound(malloc_bin_sizes_.begin(), malloc_bin_sizes_.end(),
+                         predicted_chunk_size);
+    // Do not split when value size is too small, too large, or there is no
+    // compression.
+    if (upper == malloc_bin_sizes_.begin() ||
+        upper == malloc_bin_sizes_.end() ||
+        *upper - predicted_chunk_size < malloc_bin_sizes_.front() ||
         compression_type == kNoCompression) {
-      tmp_size = src_size;
+      tmp_size = predicted_chunk_size;
     } else {
       tmp_size = *(--upper);
     }
 
-    chunk_size = sizeof(CacheValueChunk) - 1 + tmp_size;
     CacheValueChunk* new_chunk =
-        reinterpret_cast<CacheValueChunk*>(new char[chunk_size]);
+        reinterpret_cast<CacheValueChunk*>(new char[tmp_size]);
     current_chunk->next = new_chunk;
     current_chunk = current_chunk->next;
-    memcpy(current_chunk->data, src_ptr, tmp_size);
-    current_chunk->size = tmp_size;
-    charge += chunk_size;
-    src_ptr += tmp_size;
-    src_size -= tmp_size;
+    actual_chunk_size = tmp_size - sizeof(CacheValueChunk) + 1;
+    memcpy(current_chunk->data, src_ptr, actual_chunk_size);
+    current_chunk->size = actual_chunk_size;
+    src_ptr += actual_chunk_size;
+    src_size -= actual_chunk_size;
+    charge += tmp_size;
   }
   current_chunk->next = nullptr;
 

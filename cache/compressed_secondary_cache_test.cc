@@ -538,7 +538,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.0);
     Random rnd(301);
-    // 10000 = 8192 + 1792 + 96 + 10 , so there should be 3 chunks after split.
+    // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
     size_t str_size{10000};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
@@ -547,11 +547,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
 
     CacheValueChunk* current_chunk = chunks_head;
-    ASSERT_EQ(current_chunk->size, 8192);
+    ASSERT_EQ(current_chunk->size, 8192 - sizeof(CacheValueChunk) + 1);
     current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 1792);
+    ASSERT_EQ(current_chunk->size, 1792 - sizeof(CacheValueChunk) + 1);
     current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 16);
+    ASSERT_EQ(current_chunk->size, 62);
 
     while (chunks_head != nullptr) {
       CacheValueChunk* tmp_chunk = chunks_head;
@@ -594,10 +594,36 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.0);
-    size_t charge = 0;
+    size_t charge{0};
     CacheAllocationPtr value =
         sec_cache->MergeChunksIntoValue(chunks_head, charge);
     ASSERT_EQ(charge, size1 + size2 + size3);
+    std::string value_str{value.get(), charge};
+    ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
+
+    while (chunks_head != nullptr) {
+      CacheValueChunk* tmp_chunk = chunks_head;
+      chunks_head = chunks_head->next;
+      tmp_chunk->Free();
+    }
+  }
+
+  void SplictValueAndMergeChunksTest() {
+    using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
+    std::unique_ptr<CompressedSecondaryCache> sec_cache =
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.0);
+    Random rnd(301);
+    // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
+    size_t str_size{10000};
+    std::string str = rnd.RandomString(static_cast<int>(str_size));
+    size_t charge{0};
+    CacheValueChunk* chunks_head =
+        sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
+    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
+
+    CacheAllocationPtr value =
+        sec_cache->MergeChunksIntoValue(chunks_head, charge);
+    ASSERT_EQ(charge, str_size);
     std::string value_str{value.get(), charge};
     ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
 
@@ -734,6 +760,10 @@ TEST_F(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
 
 TEST_F(CompressedSecondaryCacheTest, MergeChunksIntoValueTest) {
   MergeChunksIntoValueTest();
+}
+
+TEST_F(CompressedSecondaryCacheTest, SplictValueAndMergeChunksTest) {
+  SplictValueAndMergeChunksTest();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
