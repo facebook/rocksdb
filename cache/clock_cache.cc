@@ -315,7 +315,10 @@ void ClockHandleTable::ClockRun(size_t charge) {
   autovector<ClockHandle> deleted;
   uint32_t max_iterations =
       ClockHandle::ClockPriority::HIGH *
-      (1 + static_cast<uint32_t>(GetTableSize() * kLoadFactor));
+      (1 +
+       static_cast<uint32_t>(
+           GetTableSize() *
+           kLoadFactor));  // It may take up to HIGH passes to evict an element.
   size_t usage_local = usage_;
   size_t capacity_local = capacity_;
   while (usage_local + charge > capacity_local && max_iterations--) {
