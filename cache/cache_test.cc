@@ -652,7 +652,6 @@ TEST_P(CacheTest, NewId) {
   ASSERT_NE(a, b);
 }
 
-
 class Value {
  public:
   explicit Value(int v) : v_(v) {}
