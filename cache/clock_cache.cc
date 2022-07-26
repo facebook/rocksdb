@@ -360,7 +360,7 @@ ClockCacheShard::ClockCacheShard(
     size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy)
     : strict_capacity_limit_(strict_capacity_limit),
-      dangling_usage_(0),
+      detached_usage_(0),
       table_(capacity, CalcHashBits(capacity, estimated_value_size,
                                     metadata_charge_policy)) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -438,7 +438,7 @@ void ClockCacheShard::SetCapacity(size_t capacity) {
     assert(false);  // Not supported.
   }
   table_.SetCapacity(capacity);
-  table_.ClockRun(dangling_usage_);
+  table_.ClockRun(detached_usage_);
 }
 
 void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
@@ -467,16 +467,16 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   Status s = Status::OK();
 
   // Use a local copy to minimize cache synchronization.
-  size_t dangling_usage = dangling_usage_;
+  size_t detached_usage = detached_usage_;
 
   // Free space with the clock policy until enough space is freed or there are
   // no evictable elements.
-  table_.ClockRun(tmp.total_charge + dangling_usage);
+  table_.ClockRun(tmp.total_charge + detached_usage);
 
   // Use local copies to minimize cache synchronization
   // (occupancy_ and usage_ are read and written by all insertions).
   uint32_t occupancy_local = table_.GetOccupancy();
-  size_t total_usage = table_.GetUsage() + dangling_usage;
+  size_t total_usage = table_.GetUsage() + detached_usage;
 
   // TODO: Currently we support strict_capacity_limit == false as long as the
   // number of pinned elements is below table_.GetOccupancyLimit(). We can
@@ -509,9 +509,9 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // the hash table. Instead, we dynamically allocate a new handle.
       h = new ClockHandle();
       *h = tmp;
-      h->SetDangling(true);
+      h->SetDetached();
       h->TryExternalRef();
-      dangling_usage_ += h->total_charge;
+      detached_usage_ += h->total_charge;
       // TODO: Return special status?
     } else {
       // Insert into the cache. Note that the cache might get larger than its
@@ -554,13 +554,13 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 
   ClockHandle* h = reinterpret_cast<ClockHandle*>(handle);
 
-  if (h->IsDangling()) {
+  if (UNLIKELY(h->IsDetached())) {
     h->ReleaseExternalRef();
     if (h->TryExclusiveRef()) {
       // Only the last reference will succeed.
       // Don't bother releasing the exclusive ref.
       h->FreeData();
-      dangling_usage_ -= h->total_charge;
+      detached_usage_ -= h->total_charge;
       delete h;
       return true;
     }
@@ -614,7 +614,7 @@ size_t ClockCacheShard::GetPinnedUsage() const {
       },
       0, table_.GetTableSize(), true);
 
-  return clock_usage + dangling_usage_;
+  return clock_usage + detached_usage_;
 }
 
 ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,

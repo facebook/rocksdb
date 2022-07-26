@@ -279,7 +279,7 @@ struct ClockHandle {
   std::atomic<uint32_t> refs;
 
   // True iff the handle is allocated separately from hash table.
-  bool dangling;
+  bool detached;
 
   ClockHandle()
       : value(nullptr),
@@ -289,7 +289,7 @@ struct ClockHandle {
         flags(0),
         displacements(0),
         refs(0),
-        dangling(false) {
+        detached(false) {
     SetWillBeDeleted(false);
     SetIsElement(false);
     SetClockPriority(ClockPriority::NONE);
@@ -409,9 +409,9 @@ struct ClockHandle {
     flags |= new_priority;
   }
 
-  bool IsDangling() { return dangling; }
+  bool IsDetached() { return detached; }
 
-  void SetDangling(bool is_dangling) { dangling = is_dangling; }
+  void SetDetached() { detached = true; }
 
   inline bool IsEmpty() const {
     return !this->IsElement() && this->displacements == 0;
@@ -788,7 +788,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   std::atomic<bool> strict_capacity_limit_;
 
   // Handles allocated separately from the table.
-  std::atomic<size_t> dangling_usage_;
+  std::atomic<size_t> detached_usage_;
 
   ClockHandleTable table_;
 };  // class ClockCacheShard
