@@ -103,14 +103,22 @@ blob cache usage.
 For example, the following code snippet shows how to use the new BlobDB tickers to minitor the blob cache behavior:
 
 ```c++
-options_.statistics = CreateDBStatistics();
-Statistics* statistics = options_.statistics.get();
+options.statistics = CreateDBStatistics();
+Statistics* statistics = options.statistics.get();
 // blob cache operations ...
 statistics->getTickerCount(BLOB_DB_CACHE_MISS);
 statistics->getTickerCount(BLOB_DB_CACHE_HIT);
 statistics->getTickerCount(BLOB_DB_CACHE_ADD);
 statistics->getTickerCount(BLOB_DB_CACHE_BYTES_READ);
 statistics->getTickerCount(BLOB_DB_CACHE_BYTES_WRITE);
+```
+
+To learn how much memory blob cache is using, you can call a function `GetUsage()` on blob cache object or call `getProperty()` on DB object:
+
+```c++
+options.blob_cache->GetUsage();
+db->getProperty("rocksdb.blob-cache-usage");
+db->getProperty("rocksdb.blob-cache-capacity");
 ```
 
 More examples about how to use the new blob cache API can be found in the [blob_db_test.cc](https://github.com/facebook/rocksdb/blob/7.5.fb/db/blob/blob_source_test.cc).
@@ -123,8 +131,9 @@ block cache, and is technically implemented by inserting dummy entries ("reserva
 cache of the blob cache and the block cache are different, we support charging the memory usage of the new blob cache 
 against this global memory limit.
 
-To charge memory usage of blob cache, some prerequisites are required ([block_based_table_factory.cc#L716-L748](https://github.com/facebook/rocksdb/blob/84e9b6ee2dc0318a8d09b5a7dd337880ebc80e92/table/block_based/block_based_table_factory.cc#L716-L748)). For example, block cache and blob cache must be 
-different, and blob cache capacity must be smaller than block cache. Below is the code to enable this feature:
+To charge memory usage of blob cache, some prerequisites are required ([block_based_table_factory.cc#L716-L748](https://github.com/facebook/rocksdb/blob/84e9b6ee2dc0318a8d09b5a7dd337880ebc80e92/table/block_based/block_based_table_factory.cc#L716-L748)). 
+For example, block cache and blob cache must be different, and blob cache capacity must be smaller than block cache. Below is 
+the code to enable this feature:
 
 ```c++
 Options options;
@@ -133,7 +142,7 @@ options.enable_blob_files = true;
 // Configure the blob cache
 LRUCacheOptions co;
 co.capacity = 64 >> 20; // 64MB
-options_.blob_cache = NewLRUCache(co);
+options.blob_cache = NewLRUCache(co);
 
 // Configure the block cache
 BlockBasedTableOptions block_based_options;
