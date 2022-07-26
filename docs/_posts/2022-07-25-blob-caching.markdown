@@ -117,3 +117,35 @@ More examples about how to use the new blob cache API can be found in the [blob_
 
 ## Global Memory Limit
 
+To help service owners to manage their memory budget effectively, we have been working towards counting all major memory users 
+inside RocksDB towards a single global memory limit. The global limit is specified by the capacity of the block-based table's 
+block cache, and is technically implemented by inserting dummy entries ("reservations") into the block cache (https://github.com/facebook/rocksdb/wiki/Write-Buffer-Manager#cost-memory-used-in-memtable-to-block-cache). When the backing 
+cache of the blob cache and the block cache are different, we support charging the memory usage of the new blob cache 
+against this global memory limit.
+
+To charge memory usage of blob cache, some prerequisites are required ([block_based_table_factory.cc#L716-L748](https://github.com/facebook/rocksdb/blob/84e9b6ee2dc0318a8d09b5a7dd337880ebc80e92/table/block_based/block_based_table_factory.cc#L716-L748)). For example, block cache and blob cache must be 
+different, and blob cache capacity must be smaller than block cache. Below is the code to enable this feature:
+
+```c++
+Options options;
+options.enable_blob_files = true;
+
+// Configure the blob cache
+LRUCacheOptions co;
+co.capacity = 64 >> 20; // 64MB
+options_.blob_cache = NewLRUCache(co);
+
+// Configure the block cache
+BlockBasedTableOptions block_based_options;
+co.capacity = 2 >> 30; // 2GB
+block_based_options.block_cache = NewLRUCache(co);
+block_based_options.no_block_cache = false;
+
+// Charge memory usage of blob cache against block cache
+block_based_options.cache_usage_options.options_overrides.insert(
+    {CacheEntryRole::kBlobCache,
+        {/* charged = */ CacheEntryRoleOptions::Decision::kEnabled}});
+
+options_.table_factory.reset(
+    NewBlockBasedTableFactory(block_based_options));
+```
