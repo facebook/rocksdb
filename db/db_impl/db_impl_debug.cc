@@ -223,7 +223,7 @@ void DBImpl::TEST_EndWrite(void* w) {
 }
 
 size_t DBImpl::TEST_LogsToFreeSize() {
-  InstrumentedMutexLock l(&mutex_);
+  InstrumentedMutexLock l(&log_write_mutex_);
   return logs_to_free_.size();
 }
 
@@ -314,7 +314,8 @@ PeriodicWorkTestScheduler* DBImpl::TEST_GetPeriodicWorkScheduler() const {
   return static_cast<PeriodicWorkTestScheduler*>(periodic_work_scheduler_);
 }
 
-const SeqnoToTimeMapping& DBImpl::TEST_GetSeqnoToTimeMapping() const {
+SeqnoToTimeMapping DBImpl::TEST_GetSeqnoToTimeMapping() const {
+  InstrumentedMutexLock l(&mutex_);
   return seqno_time_mapping_;
 }
 
