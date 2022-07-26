@@ -235,7 +235,7 @@ TEST_P(CacheTest, UsageTest) {
   auto type = GetParam();
 
   // cache is std::shared_ptr and will be automatically cleaned up.
-  const uint64_t kCapacity = 100000;
+  const size_t kCapacity = 100000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
@@ -267,7 +267,7 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_EQ(0, precise_cache->GetUsage());
 
   // make sure the cache will be overloaded
-  for (uint64_t i = 1; i < kCapacity; ++i) {
+  for (size_t i = 1; i < kCapacity; ++i) {
     std::string key;
     if (type == kLRU) {
       key = std::to_string(i);
@@ -298,7 +298,7 @@ TEST_P(CacheTest, PinnedUsageTest) {
   auto type = GetParam();
 
   // cache is std::shared_ptr and will be automatically cleaned up.
-  const uint64_t kCapacity = 200000;
+  const size_t kCapacity = 200000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 8, false, kFullChargeCacheMetadata);
 
@@ -358,7 +358,7 @@ TEST_P(CacheTest, PinnedUsageTest) {
   ASSERT_LT(pinned_usage, precise_cache_pinned_usage);
 
   // check that overloading the cache does not change the pinned usage
-  for (uint64_t i = 1; i < 2 * kCapacity; ++i) {
+  for (size_t i = 1; i < 2 * kCapacity; ++i) {
     std::string key;
     if (type == kLRU) {
       key = std::to_string(i);

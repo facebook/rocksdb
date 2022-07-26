@@ -504,7 +504,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     if (occupancy_local + 1 > table_.GetOccupancyLimit()) {
       // Even if the user wishes to overload the cache, we can't insert into
       // the hash table. Instead, we dynamically allocate a new handle.
-      h = reinterpret_cast<ClockHandle*>(new ClockHandle());
+      h = new ClockHandle();
       *h = tmp;
       h->SetDangling(true);
       h->TryExternalRef();
