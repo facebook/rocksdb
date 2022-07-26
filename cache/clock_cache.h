@@ -278,7 +278,7 @@ struct ClockHandle {
 
   std::atomic<uint32_t> refs;
 
-  // True iff the handle is allocated separately from in the hash table.
+  // True iff the handle is allocated separately from hash table.
   bool dangling;
 
   ClockHandle()
