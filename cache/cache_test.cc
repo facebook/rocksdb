@@ -645,7 +645,6 @@ TEST_P(CacheTest, HeavyEntries) {
   ASSERT_LE(cached_weight, kCacheSize + kCacheSize/10);
 }
 
-
 TEST_P(CacheTest, NewId) {
   uint64_t a = cache_->NewId();
   uint64_t b = cache_->NewId();
