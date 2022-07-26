@@ -619,7 +619,8 @@ class MemTable {
                  const Slice& key, /* user key */
                  const Slice& value, uint32_t encoded_len,
                  uint32_t* inserted_entries, uint32_t* inserted_len,
-                 std::function<bool(MemTableRep*, KeyHandle)> insert);
+                 std::function<bool(MemTableRep*, KeyHandle)> insert,
+                 bool allow_concurrent);
   std::optional<SequenceNumber> MaxCoveringTombstoneSeqnum(
       const ReadOptions& read_options, const LookupKey& key);
 };
