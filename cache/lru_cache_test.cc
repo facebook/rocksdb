@@ -207,9 +207,9 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
-// TODO: FastLRUCache and ClockCache use the same tests. We can probably remove them
-// from FastLRUCache after ClockCache becomes productive, and we don't plan to
-// use or maintain FastLRUCache any more.
+// TODO: FastLRUCache and ClockCache use the same tests. We can probably remove
+// them from FastLRUCache after ClockCache becomes productive, and we don't plan
+// to use or maintain FastLRUCache any more.
 namespace fast_lru_cache {
 
 // TODO(guido) Replicate LRU policy tests from LRUCache here.
@@ -230,9 +230,9 @@ class FastLRUCacheTest : public testing::Test {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(
-        capacity, 1 /*estimated_value_size*/, false /*strict_capacity_limit*/,
-        kDontChargeCacheMetadata);
+    new (cache_) LRUCacheShard(capacity, 1 /*estimated_value_size*/,
+                               false /*strict_capacity_limit*/,
+                               kDontChargeCacheMetadata);
   }
 
   Status Insert(const std::string& key) {
@@ -246,22 +246,21 @@ class FastLRUCacheTest : public testing::Test {
   size_t CalcEstimatedHandleChargeWrapper(
       size_t estimated_value_size,
       CacheMetadataChargePolicy metadata_charge_policy) {
-    return LRUCacheShard::CalcEstimatedHandleCharge(
-        estimated_value_size, metadata_charge_policy);
+    return LRUCacheShard::CalcEstimatedHandleCharge(estimated_value_size,
+                                                    metadata_charge_policy);
   }
 
   int CalcHashBitsWrapper(size_t capacity, size_t estimated_value_size,
                           CacheMetadataChargePolicy metadata_charge_policy) {
-    return LRUCacheShard::CalcHashBits(
-        capacity, estimated_value_size, metadata_charge_policy);
+    return LRUCacheShard::CalcHashBits(capacity, estimated_value_size,
+                                       metadata_charge_policy);
   }
 
   // Maximum number of items that a shard can hold.
   double CalcMaxOccupancy(size_t capacity, size_t estimated_value_size,
                           CacheMetadataChargePolicy metadata_charge_policy) {
-    size_t handle_charge =
-        LRUCacheShard::CalcEstimatedHandleCharge(
-            estimated_value_size, metadata_charge_policy);
+    size_t handle_charge = LRUCacheShard::CalcEstimatedHandleCharge(
+        estimated_value_size, metadata_charge_policy);
     return capacity / (kLoadFactor * handle_charge);
   }
   bool TableSizeIsAppropriate(int hash_bits, double max_occupancy) {
@@ -401,22 +400,21 @@ class ClockCacheTest : public testing::Test {
   size_t CalcEstimatedHandleChargeWrapper(
       size_t estimated_value_size,
       CacheMetadataChargePolicy metadata_charge_policy) {
-    return ClockCacheShard::CalcEstimatedHandleCharge(
-        estimated_value_size, metadata_charge_policy);
+    return ClockCacheShard::CalcEstimatedHandleCharge(estimated_value_size,
+                                                      metadata_charge_policy);
   }
 
   int CalcHashBitsWrapper(size_t capacity, size_t estimated_value_size,
                           CacheMetadataChargePolicy metadata_charge_policy) {
-    return ClockCacheShard::CalcHashBits(
-        capacity, estimated_value_size, metadata_charge_policy);
+    return ClockCacheShard::CalcHashBits(capacity, estimated_value_size,
+                                         metadata_charge_policy);
   }
 
   // Maximum number of items that a shard can hold.
   double CalcMaxOccupancy(size_t capacity, size_t estimated_value_size,
                           CacheMetadataChargePolicy metadata_charge_policy) {
-    size_t handle_charge =
-        ClockCacheShard::CalcEstimatedHandleCharge(
-            estimated_value_size, metadata_charge_policy);
+    size_t handle_charge = ClockCacheShard::CalcEstimatedHandleCharge(
+        estimated_value_size, metadata_charge_policy);
     return capacity / (kLoadFactor * handle_charge);
   }
 
@@ -446,30 +444,22 @@ TEST_F(ClockCacheTest, Validate) {
 
 TEST_F(ClockCacheTest, ClockPriorityTest) {
   ClockHandle handle;
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
   handle.SetClockPriority(ClockHandle::ClockPriority::HIGH);
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::HIGH);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::HIGH);
   handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
   handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::LOW);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::LOW);
   handle.SetClockPriority(ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
   handle.SetClockPriority(ClockHandle::ClockPriority::NONE);
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
   handle.SetClockPriority(ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::MEDIUM);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
   handle.DecreaseClockPriority();
   handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(),
-            ClockHandle::ClockPriority::NONE);
+  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
 }
 
 TEST_F(ClockCacheTest, CalcHashBitsTest) {

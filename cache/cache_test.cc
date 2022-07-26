@@ -700,7 +700,8 @@ TEST_P(CacheTest, SetCapacity) {
   auto type = GetParam();
   if (type == kFast || type == kClock) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache don't support arbitrary capacity adjustments.");
+        "FastLRUCache and ClockCache don't support arbitrary capacity "
+        "adjustments.");
     return;
   }
   // test1: increase capacity

@@ -314,7 +314,8 @@ void ClockHandleTable::ClockRun(size_t charge) {
   // for a long time in cache waiting to be evicted?
   autovector<ClockHandle> deleted;
   uint32_t max_iterations =
-     ClockHandle::ClockPriority::HIGH * (1 + static_cast<uint32_t>(GetTableSize() * kLoadFactor));
+      ClockHandle::ClockPriority::HIGH *
+      (1 + static_cast<uint32_t>(GetTableSize() * kLoadFactor));
   size_t usage_local = usage_;
   size_t capacity_local = capacity_;
   while (usage_local + charge > capacity_local && max_iterations--) {
@@ -474,12 +475,14 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   uint32_t occupancy_local = table_.GetOccupancy();
   size_t total_usage = table_.GetUsage() + dangling_usage;
 
-  // TODO: Currently we support strict_capacity_limit == false as long as the number of
-  // pinned elements is below table_.GetOccupancyLimit(). We can always support it as follows: whenever we exceed this limit, we dynamically allocate a handle and return it
-  // (when the user provides a handle pointer, of course). Then, Release checks
-  // whether the handle was dynamically allocated, or is stored in the table.
+  // TODO: Currently we support strict_capacity_limit == false as long as the
+  // number of pinned elements is below table_.GetOccupancyLimit(). We can
+  // always support it as follows: whenever we exceed this limit, we dynamically
+  // allocate a handle and return it (when the user provides a handle pointer,
+  // of course). Then, Release checks whether the handle was dynamically
+  // allocated, or is stored in the table.
   if (total_usage + tmp.total_charge > table_.GetCapacity() &&
-       (strict_capacity_limit_ || handle == nullptr)) {
+      (strict_capacity_limit_ || handle == nullptr)) {
     if (handle == nullptr) {
       // Don't insert the entry but still return ok, as if the entry inserted
       // into cache and get evicted immediately.
@@ -512,8 +515,8 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // capacity if not enough space was freed up.
       autovector<ClockHandle> deleted;
       h = table_.Insert(&tmp, &deleted, handle != nullptr);
-      assert(h != nullptr);  // The occupancy is way below the table size, so this
-                            // insertion should never fail.
+      assert(h != nullptr);  // The occupancy is way below the table size, so
+                             // this insertion should never fail.
       if (deleted.size() > 0) {
         s = Status::OkOverwritten();
       }

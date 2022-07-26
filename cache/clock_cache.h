@@ -10,6 +10,7 @@
 #pragma once
 
 #include <sys/types.h>
+
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -408,13 +409,9 @@ struct ClockHandle {
     flags |= new_priority;
   }
 
-  bool IsDangling() {
-    return dangling;
-  }
+  bool IsDangling() { return dangling; }
 
-  void SetDangling(bool is_dangling) {
-    dangling = is_dangling;
-  }
+  void SetDangling(bool is_dangling) { dangling = is_dangling; }
 
   inline bool IsEmpty() const {
     return !this->IsElement() && this->displacements == 0;
@@ -440,7 +437,9 @@ struct ClockHandle {
     }
   }
 
-  uint32_t ExternalRefs() const { return (refs & EXTERNAL_REFS) >> kExternalRefsOffset; }
+  uint32_t ExternalRefs() const {
+    return (refs & EXTERNAL_REFS) >> kExternalRefsOffset;
+  }
 
   // Tries to take an internal ref. Returns true iff it succeeds.
   inline bool TryInternalRef() {
@@ -623,9 +622,7 @@ class ClockHandleTable {
 
   size_t GetCapacity() const { return capacity_; }
 
-  void SetCapacity(size_t capacity) {
-    capacity_ = capacity;
-  }
+  void SetCapacity(size_t capacity) { capacity_ = capacity; }
 
   // Returns x mod 2^{length_bits_}.
   uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
