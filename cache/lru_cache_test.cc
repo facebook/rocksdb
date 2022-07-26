@@ -663,8 +663,10 @@ class TestSecondaryCache : public SecondaryCache {
 
   explicit TestSecondaryCache(size_t capacity)
       : num_inserts_(0), num_lookups_(0), inject_failure_(false) {
-    cache_ = NewLRUCache(capacity, 0, false, 0.5, 0.5, nullptr,
-                         kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+    cache_ =
+        NewLRUCache(capacity, 0, false, 0.5 /* high_pri_pool_ratio */, nullptr,
+                    kDefaultToAdaptiveMutex, kDontChargeCacheMetadata,
+                    0.5 /* low_pri_pool_ratio */);
   }
   ~TestSecondaryCache() override { cache_.reset(); }
 

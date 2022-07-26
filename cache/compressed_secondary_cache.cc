@@ -34,8 +34,8 @@ CompressedSecondaryCache::CompressedSecondaryCache(
                      compression_type, compress_format_version) {
   cache_ =
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                  high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
-                  use_adaptive_mutex, metadata_charge_policy);
+                  high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
+                  metadata_charge_policy, low_pri_pool_ratio);
 }
 
 CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }

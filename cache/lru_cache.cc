@@ -229,11 +229,7 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
   if (lru_low_pri_ == e) {
-    if (e->prev != lru_bottom_pri_) {
-      lru_low_pri_ = e->prev;
-    } else {
-      lru_low_pri_ = &lru_;
-    }
+    lru_low_pri_ = e->prev;
   }
   if (lru_bottom_pri_ == e) {
     lru_bottom_pri_ = e->prev;
@@ -299,12 +295,7 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
 void LRUCacheShard::MaintainPoolSize() {
   while (high_pri_pool_usage_ > high_pri_pool_capacity_) {
     // Overflow last entry in high-pri pool to low-pri pool.
-    if (lru_bottom_pri_ != &lru_ && lru_low_pri_ == &lru_) {
-      // The low-pri pool is empty but the bottom-pri pool is not.
-      lru_low_pri_ = lru_bottom_pri_->next;
-    } else {
-      lru_low_pri_ = lru_low_pri_->next;
-    }
+    lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
     lru_low_pri_->SetInHighPriPool(false);
     lru_low_pri_->SetInLowPriPool(true);
@@ -879,9 +870,10 @@ std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
 
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio, double low_pri_pool_ratio,
+    double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy) {
+    CacheMetadataChargePolicy metadata_charge_policy,
+    double low_pri_pool_ratio) {
   return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                      high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
                      use_adaptive_mutex, metadata_charge_policy, nullptr);
