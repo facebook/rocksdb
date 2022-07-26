@@ -272,7 +272,7 @@ TEST_P(CacheTest, UsageTest) {
     if (type == kLRU) {
       key = std::to_string(i);
     } else {
-      key = EncodeKey(1000 + i);
+      key = EncodeKey(static_cast<int>(1000 + i));
     }
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
                             DumbDeleter));
@@ -363,7 +363,7 @@ TEST_P(CacheTest, PinnedUsageTest) {
     if (type == kLRU) {
       key = std::to_string(i);
     } else {
-      key = EncodeKey(1000 + i);
+      key = EncodeKey(static_cast<int>(1000 + i));
     }
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
                             DumbDeleter));
