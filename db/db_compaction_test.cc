@@ -5511,6 +5511,74 @@ INSTANTIATE_TEST_CASE_P(RoundRobinSubcompactionsAgainstResources,
                                           std::make_tuple(5, 10),
                                           std::make_tuple(10, 10)));
 
+TEST_P(DBCompactionTestWithParam, RoundRobinWithoutAdditionalResources) {
+  const int kKeysPerBuffer = 200;
+  Options options = CurrentOptions();
+  options.num_levels = 4;
+  options.level0_file_num_compaction_trigger = 3;
+  options.target_file_size_base = kKeysPerBuffer * 1024;
+  options.compaction_pri = CompactionPri::kRoundRobin;
+  options.max_bytes_for_level_base = 30 * kKeysPerBuffer * 1024;
+  options.disable_auto_compactions = true;
+  options.max_subcompactions = max_subcompactions_;
+  options.max_background_compactions = 1;
+  options.max_compaction_bytes = 100000000;
+  // Similar experiment setting as above except the max_subcompactions
+  // is given by max_subcompactions_ (1 or 4), and we fix the
+  // additional resources as (1, 1) and thus no more extra resources
+  // can be used
+  DestroyAndReopen(options);
+  env_->SetBackgroundThreads(1, Env::LOW);
+
+  Random rnd(301);
+  const std::vector<int> files_per_level = {0, 33, 100};
+  for (int lvl = 2; lvl > 0; lvl--) {
+    for (int i = 0; i < files_per_level[lvl]; i++) {
+      for (int j = 0; j < kKeysPerBuffer; j++) {
+        // Add (lvl-1) to ensure nearly equivallent number of files
+        // in L2 are overlapped with fils selected to compact from
+        // L1
+        ASSERT_OK(Put(Key(2 * i * kKeysPerBuffer + 2 * j + (lvl - 1)),
+                      rnd.RandomString(1010)));
+      }
+      ASSERT_OK(Flush());
+    }
+    MoveFilesToLevel(lvl);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(files_per_level[lvl], NumTableFilesAtLevel(lvl, 0));
+  }
+
+  // 33 files in L1; 100 files in L2
+  // This is a variable for making sure the following callback is called
+  // and the assertions in it are indeed excuted.
+  bool num_planned_subcompactions_verified = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::GenSubcompactionBoundaries:0", [&](void* arg) {
+        uint64_t num_planned_subcompactions = *(static_cast<uint64_t*>(arg));
+        // At most 4 files are selected for round-robin under auto
+        // compaction. The number of planned subcompaction is restricted by
+        // the max_subcompactions since no extra resources can be used
+        ASSERT_EQ(num_planned_subcompactions, options.max_subcompactions);
+        num_planned_subcompactions_verified = true;
+      });
+  // No need to setup dependency for pressure token since
+  // AcquireSubcompactionResources may not be called and it anyway cannot
+  // reserve any additional resources
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBCompactionTest::RoundRobinWithoutAdditionalResources:0",
+        "BackgroundCallCompaction:0"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
+  TEST_SYNC_POINT("DBCompactionTest::RoundRobinWithoutAdditionalResources:0");
+
+  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_TRUE(num_planned_subcompactions_verified);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(DBCompactionTest, RoundRobinCutOutputAtCompactCursor) {
   Options options = CurrentOptions();
   options.num_levels = 3;
