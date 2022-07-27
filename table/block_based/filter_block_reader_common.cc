@@ -79,6 +79,7 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
+  read_options.verify_checksums = false;
 
   return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, read_options,
                          cache_filter_blocks(), get_context, lookup_context,

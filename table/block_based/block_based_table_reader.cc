@@ -594,13 +594,12 @@ Status BlockBasedTable::Open(
 
   // From read_options, retain deadline, io_timeout, and rate_limiter_priority.
   // In future, we may retain more
-  // options. Specifically, w ignore verify_checksums and default to
-  // checksum verification anyway when creating the index and filter
-  // readers.
+  // options.
   ReadOptions ro;
   ro.deadline = read_options.deadline;
   ro.io_timeout = read_options.io_timeout;
   ro.rate_limiter_priority = read_options.rate_limiter_priority;
+  ro.verify_checksums = read_options.verify_checksums;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
@@ -2273,6 +2272,10 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 
 Status BlockBasedTable::VerifyChecksum(const ReadOptions& read_options,
                                        TableReaderCaller caller) {
+  if (!read_options.verify_checksums) {
+    return Status::OK();
+  }
+
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> metaindex;

@@ -378,7 +378,7 @@ Status ReadTablePropertiesHelper(
 
   // Modified version of BlockFetcher checksum verification
   // (See write_global_seqno comment above)
-  if (s.ok() && footer.GetBlockTrailerSize() > 0) {
+  if (s.ok() && footer.GetBlockTrailerSize() > 0 && ro.verify_checksums) {
     s = VerifyBlockChecksum(footer.checksum_type(), properties_block.data(),
                             block_size, file->file_name(), handle.offset());
     if (s.IsCorruption()) {
@@ -418,7 +418,9 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   }
 
   if (!block_handle.IsNull()) {
-    s = ReadTablePropertiesHelper(ReadOptions(), block_handle, file,
+    ReadOptions ro;
+    ro.verify_checksums = false;
+    s = ReadTablePropertiesHelper(ro, block_handle, file,
                                   prefetch_buffer, footer, ioptions, properties,
                                   memory_allocator);
   } else {
@@ -482,7 +484,9 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
   }
 
   auto metaindex_handle = footer.metaindex_handle();
-  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
+  ReadOptions ro;
+  ro.verify_checksums = false;
+  return BlockFetcher(file, prefetch_buffer, footer, ro,
                       metaindex_handle, metaindex_contents, ioptions,
                       false /* do decompression */, false /*maybe_compressed*/,
                       BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
@@ -535,7 +539,9 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
     return status;
   }
 
-  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
+  ReadOptions ro;
+  ro.verify_checksums = false;
+  return BlockFetcher(file, prefetch_buffer, footer, ro,
                       block_handle, contents, ioptions, false /* decompress */,
                       false /*maybe_compressed*/, block_type,
                       UncompressionDict::GetEmptyDict(),

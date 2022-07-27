@@ -48,6 +48,7 @@ Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
+  read_options.verify_checksums = false;
 
   return ReadIndexBlock(table_, /*prefetch_buffer=*/nullptr, read_options,
                         cache_index_blocks(), get_context, lookup_context,
