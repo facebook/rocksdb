@@ -91,7 +91,7 @@ Status UncompressionDictReader::GetOrReadUncompressionDictionary(
   if (no_io) {
     read_options.read_tier = kBlockCacheTier;
   }
-  read_options.verify_checksums = verify_checksums;  // Is this correctly propagated?
+  read_options.verify_checksums = verify_checksums;
 
   return ReadUncompressionDictionary(table_, prefetch_buffer, read_options,
                                      cache_dictionary_blocks(), get_context,
