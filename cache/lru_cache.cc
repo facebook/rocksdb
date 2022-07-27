@@ -263,17 +263,8 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
   } else if (low_pri_pool_ratio_ > 0 && (e->IsLowPri() || e->HasHit())) {
-    // Insert "e" to the head of low-pri pool. Note that when
-    // high_pri_pool_ratio is 0, head of low-pri pool is also head of LRU list.
-    if (lru_low_pri_ == &lru_) {
-      // The low-pri pool is empty and never have an entry inserted into it yet.
-      e->next = lru_bottom_pri_->next;
-      e->prev = lru_bottom_pri_;
-    } else {
-      // The low-pri pool is not empty.
-      e->next = lru_low_pri_->next;
-      e->prev = lru_low_pri_;
-    }
+    e->next = lru_low_pri_->next;
+    e->prev = lru_low_pri_;
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(false);
@@ -289,9 +280,8 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->next->prev = e;
     e->SetInHighPriPool(false);
     e->SetInLowPriPool(false);
-    // if all entries in the low-pri pool were removed, lru_low_pri_ is same as
-    // lru_bottom_pri_, thus lru_low_pri_ has to point to the new entry.
-    if (lru_bottom_pri_ == lru_low_pri_ && lru_bottom_pri_ != &lru_) {
+    // if the bottom-pri pool is empty, lru_low_pri_ also needs to be updated.
+    if (lru_bottom_pri_ == lru_low_pri_) {
       lru_low_pri_ = e;
     }
     lru_bottom_pri_ = e;
