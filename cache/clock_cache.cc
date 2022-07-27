@@ -69,10 +69,10 @@ ClockHandle* ClockHandleTable::Lookup(const Slice& key, uint32_t hash) {
     // updates where it would be possible to combine into one CAS (more metadata
     // under one atomic field) or maybe two atomic updates (one arithmetic, one
     // bitwise). Something to think about optimizing.
-    e->InternalToExternalRef();
     e->SetHit();
     // The handle is now referenced, so we take it out of clock.
     ClockOff(e);
+    e->InternalToExternalRef();
   }
 
   return e;
@@ -312,17 +312,20 @@ void ClockHandleTable::ClockRun(size_t charge) {
   // hot element, it will be hard to get an exclusive ref.
   // Do we need a mechanism to prevent an element from sitting
   // for a long time in cache waiting to be evicted?
-  assert(charge <= capacity_);
   autovector<ClockHandle> deleted;
   uint32_t max_iterations =
-      1 + static_cast<uint32_t>(GetTableSize() * kLoadFactor);
+      ClockHandle::ClockPriority::HIGH *
+      (1 +
+       static_cast<uint32_t>(
+           GetTableSize() *
+           kLoadFactor));  // It may take up to HIGH passes to evict an element.
   size_t usage_local = usage_;
-  while (usage_local + charge > capacity_ && max_iterations--) {
+  size_t capacity_local = capacity_;
+  while (usage_local + charge > capacity_local && max_iterations--) {
     uint32_t steps = 1 + static_cast<uint32_t>(1 / kLoadFactor);
     uint32_t clock_pointer_local = (clock_pointer_ += steps) - steps;
     for (uint32_t i = 0; i < steps; i++) {
       ClockHandle* h = &array_[ModTableSize(clock_pointer_local + i)];
-
       if (h->TryExclusiveRef()) {
         if (h->WillBeDeleted()) {
           Remove(h, &deleted);
@@ -335,7 +338,6 @@ void ClockHandleTable::ClockRun(size_t charge) {
             // exclusive ref, we know we are in the latter case. This can only
             // happen when the last external reference to an element was
             // released, and the element was not immediately removed.
-
             ClockOn(h);
           }
           ClockHandle::ClockPriority priority = h->GetClockPriority();
@@ -358,6 +360,7 @@ ClockCacheShard::ClockCacheShard(
     size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy)
     : strict_capacity_limit_(strict_capacity_limit),
+      detached_usage_(0),
       table_(capacity, CalcHashBits(capacity, estimated_value_size,
                                     metadata_charge_policy)) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -430,12 +433,16 @@ int ClockCacheShard::CalcHashBits(
   return FloorLog2((num_entries << 1) - 1);
 }
 
-void ClockCacheShard::SetCapacity(size_t /*capacity*/) {
-  assert(false);  // Not supported.
+void ClockCacheShard::SetCapacity(size_t capacity) {
+  if (capacity > table_.GetCapacity()) {
+    assert(false);  // Not supported.
+  }
+  table_.SetCapacity(capacity);
+  table_.ClockRun(detached_usage_);
 }
 
-void ClockCacheShard::SetStrictCapacityLimit(bool /*strict_capacity_limit*/) {
-  assert(false);  // Not supported.
+void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
+  strict_capacity_limit_ = strict_capacity_limit;
 }
 
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
@@ -459,27 +466,32 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
 
   Status s = Status::OK();
 
+  // Use a local copy to minimize cache synchronization.
+  size_t detached_usage = detached_usage_;
+
   // Free space with the clock policy until enough space is freed or there are
   // no evictable elements.
-  table_.ClockRun(tmp.total_charge);
+  table_.ClockRun(tmp.total_charge + detached_usage);
 
-  // occupancy_ and usage_ are contended members across concurrent updates
-  // on the same shard, so we use a single copy to reduce cache synchronization.
+  // Use local copies to minimize cache synchronization
+  // (occupancy_ and usage_ are read and written by all insertions).
   uint32_t occupancy_local = table_.GetOccupancy();
-  size_t usage_local = table_.GetUsage();
-  assert(occupancy_local <= table_.GetOccupancyLimit());
+  size_t total_usage = table_.GetUsage() + detached_usage;
 
-  autovector<ClockHandle> deleted;
-
-  if ((usage_local + tmp.total_charge > table_.GetCapacity() &&
-       (strict_capacity_limit_ || handle == nullptr)) ||
-      occupancy_local > table_.GetOccupancyLimit()) {
+  // TODO: Currently we support strict_capacity_limit == false as long as the
+  // number of pinned elements is below table_.GetOccupancyLimit(). We can
+  // always support it as follows: whenever we exceed this limit, we dynamically
+  // allocate a handle and return it (when the user provides a handle pointer,
+  // of course). Then, Release checks whether the handle was dynamically
+  // allocated, or is stored in the table.
+  if (total_usage + tmp.total_charge > table_.GetCapacity() &&
+      (strict_capacity_limit_ || handle == nullptr)) {
     if (handle == nullptr) {
       // Don't insert the entry but still return ok, as if the entry inserted
       // into cache and get evicted immediately.
-      deleted.push_back(tmp);
+      tmp.FreeData();
     } else {
-      if (occupancy_local > table_.GetOccupancyLimit()) {
+      if (occupancy_local + 1 > table_.GetOccupancyLimit()) {
         // TODO: Consider using a distinct status for this case, but usually
         // it will be handled the same way as reaching charge capacity limit
         s = Status::MemoryLimit(
@@ -491,21 +503,32 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       }
     }
   } else {
-    // Insert into the cache. Note that the cache might get larger than its
-    // capacity if not enough space was freed up.
-    ClockHandle* h = table_.Insert(&tmp, &deleted, handle != nullptr);
-    assert(h != nullptr);  // The occupancy is way below the table size, so this
-                           // insertion should never fail.
+    ClockHandle* h;
+    if (occupancy_local + 1 > table_.GetOccupancyLimit()) {
+      // Even if the user wishes to overload the cache, we can't insert into
+      // the hash table. Instead, we dynamically allocate a new handle.
+      h = new ClockHandle();
+      *h = tmp;
+      h->SetDetached();
+      h->TryExternalRef();
+      detached_usage_ += h->total_charge;
+      // TODO: Return special status?
+    } else {
+      // Insert into the cache. Note that the cache might get larger than its
+      // capacity if not enough space was freed up.
+      autovector<ClockHandle> deleted;
+      h = table_.Insert(&tmp, &deleted, handle != nullptr);
+      assert(h != nullptr);  // The occupancy is way below the table size, so
+                             // this insertion should never fail.
+      if (deleted.size() > 0) {
+        s = Status::OkOverwritten();
+      }
+      table_.Free(&deleted);
+    }
     if (handle != nullptr) {
       *handle = reinterpret_cast<Cache::Handle*>(h);
     }
-
-    if (deleted.size() > 0) {
-      s = Status::OkOverwritten();
-    }
   }
-
-  table_.Free(&deleted);
 
   return s;
 }
@@ -516,7 +539,7 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
 
 bool ClockCacheShard::Ref(Cache::Handle* h) {
   ClockHandle* e = reinterpret_cast<ClockHandle*>(h);
-  assert(e->HasExternalRefs());
+  assert(e->ExternalRefs() > 0);
   return e->TryExternalRef();
 }
 
@@ -530,6 +553,20 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   }
 
   ClockHandle* h = reinterpret_cast<ClockHandle*>(handle);
+
+  if (UNLIKELY(h->IsDetached())) {
+    h->ReleaseExternalRef();
+    if (h->TryExclusiveRef()) {
+      // Only the last reference will succeed.
+      // Don't bother releasing the exclusive ref.
+      h->FreeData();
+      detached_usage_ -= h->total_charge;
+      delete h;
+      return true;
+    }
+    return false;
+  }
+
   uint32_t refs = h->refs;
   bool last_reference = ((refs & ClockHandle::EXTERNAL_REFS) == 1);
   bool will_be_deleted = refs & ClockHandle::WILL_BE_DELETED;
@@ -570,13 +607,14 @@ size_t ClockCacheShard::GetPinnedUsage() const {
 
   table_.ConstApplyToEntriesRange(
       [&clock_usage](ClockHandle* h) {
-        if (h->HasExternalRefs()) {
+        if (h->ExternalRefs() > 1) {
+          // We check > 1 because we are holding an external ref.
           clock_usage += h->total_charge;
         }
       },
       0, table_.GetTableSize(), true);
 
-  return clock_usage;
+  return clock_usage + detached_usage_;
 }
 
 ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
