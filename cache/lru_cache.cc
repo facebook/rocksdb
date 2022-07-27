@@ -263,6 +263,7 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
   } else if (low_pri_pool_ratio_ > 0 && (e->IsLowPri() || e->HasHit())) {
+    // Insert "e" to the head of low-pri pool.
     e->next = lru_low_pri_->next;
     e->prev = lru_low_pri_;
     e->prev->next = e;
