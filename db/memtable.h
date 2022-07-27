@@ -35,7 +35,6 @@
 namespace ROCKSDB_NAMESPACE {
 
 struct FlushJobInfo;
-class Mutex;
 class MemTableIterator;
 class MergeContext;
 class SystemClock;
