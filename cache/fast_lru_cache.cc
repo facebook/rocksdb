@@ -299,10 +299,12 @@ int LRUCacheShard::CalcHashBits(
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
-  assert(false);  // Not supported. TODO(Guido) Support it?
   autovector<LRUHandle> last_reference_list;
   {
     DMutexLock l(mutex_);
+    if (capacity > capacity_) {
+      assert(false);  // Not supported.
+    }
     capacity_ = capacity;
     EvictFromLRU(0, &last_reference_list);
   }

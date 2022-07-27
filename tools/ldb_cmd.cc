@@ -117,7 +117,8 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties, bool decode_blob_index);
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key = "", std::string to_key = "");
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
                   bool is_value_hex, bool dump_uncompressed_blobs);
@@ -2045,7 +2046,7 @@ void DBDumperCommand::DoCommand() {
         break;
       case kTableFile:
         DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true,
-                    decode_blob_index_);
+                    decode_blob_index_, from_, to_);
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
@@ -3602,9 +3603,8 @@ void RestoreCommand::DoCommand() {
 namespace {
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties, bool decode_blob_index) {
-  std::string from_key;
-  std::string to_key;
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key, std::string to_key) {
   if (filename.length() <= 4 ||
       filename.rfind(".sst") != filename.length() - 4) {
     std::cout << "Invalid sst file name." << std::endl;
@@ -3616,9 +3616,8 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
       2 * 1024 * 1024 /* readahead_size */,
       /* verify_checksum */ false, output_hex, decode_blob_index);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
-                                    false,            // has_from
-                                    from_key, false,  // has_to
-                                    to_key);
+                                    !from_key.empty(), from_key,
+                                    !to_key.empty(), to_key);
   if (!st.ok()) {
     std::cerr << "Error in reading SST file " << filename << st.ToString()
               << std::endl;

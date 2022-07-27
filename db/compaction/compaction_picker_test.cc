@@ -1318,7 +1318,7 @@ TEST_F(CompactionPickerTest, CompactionPriRoundRobin) {
   std::vector<uint32_t> selected_files = {8U, 6U, 6U};
 
   ioptions_.compaction_pri = kRoundRobin;
-  mutable_cf_options_.max_bytes_for_level_base = 10000000;
+  mutable_cf_options_.max_bytes_for_level_base = 12000000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
   for (size_t i = 0; i < test_cursors.size(); i++) {
     // start a brand new version in each test.
@@ -1342,11 +1342,140 @@ TEST_F(CompactionPickerTest, CompactionPriRoundRobin) {
             cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
             &log_buffer_));
     ASSERT_TRUE(compaction.get() != nullptr);
+    // Since the max bytes for level 2 is 120M, picking one file to compact
+    // makes the post-compaction level size less than 120M, there is exactly one
+    // file picked for round-robin compaction
     ASSERT_EQ(1U, compaction->num_input_files(0));
     ASSERT_EQ(selected_files[i], compaction->input(0, 0)->fd.GetNumber());
     // release the version storage
     DeleteVersionStorage();
   }
+}
+
+TEST_F(CompactionPickerTest, CompactionPriMultipleFilesRoundRobin1) {
+  ioptions_.compaction_pri = kRoundRobin;
+  mutable_cf_options_.max_compaction_bytes = 100000000u;
+  mutable_cf_options_.max_bytes_for_level_base = 120;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  // start a brand new version in each test.
+  NewVersionStorage(6, kCompactionStyleLevel);
+  vstorage_->ResizeCompactCursors(6);
+  // Set the cursor (file picking should start with 7U)
+  vstorage_->AddCursorForOneLevel(2, InternalKey("199", 100, kTypeValue));
+  Add(2, 6U, "150", "199", 500U);
+  Add(2, 7U, "200", "249", 500U);
+  Add(2, 8U, "300", "600", 500U);
+  Add(2, 9U, "700", "800", 500U);
+  Add(2, 10U, "850", "950", 500U);
+
+  Add(3, 26U, "130", "165", 600U);
+  Add(3, 27U, "166", "170", 600U);
+  Add(3, 28U, "270", "340", 600U);
+  Add(3, 29U, "401", "500", 600U);
+  Add(3, 30U, "601", "800", 600U);
+  Add(3, 31U, "830", "890", 600U);
+  UpdateVersionStorageInfo();
+  LevelCompactionPicker local_level_compaction_picker =
+      LevelCompactionPicker(ioptions_, &icmp_);
+  std::unique_ptr<Compaction> compaction(
+      local_level_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+
+  // The maximum compaction bytes is very large in this case so we can igore its
+  // constraint in this test case. The maximum bytes for level 2 is 1200
+  // bytes, and thus at least 3 files should be picked so that the bytes in
+  // level 2 is less than the maximum
+  ASSERT_EQ(3U, compaction->num_input_files(0));
+  ASSERT_EQ(7U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(8U, compaction->input(0, 1)->fd.GetNumber());
+  ASSERT_EQ(9U, compaction->input(0, 2)->fd.GetNumber());
+  // release the version storage
+  DeleteVersionStorage();
+}
+
+TEST_F(CompactionPickerTest, CompactionPriMultipleFilesRoundRobin2) {
+  ioptions_.compaction_pri = kRoundRobin;
+  mutable_cf_options_.max_compaction_bytes = 2500u;
+  mutable_cf_options_.max_bytes_for_level_base = 120;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  // start a brand new version in each test.
+  NewVersionStorage(6, kCompactionStyleLevel);
+  vstorage_->ResizeCompactCursors(6);
+  // Set the cursor (file picking should start with 6U)
+  vstorage_->AddCursorForOneLevel(2, InternalKey("1000", 100, kTypeValue));
+  Add(2, 6U, "150", "199", 500U);  // Overlap with 26U, 27U
+  Add(2, 7U, "200", "249", 500U);  // Overlap with 27U
+  Add(2, 8U, "300", "600", 500U);  // Overlap with 28U, 29U
+  Add(2, 9U, "700", "800", 500U);
+  Add(2, 10U, "850", "950", 500U);
+
+  Add(3, 26U, "130", "165", 600U);
+  Add(3, 27U, "166", "230", 600U);
+  Add(3, 28U, "270", "340", 600U);
+  Add(3, 29U, "401", "500", 600U);
+  Add(3, 30U, "601", "800", 600U);
+  Add(3, 31U, "830", "890", 600U);
+  UpdateVersionStorageInfo();
+  LevelCompactionPicker local_level_compaction_picker =
+      LevelCompactionPicker(ioptions_, &icmp_);
+  std::unique_ptr<Compaction> compaction(
+      local_level_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+
+  // The maximum compaction bytes is only 2500 bytes now. Even though we are
+  // required to choose 3 files so that the post-compaction level size is less
+  // than 1200 bytes. We cannot pick 3 files to compact since the maximum
+  // compaction size is 2500. After picking files 6U and 7U, the number of
+  // compaction bytes has reached 2200, and thus no more space to add another
+  // input file with 50M bytes.
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(7U, compaction->input(0, 1)->fd.GetNumber());
+  // release the version storage
+  DeleteVersionStorage();
+}
+
+TEST_F(CompactionPickerTest, CompactionPriMultipleFilesRoundRobin3) {
+  ioptions_.compaction_pri = kRoundRobin;
+  mutable_cf_options_.max_compaction_bytes = 1000000u;
+  mutable_cf_options_.max_bytes_for_level_base = 120;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  // start a brand new version in each test.
+  NewVersionStorage(6, kCompactionStyleLevel);
+  vstorage_->ResizeCompactCursors(6);
+  // Set the cursor (file picking should start with 9U)
+  vstorage_->AddCursorForOneLevel(2, InternalKey("700", 100, kTypeValue));
+  Add(2, 6U, "150", "199", 500U);
+  Add(2, 7U, "200", "249", 500U);
+  Add(2, 8U, "300", "600", 500U);
+  Add(2, 9U, "700", "800", 500U);
+  Add(2, 10U, "850", "950", 500U);
+
+  Add(3, 26U, "130", "165", 600U);
+  Add(3, 27U, "166", "170", 600U);
+  Add(3, 28U, "270", "340", 600U);
+  Add(3, 29U, "401", "500", 600U);
+  Add(3, 30U, "601", "800", 600U);
+  Add(3, 31U, "830", "890", 600U);
+  UpdateVersionStorageInfo();
+  LevelCompactionPicker local_level_compaction_picker =
+      LevelCompactionPicker(ioptions_, &icmp_);
+  std::unique_ptr<Compaction> compaction(
+      local_level_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+
+  // Cannot pick more files since we reach the last file in level 2
+  ASSERT_EQ(2U, compaction->num_input_files(0));
+  ASSERT_EQ(9U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(10U, compaction->input(0, 1)->fd.GetNumber());
+  // release the version storage
+  DeleteVersionStorage();
 }
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlappingManyFiles) {

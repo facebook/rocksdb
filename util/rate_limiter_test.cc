@@ -346,7 +346,7 @@ TEST_F(RateLimiterTest, Rate) {
 
   // This can fail in heavily loaded CI environments
   bool skip_minimum_rate_check =
-#if (defined(TRAVIS) || defined(CIRCLECI)) && defined(OS_MACOSX)
+#if defined(CIRCLECI) && defined(OS_MACOSX)
       true;
 #else
       getenv("SANDCASTLE");

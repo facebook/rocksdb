@@ -1408,7 +1408,8 @@ Status DBImpl::CompactFilesImpl(
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
       kManualCompactionCanceledFalse_, db_id_, db_session_id_,
       c->column_family_data()->GetFullHistoryTsLow(), c->trim_ts(),
-      &blob_callback_);
+      &blob_callback_, &bg_compaction_scheduled_,
+      &bg_bottom_compaction_scheduled_);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -3330,7 +3331,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       if (start_level > 0) {
         auto vstorage = c->input_version()->storage_info();
         c->edit()->AddCompactCursor(
-            start_level, vstorage->GetNextCompactCursor(start_level));
+            start_level,
+            vstorage->GetNextCompactCursor(start_level, c->num_input_files(0)));
       }
     }
     status = versions_->LogAndApply(c->column_family_data(),
@@ -3415,7 +3417,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         is_manual ? manual_compaction->canceled
                   : kManualCompactionCanceledFalse_,
         db_id_, db_session_id_, c->column_family_data()->GetFullHistoryTsLow(),
-        c->trim_ts(), &blob_callback_);
+        c->trim_ts(), &blob_callback_, &bg_compaction_scheduled_,
+        &bg_bottom_compaction_scheduled_);
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

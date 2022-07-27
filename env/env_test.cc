@@ -969,10 +969,6 @@ TEST_P(EnvPosixTestWithParam, ReserveThreads) {
 }
 
 #if (defined OS_LINUX || defined OS_WIN)
-// Travis doesn't support fallocate or getting unique ID from files for whatever
-// reason.
-#ifndef TRAVIS
-
 namespace {
 bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
@@ -1780,7 +1776,6 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     ASSERT_OK(env_->DeleteFile(fname));
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
-#endif  // not TRAVIS
 #endif  // OS_LINUX || OS_WIN
 
 class TestLogger : public Logger {
