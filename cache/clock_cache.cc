@@ -413,8 +413,8 @@ void ClockCacheShard::ApplyToSomeEntries(
       index_begin, index_end, false);
 }
 
-ClockHandle *ClockCacheShard::DetachedInsert(ClockHandle* h) {
-  ClockHandle *e = new ClockHandle();
+ClockHandle* ClockCacheShard::DetachedInsert(ClockHandle* h) {
+  ClockHandle* e = new ClockHandle();
   *e = *h;
   e->SetDetached();
   e->TryExternalRef();
@@ -530,7 +530,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
           h = DetachedInsert(&tmp);
         } else {
           s = Status::MemoryLimit(
-            "Insert failed because all slots in the hash table are full.");
+              "Insert failed because all slots in the hash table are full.");
         }
       }
       if (deleted.size() > 0) {
@@ -541,7 +541,6 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
     if (handle != nullptr) {
       *handle = reinterpret_cast<Cache::Handle*>(h);
     }
-
   }
 
   return s;
