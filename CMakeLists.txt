@@ -1509,6 +1509,20 @@ if(WITH_BENCHMARK_TOOLS)
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 
+option(WITH_TRACE_TOOLS "build with trace tools" ON)
+if(WITH_TRACE_TOOLS) 
+  add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
+  target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
+  add_executable(trace_analyzer${ARTIFACT_SUFFIX}
+    tools/trace_analyzer.cc)
+  target_link_libraries(trace_analyzer${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
+endif()
+
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
   add_subdirectory(tools)
   add_custom_target(core_tools
