@@ -1112,7 +1112,7 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
 
 TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
   LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
-                       false /* strict_capacity_limit */,
+                       true /* strict_capacity_limit */,
                        0.5 /* high_pri_pool_ratio */,
                        nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
