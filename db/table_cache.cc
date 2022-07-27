@@ -501,6 +501,48 @@ Status TableCache::Get(
   return s;
 }
 
+Status TableCache::MultiGetFilter(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
+    const std::shared_ptr<const SliceTransform>& prefix_extractor,
+    HistogramImpl* file_read_hist, int level,
+    MultiGetContext::Range* mget_range, Cache::Handle** table_handle) {
+  auto& fd = file_meta.fd;
+#ifndef ROCKSDB_LITE
+  IterKey row_cache_key;
+  std::string row_cache_entry_buffer;
+
+  // Check if we need to use the row cache. If yes, then we cannot do the
+  // filtering here, since the filtering needs to happen after the row cache
+  // lookup.
+  KeyContext& first_key = *mget_range->begin();
+  if (ioptions_.row_cache && !first_key.get_context->NeedToReadSequence()) {
+    return Status::NotSupported();
+  }
+#endif  // ROCKSDB_LITE
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (t == nullptr) {
+    s = FindTable(
+        options, file_options_, internal_comparator, fd, &handle,
+        prefix_extractor, options.read_tier == kBlockCacheTier /* no_io */,
+        true /* record_read_stats */, file_read_hist, /*skip_filters=*/false,
+        level, true /* prefetch_index_and_filter_in_cache */,
+        /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+    *table_handle = handle;
+  }
+  if (s.ok()) {
+    s = t->MultiGetFilter(options, prefix_extractor.get(), mget_range);
+  }
+
+  return s;
+}
+
 Status TableCache::GetTableProperties(
     const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
