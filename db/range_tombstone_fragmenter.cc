@@ -236,14 +236,14 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
 }
 
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
-    const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
+    std::shared_ptr<const FragmentedRangeTombstoneList> tombstones,
     const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
     SequenceNumber _lower_bound)
     : tombstone_start_cmp_(icmp.user_comparator()),
       tombstone_end_cmp_(icmp.user_comparator()),
       icmp_(&icmp),
       ucmp_(icmp.user_comparator()),
-      tombstones_ref_(tombstones),
+      tombstones_ref_(std::move(tombstones)),
       tombstones_(tombstones_ref_.get()),
       upper_bound_(_upper_bound),
       lower_bound_(_lower_bound) {
