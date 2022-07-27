@@ -523,16 +523,13 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       // capacity if not enough space was freed up.
       autovector<ClockHandle> deleted;
       h = table_.Insert(&tmp, &deleted, handle != nullptr);
-      if (h == nullptr) {
+      if (h == nullptr && handle != nullptr) {
         // The table is full. This can happen when many threads simultaneously
         // attempt an insert, and the table is operating close to full capacity.
-        if (handle != nullptr) {
-          h = DetachedInsert(&tmp);
-        } else {
-          s = Status::MemoryLimit(
-              "Insert failed because all slots in the hash table are full.");
-        }
+        h = DetachedInsert(&tmp);
       }
+      // Notice that if handle == nullptr, we don't insert the entry but still
+      // return ok.
       if (deleted.size() > 0) {
         s = Status::OkOverwritten();
       }
