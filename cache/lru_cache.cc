@@ -265,10 +265,11 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     // Insert "e" to the head of low-pri pool. Note that when
     // high_pri_pool_ratio is 0, head of low-pri pool is also head of LRU list.
     if (lru_low_pri_ == &lru_) {
-      // The low-pri pool is empty.
+      // The low-pri pool is empty and never have an entry inserted into it yet.
       e->next = lru_bottom_pri_->next;
       e->prev = lru_bottom_pri_;
     } else {
+      // The low-pri pool is not empty.
       e->next = lru_low_pri_->next;
       e->prev = lru_low_pri_;
     }
@@ -287,6 +288,11 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->next->prev = e;
     e->SetInHighPriPool(false);
     e->SetInLowPriPool(false);
+    // if all entries in the low-pri pool were removed, lru_low_pri_ is same as
+    // lru_bottom_pri_, thus lru_low_pri_ has to point to the new entry.
+    if (lru_bottom_pri_ == lru_low_pri_ && lru_bottom_pri_ != &lru_) {
+      lru_low_pri_ = e;
+    }
     lru_bottom_pri_ = e;
   }
   lru_usage_ += e->total_charge;
@@ -831,10 +837,11 @@ std::string LRUCache::GetPrintableOptions() const {
 
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio, double low_pri_pool_ratio,
+    double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
-    const std::shared_ptr<SecondaryCache>& secondary_cache) {
+    const std::shared_ptr<SecondaryCache>& secondary_cache,
+    double low_pri_pool_ratio) {
   if (num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
@@ -860,12 +867,12 @@ std::shared_ptr<Cache> NewLRUCache(
 }
 
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
-  return NewLRUCache(
-      cache_opts.capacity, cache_opts.num_shard_bits,
-      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.low_pri_pool_ratio, cache_opts.memory_allocator,
-      cache_opts.use_adaptive_mutex, cache_opts.metadata_charge_policy,
-      cache_opts.secondary_cache);
+  return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
+                     cache_opts.strict_capacity_limit,
+                     cache_opts.high_pri_pool_ratio,
+                     cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+                     cache_opts.metadata_charge_policy,
+                     cache_opts.secondary_cache, cache_opts.low_pri_pool_ratio);
 }
 
 std::shared_ptr<Cache> NewLRUCache(
@@ -875,7 +882,7 @@ std::shared_ptr<Cache> NewLRUCache(
     CacheMetadataChargePolicy metadata_charge_policy,
     double low_pri_pool_ratio) {
   return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                     high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
-                     use_adaptive_mutex, metadata_charge_policy, nullptr);
+                     high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
+                     metadata_charge_policy, nullptr, low_pri_pool_ratio);
 }
 }  // namespace ROCKSDB_NAMESPACE

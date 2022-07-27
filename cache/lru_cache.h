@@ -152,8 +152,8 @@ struct LRUHandle {
       flags |= IS_HIGH_PRI;
       flags &= ~IS_LOW_PRI;
     } else if (priority == Cache::Priority::LOW) {
-      flags |= IS_LOW_PRI;
       flags &= ~IS_HIGH_PRI;
+      flags |= IS_LOW_PRI;
     } else {
       flags &= ~IS_HIGH_PRI;
       flags &= ~IS_LOW_PRI;

@@ -148,10 +148,11 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio, double low_pri_pool_ratio,
+    double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
-    CompressionType compression_type, uint32_t compress_format_version) {
+    CompressionType compression_type, uint32_t compress_format_version,
+    double low_pri_pool_ratio) {
   return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
@@ -164,9 +165,9 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
   assert(opts.secondary_cache == nullptr);
   return NewCompressedSecondaryCache(
       opts.capacity, opts.num_shard_bits, opts.strict_capacity_limit,
-      opts.high_pri_pool_ratio, opts.low_pri_pool_ratio, opts.memory_allocator,
-      opts.use_adaptive_mutex, opts.metadata_charge_policy,
-      opts.compression_type, opts.compress_format_version);
+      opts.high_pri_pool_ratio, opts.memory_allocator, opts.use_adaptive_mutex,
+      opts.metadata_charge_policy, opts.compression_type,
+      opts.compress_format_version, opts.low_pri_pool_ratio);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

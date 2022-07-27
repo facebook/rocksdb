@@ -84,23 +84,56 @@ class LRUCacheTest : public testing::Test {
     LRUHandle* lru_low_pri;
     LRUHandle* lru_bottom_pri;
     cache_->TEST_GetLRUList(&lru, &lru_low_pri, &lru_bottom_pri);
+
     LRUHandle* iter = lru;
+
+    bool in_low_pri_pool = false;
+    bool in_high_pri_pool = false;
+
     size_t high_pri_pool_keys = 0;
     size_t low_pri_pool_keys = 0;
     size_t bottom_pri_pool_keys = 0;
+
+    if (iter == lru_bottom_pri) {
+      in_low_pri_pool = true;
+      in_high_pri_pool = false;
+    }
+    if (iter == lru_low_pri) {
+      in_low_pri_pool = false;
+      in_high_pri_pool = true;
+    }
+
     for (const auto& key : keys) {
       iter = iter->next;
       ASSERT_NE(lru, iter);
       ASSERT_EQ(key, iter->key().ToString());
-      if (iter->InHighPriPool()) {
+      ASSERT_EQ(in_high_pri_pool, iter->InHighPriPool());
+      ASSERT_EQ(in_low_pri_pool, iter->InLowPriPool());
+      if (in_high_pri_pool) {
+        ASSERT_FALSE(iter->InLowPriPool());
         high_pri_pool_keys++;
-      } else if (iter->InLowPriPool()) {
+      } else if (in_low_pri_pool) {
+        ASSERT_FALSE(iter->InHighPriPool());
         low_pri_pool_keys++;
       } else {
         bottom_pri_pool_keys++;
       }
+      if (iter == lru_bottom_pri) {
+        ASSERT_FALSE(in_low_pri_pool);
+        ASSERT_FALSE(in_high_pri_pool);
+        in_low_pri_pool = true;
+        in_high_pri_pool = false;
+      }
+      if (iter == lru_low_pri) {
+        ASSERT_TRUE(in_low_pri_pool);
+        ASSERT_FALSE(in_high_pri_pool);
+        in_low_pri_pool = false;
+        in_high_pri_pool = true;
+      }
     }
     ASSERT_EQ(lru, iter->next);
+    ASSERT_FALSE(in_low_pri_pool);
+    ASSERT_TRUE(in_high_pri_pool);
     ASSERT_EQ(num_high_pri_pool_keys, high_pri_pool_keys);
     ASSERT_EQ(num_low_pri_pool_keys, low_pri_pool_keys);
     ASSERT_EQ(num_bottom_pri_pool_keys, bottom_pri_pool_keys);
@@ -172,13 +205,16 @@ TEST_F(LRUCacheTest, BottomPriorityMidpointInsertion) {
   ValidateLRUList({"a", "b", "i", "j", "x", "y"}, 2, 2, 2);
 
   // Low-pri entries will be inserted to the tail of low-pri list (the
-  // midpoint). After lookup, it will move to the tail of the full list.
+  // midpoint). After lookup, 'k' will move to the tail of the full list, and
+  // 'x' will spill over to the low-pri pool.
   Insert("k", Cache::Priority::LOW);
   ValidateLRUList({"b", "i", "j", "k", "x", "y"}, 2, 2, 2);
   ASSERT_TRUE(Lookup("k"));
   ValidateLRUList({"b", "i", "j", "x", "y", "k"}, 2, 2, 2);
 
-  // High-pri entries will be inserted to the tail of full list.
+  // High-pri entries will be inserted to the tail of full list. Although y was
+  // inserted with high priority, it got spilled over to the low-pri pool. As
+  // a result, j also got spilled over to the bottom-pri pool.
   Insert("z", Cache::Priority::HIGH);
   ValidateLRUList({"i", "j", "x", "y", "k", "z"}, 2, 2, 2);
   Erase("x");
@@ -245,7 +281,8 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   Insert("Y", Cache::Priority::HIGH);
   ValidateLRUList({"t", "u", "v", "w", "X", "Y"}, 2, 2, 2);
 
-  // High-pri entries can overflow to low-pri pool.
+  // After lookup, the high-pri entry 'X' got spilled over to the low-pri pool.
+  // The low-pri entry 'v' got spilled over to the bottom-pri pool.
   Insert("Z", Cache::Priority::HIGH);
   ValidateLRUList({"u", "v", "w", "X", "Y", "Z"}, 2, 2, 2);
 
@@ -253,13 +290,18 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   Insert("a", Cache::Priority::LOW);
   ValidateLRUList({"v", "w", "X", "a", "Y", "Z"}, 2, 2, 2);
 
-  // Low-pri entries will be inserted to head of high-pri pool after lookup.
+  // After lookup, the high-pri entry 'Y' got spilled over to the low-pri pool.
+  // The low-pri entry 'X' got spilled over to the bottom-pri pool.
   ASSERT_TRUE(Lookup("v"));
   ValidateLRUList({"w", "X", "a", "Y", "Z", "v"}, 2, 2, 2);
 
-  // High-pri entries will be inserted to the head of the list after lookup.
+  // After lookup, the high-pri entry 'Z' got spilled over to the low-pri pool.
+  // The low-pri entry 'a' got spilled over to the bottom-pri pool.
   ASSERT_TRUE(Lookup("X"));
   ValidateLRUList({"w", "a", "Y", "Z", "v", "X"}, 2, 2, 2);
+
+  // After lookup, the low pri entry 'Z' got promoted back to high-pri pool. The
+  // high-pri entry 'v' got spilled over to the low-pri pool.
   ASSERT_TRUE(Lookup("Z"));
   ValidateLRUList({"w", "a", "Y", "v", "X", "Z"}, 2, 2, 2);
 
@@ -301,7 +343,8 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   Insert("z", Cache::Priority::HIGH);
   ValidateLRUList({"q", "g", "d", "x", "y", "z"}, 2, 2, 2);
 
-  // Low-pri entries will be inserted to head of high-pri pool after lookup.
+  // 'g' is bottom-pri before this lookup, it will be inserted to head of
+  // high-pri pool after lookup.
   ASSERT_TRUE(Lookup("g"));
   ValidateLRUList({"q", "d", "x", "y", "z", "g"}, 2, 2, 2);
 
