@@ -71,7 +71,8 @@ public class LRUCache extends Cache {
    */
   public LRUCache(final long capacity, final int numShardBits, final boolean strictCapacityLimit,
       final double highPriPoolRatio) {
-    super(newLRUCache(capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, 0.5));
+    super(newLRUCache(
+        capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, 1.0 - highPriPoolRatio));
   }
 
   /**
