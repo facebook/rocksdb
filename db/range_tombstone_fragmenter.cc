@@ -181,17 +181,17 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
     Slice tombstone_start_key = ExtractUserKey(ikey);
     SequenceNumber tombstone_seq = GetInternalKeySeqno(ikey);
     if (!unfragmented_tombstones->IsKeyPinned()) {
-      pinned_slices_.emplace_back(tombstone_start_key.data(),
-                                  tombstone_start_key.size());
-      tombstone_start_key = pinned_slices_.back();
+      pinned_tombstone_start_key_.assign(tombstone_start_key.data(),
+                                         tombstone_start_key.size());
+      tombstone_start_key = pinned_tombstone_start_key_;
     }
     no_tombstones = false;
 
     Slice tombstone_end_key = unfragmented_tombstones->value();
     if (!unfragmented_tombstones->IsValuePinned()) {
-      pinned_slices_.emplace_back(tombstone_end_key.data(),
-                                  tombstone_end_key.size());
-      tombstone_end_key = pinned_slices_.back();
+      pinned_tombstone_end_key_.assign(tombstone_end_key.data(),
+                                       tombstone_end_key.size());
+      tombstone_end_key = pinned_tombstone_end_key_;
     }
     if (!cur_end_keys.empty() && icmp.user_comparator()->Compare(
                                      cur_start_key, tombstone_start_key) != 0) {
