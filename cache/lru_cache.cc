@@ -281,7 +281,7 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->next->prev = e;
     e->SetInHighPriPool(false);
     e->SetInLowPriPool(false);
-    // if the bottom-pri pool is empty, lru_low_pri_ also needs to be updated.
+    // if the low-pri pool is empty, lru_low_pri_ also needs to be updated.
     if (lru_bottom_pri_ == lru_low_pri_) {
       lru_low_pri_ = e;
     }
