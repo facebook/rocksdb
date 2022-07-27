@@ -29,8 +29,9 @@ jlong Java_org_rocksdb_LRUCache_newLRUCache(JNIEnv* /*env*/, jclass /*jcls*/,
           static_cast<size_t>(jcapacity), static_cast<int>(jnum_shard_bits),
           static_cast<bool>(jstrict_capacity_limit),
           static_cast<double>(jhigh_pri_pool_ratio),
-          nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-          kDontChargeCacheMetadata, static_cast<double>(jlow_pri_pool_ratio)));
+          nullptr /* memory_allocator */, rocksdb::kDefaultToAdaptiveMutex,
+          rocksdb::kDontChargeCacheMetadata,
+          static_cast<double>(jlow_pri_pool_ratio)));
   return GET_CPLUSPLUS_POINTER(sptr_lru_cache);
 }
 
