@@ -2249,6 +2249,10 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
 
 Status BlockBasedTable::VerifyChecksum(const ReadOptions& read_options,
                                        TableReaderCaller caller) {
+  if (!read_options.verify_checksums) {
+    return Status::OK();
+  }
+
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> metaindex;
