@@ -20,7 +20,7 @@ std::shared_ptr<LockManager> NewLockManager(PessimisticTransactionDB* db,
     return std::shared_ptr<LockManager>(opt.lock_mgr_handle, mgr);
   } else {
     // Use a point lock manager by default
-    return std::shared_ptr<LockManager>(new PointLockManager(db, opt));
+    return std::make_shared<PointLockManager>(db, opt);
   }
 }
 
