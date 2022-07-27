@@ -239,6 +239,7 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   e->prev = e->next = nullptr;
   assert(lru_usage_ >= e->total_charge);
   lru_usage_ -= e->total_charge;
+  assert(!e->InHighPriPool() || !e->InLowPriPool());
   if (e->InHighPriPool()) {
     assert(high_pri_pool_usage_ >= e->total_charge);
     high_pri_pool_usage_ -= e->total_charge;

@@ -10,8 +10,6 @@
 
 ### Public API changes
 * Removed Customizable support for RateLimiter and removed its CreateFromString() and Type() functions.
-* `LRUCacheOptions.low_pri_pool_ratio` is set to 0.5 by default, which specifies the upper limit of cache space occupied by low-priority items. The same setting is made for the default value of `low_pri_pool_ratio` argument in NewLRUCache(). On the plus side, reserving the other 50% for the low-priority pool is equivalent to the earlier behavior. If `low_pri_pool_ratio` plus `high_pri_pool_ratio` are less than 1.0, the rest is the minimum space reserved for bottom-priority items/blobs, which can also take up space from the low- and high-priority pools if they are not full).
-* If the blob cache is used, the user needs to set these two cache options `low_pri_pool_ratio` and `high_pri_pool_ratio` appropriately to ensure that blobs are cached in the bottom level.
 
 ### Bug Fixes
 * Fix a bug where `GenericRateLimiter` could revert the bandwidth set dynamically using `SetBytesPerSecond()` when a user configures a structure enclosing it, e.g., using `GetOptionsFromString()` to configure an `Options` that references an existing `RateLimiter` object.
