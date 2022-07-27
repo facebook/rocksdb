@@ -948,8 +948,11 @@ Cache::CacheItemHelper LRUCacheSecondaryCacheTest::helper_fail_(
     LRUCacheSecondaryCacheTest::DeletionCallback);
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -992,8 +995,11 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -1021,8 +1027,11 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -1061,8 +1070,11 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
-  LRUCacheOptions opts(1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -1102,9 +1114,11 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
-  LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, 0.5,
-                       nullptr, kDefaultToAdaptiveMutex,
-                       kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
@@ -1152,8 +1166,11 @@ TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1249,8 +1266,11 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
 // insert and cache block_1 in the block cache (this is the different place
 // from TestSecondaryCacheCorrectness1)
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
-  LRUCacheOptions opts(6100, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(6100 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1342,8 +1362,11 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
 // cache all the blocks in the block cache and there is not secondary cache
 // insertion. 2 lookup is needed for the blocks.
 TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
-  LRUCacheOptions opts(1024 * 1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1396,8 +1419,11 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
 }
 
 TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
-  LRUCacheOptions opts(8 * 1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(8 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1445,8 +1471,11 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
 // if we try to insert block_1 to the block cache, it will always fails. Only
 // block_2 will be successfully inserted into the block cache.
 TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1537,8 +1566,11 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
 }
 
 TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
-  LRUCacheOptions opts(1024, 2, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1024 /* capacity */, 2 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache =
       std::make_shared<TestSecondaryCache>(32 * 1024);
   opts.secondary_cache = secondary_cache;
@@ -1593,8 +1625,11 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
 // a sync point callback in TestSecondaryCache::Lookup. We then control the
 // lookup result by setting the ResultMap.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheMultiGet) {
-  LRUCacheOptions opts(1 << 20, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(1 << 20 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -1728,8 +1763,11 @@ class LRUCacheWithStat : public LRUCache {
 #ifndef ROCKSDB_LITE
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
-  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, 0.5, nullptr,
-                             kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions cache_opts(
+      1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+      false /* strict_capacity_limit */, 0.5 /* high_pri_pool_ratio */,
+      nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+      kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
@@ -1865,8 +1903,11 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
 }
 
 TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
-  LRUCacheOptions cache_opts(1024 * 1024, 0, false, 0.5, 0.5, nullptr,
-                             kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions cache_opts(
+      1024 * 1024 /* capacity */, 0 /* num_shard_bits */,
+      false /* strict_capacity_limit */, 0.5 /* high_pri_pool_ratio */,
+      nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+      kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   LRUCacheWithStat* tmp_cache = new LRUCacheWithStat(
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
@@ -2038,8 +2079,11 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
 
 // Test the option not to use the secondary cache in a certain DB.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -2133,8 +2177,11 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
 // with new options, which set the lowest_used_cache_tier to
 // kNonVolatileBlockTier. So secondary cache will be used.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;
@@ -2228,8 +2275,11 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
 // Two DB test. We create 2 DBs sharing the same block cache and secondary
 // cache. We diable the secondary cache option for DB2.
 TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
-  LRUCacheOptions opts(4 * 1024, 0, false, 0.5, 0.5, nullptr,
-                       kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  LRUCacheOptions opts(4 * 1024 /* capacity */, 0 /* num_shard_bits */,
+                       false /* strict_capacity_limit */,
+                       0.5 /* high_pri_pool_ratio */,
+                       nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
   std::shared_ptr<TestSecondaryCache> secondary_cache(
       new TestSecondaryCache(2048 * 1024));
   opts.secondary_cache = secondary_cache;

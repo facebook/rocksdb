@@ -20,8 +20,8 @@ public class LRUCacheTest {
     final long capacity = 80000000;
     final int numShardBits = 16;
     final boolean strictCapacityLimit = true;
-    final double highPriPoolRatio = 0.05;
-    final double lowPriPoolRatio = 0.05;
+    final double highPriPoolRatio = 0.5;
+    final double lowPriPoolRatio = 0.5;
     try (final Cache lruCache = new LRUCache(
              capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, lowPriPoolRatio)) {
       //no op

@@ -70,6 +70,30 @@ public class LRUCache extends Cache {
    *     entries
    */
   public LRUCache(final long capacity, final int numShardBits, final boolean strictCapacityLimit,
+      final double highPriPoolRatio) {
+    super(newLRUCache(capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, 0.5));
+  }
+
+  /**
+   * Create a new cache with a fixed size capacity. The cache is sharded
+   * to 2^numShardBits shards, by hash of the key. The total capacity
+   * is divided and evenly assigned to each shard. If strictCapacityLimit
+   * is set, insert to the cache will fail when cache is full. User can also
+   * set percentage of the cache reserves for high priority entries and low
+   * priority entries via highPriPoolRatio and lowPriPoolRatio.
+   * numShardBits = -1 means it is automatically determined: every shard
+   * will be at least 512KB and number of shard bits will not exceed 6.
+   *
+   * @param capacity The fixed size capacity of the cache
+   * @param numShardBits The cache is sharded to 2^numShardBits shards,
+   *     by hash of the key
+   * @param strictCapacityLimit insert to the cache will fail when cache is full
+   * @param highPriPoolRatio percentage of the cache reserves for high priority
+   *     entries
+   * @param lowPriPoolRatio percentage of the cache reserves for low priority
+   *     entries
+   */
+  public LRUCache(final long capacity, final int numShardBits, final boolean strictCapacityLimit,
       final double highPriPoolRatio, final double lowPriPoolRatio) {
     super(newLRUCache(
         capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, lowPriPoolRatio));

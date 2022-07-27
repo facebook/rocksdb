@@ -29,9 +29,9 @@ CompressedSecondaryCache::CompressedSecondaryCache(
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version)
     : cache_options_(capacity, num_shard_bits, strict_capacity_limit,
-                     high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
-                     use_adaptive_mutex, metadata_charge_policy,
-                     compression_type, compress_format_version) {
+                     high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
+                     metadata_charge_policy, compression_type,
+                     compress_format_version, low_pri_pool_ratio) {
   cache_ =
       NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                   high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,

@@ -108,11 +108,11 @@ struct LRUCacheOptions {
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
                   bool _strict_capacity_limit, double _high_pri_pool_ratio,
-                  double _low_pri_pool_ratio,
                   std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
                   bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
                   CacheMetadataChargePolicy _metadata_charge_policy =
-                      kDefaultCacheMetadataChargePolicy)
+                      kDefaultCacheMetadataChargePolicy,
+                  double _low_pri_pool_ratio = 0.5)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
@@ -160,17 +160,17 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   CompressedSecondaryCacheOptions() {}
   CompressedSecondaryCacheOptions(
       size_t _capacity, int _num_shard_bits, bool _strict_capacity_limit,
-      double _high_pri_pool_ratio, double _low_pri_pool_ratio,
+      double _high_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
       bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy,
       CompressionType _compression_type = CompressionType::kLZ4Compression,
-      uint32_t _compress_format_version = 2)
+      uint32_t _compress_format_version = 2, double _low_pri_pool_ratio = 0.5)
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
-                        _high_pri_pool_ratio, _low_pri_pool_ratio,
-                        std::move(_memory_allocator), _use_adaptive_mutex,
-                        _metadata_charge_policy),
+                        _high_pri_pool_ratio, std::move(_memory_allocator),
+                        _use_adaptive_mutex, _metadata_charge_policy,
+                        _low_pri_pool_ratio),
         compression_type(_compression_type),
         compress_format_version(_compress_format_version) {}
 };

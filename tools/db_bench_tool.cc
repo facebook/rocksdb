@@ -3014,15 +3014,15 @@ class Benchmark {
       LRUCacheOptions opts(
           static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
           false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
-          FLAGS_cache_low_pri_pool_ratio,
 #ifdef MEMKIND
           FLAGS_use_cache_memkind_kmem_allocator
               ? std::make_shared<MemkindKmemAllocator>()
-              : nullptr
+              : nullptr,
 #else
-          nullptr
+          nullptr,
 #endif
-      );
+          kDefaultToAdaptiveMutex, kDefaultCacheMetadataChargePolicy,
+          FLAGS_cache_low_pri_pool_ratio);
       if (FLAGS_use_cache_memkind_kmem_allocator) {
 #ifndef MEMKIND
         fprintf(stderr, "Memkind library is not linked with the binary.");
