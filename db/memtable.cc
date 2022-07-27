@@ -687,11 +687,11 @@ struct Saver {
   Statistics* statistics;
   bool inplace_update_support;
   bool do_merge;
+  bool allow_data_in_errors;
   SystemClock* clock;
 
   ReadCallback* callback_;
   bool* is_blob_index;
-  bool allow_data_in_errors;
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
       return callback_->IsVisible(_seq);
