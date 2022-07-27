@@ -222,8 +222,7 @@ TEST_F(LRUCacheTest, BottomPriorityMidpointInsertion) {
   Erase("y");
   ValidateLRUList({"i", "j", "k", "z"}, 2, 0, 2);
 
-  // Bottom-pri entries will be inserted to the tail of bottom-pri list (the
-  // midpoint).
+  // Bottom-pri entries will be inserted to the tail of bottom-pri list.
   Insert("c", Cache::Priority::BOTTOM);
   ValidateLRUList({"i", "j", "c", "k", "z"}, 2, 0, 3);
   Insert("d", Cache::Priority::BOTTOM);
@@ -243,8 +242,7 @@ TEST_F(LRUCacheTest, BottomPriorityMidpointInsertion) {
   Erase("z");
   ValidateLRUList({"d", "e", "l", "m"}, 0, 2, 2);
 
-  // Bottom-pri entries will be inserted to the tail of bottom-pri list (the
-  // midpoint).
+  // Bottom-pri entries will be inserted to the tail of bottom-pri list.
   Insert("f", Cache::Priority::BOTTOM);
   ValidateLRUList({"d", "e", "f", "l", "m"}, 0, 2, 3);
   Insert("g", Cache::Priority::BOTTOM);
@@ -356,8 +354,7 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ASSERT_TRUE(Lookup("d"));
   ValidateLRUList({"q", "x", "y", "g", "z", "d"}, 2, 2, 2);
 
-  // Bottom-pri entries will be inserted to the tail of bottom-pri list (the
-  // midpoint).
+  // Bottom-pri entries will be inserted to the tail of bottom-pri list.
   Insert("m", Cache::Priority::BOTTOM);
   ValidateLRUList({"x", "m", "y", "g", "z", "d"}, 2, 2, 2);
 

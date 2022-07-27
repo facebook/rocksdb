@@ -77,9 +77,7 @@ struct LRUCacheOptions {
   // low-pri list and a bottom-pri list. High-pri entries will be inserted to
   // the tail of high-pri list, while low-pri entries will be first inserted to
   // the low-pri list (the midpoint) and bottom-pri entries will be first
-  // inserted to the bottom-pri list (the midpoint). This is referred to as
-  // midpoint insertion strategy to make entries that never get hit in cache age
-  // out faster.
+  // inserted to the bottom-pri list.
   //
   // See also high_pri_pool_ratio.
   double low_pri_pool_ratio = 0.5;
