@@ -508,6 +508,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
       // of planned subcompactions
       num_planned_subcompactions =
           std::min(num_planned_subcompactions, GetSubcompactionsLimit());
+    } else {
+      num_planned_subcompactions = max_subcompactions_limit;
     }
   } else {
     num_planned_subcompactions = GetSubcompactionsLimit();

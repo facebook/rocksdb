@@ -2207,9 +2207,22 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   PutRandomData(0, 100, 1000);  // flush
   WaitForFlush(0);
   WaitForFlush(2);
-  // 3 files for default column families, 1 file for column family [two], zero
-  // files for column family [one], because it's empty
-  AssertCountLiveFiles(4);
+  // at least 3 files for default column families, 1 file for column family
+  // [two], zero files for column family [one], because it's empty
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_GE(metadata.size(), 4);
+  bool has_cf1_sst = false;
+  bool has_cf2_sst = false;
+  for (const auto& file : metadata) {
+    if (file.column_family_name == "one") {
+      has_cf1_sst = true;
+    } else if (file.column_family_name == "two") {
+      has_cf2_sst = true;
+    }
+  }
+  ASSERT_FALSE(has_cf1_sst);
+  ASSERT_TRUE(has_cf2_sst);
 
   ASSERT_OK(Flush(0));
   ASSERT_EQ(0, dbfull()->TEST_total_log_size());
