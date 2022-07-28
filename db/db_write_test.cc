@@ -4,7 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
-#include <chrono>
 #include <fstream>
 #include <memory>
 #include <thread>
@@ -322,7 +321,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
 TEST_P(DBWriteTest, PipelinedWriteRace) {
   // This test was written to trigger a race in ExitAsBatchGroupLeader in case
   // enable_pipelined_write_ was true.
-  // Writers for which ShouldWriteToMemtable() evalutes to false are removed
+  // Writers for which ShouldWriteToMemtable() evaluates to false are removed
   // from the write_group via CompleteFollower/ CompleteLeader. Writers in the
   // middle of the group are fully unlinked, but if that writers is the
   // last_writer, then we did not update the predecessor's link_older, i.e.,
@@ -332,24 +331,33 @@ TEST_P(DBWriteTest, PipelinedWriteRace) {
   // owning that writer before the writer has been removed. This resulted in a
   // race - if the leader thread was fast enough, then everything was fine.
   // However, if the woken up thread finished the current write operation and
-  // then performed yet another write, then the new writer instance was added
-  // to newest_writer_. And if this thread was faster, then we had a problem,
+  // then performed yet another write, then a new writer instance was added
+  // to newest_writer_. It is possible that the new writer is located on the
+  // same address on stack, and if this happened, then we had a problem,
   // because the old code tried to find the last_writer in the list to unlink
   // it, which in this case produced a cycle in the list.
+  // Whether two invocations of PipelinedWriteImpl() by the same thread actually
+  // allocate the writer on the same address depends on the OS and/or compiler,
+  // so it is rather hard to create a deterministic test for this.
+
+  if (GetParam() != kPipelinedWrite) {
+    ROCKSDB_GTEST_BYPASS("This test requires pipelined write");
+    return;
+  }
 
   Options options = GetOptions();
   options.two_write_queues = false;
   options.enable_pipelined_write = true;
   std::vector<port::Thread> threads;
 
-  std::atomic<int> write_counter(0);
+  std::atomic<int> write_counter{0};
   std::atomic<int> active_writers{0};
   std::atomic<bool> second_write_starting{false};
   std::atomic<bool> second_write_in_progress{false};
   std::atomic<WriteThread::Writer*> leader{nullptr};
   std::atomic<bool> finished_WAL_write{false};
 
-  Reopen(options);
+  DestroyAndReopen(options);
 
   auto write_one_doc = [&]() {
     int a = write_counter.fetch_add(1);
@@ -390,7 +398,7 @@ TEST_P(DBWriteTest, PipelinedWriteRace) {
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "WriteThread::ExitAsBatchGroupLeader", [&](void* arg) {
+      "WriteThread::ExitAsBatchGroupLeader:Start", [&](void* arg) {
         auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
         if (wg->leader == leader && !finished_WAL_write) {
           finished_WAL_write = true;

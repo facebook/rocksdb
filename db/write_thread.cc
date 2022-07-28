@@ -5,7 +5,6 @@
 
 #include "db/write_thread.h"
 
-#include <atomic>
 #include <chrono>
 #include <thread>
 
@@ -631,7 +630,8 @@ void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
 static WriteThread::AdaptationContext eabgl_ctx("ExitAsBatchGroupLeader");
 void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
                                          Status& status) {
-  TEST_SYNC_POINT_CALLBACK("WriteThread::ExitAsBatchGroupLeader", &write_group);
+  TEST_SYNC_POINT_CALLBACK("WriteThread::ExitAsBatchGroupLeader:Start",
+                           &write_group);
 
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
@@ -651,10 +651,12 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
   if (enable_pipelined_write_) {
     // We insert a dummy Writer right before our current write_group. This
     // allows us to unlink our write_group without the risk that a subsequent
-    // writer becomes a new leader and might overtake use before we can add our
-    // group to the memtable-writer-list.
+    // writer becomes a new leader and might overtake us and add itself to the
+    // memtable-writer-list before we can do so. This ensures that writers are
+    // added to the memtable-writer-list in the exact same order in which they
+    // were in the newest_writer list.
 
-    // This must happen before completeing the writers from our group to prevent
+    // This must happen before completing the writers from our group to prevent
     // a race where the owning thread of one of these writers can start a new
     // write operation.
     Writer dummy;
@@ -684,7 +686,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
         "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
         &write_group);
 
-    // Link the ramaining of the group to memtable writer list.
+    // Link the remaining of the group to memtable writer list.
     // We have to link our group to memtable writer queue before wake up the
     // next leader or set newest_writer_ to null, otherwise the next leader
     // can run ahead of us and link to memtable writer queue before we do.
