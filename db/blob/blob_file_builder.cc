@@ -408,7 +408,7 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
     const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
     const Slice key = cache_key.AsSlice();
 
-    const Cache::Priority priority = Cache::Priority::LOW;
+    const Cache::Priority priority = Cache::Priority::BOTTOM;
 
     // Objects to be put into the cache have to be heap-allocated and
     // self-contained, i.e. own their contents. The Cache has to be able to
