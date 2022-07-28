@@ -413,6 +413,15 @@ void ClockCacheShard::ApplyToSomeEntries(
       index_begin, index_end, false);
 }
 
+ClockHandle* ClockCacheShard::DetachedInsert(ClockHandle* h) {
+  ClockHandle* e = new ClockHandle();
+  *e = *h;
+  e->SetDetached();
+  e->TryExternalRef();
+  detached_usage_ += h->total_charge;
+  return e;
+}
+
 size_t ClockCacheShard::CalcEstimatedHandleCharge(
     size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
@@ -503,23 +512,24 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       }
     }
   } else {
-    ClockHandle* h;
-    if (occupancy_local + 1 > table_.GetOccupancyLimit()) {
+    ClockHandle* h = nullptr;
+    if (handle != nullptr && occupancy_local + 1 > table_.GetOccupancyLimit()) {
       // Even if the user wishes to overload the cache, we can't insert into
       // the hash table. Instead, we dynamically allocate a new handle.
-      h = new ClockHandle();
-      *h = tmp;
-      h->SetDetached();
-      h->TryExternalRef();
-      detached_usage_ += h->total_charge;
+      h = DetachedInsert(&tmp);
       // TODO: Return special status?
     } else {
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
       autovector<ClockHandle> deleted;
       h = table_.Insert(&tmp, &deleted, handle != nullptr);
-      assert(h != nullptr);  // The occupancy is way below the table size, so
-                             // this insertion should never fail.
+      if (h == nullptr && handle != nullptr) {
+        // The table is full. This can happen when many threads simultaneously
+        // attempt an insert, and the table is operating close to full capacity.
+        h = DetachedInsert(&tmp);
+      }
+      // Notice that if handle == nullptr, we don't insert the entry but still
+      // return ok.
       if (deleted.size() > 0) {
         s = Status::OkOverwritten();
       }

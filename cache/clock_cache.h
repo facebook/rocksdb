@@ -770,9 +770,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   friend class ClockCache;
   friend class ClockCacheTest;
 
-  // Free some space following strict clock policy until enough space
-  // to hold (usage_ + charge) is freed or there are no evictable elements.
-  void EvictFromClock(size_t charge, autovector<ClockHandle>* deleted);
+  ClockHandle* DetachedInsert(ClockHandle* h);
 
   // Returns the charge of a single handle.
   static size_t CalcEstimatedHandleCharge(
