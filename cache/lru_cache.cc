@@ -120,9 +120,7 @@ LRUCacheShard::LRUCacheShard(
       strict_capacity_limit_(strict_capacity_limit),
       high_pri_pool_ratio_(high_pri_pool_ratio),
       high_pri_pool_capacity_(0),
-      low_pri_pool_ratio_(low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0
-                              ? 1.0 - high_pri_pool_ratio
-                              : low_pri_pool_ratio),
+      low_pri_pool_ratio_(low_pri_pool_ratio),
       low_pri_pool_capacity_(0),
       table_(max_upper_hash_bits),
       usage_(0),
@@ -843,10 +841,9 @@ std::shared_ptr<Cache> NewLRUCache(
     // Invalid high_pri_pool_ratio
     return nullptr;
   }
-  if (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0) {
-    // Invalid low_pri_pool_ratio
-    return nullptr;
-  }
+  low_pri_pool_ratio = (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0)
+                           ? (1.0 - high_pri_pool_ratio)
+                           : low_pri_pool_ratio;
   if (low_pri_pool_ratio + high_pri_pool_ratio > 1.0) {
     // Invalid high_pri_pool_ratio and low_pri_pool_ratio combination
     return nullptr;
