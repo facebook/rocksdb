@@ -841,9 +841,9 @@ std::shared_ptr<Cache> NewLRUCache(
     // Invalid high_pri_pool_ratio
     return nullptr;
   }
-  low_pri_pool_ratio = (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0)
-                           ? (1.0 - high_pri_pool_ratio)
-                           : low_pri_pool_ratio;
+  if (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0) {
+    low_pri_pool_ratio = 1.0 - high_pri_pool_ratio;
+  }
   if (low_pri_pool_ratio + high_pri_pool_ratio > 1.0) {
     // Invalid high_pri_pool_ratio and low_pri_pool_ratio combination
     return nullptr;
