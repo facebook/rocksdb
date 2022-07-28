@@ -1733,6 +1733,8 @@ class ZSTDStreamingCompress final : public StreamingCompress {
                           max_output_len) {
 #ifdef ZSTD_STREAMING
     cctx_ = ZSTD_createCCtx();
+    // Each compressed frame will have a checksum
+    ZSTD_CCtx_setParameter(cctx_, ZSTD_c_checksumFlag, 1);
     assert(cctx_ != nullptr);
     input_buffer_ = {/*src=*/nullptr, /*size=*/0, /*pos=*/0};
 #endif

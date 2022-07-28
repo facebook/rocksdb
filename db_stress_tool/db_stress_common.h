@@ -141,6 +141,7 @@ DECLARE_bool(charge_compression_dictionary_building_buffer);
 DECLARE_bool(charge_filter_construction);
 DECLARE_bool(charge_table_reader);
 DECLARE_bool(charge_file_metadata);
+DECLARE_bool(charge_blob_cache);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
@@ -272,6 +273,7 @@ DECLARE_bool(use_blob_cache);
 DECLARE_bool(use_shared_block_and_blob_cache);
 DECLARE_uint64(blob_cache_size);
 DECLARE_int32(blob_cache_numshardbits);
+DECLARE_int32(prepopulate_blob_cache);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -593,7 +595,7 @@ extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
 
-extern void SnapshotGcThread(void* v);
+extern void TimestampedSnapshotsThread(void* v);
 
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 

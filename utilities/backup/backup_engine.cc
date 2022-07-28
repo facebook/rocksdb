@@ -186,54 +186,13 @@ class BackupEngineImpl {
       const std::shared_ptr<SystemClock>& backup_rate_limiter_clock,
       const std::shared_ptr<SystemClock>& restore_rate_limiter_clock) {
     if (backup_rate_limiter_clock) {
-      assert(options_.backup_rate_limiter->IsInstanceOf(
-          GenericRateLimiter::kClassName()));
-      auto* backup_rate_limiter_options =
-          options_.backup_rate_limiter
-              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
-
-      assert(backup_rate_limiter_options);
-      RateLimiter::Mode backup_rate_limiter_mode;
-      if (!options_.backup_rate_limiter->IsRateLimited(
-              RateLimiter::OpType::kRead)) {
-        backup_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
-      } else if (!options_.backup_rate_limiter->IsRateLimited(
-                     RateLimiter::OpType::kWrite)) {
-        backup_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
-      } else {
-        backup_rate_limiter_mode = RateLimiter::Mode::kAllIo;
-      }
-      options_.backup_rate_limiter.reset(new GenericRateLimiter(
-          backup_rate_limiter_options->max_bytes_per_sec,
-          backup_rate_limiter_options->refill_period_us,
-          backup_rate_limiter_options->fairness, backup_rate_limiter_mode,
-          backup_rate_limiter_clock, backup_rate_limiter_options->auto_tuned));
+      static_cast<GenericRateLimiter*>(options_.backup_rate_limiter.get())
+          ->TEST_SetClock(backup_rate_limiter_clock);
     }
 
     if (restore_rate_limiter_clock) {
-      assert(options_.restore_rate_limiter->IsInstanceOf(
-          GenericRateLimiter::kClassName()));
-      auto* restore_rate_limiter_options =
-          options_.restore_rate_limiter
-              ->GetOptions<GenericRateLimiter::GenericRateLimiterOptions>();
-      assert(restore_rate_limiter_options);
-
-      RateLimiter::Mode restore_rate_limiter_mode;
-      if (!options_.restore_rate_limiter->IsRateLimited(
-              RateLimiter::OpType::kRead)) {
-        restore_rate_limiter_mode = RateLimiter::Mode::kWritesOnly;
-      } else if (!options_.restore_rate_limiter->IsRateLimited(
-                     RateLimiter::OpType::kWrite)) {
-        restore_rate_limiter_mode = RateLimiter::Mode::kReadsOnly;
-      } else {
-        restore_rate_limiter_mode = RateLimiter::Mode::kAllIo;
-      }
-      options_.restore_rate_limiter.reset(new GenericRateLimiter(
-          restore_rate_limiter_options->max_bytes_per_sec,
-          restore_rate_limiter_options->refill_period_us,
-          restore_rate_limiter_options->fairness, restore_rate_limiter_mode,
-          restore_rate_limiter_clock,
-          restore_rate_limiter_options->auto_tuned));
+      static_cast<GenericRateLimiter*>(options_.restore_rate_limiter.get())
+          ->TEST_SetClock(restore_rate_limiter_clock);
     }
   }
 

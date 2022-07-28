@@ -598,6 +598,7 @@ set(SOURCES
         cache/cache_entry_roles.cc
         cache/cache_key.cc
         cache/cache_reservation_manager.cc
+        cache/charged_cache.cc
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
         cache/fast_lru_cache.cc
@@ -627,7 +628,11 @@ set(SOURCES
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
         db/compaction/compaction_picker_universal.cc
+        db/compaction/compaction_service_job.cc
+        db/compaction/compaction_state.cc
+        db/compaction/compaction_outputs.cc
         db/compaction/sst_partitioner.cc
+        db/compaction/subcompaction_state.cc
         db/convenience.cc
         db/db_filesnapshot.cc
         db/db_impl/compacted_db_impl.cc
@@ -666,6 +671,7 @@ set(SOURCES
         db/range_del_aggregator.cc
         db/range_tombstone_fragmenter.cc
         db/repair.cc
+        db/seqno_to_time_mapping.cc
         db/snapshot_impl.cc
         db/table_cache.cc
         db/table_properties_collector.cc
@@ -1231,6 +1237,7 @@ if(WITH_TESTS)
         db/compaction/compaction_iterator_test.cc
         db/compaction/compaction_picker_test.cc
         db/compaction/compaction_service_test.cc
+        db/compaction/tiered_compaction_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
@@ -1291,6 +1298,7 @@ if(WITH_TESTS)
         db/perf_context_test.cc
         db/periodic_work_scheduler_test.cc
         db/plain_table_db_test.cc
+        db/seqno_time_test.cc
         db/prefix_test.cc
         db/range_del_aggregator_test.cc
         db/range_tombstone_fragmenter_test.cc
@@ -1499,6 +1507,20 @@ if(WITH_BENCHMARK_TOOLS)
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
+endif()
+
+option(WITH_TRACE_TOOLS "build with trace tools" ON)
+if(WITH_TRACE_TOOLS) 
+  add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
+  target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
+  add_executable(trace_analyzer${ARTIFACT_SUFFIX}
+    tools/trace_analyzer.cc)
+  target_link_libraries(trace_analyzer${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
 endif()
 
 if(WITH_CORE_TOOLS OR WITH_TOOLS)

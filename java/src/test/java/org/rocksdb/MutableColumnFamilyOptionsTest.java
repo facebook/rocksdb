@@ -96,8 +96,9 @@ public class MutableColumnFamilyOptionsTest {
   public void mutableColumnFamilyOptions_parse_getOptions_output() {
     final String optionsString =
         "bottommost_compression=kDisableCompressionOption;  sample_for_compression=0;  "
-        + "blob_garbage_collection_age_cutoff=0.250000;  blob_garbage_collection_force_threshold=0.800000;  arena_block_size=1048576;  enable_blob_garbage_collection=false;  "
-        + "level0_stop_writes_trigger=36;  min_blob_size=65536;  blob_compaction_readahead_size=262144;  blob_file_starting_level=5;  "
+        + "blob_garbage_collection_age_cutoff=0.250000;  blob_garbage_collection_force_threshold=0.800000;"
+        + "arena_block_size=1048576;  enable_blob_garbage_collection=false;  level0_stop_writes_trigger=36;  min_blob_size=65536;"
+        + "blob_compaction_readahead_size=262144;  blob_file_starting_level=5;  prepopulate_blob_cache=kDisable;"
         + "compaction_options_universal={allow_trivial_move=false;stop_style=kCompactionStopStyleTotalSize;min_merge_width=2;"
         + "compression_size_percent=-1;max_size_amplification_percent=200;max_merge_width=4294967295;size_ratio=1;};  "
         + "target_file_size_base=67108864;  max_bytes_for_level_base=268435456;  memtable_whole_key_filtering=false;  "
@@ -133,6 +134,7 @@ public class MutableColumnFamilyOptionsTest {
     assertThat(cf.minBlobSize()).isEqualTo(65536);
     assertThat(cf.blobCompactionReadaheadSize()).isEqualTo(262144);
     assertThat(cf.blobFileStartingLevel()).isEqualTo(5);
+    assertThat(cf.prepopulateBlobCache()).isEqualTo(PrepopulateBlobCache.PREPOPULATE_BLOB_DISABLE);
     assertThat(cf.targetFileSizeBase()).isEqualTo(67108864);
     assertThat(cf.maxBytesForLevelBase()).isEqualTo(268435456);
     assertThat(cf.softPendingCompactionBytesLimit()).isEqualTo(68719476736L);

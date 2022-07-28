@@ -43,8 +43,6 @@ class StressTest {
 
   void PrintStatistics();
 
-  void ReleaseOldTimestampedSnapshots(uint64_t ts);
-
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
