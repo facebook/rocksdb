@@ -821,9 +821,8 @@ class MockCache : public LRUCache {
   MockCache()
       : LRUCache(LRUCacheOptions(
             (size_t)1 << 25 /*capacity*/, 0 /*num_shard_bits*/,
-            false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/)) {
-    PrepareOptions(ConfigOptions()).PermitUncheckedError();
-  }
+            false /*strict_capacity_limit*/, 0.0 /*high_pri_pool_ratio*/,
+            1.0 /*low_pri_pool_ratio*/) {}
 
   using ShardedCache::Insert;
 
