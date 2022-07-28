@@ -33,7 +33,8 @@ CompactionIterator::CompactionIterator(
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
-    const std::string* full_history_ts_low)
+    const std::string* full_history_ts_low,
+    const SequenceNumber penultimate_level_cutoff_seqno)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, job_snapshot, snapshot_checker, env,
@@ -42,7 +43,8 @@ CompactionIterator::CompactionIterator(
           manual_compaction_canceled,
           std::unique_ptr<CompactionProxy>(
               compaction ? new RealCompaction(compaction) : nullptr),
-          compaction_filter, shutting_down, info_log, full_history_ts_low) {}
+          compaction_filter, shutting_down, info_log, full_history_ts_low,
+          penultimate_level_cutoff_seqno) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -58,7 +60,8 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     const std::atomic<bool>* shutting_down,
     const std::shared_ptr<Logger> info_log,
-    const std::string* full_history_ts_low)
+    const std::string* full_history_ts_low,
+    const SequenceNumber penultimate_level_cutoff_seqno)
     : input_(input, cmp,
              !compaction || compaction->DoesInputReferenceBlobFiles()),
       cmp_(cmp),
@@ -92,7 +95,8 @@ CompactionIterator::CompactionIterator(
           CreatePrefetchBufferCollectionIfNeeded(compaction_.get())),
       current_key_committed_(false),
       cmp_with_history_ts_low_(0),
-      level_(compaction_ == nullptr ? 0 : compaction_->level()) {
+      level_(compaction_ == nullptr ? 0 : compaction_->level()),
+      penultimate_level_cutoff_seqno_(penultimate_level_cutoff_seqno) {
   assert(snapshots_ != nullptr);
   bottommost_level_ = compaction_ == nullptr
                           ? false
@@ -157,10 +161,12 @@ void CompactionIterator::Next() {
       Status s = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
-      assert(s.ok());
       if (!s.ok()) {
-        ROCKS_LOG_FATAL(info_log_, "Invalid key in compaction. %s",
-                        s.getState());
+        ROCKS_LOG_FATAL(
+            info_log_, "Invalid ikey %s in compaction. %s",
+            allow_data_in_errors_ ? key_.ToString(true).c_str() : "hidden",
+            s.getState());
+        assert(false);
       }
 
       // Keep current_key_ in sync.
@@ -195,6 +201,7 @@ void CompactionIterator::Next() {
 
 bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                               Slice* skip_until) {
+  // TODO: support compaction filter for wide-column entities
   if (!compaction_filter_ ||
       (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex)) {
     return true;
@@ -517,21 +524,22 @@ void CompactionIterator::NextFromInput() {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
-      assert(ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex);
-      if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex) {
-        ROCKS_LOG_FATAL(info_log_,
-                        "Unexpected key type %d for compaction output",
-                        ikey_.type);
+      if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex &&
+          ikey_.type != kTypeWideColumnEntity) {
+        ROCKS_LOG_FATAL(info_log_, "Unexpected key %s for compaction output",
+                        ikey_.DebugString(allow_data_in_errors_, true).c_str());
+        assert(false);
       }
-      assert(current_user_key_snapshot_ >= last_snapshot);
       if (current_user_key_snapshot_ < last_snapshot) {
         ROCKS_LOG_FATAL(info_log_,
-                        "current_user_key_snapshot_ (%" PRIu64
+                        "key %s, current_user_key_snapshot_ (%" PRIu64
                         ") < last_snapshot (%" PRIu64 ")",
+                        ikey_.DebugString(allow_data_in_errors_, true).c_str(),
                         current_user_key_snapshot_, last_snapshot);
+        assert(false);
       }
 
-      if (ikey_.type == kTypeBlobIndex) {
+      if (ikey_.type == kTypeBlobIndex || ikey_.type == kTypeWideColumnEntity) {
         ikey_.type = kTypeValue;
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       }
@@ -687,7 +695,8 @@ void CompactionIterator::NextFromInput() {
             // either way. We will maintain counts of how many mismatches
             // happened
             if (next_ikey.type != kTypeValue &&
-                next_ikey.type != kTypeBlobIndex) {
+                next_ikey.type != kTypeBlobIndex &&
+                next_ikey.type != kTypeWideColumnEntity) {
               ++iter_stats_.num_single_del_mismatch;
             }
 
@@ -767,12 +776,13 @@ void CompactionIterator::NextFromInput() {
       // Note: Dropping this key will not affect TransactionDB write-conflict
       // checking since there has already been a record returned for this key
       // in this snapshot.
-      assert(last_sequence >= current_user_key_sequence_);
       if (last_sequence < current_user_key_sequence_) {
         ROCKS_LOG_FATAL(info_log_,
-                        "last_sequence (%" PRIu64
+                        "key %s, last_sequence (%" PRIu64
                         ") < current_user_key_sequence_ (%" PRIu64 ")",
+                        ikey_.DebugString(allow_data_in_errors_, true).c_str(),
                         last_sequence, current_user_key_sequence_);
+        assert(false);
       }
 
       ++iter_stats_.num_record_drop_hidden;  // rule (A)
@@ -884,10 +894,12 @@ void CompactionIterator::NextFromInput() {
         pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
-        assert(pik_status.ok());
         if (!pik_status.ok()) {
-          ROCKS_LOG_FATAL(info_log_, "Invalid key in compaction. %s",
-                          pik_status.getState());
+          ROCKS_LOG_FATAL(
+              info_log_, "Invalid key %s in compaction. %s",
+              allow_data_in_errors_ ? key_.ToString(true).c_str() : "hidden",
+              pik_status.getState());
+          assert(false);
         }
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
@@ -1067,12 +1079,62 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
   }
 }
 
+void CompactionIterator::DecideOutputLevel() {
+#ifndef NDEBUG
+  // Could be overridden by unittest
+  PerKeyPlacementContext context(level_, ikey_.user_key, value_,
+                                 ikey_.sequence);
+  TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
+                           &context);
+  output_to_penultimate_level_ = context.output_to_penultimate_level;
+#endif /* !NDEBUG */
+
+  // if the key is newer than the cutoff sequence or within the earliest
+  // snapshot, it should output to the penultimate level.
+  if (ikey_.sequence > penultimate_level_cutoff_seqno_ ||
+      ikey_.sequence > earliest_snapshot_) {
+    output_to_penultimate_level_ = true;
+  }
+
+  if (output_to_penultimate_level_) {
+    // If it's decided to output to the penultimate level, but unsafe to do so,
+    // still output to the last level. For example, moving the data from a lower
+    // level to a higher level outside of the higher-level input key range is
+    // considered unsafe, because the key may conflict with higher-level SSTs
+    // not from this compaction.
+    // TODO: add statistic for declined output_to_penultimate_level
+    bool safe_to_penultimate_level =
+        compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key);
+    if (!safe_to_penultimate_level) {
+      output_to_penultimate_level_ = false;
+      // It could happen when disable/enable `bottommost_temperature` while
+      // holding a snapshot. When `bottommost_temperature` is not set
+      // (==kUnknown), the data newer than any snapshot is pushed to the last
+      // level, but when the per_key_placement feature is enabled on the fly,
+      // the data later than the snapshot has to be moved to the penultimate
+      // level, which may or may not be safe. So the user needs to make sure all
+      // snapshot is released before enabling `bottommost_temperature` feature
+      // We will migrate the feature to `last_level_temperature` and maybe make
+      // it not dynamically changeable.
+      if (ikey_.sequence > earliest_snapshot_) {
+        status_ = Status::Corruption(
+            "Unsafe to store Seq later than snapshot in the last level if "
+            "per_key_placement is enabled");
+      }
+    }
+  }
+}
+
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
     if (ikey_.type == kTypeValue) {
       ExtractLargeValueIfNeeded();
     } else if (ikey_.type == kTypeBlobIndex) {
       GarbageCollectBlobIfNeeded();
+    }
+
+    if (compaction_ != nullptr && compaction_->SupportsPerKeyPlacement()) {
+      DecideOutputLevel();
     }
 
     // Zeroing out the sequence number leads to better compression.
@@ -1089,16 +1151,25 @@ void CompactionIterator::PrepareOutput() {
     if (valid_ && compaction_ != nullptr &&
         !compaction_->allow_ingest_behind() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-        ikey_.type != kTypeMerge && current_key_committed_) {
-      assert(ikey_.type != kTypeDeletion);
-      assert(ikey_.type != kTypeSingleDeletion ||
-             (timestamp_size_ || full_history_ts_low_));
+        ikey_.type != kTypeMerge && current_key_committed_ &&
+        !output_to_penultimate_level_ &&
+        ikey_.sequence < penultimate_level_cutoff_seqno_) {
       if (ikey_.type == kTypeDeletion ||
-          (ikey_.type == kTypeSingleDeletion &&
-           (!timestamp_size_ || !full_history_ts_low_))) {
-        ROCKS_LOG_FATAL(info_log_,
-                        "Unexpected key type %d for seq-zero optimization",
-                        ikey_.type);
+          (ikey_.type == kTypeSingleDeletion && timestamp_size_ == 0)) {
+        ROCKS_LOG_FATAL(
+            info_log_,
+            "Unexpected key %s for seq-zero optimization. "
+            "earliest_snapshot %" PRIu64
+            ", earliest_write_conflict_snapshot %" PRIu64
+            " job_snapshot %" PRIu64
+            ". timestamp_size: %d full_history_ts_low_ %s",
+            ikey_.DebugString(allow_data_in_errors_, true).c_str(),
+            earliest_snapshot_, earliest_write_conflict_snapshot_,
+            job_snapshot_, static_cast<int>(timestamp_size_),
+            full_history_ts_low_ != nullptr
+                ? Slice(*full_history_ts_low_).ToString(true).c_str()
+                : "null");
+        assert(false);
       }
       ikey_.sequence = 0;
       last_key_seq_zeroed_ = true;
@@ -1129,14 +1200,17 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   }
   auto snapshots_iter = std::lower_bound(
       snapshots_->begin(), snapshots_->end(), in);
+  assert(prev_snapshot != nullptr);
   if (snapshots_iter == snapshots_->begin()) {
     *prev_snapshot = 0;
   } else {
     *prev_snapshot = *std::prev(snapshots_iter);
-    assert(*prev_snapshot < in);
     if (*prev_snapshot >= in) {
       ROCKS_LOG_FATAL(info_log_,
-                      "*prev_snapshot >= in in findEarliestVisibleSnapshot");
+                      "*prev_snapshot (%" PRIu64 ") >= in (%" PRIu64
+                      ") in findEarliestVisibleSnapshot",
+                      *prev_snapshot, in);
+      assert(false);
     }
   }
   if (snapshot_checker_ == nullptr) {
@@ -1146,9 +1220,12 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   bool has_released_snapshot = !released_snapshots_.empty();
   for (; snapshots_iter != snapshots_->end(); ++snapshots_iter) {
     auto cur = *snapshots_iter;
-    assert(in <= cur);
     if (in > cur) {
-      ROCKS_LOG_FATAL(info_log_, "in > cur in findEarliestVisibleSnapshot");
+      ROCKS_LOG_FATAL(info_log_,
+                      "in (%" PRIu64 ") > cur (%" PRIu64
+                      ") in findEarliestVisibleSnapshot",
+                      in, cur);
+      assert(false);
     }
     // Skip if cur is in released_snapshots.
     if (has_released_snapshot && released_snapshots_.count(cur) > 0) {

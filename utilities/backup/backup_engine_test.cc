@@ -1115,7 +1115,8 @@ TEST_P(BackupEngineTestWithParam, OfflineIntegrationTest) {
       destroy_data = false;
       // kAutoFlushOnly to preserve legacy test behavior (consider updating)
       FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
-      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0));
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0))
+          << "iter: " << iter << ", idx: " << i;
       CloseDBAndBackupEngine();
       DestroyDB(dbname_, options_);
 
@@ -2655,8 +2656,10 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimiting) {
   ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
 
   OpenBackupEngine();
-  TEST_SetDefaultRateLimitersClock(backup_engine_.get(),
-                                   special_env->GetSystemClock());
+  TEST_SetDefaultRateLimitersClock(
+      backup_engine_.get(),
+      special_env->GetSystemClock() /* backup_rate_limiter_clock */,
+      special_env->GetSystemClock() /* restore_rate_limiter_clock */);
 
   auto start_restore = special_env->NowMicros();
   ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
@@ -3066,7 +3069,7 @@ TEST_F(BackupEngineTest, OpenBackupAsReadOnlyDB) {
   db = nullptr;
 
   // Now try opening read-write and make sure it fails, for safety.
-  ASSERT_TRUE(DB::Open(opts, name, &db).IsAborted());
+  ASSERT_TRUE(DB::Open(opts, name, &db).IsIOError());
 }
 
 TEST_F(BackupEngineTest, ProgressCallbackDuringBackup) {

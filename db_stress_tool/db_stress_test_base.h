@@ -37,12 +37,9 @@ class StressTest {
 
   void TrackExpectedState(SharedState* shared);
 
-  // Return false if verification fails.
-  bool VerifySecondaries();
-
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
-  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const {}
+  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
 
   void PrintStatistics();
 
@@ -59,7 +56,7 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
-  Status CommitTxn(Transaction* txn);
+  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
 
   Status RollbackTxn(Transaction* txn);
 #endif
@@ -230,6 +227,15 @@ class StressTest {
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
 
+  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                            std::string& ts_str,
+                                            Slice& ts_slice,
+                                            ReadOptions& read_opts);
+
+  void MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                          std::string& ts_str, Slice& ts_slice,
+                                          ReadOptions& read_opts);
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
@@ -237,6 +243,10 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
 #endif
+
+  // Currently only used in MultiOpsTxnsStressTest
+  std::atomic<DB*> db_aptr_;
+
   Options options_;
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;
@@ -246,10 +256,6 @@ class StressTest {
   std::unordered_map<std::string, std::vector<std::string>> options_table_;
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
-
-  // Fields used for stress-testing secondary instance in the same process
-  std::vector<DB*> secondaries_;
-  std::vector<std::vector<ColumnFamilyHandle*>> secondary_cfh_lists_;
 
   // Fields used for continuous verification from another thread
   DB* cmp_db_;

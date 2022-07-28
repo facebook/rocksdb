@@ -60,8 +60,9 @@ class MockSystemClock : public SystemClockWrapper {
 
   void MockSleepForSeconds(int seconds) {
     assert(seconds >= 0);
-    int micros = seconds * kMicrosInSecond;
-    SleepForMicroseconds(micros);
+    uint64_t micros = static_cast<uint64_t>(seconds) * kMicrosInSecond;
+    assert(current_time_us_ + micros >= current_time_us_);
+    current_time_us_.fetch_add(micros);
   }
 
   // TODO: this is a workaround for the different behavior on different platform

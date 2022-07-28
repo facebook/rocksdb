@@ -177,10 +177,6 @@ bool RunStressTest(StressTest* stress) {
     }
   }
 
-  if (!stress->VerifySecondaries()) {
-    return false;
-  }
-
   if (shared.HasVerificationFailedYet()) {
     fprintf(stderr, "Verification failed :(\n");
     return false;

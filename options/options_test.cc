@@ -47,6 +47,22 @@ namespace ROCKSDB_NAMESPACE {
 
 class OptionsTest : public testing::Test {};
 
+class UnregisteredTableFactory : public TableFactory {
+ public:
+  UnregisteredTableFactory() {}
+  const char* Name() const override { return "Unregistered"; }
+  using TableFactory::NewTableReader;
+  Status NewTableReader(const ReadOptions&, const TableReaderOptions&,
+                        std::unique_ptr<RandomAccessFileReader>&&, uint64_t,
+                        std::unique_ptr<TableReader>*, bool) const override {
+    return Status::NotSupported();
+  }
+  TableBuilder* NewTableBuilder(const TableBuilderOptions&,
+                                WritableFileWriter*) const override {
+    return nullptr;
+  }
+};
+
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST_F(OptionsTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
@@ -100,6 +116,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_successive_merges", "30"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
+      {"experimental_mempurge_threshold", "0.003"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
       {"min_blob_size", "1K"},
@@ -110,6 +127,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
+      {"prepopulate_blob_cache", "kDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -148,7 +166,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
@@ -240,6 +257,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.experimental_mempurge_threshold, 0.003);
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -249,6 +267,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -313,7 +332,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
@@ -585,6 +603,22 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
+
+  // blob cache
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt,
+      "blob_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
+      &new_cf_opt));
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
+  ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+                ->GetNumShardBits(),
+            4);
+  ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
+                ->GetHighPriPoolRatio(),
+            0.5);
 }
 
 TEST_F(OptionsTest, CompressionOptionsFromString) {
@@ -967,21 +1001,11 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 4000);
   EXPECT_EQ(bfp->GetWholeBitsPerKey(), 4);
 
-  // Back door way of enabling deprecated block-based Bloom
-  ASSERT_OK(GetBlockBasedTableOptionsFromString(
-      config_options, table_opt,
-      "filter_policy=rocksdb.internal.DeprecatedBlockBasedBloomFilter:4",
-      &new_opt));
-  auto builtin =
-      dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
-  EXPECT_EQ(builtin->GetId(),
-            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:4");
-
   // Test configuring using other internal names
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "filter_policy=rocksdb.internal.LegacyBloomFilter:3", &new_opt));
-  builtin =
+  auto builtin =
       dynamic_cast<const BuiltinFilterPolicy*>(new_opt.filter_policy.get());
   EXPECT_EQ(builtin->GetId(), "rocksdb.internal.LegacyBloomFilter:3");
 
@@ -2323,6 +2347,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"max_successive_merges", "30"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
+      {"experimental_mempurge_threshold", "0.003"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
       {"min_blob_size", "1K"},
@@ -2333,6 +2358,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
+      {"prepopulate_blob_cache", "kDisable"},
       {"bottommost_temperature", "kWarm"},
   };
 
@@ -2371,7 +2397,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
@@ -2457,6 +2482,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.experimental_mempurge_threshold, 0.003);
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -2466,6 +2492,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -2531,7 +2558,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
@@ -2751,6 +2777,22 @@ TEST_F(OptionsOldApiTest, GetColumnFamilyOptionsFromStringTest) {
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
   ASSERT_TRUE(new_cf_opt.memtable_factory->IsInstanceOf("SkipListFactory"));
+
+  // blob cache
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "blob_cache={capacity=1M;num_shard_bits=4;"
+      "strict_capacity_limit=true;high_pri_pool_ratio=0.5;};",
+      &new_cf_opt));
+  ASSERT_NE(new_cf_opt.blob_cache, nullptr);
+  ASSERT_EQ(new_cf_opt.blob_cache->GetCapacity(), 1024UL * 1024UL);
+  ASSERT_EQ(static_cast<ShardedCache*>(new_cf_opt.blob_cache.get())
+                ->GetNumShardBits(),
+            4);
+  ASSERT_EQ(new_cf_opt.blob_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(static_cast<LRUCache*>(new_cf_opt.blob_cache.get())
+                ->GetHighPriPoolRatio(),
+            0.5);
 }
 
 TEST_F(OptionsTest, SliceTransformCreateFromString) {
@@ -3662,6 +3704,10 @@ TEST_F(OptionsParserTest, DumpAndParse) {
       cf_opt.table_factory.reset(test::RandomTableFactory(&rnd, c));
     } else if (c == 4) {
       cf_opt.table_factory.reset(NewBlockBasedTableFactory(special_bbto));
+    } else if (c == 5) {
+      // A table factory that doesn't support deserialization should be
+      // supported.
+      cf_opt.table_factory.reset(new UnregisteredTableFactory());
     }
     base_cf_opts.emplace_back(cf_opt);
   }
@@ -4910,6 +4956,22 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   delimiter = copy->GetOptions<std::string>("Delimiter");
   ASSERT_NE(delimiter, nullptr);
   ASSERT_EQ(*delimiter, "&&");
+}
+
+TEST_F(ConfigOptionsTest, ConfiguringOptionsDoesNotRevertRateLimiterBandwidth) {
+  // Regression test for bug where rate limiter's dynamically set bandwidth
+  // could be silently reverted when configuring an options structure with an
+  // existing `rate_limiter`.
+  Options base_options;
+  base_options.rate_limiter.reset(
+      NewGenericRateLimiter(1 << 20 /* rate_bytes_per_sec */));
+  Options copy_options(base_options);
+
+  base_options.rate_limiter->SetBytesPerSecond(2 << 20);
+  ASSERT_EQ(2 << 20, base_options.rate_limiter->GetBytesPerSecond());
+
+  ASSERT_OK(GetOptionsFromString(base_options, "", &copy_options));
+  ASSERT_EQ(2 << 20, base_options.rate_limiter->GetBytesPerSecond());
 }
 
 INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,

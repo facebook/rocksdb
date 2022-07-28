@@ -150,7 +150,8 @@ def generate_targets(repo_path, deps_map):
             "//folly/experimental/coro:blocking_wait",
             "//folly/experimental/coro:collect",
             "//folly/experimental/coro:coroutine",
-            "//folly/experimental/coro:task"])
+            "//folly/experimental/coro:task",
+            "//folly/synchronization:distributed_mutex"])
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
         "rocksdb_whole_archive_lib",
@@ -163,7 +164,8 @@ def generate_targets(repo_path, deps_map):
             "//folly/experimental/coro:blocking_wait",
             "//folly/experimental/coro:collect",
             "//folly/experimental/coro:coroutine",
-            "//folly/experimental/coro:task"],
+            "//folly/experimental/coro:task",
+            "//folly/synchronization:distributed_mutex"],
         headers=None,
         extra_external_deps="",
         link_whole=True)

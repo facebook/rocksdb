@@ -206,6 +206,10 @@ class TransactionBaseImpl : public Transaction {
     return snapshot_.get();
   }
 
+  std::shared_ptr<const Snapshot> GetTimestampedSnapshot() const override {
+    return snapshot_;
+  }
+
   virtual void SetSnapshot() override;
   void SetSnapshotOnNextOperation(
       std::shared_ptr<TransactionNotifier> notifier = nullptr) override;
@@ -346,7 +350,9 @@ class TransactionBaseImpl : public Transaction {
       save_points_;
 
  private:
+  friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
+
   // Extra data to be persisted with the commit. Note this is only used when
   // prepare phase is not skipped.
   WriteBatch commit_time_batch_;

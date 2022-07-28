@@ -53,7 +53,6 @@ struct GetContextStats {
   // MultiGet stats.
   uint64_t num_filter_read = 0;
   uint64_t num_index_read = 0;
-  uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
 };
 
@@ -75,6 +74,8 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
+    // TODO: remove once wide-column entities are supported by Get/MultiGet
+    kUnexpectedWideColumnEntity,
   };
   GetContextStats get_context_stats_;
 

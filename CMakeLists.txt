@@ -194,7 +194,7 @@ else()
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
   endif()
   if(MINGW)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
     add_definitions(-D_POSIX_C_SOURCE=1)
   endif()
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -587,6 +587,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 if(USE_FOLLY)
   include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
+  list(APPEND THIRDPARTY_LIBS glog)
 endif()
 find_package(Threads REQUIRED)
 
@@ -597,6 +598,7 @@ set(SOURCES
         cache/cache_entry_roles.cc
         cache/cache_key.cc
         cache/cache_reservation_manager.cc
+        cache/charged_cache.cc
         cache/clock_cache.cc
         cache/compressed_secondary_cache.cc
         cache/fast_lru_cache.cc
@@ -614,6 +616,7 @@ set(SOURCES
         db/blob/blob_log_format.cc
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
+        db/blob/blob_source.cc
         db/blob/prefetch_buffer_collection.cc
         db/builder.cc
         db/c.cc
@@ -625,7 +628,11 @@ set(SOURCES
         db/compaction/compaction_picker_fifo.cc
         db/compaction/compaction_picker_level.cc
         db/compaction/compaction_picker_universal.cc
+        db/compaction/compaction_service_job.cc
+        db/compaction/compaction_state.cc
+        db/compaction/compaction_outputs.cc
         db/compaction/sst_partitioner.cc
+        db/compaction/subcompaction_state.cc
         db/convenience.cc
         db/db_filesnapshot.cc
         db/db_impl/compacted_db_impl.cc
@@ -664,6 +671,7 @@ set(SOURCES
         db/range_del_aggregator.cc
         db/range_tombstone_fragmenter.cc
         db/repair.cc
+        db/seqno_to_time_mapping.cc
         db/snapshot_impl.cc
         db/table_cache.cc
         db/table_properties_collector.cc
@@ -738,7 +746,6 @@ set(SOURCES
         table/adaptive/adaptive_table_factory.cc
         table/block_based/binary_search_index_reader.cc
         table/block_based/block.cc
-        table/block_based/block_based_filter_block.cc
         table/block_based/block_based_table_builder.cc
         table/block_based/block_based_table_factory.cc
         table/block_based/block_based_table_iterator.cc
@@ -976,9 +983,13 @@ endif()
 if(USE_FOLLY)
   list(APPEND SOURCES
     third-party/folly/folly/container/detail/F14Table.cpp
+    third-party/folly/folly/detail/Futex.cpp
     third-party/folly/folly/lang/SafeAssert.cpp
     third-party/folly/folly/lang/ToAscii.cpp
-    third-party/folly/folly/ScopeGuard.cpp)
+    third-party/folly/folly/ScopeGuard.cpp
+    third-party/folly/folly/synchronization/AtomicNotification.cpp
+    third-party/folly/folly/synchronization/DistributedMutex.cpp
+    third-party/folly/folly/synchronization/ParkingLot.cpp)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
@@ -1213,6 +1224,7 @@ if(WITH_TESTS)
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
         db/blob/blob_garbage_meter_test.cc
+        db/blob/blob_source_test.cc
         db/blob/db_blob_basic_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc
@@ -1225,6 +1237,7 @@ if(WITH_TESTS)
         db/compaction/compaction_iterator_test.cc
         db/compaction/compaction_picker_test.cc
         db/compaction/compaction_service_test.cc
+        db/compaction/tiered_compaction_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
@@ -1285,6 +1298,7 @@ if(WITH_TESTS)
         db/perf_context_test.cc
         db/periodic_work_scheduler_test.cc
         db/plain_table_db_test.cc
+        db/seqno_time_test.cc
         db/prefix_test.cc
         db/range_del_aggregator_test.cc
         db/range_tombstone_fragmenter_test.cc
@@ -1295,6 +1309,7 @@ if(WITH_TESTS)
         db/version_set_test.cc
         db/wal_manager_test.cc
         db/wal_edit_test.cc
+        db/wide/db_wide_basic_test.cc
         db/wide/wide_column_serialization_test.cc
         db/write_batch_test.cc
         db/write_callback_test.cc
@@ -1321,7 +1336,6 @@ if(WITH_TESTS)
         options/customizable_test.cc
         options/options_settable_test.cc
         options/options_test.cc
-        table/block_based/block_based_filter_block_test.cc
         table/block_based/block_based_table_reader_test.cc
         table/block_based/block_test.cc
         table/block_based/data_block_hash_index_test.cc
@@ -1390,6 +1404,7 @@ if(WITH_TESTS)
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
         utilities/transactions/lock/range/range_locking_test.cc
+        utilities/transactions/timestamped_snapshot_test.cc
         utilities/ttl/ttl_test.cc
         utilities/util_merge_operators_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
@@ -1492,6 +1507,20 @@ if(WITH_BENCHMARK_TOOLS)
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
+endif()
+
+option(WITH_TRACE_TOOLS "build with trace tools" ON)
+if(WITH_TRACE_TOOLS) 
+  add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
+  target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
+  add_executable(trace_analyzer${ARTIFACT_SUFFIX}
+    tools/trace_analyzer.cc)
+  target_link_libraries(trace_analyzer${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
 endif()
 
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
