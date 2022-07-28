@@ -20,10 +20,9 @@ public class LRUCacheTest {
     final long capacity = 80000000;
     final int numShardBits = 16;
     final boolean strictCapacityLimit = true;
-    final double highPriPoolRatio = 0.5;
-    final double lowPriPoolRatio = 0.5;
-    try (final Cache lruCache = new LRUCache(
-             capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, lowPriPoolRatio)) {
+    final double highPriPoolRatio = 0.05;
+    try(final Cache lruCache = new LRUCache(capacity,
+        numShardBits, strictCapacityLimit, highPriPoolRatio)) {
       //no op
       assertThat(lruCache.getUsage()).isGreaterThanOrEqualTo(0);
       assertThat(lruCache.getPinnedUsage()).isGreaterThanOrEqualTo(0);

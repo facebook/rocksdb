@@ -121,8 +121,6 @@ class BlobSourceTest : public DBTestBase {
     co.capacity = 8 << 20;
     co.num_shard_bits = 2;
     co.metadata_charge_policy = kDontChargeCacheMetadata;
-    co.high_pri_pool_ratio = 0.2;
-    co.low_pri_pool_ratio = 0.2;
     options_.blob_cache = NewLRUCache(co);
     options_.lowest_used_cache_tier = CacheTier::kVolatileTier;
 
@@ -1044,8 +1042,6 @@ class BlobSecondaryCacheTest : public DBTestBase {
     lru_cache_ops_.num_shard_bits = 0;
     lru_cache_ops_.strict_capacity_limit = true;
     lru_cache_ops_.metadata_charge_policy = kDontChargeCacheMetadata;
-    lru_cache_ops_.high_pri_pool_ratio = 0.2;
-    lru_cache_ops_.low_pri_pool_ratio = 0.2;
 
     secondary_cache_opts_.capacity = 8 << 20;  // 8 MB
     secondary_cache_opts_.num_shard_bits = 0;
@@ -1280,13 +1276,7 @@ class BlobSourceCacheReservationTest : public DBTestBase {
     co.capacity = kCacheCapacity;
     co.num_shard_bits = kNumShardBits;
     co.metadata_charge_policy = kDontChargeCacheMetadata;
-
-    co.high_pri_pool_ratio = 0.0;
-    co.low_pri_pool_ratio = 0.0;
     std::shared_ptr<Cache> blob_cache = NewLRUCache(co);
-
-    co.high_pri_pool_ratio = 0.5;
-    co.low_pri_pool_ratio = 0.5;
     std::shared_ptr<Cache> block_cache = NewLRUCache(co);
 
     options_.blob_cache = blob_cache;
