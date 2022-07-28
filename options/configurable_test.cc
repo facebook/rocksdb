@@ -96,7 +96,10 @@ using ConfigTestFactoryFunc = std::function<Configurable*()>;
 
 class ConfigurableTest : public testing::Test {
  public:
-  ConfigurableTest() { config_options_.invoke_prepare_options = false; }
+  ConfigurableTest() {
+    config_options_.ignore_unknown_options = false;
+    config_options_.invoke_prepare_options = false;
+  }
 
   ConfigOptions config_options_;
 };
@@ -223,13 +226,6 @@ static std::unordered_map<std::string, OptionTypeInfo> validated_option_info = {
       OptionTypeFlags::kNone}},
 #endif  // ROCKSDB_LITE
 };
-static std::unordered_map<std::string, OptionTypeInfo> prepared_option_info = {
-#ifndef ROCKSDB_LITE
-    {"prepared",
-     {0, OptionType::kInt, OptionVerificationType::kNormal,
-      OptionTypeFlags::kMutable}},
-#endif  // ROCKSDB_LITE
-};
 static std::unordered_map<std::string, OptionTypeInfo>
     dont_prepare_option_info = {
 #ifndef ROCKSDB_LITE
@@ -248,10 +244,10 @@ class ValidatedConfigurable : public SimpleConfigurable {
         validated(false),
         prepared(0) {
     RegisterOptions("Validated", &validated, &validated_option_info);
-    RegisterOptions("Prepared", &prepared, &prepared_option_info);
+    RegisterOptions("Prepared", &prepared, nullptr);
     if ((mode & TestConfigMode::kUniqueMode) != 0) {
       unique_.reset(new ValidatedConfigurable(
-          "Unique" + name_, TestConfigMode::kDefaultMode, false));
+          "Unique" + name_, TestConfigMode::kDefaultMode, dont_prepare));
       if (dont_prepare) {
         RegisterOptions(name_ + "Unique", &unique_, &dont_prepare_option_info);
       } else {
@@ -308,17 +304,43 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   ASSERT_EQ(*cp, 0);
   ASSERT_EQ(*up, 0);
   ASSERT_OK(c->ConfigureFromMap(config_options_, {}));
+  // We did not prepare options at the cp or up (since prepare=false)
   ASSERT_EQ(*cp, 0);
   ASSERT_EQ(*up, 0);
+
+  // Prepare options at only the first level
+  ASSERT_OK(c->PrepareOptions(config_options_));
+  ASSERT_EQ(*cp, 1);
+  ASSERT_EQ(*up, 0);
+
+  // Now try again with setting prepare=true.  Only runs first level
   config_options_.invoke_prepare_options = true;
   ASSERT_OK(c->ConfigureFromMap(config_options_, {}));
-  ASSERT_EQ(*cp, 1);
-  ASSERT_EQ(*up, 1);
-  ASSERT_OK(c->ConfigureFromString(config_options_, "prepared=0"));
-  ASSERT_EQ(*up, 2);
-  ASSERT_EQ(*cp, 1);
+  ASSERT_EQ(*cp, 2);
+  ASSERT_EQ(*up, 0);
 
-  ASSERT_NOK(c->ConfigureFromString(config_options_, "prepared=-2"));
+  // Prepare options at all levels
+  ASSERT_OK(c->PrepareOptions(config_options_));
+  ASSERT_EQ(*cp, 3);
+  ASSERT_EQ(*up, 1);
+
+  // Since we did not configure UP, it is not prepared again
+  ASSERT_OK(c->ConfigureFromString(config_options_, "int=1"));
+  ASSERT_EQ(*cp, 4);
+  ASSERT_EQ(*up, 1);
+
+  // Since we "touched" UP, both it and CP are prepared
+  ASSERT_OK(c->ConfigureFromString(config_options_, "unique={int=1}"));
+  ASSERT_EQ(*cp, 5);
+  ASSERT_EQ(*up, 2);
+
+  // Since we "touched" UP, both it and CP are prepared
+  ASSERT_OK(c->ConfigureFromString(config_options_, "unique.int=1"));
+  ASSERT_EQ(*cp, 6);
+  ASSERT_EQ(*up, 3);
+
+  *cp = -1;
+  ASSERT_NOK(c->ConfigureFromString(config_options_, "int=1"));
 
   c.reset(
       new ValidatedConfigurable("Simple", TestConfigMode::kUniqueMode, true));
@@ -326,9 +348,35 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   u = c->GetOptions<std::unique_ptr<Configurable>>("SimpleUnique");
   up = u->get()->GetOptions<int>("Prepared");
 
-  ASSERT_OK(c->ConfigureFromString(config_options_, "prepared=0"));
+  *cp = 0;
+  ASSERT_OK(c->ConfigureFromString(config_options_, "int=1"));
   ASSERT_EQ(*cp, 1);
   ASSERT_EQ(*up, 0);
+
+  // Prepare options at all levels (only first since up is dont prepare)
+  ASSERT_OK(c->PrepareOptions(config_options_));
+  ASSERT_EQ(*cp, 2);
+  ASSERT_EQ(*up, 0);
+
+  // Even though we touched UP, it is not prepared since marked dont
+  ASSERT_OK(c->ConfigureFromString(config_options_, "unique={int=1}"));
+  ASSERT_EQ(*cp, 3);
+  ASSERT_EQ(*up, 0);
+
+  // Even though we touched UP, it is not prepared since marked dont
+  ASSERT_OK(c->ConfigureFromString(config_options_, "unique.int=-2"));
+  ASSERT_EQ(*cp, 4);
+  ASSERT_EQ(*up, 0);
+
+  // Touching UP directly.  This time it is prepared.
+  ASSERT_OK(u->get()->ConfigureFromString(config_options_, "int=0"));
+  ASSERT_EQ(*cp, 4);
+  ASSERT_EQ(*up, 1);
+
+  // Touching UP directly.  This time it is prepared.
+  ASSERT_OK(u->get()->PrepareOptions(config_options_));
+  ASSERT_EQ(*cp, 4);
+  ASSERT_EQ(*up, 2);
 }
 
 TEST_F(ConfigurableTest, CopyObjectTest) {
