@@ -770,10 +770,11 @@ Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
   } else if (options_.num_shard_bits < 0) {
     options_.num_shard_bits = GetDefaultCacheShardBits(options_.capacity);
   }
-  if (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0) {
-    low_pri_pool_ratio = 1.0 - high_pri_pool_ratio;
+  if (options_.low_pri_pool_ratio < 0.0 || options_.low_pri_pool_ratio > 1.0) {
+    options_.low_pri_pool_ratio = 1.0 - options_.high_pri_pool_ratio;
   }
-  if (high_pri_pool_ratio < 0.0 || high_pri_pool_ratio > 1.0) {
+  if (options_.high_pri_pool_ratio < 0.0 ||
+      options_.high_pri_pool_ratio > 1.0) {
     return Status::InvalidArgument(
         "LRUCache: High priority pool ratio out of bounds");
   }
@@ -786,8 +787,8 @@ Status LRUCache::PrepareOptions(const ConfigOptions& config_options) {
     for (uint32_t i = 0; i < num_shards; i++) {
       new (&shards_[i]) LRUCacheShard(
           per_shard, options_.strict_capacity_limit,
-          options_.high_pri_pool_ratio, options_.use_adaptive_mutex,
-          options_.metadata_charge_policy,
+          options_.high_pri_pool_ratio, options_.low_pri_pool_ratio,
+          options_.use_adaptive_mutex, options_.metadata_charge_policy,
           /* max_upper_hash_bits */ 32 - options_.num_shard_bits,
           options_.secondary_cache);
     }
