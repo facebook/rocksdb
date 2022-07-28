@@ -250,6 +250,14 @@ void CompactionJob::Prepare() {
           (i != boundaries_.size()) ? std::optional<Slice>(boundaries_[i])
                                     : std::nullopt,
           static_cast<uint32_t>(i));
+
+      size_t ts_size = cfd->user_comparator()->timestamp_size();
+      (void)ts_size;
+      assert(i == 0 || i == boundaries_.size() ||
+             cfd->user_comparator()->CompareWithoutTimestamp(
+                 StripTimestampFromUserKey(boundaries_[i - 1], ts_size), false,
+                 StripTimestampFromUserKey(boundaries_[i], ts_size),
+                 false) != 0);
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
@@ -479,8 +487,27 @@ void CompactionJob::GenSubcompactionBoundaries() {
   std::sort(
       all_anchors.begin(), all_anchors.end(),
       [cfd_comparator](TableReader::Anchor& a, TableReader::Anchor& b) -> bool {
-        return cfd_comparator->Compare(a.user_key, b.user_key) < 0;
+        size_t ts_size = cfd_comparator->timestamp_size();
+        Slice a_without_ts = StripTimestampFromUserKey(a.user_key, ts_size);
+        Slice b_without_ts = StripTimestampFromUserKey(b.user_key, ts_size);
+        return cfd_comparator->CompareWithoutTimestamp(a_without_ts, false,
+                                                       b_without_ts, false) < 0;
       });
+
+  // Remove duplicated entries from boundaries.
+  all_anchors.erase(
+      std::unique(all_anchors.begin(), all_anchors.end(),
+                  [cfd_comparator](TableReader::Anchor& a,
+                                   TableReader::Anchor& b) -> bool {
+                    size_t ts_size = cfd_comparator->timestamp_size();
+                    Slice a_without_ts =
+                        StripTimestampFromUserKey(a.user_key, ts_size);
+                    Slice b_without_ts =
+                        StripTimestampFromUserKey(b.user_key, ts_size);
+                    return cfd_comparator->CompareWithoutTimestamp(
+                               a_without_ts, false, b_without_ts, false) == 0;
+                  }),
+      all_anchors.end());
 
   // Get the number of planned subcompactions, may update reserve threads
   // and update extra_num_subcompaction_threads_reserved_ for round-robin
