@@ -33,6 +33,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct LRUCacheOptions, high_pri_pool_ratio),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"low_pri_pool_ratio",
+         {offsetof(struct LRUCacheOptions, low_pri_pool_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

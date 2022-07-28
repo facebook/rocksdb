@@ -238,9 +238,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
-    LRUCacheOptions lru_cache_opts(1024, 0, false, 0.5, nullptr,
-                                   kDefaultToAdaptiveMutex,
-                                   kDontChargeCacheMetadata);
+    LRUCacheOptions lru_cache_opts(
+        1024 /* capacity */, 0 /* num_shard_bits */,
+        false /* strict_capacity_limit */, 0.5 /* high_pri_pool_ratio */,
+        nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+        kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
     lru_cache_opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(lru_cache_opts);
     std::shared_ptr<Statistics> stats = CreateDBStatistics();
@@ -322,8 +324,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
-    LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                         kDontChargeCacheMetadata);
+    LRUCacheOptions opts(
+        1024 /* capacity */, 0 /* num_shard_bits */,
+        false /* strict_capacity_limit */, 0.5 /* high_pri_pool_ratio */,
+        nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+        kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
@@ -368,8 +373,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
-    LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                         kDontChargeCacheMetadata);
+    LRUCacheOptions opts(
+        1024 /* capacity */, 0 /* num_shard_bits */,
+        false /* strict_capacity_limit */, 0.5 /* high_pri_pool_ratio */,
+        nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+        kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
@@ -424,8 +432,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
-    LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
-                         kDontChargeCacheMetadata);
+    LRUCacheOptions opts(
+        1024 /* capacity */, 0 /* num_shard_bits */,
+        false /* strict_capacity_limit */, 0.5 /* high_pri_pool_ratio */,
+        nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+        kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
@@ -480,8 +491,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);
 
-    LRUCacheOptions opts(1024, 0, /*_strict_capacity_limit=*/true, 0.5, nullptr,
-                         kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+    LRUCacheOptions opts(
+        1024 /* capacity */, 0 /* num_shard_bits */,
+        true /* strict_capacity_limit */, 0.5 /* high_pri_pool_ratio */,
+        nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+        kDontChargeCacheMetadata, 0.5 /* low_pri_pool_ratio */);
     opts.secondary_cache = secondary_cache;
     std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
