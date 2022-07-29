@@ -246,7 +246,9 @@ TEST_P(DBRateLimiterOnReadTest, VerifyChecksum) {
 
   ASSERT_OK(db_->VerifyChecksum(GetReadOptions()));
   // The files are tiny so there should have just been one read per file.
-  int expected = kNumFiles;
+  // ReadMetaIndexBlock's ReadOptions argument uses read_options'
+  // rate_limiter_priority, so the # of read for Env::IO_USER is doubled.
+  int expected = kNumFiles * 2;
   ASSERT_EQ(expected, options_.rate_limiter->GetTotalRequests(Env::IO_USER));
 }
 
