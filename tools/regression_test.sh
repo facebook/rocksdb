@@ -139,10 +139,10 @@ function main {
       build_checkpoint
       run_db_bench "readrandom"
       run_db_bench "readwhilewriting"
-      run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
+      run_db_bench "deleterandom"
       run_db_bench "seekrandom"
       run_db_bench "seekrandomwhilewriting"
-      run_db_bench "multireadrandom" 
+      run_db_bench "multireadrandom"
   fi
 
   cleanup_test_directory $TEST_ROOT_DIR
