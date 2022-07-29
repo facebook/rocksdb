@@ -193,13 +193,15 @@ Slice CloudManifest::GetEpoch(uint64_t fileNumber) const {
   return Slice(itr->second);
 }
 
-std::string CloudManifest::ToString() const {
+std::string CloudManifest::ToString(bool include_past_epochs) const {
   std::ostringstream oss;
-  oss << "Past Epochs: [ ";
-  for (auto& pe : pastEpochs_) {
-    oss << "(" << pe.first << ", " << pe.second << "), ";
+  if (include_past_epochs) {
+    oss << "Past Epochs: [\n";
+    for (auto& pe : pastEpochs_) {
+      oss << "\t(" << pe.first << ", " << pe.second << "), \n";
+    }
+    oss << "]\n";
   }
-  oss << "] ";
   oss << "Current Epoch: " << currentEpoch_;
   return oss.str();
 }

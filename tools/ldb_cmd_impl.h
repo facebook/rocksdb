@@ -740,4 +740,26 @@ class UnsafeRemoveSstFileCommand : public LDBCommand {
   uint64_t sst_file_number_;
 };
 
+// A command to dump cloud manifest
+class CloudManifestDumpCommand : public LDBCommand {
+  public:
+   static std::string Name() { return "cloud_manifest_dump"; }
+
+   CloudManifestDumpCommand(const std::vector<std::string>& params,
+                            const std::map<std::string, std::string>& options,
+                            const std::vector<std::string>& flags);
+   static void Help(std::string& ret);
+
+   virtual void DoCommand() override;
+
+   virtual bool NoDBOpen() override { return true; }
+  private:
+   // If true, will print past epochs as well
+   bool verbose_{false};
+   std::string path_;
+
+   static const std::string ARG_PATH;
+   static const std::string ARG_VERBOSE;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

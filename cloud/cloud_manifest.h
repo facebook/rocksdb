@@ -50,7 +50,7 @@ class CloudManifest {
   void Finalize();
   Slice GetEpoch(uint64_t fileNumber) const;
   Slice GetCurrentEpoch() const { return Slice(currentEpoch_); }
-  std::string ToString() const;
+  std::string ToString(bool include_past_epochs=false) const;
 
  private:
   CloudManifest(std::vector<std::pair<uint64_t, std::string>> pastEpochs,

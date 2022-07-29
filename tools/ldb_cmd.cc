@@ -48,6 +48,7 @@
 #include "utilities/blob_db/blob_dump_tool.h"
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
+#include "cloud/cloud_manifest.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -320,6 +321,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new UpdateManifestCommand(parsed_params.cmd_params,
                                      parsed_params.option_map,
                                      parsed_params.flags);
+  } else if (parsed_params.cmd == CloudManifestDumpCommand::Name()) {
+    return new CloudManifestDumpCommand(parsed_params.cmd_params,
+                                        parsed_params.option_map,
+                                        parsed_params.flags);
   }
   return nullptr;
 }
@@ -4224,6 +4229,59 @@ void UpdateManifestCommand::DoCommand() {
         LDBCommandExecuteResult::Succeed("Manifest updates successful");
   }
 }
+
+
+const std::string CloudManifestDumpCommand::ARG_PATH = "path";
+const std::string CloudManifestDumpCommand::ARG_VERBOSE = "verbose";
+
+void CloudManifestDumpCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(CloudManifestDumpCommand::Name());
+  ret.append(" [--" + ARG_VERBOSE + "]");
+  ret.append(" [--" + ARG_PATH + "=<path_to_cloud_manifest_file>]");
+  ret.append("\n");
+}
+
+CloudManifestDumpCommand::CloudManifestDumpCommand(const std::vector<std::string>& /*params*/,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(
+          options, flags, false /* is_read_only */ ,
+          BuildCmdLineOptions({ARG_VERBOSE, ARG_PATH, ARG_HEX})),
+      path_("") {
+  verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
+  auto itr = options.find(ARG_PATH);
+  if (itr != options.end()) {
+    path_ = itr->second;
+    if (path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed("--path: missing pathname");
+    }
+  }
+}
+
+void CloudManifestDumpCommand::DoCommand() {
+  std::string cloud_manifest_file = path_;
+  auto base_env = Env::Default();
+
+  std::unique_ptr<SequentialFileReader> reader;
+  auto io_st = SequentialFileReader::Create(base_env->GetFileSystem(),
+                                         cloud_manifest_file, FileOptions(),
+                                         &reader, nullptr);
+  if (!io_st.ok()) {
+    std::cerr << "Error in reading cloud manifest file: " << cloud_manifest_file
+              << "; Error: " << io_st.ToString() << std::endl;
+    return ;
+  }
+  std::unique_ptr<CloudManifest> cloud_manifest;
+  auto st = CloudManifest::LoadFromLog(std::move(reader), &cloud_manifest);
+  if (!st.ok()) {
+    std::cerr << "Error in loading the cloud manifest file %s" << st.ToString() << std::endl;
+    return ;
+  }
+  
+  std::cout << cloud_manifest->ToString(verbose_) << std::endl;
+}
+
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
