@@ -484,14 +484,21 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           }
           results[i].UpdateCachedValue();
           void* val = results[i].GetValue();
+          Cache::Handle* handle = results[i].GetCacheHandle();
+          // GetContext for any key will do, as the stats will be aggregated
+          // anyway
+          GetContext* get_context = sst_file_range.begin()->get_context;
           if (!val) {
             // The async cache lookup failed - could be due to an error
             // or a false positive. We need to read the data block from
             // the SST file
             results[i].Reset();
             total_len += BlockSizeWithTrailer(block_handles[i]);
+            UpdateCacheMissMetrics(BlockType::kData, get_context);
           } else {
             block_handles[i] = BlockHandle::NullBlockHandle();
+            UpdateCacheHitMetrics(BlockType::kData, get_context,
+                                  block_cache->GetUsage(handle));
           }
         }
       }
