@@ -250,14 +250,11 @@ void CompactionJob::Prepare() {
           (i != boundaries_.size()) ? std::optional<Slice>(boundaries_[i])
                                     : std::nullopt,
           static_cast<uint32_t>(i));
-
-      size_t ts_size = cfd->user_comparator()->timestamp_size();
-      (void)ts_size;
+      // assert to validate that boundaries don't have same user keys (without
+      // timestamp part).
       assert(i == 0 || i == boundaries_.size() ||
              cfd->user_comparator()->CompareWithoutTimestamp(
-                 StripTimestampFromUserKey(boundaries_[i - 1], ts_size), false,
-                 StripTimestampFromUserKey(boundaries_[i], ts_size),
-                 false) != 0);
+                 boundaries_[i - 1], true, boundaries_[i], true) < 0);
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
@@ -487,11 +484,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
   std::sort(
       all_anchors.begin(), all_anchors.end(),
       [cfd_comparator](TableReader::Anchor& a, TableReader::Anchor& b) -> bool {
-        size_t ts_size = cfd_comparator->timestamp_size();
-        Slice a_without_ts = StripTimestampFromUserKey(a.user_key, ts_size);
-        Slice b_without_ts = StripTimestampFromUserKey(b.user_key, ts_size);
-        return cfd_comparator->CompareWithoutTimestamp(a_without_ts, false,
-                                                       b_without_ts, false) < 0;
+        return cfd_comparator->CompareWithoutTimestamp(a.user_key, true,
+                                                       b.user_key, true) < 0;
       });
 
   // Remove duplicated entries from boundaries.
@@ -499,13 +493,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
       std::unique(all_anchors.begin(), all_anchors.end(),
                   [cfd_comparator](TableReader::Anchor& a,
                                    TableReader::Anchor& b) -> bool {
-                    size_t ts_size = cfd_comparator->timestamp_size();
-                    Slice a_without_ts =
-                        StripTimestampFromUserKey(a.user_key, ts_size);
-                    Slice b_without_ts =
-                        StripTimestampFromUserKey(b.user_key, ts_size);
                     return cfd_comparator->CompareWithoutTimestamp(
-                               a_without_ts, false, b_without_ts, false) == 0;
+                               a.user_key, true, b.user_key, true) == 0;
                   }),
       all_anchors.end());
 
@@ -1064,6 +1053,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
 
+  // Remove the timestamps from boundaries because boundaries created in
+  // GenSubcompactionBoundaries doesn't strip away the timestamp.
   size_t ts_sz = cfd->user_comparator()->timestamp_size();
   if (start.has_value()) {
     read_options.iterate_lower_bound = &start.value();

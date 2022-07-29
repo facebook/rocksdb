@@ -124,7 +124,7 @@ TEST_F(TimestampCompatibleCompactionTest, MultipleSubCompactions) {
   uint64_t key = 0;
   WriteOptions write_opts;
 
-  // Write a L0 with keys 0, 1, ..., 499 with ts from 100 to 599.
+  // Write keys 0, 1, ..., 499 with ts from 100 to 599.
   {
     for (; key <= 499; ++key, ++ts) {
       std::string ts_str = Timestamp(ts);
@@ -133,7 +133,7 @@ TEST_F(TimestampCompatibleCompactionTest, MultipleSubCompactions) {
     }
   }
 
-  // Write a L0 with keys 500, ..., 999 with ts from 600 to 1099.
+  // Write keys 500, ..., 999 with ts from 600 to 1099.
   {
     for (; key <= 999; ++key, ++ts) {
       std::string ts_str = Timestamp(ts);
@@ -165,7 +165,6 @@ TEST_F(TimestampCompatibleCompactionTest, MultipleSubCompactions) {
     ASSERT_GT(num_sub_compactions.sum, 1);
   }
 
-  ts++;
   for (key = 0; key <= 999; ++key) {
     ASSERT_EQ("foo_" + std::to_string(key), Get(Key1(key), ts));
   }
