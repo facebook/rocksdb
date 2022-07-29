@@ -458,6 +458,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       memcpy(e->key_data, key.data(), key.size());
       e->value = nullptr;
       e->sec_handle = secondary_handle.release();
+      e->total_charge = 0;
       e->Ref();
 
       if (wait) {
