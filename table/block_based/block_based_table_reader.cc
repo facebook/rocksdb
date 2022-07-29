@@ -2336,7 +2336,6 @@ Status BlockBasedTable::VerifyChecksum(const ReadOptions& read_options,
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
   ReadOptions ro;
-  ro.rate_limiter_priority = read_options.rate_limiter_priority;
   s = ReadMetaIndexBlock(ro, nullptr /* prefetch buffer */, &metaindex,
                          &metaindex_iter);
   if (s.ok()) {
