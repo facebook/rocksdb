@@ -789,7 +789,6 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
     if (s.ok()) {
       UpdateColumnFamilyOptions(mutable_, &cf_options_);
       UpdateColumnFamilyOptions(immutable_, &cf_options_);
-      s = PrepareOptions(config_options);
     }
     return s;
   }
