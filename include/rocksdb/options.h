@@ -1843,8 +1843,11 @@ enum class BlobGarbageCollectionPolicy {
 // CompactRangeOptions is used by CompactRange() call.
 struct CompactRangeOptions {
   // If true, no other compaction will run at the same time as this
-  // manual compaction
-  bool exclusive_manual_compaction = true;
+  // manual compaction.
+  //
+  // Default: false
+  bool exclusive_manual_compaction = false;
+
   // If true, compacted files will be moved to the minimum level capable
   // of holding the data or given level (specified non-negative target_level).
   bool change_level = false;
