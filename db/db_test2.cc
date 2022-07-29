@@ -651,12 +651,8 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
 TEST_F(DBTest2, TestWriteBufferNoLimitWithCache) {
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
-  std::shared_ptr<Cache> cache = NewLRUCache(LRUCacheOptions(
-      10000000 /* capacity */, 1 /* num_shard_bits */,
-      false /* strict_capacity_limit */, 0.0 /* high_pri_pool_ratio */,
-      nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
-      kDontChargeCacheMetadata, 1.0 /* low_pri_pool_ratio */));
-
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(LRUCacheOptions(10000000, 1, false, 0.0));
   options.write_buffer_size = 50000;  // this is never hit
   // Use a write buffer total size so that the soft limit is about
   // 105000.
