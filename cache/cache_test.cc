@@ -23,6 +23,11 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
+// FastLRUCache and ClockCache only support 16-byte keys, so some of
+// the tests originally wrote for LRUCache do not work on the other caches.
+// Those tests were adapted to use 16-byte keys. We kept the original ones.
+// TODO: Remove the original tests if they ever become unused.
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -58,16 +63,21 @@ int DecodeValue(void* v) {
   return static_cast<int>(reinterpret_cast<uintptr_t>(v));
 }
 
-const std::string kLRU = "lru";
-const std::string kClock = "clock";
-const std::string kFast = "fast";
+void DumbDeleter(const Slice& /*key*/, void* /*value*/) {}
 
-void dumbDeleter(const Slice& /*key*/, void* /*value*/) {}
-
-void eraseDeleter(const Slice& /*key*/, void* value) {
+void EraseDeleter1(const Slice& /*key*/, void* value) {
   Cache* cache = reinterpret_cast<Cache*>(value);
   cache->Erase("foo");
 }
+
+void EraseDeleter2(const Slice& /*key*/, void* value) {
+  Cache* cache = reinterpret_cast<Cache*>(value);
+  cache->Erase(EncodeKey16Bytes(1234));
+}
+
+const std::string kLRU = "lru";
+const std::string kClock = "clock";
+const std::string kFast = "fast";
 
 }  // anonymous namespace
 
@@ -223,13 +233,9 @@ class LRUCacheTest : public CacheTest {};
 
 TEST_P(CacheTest, UsageTest) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
-    return;
-  }
 
   // cache is std::shared_ptr and will be automatically cleaned up.
-  const uint64_t kCapacity = 100000;
+  const size_t kCapacity = 100000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
@@ -239,12 +245,17 @@ TEST_P(CacheTest, UsageTest) {
   char value[10] = "abcdef";
   // make sure everything will be cached
   for (int i = 1; i < 100; ++i) {
-    std::string key(i, 'a');
+    std::string key;
+    if (type == kLRU) {
+      key = std::string(i, 'a');
+    } else {
+      key = EncodeKey(i);
+    }
     auto kv_size = key.size() + 5;
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
-                            dumbDeleter));
+                            DumbDeleter));
     ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
-                                    kv_size, dumbDeleter));
+                                    kv_size, DumbDeleter));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
     ASSERT_LT(usage, precise_cache->GetUsage());
@@ -256,12 +267,17 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_EQ(0, precise_cache->GetUsage());
 
   // make sure the cache will be overloaded
-  for (uint64_t i = 1; i < kCapacity; ++i) {
-    auto key = std::to_string(i);
+  for (size_t i = 1; i < kCapacity; ++i) {
+    std::string key;
+    if (type == kLRU) {
+      key = std::to_string(i);
+    } else {
+      key = EncodeKey(static_cast<int>(1000 + i));
+    }
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                            dumbDeleter));
+                            DumbDeleter));
     ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
-                                    key.size() + 5, dumbDeleter));
+                                    key.size() + 5, DumbDeleter));
   }
 
   // the usage should be close to the capacity
@@ -271,15 +287,18 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
 }
 
+// TODO: This test takes longer than expected on ClockCache. This is
+// because the values size estimate at construction is too sloppy.
+// Fix this.
+// Why is it so slow? The cache is constructed with an estimate of 1, but
+// then the charge is claimed to be 21. This will cause the hash table
+// to be extremely sparse, which in turn means clock needs to scan too
+// many slots to find victims.
 TEST_P(CacheTest, PinnedUsageTest) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
-    return;
-  }
 
   // cache is std::shared_ptr and will be automatically cleaned up.
-  const uint64_t kCapacity = 200000;
+  const size_t kCapacity = 200000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 8, false, kFullChargeCacheMetadata);
 
@@ -292,15 +311,20 @@ TEST_P(CacheTest, PinnedUsageTest) {
   // Add entries. Unpin some of them after insertion. Then, pin some of them
   // again. Check GetPinnedUsage().
   for (int i = 1; i < 100; ++i) {
-    std::string key(i, 'a');
+    std::string key;
+    if (type == kLRU) {
+      key = std::string(i, 'a');
+    } else {
+      key = EncodeKey(i);
+    }
     auto kv_size = key.size() + 5;
     Cache::Handle* handle;
     Cache::Handle* handle_in_precise_cache;
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
-                            dumbDeleter, &handle));
+                            DumbDeleter, &handle));
     assert(handle);
     ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
-                                    kv_size, dumbDeleter,
+                                    kv_size, DumbDeleter,
                                     &handle_in_precise_cache));
     assert(handle_in_precise_cache);
     pinned_usage += kv_size;
@@ -334,12 +358,17 @@ TEST_P(CacheTest, PinnedUsageTest) {
   ASSERT_LT(pinned_usage, precise_cache_pinned_usage);
 
   // check that overloading the cache does not change the pinned usage
-  for (uint64_t i = 1; i < 2 * kCapacity; ++i) {
-    auto key = std::to_string(i);
+  for (size_t i = 1; i < 2 * kCapacity; ++i) {
+    std::string key;
+    if (type == kLRU) {
+      key = std::to_string(i);
+    } else {
+      key = EncodeKey(static_cast<int>(1000 + i));
+    }
     ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                            dumbDeleter));
+                            DumbDeleter));
     ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
-                                    key.size() + 5, dumbDeleter));
+                                    key.size() + 5, DumbDeleter));
   }
   ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
   ASSERT_EQ(precise_cache_pinned_usage, precise_cache->GetPinnedUsage());
@@ -447,7 +476,7 @@ TEST_P(CacheTest, EvictionPolicy) {
   Insert(200, 201);
 
   // Frequently used entry must be kept around
-  for (int i = 0; i < kCacheSize * 2; i++) {
+  for (int i = 0; i < 2 * kCacheSize; i++) {
     Insert(1000+i, 2000+i);
     ASSERT_EQ(101, Lookup(100));
   }
@@ -500,9 +529,7 @@ TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(303, 104);
 
   // Insert entries much more than cache capacity.
-  double load_factor =
-      std::min(fast_lru_cache::kLoadFactor, clock_cache::kLoadFactor);
-  for (int i = 0; i < 2 * static_cast<int>(kCacheSize / load_factor); i++) {
+  for (int i = 0; i < 100 * kCacheSize; i++) {
     Insert(1000 + i, 2000 + i);
   }
 
@@ -533,31 +560,40 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 
 TEST_P(CacheTest, EvictEmptyCache) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
-    return;
-  }
 
   // Insert item large than capacity to trigger eviction on empty cache.
   auto cache = NewCache(1, 0, false);
-  ASSERT_OK(cache->Insert("foo", nullptr, 10, dumbDeleter));
+  if (type == kLRU) {
+    ASSERT_OK(cache->Insert("foo", nullptr, 10, DumbDeleter));
+  } else {
+    ASSERT_OK(cache->Insert(EncodeKey(1000), nullptr, 10, DumbDeleter));
+  }
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
-    ROCKSDB_GTEST_BYPASS("FastLRUCache and ClockCache require 16-byte keys.");
-    return;
-  }
 
   // Have deleter which will erase item from cache, which will re-enter
   // the cache at that point.
   std::shared_ptr<Cache> cache = NewCache(10, 0, false);
-  ASSERT_OK(cache->Insert("foo", nullptr, 1, dumbDeleter));
-  ASSERT_OK(cache->Insert("bar", cache.get(), 1, eraseDeleter));
-  cache->Erase("bar");
-  ASSERT_EQ(nullptr, cache->Lookup("foo"));
-  ASSERT_EQ(nullptr, cache->Lookup("bar"));
+  std::string foo, bar;
+  Cache::DeleterFn erase_deleter;
+  if (type == kLRU) {
+    foo = "foo";
+    bar = "bar";
+    erase_deleter = EraseDeleter1;
+  } else {
+    foo = EncodeKey(1234);
+    bar = EncodeKey(5678);
+    erase_deleter = EraseDeleter2;
+  }
+
+  ASSERT_OK(cache->Insert(foo, nullptr, 1, DumbDeleter));
+  ASSERT_OK(cache->Insert(bar, cache.get(), 1, erase_deleter));
+
+  cache->Erase(bar);
+  ASSERT_EQ(nullptr, cache->Lookup(foo));
+  ASSERT_EQ(nullptr, cache->Lookup(bar));
 }
 
 TEST_P(CacheTest, ErasedHandleState) {
@@ -590,9 +626,9 @@ TEST_P(CacheTest, HeavyEntries) {
   const int kHeavy = 10;
   int added = 0;
   int index = 0;
-  while (added < 2*kCacheSize) {
+  while (added < 2 * kCacheSize) {
     const int weight = (index & 1) ? kLight : kHeavy;
-    Insert(index, 1000+index, weight);
+    Insert(index, 1000 + index, weight);
     added += weight;
     index++;
   }
@@ -603,7 +639,7 @@ TEST_P(CacheTest, HeavyEntries) {
     int r = Lookup(i);
     if (r >= 0) {
       cached_weight += weight;
-      ASSERT_EQ(1000+i, r);
+      ASSERT_EQ(1000 + i, r);
     }
   }
   ASSERT_LE(cached_weight, kCacheSize + kCacheSize/10);
@@ -614,7 +650,6 @@ TEST_P(CacheTest, NewId) {
   uint64_t b = cache_->NewId();
   ASSERT_NE(a, b);
 }
-
 
 class Value {
  public:
@@ -664,7 +699,8 @@ TEST_P(CacheTest, SetCapacity) {
   auto type = GetParam();
   if (type == kFast || type == kClock) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache don't support capacity adjustments.");
+        "FastLRUCache and ClockCache don't support arbitrary capacity "
+        "adjustments.");
     return;
   }
   // test1: increase capacity
@@ -716,9 +752,9 @@ TEST_P(CacheTest, SetCapacity) {
 
 TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
+  if (type == kFast) {
     ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache don't support an unbounded number of "
+        "FastLRUCache only supports a limited number of "
         "inserts beyond "
         "capacity.");
     return;
@@ -775,9 +811,8 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 
 TEST_P(CacheTest, OverCapacity) {
   auto type = GetParam();
-  if (type == kFast || type == kClock) {
-    ROCKSDB_GTEST_BYPASS(
-        "FastLRUCache and ClockCache don't support capacity adjustments.");
+  if (type == kClock) {
+    ROCKSDB_GTEST_BYPASS("Requires LRU eviction policy.");
     return;
   }
   size_t n = 10;
