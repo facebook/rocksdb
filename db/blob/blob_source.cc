@@ -70,7 +70,7 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   assert(blob_cache_);
 
   Status s;
-  const Cache::Priority priority = Cache::Priority::BOTTOM;
+  const Cache::Priority priority = Cache::Priority::LOW;
 
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take
@@ -108,7 +108,7 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
       return Status::OK();
     };
     cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
-                                       Cache::Priority::BOTTOM,
+                                       Cache::Priority::LOW,
                                        true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);

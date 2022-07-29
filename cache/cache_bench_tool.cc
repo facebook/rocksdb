@@ -304,9 +304,7 @@ class CacheBench {
           FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
           false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     } else if (FLAGS_cache_type == "lru_cache") {
-      LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits,
-                           false /* strict_capacity_limit */,
-                           0.5 /* high_pri_pool_ratio */);
+      LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
 #ifndef ROCKSDB_LITE
       if (!FLAGS_secondary_cache_uri.empty()) {
         Status s = SecondaryCache::CreateFromString(

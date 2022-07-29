@@ -570,9 +570,6 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
-DEFINE_double(cache_low_pri_pool_ratio, 1.0,
-              "Ratio of block cache reserve for low pri blocks.");
-
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
 DEFINE_bool(use_compressed_secondary_cache, false,
@@ -591,9 +588,6 @@ DEFINE_double(compressed_secondary_cache_high_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for high pri blocks. "
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
-
-DEFINE_double(compressed_secondary_cache_low_pri_pool_ratio, 1.0,
-              "Ratio of block cache reserve for low pri blocks.");
 
 DEFINE_string(compressed_secondary_cache_compression_type, "lz4",
               "The compression algorithm to use for large "
@@ -3017,12 +3011,11 @@ class Benchmark {
 #ifdef MEMKIND
           FLAGS_use_cache_memkind_kmem_allocator
               ? std::make_shared<MemkindKmemAllocator>()
-              : nullptr,
+              : nullptr
 #else
-          nullptr,
+          nullptr
 #endif
-          kDefaultToAdaptiveMutex, kDefaultCacheMetadataChargePolicy,
-          FLAGS_cache_low_pri_pool_ratio);
+      );
       if (FLAGS_use_cache_memkind_kmem_allocator) {
 #ifndef MEMKIND
         fprintf(stderr, "Memkind library is not linked with the binary.");
@@ -3051,8 +3044,6 @@ class Benchmark {
             FLAGS_compressed_secondary_cache_numshardbits;
         secondary_cache_opts.high_pri_pool_ratio =
             FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
-        secondary_cache_opts.low_pri_pool_ratio =
-            FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
         secondary_cache_opts.compression_type =
             FLAGS_compressed_secondary_cache_compression_type_e;
         secondary_cache_opts.compress_format_version =
@@ -4293,12 +4284,6 @@ class Benchmark {
       if (FLAGS_cache_high_pri_pool_ratio > 1e-6) {  // > 0.0 + eps
         block_based_options.cache_index_and_filter_blocks_with_high_priority =
             true;
-      }
-      if (FLAGS_cache_high_pri_pool_ratio + FLAGS_cache_low_pri_pool_ratio >
-          1.0) {
-        fprintf(stderr,
-                "Sum of high_pri_pool_ratio and low_pri_pool_ratio "
-                "cannot exceed 1.0.\n");
       }
       block_based_options.block_cache = cache_;
       block_based_options.cache_usage_options.options_overrides.insert(
