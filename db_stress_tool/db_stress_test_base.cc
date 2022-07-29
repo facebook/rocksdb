@@ -8,8 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
-#include <iostream>
-
 #include "util/compression.h"
 #ifdef GFLAGS
 #include "cache/clock_cache.h"
@@ -138,7 +136,6 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
     if (!FLAGS_secondary_cache_uri.empty()) {
       Status s = SecondaryCache::CreateFromString(
           config_options, FLAGS_secondary_cache_uri, &secondary_cache);
-      std::cout << secondary_cache->GetPrintableOptions() << std::endl;
       if (secondary_cache == nullptr) {
         fprintf(stderr,
                 "No secondary cache registered matching string: %s status=%s\n",
