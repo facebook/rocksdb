@@ -12,8 +12,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-const std::vector<Slice> empty_operand_list;
-
 // The merge context for merging a user key.
 // When doing a Get(), DB will create such a class and pass it when
 // issuing Get() operation to memtables and version_set. The operands
@@ -22,57 +20,47 @@ class MergeContext {
  public:
   // Clear all the operands
   void Clear() {
-    if (operand_list_) {
-      operand_list_->clear();
-      copied_operands_->clear();
-    }
+    operand_list_.clear();
+    copied_operands_.clear();
   }
 
   // Push a merge operand
   void PushOperand(const Slice& operand_slice, bool operand_pinned = false) {
-    Initialize();
     SetDirectionBackward();
 
     if (operand_pinned) {
-      operand_list_->push_back(operand_slice);
+      operand_list_.push_back(operand_slice);
     } else {
       // We need to have our own copy of the operand since it's not pinned
-      copied_operands_->emplace_back(
-          new std::string(operand_slice.data(), operand_slice.size()));
-      operand_list_->push_back(*copied_operands_->back());
+      char* copy = MakeCopy(operand_slice);
+      copied_operands_.emplace_back(copy);
+      operand_list_.emplace_back(copy, operand_slice.size());
     }
   }
 
   // Push back a merge operand
   void PushOperandBack(const Slice& operand_slice,
                        bool operand_pinned = false) {
-    Initialize();
     SetDirectionForward();
 
     if (operand_pinned) {
-      operand_list_->push_back(operand_slice);
+      operand_list_.push_back(operand_slice);
     } else {
       // We need to have our own copy of the operand since it's not pinned
-      copied_operands_->emplace_back(
-          new std::string(operand_slice.data(), operand_slice.size()));
-      operand_list_->push_back(*copied_operands_->back());
+      char* copy = MakeCopy(operand_slice);
+      copied_operands_.emplace_back(copy);
+      operand_list_.emplace_back(copy, operand_slice.size());
     }
   }
 
   // return total number of operands in the list
-  size_t GetNumOperands() const {
-    if (!operand_list_) {
-      return 0;
-    }
-    return operand_list_->size();
-  }
+  size_t GetNumOperands() const { return operand_list_.size(); }
 
   // Get the operand at the index.
-  Slice GetOperand(int index) const {
-    assert(operand_list_);
-
+  Slice GetOperand(size_t index) const {
+    assert(index < operand_list_.size());
     SetDirectionForward();
-    return (*operand_list_)[index];
+    return operand_list_[index];
   }
 
   // Same as GetOperandsDirectionForward
@@ -91,12 +79,8 @@ class MergeContext {
   // to this MergeContext.  If the returned value is needed for longer,
   // a copy must be made.
   const std::vector<Slice>& GetOperandsDirectionForward() const {
-    if (!operand_list_) {
-      return empty_operand_list;
-    }
-
     SetDirectionForward();
-    return *operand_list_;
+    return operand_list_;
   }
 
   // Return all the operands in the reversed order relative to how they were
@@ -106,40 +90,35 @@ class MergeContext {
   // to this MergeContext.  If the returned value is needed for longer,
   // a copy must be made.
   const std::vector<Slice>& GetOperandsDirectionBackward() const {
-    if (!operand_list_) {
-      return empty_operand_list;
-    }
-
     SetDirectionBackward();
-    return *operand_list_;
+    return operand_list_;
   }
 
  private:
-  void Initialize() {
-    if (!operand_list_) {
-      operand_list_.reset(new std::vector<Slice>());
-      copied_operands_.reset(new std::vector<std::unique_ptr<std::string>>());
-    }
+  static char* MakeCopy(Slice src) {
+    char* copy = new char[src.size()];
+    memcpy(copy, src.data(), src.size());
+    return copy;
   }
 
   void SetDirectionForward() const {
     if (operands_reversed_ == true) {
-      std::reverse(operand_list_->begin(), operand_list_->end());
+      std::reverse(operand_list_.begin(), operand_list_.end());
       operands_reversed_ = false;
     }
   }
 
   void SetDirectionBackward() const {
     if (operands_reversed_ == false) {
-      std::reverse(operand_list_->begin(), operand_list_->end());
+      std::reverse(operand_list_.begin(), operand_list_.end());
       operands_reversed_ = true;
     }
   }
 
   // List of operands
-  mutable std::unique_ptr<std::vector<Slice>> operand_list_;
+  mutable std::vector<Slice> operand_list_;
   // Copy of operands that are not pinned.
-  std::unique_ptr<std::vector<std::unique_ptr<std::string>>> copied_operands_;
+  std::vector<std::unique_ptr<char[]> > copied_operands_;
   mutable bool operands_reversed_ = true;
 };
 
