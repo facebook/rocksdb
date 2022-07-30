@@ -160,6 +160,8 @@ struct FileOptions : EnvOptions {
   // handoff during file writes.
   ChecksumType handoff_checksum_type;
 
+  bool report_iostat = true;
+
   FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)

@@ -12,13 +12,16 @@
 #pragma once
 
 #include <time.h>
+
 #include <atomic>
 #include <memory>
-#include "port/sys_time.h"
 
 #include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
+#include "rocksdb/perf_level.h"
 #include "rocksdb/slice.h"
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
@@ -45,6 +48,29 @@ class EnvLogger : public Logger {
   }
 
  private:
+  // A guard to prepare file operations, such as mutex and skip
+  // I/O context.
+  class FileOpGuard {
+   public:
+    FileOpGuard(EnvLogger* logger)
+        : logger_(logger), prev_perf_level_(GetPerfLevel()) {
+      // Preserve iostats not to pollute writes from user writes. We might
+      // need a better solution than this.
+      SetPerfLevel(PerfLevel::kDisable);
+      enable_iostats = false;
+      logger->mutex_.Lock();
+    }
+    ~FileOpGuard() {
+      logger_->mutex_.Unlock();
+      enable_iostats = true;
+      SetPerfLevel(prev_perf_level_);
+    }
+
+   private:
+    EnvLogger* logger_;
+    PerfLevel prev_perf_level_;
+  };
+
   void FlushLocked() {
     mutex_.AssertHeld();
     if (flush_pending_) {
@@ -58,16 +84,15 @@ class EnvLogger : public Logger {
     TEST_SYNC_POINT("EnvLogger::Flush:Begin1");
     TEST_SYNC_POINT("EnvLogger::Flush:Begin2");
 
-    MutexLock l(&mutex_);
+    FileOpGuard guard(this);
     FlushLocked();
   }
 
   Status CloseImpl() override { return CloseHelper(); }
 
   Status CloseHelper() {
-    mutex_.Lock();
+    FileOpGuard guard(this);
     const auto close_status = file_.Close();
-    mutex_.Unlock();
 
     if (close_status.ok()) {
       return close_status;
@@ -133,15 +158,16 @@ class EnvLogger : public Logger {
       }
 
       assert(p <= limit);
-      mutex_.Lock();
-      // We will ignore any error returned by Append().
-      file_.Append(Slice(base, p - base)).PermitUncheckedError();
-      flush_pending_ = true;
-      const uint64_t now_micros = clock_->NowMicros();
-      if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
-        FlushLocked();
+      {
+        FileOpGuard guard(this);
+        // We will ignore any error returned by Append().
+        file_.Append(Slice(base, p - base)).PermitUncheckedError();
+        flush_pending_ = true;
+        const uint64_t now_micros = clock_->NowMicros();
+        if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
+          FlushLocked();
+        }
       }
-      mutex_.Unlock();
       if (base != buffer) {
         delete[] base;
       }
