@@ -2042,55 +2042,51 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           // we do not track on which resource each operand depends.
           //
           // To solve this, we bundle the resources and manage them with a
-          // local refcount shared among the `PinnableSlice`s we return. This
-          // bundle includes one `sv` reference and ownership of the
-          // `state` object. The final `PinnableSlice` to cleanup is responsible
-          // for unreferencing the `sv` and deleting `state`.
-          std::atomic<size_t>* local_refcount = nullptr;
+          // `SharedCleanablePtr` shared among the `PinnableSlice`s we return.
+          // This bundle includes one `sv` reference and ownership of the
+          // `state` object. The final `PinnableSlice` to cleanup will
+          // unreference the `sv` and delete `state`.
+          SharedCleanablePtr shared_cleanable;
           bool ref_sv = ShouldReferenceSuperVersion(state->merge_context);
-
-          for (const Slice& sl : state->merge_context.GetOperands()) {
+          for (size_t i = 0; i < state->merge_context.GetOperands().size();
+               ++i) {
+            const Slice& sl = state->merge_context.GetOperands()[i];
             size += sl.size();
             if (ref_sv) {
-              if (local_refcount == nullptr) {
+              if (i == 0) {
                 // Only ref `sv` within loop body to ensure there is at least
                 // one `PinnableSlice` who can unref it.
                 sv->Ref();
-                local_refcount = new std::atomic<size_t>(0);
                 // TODO(ajkr): `background_purge_on_iterator_cleanup` is
                 // inappropriately named for this purpose.
                 state->iter_state = new IterState(
                     this, &mutex_, sv,
                     read_options.background_purge_on_iterator_cleanup ||
                         immutable_db_options_.avoid_unnecessary_blocking_io);
+
+                shared_cleanable.Allocate();
+                shared_cleanable->RegisterCleanup(CleanupGetMergeOperandsState,
+                                                  state.get() /* arg1 */,
+                                                  nullptr /* arg2 */);
               }
-              local_refcount->fetch_add(1, std::memory_order_relaxed);
 
               // TODO(ajkr): this `Reset()` is to avoid an assertion in
               // `PinnableSlice`. Consider making clients do it or removing the
               // assertion.
               get_impl_options.merge_operands->Reset();
               get_impl_options.merge_operands->PinSlice(
-                  sl,
-                  [](void* arg1, void* arg2) {
-                    auto* _state = static_cast<GetMergeOperandsState*>(arg1);
-                    auto* _local_refcount =
-                        static_cast<std::atomic<size_t>*>(arg2);
-                    if (_local_refcount->fetch_sub(
-                            1, std::memory_order_relaxed) == 1) {
-                      CleanupGetMergeOperandsState(_state, nullptr /* arg2 */);
-                      delete _local_refcount;
-                    }
-                  },
-                  state.get(), local_refcount);
+                  sl, nullptr /* cleanable */);
+              if (i == state->merge_context.GetOperands().size() - 1) {
+                shared_cleanable.MoveAsCleanupTo(
+                    get_impl_options.merge_operands);
+              } else {
+                shared_cleanable.RegisterCopyWith(
+                    get_impl_options.merge_operands);
+              }
             } else {
               get_impl_options.merge_operands->PinSelf(sl);
             }
             get_impl_options.merge_operands++;
-          }
-
-          if (local_refcount != nullptr) {
-            state.release();
           }
         }
       }
