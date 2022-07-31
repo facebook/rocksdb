@@ -739,12 +739,32 @@ class DBImpl : public DB {
   // the value and so will require PrepareValue() to be called before value();
   // allow_unprepared_value = false is convenient when this optimization is not
   // useful, e.g. when reading the whole column family.
+  // If read_options.ignore_range_deletions is false, then:
+  //   If range_del_agg is not nullptr, range tombstones from each sorted runs
+  //   are added to range_del_agg. Keys covered by range tombstones are
+  //   outputted by this iterator. Otherwise, range_del_agg is nullptr, range
+  //   tombstones are processed internally and output keys of this iterator are
+  //   not covered by any range tombstone.
+  // If read_options.ignore_range_deletions is true, no range tombstone will be
+  // added to range_del_agg nor will range tombstones be handled internally.
   // @param read_options Must outlive the returned iterator.
   InternalIterator* NewInternalIterator(
-      const ReadOptions& read_options, Arena* arena,
-      RangeDelAggregator* range_del_agg, SequenceNumber sequence,
+      const ReadOptions& read_options, Arena* arena, SequenceNumber sequence,
       ColumnFamilyHandle* column_family = nullptr,
       bool allow_unprepared_value = false);
+
+  // Note: to support DB iterator refresh, memtable range tombstones in the
+  // underlying merging iterator needs to be refreshed. If db_iter is not
+  // nullptr, db_iter->SetMemtableRangetombstoneIter() is called with the
+  // memtable range tombstone iterator used by the underlying merging iterator.
+  // This range tombstone iterator can be refreshed later by db_iter.
+  // @param read_options Must outlive the returned iterator.
+  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
+                                        ColumnFamilyData* cfd,
+                                        SuperVersion* super_version,
+                                        Arena* arena, SequenceNumber sequence,
+                                        bool allow_unprepared_value,
+                                        ArenaWrappedDBIter* db_iter = nullptr);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -867,15 +887,6 @@ class DBImpl : public DB {
   }
 
   const WriteController& write_controller() { return write_controller_; }
-
-  // @param read_options Must outlive the returned iterator.
-  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena,
-                                        RangeDelAggregator* range_del_agg,
-                                        SequenceNumber sequence,
-                                        bool allow_unprepared_value);
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that

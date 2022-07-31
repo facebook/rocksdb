@@ -950,7 +950,8 @@ class LevelIterator final : public InternalIterator {
                 RangeDelAggregator* range_del_agg,
                 const std::vector<AtomicCompactionUnitBoundary>*
                     compaction_boundaries = nullptr,
-                bool allow_unprepared_value = false)
+                bool allow_unprepared_value = false,
+                MergeIteratorBuilder* merge_iter_builder = nullptr)
       : table_cache_(table_cache),
         read_options_(read_options),
         file_options_(file_options),
@@ -968,13 +969,25 @@ class LevelIterator final : public InternalIterator {
         range_del_agg_(range_del_agg),
         pinned_iters_mgr_(nullptr),
         compaction_boundaries_(compaction_boundaries),
-        is_next_read_sequential_(false) {
+        is_next_read_sequential_(false),
+        range_tombstone_iter_(nullptr),
+        range_tombstone_sentinel_(false),
+        to_return_sentinel_(false) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
+    if (merge_iter_builder && !read_options.ignore_range_deletions) {
+      // lazily initialize range_tombstone_iter_ together with file_iter_
+      merge_iter_builder->AddRangeTombstoneIterator(nullptr,
+                                                    &range_tombstone_iter_);
+      range_tombstone_sentinel_ = true;
+    }
   }
 
   ~LevelIterator() override { delete file_iter_.Set(nullptr); }
 
+  // Seek to the first file with a key >= target.
+  // If range_tombstone_sentinel_, then for file boundary that is extended by
+  // tombstone (op_type = KTypeRangeDelete), we pretend that it is a key.
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
   void SeekToFirst() override;
@@ -983,14 +996,27 @@ class LevelIterator final : public InternalIterator {
   bool NextAndGetResult(IterateResult* result) override;
   void Prev() override;
 
-  bool Valid() const override { return file_iter_.Valid(); }
+  // In addition to valid and invalid state (when status.ok()),
+  // a third state of the iterator is when !file_iter_.Valid() and
+  // to_return_sentinel_. This means we are at the end of the file, but there is
+  // a range tombstone sentinel key to return next.
+  // file_iter_.Valid() and to_return_sentinel_ should not both be true.
+  bool Valid() const override {
+    return file_iter_.Valid() || to_return_sentinel_;
+  }
   Slice key() const override {
     assert(Valid());
+    if (to_return_sentinel_) {
+      // Sentinel should be returned when file iterator is at the end
+      assert(!file_iter_.Valid());
+      return sentinel_;
+    }
     return file_iter_.key();
   }
 
   Slice value() const override {
     assert(Valid());
+    assert(!to_return_sentinel_);
     return file_iter_.value();
   }
 
@@ -1044,6 +1070,11 @@ class LevelIterator final : public InternalIterator {
     return flevel_->files[file_index].smallest_key;
   }
 
+  const Slice& file_largest_key(size_t file_index) {
+    assert(file_index < flevel_->num_files);
+    return flevel_->files[file_index].largest_key;
+  }
+
   bool KeyReachedUpperBound(const Slice& internal_key) {
     return read_options_.iterate_upper_bound != nullptr &&
            user_comparator_.CompareWithoutTimestamp(
@@ -1051,6 +1082,9 @@ class LevelIterator final : public InternalIterator {
                *read_options_.iterate_upper_bound, /*b_has_ts=*/false) >= 0;
   }
 
+  // Move file_iter_ to the file at file_index_.
+  // range_tombstone_iter_ is updated with a range tombstone iterator
+  // into the new file.
   InternalIterator* NewFileIterator() {
     assert(file_index_ < flevel_->num_files);
     auto file_meta = flevel_->files[file_index_];
@@ -1065,13 +1099,19 @@ class LevelIterator final : public InternalIterator {
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
     CheckMayBeOutOfLowerBound();
+    if (range_tombstone_iter_ != nullptr && *range_tombstone_iter_ != nullptr) {
+      // Since we are abount to install a new range tombstone iterator
+      delete *range_tombstone_iter_;
+      // will be reset in the NewIterator call below, just to be precautious
+      *range_tombstone_iter_ = nullptr;
+    }
     return table_cache_->NewIterator(
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
-        largest_compaction_key, allow_unprepared_value_);
+        largest_compaction_key, allow_unprepared_value_, range_tombstone_iter_);
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1117,9 +1157,45 @@ class LevelIterator final : public InternalIterator {
   const std::vector<AtomicCompactionUnitBoundary>* compaction_boundaries_;
 
   bool is_next_read_sequential_;
+
+  // This is set when this level iterator is used under a merging iterator
+  // that considers range tombstones.
+  // range_tombstone_iter_ points to where the merging iterator stores the
+  // range tombstones iterator for this level.
+  // When this level iterator moves to a new SST file, it updates the range
+  // tombstones accordingly through this pointer. So the merging iterator has
+  // access to the new SST file's range tombstones.
+  TruncatedRangeDelIterator** range_tombstone_iter_;
+
+  // When this level iterator is udner a merging iterator that processes range
+  // tombstones, the level iterator needs to produce a fake file boundary key
+  // when the file boundary is defined by a range tombstone (op_type =
+  // kTypeRangeDeletion)
+  bool range_tombstone_sentinel_;
+  // Whether next/prev key is the range tombstone sentinel key
+  bool to_return_sentinel_ = false;
+  Slice sentinel_;
+  void trySetTombstoneSentinelKey(const Slice& boundary_key);
 };
 
+void LevelIterator::trySetTombstoneSentinelKey(const Slice& boundary_key) {
+  assert(range_tombstone_sentinel_);
+  to_return_sentinel_ = false;
+  if (file_iter_.iter() != nullptr && !file_iter_.Valid() &&
+      file_iter_.status().ok()) {
+    ParsedInternalKey pik;
+    ParseInternalKey(boundary_key, &pik, false).PermitUncheckedError();
+    // Not checking pik.sequence == kMaxSequenceNumber since it is possible
+    // that file boundary is set to tombstone key AND tombstone sequence number
+    if (pik.type == kTypeRangeDeletion) {
+      to_return_sentinel_ = true;
+      sentinel_ = boundary_key;
+    }
+  }
+}
+
 void LevelIterator::Seek(const Slice& target) {
+  to_return_sentinel_ = false;
   // Check whether the seek key fall under the same file
   bool need_to_reseek = true;
   if (file_iter_.iter() != nullptr && file_index_ < flevel_->num_files) {
@@ -1148,11 +1224,16 @@ void LevelIterator::Seek(const Slice& target) {
     if (file_iter_.status() == Status::TryAgain()) {
       return;
     }
+
+    if (range_tombstone_sentinel_) {
+      trySetTombstoneSentinelKey(file_largest_key(file_index_));
+    }
   }
 
-  if (SkipEmptyFileForward() && prefix_extractor_ != nullptr &&
-      !read_options_.total_order_seek && !read_options_.auto_prefix_mode &&
-      file_iter_.iter() != nullptr && file_iter_.Valid()) {
+  if (!to_return_sentinel_ && SkipEmptyFileForward() &&
+      prefix_extractor_ != nullptr && !read_options_.total_order_seek &&
+      !read_options_.auto_prefix_mode && file_iter_.iter() != nullptr &&
+      file_iter_.Valid()) {
     // We've skipped the file we initially positioned to. In the prefix
     // seek case, it is likely that the file is skipped because of
     // prefix bloom or hash, where more keys are skipped. We then check
@@ -1185,6 +1266,7 @@ void LevelIterator::Seek(const Slice& target) {
 }
 
 void LevelIterator::SeekForPrev(const Slice& target) {
+  to_return_sentinel_ = false;
   size_t new_file_index = FindFile(icomparator_, *flevel_, target);
   if (new_file_index >= flevel_->num_files) {
     new_file_index = flevel_->num_files - 1;
@@ -1193,50 +1275,102 @@ void LevelIterator::SeekForPrev(const Slice& target) {
   InitFileIterator(new_file_index);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekForPrev(target);
-    SkipEmptyFileBackward();
+    if (range_tombstone_sentinel_) {
+      trySetTombstoneSentinelKey(file_smallest_key(file_index_));
+    }
+    if (!to_return_sentinel_) {
+      SkipEmptyFileBackward();
+    }
   }
   CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::SeekToFirst() {
+  to_return_sentinel_ = false;
   InitFileIterator(0);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekToFirst();
+    if (range_tombstone_sentinel_) {
+      trySetTombstoneSentinelKey(file_largest_key(file_index_));
+    }
   }
-  SkipEmptyFileForward();
+  if (!to_return_sentinel_) {
+    SkipEmptyFileForward();
+  }
   CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::SeekToLast() {
+  to_return_sentinel_ = false;
   InitFileIterator(flevel_->num_files - 1);
   if (file_iter_.iter() != nullptr) {
     file_iter_.SeekToLast();
+    if (range_tombstone_sentinel_) {
+      trySetTombstoneSentinelKey(file_smallest_key(file_index_));
+    }
   }
-  SkipEmptyFileBackward();
+  if (!to_return_sentinel_) {
+    SkipEmptyFileBackward();
+  }
   CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::Next() {
   assert(Valid());
-  file_iter_.Next();
-  SkipEmptyFileForward();
+  if (to_return_sentinel_) {
+    to_return_sentinel_ = false;
+    // file_iter_ was at end of file already
+    SkipEmptyFileForward();
+  } else {
+    file_iter_.Next();
+    if (range_tombstone_sentinel_) {
+      trySetTombstoneSentinelKey(file_largest_key(file_index_));
+    }
+    if (!to_return_sentinel_) {
+      SkipEmptyFileForward();
+    }
+  }
 }
 
 bool LevelIterator::NextAndGetResult(IterateResult* result) {
   assert(Valid());
-  bool is_valid = file_iter_.NextAndGetResult(result);
+  bool is_valid = false;
+  if (!to_return_sentinel_) {
+    // otherwise file_iter_ is at end already
+    is_valid = file_iter_.NextAndGetResult(result);
+  }
+
   if (!is_valid) {
+    if (to_return_sentinel_) {
+      to_return_sentinel_ = false;
+    } else if (range_tombstone_sentinel_) {
+      trySetTombstoneSentinelKey(file_largest_key(file_index_));
+      if (to_return_sentinel_) {
+        result->key = sentinel_;
+        result->bound_check_result = IterBoundCheck::kUnknown;
+        result->value_prepared = true;
+        return true /* valid */;
+      }
+    }
     is_next_read_sequential_ = true;
     SkipEmptyFileForward();
     is_next_read_sequential_ = false;
+    // note that if SkipEmptyFileForward() takes us to a new SST file and
+    // reaches sentinel, Valid() will be true.
     is_valid = Valid();
     if (is_valid) {
-      result->key = key();
-      result->bound_check_result = file_iter_.UpperBoundCheckResult();
-      // Ideally, we should return the real file_iter_.value_prepared but the
-      // information is not here. It would casue an extra PrepareValue()
-      // for the first key of a file.
-      result->value_prepared = !allow_unprepared_value_;
+      if (to_return_sentinel_) {
+        result->key = sentinel_;
+        result->bound_check_result = IterBoundCheck::kUnknown;
+        result->value_prepared = true;
+      } else {
+        result->key = key();
+        result->bound_check_result = file_iter_.UpperBoundCheckResult();
+        // Ideally, we should return the real file_iter_.value_prepared but the
+        // information is not here. It would casue an extra PrepareValue()
+        // for the first key of a file.
+        result->value_prepared = !allow_unprepared_value_;
+      }
     }
   }
   return is_valid;
@@ -1244,8 +1378,18 @@ bool LevelIterator::NextAndGetResult(IterateResult* result) {
 
 void LevelIterator::Prev() {
   assert(Valid());
-  file_iter_.Prev();
-  SkipEmptyFileBackward();
+  if (to_return_sentinel_) {
+    to_return_sentinel_ = false;
+    SkipEmptyFileBackward();
+  } else {
+    file_iter_.Prev();
+    if (range_tombstone_sentinel_) {
+      trySetTombstoneSentinelKey(file_smallest_key(file_index_));
+    }
+    if (!to_return_sentinel_) {
+      SkipEmptyFileBackward();
+    }
+  }
 }
 
 bool LevelIterator::SkipEmptyFileForward() {
@@ -1268,6 +1412,14 @@ bool LevelIterator::SkipEmptyFileForward() {
     InitFileIterator(file_index_ + 1);
     if (file_iter_.iter() != nullptr) {
       file_iter_.SeekToFirst();
+      if (range_tombstone_sentinel_) {
+        trySetTombstoneSentinelKey(file_largest_key(file_index_));
+      }
+    }
+    // We moved to a new SST file partition
+    // Seek range_tombstone_iter_ to reset its !Valid() default state.
+    if (range_tombstone_iter_ != nullptr && *range_tombstone_iter_ != nullptr) {
+      (*range_tombstone_iter_)->SeekToFirst();
     }
   }
   return seen_empty_file;
@@ -1285,6 +1437,14 @@ void LevelIterator::SkipEmptyFileBackward() {
     InitFileIterator(file_index_ - 1);
     if (file_iter_.iter() != nullptr) {
       file_iter_.SeekToLast();
+      if (range_tombstone_sentinel_) {
+        trySetTombstoneSentinelKey(file_smallest_key(file_index_));
+      }
+    }
+    // We moved to a new SST file partition
+    // Seek range_tombstone_iter_ to reset its !Valid() default state.
+    if (range_tombstone_iter_ != nullptr && *range_tombstone_iter_ != nullptr) {
+      (*range_tombstone_iter_)->SeekToLast();
     }
   }
 }
@@ -1312,6 +1472,9 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
   if (new_file_index >= flevel_->num_files) {
     file_index_ = new_file_index;
     SetFileIterator(nullptr);
+    // We could clear the range tombstone here too since we have surpassed the
+    // sentinel key. Though there should be no harm and leave it to be
+    // precautious.
     return;
   } else {
     // If the file iterator shows incomplete, we try it again if users seek
@@ -1661,6 +1824,20 @@ Status Version::VerifySstUniqueIds() const {
   return Status::OK();
 }
 
+InternalIterator* Version::TEST_GetLevelIterator(
+    const ReadOptions& read_options, MergeIteratorBuilder* merge_iter_builder,
+    int level, RangeDelAggregator* range_del_agg, bool allow_unprepared_value) {
+  return new LevelIterator(
+      cfd_->table_cache(), read_options, FileOptions(),
+      cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+      mutable_cf_options_.prefix_extractor, should_sample_file_read(),
+      cfd_->internal_stats()->GetFileReadHist(level),
+      TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
+      range_del_agg,
+      /*compaction_boundaries=*/nullptr, allow_unprepared_value,
+      merge_iter_builder);
+}
+
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // Estimation will be inaccurate when:
   // (1) there exist merge keys
@@ -1711,22 +1888,19 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
 void Version::AddIterators(const ReadOptions& read_options,
                            const FileOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder,
-                           RangeDelAggregator* range_del_agg,
                            bool allow_unprepared_value) {
   assert(storage_info_.finalized_);
 
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
     AddIteratorsForLevel(read_options, soptions, merge_iter_builder, level,
-                         range_del_agg, allow_unprepared_value);
+                         allow_unprepared_value);
   }
 }
 
 void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                    const FileOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,
-                                   int level,
-                                   RangeDelAggregator* range_del_agg,
-                                   bool allow_unprepared_value) {
+                                   int level, bool allow_unprepared_value) {
   assert(storage_info_.finalized_);
   if (level >= storage_info_.num_non_empty_levels()) {
     // This is an empty level
@@ -1741,17 +1915,21 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   auto* arena = merge_iter_builder->GetArena();
   if (level == 0) {
     // Merge all level zero files together since they may overlap
+    TruncatedRangeDelIterator* iter = nullptr;
     for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(),
-          *file.file_metadata, range_del_agg,
+          *file.file_metadata, /*range_del_aggregator=*/nullptr,
           mutable_cf_options_.prefix_extractor, nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, arena,
           /*skip_filters=*/false, /*level=*/0, max_file_size_for_l0_meta_pin_,
           /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr, allow_unprepared_value));
+          /*largest_compaction_key=*/nullptr, allow_unprepared_value, &iter));
+      if (!read_options.ignore_range_deletions) {
+        merge_iter_builder->AddRangeTombstoneIterator(iter);
+      }
     }
     if (should_sample) {
       // Count ones for every L0 files. This is done per iterator creation
@@ -1773,8 +1951,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         mutable_cf_options_.prefix_extractor, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        range_del_agg,
-        /*compaction_boundaries=*/nullptr, allow_unprepared_value));
+        /*range_del_aggregator=*/nullptr, /*compaction_boundaries=*/nullptr,
+        allow_unprepared_value, merge_iter_builder));
   }
 }
 
@@ -6273,6 +6451,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         }
       } else {
         // Create concatenating iterator for the files from this level
+        // Level Iter add to range del aggregator as needed
         list[num++] = new LevelIterator(
             cfd->table_cache(), read_options, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
@@ -6286,6 +6465,7 @@ InternalIterator* VersionSet::MakeInputIterator(
     }
   }
   assert(num <= space);
+  // merging iterator takes a list of child iters
   InternalIterator* result =
       NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
                          static_cast<int>(num));

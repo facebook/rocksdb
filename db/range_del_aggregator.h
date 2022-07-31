@@ -46,6 +46,7 @@ class TruncatedRangeDelIterator {
   // Seeks to the tombstone with the highest visible sequence number that covers
   // target (a user key). If no such tombstone exists, the position will be at
   // the earliest tombstone that ends after target.
+  // REQUIRES: target is a user key.
   void Seek(const Slice& target);
 
   // Seeks to the tombstone with the highest visible sequence number that covers

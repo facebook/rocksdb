@@ -75,6 +75,7 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
 }
 
 bool TruncatedRangeDelIterator::Valid() const {
+  assert(iter_ != nullptr);
   return iter_->Valid() &&
          (smallest_ == nullptr ||
           icmp_->Compare(*smallest_, iter_->parsed_end_key()) < 0) &&

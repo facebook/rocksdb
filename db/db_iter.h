@@ -139,7 +139,6 @@ class DBIter final : public Iterator {
     iter_.Set(iter);
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
   bool Valid() const override {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
@@ -380,7 +379,6 @@ class DBIter final : public Iterator {
   bool arena_mode_;
   // List of operands for merge operator.
   MergeContext merge_context_;
-  ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
 #ifdef ROCKSDB_LITE
