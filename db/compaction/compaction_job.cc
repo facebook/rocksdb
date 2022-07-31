@@ -240,8 +240,8 @@ void CompactionJob::Prepare() {
   bottommost_level_ = c->bottommost_level();
 
   if (c->ShouldFormSubcompactions()) {
-      StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
-      GenSubcompactionBoundaries();
+    StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
+    GenSubcompactionBoundaries();
   }
   if (boundaries_.size() > 1) {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
@@ -250,6 +250,11 @@ void CompactionJob::Prepare() {
           (i != boundaries_.size()) ? std::optional<Slice>(boundaries_[i])
                                     : std::nullopt,
           static_cast<uint32_t>(i));
+      // assert to validate that boundaries don't have same user keys (without
+      // timestamp part).
+      assert(i == 0 || i == boundaries_.size() ||
+             cfd->user_comparator()->CompareWithoutTimestamp(
+                 boundaries_[i - 1], true, boundaries_[i], true) < 0);
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
@@ -479,8 +484,19 @@ void CompactionJob::GenSubcompactionBoundaries() {
   std::sort(
       all_anchors.begin(), all_anchors.end(),
       [cfd_comparator](TableReader::Anchor& a, TableReader::Anchor& b) -> bool {
-        return cfd_comparator->Compare(a.user_key, b.user_key) < 0;
+        return cfd_comparator->CompareWithoutTimestamp(a.user_key, true,
+                                                       b.user_key, true) < 0;
       });
+
+  // Remove duplicated entries from boundaries.
+  all_anchors.erase(
+      std::unique(all_anchors.begin(), all_anchors.end(),
+                  [cfd_comparator](TableReader::Anchor& a,
+                                   TableReader::Anchor& b) -> bool {
+                    return cfd_comparator->CompareWithoutTimestamp(
+                               a.user_key, true, b.user_key, true) == 0;
+                  }),
+      all_anchors.end());
 
   // Get the number of planned subcompactions, may update reserve threads
   // and update extra_num_subcompaction_threads_reserved_ for round-robin
@@ -1024,6 +1040,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   const std::optional<Slice> start = sub_compact->start;
   const std::optional<Slice> end = sub_compact->end;
 
+  std::optional<Slice> start_without_ts;
+  std::optional<Slice> end_without_ts;
+
   ReadOptions read_options;
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
@@ -1034,15 +1053,22 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
   read_options.total_order_seek = true;
 
-  // Note: if we're going to support subcompactions for user-defined timestamps,
-  // the timestamp part will have to be stripped from the bounds here.
-  assert((!start.has_value() && !end.has_value()) ||
-         cfd->user_comparator()->timestamp_size() == 0);
+  // Remove the timestamps from boundaries because boundaries created in
+  // GenSubcompactionBoundaries doesn't strip away the timestamp.
+  size_t ts_sz = cfd->user_comparator()->timestamp_size();
   if (start.has_value()) {
     read_options.iterate_lower_bound = &start.value();
+    if (ts_sz > 0) {
+      start_without_ts = StripTimestampFromUserKey(start.value(), ts_sz);
+      read_options.iterate_lower_bound = &start_without_ts.value();
+    }
   }
   if (end.has_value()) {
     read_options.iterate_upper_bound = &end.value();
+    if (ts_sz > 0) {
+      end_without_ts = StripTimestampFromUserKey(end.value(), ts_sz);
+      read_options.iterate_upper_bound = &end_without_ts.value();
+    }
   }
 
   // Although the v2 aggregator is what the level iterator(s) know about,

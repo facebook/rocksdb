@@ -664,13 +664,6 @@ bool Compaction::ShouldFormSubcompactions() const {
     return false;
   }
 
-  // Note: the subcompaction boundary picking logic does not currently guarantee
-  // that all user keys that differ only by timestamp get processed by the same
-  // subcompaction.
-  if (cfd_->user_comparator()->timestamp_size() > 0) {
-    return false;
-  }
-
   // Round-Robin pri under leveled compaction allows subcompactions by default
   // and the number of subcompactions can be larger than max_subcompactions_
   if (cfd_->ioptions()->compaction_pri == kRoundRobin &&
