@@ -1674,9 +1674,16 @@ void DBImpl::BackgroundCallPurge() {
 }
 
 namespace {
-struct IterState {
-  IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version,
-            bool _background_purge)
+
+// A `SuperVersionHandle` holds a non-null `SuperVersion*` pointing at a
+// `SuperVersion` referenced once for this object. It also contains the state
+// needed to clean up the `SuperVersion` reference from outside of `DBImpl`
+// using `CleanupSuperVersionHandle()`.
+struct SuperVersionHandle {
+  // `_super_version` must be non-nullptr and `Ref()`'d once as long as the
+  // `SuperVersionHandle` may use it.
+  SuperVersionHandle(DBImpl* _db, InstrumentedMutex* _mu,
+                     SuperVersion* _super_version, bool _background_purge)
       : db(_db),
         mu(_mu),
         super_version(_super_version),
@@ -1688,50 +1695,49 @@ struct IterState {
   bool background_purge;
 };
 
-static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
-  IterState* state = reinterpret_cast<IterState*>(arg1);
+static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
+  SuperVersionHandle* sv_handle = reinterpret_cast<SuperVersionHandle*>(arg1);
 
-  if (state->super_version->Unref()) {
+  if (sv_handle->super_version->Unref()) {
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
 
-    state->mu->Lock();
-    state->super_version->Cleanup();
-    state->db->FindObsoleteFiles(&job_context, false, true);
-    if (state->background_purge) {
-      state->db->ScheduleBgLogWriterClose(&job_context);
-      state->db->AddSuperVersionsToFreeQueue(state->super_version);
-      state->db->SchedulePurge();
+    sv_handle->mu->Lock();
+    sv_handle->super_version->Cleanup();
+    sv_handle->db->FindObsoleteFiles(&job_context, false, true);
+    if (sv_handle->background_purge) {
+      sv_handle->db->ScheduleBgLogWriterClose(&job_context);
+      sv_handle->db->AddSuperVersionsToFreeQueue(sv_handle->super_version);
+      sv_handle->db->SchedulePurge();
     }
-    state->mu->Unlock();
+    sv_handle->mu->Unlock();
 
-    if (!state->background_purge) {
-      delete state->super_version;
+    if (!sv_handle->background_purge) {
+      delete sv_handle->super_version;
     }
     if (job_context.HaveSomethingToDelete()) {
-      state->db->PurgeObsoleteFiles(job_context, state->background_purge);
+      sv_handle->db->PurgeObsoleteFiles(job_context,
+                                        sv_handle->background_purge);
     }
     job_context.Clean();
   }
 
-  delete state;
+  delete sv_handle;
 }
 
 struct GetMergeOperandsState {
   MergeContext merge_context;
   PinnedIteratorsManager pinned_iters_mgr;
-  // TODO(ajkr): `IterState` is not named appropriately for this purpose.
-  IterState* iter_state;
+  SuperVersionHandle* sv_handle;
 };
 
 static void CleanupGetMergeOperandsState(void* arg1, void* /*arg2*/) {
   GetMergeOperandsState* state = static_cast<GetMergeOperandsState*>(arg1);
-  // TODO(ajkr): `CleanupIteratorState()` is not named appropriately for this
-  // purpose.
-  CleanupIteratorState(state->iter_state, nullptr /* arg2 */);
+  CleanupSuperVersionHandle(state->sv_handle /* arg1 */, nullptr /* arg2 */);
   delete state;
 }
+
 }  // namespace
 
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
@@ -1776,11 +1782,11 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                            allow_unprepared_value);
     }
     internal_iter = merge_iter_builder.Finish();
-    IterState* cleanup =
-        new IterState(this, &mutex_, super_version,
-                      read_options.background_purge_on_iterator_cleanup ||
-                      immutable_db_options_.avoid_unnecessary_blocking_io);
-    internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
+    SuperVersionHandle* cleanup = new SuperVersionHandle(
+        this, &mutex_, super_version,
+        read_options.background_purge_on_iterator_cleanup ||
+            immutable_db_options_.avoid_unnecessary_blocking_io);
+    internal_iter->RegisterCleanup(CleanupSuperVersionHandle, cleanup, nullptr);
 
     return internal_iter;
   } else {
@@ -2060,7 +2066,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                 sv->Ref();
                 // TODO(ajkr): `background_purge_on_iterator_cleanup` is
                 // inappropriately named for this purpose.
-                state->iter_state = new IterState(
+                state->sv_handle = new SuperVersionHandle(
                     this, &mutex_, sv,
                     read_options.background_purge_on_iterator_cleanup ||
                         immutable_db_options_.avoid_unnecessary_blocking_io);
