@@ -1453,11 +1453,6 @@ class VersionSet {
     AppendVersion(cfd, version);
   }
 
-  InternalIterator* TEST_GetLevelIterator(
-      const ReadOptions& read_options, MergeIteratorBuilder* merge_iter_builder,
-      int level, RangeDelAggregator* range_del_agg,
-      bool allow_unprepared_value);
-
  protected:
   using VersionBuilderMap =
       UnorderedMap<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>;

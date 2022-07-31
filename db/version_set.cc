@@ -1828,7 +1828,7 @@ InternalIterator* Version::TEST_GetLevelIterator(
     const ReadOptions& read_options, MergeIteratorBuilder* merge_iter_builder,
     int level, RangeDelAggregator* range_del_agg, bool allow_unprepared_value) {
   return new LevelIterator(
-      cfd_->table_cache(), read_options, FileOptions(),
+      cfd_->table_cache(), read_options, file_options_,
       cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
       mutable_cf_options_.prefix_extractor, should_sample_file_read(),
       cfd_->internal_stats()->GetFileReadHist(level),

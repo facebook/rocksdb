@@ -2110,7 +2110,8 @@ TEST_F(DBRangeDelTest, OlderLevelHasNewerData) {
   MoveFilesToLevel(1);
   ASSERT_EQ(2, NumTableFilesAtLevel(1));
 
-  Slice begin(Key(6));
+  auto key = Key(6);
+  Slice begin(key);
   EXPECT_OK(dbfull()->TEST_CompactRange(1, &begin, nullptr));
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
