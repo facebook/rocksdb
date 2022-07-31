@@ -1726,6 +1726,7 @@ static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
   delete sv_handle;
 }
 
+// TODO(ajkr): this is not named appropriately for its use in `GetImpl()`.
 struct GetMergeOperandsState {
   MergeContext merge_context;
   PinnedIteratorsManager pinned_iters_mgr;
@@ -1949,10 +1950,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
-  // TODO(ajkr): avoid this heap alloc. Only do it when we require pinning
-  // resources, then move resources from stack objects.
-  auto state_guard = std::make_unique<GetMergeOperandsState>();
-  auto* state = state_guard.get();
+  GetMergeOperandsState stack_state;
+  GetMergeOperandsState* state = &stack_state;
   SequenceNumber max_covering_tombstone_seq = 0;
 
   Status s;
@@ -2061,9 +2060,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
             size += sl.size();
             if (ref_sv) {
               if (i == 0) {
-                // Only ref `sv` within loop body to ensure there is at least
-                // one `PinnableSlice` who can unref it.
+                // `state` is needed for the `PinnableSlice`s this function sets
+                // up for its caller, so we need to move it out of this
+                // function's stack frame.
+                assert(state == &stack_state);
+                state = new GetMergeOperandsState(std::move(stack_state));
+
                 sv->Ref();
+
                 // TODO(ajkr): `background_purge_on_iterator_cleanup` is
                 // inappropriately named for this purpose.
                 state->sv_handle = new SuperVersionHandle(
@@ -2072,9 +2076,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                         immutable_db_options_.avoid_unnecessary_blocking_io);
 
                 shared_cleanable.Allocate();
-                shared_cleanable->RegisterCleanup(
-                    CleanupGetMergeOperandsState,
-                    state_guard.release() /* arg1 */, nullptr /* arg2 */);
+                shared_cleanable->RegisterCleanup(CleanupGetMergeOperandsState,
+                                                  state /* arg1 */,
+                                                  nullptr /* arg2 */);
               }
 
               // TODO(ajkr): this `Reset()` is to avoid an assertion in
