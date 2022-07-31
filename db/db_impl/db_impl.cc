@@ -1945,7 +1945,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   // TODO(ajkr): avoid this heap alloc. Only do it when we require pinning
   // resources, then move resources from stack objects.
-  auto state = std::make_unique<GetMergeOperandsState>();
+  auto state_guard = std::make_unique<GetMergeOperandsState>();
+  auto* state = state_guard.get();
   SequenceNumber max_covering_tombstone_seq = 0;
 
   Status s;
@@ -2065,9 +2066,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                         immutable_db_options_.avoid_unnecessary_blocking_io);
 
                 shared_cleanable.Allocate();
-                shared_cleanable->RegisterCleanup(CleanupGetMergeOperandsState,
-                                                  state.get() /* arg1 */,
-                                                  nullptr /* arg2 */);
+                shared_cleanable->RegisterCleanup(
+                    CleanupGetMergeOperandsState,
+                    state_guard.release() /* arg1 */, nullptr /* arg2 */);
               }
 
               // TODO(ajkr): this `Reset()` is to avoid an assertion in
