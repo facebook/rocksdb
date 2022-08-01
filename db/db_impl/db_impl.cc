@@ -1897,6 +1897,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     }
   }
 
+  if (get_impl_options.number_of_operands != nullptr) {
+    for (int i = 0; i < *get_impl_options.number_of_operands; ++i) {
+      get_impl_options.merge_operands[i].Reset();
+    }
+  }
+
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
@@ -2079,10 +2085,6 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
               const Slice& sl = state->merge_context.GetOperands()[i];
               size += sl.size();
 
-              // TODO(ajkr): this `Reset()` is to avoid an assertion in
-              // `PinnableSlice`. Consider making clients do it or removing the
-              // assertion.
-              get_impl_options.merge_operands->Reset();
               get_impl_options.merge_operands->PinSlice(
                   sl, nullptr /* cleanable */);
               if (i == state->merge_context.GetOperands().size() - 1) {
