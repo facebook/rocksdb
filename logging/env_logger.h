@@ -52,7 +52,7 @@ class EnvLogger : public Logger {
   // I/O context.
   class FileOpGuard {
    public:
-    FileOpGuard(EnvLogger& logger)
+    explicit FileOpGuard(EnvLogger& logger)
         : logger_(logger), prev_perf_level_(GetPerfLevel()) {
       // Preserve iostats not to pollute writes from user writes. We might
       // need a better solution than this.
