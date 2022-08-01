@@ -7,9 +7,11 @@
 #include <thread>
 
 #include "cloud/cloud_manifest.h"
+#include "port/port_posix.h"
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 class CloudScheduler;
@@ -196,7 +198,7 @@ class CloudEnvImpl : public CloudEnv {
 
   // Local CLOUDMANIFEST from `base_env` into `cloud_manifest`.
   static Status LoadLocalCloudManifest(
-      const std::string& dbname, Env* base_env,
+      const std::string& dbname, Env* base_env, const std::string& cookie,
       std::unique_ptr<CloudManifest>* cloud_manifest);
 
   Status CreateCloudManifest(const std::string& local_dbname);
@@ -274,6 +276,31 @@ class CloudEnvImpl : public CloudEnv {
   void FileCachePurge();
   uint64_t FileCacheGetCharge();
   uint64_t FileCacheGetNumItems();
+
+  std::string CloudManifestFile(const std::string& dbname);
+
+  // Apply cloud manifest delta to db locally
+  //
+  // It will:
+  //
+  // - Update in memory cloud manifest
+  // - Persist the changes to disk by writing new CLOUDMANIFEST-new_cookie and
+  // MANIFEST-delta.epoch files
+  Status ApplyLocalCloudManifestDelta(
+    const std::string& local_dbname,
+    const std::string& new_cookie,
+    const CloudManifestDelta& delta);
+
+  // Upload local CLOUDMANIFEST-cookie file and the corresponding
+  // MANIFEST-current_epoch file to cloud
+  //
+  // REQUIRES: the file exists locally
+  Status UploadLocalCloudManifestAndManifest(const std::string& local_dbname,
+                                             const std::string& cookie);
+
+  // Upload local CLOUDMANIFEST-cookie file only. MANIFEST-current_epoch is not uploaded
+  // REQURIES: the file exists locally
+  Status UploadLocalCloudManifest(const std::string& local_dbname, const std::string& cookie);
 
  protected:
   Status CheckValidity() const;
@@ -363,6 +390,8 @@ class CloudEnvImpl : public CloudEnv {
  private:
   void log(InfoLogLevel level, const std::string& fname,
            const std::string& msg);
+  // Fetch the cloud manifest based on the cookie
+  Status FetchCloudManifest(const std::string& local_dbname, const std::string& cookie);
   Status writeCloudManifest(CloudManifest* manifest, const std::string& fname);
   std::string generateNewEpochId();
   std::unique_ptr<CloudManifest> cloud_manifest_;

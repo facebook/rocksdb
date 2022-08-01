@@ -7,8 +7,10 @@
 
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "port/port_posix.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 
 // Cloud manifest holds the information about mapping between original file
 // names and their suffixes.
@@ -46,11 +48,10 @@ class CloudManifest {
   // Invalid call if finalized_ is false
   void AddEpoch(uint64_t startFileNumber, std::string epochId);
 
-  // Make the CloudManifest immutable and thread-safe
-  void Finalize();
-  Slice GetEpoch(uint64_t fileNumber) const;
-  Slice GetCurrentEpoch() const { return Slice(currentEpoch_); }
-  std::string ToString(bool include_past_epochs=false) const;
+  std::string GetEpoch(uint64_t fileNumber);
+
+  std::string GetCurrentEpoch();
+  std::string ToString(bool include_past_epochs=false);
 
  private:
   CloudManifest(std::vector<std::pair<uint64_t, std::string>> pastEpochs,
@@ -58,12 +59,13 @@ class CloudManifest {
       : pastEpochs_(std::move(pastEpochs)),
         currentEpoch_(std::move(currentEpoch)) {}
 
+  port::RWMutex mutex_;
+
   // sorted
   // a set of (fileNumber, epochId) where fileNumber is the last file number
   // (exclusive) of an epoch
   std::vector<std::pair<uint64_t, std::string>> pastEpochs_;
   std::string currentEpoch_;
-  bool finalized_{false};
 
   static constexpr uint32_t kCurrentFormatVersion = 1;
 };

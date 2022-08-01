@@ -55,6 +55,8 @@ class ManifestReader: public LocalManifestReader {
 
   // Retrieve all live files referred to by this bucket path
   // It will read from CLOUDMANIFEST and MANIFEST file in s3 directly
+  // TODO(wei): remove this function. Reading from s3 directly is very slow for
+  // large MANIFEST file
   Status GetLiveFiles(const std::string& bucket_path,
                       std::set<uint64_t>* list) const;
 

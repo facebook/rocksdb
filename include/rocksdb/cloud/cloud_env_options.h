@@ -346,6 +346,30 @@ class CloudEnvOptions {
   // Default: true
   bool roll_cloud_manifest_on_open;
 
+  // If non-empty, cookie will be used as suffix of cloud manifest filename.
+  // Cookie can be used to specify the cloud manifest file. Currently, this is
+  // only used in leader-follower world, in which we create a new cloud-manifest
+  // file during leader election to protect old cloud-manifest file and enable
+  // rollback in emergency
+  //
+  // NOTE: cookie_on_open is only used to determine the CloudManifest file in s3
+  // when we open the db. Once db is opened, we should never need to access the
+  // CloudManifest file in s3. Also, the in-memory CloudManifest will be updated
+  // and it might point to some other CloudManifest file with different cookie
+  //
+  // Default: "", means there is only one cloud manifest file (named as
+  // CLOUDMANIFEST)
+  std::string cookie_on_open;
+
+  // If true, and cookie is not empty, besides uploading CLOUDMANIFEST-cookie to
+  // s3, we also upload CLOUDMANIFEST (no cookie suffix) to s3. This makes sure
+  // that we can quickly rollback if something unexpected happens.
+  //
+  // TODO(wei): This is a temporary option. Once we gain more confidence about cookie we
+  // should remove it
+  // Default: true
+  bool upload_cloud_manifest_without_cookie_suffix;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kCloudAws,
       LogType _log_type = LogType::kLogKafka,
@@ -363,7 +387,9 @@ class CloudEnvOptions {
       bool _skip_cloud_files_in_getchildren = false,
       bool _use_direct_io_for_cloud_download = false,
       std::shared_ptr<Cache> _sst_file_cache = nullptr,
-      bool _roll_cloud_manifest_on_open = true)
+      bool _roll_cloud_manifest_on_open = true,
+      std::string _cookie_on_open = "",
+      bool _upload_cloud_manifest_without_cookie_suffix = true)
       : log_type(_log_type),
         sst_file_cache(_sst_file_cache),
         keep_local_sst_files(_keep_local_sst_files),
@@ -385,7 +411,9 @@ class CloudEnvOptions {
             _constant_sst_file_size_in_sst_file_manager),
         skip_cloud_files_in_getchildren(_skip_cloud_files_in_getchildren),
         use_direct_io_for_cloud_download(_use_direct_io_for_cloud_download),
-        roll_cloud_manifest_on_open(_roll_cloud_manifest_on_open) {
+        roll_cloud_manifest_on_open(_roll_cloud_manifest_on_open),
+        cookie_on_open(std::move(_cookie_on_open)),
+        upload_cloud_manifest_without_cookie_suffix(_upload_cloud_manifest_without_cookie_suffix) {
     (void) _cloud_type;
   }
 
@@ -416,6 +444,17 @@ struct CheckpointToCloudOptions {
 
 // A map of dbid to the pathname where the db is stored
 typedef std::map<std::string, std::string> DbidList;
+
+// CloudManifestDelta represents delta changes when rolling cloud manifest.
+//
+// Whenever we roll cloud manifest, we generate a new MANIFEST-epoch file, all
+// files with file number >= file_num are only visible in the new
+// MANIFEST-epoch file
+struct CloudManifestDelta {
+  uint64_t file_num; // next file number for new epoch
+  std::string epoch; // epoch for the new manifest file
+};
+
 
 //
 // The Cloud environment

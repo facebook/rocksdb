@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cinttypes>
 #include <cstdio>
 #include <list>
@@ -4171,6 +4172,7 @@ void VersionSet::Reset() {
   obsolete_files_.clear();
   obsolete_manifests_.clear();
   wals_.Reset();
+  new_manifest_on_next_update_.store(false, std::memory_order_relaxed);
 }
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
@@ -4419,7 +4421,8 @@ Status VersionSet::ProcessManifestWrites(
 
   assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
-      manifest_file_size_ > db_options_->max_manifest_file_size) {
+      manifest_file_size_ > db_options_->max_manifest_file_size ||
+      new_manifest_on_next_update_.exchange(false, std::memory_order_relaxed)) {
     TEST_SYNC_POINT("VersionSet::ProcessManifestWrites:BeforeNewManifest");
     new_descriptor_log = true;
   } else {

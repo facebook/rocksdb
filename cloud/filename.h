@@ -79,8 +79,9 @@ inline bool ends_with(std::string const& value, std::string const& ending) {
   return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
 }
 
-inline std::string CloudManifestFile(const std::string& dbname) {
-  return dbname + "/CLOUDMANIFEST";
+inline std::string MakeCloudManifestFile(const std::string& dbname, const std::string& cookie) {
+  return cookie.empty() ? (dbname + "/CLOUDMANIFEST")
+                        : (dbname + "/CLOUDMANIFEST-" + cookie);
 }
 
 inline std::string ManifestFileWithEpoch(const std::string& dbname,

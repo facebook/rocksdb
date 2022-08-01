@@ -11,6 +11,7 @@
 #include "db/log_writer.h"
 #include "file/writable_file_writer.h"
 #include "util/coding.h"
+#include "util/mutexlock.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -134,6 +135,8 @@ Status CloudManifest::WriteToLog(std::unique_ptr<WritableFileWriter> log) {
   log::Writer writer(std::move(log), 0, false);
   std::string record;
 
+  ReadLock lck(&mutex_);
+
   // 1. write header
   PutVarint32(&record, kCurrentFormatVersion);
   PutVarint32(&record, static_cast<uint32_t>(pastEpochs_.size() + 1));
@@ -167,7 +170,7 @@ Status CloudManifest::WriteToLog(std::unique_ptr<WritableFileWriter> log) {
 }
 
 void CloudManifest::AddEpoch(uint64_t startFileNumber, std::string epochId) {
-  assert(!finalized_);
+  WriteLock lck(&mutex_);
   assert(pastEpochs_.empty() || pastEpochs_.back().first <= startFileNumber);
   if (pastEpochs_.empty() || pastEpochs_.back().first < startFileNumber) {
       pastEpochs_.emplace_back(startFileNumber, std::move(currentEpoch_));
@@ -175,12 +178,8 @@ void CloudManifest::AddEpoch(uint64_t startFileNumber, std::string epochId) {
   currentEpoch_ = std::move(epochId);
 }
 
-void CloudManifest::Finalize() {
-  assert(!finalized_);
-  finalized_ = true;
-}
-
-Slice CloudManifest::GetEpoch(uint64_t fileNumber) const {
+std::string CloudManifest::GetEpoch(uint64_t fileNumber) {
+  ReadLock lck(&mutex_);
   // Note: We are looking for fileNumber + 1 because fileNumbers in pastEpochs_
   // are exclusive. In other words, if pastEpochs_ contains (10, "x"), it means
   // that "x" epoch ends at 9, not 10.
@@ -188,12 +187,18 @@ Slice CloudManifest::GetEpoch(uint64_t fileNumber) const {
       std::lower_bound(pastEpochs_.begin(), pastEpochs_.end(),
                        std::pair<uint64_t, std::string>(fileNumber + 1, ""));
   if (itr == pastEpochs_.end()) {
-    return Slice(currentEpoch_);
+    return currentEpoch_;
   }
-  return Slice(itr->second);
+  return itr->second;
 }
 
-std::string CloudManifest::ToString(bool include_past_epochs) const {
+std::string CloudManifest::GetCurrentEpoch() {
+  ReadLock lck(&mutex_);
+  return currentEpoch_;
+}
+
+std::string CloudManifest::ToString(bool include_past_epochs) {
+  ReadLock lck(&mutex_);
   std::ostringstream oss;
   if (include_past_epochs) {
     oss << "Past Epochs: [\n";

@@ -4,22 +4,26 @@
 
 #ifdef USE_AWS
 
+#include "rocksdb/cloud/db_cloud.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cinttypes>
 
+#include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_storage_provider_impl.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
-#include "cloud/cloud_storage_provider_impl.h"
+#include "db/db_impl/db_impl.h"
 #include "file/filename.h"
 #include "logging/logging.h"
+#include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/options.h"
-#include "rocksdb/cloud/db_cloud.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "db/db_impl/db_impl.h"
+#include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -331,7 +335,11 @@ class CloudTest : public testing::Test {
     }
   }
 
-  DBImpl* GetDBImpl() {
+  CloudEnvImpl* GetCloudEnvImpl() const {
+    return static_cast<CloudEnvImpl*>(aenv_.get());
+  }
+
+  DBImpl* GetDBImpl() const {
     return static_cast<DBImpl*>(db_->GetBaseDB());
   }
 
@@ -1920,6 +1928,247 @@ TEST_F(CloudTest, FileModificationTimeTest) {
   // we read local file modification time, so the second time we open db, the
   // modification time is changed
   EXPECT_GT(modtime2, modtime1);
+}
+
+TEST_F(CloudTest, EmptyCookieTest) {
+  // By default cookie is empty
+  OpenDB();
+  auto cenv_impl = static_cast<CloudEnvImpl*>(aenv_.get());
+  auto cloud_manifest_file = cenv_impl->CloudManifestFile(dbname_);
+  EXPECT_EQ(basename(cloud_manifest_file), "CLOUDMANIFEST");
+  CloseDB();
+}
+
+TEST_F(CloudTest, NonEmptyCookieTest) {
+  cloud_env_options_.cookie_on_open = "000001";
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_EQ(value, "World");
+
+  auto cenv_impl = static_cast<CloudEnvImpl*>(aenv_.get());
+  auto cloud_manifest_file = cenv_impl->CloudManifestFile(dbname_);
+  aenv_->GetStorageProvider()->ExistsCloudObject(aenv_->GetSrcBucketName(),
+                                                 cloud_manifest_file);
+  EXPECT_EQ(basename(cloud_manifest_file), "CLOUDMANIFEST-000001");
+  CloseDB();
+  DestroyDir(dbname_);
+  OpenDB();
+
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_EQ(value, "World");
+  aenv_->GetStorageProvider()->ExistsCloudObject(aenv_->GetSrcBucketName(),
+                                                 cloud_manifest_file);
+  EXPECT_EQ(basename(cloud_manifest_file), "CLOUDMANIFEST-000001");
+  CloseDB();
+}
+
+// Verify that live sst files are the same after applying cloud manifest delta
+TEST_F(CloudTest, LiveFilesConsistentAfterApplyLocalCloudManifestDeltaTest) {
+  cloud_env_options_.cookie_on_open = "1";
+  OpenDB();
+
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  std::vector<std::string> live_sst_files1;
+  std::string manifest_file1;
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &live_sst_files1, &manifest_file1));
+
+  std::string new_cookie = "2";
+  std::string new_epoch = "dca7f3e19212c4b3";
+  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
+      dbname_, new_cookie,
+      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
+
+  std::vector<std::string> live_sst_files2;
+  std::string manifest_file2;
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &live_sst_files2, &manifest_file2));
+
+  EXPECT_EQ(live_sst_files1, live_sst_files2);
+  EXPECT_NE(manifest_file1, manifest_file2);
+
+  CloseDB();
+}
+
+
+// After calling `ApplyLocalCloudManifestDelta`, writes should be persisted in
+// sst files only visible in new Manifest
+TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
+  cloud_env_options_.cookie_on_open = "1";
+  OpenDB();
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello1", "world1"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  std::string new_cookie = "2";
+  std::string new_epoch = "dca7f3e19212c4b3";
+  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
+      dbname_, new_cookie,
+      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
+  ASSERT_OK(GetCloudEnvImpl()->UploadLocalCloudManifestAndManifest(dbname_, new_cookie));
+
+  GetDBImpl()->NewManifestOnNextUpdate();
+
+  // following writes are not visible for old cookie
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello2", "world2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  // reopen with cookie = 1, new updates after rolling are not visible
+  CloseDB();
+  cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.dest_bucket.SetBucketName("");
+  cloud_env_options_.dest_bucket.SetObjectPath("");
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
+  EXPECT_EQ(value, "world1");
+  EXPECT_NOK(db_->Get(ReadOptions(), "Hello2", &value));
+  CloseDB();
+
+  // reopen with cookie = 2, new updates should still be visible
+  CloseDB();
+  cloud_env_options_.cookie_on_open = "2";
+  OpenDB();
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
+  EXPECT_EQ(value, "world1");
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello2", &value));
+  EXPECT_EQ(value, "world2");
+  CloseDB();
+
+  // Make sure that the changes in cloud are correct
+  DestroyDir(dbname_);
+  cloud_env_options_.cookie_on_open = "2";
+  OpenDB();
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
+  EXPECT_EQ(value, "world1");
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello2", &value));
+  EXPECT_EQ(value, "world2");
+  CloseDB();
+}
+
+// Test various cases of crashing in the middle during CloudManifestSwitch
+TEST_F(CloudTest, CMSwitchCrashInMiddleTest) {
+  cloud_env_options_.roll_cloud_manifest_on_open = false;
+  cloud_env_options_.cookie_on_open = "1";
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "CloudEnvImpl::ApplyLocalCloudManifestDelta:AfterManifestCopy",
+      [](void* arg) {
+        // Simulate the case of crash in the middle of
+        // ApplyLocalCloudManifestDelta
+        *reinterpret_cast<Status*>(arg) = Status::Aborted("Aborted");
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // case 1: Crash in the middle of updating local manifest files
+  // our guarantee: no CLOUDMANIFEST_new_cookie locally and remotely
+  OpenDB();
+
+  std::string new_cookie = "2";
+  std::string new_epoch = "dca7f3e19212c4b3";
+
+  ASSERT_NOK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
+      dbname_, new_cookie,
+      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
+
+  CloseDB();
+
+  EXPECT_NOK(base_env_->FileExists(MakeCloudManifestFile(dbname_, new_cookie)));
+
+  // case 2: Crash in the middle of uploading local manifest files
+  // our guarantee: no CLOUDMANFIEST_cookie remotely
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "CloudEnvImpl::UploadLocalCloudManifestAndManifest:AfterUploadManifest",
+      [](void* arg) {
+        // Simulate the case of crashing in the middle of
+        // UploadLocalCloudManifest
+        *reinterpret_cast<Status*>(arg) = Status::Aborted("Aborted");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  OpenDB();
+
+  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
+      dbname_, new_cookie,
+      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
+
+  ASSERT_NOK(GetCloudEnvImpl()->UploadLocalCloudManifestAndManifest(dbname_, new_cookie));
+
+  ASSERT_NOK(GetCloudEnvImpl()->GetStorageProvider()->ExistsCloudObject(
+      GetCloudEnvImpl()->GetDestBucketName(),
+      MakeCloudManifestFile(GetCloudEnvImpl()->GetDestObjectPath(),
+                            new_cookie)));
+
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(CloudTest, RollNewEpochTest) {
+  OpenDB();
+  auto epoch1 = GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch();
+  EXPECT_OK(GetCloudEnvImpl()->GetStorageProvider()->ExistsCloudObject(
+      GetCloudEnvImpl()->GetDestBucketName(),
+      ManifestFileWithEpoch(GetCloudEnvImpl()->GetDestObjectPath(), epoch1)));
+  CloseDB();
+  OpenDB();
+  auto epoch2 = GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch();
+  EXPECT_OK(GetCloudEnvImpl()->GetStorageProvider()->ExistsCloudObject(
+      GetCloudEnvImpl()->GetDestBucketName(),
+      ManifestFileWithEpoch(GetCloudEnvImpl()->GetDestObjectPath(), epoch2)));
+  CloseDB();
+  EXPECT_NE(epoch1, epoch2);
+}
+
+// Test cloud_env_option: `upload_cloud_manifest_without_cookie_suffix`
+TEST_F(CloudTest, CookieBackwardsCompatibilityTest) {
+  cloud_env_options_.resync_on_open = true;
+  cloud_env_options_.roll_cloud_manifest_on_open = false;
+
+  // Case 1: CLOUDMANIFEST file is uploaded when opening a new db
+  cloud_env_options_.cookie_on_open = "1";
+  OpenDB();
+  ASSERT_OK(db_->Put({}, "k", "v"));
+  ASSERT_OK(db_->Flush({}));
+  CloseDB();
+
+  // roll back to empty cookie
+  cloud_env_options_.cookie_on_open = "";
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Get({}, "k", &value));
+  EXPECT_EQ(value, "v");
+  CloseDB();
+
+  // Case 2: CLOUDMANIFEST file is uploaded when opening existing DB
+  cloud_env_options_.cookie_on_open = "1";
+  OpenDB();
+  CloseDB();
+
+  cloud_env_options_.cookie_on_open = "";
+  OpenDB();
+  ASSERT_OK(db_->Get({}, "k", &value));
+  EXPECT_EQ(value, "v");
+  CloseDB();
+
+  // Case 3: CLOUDMANIFEST file is uploaded when Switching CM/M
+  cloud_env_options_.cookie_on_open = "1";
+  OpenDB();
+  std::string new_cookie = "2";
+  std::string new_epoch = "dca7f3e19212c4b3";
+  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
+      dbname_, new_cookie,
+      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
+  ASSERT_OK(GetCloudEnvImpl()->UploadLocalCloudManifestAndManifest(dbname_, new_cookie));
+  CloseDB();
+
+  cloud_env_options_.cookie_on_open = "";
+  OpenDB();
+  ASSERT_OK(db_->Get({}, "k", &value));
+  EXPECT_EQ(value, "v");
+  CloseDB();
 }
 
 }  //  namespace ROCKSDB_NAMESPACE
