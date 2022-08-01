@@ -147,10 +147,10 @@ CompressedSecondaryCache::SplitValueIntoChunks(
   assert(!value.empty());
   const char* src_ptr = value.data();
   size_t src_size{value.size()};
-  CacheAllocationPtr ptr;
 
   CacheValueChunk dummy_head = CacheValueChunk();
   CacheValueChunk* current_chunk = &dummy_head;
+  CacheAllocationPtr ptr;
   // Do not split when value size is large or there is no compression.
   size_t predicted_chunk_size{0};
   size_t actual_chunk_size{0};
@@ -171,9 +171,8 @@ CompressedSecondaryCache::SplitValueIntoChunks(
       tmp_size = *(--upper);
     }
 
-    CacheValueChunk* new_chunk =
-        reinterpret_cast<CacheValueChunk*>(new char[tmp_size]);
-    current_chunk->next = new_chunk;
+    ptr = AllocateBlock(tmp_size, cache_options_.memory_allocator.get());
+    current_chunk->next = reinterpret_cast<CacheValueChunk*>(ptr.release());
     current_chunk = current_chunk->next;
     actual_chunk_size = tmp_size - sizeof(CacheValueChunk) + 1;
     memcpy(current_chunk->data, src_ptr, actual_chunk_size);
@@ -193,14 +192,13 @@ CacheAllocationPtr CompressedSecondaryCache::MergeChunksIntoValue(
       reinterpret_cast<const CacheValueChunk*>(chunks_head);
   const CacheValueChunk* current_chunk = head;
   charge = 0;
-  while (current_chunk != nullptr && current_chunk->size > 0) {
+  while (current_chunk != nullptr) {
     charge += current_chunk->size;
     current_chunk = current_chunk->next;
   }
 
   CacheAllocationPtr ptr =
       AllocateBlock(charge, cache_options_.memory_allocator.get());
-
   current_chunk = head;
   size_t pos{0};
   while (current_chunk != nullptr) {

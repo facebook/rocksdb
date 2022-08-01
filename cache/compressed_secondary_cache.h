@@ -56,7 +56,7 @@ class CompressedSecondaryCache : public SecondaryCache {
  public:
   CompressedSecondaryCache(
       size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-      double high_pri_pool_ratio = 0.0,
+      double high_pri_pool_ratio,
       std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
       bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
       CacheMetadataChargePolicy metadata_charge_policy =
@@ -88,6 +88,7 @@ class CompressedSecondaryCache : public SecondaryCache {
       3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 32768};
 
   struct CacheValueChunk {
+    // TODO try "CacheAllocationPtr next;".
     CacheValueChunk* next;
     size_t size;
     // Beginning of the chunk data (MUST BE THE LAST FIELD IN THIS STRUCT!)
