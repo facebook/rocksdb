@@ -79,10 +79,9 @@ struct LRUCacheOptions {
   // the low-pri list (the midpoint) and bottom-pri entries will be first
   // inserted to the bottom-pri list.
   //
-  // The default value is -1.0, which means that uses (1 - high_pri_pool_ratio).
   //
   // See also high_pri_pool_ratio.
-  double low_pri_pool_ratio = -1.0;
+  double low_pri_pool_ratio = 0.0;
 
   // If non-nullptr will use this allocator instead of system allocator when
   // allocating memory for cache blocks. Call this method before you start using
@@ -112,7 +111,7 @@ struct LRUCacheOptions {
                   bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
                   CacheMetadataChargePolicy _metadata_charge_policy =
                       kDefaultCacheMetadataChargePolicy,
-                  double _low_pri_pool_ratio = -1.0)
+                  double _low_pri_pool_ratio = 0.0)
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
@@ -138,7 +137,7 @@ extern std::shared_ptr<Cache> NewLRUCache(
     bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy,
-    double low_pri_pool_ratio = -1.0);
+    double low_pri_pool_ratio = 0.0);
 
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
@@ -166,7 +165,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
       CacheMetadataChargePolicy _metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy,
       CompressionType _compression_type = CompressionType::kLZ4Compression,
-      uint32_t _compress_format_version = 2, double _low_pri_pool_ratio = -1.0)
+      uint32_t _compress_format_version = 2, double _low_pri_pool_ratio = 0.0)
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
                         _high_pri_pool_ratio, std::move(_memory_allocator),
                         _use_adaptive_mutex, _metadata_charge_policy,
@@ -185,7 +184,7 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy,
     CompressionType compression_type = CompressionType::kLZ4Compression,
-    uint32_t compress_format_version = 2, double low_pri_pool_ratio = -1.0);
+    uint32_t compress_format_version = 2, double low_pri_pool_ratio = 0.0);
 
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);

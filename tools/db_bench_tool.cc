@@ -570,7 +570,7 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
-DEFINE_double(cache_low_pri_pool_ratio, 1.0,
+DEFINE_double(cache_low_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for low pri blocks.");
 
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
@@ -592,7 +592,7 @@ DEFINE_double(compressed_secondary_cache_high_pri_pool_ratio, 0.0,
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
-DEFINE_double(compressed_secondary_cache_low_pri_pool_ratio, 1.0,
+DEFINE_double(compressed_secondary_cache_low_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for low pri blocks.");
 
 DEFINE_string(compressed_secondary_cache_compression_type, "lz4",

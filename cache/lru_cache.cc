@@ -262,7 +262,8 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInLowPriPool(false);
     high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
-  } else if (low_pri_pool_ratio_ > 0 && (e->IsLowPri() || e->HasHit())) {
+  } else if (low_pri_pool_ratio_ > 0 &&
+             (e->IsHighPri() || e->IsLowPri() || e->HasHit())) {
     // Insert "e" to the head of low-pri pool.
     e->next = lru_low_pri_->next;
     e->prev = lru_low_pri_;
@@ -843,7 +844,8 @@ std::shared_ptr<Cache> NewLRUCache(
     return nullptr;
   }
   if (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0) {
-    low_pri_pool_ratio = 1.0 - high_pri_pool_ratio;
+    // Invalid high_pri_pool_ratio
+    return nullptr;
   }
   if (low_pri_pool_ratio + high_pri_pool_ratio > 1.0) {
     // Invalid high_pri_pool_ratio and low_pri_pool_ratio combination

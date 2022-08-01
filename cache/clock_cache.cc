@@ -700,7 +700,7 @@ std::shared_ptr<Cache> NewClockCache(
   return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                      /* high_pri_pool_ratio */ 0.5, nullptr,
                      kDefaultToAdaptiveMutex, metadata_charge_policy,
-                     /* low_pri_pool_ratio */ 0.5);
+                     /* low_pri_pool_ratio */ 0.0);
 }
 
 std::shared_ptr<Cache> ExperimentalNewClockCache(
