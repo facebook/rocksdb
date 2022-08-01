@@ -1823,27 +1823,31 @@ Status DBImpl::Get(const ReadOptions& read_options,
 }
 
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
-  // If either threshold is reached, a function returning merge operands as
+  // If both thresholds are reached, a function returning merge operands as
   // `PinnableSlice`s should reference the `SuperVersion` to avoid large and/or
   // numerous `memcpy()`s.
   //
-  // TODO(ajkr): find crossover point where sv ref becomes better with many
-  // threads on dual socket host and set these values accordingly.
-  static const size_t kNumOpsForSvRef = 32;
-  static const size_t kNumBytesForSvRef = 32;
-
-  if (merge_context.GetOperands().size() >= kNumOpsForSvRef) {
-    return true;
-  }
+  // The below constants enable the optimization conservatively. They are
+  // verified to not regress `GetMergeOperands()` latency in the following
+  // scenarios.
+  //
+  // - CPU: two socket Intel(R) Xeon(R) Gold 6138 CPU @ 2.00GHz
+  // - `GetMergeOperands()` threads: 1 - 32
+  // - Entry size: 32 bytes - 4KB
+  // - Merges per key: 1 - 16K
+  // - LSM component: memtable
+  //
+  // TODO(ajkr): expand measurement to SST files.
+  static const size_t kNumBytesForSvRef = 32768;
+  static const size_t kLog2AvgBytesForSvRef = 8;  // 256 bytes
 
   size_t num_bytes = 0;
   for (const Slice& sl : merge_context.GetOperands()) {
     num_bytes += sl.size();
   }
-  if (num_bytes >= kNumBytesForSvRef) {
-    return true;
-  }
-  return false;
+  return num_bytes >= kNumBytesForSvRef &&
+         (num_bytes >> kLog2AvgBytesForSvRef) >=
+             merge_context.GetOperands().size();
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
