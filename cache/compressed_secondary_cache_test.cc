@@ -597,21 +597,15 @@ class CompressedSecondaryCacheTest : public testing::Test {
     size_t size2{256};
     std::string str2 = rnd.RandomString(static_cast<int>(size2));
     ptr = AllocateBlock(sizeof(CacheValueChunk) - 1 + size2, allocator.get());
-    CacheValueChunk* new_chunk =
-        reinterpret_cast<CacheValueChunk*>(ptr.release());
-    current_chunk->next = new_chunk;
+    current_chunk->next = reinterpret_cast<CacheValueChunk*>(ptr.release());
     current_chunk = current_chunk->next;
     memcpy(current_chunk->data, str2.data(), size2);
     current_chunk->size = size2;
 
     size_t size3{31};
     std::string str3 = rnd.RandomString(static_cast<int>(size3));
-    new_chunk = reinterpret_cast<CacheValueChunk*>(
-        new char[sizeof(CacheValueChunk) - 1 + size3]);
-
     ptr = AllocateBlock(sizeof(CacheValueChunk) - 1 + size3, allocator.get());
-    new_chunk = reinterpret_cast<CacheValueChunk*>(ptr.release());
-    current_chunk->next = new_chunk;
+    current_chunk->next = reinterpret_cast<CacheValueChunk*>(ptr.release());
     current_chunk = current_chunk->next;
     memcpy(current_chunk->data, str3.data(), size3);
     current_chunk->size = size3;
