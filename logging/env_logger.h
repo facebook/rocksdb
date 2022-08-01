@@ -52,22 +52,22 @@ class EnvLogger : public Logger {
   // I/O context.
   class FileOpGuard {
    public:
-    FileOpGuard(EnvLogger* logger)
+    FileOpGuard(EnvLogger& logger)
         : logger_(logger), prev_perf_level_(GetPerfLevel()) {
       // Preserve iostats not to pollute writes from user writes. We might
       // need a better solution than this.
       SetPerfLevel(PerfLevel::kDisable);
-      enable_iostats = false;
-      logger->mutex_.Lock();
+      iostats_context.disable_iostats = true;
+      logger.mutex_.Lock();
     }
     ~FileOpGuard() {
-      logger_->mutex_.Unlock();
-      enable_iostats = true;
+      logger_.mutex_.Unlock();
+      iostats_context.disable_iostats = false;
       SetPerfLevel(prev_perf_level_);
     }
 
    private:
-    EnvLogger* logger_;
+    EnvLogger& logger_;
     PerfLevel prev_perf_level_;
   };
 
@@ -84,14 +84,14 @@ class EnvLogger : public Logger {
     TEST_SYNC_POINT("EnvLogger::Flush:Begin1");
     TEST_SYNC_POINT("EnvLogger::Flush:Begin2");
 
-    FileOpGuard guard(this);
+    FileOpGuard guard(*this);
     FlushLocked();
   }
 
   Status CloseImpl() override { return CloseHelper(); }
 
   Status CloseHelper() {
-    FileOpGuard guard(this);
+    FileOpGuard guard(*this);
     const auto close_status = file_.Close();
 
     if (close_status.ok()) {
@@ -159,7 +159,7 @@ class EnvLogger : public Logger {
 
       assert(p <= limit);
       {
-        FileOpGuard guard(this);
+        FileOpGuard guard(*this);
         // We will ignore any error returned by Append().
         file_.Append(Slice(base, p - base)).PermitUncheckedError();
         flush_pending_ = true;

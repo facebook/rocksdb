@@ -10,18 +10,12 @@
 #if !defined(NIOSTATS_CONTEXT)
 namespace ROCKSDB_NAMESPACE {
 extern thread_local IOStatsContext iostats_context;
-// It is not consistent that whether iostats follows PerfLevel.Timer counters
-// follows it but BackupEngine relies on counter metrics to always be there.
-// Here we create a backdoor option to disable some counters, so that some
-// existing statsare not polluted by file operations, such as logging, by
-// turning this off.
-extern thread_local bool enable_iostats;
 }  // namespace ROCKSDB_NAMESPACE
 
 // increment a specific counter by the specified value
-#define IOSTATS_ADD(metric, value)   \
-  if (enable_iostats) {              \
-    iostats_context.metric += value; \
+#define IOSTATS_ADD(metric, value)        \
+  if (!iostats_context.disable_iostats) { \
+    iostats_context.metric += value;      \
   }
 
 // reset a specific counter to zero

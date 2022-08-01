@@ -15,7 +15,6 @@ namespace ROCKSDB_NAMESPACE {
 static IOStatsContext iostats_context;
 #else
 thread_local IOStatsContext iostats_context;
-thread_local bool enable_iostats = true;
 #endif
 
 IOStatsContext* get_iostats_context() {
