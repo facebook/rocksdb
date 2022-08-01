@@ -2062,12 +2062,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
             sv->Ref();
 
-            // TODO(ajkr): `background_purge_on_iterator_cleanup` is
-            // inappropriately named for this purpose.
             state->sv_handle = new SuperVersionHandle(
                 this, &mutex_, sv,
-                read_options.background_purge_on_iterator_cleanup ||
-                    immutable_db_options_.avoid_unnecessary_blocking_io);
+                immutable_db_options_.avoid_unnecessary_blocking_io);
 
             shared_cleanable.Allocate();
             shared_cleanable->RegisterCleanup(CleanupGetMergeOperandsState,
