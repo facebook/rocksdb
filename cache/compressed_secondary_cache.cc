@@ -160,8 +160,8 @@ CompressedSecondaryCache::SplitValueIntoChunks(
     auto upper =
         std::upper_bound(malloc_bin_sizes_.begin(), malloc_bin_sizes_.end(),
                          predicted_chunk_size);
-    // Do not split when value size is too small, too large, or there is no
-    // compression.
+    // Do not split when value size is too small, too large, close to a bin
+    // size, or there is no compression.
     if (upper == malloc_bin_sizes_.begin() ||
         upper == malloc_bin_sizes_.end() ||
         *upper - predicted_chunk_size < malloc_bin_sizes_.front() ||
