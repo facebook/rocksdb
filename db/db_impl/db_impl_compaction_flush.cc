@@ -1853,8 +1853,7 @@ Status DBImpl::RunManualCompaction(
   // jobs drops to zero. This used to be needed to ensure that this manual
   // compaction can compact any range of keys/files. Now it is optional
   // (see `CompactRangeOptions::exclusive_manual_compaction`). The use case for
-  // `exclusive_manual_compaction=true` (the default) is unclear beyond not
-  // trusting the new code.
+  // `exclusive_manual_compaction=true` is unclear beyond not trusting the code.
   //
   // HasPendingManualCompaction() is true when at least one thread is inside
   // RunManualCompaction(), i.e. during that time no other compaction will
