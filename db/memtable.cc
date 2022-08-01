@@ -596,6 +596,7 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
   // key@fragment_seq includes all the information in [key, value), so later
   // insert only have to consider the entry key@fragment_seq and skip to later
   // entry after [value, +inf)
+  bool done = false;
   for (; iter->Valid(); iter->Next()) {
     const Slice& ikey = iter->key();
     Slice tombstone_start_key = ExtractUserKey(ikey);
@@ -622,6 +623,7 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
         to_insert[k].insert(s);
         to_insert[std::make_pair(value, tombstone_end_key)].insert(
             tombstone_seqs.begin(), tombstone_seqs.end());
+        done = true;
         break;
       } else if (end_compare == 0) {
         to_insert[std::make_pair(tombstone_start_key, key)].insert(
@@ -629,6 +631,7 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
         auto k = std::make_pair(key, value);
         to_insert[k].insert(tombstone_seqs.begin(), tombstone_seqs.end());
         to_insert[k].insert(s);
+        done = true;
         break;
       } else if (user_comparator->Compare(key, tombstone_end_key) < 0) {
         to_insert[std::make_pair(tombstone_start_key, key)].insert(
@@ -636,7 +639,6 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
         auto k = std::make_pair(key, tombstone_end_key);
         to_insert[k].insert(tombstone_seqs.begin(), tombstone_seqs.end());
         to_insert[k].insert(s);
-        to_insert[std::make_pair(tombstone_end_key, value)].insert(s);
         key = tombstone_end_key;
       } else {
         continue;
@@ -648,7 +650,6 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
         auto k = std::make_pair(tombstone_start_key, tombstone_end_key);
         to_insert[k].insert(tombstone_seqs.begin(), tombstone_seqs.end());
         to_insert[k].insert(s);
-        to_insert[std::make_pair(tombstone_end_key, value)].insert(s);
         key = tombstone_end_key;
       } else if (user_comparator->Compare(value, tombstone_start_key) > 0) {
         to_insert[std::make_pair(key, tombstone_start_key)].insert(s);
@@ -659,6 +660,7 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
           to_insert[std::make_pair(value, tombstone_end_key)].insert(
               tombstone_seqs.begin(), tombstone_seqs.end());
         }
+        done = true;
         break;
       } else {
         break;
@@ -671,23 +673,24 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
         to_insert[k].insert(s);
         to_insert[std::make_pair(value, tombstone_end_key)].insert(
             tombstone_seqs.begin(), tombstone_seqs.end());
+        done = true;
         break;
       } else if (end_compare > 0) {
         auto k = std::make_pair(key, tombstone_end_key);
         to_insert[k].insert(tombstone_seqs.begin(), tombstone_seqs.end());
         to_insert[k].insert(s);
-        to_insert[std::make_pair(tombstone_end_key, value)].insert(s);
         key = tombstone_end_key;
       } else {
         auto k = std::make_pair(key, value);
         to_insert[k].insert(tombstone_seqs.begin(), tombstone_seqs.end());
         to_insert[k].insert(s);
+        done = true;
         break;
       }
     }
   }
 
-  if (to_insert.empty()) {
+  if (!done) {
     to_insert[std::make_pair(key, value)].insert(s);
   }
   uint32_t entries = 0;
