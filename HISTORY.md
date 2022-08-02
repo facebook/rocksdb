@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 7.5.1 (08/01/2022)
+### Bug Fixes
+* Fix a bug where rate_limiter_parameter is not passed into `PartitionedFilterBlockReader::GetFilterPartitionBlock`.
+
 ## 7.5.0 (07/15/2022)
 ### New Features
 * Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.
