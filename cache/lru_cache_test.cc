@@ -41,7 +41,7 @@ class LRUCacheTest : public testing::Test {
   }
 
   void NewCache(size_t capacity, double high_pri_pool_ratio = 0.0,
-                double low_pri_pool_ratio = 1.0,
+                double low_pri_pool_ratio = 0.0,
                 bool use_adaptive_mutex = kDefaultToAdaptiveMutex) {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
