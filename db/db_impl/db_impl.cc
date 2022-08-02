@@ -1897,8 +1897,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     }
   }
 
-  if (get_impl_options.number_of_operands != nullptr) {
-    for (int i = 0; i < *get_impl_options.number_of_operands; ++i) {
+  if (get_impl_options.get_merge_operands_options != nullptr) {
+    for (int i = 0; i < get_impl_options.get_merge_operands_options
+                            ->expected_max_number_of_operands;
+         ++i) {
       get_impl_options.merge_operands[i].Reset();
     }
   }
