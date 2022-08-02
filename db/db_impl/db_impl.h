@@ -117,7 +117,6 @@ class Directories {
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) {
     // close all directories for all database paths
     IOStatus s = IOStatus::OK();
-    IOStatus temp_s = IOStatus::OK();
 
     // The default implementation for Close() in Directory/FSDirectory class
     // "NotSupported" status, the upper level interface should be able to
@@ -126,53 +125,35 @@ class Directories {
     // `FSDirectory::Close()` yet
 
     if (db_dir_) {
-      temp_s = db_dir_->Close(options, dbg);
-      if (!temp_s.ok()) {
-        if (temp_s.IsNotSupported()) {
-          temp_s.PermitUncheckedError();
-        } else {
-          s = temp_s;
-        }
+      IOStatus temp_s = db_dir_->Close(options, dbg);
+      if (!temp_s.ok() && !temp_s.IsNotSupported() && s.ok()) {
+        s = std::move(temp_s);
       }
     }
 
-    if (!s.ok()) {
-      return s;
-    }
+    // Attempt to close everything even if one fails
+    s.PermitUncheckedError();
 
     if (wal_dir_) {
-      s = wal_dir_->Close(options, dbg);
-      if (!temp_s.ok()) {
-        if (temp_s.IsNotSupported()) {
-          temp_s.PermitUncheckedError();
-        } else {
-          s = temp_s;
+      IOStatus temp_s = wal_dir_->Close(options, dbg);
+      if (!temp_s.ok() && !temp_s.IsNotSupported() && s.ok()) {
+        s = std::move(temp_s);
+      }
+    }
+
+    s.PermitUncheckedError();
+
+    for (auto& data_dir_ptr : data_dirs_) {
+      if (data_dir_ptr) {
+        IOStatus temp_s = data_dir_ptr->Close(options, dbg);
+        if (!temp_s.ok() && !temp_s.IsNotSupported() && s.ok()) {
+          s = std::move(temp_s);
         }
       }
     }
 
-    if (!s.ok()) {
-      return s;
-    }
-
-    if (data_dirs_.size() > 0 && s.ok()) {
-      for (auto& data_dir_ptr : data_dirs_) {
-        if (data_dir_ptr) {
-          temp_s = data_dir_ptr->Close(options, dbg);
-          if (!temp_s.ok()) {
-            if (temp_s.IsNotSupported()) {
-              temp_s.PermitUncheckedError();
-            } else {
-              return temp_s;
-            }
-          }
-        }
-      }
-    }
-
-    // Mark temp_s as checked when temp_s is still the initial status
-    // (IOStatus::OK(), not checked yet)
-    temp_s.PermitUncheckedError();
+    // Ready for caller
+    s.MustCheck();
     return s;
   }
 

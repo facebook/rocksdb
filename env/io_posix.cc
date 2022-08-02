@@ -1713,6 +1713,7 @@ IOStatus PosixDirectory::Close(const IOOptions& /*opts*/,
 IOStatus PosixDirectory::FsyncWithDirOptions(
     const IOOptions& /*opts*/, IODebugContext* /*dbg*/,
     const DirFsyncOptions& dir_fsync_options) {
+  assert(fd_ >= 0);  // Check use after close
   IOStatus s = IOStatus::OK();
 #ifndef OS_AIX
   if (is_btrfs_) {

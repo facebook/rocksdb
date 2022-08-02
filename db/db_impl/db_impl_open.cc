@@ -538,6 +538,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
+    // TODO: share file descriptors (FSDirectory) with SetDirectories above
     std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
