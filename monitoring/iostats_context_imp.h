@@ -13,7 +13,10 @@ extern thread_local IOStatsContext iostats_context;
 }  // namespace ROCKSDB_NAMESPACE
 
 // increment a specific counter by the specified value
-#define IOSTATS_ADD(metric, value) (iostats_context.metric += value)
+#define IOSTATS_ADD(metric, value)        \
+  if (!iostats_context.disable_iostats) { \
+    iostats_context.metric += value;      \
+  }
 
 // reset a specific counter to zero
 #define IOSTATS_RESET(metric) (iostats_context.metric = 0)

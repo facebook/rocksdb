@@ -651,7 +651,6 @@ class Repairer {
             table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.file_checksum, table->meta.file_checksum_func_name,
-            table->meta.min_timestamp, table->meta.max_timestamp,
             table->meta.unique_id);
       }
       assert(next_file_number_ > 0);
