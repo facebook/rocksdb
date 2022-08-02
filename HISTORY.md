@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 7.4.5 (08/02/2022)
 ### Bug Fixes
 * Fix a bug starting in 7.4.0 in which some fsync operations might be skipped in a DB after any DropColumnFamily on that DB, until it is re-opened. This can lead to data loss on power loss. (For custom FileSystem implementations, this could lead to `FSDirectory::Fsync` or `FSDirectory::Close` after the first `FSDirectory::Close`; Also, valgrind could report call to `close()` with `fd=-1`.)
 

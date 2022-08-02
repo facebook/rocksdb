@@ -13,7 +13,7 @@
 // minor or major version number planned for release.
 #define ROCKSDB_MAJOR 7
 #define ROCKSDB_MINOR 4
-#define ROCKSDB_PATCH 4
+#define ROCKSDB_PATCH 5
 
 // Do not use these. We made the mistake of declaring macros starting with
 // double underscore. Now we have to live with our choice. We'll deprecate these
