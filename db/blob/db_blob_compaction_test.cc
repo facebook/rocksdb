@@ -798,6 +798,42 @@ TEST_F(DBBlobCompactionTest, CompactionReadaheadMerge) {
   Close();
 }
 
+TEST_F(DBBlobCompactionTest, CompactionDoNotFillCache) {
+  Options options = GetDefaultOptions();
+
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 1 << 20;
+  cache_options.metadata_charge_policy = kDontChargeCacheMetadata;
+
+  options.blob_cache = NewLRUCache(cache_options);
+
+  Reopen(options);
+
+  ASSERT_OK(Put("key", "lime"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("key", "pie"));
+  ASSERT_OK(Put("foo", "baz"));
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_CACHE_ADD), 0);
+
+  Close();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
