@@ -31,6 +31,12 @@ class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
   void Open() { DBTestBase::Reopen(GetOptions()); }
 };
 
+class DBWriteTestUnparameterized : public DBTestBase {
+ public:
+  explicit DBWriteTestUnparameterized()
+      : DBTestBase("pipelined_write_test", /*env_do_fsync=*/false) {}
+};
+
 // It is invalid to do sync write while disabling WAL.
 TEST_P(DBWriteTest, SyncAndDisableWAL) {
   WriteOptions write_options;
@@ -318,7 +324,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   Close();
 }
 
-TEST_P(DBWriteTest, PipelinedWriteRace) {
+TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
   // This test was written to trigger a race in ExitAsBatchGroupLeader in case
   // enable_pipelined_write_ was true.
   // Writers for which ShouldWriteToMemtable() evaluates to false are removed
@@ -340,13 +346,8 @@ TEST_P(DBWriteTest, PipelinedWriteRace) {
   // allocate the writer on the same address depends on the OS and/or compiler,
   // so it is rather hard to create a deterministic test for this.
 
-  if (GetParam() != kPipelinedWrite) {
-    ROCKSDB_GTEST_BYPASS("This test requires pipelined write");
-    return;
-  }
-
-  Options options = GetOptions();
-  options.two_write_queues = false;
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
   options.enable_pipelined_write = true;
   std::vector<port::Thread> threads;
 

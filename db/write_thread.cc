@@ -656,7 +656,6 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     // memtable-writer-list before we can do so. This ensures that writers are
     // added to the memtable-writer-list in the exact same order in which they
     // were in the newest_writer list.
-
     // This must happen before completing the writers from our group to prevent
     // a race where the owning thread of one of these writers can start a new
     // write operation.
@@ -664,6 +663,16 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     Writer* head = newest_writer_.load(std::memory_order_acquire);
     if (head != last_writer ||
         !newest_writer_.compare_exchange_strong(head, &dummy)) {
+      // Either last_writer wasn't the head during the load(), or it was the
+      // head during the load() but somebody else pushed onto the list before
+      // we did the compare_exchange_strong (causing it to fail). In the latter
+      // case compare_exchange_strong has the effect of re-reading its first
+      // param (head). No need to retry a failing CAS, because only a departing
+      // leader (which we are at the moment) can remove nodes from the list.
+      assert(head != last_writer);
+
+      // After walking link_older starting from head (if not already done) we
+      // will be able to traverse w->link_newer below.
       CreateMissingNewerLinks(head);
       assert(last_writer->link_newer != nullptr);
       last_writer->link_newer->link_older = &dummy;
@@ -716,8 +725,8 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     Writer* head = newest_writer_.load(std::memory_order_acquire);
     if (head != last_writer ||
         !newest_writer_.compare_exchange_strong(head, nullptr)) {
-      // Either w wasn't the head during the load(), or it was the head
-      // during the load() but somebody else pushed onto the list before
+      // Either last_writer wasn't the head during the load(), or it was the
+      // head during the load() but somebody else pushed onto the list before
       // we did the compare_exchange_strong (causing it to fail).  In the
       // latter case compare_exchange_strong has the effect of re-reading
       // its first param (head).  No need to retry a failing CAS, because
@@ -733,6 +742,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
       // to MarkJoined, so we can definitely conclude that no other leader
       // work is going on here (with or without db mutex).
       CreateMissingNewerLinks(head);
+      assert(last_writer->link_newer != nullptr);
       assert(last_writer->link_newer->link_older == last_writer);
       last_writer->link_newer->link_older = nullptr;
 
