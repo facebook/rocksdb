@@ -601,27 +601,32 @@ if(USE_FOLLY)
   endif()
   set(ROCKSDB_BUILD_SHARED OFF)
   set(GFLAGS_SHARED FALSE)
-  exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
-  build/fbcode_builder/getdeps.py show-inst-dir OUTPUT_VARIABLE
-  FOLLY_INST_PATH)
-  exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../boost* OUTPUT_VARIABLE
-  BOOST_INST_PATH)
-  exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../fmt* OUTPUT_VARIABLE
-  FMT_INST_PATH)
-  exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
-  GFLAGS_INST_PATH)
-  set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.78.0)
-  if(EXISTS ${FMT_INST_PATH}/lib64)
-    set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
-  else()
-    set(fmt_DIR ${FMT_INST_PATH}/lib/cmake/fmt)
+  find_package(folly)
+  # If cmake could not find the folly-config.cmake file, fall back
+  # to looking in third-party/folly for folly and its dependencies
+  if(NOT FOLLY_LIBRARIES)
+    exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+    build/fbcode_builder/getdeps.py show-inst-dir OUTPUT_VARIABLE
+    FOLLY_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../boost* OUTPUT_VARIABLE
+    BOOST_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../fmt* OUTPUT_VARIABLE
+    FMT_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
+    GFLAGS_INST_PATH)
+    set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.78.0)
+    if(EXISTS ${FMT_INST_PATH}/lib64)
+      set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
+    else()
+      set(fmt_DIR ${FMT_INST_PATH}/lib/cmake/fmt)
+    endif()
+    set(gflags_DIR ${GFLAGS_INST_PATH}/lib/cmake/gflags)
+
+    exec_program(sed ARGS -i 's/gflags_shared//g'
+    ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
+
+    include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
   endif()
-  set(gflags_DIR ${GFLAGS_INST_PATH}/lib/cmake/gflags)
-
-  exec_program(sed ARGS -i 's/gflags_shared//g'
-  ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
-
-  include(${FOLLY_INST_PATH}/lib/cmake/folly/folly-config.cmake)
 
   add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
   list(APPEND THIRDPARTY_LIBS Folly::folly)
@@ -1541,12 +1546,12 @@ if(WITH_TRACE_TOOLS)
   add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
     tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
   target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
   add_executable(trace_analyzer${ARTIFACT_SUFFIX}
     tools/trace_analyzer.cc)
   target_link_libraries(trace_analyzer${ARTIFACT_SUFFIX}
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${GFLAGS_LIB} ${FOLLY_LIBS})
 
 endif()
 

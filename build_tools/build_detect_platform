@@ -840,8 +840,7 @@ rm -f test.o test_dl.o
 
 # Get the path for the folly installation dir
 if [ "$USE_FOLLY" ]; then
-  if [ -z "$FOLLY_DIR" ]; then
-    FOLLY_DIR="./third-party/folly"
+  if [ "$FOLLY_DIR" ]; then
     FOLLY_PATH=`cd $FOLLY_DIR && $PYTHON build/fbcode_builder/getdeps.py show-inst-dir folly`
   fi
 fi
