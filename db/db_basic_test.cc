@@ -1209,9 +1209,9 @@ TEST_F(DBBasicTest, DBCloseAllDirectoryFDs) {
   s = db->Close();
   auto* counted_fs =
       options.env->GetFileSystem()->CheckedCast<CountedFileSystem>();
-  assert(counted_fs);
-  ASSERT_TRUE(counted_fs->counters()->dir_opens ==
-              counted_fs->counters()->dir_closes);
+  ASSERT_TRUE(counted_fs != nullptr);
+  ASSERT_EQ(counted_fs->counters()->dir_opens,
+            counted_fs->counters()->dir_closes);
   ASSERT_OK(s);
   delete db;
 }

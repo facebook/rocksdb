@@ -392,11 +392,16 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
     cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
   }
 
-  if (cache_handle != nullptr) {
-    UpdateCacheHitMetrics(block_type, get_context,
-                          block_cache->GetUsage(cache_handle));
-  } else {
-    UpdateCacheMissMetrics(block_type, get_context);
+  // Avoid updating metrics here if the handle is not complete yet. This
+  // happens with MultiGet and secondary cache. So update the metrics only
+  // if its a miss, or a hit and value is ready
+  if (!cache_handle || block_cache->Value(cache_handle)) {
+    if (cache_handle != nullptr) {
+      UpdateCacheHitMetrics(block_type, get_context,
+                            block_cache->GetUsage(cache_handle));
+    } else {
+      UpdateCacheMissMetrics(block_type, get_context);
+    }
   }
 
   return cache_handle;
