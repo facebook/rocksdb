@@ -112,9 +112,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
       approximate_memory_usage_(0),
-      fragmented_range_tombstone_list_(
-          std::make_shared<FragmentedRangeTombstoneList>(
-              nullptr, comparator_.comparator)) {
+      has_range_tombstone_list_(false) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -453,15 +451,46 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
       is_range_del_table_empty_.load(std::memory_order_relaxed)) {
     return nullptr;
   }
-  return NewRangeTombstoneIteratorInternal(read_seq);
+  return NewRangeTombstoneIteratorInternal(read_options, read_seq);
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
-    SequenceNumber read_seq) {
-  // Build from cached fragmented_range_tombstone_list_ built in the write path
-  return new FragmentedRangeTombstoneIterator(
-      std::atomic_load(&fragmented_range_tombstone_list_),
-      comparator_.comparator, read_seq);
+    const ReadOptions& read_options, SequenceNumber read_seq) {
+  if (has_range_tombstone_list_.load(std::memory_order_acquire)) {
+    return new FragmentedRangeTombstoneIterator(
+        fragmented_range_tombstone_list_.get(), comparator_.comparator,
+        read_seq);
+  }
+
+  auto* unfragmented_iter = new MemTableIterator(
+      *this, read_options, nullptr /* arena */, true /* use_range_del_table */);
+  auto fragmented_tombstone_list =
+      std::make_shared<FragmentedRangeTombstoneList>(
+          std::unique_ptr<InternalIterator>(unfragmented_iter),
+          comparator_.comparator);
+
+  auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
+      fragmented_tombstone_list, comparator_.comparator, read_seq);
+  return fragmented_iter;
+}
+
+void MemTable::ConstructFragmentedRangeTombstones() {
+  // There should be no concurrent Construction
+  if (!has_range_tombstone_list_.load(std::memory_order_relaxed)) {
+    if (!is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+      auto* unfragmented_iter =
+          new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
+                               true /* use_range_del_table */);
+
+      fragmented_range_tombstone_list_ =
+          std::make_unique<FragmentedRangeTombstoneList>(
+              std::unique_ptr<InternalIterator>(unfragmented_iter),
+              comparator_.comparator);
+    }
+    // This is to ensure tombstone list is constructed when readers see this
+    // flag is set
+    has_range_tombstone_list_.store(true, std::memory_order_release);
+  }
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
@@ -658,14 +687,6 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
   if (type == kTypeRangeDeletion) {
-    // refresh cached fragmented tombstone list
-    auto* unfragmented_iter =
-        new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
-                             true /* use_range_del_table */);
-    std::atomic_store(&fragmented_range_tombstone_list_,
-                      std::make_shared<FragmentedRangeTombstoneList>(
-                          std::unique_ptr<InternalIterator>(unfragmented_iter),
-                          comparator_.comparator));
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
@@ -1029,7 +1050,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     if (!no_range_del) {
       std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
           NewRangeTombstoneIteratorInternal(
-              GetInternalKeySeqno(iter->lkey->internal_key())));
+              read_options, GetInternalKeySeqno(iter->lkey->internal_key())));
       iter->max_covering_tombstone_seq = std::max(
           iter->max_covering_tombstone_seq,
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));

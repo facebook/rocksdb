@@ -157,6 +157,7 @@ bool MemTableListVersion::GetFromList(
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
+    assert(memtable->IsFragmentedRangeTombstonesConstructed());
     SequenceNumber current_seq = kMaxSequenceNumber;
 
     bool done = memtable->Get(key, value, timestamp, s, merge_context,
@@ -194,6 +195,7 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
                                 ? read_opts.snapshot->GetSequenceNumber()
                                 : kMaxSequenceNumber;
   for (auto& m : memlist_) {
+    assert(m->IsFragmentedRangeTombstonesConstructed());
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         m->NewRangeTombstoneIterator(read_opts, read_seq));
     range_del_agg->AddTombstones(std::move(range_del_iter));
@@ -572,6 +574,8 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
   current_->Add(m, to_delete);
+  // This will be an atomic load of the boolean flag has_range_tombstone_list_
+  // if the fragmented tombstones is already constructed.
   m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {

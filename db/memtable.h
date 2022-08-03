@@ -502,6 +502,12 @@ class MemTable {
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
+  void ConstructFragmentedRangeTombstones();
+
+  bool IsFragmentedRangeTombstonesConstructed() const {
+    return has_range_tombstone_list_.load(std::memory_order_relaxed);
+  }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -601,14 +607,21 @@ class MemTable {
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);
 
-  // Always returns non-null and assumes certain pre-checks are done
+  // Always returns non-null and assumes certain pre-checks (e.g.,
+  // is_range_del_table_empty_) are done. This is only valid during the lifetime
+  // of the underlying memtable.
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
-      SequenceNumber read_seq);
+      const ReadOptions& read_options, SequenceNumber read_seq);
 
-  // The current fragmented range tombstones of this memtable.
-  // Updated when a new DeleteRange() is inserted into the memtable.
-  std::shared_ptr<FragmentedRangeTombstoneList>
+  // The fragmented range tombstones of this memtable.
+  // This is constructed when this memtable becomes immutable
+  // if !is_range_del_table_empty_.
+  std::unique_ptr<FragmentedRangeTombstoneList>
       fragmented_range_tombstone_list_;
+
+  // Denotes whether a fragmented range tombstone list is cached with the
+  // memtable. This should only be set be immutable memtables.
+  std::atomic<bool> has_range_tombstone_list_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
