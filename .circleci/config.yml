@@ -826,7 +826,9 @@ workflows:
     jobs:
       - build-linux
       - build-linux-cmake-with-folly
+      - build-linux-cmake-with-folly-lite-no-test
       - build-linux-gcc-7-with-folly
+      - build-linux-gcc-7-with-folly-lite-no-test
       - build-linux-cmake-with-folly-coroutines
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
