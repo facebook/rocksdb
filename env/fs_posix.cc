@@ -839,8 +839,8 @@ class PosixFileSystem : public FileSystem {
       return IOStatus::OK();
     }
 
-    char the_path[256];
-    char* ret = getcwd(the_path, 256);
+    char the_path[4096];
+    char* ret = getcwd(the_path, 4096);
     if (ret == nullptr) {
       return IOStatus::IOError(errnoStr(errno).c_str());
     }
