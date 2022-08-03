@@ -1107,13 +1107,13 @@ void CompactionIterator::DecideOutputLevel() {
         compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key);
     if (!safe_to_penultimate_level) {
       output_to_penultimate_level_ = false;
-      // It could happen when disable/enable `bottommost_temperature` while
-      // holding a snapshot. When `bottommost_temperature` is not set
+      // It could happen when disable/enable `last_level_temperature` while
+      // holding a snapshot. When `last_level_temperature` is not set
       // (==kUnknown), the data newer than any snapshot is pushed to the last
       // level, but when the per_key_placement feature is enabled on the fly,
       // the data later than the snapshot has to be moved to the penultimate
       // level, which may or may not be safe. So the user needs to make sure all
-      // snapshot is released before enabling `bottommost_temperature` feature
+      // snapshot is released before enabling `last_level_temperature` feature
       // We will migrate the feature to `last_level_temperature` and maybe make
       // it not dynamically changeable.
       if (ikey_.sequence > earliest_snapshot_) {

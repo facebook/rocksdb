@@ -128,7 +128,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
-      {"bottommost_temperature", "kWarm"},
+      {"last_level_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2359,7 +2359,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
-      {"bottommost_temperature", "kWarm"},
+      {"last_level_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {

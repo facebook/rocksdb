@@ -878,6 +878,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
+  Temperature last_level_temperature = Temperature::kUnknown;
 
   // EXPERIMENTAL
   // The feature is still in development and is incomplete.

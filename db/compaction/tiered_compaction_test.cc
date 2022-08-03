@@ -1098,7 +1098,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   db_->ReleaseSnapshot(snap);
 
   // TODO: it should push the data to last level, but penultimate level file is
-  //  already bottommost, it's a conflict between bottommost_temperature and
+  //  already bottommost, it's a conflict between last_level_temperature and
   //  tiered compaction which only applies to last level compaction.
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());

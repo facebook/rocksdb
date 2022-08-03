@@ -6997,7 +6997,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
 
   // Update bottommost temperature dynamically with SetOptions
-  auto s = db_->SetOptions({{"bottommost_temperature", "kCold"}});
+  auto s = db_->SetOptions({{"last_level_temperature", "kCold"}});
   ASSERT_OK(s);
   ASSERT_EQ(db_->GetOptions().bottommost_temperature, Temperature::kCold);
   db_->GetColumnFamilyMetaData(&metadata);

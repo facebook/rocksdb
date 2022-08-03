@@ -1722,7 +1722,7 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
   if (temperature == Temperature::kUnknown && bottommost_level_ &&
       !sub_compact->IsCurrentPenultimateLevel()) {
     temperature =
-        sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
+        sub_compact->compaction->mutable_cf_options()->last_level_temperature;
   }
   fo_copy.temperature = temperature;
 

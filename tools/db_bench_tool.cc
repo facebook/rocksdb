@@ -1309,7 +1309,7 @@ DEFINE_string(fs_uri, "",
 DEFINE_string(simulate_hybrid_fs_file, "",
               "File for Store Metadata for Simulate hybrid FS. Empty means "
               "disable the feature. Now, if it is set, "
-              "bottommost_temperature is set to kWarm.");
+              "last_level_temperature is set to kWarm.");
 DEFINE_int32(simulate_hybrid_hdd_multipliers, 1,
              "In simulate_hybrid_fs_file or simulate_hdd mode, how many HDDs "
              "are simulated.");
