@@ -3175,6 +3175,29 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
   ASSERT_EQ(0U, vstorage_->FilesMarkedForCompaction().size());
 }
 
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompaction) {
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(5, 90U, "100", "600", 10 * kFileSize);
+  Add(6, 80U, "200", "300", 1 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+  std::cout << static_cast<int>(compaction->compaction_reason()) << std::endl;
+  std::cout << compaction->output_level() << std::endl;
+}
+
 class PerKeyPlacementCompactionPickerTest
     : public CompactionPickerTest,
       public testing::WithParamInterface<bool> {
