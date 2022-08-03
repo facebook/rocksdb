@@ -6676,7 +6676,7 @@ TEST_P(RenameCurrentTest, Compaction) {
   ASSERT_EQ("d_value", Get("d"));
 }
 
-TEST_F(DBTest2, BottommostTemperature) {
+TEST_F(DBTest2, LastLevelTemperature) {
   class TestListener : public EventListener {
    public:
     void OnFileReadFinish(const FileOperationInfo& info) override {
@@ -6730,11 +6730,16 @@ TEST_F(DBTest2, BottommostTemperature) {
     port::Mutex mutex_;
   };
 
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+
   auto* listener = new TestListener();
 
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
   options.level0_file_num_compaction_trigger = 2;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
   options.listeners.emplace_back(listener);
   Reopen(options);
@@ -6760,7 +6765,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
-  SstFileMetaData meta = metadata.levels[1].files[0];
+  SstFileMetaData meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   uint64_t number;
   FileType type;
@@ -6818,7 +6823,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
@@ -6837,7 +6842,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
@@ -6865,13 +6870,13 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 }
 
-TEST_F(DBTest2, BottommostTemperatureUniversal) {
+TEST_F(DBTest2, LastLevelTemperatureUniversal) {
   const int kTriggerNum = 3;
   const int kNumLevels = 5;
   const int kBottommostLevel = kNumLevels - 1;

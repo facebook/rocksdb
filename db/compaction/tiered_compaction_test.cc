@@ -871,12 +871,14 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   const int kNumLevels = 7;
   const int kNumKeys = 100;
   const int kLastLevel = kNumLevels - 1;
+  const int kPenultimateLevel = kLastLevel - 1;
 
   auto options = CurrentOptions();
   options.bottommost_temperature = Temperature::kCold;
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
+  options.level_compaction_dynamic_level_bytes = true;
   options.max_subcompactions = 10;
   DestroyAndReopen(options);
 
@@ -904,14 +906,13 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   }
   ASSERT_OK(dbfull()->WaitForCompact(true));
 
-  // non-last-level compaction doesn't support per_key_placement
-  ASSERT_EQ("0,1", FilesPerLevel());
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
-  expect_stats[1].Add(kBasicCompStats);
-  expect_stats[1].Add(kBasicPerLevelStats);
-  expect_stats[1].ResetCompactionReason(CompactionReason::kLevelL0FilesNum);
+  expect_stats[kLastLevel].Add(kBasicCompStats);
+  expect_stats[kLastLevel].Add(kBasicPerLevelStats);
+  expect_stats[kLastLevel].ResetCompactionReason(CompactionReason::kLevelL0FilesNum);
   VerifyCompactionStats(expect_stats, expect_pl_stats);
 
   MoveFilesToLevel(kLastLevel);
@@ -976,8 +977,8 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   latest_cold_seq = seq_history[1];
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
   seq_history.clear();
 
@@ -1097,9 +1098,6 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
 
   db_->ReleaseSnapshot(snap);
 
-  // TODO: it should push the data to last level, but penultimate level file is
-  //  already bottommost, it's a conflict between last_level_temperature and
-  //  tiered compaction which only applies to last level compaction.
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
