@@ -417,7 +417,6 @@ jobs:
       - pre-steps
       - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
       - setup-folly
-      - build-folly
       - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
       - post-steps
 
