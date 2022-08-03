@@ -420,6 +420,10 @@ ifndef DISABLE_JEMALLOC
 			PLATFORM_CXXFLAGS += -DUSE_JEMALLOC
 			PLATFORM_CCFLAGS  += -DUSE_JEMALLOC
 		endif
+		ifeq ($(USE_FOLLY_LITE),1)
+			PLATFORM_CXXFLAGS += -DUSE_JEMALLOC
+			PLATFORM_CCFLAGS  += -DUSE_JEMALLOC
+		endif
 	endif
 	ifdef WITH_JEMALLOC_FLAG
 		PLATFORM_LDFLAGS += -ljemalloc
@@ -454,6 +458,9 @@ endif
 # This provides a Makefile simulation of a Meta-internal folly integration.
 # It is not validated for general use.
 ifeq ($(USE_FOLLY),1)
+ifeq ($(USE_FOLLY_LITE),1)
+$(error Please specify only one of USE_FOLLY and USE_FOLLY_LITE)
+endif
 ifneq ($(strip $(FOLLY_PATH)),)
 	BOOST_PATH = $(shell (ls -d $(FOLLY_PATH)/../boost*))
 	DBL_CONV_PATH = $(shell (ls -d $(FOLLY_PATH)/../double-conversion*))
@@ -484,6 +491,22 @@ ifneq ($(strip $(FOLLY_PATH)),)
 endif
 	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
 	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+endif
+
+ifeq ($(USE_FOLLY_LITE),1)
+	FOLLY_DIR = ./third-party/folly
+	# AIX: pre-defined system headers are surrounded by an extern "C" block
+	ifeq ($(PLATFORM), OS_AIX)
+		PLATFORM_CCFLAGS += -I$(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -I$(FOLLY_DIR)
+	else
+		PLATFORM_CCFLAGS += -isystem $(FOLLY_DIR)
+		PLATFORM_CXXFLAGS += -isystem $(FOLLY_DIR)
+	endif
+	PLATFORM_CCFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+	PLATFORM_CXXFLAGS += -DUSE_FOLLY -DFOLLY_NO_CONFIG
+# TODO: fix linking with fbcode compiler config
+	PLATFORM_LDFLAGS += -lglog
 endif
 
 ifdef TEST_CACHE_LINE_SIZE
@@ -568,6 +591,10 @@ LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
 ifeq ($(HAVE_POWER8),1)
 LIB_OBJECTS += $(patsubst %.c, $(OBJ_DIR)/%.o, $(LIB_SOURCES_C))
 LIB_OBJECTS += $(patsubst %.S, $(OBJ_DIR)/%.o, $(LIB_SOURCES_ASM))
+endif
+
+ifeq ($(USE_FOLLY_LITE),1)
+  LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
 # range_tree is not compatible with non GNU libc on ppc64
@@ -2386,6 +2413,9 @@ checkout_folly:
 	@# Pin to a particular version for public CI, so that PR authors don't
 	@# need to worry about folly breaking our integration. Update periodically
 	cd third-party/folly && git reset --hard beacd86d63cd71c904632262e6c36f60874d78ba
+	@# A hack to remove boost dependency.
+	@# NOTE: this hack is only needed if building using USE_FOLLY_LITE
+	perl -pi -e 's/^(#include <boost)/\/\/$$1/' third-party/folly/folly/functional/Invoke.h
 	@# NOTE: this hack is required for clang in some cases
 	perl -pi -e 's/int rv = syscall/int rv = (int)syscall/' third-party/folly/folly/detail/Futex.cpp
 	@# NOTE: this hack is required for gcc in some cases
@@ -2399,7 +2429,10 @@ build_folly:
 		echo "Please run checkout_folly first"; \
 		false; \
 	fi
-	cd third-party/folly && CXXFLAGS=" -mavx2 -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
+	# Restore the original version of Invoke.h with boost dependency
+	cd third-party/folly && ${GIT_COMMAND} checkout folly/functional/Invoke.h
+	cd third-party/folly && MAYBE_AVX2=`echo $(CXXFLAGS) | grep -o -- -mavx2 || true` && CXXFLAGS=" $$MAYBE_AVX2 -DHAVE_CXX11_ATOMIC " \
+		$(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing
@@ -2485,6 +2518,9 @@ endif
 ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
+ifeq ($(USE_FOLLY_LITE),1)
+  DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
+endif
 endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to

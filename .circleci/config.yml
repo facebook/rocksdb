@@ -93,6 +93,13 @@ commands:
           command: |
             make checkout_folly
 
+  build-folly:
+    steps:
+      - run:
+          name: Build folly and dependencies
+          command: |
+            make build_folly
+
   build-for-benchmarks:
     steps:
       - pre-steps
@@ -355,8 +362,20 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
-      - run: make build_folly
-      - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
+      - build-folly
+      - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
+      - post-steps
+
+  build-linux-cmake-with-folly-lite-no-test:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - upgrade-cmake
+      - setup-folly
+      - run: (mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)
       - post-steps
 
   build-linux-cmake-with-benchmark:
@@ -386,8 +405,20 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
-      - run: make build_folly
+      - build-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - post-steps
+
+  build-linux-gcc-7-with-folly-lite-no-test:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
+      - setup-folly
+      - build-folly
+      - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
       - post-steps
 
   build-linux-gcc-8-no_test_run:
@@ -402,11 +433,14 @@ jobs:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: 2xlarge
+    environment:
+      CC: gcc-10
+      CXX: g++-10
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
       - setup-folly
-      - run: CC=gcc-10 CXX=g++-10 make build_folly
+      - build-folly
       - run: (mkdir build && cd build && CC=gcc-10 CXX=g++-10 cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && CC=gcc-10 CXX=g++-10 make V=1 -j20 && ctest -j20)
       - post-steps
 
@@ -441,7 +475,7 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
-      - run: make build_folly
+      - build-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 

@@ -277,6 +277,7 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     if [ "$FBCODE_BUILD" = "true" ]; then
       # Enable backtrace on fbcode since the necessary libraries are present
       COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+      FOLLY_DIR="third-party/folly"
     fi
     true
 else

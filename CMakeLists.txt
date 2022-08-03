@@ -585,7 +585,12 @@ endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
+
 if(USE_COROUTINES)
+	if(USE_FOLLY OR USE_FOLLY_LITE)
+		message(FATAL_ERROR "Please specify exactly one of USE_COROUTINES,"
+    " USE_FOLLY, and USE_FOLLY_LITE")
+	endif()
   set(CMAKE_CXX_STANDARD 20)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -Wno-maybe-uninitialized")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated")
@@ -596,8 +601,11 @@ if(USE_COROUTINES)
 endif()
 
 if(USE_FOLLY)
+  if(USE_FOLLY_LITE)
+    message(FATAL_ERROR "Please specify one of USE_FOLLY or USE_FOLLY_LITE")
+  endif()
   if(ROCKSDB_BUILD_SHARED)
-    message(FATAL Cannot build RocksDB shared library with folly)
+    message(FATAL_ERROR "Cannot build RocksDB shared library with folly")
   endif()
   set(ROCKSDB_BUILD_SHARED OFF)
   set(GFLAGS_SHARED FALSE)
@@ -1025,6 +1033,21 @@ else()
     env/env_posix.cc
     env/fs_posix.cc
     env/io_posix.cc)
+endif()
+
+if(USE_FOLLY_LITE)
+  list(APPEND SOURCES
+    third-party/folly/folly/container/detail/F14Table.cpp
+    third-party/folly/folly/detail/Futex.cpp
+    third-party/folly/folly/lang/SafeAssert.cpp
+    third-party/folly/folly/lang/ToAscii.cpp
+    third-party/folly/folly/ScopeGuard.cpp
+    third-party/folly/folly/synchronization/AtomicNotification.cpp
+    third-party/folly/folly/synchronization/DistributedMutex.cpp
+    third-party/folly/folly/synchronization/ParkingLot.cpp)
+	include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
+  list(APPEND THIRDPARTY_LIBS glog)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
