@@ -106,8 +106,8 @@ class UniversalCompactionBuilder {
   Compaction* PickCompactionToOldest(size_t start_index,
                                      CompactionReason compaction_reason);
 
-  Compaction* PickCompactionWithSortedRunRange(size_t start_index, size_t end_index,
-                                       CompactionReason compaction_reason);
+  Compaction* PickCompactionWithSortedRunRange(
+      size_t start_index, size_t end_index, CompactionReason compaction_reason);
 
   // Try to pick periodic compaction. The caller should only call it
   // if there is at least one file marked for periodic compaction.
@@ -814,13 +814,13 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
         cf_name_.c_str(), file_num_buf, start_index, " to reduce size amp.\n");
   }
 
-  // size of earliest file
-  uint64_t earliest_file_size = sorted_runs_.back().size;
+  // size of the base sorted run for size amp calculation
+  uint64_t base_sr_size = sorted_runs_.back().size;
   size_t sr_end_idx = sorted_runs_.size() - 1;
   if (ioptions_.preclude_last_level_data_seconds > 0) {
     if (sorted_runs_.back().level == ioptions_.num_levels - 1) {
       sr_end_idx = sorted_runs_.size() - 2;
-      earliest_file_size = sorted_runs_[sr_end_idx].size;
+      base_sr_size = sorted_runs_[sr_end_idx].size;
     }
   }
 
@@ -846,19 +846,19 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   }
 
   // size amplification = percentage of additional size
-  if (candidate_size * 100 < ratio * earliest_file_size) {
+  if (candidate_size * 100 < ratio * base_sr_size) {
     ROCKS_LOG_BUFFER(
         log_buffer_,
         "[%s] Universal: size amp not needed. newer-files-total-size %" PRIu64
         " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, earliest_file_size);
+        cf_name_.c_str(), candidate_size, base_sr_size);
     return nullptr;
   } else {
     ROCKS_LOG_BUFFER(
         log_buffer_,
         "[%s] Universal: size amp needed. newer-files-total-size %" PRIu64
         " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, earliest_file_size);
+        cf_name_.c_str(), candidate_size, base_sr_size);
   }
   // Since incremental compaction can't include more than second last
   // level, it can introduce penalty, compared to full compaction. We
@@ -870,7 +870,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   // This also prevent the case when compaction falls behind and we
   // need to compact more levels for compactions to catch up.
   if (mutable_cf_options_.compaction_options_universal.incremental) {
-    double fanout_threshold = static_cast<double>(earliest_file_size) /
+    double fanout_threshold = static_cast<double>(base_sr_size) /
                               static_cast<double>(candidate_size) * 1.8;
     Compaction* picked = PickIncrementalForReduceSizeAmp(fanout_threshold);
     if (picked != nullptr) {

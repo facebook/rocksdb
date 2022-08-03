@@ -3184,7 +3184,8 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
   ioptions_.preclude_last_level_data_seconds = 1000;
-  mutable_cf_options_.compaction_options_universal.max_size_amplification_percent = 200;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
@@ -3200,7 +3201,8 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
           &log_buffer_));
 
   // Make sure it's a size amp compaction and includes all files
-  ASSERT_EQ(compaction->compaction_reason(), CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
   ASSERT_EQ(compaction->output_level(), kLastLevel);
   ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
   ASSERT_EQ(compaction->input_levels(4)->num_files, 1);
@@ -3218,7 +3220,8 @@ TEST_F(CompactionPickerTest, UniversalSizeRatioTierCompactionLastLevel) {
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
   ioptions_.preclude_last_level_data_seconds = 1000;
-  mutable_cf_options_.compaction_options_universal.max_size_amplification_percent = 200;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
@@ -3235,7 +3238,8 @@ TEST_F(CompactionPickerTest, UniversalSizeRatioTierCompactionLastLevel) {
 
   // Internally, size amp compaction is evaluated before size ratio compaction.
   // Here to make sure it's size ratio compaction instead of size amp
-  ASSERT_EQ(compaction->compaction_reason(), CompactionReason::kUniversalSizeRatio);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeRatio);
   ASSERT_EQ(compaction->output_level(), kPenultimateLevel - 1);
   ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
   ASSERT_EQ(compaction->input_levels(5)->num_files, 0);
@@ -3252,7 +3256,8 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionLastLevel) {
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
   ioptions_.preclude_last_level_data_seconds = 1000;
-  mutable_cf_options_.compaction_options_universal.max_size_amplification_percent = 200;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
@@ -3269,13 +3274,13 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionLastLevel) {
 
   // It's a Size Amp compaction, but doesn't include the last level file and
   // output to the penultimate level.
-  ASSERT_EQ(compaction->compaction_reason(), CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
   ASSERT_EQ(compaction->output_level(), kPenultimateLevel);
   ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
   ASSERT_EQ(compaction->input_levels(5)->num_files, 1);
   ASSERT_EQ(compaction->input_levels(6)->num_files, 0);
 }
-
 
 class PerKeyPlacementCompactionPickerTest
     : public CompactionPickerTest,
