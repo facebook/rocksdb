@@ -158,7 +158,10 @@ struct MutableCFOptions {
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
-        last_level_temperature(options.last_level_temperature == Temperature::kUnknown ? options.bottommost_temperature : options.last_level_temperature),
+        last_level_temperature(options.last_level_temperature ==
+                                       Temperature::kUnknown
+                                   ? options.bottommost_temperature
+                                   : options.last_level_temperature),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level) {
