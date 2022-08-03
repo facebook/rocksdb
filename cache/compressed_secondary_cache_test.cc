@@ -312,6 +312,15 @@ class CompressedSecondaryCacheTest : public testing::Test {
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
                            statistics);
+
+    if (sec_cache_is_compressed && LZ4_Supported()) {
+      ASSERT_EQ(statistics->getTickerCount(COMP_SEC_CACHE_BYTES_UNCOMPRESSED),
+                1010);
+      // str1 (RandomString) has low compression ratio and handle has metadata
+      // charge.
+      ASSERT_EQ(statistics->getTickerCount(COMP_SEC_CACHE_BYTES_COMPRESSED),
+                1017);
+    }
     ASSERT_NE(handle, nullptr);
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);

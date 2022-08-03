@@ -62,6 +62,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
     size_t uncompressed_size{0};
     CacheAllocationPtr uncompressed;
+    RecordTick(stats, COMP_SEC_CACHE_BYTES_COMPRESSED, handle_value_charge);
     uncompressed = UncompressData(uncompression_info, (char*)merged_value.get(),
                                   handle_value_charge, &uncompressed_size,
                                   cache_options_.compress_format_version,
