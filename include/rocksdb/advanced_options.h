@@ -885,6 +885,12 @@ struct AdvancedColumnFamilyOptions {
   // will be precluded from the last level.
   // 0 means no key will be precluded from the last level.
   //
+  // Note: when enabled, universal size amplification (controlled by option
+  //  `compaction_options_universal.max_size_amplification_percent`) calculation
+  //  will exclude the last level. As the feature is designed for tiered storage
+  //  and a typical setting is the last level is cold tier which is likely not
+  //  size constrained, the size amp is going to be only for non-last levels.
+  //
   // Default: 0 (disable the feature)
   uint64_t preclude_last_level_data_seconds = 0;
 

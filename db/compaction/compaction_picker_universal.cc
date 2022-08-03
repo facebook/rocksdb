@@ -106,7 +106,7 @@ class UniversalCompactionBuilder {
   Compaction* PickCompactionToOldest(size_t start_index,
                                      CompactionReason compaction_reason);
 
-  Compaction* PickCompactionSortedRuns(size_t start_index, size_t end_index,
+  Compaction* PickCompactionWithSortedRunRange(size_t start_index, size_t end_index,
                                        CompactionReason compaction_reason);
 
   // Try to pick periodic compaction. The caller should only call it
@@ -824,7 +824,6 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
     }
   }
 
-
   // keep adding up all the remaining files
   for (size_t loop = start_index; loop < sr_end_idx; loop++) {
     sr = &sorted_runs_[loop];
@@ -880,8 +879,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
       return picked;
     }
   }
-  return PickCompactionSortedRuns(start_index, sr_end_idx,
-                                  CompactionReason::kUniversalSizeAmplification);
+  return PickCompactionWithSortedRunRange(
+      start_index, sr_end_idx, CompactionReason::kUniversalSizeAmplification);
 }
 
 Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
@@ -1242,11 +1241,13 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       CompactionReason::kFilesMarkedForCompaction);
 }
 
-Compaction* UniversalCompactionBuilder::PickCompactionToOldest(size_t start_index, rocksdb::CompactionReason compaction_reason) {
-  return PickCompactionSortedRuns(start_index, sorted_runs_.size() - 1, compaction_reason);
+Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
+    size_t start_index, rocksdb::CompactionReason compaction_reason) {
+  return PickCompactionWithSortedRunRange(start_index, sorted_runs_.size() - 1,
+                                          compaction_reason);
 }
 
-Compaction* UniversalCompactionBuilder::PickCompactionSortedRuns(
+Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
     size_t start_index, size_t end_index, CompactionReason compaction_reason) {
   assert(start_index < sorted_runs_.size());
 
