@@ -15,6 +15,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const Slice kDefaultWideColumnName;
+
 Status WideColumnSerialization::Serialize(const WideColumns& columns,
                                           std::string& output) {
   if (columns.size() >
