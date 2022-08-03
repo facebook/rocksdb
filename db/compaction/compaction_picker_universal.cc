@@ -1242,7 +1242,7 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
 }
 
 Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
-    size_t start_index, rocksdb::CompactionReason compaction_reason) {
+    size_t start_index, CompactionReason compaction_reason) {
   return PickCompactionWithSortedRunRange(start_index, sorted_runs_.size() - 1,
                                           compaction_reason);
 }
