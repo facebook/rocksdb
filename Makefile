@@ -2431,8 +2431,8 @@ build_folly:
 	fi
 	# Restore the original version of Invoke.h with boost dependency
 	cd third-party/folly && ${GIT_COMMAND} checkout folly/functional/Invoke.h
-	cd third-party/folly && MAYBE_AVX2=`echo $(CXXFLAGS) | grep -o -- -mavx2 || true` && CXXFLAGS=" $$MAYBE_AVX2 -DHAVE_CXX11_ATOMIC " \
-		$(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
+	cd third-party/folly && MAYBE_AVX2=`echo $(CXXFLAGS) | grep -o -- -DHAVE_AVX2 | sed 's/-DHAVE_AVX2/-mavx2/g' || true` && \
+		CXXFLAGS=" $$MAYBE_AVX2 -DHAVE_CXX11_ATOMIC " $(PYTHON) build/fbcode_builder/getdeps.py build --no-tests
 
 # ---------------------------------------------------------------------------
 #   Build size testing
