@@ -176,6 +176,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                   const Slice& blob_index) {
   assert(!is_blob_);
   assert(!is_wide_);
+  assert(value_of_default_column_.empty());
 
   if (expose_blob_index_) {  // Stacked BlobDB implementation
     is_blob_ = true;
@@ -213,6 +214,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 bool DBIter::SetWideColumnValueIfNeeded(const Slice& wide_columns_slice) {
   assert(!is_blob_);
   assert(!is_wide_);
+  assert(value_of_default_column_.empty());
 
   Slice wide_columns_copy = wide_columns_slice;
 
@@ -277,6 +279,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
 
   is_blob_ = false;
   is_wide_ = false;
+  value_of_default_column_.clear();
 
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
@@ -607,6 +610,7 @@ bool DBIter::MergeValuesNewToOld() {
 
       is_blob_ = false;
       assert(!is_wide_);
+      assert(value_of_default_column_.empty());
 
       // iter_ is positioned after put
       iter_.Next();
@@ -984,6 +988,7 @@ bool DBIter::FindValueForCurrentKey() {
   s.PermitUncheckedError();
   is_blob_ = false;
   is_wide_ = false;
+  value_of_default_column_.clear();
 
   switch (last_key_entry_type) {
     case kTypeDeletion:
@@ -1026,6 +1031,7 @@ bool DBIter::FindValueForCurrentKey() {
 
         is_blob_ = false;
         assert(!is_wide_);
+        assert(value_of_default_column_.empty());
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
@@ -1103,6 +1109,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   ParsedInternalKey ikey;
   is_blob_ = false;
   is_wide_ = false;
+  value_of_default_column_.clear();
 
   while (true) {
     if (!iter_.Valid()) {
@@ -1241,6 +1248,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
       is_blob_ = false;
       assert(!is_wide_);
+      assert(value_of_default_column_.empty());
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
