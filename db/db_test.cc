@@ -6007,42 +6007,18 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
 
   Random rnd(301);
 
-  for (int num = 0; num < 3; num++) {
+  for (int num = 0; num < 10; num++) {
     GenerateNewRandomFile(&rnd);
   }
 
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4", FilesPerLevel(0));
   ASSERT_TRUE(!CompactionFilterFactoryGetContext::IsManual(
       options.compaction_filter_factory.get()));
 
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("2,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("3,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("2,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("3,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4,8", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4,8", FilesPerLevel(0));
-
+  // make sure either L0 or L1 has file
+  while (NumTableFilesAtLevel(0) == 0 && NumTableFilesAtLevel(1) == 0) {
+    GenerateNewRandomFile(&rnd);
+  }
+  
   // compact it three times
   for (int i = 0; i < 3; ++i) {
     ASSERT_OK(experimental::SuggestCompactRange(db_, nullptr, nullptr));
