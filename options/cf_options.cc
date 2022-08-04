@@ -1044,6 +1044,7 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(log,
                  "                       experimental_mempurge_threshold: %f",
                  experimental_mempurge_threshold);
+  
   // Universal Compaction Options
   ROCKS_LOG_INFO(log, "compaction_options_universal.size_ratio : %d",
                  compaction_options_universal.size_ratio);
