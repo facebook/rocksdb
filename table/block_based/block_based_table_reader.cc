@@ -2273,6 +2273,36 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   return s;
 }
 
+Status BlockBasedTable::MultiGetFilter(const ReadOptions& read_options,
+                                       const SliceTransform* prefix_extractor,
+                                       MultiGetRange* mget_range) {
+  if (mget_range->empty()) {
+    // Caller should ensure non-empty (performance bug)
+    assert(false);
+    return Status::OK();  // Nothing to do
+  }
+
+  FilterBlockReader* const filter = rep_->filter.get();
+  if (!filter) {
+    return Status::OK();
+  }
+
+  // First check the full filter
+  // If full filter not useful, Then go into each block
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
+  if (mget_range->begin()->get_context) {
+    tracing_mget_id = mget_range->begin()->get_context->get_tracing_get_id();
+  }
+  BlockCacheLookupContext lookup_context{
+      TableReaderCaller::kUserMultiGet, tracing_mget_id,
+      /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
+  FullFilterKeysMayMatch(filter, mget_range, no_io, prefix_extractor,
+                         &lookup_context, read_options.rate_limiter_priority);
+
+  return Status::OK();
+}
+
 Status BlockBasedTable::Prefetch(const Slice* const begin,
                                  const Slice* const end) {
   auto& comparator = rep_->internal_comparator;

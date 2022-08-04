@@ -2338,6 +2338,34 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   ASSERT_EQ(multiget_io_batch_size.count, 1);
   ASSERT_EQ(multiget_io_batch_size.max, 2);
 }
+
+TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 19 and 26 are in L2, but overlap with L0 and L1 file ranges
+  key_strs.push_back(Key(19));
+  key_strs.push_back(Key(26));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = true;
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 2);
+  ASSERT_EQ(statuses[0], Status::OK());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
+  ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+}
 #endif  // USE_COROUTINES
 
 TEST_F(DBBasicTest, MultiGetStats) {

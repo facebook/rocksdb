@@ -107,6 +107,19 @@ class TableCache {
       const FileMetaData& file_meta,
       std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter);
 
+  // Call table reader's MultiGetFilter to use the bloom filter to filter out
+  // keys. Returns Status::NotSupported() if row cache needs to be checked.
+  // If the table cache is looked up to get the table reader, the cache handle
+  // is returned in table_handle. This handle should be passed back to
+  // MultiGet() so it can be released.
+  Status MultiGetFilter(
+      const ReadOptions& options,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta,
+      const std::shared_ptr<const SliceTransform>& prefix_extractor,
+      HistogramImpl* file_read_hist, int level,
+      MultiGetContext::Range* mget_range, Cache::Handle** table_handle);
+
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
   // it returns false. As a side effect, it will insert the TableReader
@@ -122,7 +135,7 @@ class TableCache {
       const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-      int level = -1);
+      int level = -1, Cache::Handle* table_handle = nullptr);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
