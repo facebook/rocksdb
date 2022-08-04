@@ -404,8 +404,9 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {
   const int kOperandLen = 1024;
 
   Options options;
+  options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  Reopen(options);
+  DestroyAndReopen(options);
 
   Random rnd(301);
   std::vector<std::string> expected_merge_operands;
