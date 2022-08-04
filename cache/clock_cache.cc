@@ -369,7 +369,7 @@ ClockCacheShard::ClockCacheShard(
 void ClockCacheShard::EraseUnRefEntries() {
   autovector<ClockHandle> deleted;
 
-  table_.ApplyToEntriesRange(
+  table_.ApplyToEntriesRange<void>(
       [this, &deleted](ClockHandle* h) {
         // Externally unreferenced element.
         table_.Remove(h, &deleted);
@@ -404,9 +404,9 @@ void ClockCacheShard::ApplyToSomeEntries(
     *state = index_end << (32 - length_bits);
   }
 
-  table_.ApplyToEntriesRange(
+  table_.ConstApplyToEntriesRange<void>(
       [callback,
-       metadata_charge_policy = metadata_charge_policy_](ClockHandle* h) {
+       metadata_charge_policy = metadata_charge_policy_](const ClockHandle* h) {
         callback(h->key(), h->value, h->GetCharge(metadata_charge_policy),
                  h->deleter);
       },
@@ -615,8 +615,8 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   // which creates additional synchronization costs.
   size_t clock_usage = 0;
 
-  table_.ConstApplyToEntriesRange(
-      [&clock_usage](ClockHandle* h) {
+  table_.ConstApplyToEntriesRange<void>(
+      [&clock_usage](const ClockHandle* h) {
         if (h->ExternalRefs() > 1) {
           // We check > 1 because we are holding an external ref.
           clock_usage += h->total_charge;
