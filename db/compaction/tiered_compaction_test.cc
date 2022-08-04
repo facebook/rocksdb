@@ -517,6 +517,7 @@ TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
+  const int kLastLevel = kNumLevels - 1;
 
   auto options = CurrentOptions();
   options.bottommost_temperature = Temperature::kCold;
@@ -544,11 +545,12 @@ TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_EQ("0,1", FilesPerLevel());
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_EQ("0,1", FilesPerLevel()); // bottommost but not last level file is hot
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
-  MoveFilesToLevel(kNumLevels - 1);
+  // explicitly move the data to the last level
+  MoveFilesToLevel(kLastLevel);
 
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
 
@@ -878,7 +880,6 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
-  options.level_compaction_dynamic_level_bytes = true;
   options.max_subcompactions = 10;
   DestroyAndReopen(options);
 
@@ -906,22 +907,22 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   }
   ASSERT_OK(dbfull()->WaitForCompact(true));
 
-  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
+  // non last level is hot
+  ASSERT_EQ("0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
-  expect_stats[kLastLevel].Add(kBasicCompStats);
-  expect_stats[kLastLevel].Add(kBasicPerLevelStats);
-  expect_stats[kLastLevel].ResetCompactionReason(CompactionReason::kLevelL0FilesNum);
+  expect_stats[1].Add(kBasicCompStats);
+  expect_stats[1].Add(kBasicPerLevelStats);
+  expect_stats[1].ResetCompactionReason(CompactionReason::kLevelL0FilesNum);
   VerifyCompactionStats(expect_stats, expect_pl_stats);
 
+  // move all data to the last level
   MoveFilesToLevel(kLastLevel);
 
   ResetAllStats(expect_stats, expect_pl_stats);
 
-  // the data should be all hot, and it's a last level compaction, but all
-  // sequence numbers have been zeroed out, so they're still treated as old
-  // data.
+  // The compaction won't move the data up
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -974,6 +975,11 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
 
   // move forward the cold_seq, try to split the data into cold and hot, but in
   // this case it's unsafe to split the data
+  // because it's non-last-level but bottommost file, the sequence number will
+  // be zeroed out and lost the time information (with
+  // `level_compaction_dynamic_level_bytes` or Universal Compaction, it should
+  // be rare.)
+  // TODO(zjay): ideally we should avoid zero out non-last-level bottommost file
   latest_cold_seq = seq_history[1];
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
@@ -981,41 +987,6 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
   seq_history.clear();
-
-  // Add new data again
-  for (int i = 0; i < kNumTrigger; i++) {
-    for (int j = 0; j < kNumKeys; j++) {
-      ASSERT_OK(Put(Key(i * 10 + j), "value" + std::to_string(i)));
-    }
-    ASSERT_OK(Flush());
-    seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
-  }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
-
-  ResetAllStats(expect_stats, expect_pl_stats);
-
-  // Try to split the last level cold data into hot and cold, which
-  // is not supported
-  latest_cold_seq = seq_history[0];
-  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_EQ("0,0,0,0,0,1", FilesPerLevel());
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-
-  auto comp_stats = kBasicCompStats;
-  comp_stats.ResetCompactionReason(CompactionReason::kManualCompaction);
-  const int bottommost_level = 5;
-  expect_stats[bottommost_level].Add(comp_stats);
-  expect_stats[bottommost_level].Add(
-      comp_stats);  // bottommost level has 2 compactions
-  expect_stats[bottommost_level].Add(kBasicPerLevelStats);
-  expect_stats[bottommost_level].bytes_read_output_level = kHasValue;
-  expect_stats[bottommost_level].num_input_files_in_output_level = kHasValue;
-
-  for (int level = 2; level < bottommost_level; level++) {
-    expect_stats[level].bytes_moved = kHasValue;
-  }
-  VerifyCompactionStats(expect_stats, expect_pl_stats);
 
   // manually move all data (cold) to last level
   MoveFilesToLevel(kLastLevel);
