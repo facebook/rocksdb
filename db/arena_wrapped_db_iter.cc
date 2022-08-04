@@ -89,8 +89,8 @@ Status ArenaWrappedDBIter::Refresh() {
         ReadRangeDelAggregator* range_del_agg =
             db_iter_->GetRangeDelAggregator();
         std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
-        range_del_iter.reset(
-            sv->mem->NewRangeTombstoneIterator(read_options_, latest_seq));
+        range_del_iter.reset(sv->mem->NewRangeTombstoneIterator(
+            read_options_, latest_seq, false /* immutable_memtable */));
         range_del_agg->AddTombstones(std::move(range_del_iter));
         cfd_->ReturnThreadLocalSuperVersion(sv);
       }
