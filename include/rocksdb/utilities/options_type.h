@@ -311,13 +311,7 @@ class OptionTypeInfo {
         // @return InvalidArgument if the value is not found in the map
         [map](const ConfigOptions&, const std::string& name,
               const std::string& value, void* addr) {
-          if (map == nullptr) {
-            return Status::NotSupported("No enum mapping ", name);
-          } else if (ParseEnum<T>(*map, value, static_cast<T*>(addr))) {
-            return Status::OK();
-          } else {
-            return Status::InvalidArgument("No mapping for enum ", name);
-          }
+          return StringToEnum<T>(name, map, value, static_cast<T*>(addr));
         });
     info.SetSerializeFunc(
         // Uses the map argument to convert the input enum into
@@ -327,14 +321,8 @@ class OptionTypeInfo {
         // @return InvalidArgument if the enum is not found in the map
         [map](const ConfigOptions&, const std::string& name, const void* addr,
               std::string* value) {
-          if (map == nullptr) {
-            return Status::NotSupported("No enum mapping ", name);
-          } else if (SerializeEnum<T>(*map, (*static_cast<const T*>(addr)),
-                                      value)) {
-            return Status::OK();
-          } else {
-            return Status::InvalidArgument("No mapping for enum ", name);
-          }
+          return EnumToString<T>(name, map, *static_cast<const T*>(addr),
+                                 value);
         });
     info.SetEqualsFunc(
         // Casts addr1 and addr2 to the enum type and returns true if
@@ -812,6 +800,33 @@ class OptionTypeInfo {
   Status Validate(const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts,
                   const std::string& name, const void* opt_ptr) const;
 
+  template <typename E>
+  static Status StringToEnum(
+      const std::string& name,
+      const std::unordered_map<std::string, E>* const map,
+      const std::string& value, E* e) {
+    if (map == nullptr) {
+      return Status::NotSupported("No enum mapping ", name);
+    } else if (ParseEnum(*map, value, e)) {
+      return Status::OK();
+    } else {
+      return Status::InvalidArgument("No mapping for enum ", name);
+    }
+  }
+  template <typename E>
+  static Status EnumToString(
+      const std::string& name,
+      const std::unordered_map<std::string, E>* const map, E e,
+      std::string* value) {
+    if (map == nullptr) {
+      return Status::NotSupported("No enum mapping ", name);
+    } else if (SerializeEnum(*map, e, value)) {
+      return Status::OK();
+    } else {
+      return Status::InvalidArgument("No mapping for enum ", name);
+    }
+  }
+
   // Parses the input opts_map according to the type_map for the opt_addr
   // For each name-value pair in opts_map, find the corresponding name in
   // type_map If the name is found:
@@ -926,6 +941,22 @@ class OptionTypeInfo {
 
   constexpr static const char* kIdPropName() { return "id"; }
   constexpr static const char* kIdPropSuffix() { return ".id"; }
+
+  // Fix user-supplied options to be reasonable
+  template <class T, class V>
+  static void ClipToMin(T* ptr, V minvalue) {
+    if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+  }
+  template <class T, class V>
+  static void ClipToMax(T* ptr, V maxvalue) {
+    if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
+  }
+
+  template <class T, class V>
+  static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
+    ClipToMin(ptr, minvalue);
+    ClipToMax(ptr, maxvalue);
+  }
 
  private:
   int offset_;
