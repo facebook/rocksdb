@@ -16,7 +16,8 @@ namespace ROCKSDB_NAMESPACE {
 
 #if !defined(ROCKSDB_LITE)
 
-class TieredCompactionTest : public DBTestBase {
+class TieredCompactionTest : public DBTestBase,
+                             public testing::WithParamInterface<bool> {
  public:
   TieredCompactionTest()
       : DBTestBase("tiered_compaction_test", /*env_do_fsync=*/true),
@@ -120,6 +121,16 @@ class TieredCompactionTest : public DBTestBase {
     pl_stats.Clear();
   }
 
+  // bottommost_temperature is renaming to last_level_temperature, set either
+  // of them should have the same effect.
+  void SetColdTemperature(Options& options) {
+    if (GetParam()) {
+      options.bottommost_temperature = Temperature::kCold;
+    } else {
+      options.last_level_temperature = Temperature::kCold;
+    }
+  }
+
  private:
   void CompareStats(uint64_t val, uint64_t expect) {
     if (expect > 0) {
@@ -159,7 +170,7 @@ class TieredCompactionTest : public DBTestBase {
   }
 };
 
-TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
+TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -167,7 +178,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
 
   auto options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.bottommost_temperature = Temperature::kCold;
+  SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.statistics = CreateDBStatistics();
   options.max_subcompactions = 10;
@@ -321,7 +332,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_F(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
+TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -329,7 +340,7 @@ TEST_F(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
 
   auto options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.bottommost_temperature = Temperature::kCold;
+  SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.statistics = CreateDBStatistics();
   options.max_subcompactions = 10;
@@ -513,14 +524,14 @@ TEST_F(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
       1);
 }
 
-TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
+TEST_P(TieredCompactionTest, LevelColdRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
   const int kLastLevel = kNumLevels - 1;
 
   auto options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kCold;
+  SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
@@ -545,7 +556,8 @@ TEST_F(TieredCompactionTest, LevelColdRangeDelete) {
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_EQ("0,1", FilesPerLevel()); // bottommost but not last level file is hot
+  ASSERT_EQ("0,1",
+            FilesPerLevel());  // bottommost but not last level file is hot
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
@@ -618,14 +630,14 @@ class SingleKeySstPartitionerFactory : public SstPartitionerFactory {
   }
 };
 
-TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
+TEST_P(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 3;
   const int kNumKeys = 10;
 
   auto factory = std::make_shared<SingleKeySstPartitionerFactory>();
   auto options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kCold;
+  SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
@@ -736,7 +748,7 @@ TEST_F(TieredCompactionTest, LevelOutofBoundaryRangeDelete) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_F(TieredCompactionTest, UniversalRangeDelete) {
+TEST_P(TieredCompactionTest, UniversalRangeDelete) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 10;
@@ -745,7 +757,7 @@ TEST_F(TieredCompactionTest, UniversalRangeDelete) {
 
   auto options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.bottommost_temperature = Temperature::kCold;
+  SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.statistics = CreateDBStatistics();
   options.sst_partitioner_factory = factory;
@@ -868,7 +880,7 @@ TEST_F(TieredCompactionTest, UniversalRangeDelete) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
+TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
@@ -876,7 +888,7 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   const int kPenultimateLevel = kLastLevel - 1;
 
   auto options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kCold;
+  SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
@@ -1093,13 +1105,13 @@ TEST_F(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
 }
 
-TEST_F(TieredCompactionTest, RangeBasedTieredStorageLevel) {
+TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
   const int kNumTrigger = 4;
   const int kNumLevels = 7;
   const int kNumKeys = 100;
 
   auto options = CurrentOptions();
-  options.bottommost_temperature = Temperature::kCold;
+  SetColdTemperature(options);
   options.level0_file_num_compaction_trigger = kNumTrigger;
   options.level_compaction_dynamic_level_bytes = true;
   options.num_levels = kNumLevels;
@@ -1200,6 +1212,9 @@ TEST_F(TieredCompactionTest, RangeBasedTieredStorageLevel) {
       options.statistics->getTickerCount(COMPACTION_RANGE_DEL_DROP_OBSOLETE),
       1);
 }
+
+INSTANTIATE_TEST_CASE_P(TieredCompactionTest, TieredCompactionTest,
+                        testing::Bool());
 
 #endif  // !defined(ROCKSDB_LITE)
 
