@@ -37,9 +37,8 @@ TEST_F(DBWideBasicTest, PutEntity) {
 
     {
       PinnableSlice result;
-      ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(),
-                           second_key, &result)
-                      .IsNotFound());
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
+                         &result));
       ASSERT_TRUE(result.empty());
     }
 
@@ -56,7 +55,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
       ASSERT_OK(statuses[0]);
       ASSERT_EQ(values[0], first_value_of_default_column);
 
-      ASSERT_TRUE(statuses[1].IsNotFound());
+      ASSERT_OK(statuses[1]);
       ASSERT_TRUE(values[1].empty());
     }
 
@@ -64,12 +63,16 @@ TEST_F(DBWideBasicTest, PutEntity) {
       std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
 
       iter->SeekToFirst();
-      ASSERT_FALSE(iter->Valid());
-      ASSERT_TRUE(iter->status().IsNotSupported());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_value_of_default_column);
 
       iter->SeekToLast();
-      ASSERT_FALSE(iter->Valid());
-      ASSERT_TRUE(iter->status().IsNotSupported());
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_TRUE(iter->value().empty());
     }
   };
 

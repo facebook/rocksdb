@@ -149,7 +149,8 @@ Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
   }
 
   if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
-    return Status::NotFound("Default column not found");
+    value.clear();
+    return Status::OK();
   }
 
   value = columns[0].value();
