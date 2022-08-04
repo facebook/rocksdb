@@ -278,11 +278,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                     WideColumnSerialization::GetValueOfDefaultColumn(
                         value_copy, value_to_use);
 
-                if (st.IsNotFound()) {
-                  state_ = kDeleted;  // will result in Status::NotFound()
-                                      // getting returned
-                  return false;
-                } else if (!st.ok()) {
+                if (!st.ok()) {
                   state_ = kCorrupt;
                   return false;
                 }
