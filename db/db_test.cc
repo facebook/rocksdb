@@ -6018,7 +6018,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   while (NumTableFilesAtLevel(0) == 0 && NumTableFilesAtLevel(1) == 0) {
     GenerateNewRandomFile(&rnd);
   }
-  
+
   // compact it three times
   for (int i = 0; i < 3; ++i) {
     ASSERT_OK(experimental::SuggestCompactRange(db_, nullptr, nullptr));
