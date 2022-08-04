@@ -68,11 +68,31 @@ TEST_F(DBWideBasicTest, PutEntity) {
       ASSERT_EQ(iter->key(), first_key);
       ASSERT_EQ(iter->value(), first_value_of_default_column);
 
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_TRUE(iter->value().empty());
+
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+
       iter->SeekToLast();
       ASSERT_TRUE(iter->Valid());
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), second_key);
       ASSERT_TRUE(iter->value().empty());
+
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_value_of_default_column);
+
+      iter->Prev();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
     }
   };
 
