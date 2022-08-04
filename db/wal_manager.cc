@@ -362,7 +362,7 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
     }
   }
   // end could be -ve.
-  size_t start_index = static_cast<size_t>(std::max(static_cast<int64_t>(0), end));
+  size_t start_index = static_cast<size_t>(std::max(static_cast<int64_t>(0), end - 1));
   // The last wal file is always included
   all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
   return Status::OK();
