@@ -818,6 +818,8 @@ Status FlushJob::WriteLevel0Table() {
 
   SequenceNumber smallest_seqno = mems_.front()->GetEarliestSequenceNumber();
   if (!db_impl_seqno_time_mapping_.Empty()) {
+    // make a local copy, as the seqno_time_mapping from db_impl is not thread
+    // safe, which will be used while not holding the db_mutex.
     seqno_to_time_mapping_ = db_impl_seqno_time_mapping_.Copy(smallest_seqno);
   }
 
@@ -998,8 +1000,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.marked_for_compaction, meta_.temperature,
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
                    meta_.file_creation_time, meta_.file_checksum,
-                   meta_.file_checksum_func_name, meta_.min_timestamp,
-                   meta_.max_timestamp, meta_.unique_id);
+                   meta_.file_checksum_func_name, meta_.unique_id);
 
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }

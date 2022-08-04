@@ -211,6 +211,7 @@ class CountedRandomRWFile : public FSRandomRWFileOwnerWrapper {
 class CountedDirectory : public FSDirectoryWrapper {
  private:
   mutable CountedFileSystem* fs_;
+  bool closed_ = false;
 
  public:
   CountedDirectory(std::unique_ptr<FSDirectory>&& f, CountedFileSystem* fs)
@@ -229,6 +230,7 @@ class CountedDirectory : public FSDirectoryWrapper {
     if (rv.ok()) {
       fs_->counters()->closes++;
       fs_->counters()->dir_closes++;
+      closed_ = true;
     }
     return rv;
   }
@@ -241,6 +243,14 @@ class CountedDirectory : public FSDirectoryWrapper {
       fs_->counters()->dsyncs++;
     }
     return rv;
+  }
+
+  ~CountedDirectory() {
+    if (!closed_) {
+      // TODO: fix DB+CF code to use explicit Close, not rely on destructor
+      fs_->counters()->closes++;
+      fs_->counters()->dir_closes++;
+    }
   }
 };
 }  // anonymous namespace

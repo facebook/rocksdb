@@ -441,11 +441,14 @@ Status DBImpl::Recover(
         uint64_t number = 0;
         FileType type = kWalFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
-          // Found MANIFEST (descriptor log), thus best-efforts recovery does
-          // not have to treat the db as empty.
-          s = Status::OK();
-          manifest_path = dbname_ + "/" + file;
-          break;
+          uint64_t bytes;
+          s = env_->GetFileSize(DescriptorFileName(dbname_, number), &bytes);
+          if (s.ok() && bytes != 0) {
+            // Found non-empty MANIFEST (descriptor log), thus best-efforts
+            // recovery does not have to treat the db as empty.
+            manifest_path = dbname_ + "/" + file;
+            break;
+          }
         }
       }
     }
@@ -538,6 +541,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
+    // TODO: share file descriptors (FSDirectory) with SetDirectories above
     std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
@@ -1459,9 +1463,6 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   Status s;
   mutex_.AssertHeld();
   assert(immutable_db_options_.avoid_flush_during_recovery);
-  if (two_write_queues_) {
-    log_write_mutex_.Lock();
-  }
   // Mark these as alive so they'll be considered for deletion later by
   // FindObsoleteFiles()
   total_log_size_ = 0;
@@ -1485,9 +1486,6 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     }
     total_log_size_ += log.size;
     alive_log_files_.push_back(log);
-  }
-  if (two_write_queues_) {
-    log_write_mutex_.Unlock();
   }
   return s;
 }
@@ -1603,8 +1601,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.marked_for_compaction, meta.temperature,
                   meta.oldest_blob_file_number, meta.oldest_ancester_time,
                   meta.file_creation_time, meta.file_checksum,
-                  meta.file_checksum_func_name, meta.min_timestamp,
-                  meta.max_timestamp, meta.unique_id);
+                  meta.file_checksum_func_name, meta.unique_id);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
@@ -1871,16 +1868,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     if (s.ok()) {
-      if (impl->two_write_queues_) {
-        impl->log_write_mutex_.Lock();
-      }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
-      if (impl->two_write_queues_) {
-        impl->log_write_mutex_.Unlock();
-      }
-    }
-    if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq

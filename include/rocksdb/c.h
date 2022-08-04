@@ -1302,6 +1302,17 @@ extern ROCKSDB_LIBRARY_API int rocksdb_options_get_blob_file_starting_level(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_blob_cache(
     rocksdb_options_t* opt, rocksdb_cache_t* blob_cache);
 
+enum {
+  rocksdb_prepopulate_blob_disable = 0,
+  rocksdb_prepopulate_blob_flush_only = 1
+};
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_prepopulate_blob_cache(
+    rocksdb_options_t* opt, int val);
+
+extern ROCKSDB_LIBRARY_API int rocksdb_options_get_prepopulate_blob_cache(
+    rocksdb_options_t* opt);
+
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);
@@ -2061,13 +2072,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_delete(
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_delete_with_ts(
     rocksdb_sstfilewriter_t* writer, const char* key, size_t keylen,
     const char* ts, size_t tslen, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_delete_range(
+    rocksdb_sstfilewriter_t* writer, const char* begin_key, size_t begin_keylen,
+    const char* end_key, size_t end_keylen, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_finish(
     rocksdb_sstfilewriter_t* writer, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_file_size(
     rocksdb_sstfilewriter_t* writer, uint64_t* file_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_destroy(
     rocksdb_sstfilewriter_t* writer);
-
 extern ROCKSDB_LIBRARY_API rocksdb_ingestexternalfileoptions_t*
 rocksdb_ingestexternalfileoptions_create(void);
 extern ROCKSDB_LIBRARY_API void

@@ -3209,7 +3209,7 @@ void SortFileByRoundRobin(const InternalKeyComparator& icmp,
   }
 
   bool should_move_files =
-      compact_cursor->at(level).Valid() && temp->size() > 1;
+      compact_cursor->at(level).size() > 0 && temp->size() > 1;
 
   // The iterator points to the Fsize with smallest key larger than or equal to
   // the given cursor
@@ -3225,7 +3225,8 @@ void SortFileByRoundRobin(const InternalKeyComparator& icmp,
           return icmp.Compare(cursor, f.file->smallest) > 0;
         });
 
-    should_move_files = current_file_iter != temp->end();
+    should_move_files =
+        current_file_iter != temp->end() && current_file_iter != temp->begin();
   }
   if (should_move_files) {
     // Construct a local temporary vector
@@ -5549,8 +5550,7 @@ Status VersionSet::WriteCurrentStateToManifest(
                        f->marked_for_compaction, f->temperature,
                        f->oldest_blob_file_number, f->oldest_ancester_time,
                        f->file_creation_time, f->file_checksum,
-                       f->file_checksum_func_name, f->min_timestamp,
-                       f->max_timestamp, f->unique_id);
+                       f->file_checksum_func_name, f->unique_id);
         }
       }
 

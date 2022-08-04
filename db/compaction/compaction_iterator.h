@@ -196,7 +196,7 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      const SequenceNumber max_seqno_allow_zero_out = kMaxSequenceNumber);
+      const SequenceNumber penultimate_level_cutoff_seqno = kMaxSequenceNumber);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(
@@ -214,7 +214,7 @@ class CompactionIterator {
       const std::atomic<bool>* shutting_down = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
       const std::string* full_history_ts_low = nullptr,
-      const SequenceNumber max_seqno_allow_zero_out = kMaxSequenceNumber);
+      const SequenceNumber penultimate_level_cutoff_seqno = kMaxSequenceNumber);
 
   ~CompactionIterator();
 
@@ -444,10 +444,9 @@ class CompactionIterator {
   // output to.
   bool output_to_penultimate_level_{false};
 
-  // any key later than this sequence number, need to keep the sequence number
-  // and not zeroed out. The sequence number is kept to track it's approximate
-  // time.
-  const SequenceNumber max_seqno_allow_zero_out_ = kMaxSequenceNumber;
+  // any key later than this sequence number should have
+  // output_to_penultimate_level_ set to true
+  const SequenceNumber penultimate_level_cutoff_seqno_ = kMaxSequenceNumber;
 
   void AdvanceInputIter() { input_.Next(); }
 

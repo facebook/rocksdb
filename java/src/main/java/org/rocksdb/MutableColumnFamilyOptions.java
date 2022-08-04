@@ -123,7 +123,8 @@ public class MutableColumnFamilyOptions
     blob_garbage_collection_age_cutoff(ValueType.DOUBLE),
     blob_garbage_collection_force_threshold(ValueType.DOUBLE),
     blob_compaction_readahead_size(ValueType.LONG),
-    blob_file_starting_level(ValueType.INT);
+    blob_file_starting_level(ValueType.INT),
+    prepopulate_blob_cache(ValueType.ENUM);
 
     private final ValueType valueType;
     BlobOption(final ValueType valueType) {
@@ -606,6 +607,17 @@ public class MutableColumnFamilyOptions
     @Override
     public int blobFileStartingLevel() {
       return getInt(BlobOption.blob_file_starting_level);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setPrepopulateBlobCache(
+        final PrepopulateBlobCache prepopulateBlobCache) {
+      return setEnum(BlobOption.prepopulate_blob_cache, prepopulateBlobCache);
+    }
+
+    @Override
+    public PrepopulateBlobCache prepopulateBlobCache() {
+      return (PrepopulateBlobCache) getEnum(BlobOption.prepopulate_blob_cache);
     }
   }
 }

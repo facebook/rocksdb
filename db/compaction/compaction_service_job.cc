@@ -47,10 +47,10 @@ CompactionJob::ProcessKeyValueCompactionWithCompactionService(
   compaction_input.db_options =
       BuildDBOptions(db_options_, mutable_db_options_copy_);
   compaction_input.snapshots = existing_snapshots_;
-  compaction_input.has_begin = sub_compact->start;
+  compaction_input.has_begin = sub_compact->start.has_value();
   compaction_input.begin =
       compaction_input.has_begin ? sub_compact->start->ToString() : "";
-  compaction_input.has_end = sub_compact->end;
+  compaction_input.has_end = sub_compact->end.has_value();
   compaction_input.end =
       compaction_input.has_end ? sub_compact->end->ToString() : "";
 
@@ -264,8 +264,12 @@ Status CompactionServiceCompactionJob::Run() {
   Slice begin = compaction_input_.begin;
   Slice end = compaction_input_.end;
   compact_->sub_compact_states.emplace_back(
-      c, compaction_input_.has_begin ? &begin : nullptr,
-      compaction_input_.has_end ? &end : nullptr, /*sub_job_id*/ 0);
+      c,
+      compaction_input_.has_begin ? std::optional<Slice>(begin)
+                                  : std::optional<Slice>(),
+      compaction_input_.has_end ? std::optional<Slice>(end)
+                                : std::optional<Slice>(),
+      /*sub_job_id*/ 0);
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();

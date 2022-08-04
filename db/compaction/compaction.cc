@@ -440,6 +440,11 @@ bool Compaction::IsTrivialMove() const {
     }
   }
 
+  // PerKeyPlacement compaction should never be trivial move.
+  if (SupportsPerKeyPlacement()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -655,20 +660,23 @@ bool Compaction::IsOutputLevelEmpty() const {
 }
 
 bool Compaction::ShouldFormSubcompactions() const {
-  if (max_subcompactions_ <= 1 || cfd_ == nullptr) {
+  if (cfd_ == nullptr) {
     return false;
   }
 
-  // Note: the subcompaction boundary picking logic does not currently guarantee
-  // that all user keys that differ only by timestamp get processed by the same
-  // subcompaction.
-  if (cfd_->user_comparator()->timestamp_size() > 0) {
+  // Round-Robin pri under leveled compaction allows subcompactions by default
+  // and the number of subcompactions can be larger than max_subcompactions_
+  if (cfd_->ioptions()->compaction_pri == kRoundRobin &&
+      cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    return output_level_ > 0;
+  }
+
+  if (max_subcompactions_ <= 1) {
     return false;
   }
 
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0 &&
-           !IsOutputLevelEmpty();
+    return (start_level_ == 0 || is_manual_compaction_) && output_level_ > 0;
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {
@@ -741,10 +749,10 @@ int Compaction::EvaluatePenultimateLevel(
     return kInvalidLevel;
   }
 
-  // TODO: will add public like `options.preclude_last_level_data_seconds` for
-  //  per_key_placement feature, will check that option here. Currently, only
-  //  set by unittest
-  bool supports_per_key_placement = false;
+  bool supports_per_key_placement =
+      immutable_options.preclude_last_level_data_seconds > 0;
+
+  // it could be overridden by unittest
   TEST_SYNC_POINT_CALLBACK("Compaction::SupportsPerKeyPlacement:Enabled",
                            &supports_per_key_placement);
   if (!supports_per_key_placement) {

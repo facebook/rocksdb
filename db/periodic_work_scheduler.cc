@@ -64,14 +64,6 @@ Status PeriodicWorkScheduler::Register(DBImpl* dbi,
 Status PeriodicWorkScheduler::RegisterRecordSeqnoTimeWorker(
     DBImpl* dbi, uint64_t record_cadence_sec) {
   MutexLock l(&timer_mu_);
-  if (record_seqno_time_cadence_ == record_cadence_sec) {
-    return Status::OK();
-  }
-  if (record_cadence_sec == 0) {
-    timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kRecordSeqnoTime));
-    record_seqno_time_cadence_ = record_cadence_sec;
-    return Status::OK();
-  }
   timer->Start();
   static std::atomic_uint64_t initial_delay(0);
   bool succeeded = timer->Add(
@@ -83,7 +75,6 @@ Status PeriodicWorkScheduler::RegisterRecordSeqnoTimeWorker(
     return Status::NotSupported(
         "Updating seqno to time worker cadence is not supported yet");
   }
-  record_seqno_time_cadence_ = record_cadence_sec;
   return Status::OK();
 }
 
@@ -93,7 +84,6 @@ void PeriodicWorkScheduler::UnregisterRecordSeqnoTimeWorker(DBImpl* dbi) {
   if (!timer->HasPendingTask()) {
     timer->Shutdown();
   }
-  record_seqno_time_cadence_ = 0;
 }
 
 void PeriodicWorkScheduler::Unregister(DBImpl* dbi) {

@@ -62,7 +62,11 @@ class BenchmarkUtils:
 
     def conform_opensearch(row):
         (dt, _) = parser.parse(row['date'], fuzzy_with_tokens=True)
+        # create a test_date field, which was previously what was expected
+        # repair the date field, which has what can be a WRONG ISO FORMAT, (no leading 0 on single-digit day-of-month)
+        # e.g. 2022-07-1T00:14:55 should be 2022-07-01T00:14:55
         row['test_date'] = dt.isoformat()
+        row['date'] = dt.isoformat()
         return dict((key.replace('.', '_'), value)
                     for (key, value) in row.items())
 

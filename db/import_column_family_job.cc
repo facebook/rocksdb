@@ -160,7 +160,7 @@ Status ImportColumnFamilyJob::Run() {
                   file_metadata.largest_seqno, false, file_metadata.temperature,
                   kInvalidBlobFileNumber, oldest_ancester_time, current_time,
                   kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-                  kDisableUserTimestamp, kDisableUserTimestamp, f.unique_id);
+                  f.unique_id);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
