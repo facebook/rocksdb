@@ -115,7 +115,7 @@ class TableReader {
                      bool skip_filters = false) = 0;
 
   // Use bloom filters in the table file, if present, to filter out keys. The
-  // mget_range will be updated to skip ekys that get a negative result from
+  // mget_range will be updated to skip keys that get a negative result from
   // the filter lookup.
   virtual Status MultiGetFilter(const ReadOptions& /*readOptions*/,
                                 const SliceTransform* /*prefix_extractor*/,
