@@ -208,7 +208,7 @@ class MemTable {
   // @param immutable_memtable Whether this memtable is an immutable memtable.
   // This information is not stored in memtable itself, so it needs to be
   // specified by the caller. This flag is used internally to decide whether a
-  // cached fragmented range tombstone list can be returned. This cache version
+  // cached fragmented range tombstone list can be returned. This cached version
   // is constructed when a memtable becomes immutable. Setting the flag to false
   // will always yield correct result, but may incur performance penalty as it
   // always creates a new fragmented range tombstone list.
@@ -524,10 +524,10 @@ class MemTable {
 
   void ConstructFragmentedRangeTombstones();
 
-  // Returns whether a fragmented range tombstone list is already constructed for this
-  // memtable. It should be constructed right before a memtable is added to an
-  // immutable memtable list. Note that if a memtable does not have any
-  // range tombstone, then no tombstone list will ever be constructed.
+  // Returns whether a fragmented range tombstone list is already constructed
+  // for this memtable. It should be constructed right before a memtable is
+  // added to an immutable memtable list. Note that if a memtable does not have
+  // any range tombstone, then no range tombstone list will ever be constructed.
   // @param allow_empty Specifies whether a memtable with no range tombstone is
   // considered to have its fragmented range tombstone list constructed.
   bool IsFragmentedRangeTombstonesConstructed(bool allow_empty = true) const {
