@@ -274,11 +274,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               if (type == kTypeWideColumnEntity) {
                 Slice value_copy = value;
 
-                const Status st =
-                    WideColumnSerialization::GetValueOfDefaultColumn(
-                        value_copy, value_to_use);
-
-                if (!st.ok()) {
+                if (!WideColumnSerialization::GetValueOfDefaultColumn(
+                         value_copy, value_to_use)
+                         .ok()) {
                   state_ = kCorrupt;
                   return false;
                 }
