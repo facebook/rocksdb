@@ -249,6 +249,7 @@ bool StressTest::BuildOptionsTable() {
            "2",
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
+      {"block_based_table_factory", {"{block_size=2048}", "{block_size=4096}"}},
   };
 
   if (FLAGS_allow_setting_blob_options_dynamically) {

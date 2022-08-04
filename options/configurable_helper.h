@@ -174,7 +174,7 @@ class ConfigurableHelper {
   // @return         A pointer to the OptionTypeInfo from the options if found,
   //                 nullptr if the name was not found in the input options
   static const OptionTypeInfo* FindOption(
-      const std::vector<Configurable::RegisteredOptions>& options,
+      const std::deque<Configurable::RegisteredOptions>& options,
       const std::string& name, std::string* opt_name, void** opt_ptr);
 
   static Status ConfigureCustomizableOption(

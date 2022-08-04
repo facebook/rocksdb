@@ -8,11 +8,11 @@
 
 #pragma once
 
-#include <atomic>
+#include <deque>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/status.h"
@@ -45,18 +45,38 @@ class Configurable {
  protected:
   friend class ConfigurableHelper;
   struct RegisteredOptions {
+    RegisteredOptions(
+        const std::string& _name,
+#ifndef ROCKSDB_LITE
+        const std::unordered_map<std::string, OptionTypeInfo>* _map,
+#endif
+        void* _ptr)
+        : name(_name),
+#ifndef ROCKSDB_LITE
+          type_map(_map),
+#endif
+          opt_ptr(_ptr) {
+    }
+
     // The name of the options being registered
     std::string name;
-    // Pointer to the object being registered
-    void* opt_ptr;
 #ifndef ROCKSDB_LITE
     // The map of options being registered
     const std::unordered_map<std::string, OptionTypeInfo>* type_map;
+    // Lock
+    mutable std::mutex mu;
 #endif
+    // Pointer to the object being registered
+    void* opt_ptr;
   };
 
  public:
   virtual ~Configurable() {}
+  Configurable() = default;
+  // If a Configurable class is copy-able, it is up to the class to
+  // implement a copy constructor that registers the options (if any)
+  // with the new copy.
+  Configurable(const Configurable& /*other*/) {}
 
   // Returns the raw pointer of the named options that is used by this
   // object, or nullptr if this function is not supported.
@@ -395,6 +415,6 @@ class Configurable {
   // Contains the collection of options (name, opt_ptr, opt_map) associated with
   // this object. This collection is typically set in the constructor of the
   // Configurable option via
-  std::vector<RegisteredOptions> options_;
+  std::deque<RegisteredOptions> options_;
 };
 }  // namespace ROCKSDB_NAMESPACE
