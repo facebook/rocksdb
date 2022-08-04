@@ -160,9 +160,12 @@ class DBIter final : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
+    assert(!is_blob_ || !is_wide_);
 
     if (!expose_blob_index_ && is_blob_) {
       return blob_value_;
+    } else if (is_wide_) {
+      return value_of_default_column_;
     } else if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
       // the merge operands and we should return it.
@@ -326,6 +329,7 @@ class DBIter final : public Iterator {
   Slice pinned_value_;
   // for prefix seek mode to support prev()
   PinnableSlice blob_value_;
+  Slice value_of_default_column_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
@@ -361,6 +365,7 @@ class DBIter final : public Iterator {
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool is_blob_;
+  bool is_wide_;
   bool arena_mode_;
   // List of operands for merge operator.
   MergeContext merge_context_;

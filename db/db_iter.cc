@@ -17,6 +17,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/wide/wide_column_serialization.h"
 #include "file/filename.h"
 #include "logging/logging.h"
 #include "memory/arena.h"
@@ -74,6 +75,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       verify_checksums_(read_options.verify_checksums),
       expose_blob_index_(expose_blob_index),
       is_blob_(false),
+      is_wide_(false),
       arena_mode_(arena_mode),
       range_del_agg_(&ioptions.internal_comparator, s),
       db_impl_(db_impl),
@@ -173,6 +175,7 @@ void DBIter::Next() {
 bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                   const Slice& blob_index) {
   assert(!is_blob_);
+  assert(!is_wide_);
 
   if (expose_blob_index_) {  // Stacked BlobDB implementation
     is_blob_ = true;
@@ -207,13 +210,23 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   return true;
 }
 
-bool DBIter::SetWideColumnValueIfNeeded(const Slice& /* wide_columns_slice */) {
+bool DBIter::SetWideColumnValueIfNeeded(const Slice& wide_columns_slice) {
   assert(!is_blob_);
+  assert(!is_wide_);
 
-  // TODO: support wide-column entities
-  status_ = Status::NotSupported("Encountered unexpected wide-column entity");
-  valid_ = false;
-  return false;
+  Slice wide_columns_copy = wide_columns_slice;
+
+  const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
+      wide_columns_copy, value_of_default_column_);
+
+  if (!s.ok()) {
+    status_ = s;
+    valid_ = false;
+    return false;
+  }
+
+  is_wide_ = true;
+  return true;
 }
 
 // PRE: saved_key_ has the current user key if skipping_saved_key
@@ -263,6 +276,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   bool reseek_done = false;
 
   is_blob_ = false;
+  is_wide_ = false;
 
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
@@ -590,7 +604,10 @@ bool DBIter::MergeValuesNewToOld() {
       if (!s.ok()) {
         return false;
       }
+
       is_blob_ = false;
+      assert(!is_wide_);
+
       // iter_ is positioned after put
       iter_.Next();
       if (!iter_.status().ok()) {
@@ -966,6 +983,8 @@ bool DBIter::FindValueForCurrentKey() {
   Status s;
   s.PermitUncheckedError();
   is_blob_ = false;
+  is_wide_ = false;
+
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeDeletionWithTimestamp:
@@ -1004,7 +1023,10 @@ bool DBIter::FindValueForCurrentKey() {
         if (!s.ok()) {
           return false;
         }
+
         is_blob_ = false;
+        assert(!is_wide_);
+
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
         // TODO: support wide-column entities
@@ -1080,6 +1102,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // Find the next value that's visible.
   ParsedInternalKey ikey;
   is_blob_ = false;
+  is_wide_ = false;
+
   while (true) {
     if (!iter_.Valid()) {
       valid_ = false;
@@ -1214,7 +1238,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       if (!s.ok()) {
         return false;
       }
+
       is_blob_ = false;
+      assert(!is_wide_);
+
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
       // TODO: support wide-column entities
