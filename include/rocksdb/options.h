@@ -1470,6 +1470,8 @@ struct ReadOptions {
   // need to have the same prefix. This is because ordering is not guaranteed
   // outside of prefix domain.
   //
+  // In case of user_defined timestamp, if enabled, iterate_lower_bound should
+  // point to key without timestamp part.
   // Default: nullptr
   const Slice* iterate_lower_bound;
 
@@ -1489,6 +1491,8 @@ struct ReadOptions {
   // If iterate_upper_bound is not null, SeekToLast() will position the iterator
   // at the first key smaller than iterate_upper_bound.
   //
+  // In case of user_defined timestamp, if enabled, iterate_upper_bound should
+  // point to key without timestamp part.
   // Default: nullptr
   const Slice* iterate_upper_bound;
 

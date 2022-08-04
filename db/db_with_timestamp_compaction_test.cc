@@ -109,6 +109,67 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(TimestampCompatibleCompactionTest, MultipleSubCompactions) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_subcompactions = 3;
+  options.target_file_size_base = 1024;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  uint64_t ts = 100;
+  uint64_t key = 0;
+  WriteOptions write_opts;
+
+  // Write keys 0, 1, ..., 499 with ts from 100 to 599.
+  {
+    for (; key <= 499; ++key, ++ts) {
+      std::string ts_str = Timestamp(ts);
+      ASSERT_OK(db_->Put(write_opts, Key1(key), ts_str,
+                         "foo_" + std::to_string(key)));
+    }
+  }
+
+  // Write keys 500, ..., 999 with ts from 600 to 1099.
+  {
+    for (; key <= 999; ++key, ++ts) {
+      std::string ts_str = Timestamp(ts);
+      ASSERT_OK(db_->Put(write_opts, Key1(key), ts_str,
+                         "foo_" + std::to_string(key)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Wait for compaction to finish
+  {
+    ASSERT_OK(dbfull()->RunManualCompaction(
+        static_cast_with_check<ColumnFamilyHandleImpl>(
+            db_->DefaultColumnFamily())
+            ->cfd(),
+        0 /* input_level */, 1 /* output_level */, CompactRangeOptions(),
+        nullptr /* begin */, nullptr /* end */, true /* exclusive */,
+        true /* disallow_trivial_move */,
+        std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+        "" /*trim_ts*/));
+  }
+
+  // Check stats to make sure multiple subcompactions were scheduled for
+  // boundaries not to be nullptr.
+  {
+    HistogramData num_sub_compactions;
+    options.statistics->histogramData(NUM_SUBCOMPACTIONS_SCHEDULED,
+                                      &num_sub_compactions);
+    ASSERT_GT(num_sub_compactions.sum, 1);
+  }
+
+  for (key = 0; key <= 999; ++key) {
+    ASSERT_EQ("foo_" + std::to_string(key), Get(Key1(key), ts));
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
