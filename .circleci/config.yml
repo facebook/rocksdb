@@ -190,14 +190,17 @@ commands:
   perform-benchmarks:
     steps:
       - run:
-          name: "Run basic benchmark, 5 min"
-          command: ./tools/benchmark.sh fillseq_enable_wal
+          name: "Test low-variance benchmarks"
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
-            DB_DIR: /tmp/rocksdb-benchmark-datadir
-            WAL_DIR: /tmp/rocksdb-benchmark-waldir
-            OUTPUT_DIR: /tmp/benchmark-results
-            NUM_KEYS: 10000000
+            # How long to run parts of the test(s)
+            DURATION_RO: 450
+            DURATION_RW: 450
+            # The benchmark host has 32GB memory
+            # The folllowing values are tailored to work with that
+            # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
+
 
   post-benchmarks:
     steps:
@@ -209,7 +212,7 @@ commands:
           command: |
             set +e
             set +o pipefail
-            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
+            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3_rix/_doc
             true
 
 executors:

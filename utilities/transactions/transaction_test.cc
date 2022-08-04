@@ -6499,6 +6499,37 @@ TEST_P(TransactionTest, OpenAndEnableU32Timestamp) {
   }
 }
 
+TEST_P(TransactionTest, WriteWithBulkCreatedColumnFamilies) {
+  ColumnFamilyOptions cf_options;
+  WriteOptions write_options;
+
+  std::vector<std::string> cf_names;
+  std::vector<ColumnFamilyHandle*> cf_handles;
+
+  cf_names.push_back("test_cf");
+
+  ASSERT_OK(db->CreateColumnFamilies(cf_options, cf_names, &cf_handles));
+  ASSERT_OK(db->Put(write_options, cf_handles[0], "foo", "bar"));
+  ASSERT_OK(db->DropColumnFamilies(cf_handles));
+
+  for (auto* h : cf_handles) {
+    delete h;
+  }
+  cf_handles.clear();
+
+  std::vector<ColumnFamilyDescriptor> cf_descriptors;
+
+  cf_descriptors.emplace_back("test_cf", ColumnFamilyOptions());
+
+  ASSERT_OK(db->CreateColumnFamilies(cf_options, cf_names, &cf_handles));
+  ASSERT_OK(db->Put(write_options, cf_handles[0], "foo", "bar"));
+  ASSERT_OK(db->DropColumnFamilies(cf_handles));
+  for (auto* h : cf_handles) {
+    delete h;
+  }
+  cf_handles.clear();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

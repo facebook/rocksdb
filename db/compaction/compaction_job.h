@@ -164,7 +164,9 @@ class CompactionJob {
       const std::atomic<bool>& manual_compaction_canceled,
       const std::string& db_id = "", const std::string& db_session_id = "",
       std::string full_history_ts_low = "", std::string trim_ts = "",
-      BlobFileCompletionCallback* blob_callback = nullptr);
+      BlobFileCompletionCallback* blob_callback = nullptr,
+      int* bg_compaction_scheduled = nullptr,
+      int* bg_bottom_compaction_scheduled = nullptr);
 
   virtual ~CompactionJob();
 
@@ -224,6 +226,26 @@ class CompactionJob {
   // each consecutive pair of slices. Then it divides these ranges into
   // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
+
+  // Get the number of planned subcompactions based on max_subcompactions and
+  // extra reserved resources
+  uint64_t GetSubcompactionsLimit();
+
+  // Additional reserved threads are reserved and the number is stored in
+  // extra_num_subcompaction_threads_reserved__. For now, this happens only if
+  // the compaction priority is round-robin and max_subcompactions is not
+  // sufficient (extra resources may be needed)
+  void AcquireSubcompactionResources(int num_extra_required_subcompactions);
+
+  // Additional threads may be reserved during IncreaseSubcompactionResources()
+  // if num_actual_subcompactions is less than num_planned_subcompactions.
+  // Additional threads will be released and the bg_compaction_scheduled_ or
+  // bg_bottom_compaction_scheduled_ will be updated if they are used.
+  // DB Mutex lock is required.
+  void ShrinkSubcompactionResources(uint64_t num_extra_resources);
+
+  // Release all reserved threads and update the compaction limits.
+  void ReleaseSubcompactionResources();
 
   CompactionServiceJobStatus ProcessKeyValueCompactionWithCompactionService(
       SubcompactionState* sub_compact);
@@ -292,13 +314,22 @@ class CompactionJob {
   bool paranoid_file_checks_;
   bool measure_io_stats_;
   // Stores the Slices that designate the boundaries for each subcompaction
-  std::vector<Slice> boundaries_;
+  std::vector<std::string> boundaries_;
   Env::Priority thread_pri_;
   std::string full_history_ts_low_;
   std::string trim_ts_;
   BlobFileCompletionCallback* blob_callback_;
 
   uint64_t GetCompactionId(SubcompactionState* sub_compact) const;
+  // Stores the number of reserved threads in shared env_ for the number of
+  // extra subcompaction in kRoundRobin compaction priority
+  int extra_num_subcompaction_threads_reserved_;
+
+  // Stores the pointer to bg_compaction_scheduled_,
+  // bg_bottom_compaction_scheduled_ in DBImpl. Mutex is required when accessing
+  // or updating it.
+  int* bg_compaction_scheduled_;
+  int* bg_bottom_compaction_scheduled_;
 
   // Stores the sequence number to time mapping gathered from all input files
   // it also collects the smallest_seqno -> oldest_ancester_time from the SST.

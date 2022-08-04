@@ -116,8 +116,8 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": "lru_cache",  # fast_lru_cache and clock_cache are currently incompatible
-                                # with stress tests, because they use strict_capacity_limit = false
+    "cache_type": lambda: random.choice(["lru_cache", "clock_cache"]),
+        # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
@@ -179,7 +179,8 @@ default_params = {
     "async_io": lambda: random.choice([0, 1]),
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
-    "secondary_cache_uri": "",
+    "secondary_cache_uri": lambda: random.choice(
+        ["", "compressed_secondary_cache://capacity=8388608"]),
     "allow_data_in_errors": True,
 }
 

@@ -185,7 +185,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       log_dir_synced_(false),
       log_empty_(true),
       persist_stats_cf_handle_(nullptr),
-      log_sync_cv_(&mutex_),
+      log_sync_cv_(&log_write_mutex_),
       total_log_size_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
@@ -273,6 +273,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
 
+  max_total_wal_size_.store(mutable_db_options_.max_total_wal_size,
+                            std::memory_order_relaxed);
   if (write_buffer_manager_) {
     wbm_stall_.reset(new WBMStallInterface());
   }
@@ -625,26 +627,28 @@ Status DBImpl::CloseHelper() {
     job_context.Clean();
     mutex_.Lock();
   }
-
-  for (auto l : logs_to_free_) {
-    delete l;
-  }
-  for (auto& log : logs_) {
-    uint64_t log_number = log.writer->get_log_number();
-    Status s = log.ClearWriter();
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "Unable to Sync WAL file %s with error -- %s",
-          LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
-          s.ToString().c_str());
-      // Retain the first error
-      if (ret.ok()) {
-        ret = s;
+  {
+    InstrumentedMutexLock lock(&log_write_mutex_);
+    for (auto l : logs_to_free_) {
+      delete l;
+    }
+    for (auto& log : logs_) {
+      uint64_t log_number = log.writer->get_log_number();
+      Status s = log.ClearWriter();
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            immutable_db_options_.info_log,
+            "Unable to Sync WAL file %s with error -- %s",
+            LogFileName(immutable_db_options_.GetWalDir(), log_number).c_str(),
+            s.ToString().c_str());
+        // Retain the first error
+        if (ret.ok()) {
+          ret = s;
+        }
       }
     }
+    logs_.clear();
   }
-  logs_.clear();
 
   // Table cache may have table handles holding blocks from the block cache.
   // We need to release them before the block cache is destroyed. The block
@@ -1108,6 +1112,7 @@ Status DBImpl::TablesRangeTombstoneSummary(ColumnFamilyHandle* column_family,
 }
 
 void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
+  mutex_.AssertHeld();
   if (!job_context->logs_to_free.empty()) {
     for (auto l : job_context->logs_to_free) {
       AddToLogsToFreeQueue(l);
@@ -1285,6 +1290,11 @@ Status DBImpl::SetDBOptions(
             new_options.stats_persist_period_sec);
         mutex_.Lock();
       }
+      if (new_options.max_total_wal_size !=
+          mutable_db_options_.max_total_wal_size) {
+        max_total_wal_size_.store(new_options.max_total_wal_size,
+                                  std::memory_order_release);
+      }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
@@ -1405,7 +1415,7 @@ Status DBImpl::SyncWAL() {
   uint64_t current_log_number;
 
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     assert(!logs_.empty());
 
     // This SyncWAL() call only cares about logs up to this number.
@@ -1462,16 +1472,34 @@ Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
+  VersionEdit synced_wals;
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     if (status.ok()) {
-      status = MarkLogsSynced(current_log_number, need_log_dir_sync);
+      MarkLogsSynced(current_log_number, need_log_dir_sync, &synced_wals);
     } else {
       MarkLogsNotSynced(current_log_number);
     }
   }
+  if (status.ok() && synced_wals.IsWalAddition()) {
+    InstrumentedMutexLock l(&mutex_);
+    status = ApplyWALToManifest(&synced_wals);
+  }
+
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
+  return status;
+}
+
+Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
+  // not empty, write to MANIFEST.
+  mutex_.AssertHeld();
+  Status status =
+      versions_->LogAndApplyToDefaultColumnFamily(synced_wals, &mutex_);
+  if (!status.ok() && versions_->io_status().IsIOError()) {
+    status = error_handler_.SetBGError(versions_->io_status(),
+                                       BackgroundErrorReason::kManifestWrite);
+  }
   return status;
 }
 
@@ -1494,12 +1522,12 @@ Status DBImpl::UnlockWAL() {
   return Status::OK();
 }
 
-Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
-  mutex_.AssertHeld();
+void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
+                            VersionEdit* synced_wals) {
+  log_write_mutex_.AssertHeld();
   if (synced_dir && logfile_number_ == up_to) {
     log_dir_synced_ = true;
   }
-  VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& wal = *it;
     assert(wal.IsSyncing());
@@ -1507,11 +1535,9 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     if (logs_.size() > 1) {
       if (immutable_db_options_.track_and_verify_wals_in_manifest &&
           wal.GetPreSyncSize() > 0) {
-        synced_wals.AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
+        synced_wals->AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
       }
       logs_to_free_.push_back(wal.ReleaseWriter());
-      // To modify logs_ both mutex_ and log_write_mutex_ must be held
-      InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
       wal.FinishSync();
@@ -1520,22 +1546,11 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   }
   assert(logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].IsSyncing()));
-
-  Status s;
-  if (synced_wals.IsWalAddition()) {
-    // not empty, write to MANIFEST.
-    s = versions_->LogAndApplyToDefaultColumnFamily(&synced_wals, &mutex_);
-    if (!s.ok() && versions_->io_status().IsIOError()) {
-      s = error_handler_.SetBGError(versions_->io_status(),
-                                    BackgroundErrorReason::kManifestWrite);
-    }
-  }
   log_sync_cv_.SignalAll();
-  return s;
 }
 
 void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
-  mutex_.AssertHeld();
+  log_write_mutex_.AssertHeld();
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
        ++it) {
     auto& wal = *it;
@@ -1659,9 +1674,16 @@ void DBImpl::BackgroundCallPurge() {
 }
 
 namespace {
-struct IterState {
-  IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version,
-            bool _background_purge)
+
+// A `SuperVersionHandle` holds a non-null `SuperVersion*` pointing at a
+// `SuperVersion` referenced once for this object. It also contains the state
+// needed to clean up the `SuperVersion` reference from outside of `DBImpl`
+// using `CleanupSuperVersionHandle()`.
+struct SuperVersionHandle {
+  // `_super_version` must be non-nullptr and `Ref()`'d once as long as the
+  // `SuperVersionHandle` may use it.
+  SuperVersionHandle(DBImpl* _db, InstrumentedMutex* _mu,
+                     SuperVersion* _super_version, bool _background_purge)
       : db(_db),
         mu(_mu),
         super_version(_super_version),
@@ -1673,35 +1695,49 @@ struct IterState {
   bool background_purge;
 };
 
-static void CleanupIteratorState(void* arg1, void* /*arg2*/) {
-  IterState* state = reinterpret_cast<IterState*>(arg1);
+static void CleanupSuperVersionHandle(void* arg1, void* /*arg2*/) {
+  SuperVersionHandle* sv_handle = reinterpret_cast<SuperVersionHandle*>(arg1);
 
-  if (state->super_version->Unref()) {
+  if (sv_handle->super_version->Unref()) {
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
 
-    state->mu->Lock();
-    state->super_version->Cleanup();
-    state->db->FindObsoleteFiles(&job_context, false, true);
-    if (state->background_purge) {
-      state->db->ScheduleBgLogWriterClose(&job_context);
-      state->db->AddSuperVersionsToFreeQueue(state->super_version);
-      state->db->SchedulePurge();
+    sv_handle->mu->Lock();
+    sv_handle->super_version->Cleanup();
+    sv_handle->db->FindObsoleteFiles(&job_context, false, true);
+    if (sv_handle->background_purge) {
+      sv_handle->db->ScheduleBgLogWriterClose(&job_context);
+      sv_handle->db->AddSuperVersionsToFreeQueue(sv_handle->super_version);
+      sv_handle->db->SchedulePurge();
     }
-    state->mu->Unlock();
+    sv_handle->mu->Unlock();
 
-    if (!state->background_purge) {
-      delete state->super_version;
+    if (!sv_handle->background_purge) {
+      delete sv_handle->super_version;
     }
     if (job_context.HaveSomethingToDelete()) {
-      state->db->PurgeObsoleteFiles(job_context, state->background_purge);
+      sv_handle->db->PurgeObsoleteFiles(job_context,
+                                        sv_handle->background_purge);
     }
     job_context.Clean();
   }
 
+  delete sv_handle;
+}
+
+struct GetMergeOperandsState {
+  MergeContext merge_context;
+  PinnedIteratorsManager pinned_iters_mgr;
+  SuperVersionHandle* sv_handle;
+};
+
+static void CleanupGetMergeOperandsState(void* arg1, void* /*arg2*/) {
+  GetMergeOperandsState* state = static_cast<GetMergeOperandsState*>(arg1);
+  CleanupSuperVersionHandle(state->sv_handle /* arg1 */, nullptr /* arg2 */);
   delete state;
 }
+
 }  // namespace
 
 InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
@@ -1746,11 +1782,11 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                            allow_unprepared_value);
     }
     internal_iter = merge_iter_builder.Finish();
-    IterState* cleanup =
-        new IterState(this, &mutex_, super_version,
-                      read_options.background_purge_on_iterator_cleanup ||
-                      immutable_db_options_.avoid_unnecessary_blocking_io);
-    internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
+    SuperVersionHandle* cleanup = new SuperVersionHandle(
+        this, &mutex_, super_version,
+        read_options.background_purge_on_iterator_cleanup ||
+            immutable_db_options_.avoid_unnecessary_blocking_io);
+    internal_iter->RegisterCleanup(CleanupSuperVersionHandle, cleanup, nullptr);
 
     return internal_iter;
   } else {
@@ -1784,6 +1820,34 @@ Status DBImpl::Get(const ReadOptions& read_options,
   get_impl_options.timestamp = timestamp;
   Status s = GetImpl(read_options, key, get_impl_options);
   return s;
+}
+
+bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
+  // If both thresholds are reached, a function returning merge operands as
+  // `PinnableSlice`s should reference the `SuperVersion` to avoid large and/or
+  // numerous `memcpy()`s.
+  //
+  // The below constants enable the optimization conservatively. They are
+  // verified to not regress `GetMergeOperands()` latency in the following
+  // scenarios.
+  //
+  // - CPU: two socket Intel(R) Xeon(R) Gold 6138 CPU @ 2.00GHz
+  // - `GetMergeOperands()` threads: 1 - 32
+  // - Entry size: 32 bytes - 4KB
+  // - Merges per key: 1 - 16K
+  // - LSM component: memtable
+  //
+  // TODO(ajkr): expand measurement to SST files.
+  static const size_t kNumBytesForSvRef = 32768;
+  static const size_t kLog2AvgBytesForSvRef = 8;  // 256 bytes
+
+  size_t num_bytes = 0;
+  for (const Slice& sl : merge_context.GetOperands()) {
+    num_bytes += sl.size();
+  }
+  return num_bytes >= kNumBytesForSvRef &&
+         (num_bytes >> kLog2AvgBytesForSvRef) >=
+             merge_context.GetOperands().size();
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
@@ -1830,6 +1894,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     if (tracer_) {
       // TODO: maybe handle the tracing status?
       tracer_->Get(get_impl_options.column_family, key).PermitUncheckedError();
+    }
+  }
+
+  if (get_impl_options.get_merge_operands_options != nullptr) {
+    for (int i = 0; i < get_impl_options.get_merge_operands_options
+                            ->expected_max_number_of_operands;
+         ++i) {
+      get_impl_options.merge_operands[i].Reset();
     }
   }
 
@@ -1980,19 +2052,68 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           s = Status::Incomplete(
               Status::SubCode::KMergeOperandsInsufficientCapacity);
         } else {
-          for (const Slice& sl : merge_context.GetOperands()) {
-            size += sl.size();
-            get_impl_options.merge_operands->PinSelf(sl);
-            get_impl_options.merge_operands++;
+          // Each operand depends on one of the following resources: `sv`,
+          // `pinned_iters_mgr`, or `merge_context`. It would be crazy expensive
+          // to reference `sv` for each operand relying on it because `sv` is
+          // (un)ref'd in all threads using the DB. Furthermore, we do not track
+          // on which resource each operand depends.
+          //
+          // To solve this, we bundle the resources in a `GetMergeOperandsState`
+          // and manage them with a `SharedCleanablePtr` shared among the
+          // `PinnableSlice`s we return. This bundle includes one `sv` reference
+          // and ownership of the `merge_context` and `pinned_iters_mgr`
+          // objects.
+          bool ref_sv = ShouldReferenceSuperVersion(merge_context);
+          if (ref_sv) {
+            assert(!merge_context.GetOperands().empty());
+            SharedCleanablePtr shared_cleanable;
+            GetMergeOperandsState* state = nullptr;
+            state = new GetMergeOperandsState();
+            state->merge_context = std::move(merge_context);
+            state->pinned_iters_mgr = std::move(pinned_iters_mgr);
+
+            sv->Ref();
+
+            state->sv_handle = new SuperVersionHandle(
+                this, &mutex_, sv,
+                immutable_db_options_.avoid_unnecessary_blocking_io);
+
+            shared_cleanable.Allocate();
+            shared_cleanable->RegisterCleanup(CleanupGetMergeOperandsState,
+                                              state /* arg1 */,
+                                              nullptr /* arg2 */);
+            for (size_t i = 0; i < state->merge_context.GetOperands().size();
+                 ++i) {
+              const Slice& sl = state->merge_context.GetOperands()[i];
+              size += sl.size();
+
+              get_impl_options.merge_operands->PinSlice(
+                  sl, nullptr /* cleanable */);
+              if (i == state->merge_context.GetOperands().size() - 1) {
+                shared_cleanable.MoveAsCleanupTo(
+                    get_impl_options.merge_operands);
+              } else {
+                shared_cleanable.RegisterCopyWith(
+                    get_impl_options.merge_operands);
+              }
+              get_impl_options.merge_operands++;
+            }
+          } else {
+            for (const Slice& sl : merge_context.GetOperands()) {
+              size += sl.size();
+              get_impl_options.merge_operands->PinSelf(sl);
+              get_impl_options.merge_operands++;
+            }
           }
         }
       }
       RecordTick(stats_, BYTES_READ, size);
       PERF_COUNTER_ADD(get_read_bytes, size);
     }
-    RecordInHistogram(stats_, BYTES_PER_READ, size);
 
     ReturnAndCleanupSuperVersion(cfd, sv);
+
+    RecordInHistogram(stats_, BYTES_PER_READ, size);
   }
   return s;
 }

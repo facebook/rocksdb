@@ -1009,7 +1009,7 @@ set(ROCKSDB_PLUGIN_BUILTINS "")
 message(STATUS "ROCKSDB PLUGINS TO BUILD ${ROCKSDB_PLUGINS}")
 list(APPEND PLUGINS ${ROCKSDB_PLUGINS})
 foreach(PLUGIN IN LISTS PLUGINS)
-  set(PLUGIN_ROOT "${CMAKE_SOURCE_DIR}/plugin/${PLUGIN}/")
+  set(PLUGIN_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/plugin/${PLUGIN}/")
   message("including rocksb plugin ${PLUGIN_ROOT}")
   set(PLUGINMKFILE "${PLUGIN_ROOT}${PLUGIN}.mk")
   if (NOT EXISTS ${PLUGINMKFILE})
@@ -1507,6 +1507,20 @@ if(WITH_BENCHMARK_TOOLS)
     utilities/persistent_cache/hash_table_bench.cc)
   target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
+endif()
+
+option(WITH_TRACE_TOOLS "build with trace tools" ON)
+if(WITH_TRACE_TOOLS) 
+  add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
+  target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
+  add_executable(trace_analyzer${ARTIFACT_SUFFIX}
+    tools/trace_analyzer.cc)
+  target_link_libraries(trace_analyzer${ARTIFACT_SUFFIX}
+    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+
 endif()
 
 if(WITH_CORE_TOOLS OR WITH_TOOLS)
