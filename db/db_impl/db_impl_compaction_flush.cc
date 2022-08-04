@@ -229,6 +229,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
       log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+      TEST_SYNC_POINT_CALLBACK("DBImpl::FlushMemTableToOutputFile:CommitWal:1",
+                               nullptr);
     }
 
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
