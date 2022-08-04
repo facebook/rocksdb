@@ -6008,6 +6008,7 @@ class Benchmark {
         bytes += key.size() + pinnable_val.size() + user_timestamp_size_;
         for (size_t i = 0; i < pinnable_vals.size(); ++i) {
           bytes += pinnable_vals[i].size();
+          pinnable_vals[i].Reset();
         }
       } else if (!s.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
