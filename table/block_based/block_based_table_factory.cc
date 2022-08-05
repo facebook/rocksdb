@@ -553,10 +553,47 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
   RegisterOptions(&table_options_, &block_based_table_type_info);
+
+  // Initialize/Prepare the BlockBasedTableOptions
+  // Note that comparable code is also implemented in the OptionTypeMap;
+  // the code is needed here as well in order to support LITE mode
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(
         new FlushBlockBySizePolicyFactory());
   }
+  if (table_options_.no_block_cache) {
+    table_options_.block_cache.reset();
+  } else if (table_options_.block_cache == nullptr) {
+    LRUCacheOptions co;
+    co.capacity = 8 << 20;
+    // It makes little sense to pay overhead for mid-point insertion while the
+    // block size is only 8MB.
+    co.high_pri_pool_ratio = 0.0;
+    table_options_.block_cache = NewLRUCache(co);
+  }
+  if (table_options_.block_size_deviation < 0 ||
+      table_options_.block_size_deviation > 100) {
+    table_options_.block_size_deviation = 0;
+  }
+  if (table_options_.block_restart_interval < 1) {
+    table_options_.block_restart_interval = 1;
+  }
+  if (table_options_.index_block_restart_interval < 1) {
+    table_options_.index_block_restart_interval = 1;
+  }
+  if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
+      table_options_.index_block_restart_interval != 1) {
+    // Currently kHashSearch is incompatible with index_block_restart_interval >
+    // 1
+    table_options_.index_block_restart_interval = 1;
+  }
+  if (table_options_.partition_filters &&
+      table_options_.index_type !=
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    // We do not support partitioned filters without partitioning indexes
+    table_options_.partition_filters = false;
+  }
+
   auto& options_overrides =
       table_options_.cache_usage_options.options_overrides;
   const auto options = table_options_.cache_usage_options.options;
@@ -570,21 +607,6 @@ BlockBasedTableFactory::BlockBasedTableFactory(
       options_overrides_iter->second.charged = options.charged;
     }
   }
-
-  ConfigOptions initialize;
-  initialize.invoke_prepare_options = false;
-  //**TODO: Call PrepareOptions instead
-  for (const auto& iter : block_based_table_type_info) {
-    const auto& opt_info = iter.second;
-    if (opt_info.ShouldPrepare() && !opt_info.IsCustomizable()) {
-      Status s = opt_info.Prepare(initialize, iter.first, &table_options_);
-      assert(s.ok());
-    }
-  }
-  InitializeOptions();
-}
-
-void BlockBasedTableFactory::InitializeOptions() {
   //**TODO: Move this code into PrepareOptions
   const auto table_reader_charged =
       table_options_.cache_usage_options.options_overrides
