@@ -305,6 +305,11 @@ class DBIter final : public Iterator {
 
   bool SetWideColumnValueIfNeeded(const Slice& wide_columns_slice);
 
+  void ResetWideColumnValue() {
+    is_wide_ = false;
+    value_of_default_column_.clear();
+  }
+
   Status Merge(const Slice* val, const Slice& user_key);
 
   const SliceTransform* prefix_extractor_;

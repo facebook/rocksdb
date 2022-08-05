@@ -133,6 +133,7 @@ void DBIter::Next() {
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
+  ResetWideColumnValue();
   local_stats_.skip_count_ += num_internal_keys_skipped_;
   local_stats_.skip_count_--;
   num_internal_keys_skipped_ = 0;
@@ -278,8 +279,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   bool reseek_done = false;
 
   is_blob_ = false;
-  is_wide_ = false;
-  value_of_default_column_.clear();
+  assert(!is_wide_);
+  assert(value_of_default_column_.empty());
 
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
@@ -657,6 +658,7 @@ void DBIter::Prev() {
 
   PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
   ReleaseTempPinnedData();
+  ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
   bool ok = true;
   if (direction_ == kForward) {
@@ -987,8 +989,8 @@ bool DBIter::FindValueForCurrentKey() {
   Status s;
   s.PermitUncheckedError();
   is_blob_ = false;
-  is_wide_ = false;
-  value_of_default_column_.clear();
+  assert(!is_wide_);
+  assert(value_of_default_column_.empty());
 
   switch (last_key_entry_type) {
     case kTypeDeletion:
@@ -1108,8 +1110,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // Find the next value that's visible.
   ParsedInternalKey ikey;
   is_blob_ = false;
-  is_wide_ = false;
-  value_of_default_column_.clear();
+  assert(!is_wide_);
+  assert(value_of_default_column_.empty());
 
   while (true) {
     if (!iter_.Valid()) {
@@ -1474,6 +1476,7 @@ void DBIter::Seek(const Slice& target) {
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
+  ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
 
   // Seek the inner iterator based on the target key.
@@ -1550,6 +1553,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
+  ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
 
   // Seek the inner iterator based on the target key.
@@ -1607,6 +1611,7 @@ void DBIter::SeekToFirst() {
   status_ = Status::OK();
   direction_ = kForward;
   ReleaseTempPinnedData();
+  ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
@@ -1654,6 +1659,7 @@ void DBIter::SeekToLast() {
                                *iterate_upper_bound_, /*a_has_ts=*/false, k,
                                /*b_has_ts=*/false)) {
       ReleaseTempPinnedData();
+      ResetWideColumnValue();
       PrevInternal(nullptr);
 
       k = key();
@@ -1673,6 +1679,7 @@ void DBIter::SeekToLast() {
   status_ = Status::OK();
   direction_ = kReverse;
   ReleaseTempPinnedData();
+  ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
   is_key_seqnum_zero_ = false;
