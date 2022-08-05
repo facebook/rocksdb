@@ -21,6 +21,7 @@
 * Fix a bug that `best_efforts_recovery` may fail to open the db with mmap read.
 * Fixed a bug where blobs read during compaction would pollute the cache.
 * Fixed a data race in LRUCache when used with a secondary_cache.
+* Fixed a memory leak in `CompressedSecondaryCache::Lookup`.
 
 ### Behavior Change
 * Added checksum handshake during the copying of decompressed WAL fragment. This together with #9875, #10037, #10212, #10114 and #10319 provides end-to-end integrity protection for write batch during recovery.
