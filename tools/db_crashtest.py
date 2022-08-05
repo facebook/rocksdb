@@ -369,6 +369,9 @@ ts_params = {
 tiered_params = {
     "enable_tiered_storage": 1,
     "preclude_last_level_data_seconds": lambda: random.choice([3600]),
+    # only test universal compaction for now, level has known issue of
+    # endless compaction
+    "compaction_style": 1,
 }
 
 multiops_txn_default_params = {
