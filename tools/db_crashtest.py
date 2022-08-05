@@ -6,7 +6,6 @@ import os
 import sys
 import time
 import random
-import re
 import tempfile
 import subprocess
 import shutil
@@ -365,6 +364,11 @@ ts_params = {
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
+}
+
+tiered_params = {
+    "enable_tiered_storage": 1,
+    "preclude_last_level_data_seconds": lambda: random.choice([3600]),
 }
 
 multiops_txn_default_params = {
@@ -820,6 +824,7 @@ def main():
     parser.add_argument("--test_multiops_txn", action='store_true')
     parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
+    parser.add_argument("--enable_tiered_storage", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
