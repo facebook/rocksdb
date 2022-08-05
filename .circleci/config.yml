@@ -586,7 +586,7 @@ jobs:
       - run: ulimit -S -n `ulimit -H -n` && make V=1 -j32 blackbox_crash_test_with_tiered_storage
       - post-steps
 
-  build-linux-crashtest-tiered-storage-wp:
+  build-linux-crashtest-tiered-storage-wb:
     machine:
       image: ubuntu-2004:202111-02
     resource_class: 2xlarge
