@@ -243,8 +243,10 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
 
   Reopen(options);
 
-  // Put then iterate over three key-values. The second value is below the size limit
-  // and is thus stored inline; the other two are stored separately as blobs.
+  // Put then iterate over three key-values. The second value is below the size
+  // limit and is thus stored inline; the other two are stored separately as
+  // blobs. We expect to have something pinned in the cache iff we are
+  // positioned on a blob.
 
   constexpr char first_key[] = "first_key";
   constexpr char first_value[] = "long_value";
@@ -273,7 +275,6 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
   read_options.fill_cache = true;
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
-
   for (iter->SeekToFirst(); iter->Valid(); iter->Next());
 
   iter->SeekToFirst();
