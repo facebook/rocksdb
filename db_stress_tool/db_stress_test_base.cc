@@ -3066,7 +3066,8 @@ void InitializeOptionsFromFlags(
   if (FLAGS_enable_tiered_storage) {
     options.bottommost_temperature = Temperature::kCold;
   }
-  options.preclude_last_level_data_seconds = FLAGS_preclude_last_level_data_seconds;
+  options.preclude_last_level_data_seconds =
+      FLAGS_preclude_last_level_data_seconds;
 
   switch (FLAGS_rep_factory) {
     case kSkipList:

@@ -575,6 +575,28 @@ jobs:
       - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
       - post-steps
 
+  build-linux-crashtest-tiered-storage-bb:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-compression-libs
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j32 blackbox_crash_test_with_tiered_storage
+      - post-steps
+
+  build-linux-crashtest-tiered-storage-wp:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-compression-libs
+      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j32 whitebox_crash_test_with_tiered_storage
+      - post-steps
+
   build-windows:
     executor: windows-2xlarge
     parameters:
@@ -971,6 +993,10 @@ workflows:
   build-fuzzers:
     jobs:
       - build-fuzzers
+  linux-crashtest:
+    jobs:
+      - build-linux-crashtest-tiered-storage-bb
+      - build-linux-crashtest-tiered-storage-wb
   benchmark-linux:
     triggers:
       - schedule:
