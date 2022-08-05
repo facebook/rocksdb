@@ -67,6 +67,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
                                   cache_options_.memory_allocator.get());
 
     if (!uncompressed) {
+      value = nullptr;
       cache_->Release(lru_handle, /* erase_if_last_ref */ true);
       return handle;
     }
@@ -74,6 +75,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   }
 
   if (!s.ok()) {
+    value = nullptr;
     cache_->Release(lru_handle, /* erase_if_last_ref */ true);
     return handle;
   }
