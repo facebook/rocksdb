@@ -577,6 +577,8 @@ def gen_cmd_params(args):
             params.update(multiops_wc_txn_params)
         elif args.write_policy == 'write_prepared':
             params.update(multiops_wp_txn_params)
+    if args.enable_tiered_storage:
+        params.update(tiered_params)
 
     # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
     # if specified on the command line; otherwise, apply BlobDB related overrides
