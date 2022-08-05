@@ -885,7 +885,6 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
   const int kNumLevels = 7;
   const int kNumKeys = 100;
   const int kLastLevel = kNumLevels - 1;
-  const int kPenultimateLevel = kLastLevel - 1;
 
   auto options = CurrentOptions();
   SetColdTemperature(options);
