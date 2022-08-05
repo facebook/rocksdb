@@ -227,6 +227,80 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
   }
 }
 
+TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
+  constexpr size_t min_blob_size = 6;
+
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 2048;
+  cache_options.num_shard_bits = 0;
+  cache_options.metadata_charge_policy = kDontChargeCacheMetadata;
+
+  options.blob_cache = NewLRUCache(cache_options);
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+
+  Reopen(options);
+
+  // Put then iterate over three key-values. The second value is below the size limit
+  // and is thus stored inline; the other two are stored separately as blobs.
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "long_value";
+  static_assert(sizeof(first_value) - 1 >= min_blob_size,
+                "first_value too short to be stored as blob");
+
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "short";
+  static_assert(sizeof(second_value) - 1 < min_blob_size,
+                "second_value too long to be inlined");
+
+  ASSERT_OK(Put(second_key, second_value));
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "other_long_value";
+  static_assert(sizeof(third_value) - 1 >= min_blob_size,
+                "third_value too short to be stored as blob");
+
+  ASSERT_OK(Put(third_key, third_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+  read_options.fill_cache = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next());
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), first_key);
+  ASSERT_EQ(iter->value(), first_value);
+  ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), second_key);
+  ASSERT_EQ(iter->value(), second_value);
+  ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(iter->key(), third_key);
+  ASSERT_EQ(iter->value(), third_value);
+  ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+}
+
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
   constexpr size_t min_blob_size = 6;
 

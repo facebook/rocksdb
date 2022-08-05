@@ -177,6 +177,7 @@ void DBIter::Next() {
 bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                   const Slice& blob_index) {
   assert(!is_blob_);
+  assert(blob_value_.empty());
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -216,6 +217,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
 
 bool DBIter::SetWideColumnValueIfNeeded(const Slice& wide_columns_slice) {
   assert(!is_blob_);
+  assert(blob_value_.empty());
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -280,7 +282,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // to one.
   bool reseek_done = false;
 
-  is_blob_ = false;
+  ResetBlobValue();
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -611,7 +613,7 @@ bool DBIter::MergeValuesNewToOld() {
         return false;
       }
 
-      is_blob_ = false;
+      ResetBlobValue();
       assert(!is_wide_);
       assert(value_of_default_column_.empty());
 
@@ -990,7 +992,8 @@ bool DBIter::FindValueForCurrentKey() {
 
   Status s;
   s.PermitUncheckedError();
-  is_blob_ = false;
+
+  ResetBlobValue();
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -1033,7 +1036,7 @@ bool DBIter::FindValueForCurrentKey() {
           return false;
         }
 
-        is_blob_ = false;
+        ResetBlobValue();
         assert(!is_wide_);
         assert(value_of_default_column_.empty());
 
@@ -1111,7 +1114,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // In case read_callback presents, the value we seek to may not be visible.
   // Find the next value that's visible.
   ParsedInternalKey ikey;
-  is_blob_ = false;
+
+  ResetBlobValue();
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -1250,7 +1254,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
         return false;
       }
 
-      is_blob_ = false;
+      ResetBlobValue();
       assert(!is_wide_);
       assert(value_of_default_column_.empty());
 
