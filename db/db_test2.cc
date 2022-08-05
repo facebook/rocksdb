@@ -7102,6 +7102,9 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
+  // set dynamic_level to true so the compaction would compact the data to the
+  // last level directly which will have the last_level_temperature
+  options.level_compaction_dynamic_level_bytes = true;
   options.level0_file_num_compaction_trigger = 2;
   options.env = env.get();
   Reopen(options);
@@ -7158,6 +7161,9 @@ TEST_F(DBTest2, FileTemperatureManifestFixup) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
+  // set dynamic_level to true so the compaction would compact the data to the
+  // last level directly which will have the last_level_temperature
+  options.level_compaction_dynamic_level_bytes = true;
   options.level0_file_num_compaction_trigger = 2;
   options.env = env.get();
   std::vector<std::string> cfs = {/*"default",*/ "test1", "test2"};
