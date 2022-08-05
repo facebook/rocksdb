@@ -71,6 +71,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
       read_tier_(read_options.read_tier),
+      fill_cache_(read_options.fill_cache),
       verify_checksums_(read_options.verify_checksums),
       expose_blob_index_(expose_blob_index),
       is_blob_(false),
@@ -189,6 +190,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   // avoid having to copy options back and forth.
   ReadOptions read_options;
   read_options.read_tier = read_tier_;
+  read_options.fill_cache = fill_cache_;
   read_options.verify_checksums = verify_checksums_;
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;

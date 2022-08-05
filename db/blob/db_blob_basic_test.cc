@@ -135,6 +135,8 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
   block_based_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
 
+  options.statistics = CreateDBStatistics();
+
   Reopen(options);
 
   int num_blobs = 5;
@@ -165,6 +167,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ++i;
     }
     ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
 
   {
@@ -180,6 +183,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
     iter->SeekToFirst();
     ASSERT_NOK(iter->status());
     ASSERT_FALSE(iter->Valid());
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
 
   {
@@ -198,6 +202,8 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ++i;
     }
     ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD),
+              num_blobs);
   }
 
   {
@@ -217,6 +223,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ++i;
     }
     ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
 }
 
