@@ -219,7 +219,8 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
                                 ? read_opts.snapshot->GetSequenceNumber()
                                 : kMaxSequenceNumber;
   for (auto& m : memlist_) {
-    auto range_del_iter = m->NewRangeTombstoneIterator(read_opts, read_seq, true /* immutale_memtable */);
+    auto range_del_iter = m->NewRangeTombstoneIterator(
+        read_opts, read_seq, true /* immutale_memtable */);
     if (range_del_iter == nullptr || range_del_iter->empty()) {
       delete range_del_iter;
       builder.AddRangeTombstoneIterator(nullptr);

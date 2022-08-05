@@ -75,6 +75,12 @@ class MergingIterator : public InternalIterator {
   // range tombstone iterators as point iterators after all range tombstone
   // iters are added. The i-th added range tombstone iterator and the i-th point
   // iterator must point to the same sorted run.
+  // Merging iterator takes ownership of the range tombstone iterator and
+  // is responsible for freeing it. Note that during Iterator::Refresh()
+  // and when a level iterator moves to a different SST file, the range
+  // tombstone iterator could be updated. In that case, the merging iterator
+  // is only responsible to freeing the new range tombstone iterator
+  // that it has pointers to in child_range_tombstones_.
   void AddRangeTombstoneIterator(TruncatedRangeDelIterator* iter) {
     child_range_tombstones_.emplace_back(iter);
   }
@@ -101,14 +107,15 @@ class MergingIterator : public InternalIterator {
       child.SeekToFirst();
       AddToMinHeapOrCheckStatus(&child);
     }
-    for (auto& range_tombstone_iter : child_range_tombstones_) {
-      if (range_tombstone_iter != nullptr) {
-        // nullptr means no tombstones for this level
-        range_tombstone_iter->SeekToFirst();
-      }
-    }
 
     if (!child_range_tombstones_.empty()) {
+      for (auto& range_tombstone_iter : child_range_tombstones_) {
+        if (range_tombstone_iter != nullptr) {
+          // nullptr means no tombstones for this level
+          range_tombstone_iter->SeekToFirst();
+        }
+      }
+
       // Skip range tombstone covered keys
       FindNextVisibleEntry();
     }
@@ -124,15 +131,16 @@ class MergingIterator : public InternalIterator {
       child.SeekToLast();
       AddToMaxHeapOrCheckStatus(&child);
     }
-    for (auto& range_tombstone_iter : child_range_tombstones_) {
-      if (range_tombstone_iter != nullptr) {
-        range_tombstone_iter->SeekToLast();
-      }
-    }
 
     if (!child_range_tombstones_.empty()) {
+      for (auto& range_tombstone_iter : child_range_tombstones_) {
+        if (range_tombstone_iter != nullptr) {
+          range_tombstone_iter->SeekToLast();
+        }
+      }
+
       // Skip range tombstone covered keys
-      FindPrevUserEntry();
+      FindPrevVisibleEntry();
     }
     direction_ = kReverse;
     current_ = CurrentReverse();
@@ -145,18 +153,23 @@ class MergingIterator : public InternalIterator {
   // is reached.
   //
   // Internally, this involves positioning all child iterators at the first key
-  // >= target. If range tombstones are present, we apply a similar technique of
-  // cascading seek as in Pebble (https://github.com/cockroachdb/pebble).
-  // Specifically, if there is a range tombstone that covers the target key at
-  // level L, then we know this range tombstone covers the range [target, range
-  // tombstone end) for all levels > L. So for all levels > L, we can do seek on
-  // the range tombstone end key instead of target. This optimization is applied
-  // at each level and hence the name "cascading seek". After a round of
-  // (cascading) seeks, the top of the heap is checked to see if it is covered
-  // by a range tombstone (see FindNextVisibleEntry() for more detail), and
-  // advanced if so. The process is repeated until a visible key is at the top
-  // of the heap.
-  // TODO: consider user defined timestamp?
+  // >= target. If range tombstones are present, we apply a similar
+  // optimization, cascading seek, as in Pebble
+  // (https://github.com/cockroachdb/pebble). Specifically, if there is a range
+  // tombstone [start, end) that covers the target key at level L, then this
+  // range tombstone must cover the range [target, end) for all levels > L. So
+  // for all levels > L, we can pretend the target key is `end`. This
+  // optimization is applied at each level and hence the name "cascading seek".
+  // After a round of (cascading) seeks, the top of the heap is checked to see
+  // if it is covered by a range tombstone (see FindNextVisibleEntry() for more
+  // detail), and advanced if so. The process is repeated until a visible key is
+  // at the top of the heap.
+  // For correctness reasoning, one invariant that merging iter guarantees is
+  // that, suppose current_ is from level L, then for each range tombstone
+  // iterators at level <= L, it is at or before the first range tombstone with
+  // end key > current_.key(). This ensures that in FindNextVisibleEntry(), we
+  // never need to move any range tombstone iter backward to check if the
+  // current_.key() is covered.
   void Seek(const Slice& target) override {
     assert(child_range_tombstones_.empty() ||
            child_range_tombstones_.size() == children_.size());
@@ -180,7 +193,7 @@ class MergingIterator : public InternalIterator {
     SeekForPrevImpl(target);
     if (!child_range_tombstones_.empty()) {
       // Skip range tombstone covered keys
-      FindPrevUserEntry();
+      FindPrevVisibleEntry();
     }
 
     direction_ = kReverse;
@@ -269,7 +282,7 @@ class MergingIterator : public InternalIterator {
 
     if (!child_range_tombstones_.empty()) {
       // Skip range tombstone covered keys
-      FindPrevUserEntry();
+      FindPrevVisibleEntry();
     }
     current_ = CurrentReverse();
   }
@@ -341,7 +354,7 @@ class MergingIterator : public InternalIterator {
   // empty). After this call, if Valid(), current_ points to the next key that
   // is not covered by any range tombstone.
   void FindNextVisibleEntry();
-  void FindPrevUserEntry();
+  void FindPrevVisibleEntry();
 
   void SeekImpl(const Slice& target, size_t starting_level = 0,
                 bool range_tombstone_reseek = false);
@@ -419,13 +432,14 @@ class MergingIterator : public InternalIterator {
 // Cascading seek optimizations are applied if range tombstones are present (see
 // comment above Seek() for more).
 //
-// range_tombstone_reseek: whether this Seek is to some range tombstone end and
-// is part of a "cascading seek". This is used for recoding relevant
-// perf_context.
+// @param range_tombstone_reseek Whether this Seek is to some range tombstone
+// end, i.e., a part of a "cascading seek". This is used only for recoding
+// relevant perf_context.
 void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
                                bool range_tombstone_reseek) {
   ClearHeaps();
   status_ = Status::OK();
+  // TODO: make it a class variable to save allocation?
   IterKey current_search_key;
   current_search_key.SetInternalKey(target, false /* copy */);
   // (level, target) pairs
@@ -437,15 +451,14 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
       children_[level].Seek(current_search_key.GetInternalKey());
     }
 
-    if (range_tombstone_reseek) {
-      // we are seeking to end of some range tombstone from a newer sorted run
-      PERF_COUNTER_ADD(internal_range_del_reseek_count, 1);
-    }
-
     PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
     if (!child_range_tombstones_.empty()) {
-      // avoids copying target key for async requests in range tombstone free
+      if (range_tombstone_reseek) {
+        // we are seeking to end of some range tombstone from a newer sorted run
+        PERF_COUNTER_ADD(internal_range_del_reseek_count, 1);
+      }
+      // avoid copying target key for async requests in range tombstone free
       // path
       if (children_[level].status().IsTryAgain()) {
         // search target might change to some range tombstone end key, so
@@ -489,6 +502,8 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
       AddToMinHeapOrCheckStatus(&children_[level]);
     }
   }
+  // TODO: perhaps we could save some upheap cost by add all child iters first
+  //  and then do a single heapify
   for (size_t level = 0; level < starting_level; ++level) {
     PERF_TIMER_GUARD(seek_min_heap_time);
     AddToMinHeapOrCheckStatus(&children_[level]);
@@ -507,6 +522,7 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
     }
   } else {
     for (auto& prefetch : pinned_prefetched_target) {
+      // (level, target) pairs
       children_[prefetch.first].Seek(prefetch.second);
       {
         PERF_TIMER_GUARD(seek_min_heap_time);
@@ -517,15 +533,14 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
   }
 }
 
-// Returns iff the current key (min heap top) is deleted (by some range
-// deletion), advance the iterator at heap top if so. Heap order is restored.
+// Returns true iff the current key (min heap top) is deleted by some range
+// deletion, advance the iterator at heap top if so. Heap order is restored.
 // See FindNextVisibleEntry() for more detail on internal implementation
 // of advancing child iters.
 //
 // REQUIRES: min heap is currently not empty, and iter is in kForward direction.
 bool MergingIterator::IsNextDeleted() {
   auto current = minHeap_.top();
-  auto level = GetChildIndex(current);
   ParsedInternalKey pik;
   // TODO: error handling
   ParseInternalKey(current->key(), &pik, false /* log_error_key */)
@@ -543,12 +558,12 @@ bool MergingIterator::IsNextDeleted() {
     }
     return true /* entry deleted */;
   }
-
+  auto level = GetChildIndex(current);
   // Check for sorted runs [0, level] for potential covering range tombstone.
   // For all sorted runs newer than the sorted run containing current key:
   //  we can advance their range tombstone iter to after current user key,
   //  since current key is at top of the heap, which means all previous
-  //  iters must pointer to a user key after the current user key.
+  //  iters must be pointing to a user key after the current user key.
   for (size_t i = 0; i <= level; ++i) {
     // current level has no range tombstone left
     if (child_range_tombstones_[i] == nullptr ||
@@ -559,6 +574,10 @@ bool MergingIterator::IsNextDeleted() {
     // truncated range tombstone iter covers keys in internal key range
     if (comparator_->Compare(child_range_tombstones_[i]->end_key(), pik) <= 0) {
       // range tombstone iter is behind
+      // TODO: what we are doing here is really forward seeking, i.e., only need
+      //   to look at range tombstones after the current range tombstone in
+      //   child_range_tombstones_[i]. We can add a SeekForward/SeekBackward API
+      //   in `TruncatedRangeDelIterator` to reduce binary search space.
       child_range_tombstones_[i]->Seek(pik.user_key);
       // Exhausted all range tombstones at i-th level
       if (!child_range_tombstones_[i]->Valid()) {
@@ -582,18 +601,21 @@ bool MergingIterator::IsNextDeleted() {
     // valid.
     if (i == level) {
       if (pik.sequence >= child_range_tombstones_[i]->seq()) {
+        // tombstone is older than current internal key
         // equal case for range tombstones in ingested files: point key takes
-        // precedence tombstone is older than current internal key
+        // precedence
         continue;
       }
       // move to next key without seeking
       // Note that we could reseek all iters from older levels until the end key
-      //  of the current tombstone. iters from older level will be reseeked
-      //  lazily when they reach top of the queue. Since the current key will
-      //  likely produce series of keys covered by the current tombstone, we
-      //  need to dedup the reseek if we plan to do the reseek.
-      // TODO: potentially iterate until end of tombstone before fixing the heap
-      // TODO: potentially optimize this iteration by switching to seek after
+      //  of the current tombstone. Currently iters from older level will be
+      //  reseeked lazily when they reach top of the queue. Since the current
+      //  key will likely produce series of keys covered by the current
+      //  tombstone, we need to dedup the reseek if we plan to reseek all iters
+      //  from older levels until the end key.
+      // TODO: potentially iterate until end of tombstone before fixing the
+      // heap.
+      //   If we do the above, optimize the loop by switching to seek after
       //   a certain number of iterations of the same user key.
       current->Next();
       if (current->Valid()) {
@@ -607,8 +629,19 @@ bool MergingIterator::IsNextDeleted() {
     assert(pik.sequence < child_range_tombstones_[i]->seq());
     // i < level
     // tombstone->Valid() means there is a valid sequence number
+    // TODO: make it a class variable to save allocation?
     std::string target;
     AppendInternalKey(&target, child_range_tombstones_[i]->end_key());
+    // The second parameter could also be i + 1. For levels [i + 1, `level`),
+    // their iters are pointing at a user key that is larger than current_
+    // from `level`. So it might not be worth seeking, and we use `level` here.
+    // One drawback of using `level` is potential redundant seeks as in the
+    // following todo.
+    // TODO: we probably do some redundant seeks when the same range tombstone
+    // triggers
+    //   multiple SeekImpl(). We can use range_tombstone_reseek in SeekImpl() to
+    //   do some optimization: check if a child iter's current key is after
+    //   target before calling Seek.
     SeekImpl(target, level, true /* tombstone_reseek */);
     return true /* entry deleted */;
   }
@@ -632,15 +665,15 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
       children_[level].SeekForPrev(current_search_key.GetInternalKey());
     }
 
-    if (range_tombstone_reseek) {
-      // This seek is to some range tombstone end key
-      PERF_COUNTER_ADD(internal_range_del_reseek_count, 1);
-    }
-
     PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
     if (!child_range_tombstones_.empty()) {
-      // avoids copying target key for async requests in range tombstone free
+      if (range_tombstone_reseek) {
+        // This seek is to some range tombstone end key.
+        // Should only happen when there are range tombstones.
+        PERF_COUNTER_ADD(internal_range_del_reseek_count, 1);
+      }
+      // avoid copying target key for async requests in range tombstone free
       // path
       if (children_[level].status().IsTryAgain()) {
         // search target might change to some range tombstone end key, so
@@ -709,15 +742,14 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
   }
 }
 
-// Returns iff the current key (max heap top) is deleted (by some range
-// deletion), move the iterator at heap top backward if so. Heap order is
+// Returns true iff the current key (max heap top) is deleted by some range
+// deletion, move the iterator at heap top backward if so. Heap order is
 // restored. See FindNextVisibleEntry() for more detail on internal
 // implementation of advancing child iters.
 //
 // REQUIRES: max heap is currently not empty, and iter is in kReverse direction.
 bool MergingIterator::IsPrevDeleted() {
   auto current = maxHeap_->top();
-  auto level = GetChildIndex(current);
   ParsedInternalKey pik;
   // TODO: error handling
   ParseInternalKey(current->key(), &pik, false /* log_error_key */)
@@ -735,7 +767,7 @@ bool MergingIterator::IsPrevDeleted() {
     }
     return true /* entry deleted */;
   }
-
+  auto level = GetChildIndex(current);
   // Check for sorted runs [0, level] for potential covering range tombstone.
   // For all sorted runs newer than the sorted run containing current key:
   //  we advance their range tombstone iter to cover current user key (or before
@@ -774,8 +806,9 @@ bool MergingIterator::IsPrevDeleted() {
     // does it and Valid() guarantees that seqno is valid.
     if (i == level) {
       if (pik.sequence >= child_range_tombstones_[i]->seq()) {
-        // equal case for range tombstones in ingested files
         // tombstone is older than current internal key
+        // equal case for range tombstones in ingested files: point key takes
+        // precedence
         continue;
       }
       // move to next key without seeking
@@ -829,7 +862,8 @@ void MergingIterator::AddToMaxHeapOrCheckStatus(IteratorWrapper* child) {
 }
 
 // Advance all non current_ child to > current_.key().
-// We advance current_ after the this function call as it does require a Seek().
+// We advance current_ after the this function call as it does not require
+// Seek().
 //
 // Advance all range tombstones iters, including the one corresponding to
 // current_, to the first tombstone with end_key > current_.key() (internal
@@ -945,7 +979,7 @@ void MergingIterator::FindNextVisibleEntry() {
   }
 }
 
-void MergingIterator::FindPrevUserEntry() {
+void MergingIterator::FindPrevVisibleEntry() {
   while (!maxHeap_->empty() && IsPrevDeleted()) {
     // move to previous entry
   }
