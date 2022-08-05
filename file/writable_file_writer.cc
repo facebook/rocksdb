@@ -220,8 +220,11 @@ IOStatus WritableFileWriter::Pad(const size_t pad_bytes,
 
 IOStatus WritableFileWriter::Close() {
   if (seen_error_) {
-    IOStatus interim = writable_file_->Close(IOOptions(), nullptr);
-    writable_file_.reset();
+    IOStatus interim;
+    if (writable_file_.get() != nullptr) {
+      interim = writable_file_->Close(IOOptions(), nullptr);
+      writable_file_.reset();
+    }
     if (interim.ok()) {
       return IOStatus::IOError("Writer has previous error.");
     } else {
