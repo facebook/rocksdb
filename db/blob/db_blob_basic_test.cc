@@ -271,37 +271,102 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
 
   ASSERT_OK(Flush());
 
-  ReadOptions read_options;
-  read_options.fill_cache = true;
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = true;
 
-  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next());
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
 
-  iter->SeekToFirst();
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_OK(iter->status());
-  ASSERT_EQ(iter->key(), first_key);
-  ASSERT_EQ(iter->value(), first_value);
-  ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
 
-  iter->Next();
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_OK(iter->status());
-  ASSERT_EQ(iter->key(), second_key);
-  ASSERT_EQ(iter->value(), second_value);
-  ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
 
-  iter->Next();
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_OK(iter->status());
-  ASSERT_EQ(iter->key(), third_key);
-  ASSERT_EQ(iter->value(), third_value);
-  ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
 
-  iter->Next();
-  ASSERT_FALSE(iter->Valid());
-  ASSERT_OK(iter->status());
-  ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+  }
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
