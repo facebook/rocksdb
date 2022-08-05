@@ -87,7 +87,8 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   PERF_TIMER_STOP(get_snapshot_time);
   if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), ts, &s,
                               &merge_context, &max_covering_tombstone_seq,
-                              read_options, &read_cb)) {
+                              read_options, false /* immutable_memtable */,
+                              &read_cb)) {
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else {

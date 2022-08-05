@@ -5099,6 +5099,7 @@ class Benchmark {
     int64_t num_written = 0;
     int64_t next_seq_db_at = num_ops;
     size_t id = 0;
+    int64_t num_range_deletions = 0;
 
     while ((num_per_key_gen != 0) && !duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
@@ -5296,6 +5297,7 @@ class Benchmark {
             (num_written - writes_before_delete_range_) %
                     writes_per_range_tombstone_ ==
                 0) {
+          num_range_deletions++;
           int64_t begin_num = key_gens[id]->Next();
           if (FLAGS_expand_range_tombstones) {
             for (int64_t offset = 0; offset < range_tombstone_width_;
@@ -5400,6 +5402,10 @@ class Benchmark {
               "Number of unique keys inserted (disposable+persistent): %" PRIu64
               ".\nNumber of 'disposable entry delete': %" PRIu64 "\n",
               num_written, num_selective_deletes);
+    }
+    if (num_range_deletions > 0) {
+      std::cout << "Number of range deletions: " << num_range_deletions
+                << std::endl;
     }
     thread->stats.AddBytes(bytes);
   }
