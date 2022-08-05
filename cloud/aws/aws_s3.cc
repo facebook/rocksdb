@@ -1025,13 +1025,17 @@ Status S3StorageProvider::DoGetCloudObject(const std::string& bucket_name,
       } else {
         const auto& error = outcome.GetError();
         std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-        Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
+        if (IsNotFound(error.GetErrorType())) {
+          Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
             "[s3] GetObject %s/%s error %s.", bucket_name.c_str(),
             object_path.c_str(), errmsg.c_str());
-        if (IsNotFound(error.GetErrorType())) {
           return Status::NotFound(std::move(errmsg));
+        } else {
+          Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
+            "[s3] GetObject %s/%s error %s.", bucket_name.c_str(),
+            object_path.c_str(), errmsg.c_str());
+          return Status::IOError(std::move(errmsg));
         }
-        return Status::IOError(std::move(errmsg));
       }
     }
 

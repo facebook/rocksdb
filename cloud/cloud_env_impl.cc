@@ -1114,7 +1114,7 @@ Status CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
   // Check if CURRENT file exists
   st = env->FileExists(CurrentFileName(local_dir));
   if (!st.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+    Log(InfoLogLevel::INFO_LEVEL, info_log_,
         "[cloud_env_impl] NeedsReinitialization: "
         "failed to find CURRENT file %s: %s",
         CurrentFileName(local_dir).c_str(), st.ToString().c_str());
@@ -1124,7 +1124,7 @@ Status CloudEnvImpl::NeedsReinitialization(const std::string& local_dir,
   // Check if CLOUDMANIFEST file exists
   st = env->FileExists(CloudManifestFile(local_dir));
   if (!st.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+    Log(InfoLogLevel::INFO_LEVEL, info_log_,
         "[cloud_env_impl] NeedsReinitialization: "
         "failed to find CLOUDMANIFEST file %s: %s",
         CloudManifestFile(local_dir).c_str(), st.ToString().c_str());
@@ -1679,7 +1679,7 @@ Status CloudEnvImpl::SanitizeDirectory(const DBOptions& options,
   if (!got_identity_from_src && !got_identity_from_dest) {
     // There isn't a valid db in either the src or dest bucket.
     // Return with a success code so that a new DB can be created.
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+    Log(InfoLogLevel::INFO_LEVEL, info_log_,
         "[cloud_env_impl] No valid dbs in src bucket %s src path %s "
         "or dest bucket %s dest path %s",
         GetSrcBucketName().c_str(), GetSrcObjectPath().c_str(),
