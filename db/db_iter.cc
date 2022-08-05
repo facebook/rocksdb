@@ -134,6 +134,7 @@ void DBIter::Next() {
   PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
+  ResetBlobValue();
   ResetWideColumnValue();
   local_stats_.skip_count_ += num_internal_keys_skipped_;
   local_stats_.skip_count_--;
@@ -282,7 +283,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   // to one.
   bool reseek_done = false;
 
-  ResetBlobValue();
+  assert(!is_blob_);
+  assert(blob_value_.empty());
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -662,6 +664,7 @@ void DBIter::Prev() {
 
   PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
   ReleaseTempPinnedData();
+  ResetBlobValue();
   ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
   bool ok = true;
@@ -993,7 +996,8 @@ bool DBIter::FindValueForCurrentKey() {
   Status s;
   s.PermitUncheckedError();
 
-  ResetBlobValue();
+  assert(!is_blob_);
+  assert(blob_value_.empty());
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -1115,7 +1119,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // Find the next value that's visible.
   ParsedInternalKey ikey;
 
-  ResetBlobValue();
+  assert(!is_blob_);
+  assert(blob_value_.empty());
   assert(!is_wide_);
   assert(value_of_default_column_.empty());
 
@@ -1482,6 +1487,7 @@ void DBIter::Seek(const Slice& target) {
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
+  ResetBlobValue();
   ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
 
@@ -1559,6 +1565,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   status_ = Status::OK();
   ReleaseTempPinnedData();
+  ResetBlobValue();
   ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
 
@@ -1617,6 +1624,7 @@ void DBIter::SeekToFirst() {
   status_ = Status::OK();
   direction_ = kForward;
   ReleaseTempPinnedData();
+  ResetBlobValue();
   ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();
@@ -1665,6 +1673,7 @@ void DBIter::SeekToLast() {
                                *iterate_upper_bound_, /*a_has_ts=*/false, k,
                                /*b_has_ts=*/false)) {
       ReleaseTempPinnedData();
+      ResetBlobValue();
       ResetWideColumnValue();
       PrevInternal(nullptr);
 
@@ -1685,6 +1694,7 @@ void DBIter::SeekToLast() {
   status_ = Status::OK();
   direction_ = kReverse;
   ReleaseTempPinnedData();
+  ResetBlobValue();
   ResetWideColumnValue();
   ResetInternalKeysSkippedCounter();
   ClearSavedValue();

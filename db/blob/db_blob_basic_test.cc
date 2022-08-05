@@ -299,6 +299,8 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
 
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
 }
 
 TEST_F(DBBlobBasicTest, MultiGetBlobs) {
