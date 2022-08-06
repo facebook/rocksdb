@@ -234,8 +234,14 @@ class MergingIterator : public InternalIterator {
       minHeap_.pop();
     }
 
-    if (!child_range_tombstones_.empty()) {
-      FindNextVisibleEntry();
+    for (auto& t : child_range_tombstones_) {
+      if (t != nullptr) {
+        // Only need to skip range tombstone covered keys when there is a
+        // non-empty range tombstone iter. This helps reduce performance impact
+        // for no range tombstone use cases.
+        FindNextVisibleEntry();
+        break;
+      }
     }
     current_ = CurrentForward();
   }
@@ -280,9 +286,14 @@ class MergingIterator : public InternalIterator {
       maxHeap_->pop();
     }
 
-    if (!child_range_tombstones_.empty()) {
-      // Skip range tombstone covered keys
-      FindPrevVisibleEntry();
+    for (auto& t : child_range_tombstones_) {
+      if (t != nullptr) {
+        // Only need to skip range tombstone covered keys when there is a
+        // non-empty range tombstone iter. This helps reduce performance impact
+        // for no range tombstone use cases.
+        FindPrevVisibleEntry();
+        break;
+      }
     }
     current_ = CurrentReverse();
   }
