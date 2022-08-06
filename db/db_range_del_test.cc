@@ -2295,6 +2295,8 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   InternalIterator* level_iter = sv->current->TEST_GetLevelIterator(
       read_options, &merge_iter_builder, 1 /* level */,
       nullptr /* range_del_aggregator */, true);
+  // This is needed to make LevelIterator range tombstone aware
+  merge_iter_builder.Finish();
   auto k = Key(3);
   IterKey target;
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
@@ -2541,6 +2543,8 @@ TEST_F(DBRangeDelTest, SentinelKeyCommonCaseTest) {
   InternalIterator* level_iter = sv->current->TEST_GetLevelIterator(
       read_options, &merge_iter_builder, 1 /* level */,
       nullptr /* range_del_aggregator */, true);
+  // This is needed to make LevelIterator range tombstone aware
+  merge_iter_builder.Finish();
   auto k = Key(7);
   IterKey target;
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
