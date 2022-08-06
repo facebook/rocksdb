@@ -583,7 +583,10 @@ jobs:
       - pre-steps
       - install-gflags
       - install-compression-libs
-      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j32 blackbox_crash_test_with_tiered_storage
+      - run:
+          name: "run crashtest"
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 blackbox_crash_test_with_tiered_storage
+          no_output_timeout: 100m
       - post-steps
 
   build-linux-crashtest-tiered-storage-wb:
@@ -594,7 +597,10 @@ jobs:
       - pre-steps
       - install-gflags
       - install-compression-libs
-      - run: ulimit -S -n `ulimit -H -n` && make V=1 -j32 whitebox_crash_test_with_tiered_storage
+      - run:
+          name: "run crashtest"
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 whitebox_crash_test_with_tiered_storage
+          no_output_timeout: 100m
       - post-steps
 
   build-windows:
