@@ -454,7 +454,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->hash = hash;
       e->refs = 0;
       e->next = e->prev = nullptr;
-      e->SetPriority(priority);
+      e->SetPriority(Cache::Priority::HIGH);
       memcpy(e->key_data, key.data(), key.size());
       e->value = nullptr;
       e->sec_handle = secondary_handle.release();
