@@ -444,6 +444,7 @@ Cache::Handle* LRUCacheShard::Lookup(
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
         secondary_cache_->Lookup(key, create_cb, wait, is_in_sec_cache);
     if (secondary_handle != nullptr) {
+      priority = Cache::Priority::HIGH;
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
 
@@ -454,7 +455,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->hash = hash;
       e->refs = 0;
       e->next = e->prev = nullptr;
-      e->SetPriority(Cache::Priority::HIGH);
+      e->SetPriority(priority);
       memcpy(e->key_data, key.data(), key.size());
       e->value = nullptr;
       e->sec_handle = secondary_handle.release();
