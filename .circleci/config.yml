@@ -273,7 +273,7 @@ jobs:
 
   build-linux:
     docker:
-      - image: cooldoger/rocksdb:0.1
+      - image: cooldoger/rocksdb:0.2
     resource_class: 2xlarge
     steps:
       - pre-steps
