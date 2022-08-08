@@ -22,15 +22,90 @@ class DBWideBasicTest : public DBTestBase {
 TEST_F(DBWideBasicTest, PutEntity) {
   Options options = GetDefaultOptions();
 
-  // Use the DB::PutEntity API
   constexpr char first_key[] = "first";
-  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
+  constexpr char second_key[] = "second";
+
+  constexpr char first_value_of_default_column[] = "hello";
+
+  auto verify = [&]() {
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
+                         &result));
+      ASSERT_EQ(result, first_value_of_default_column);
+    }
+
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
+                         &result));
+      ASSERT_TRUE(result.empty());
+    }
+
+    {
+      constexpr size_t num_keys = 2;
+
+      std::array<Slice, num_keys> keys{{first_key, second_key}};
+      std::array<PinnableSlice, num_keys> values;
+      std::array<Status, num_keys> statuses;
+
+      db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys,
+                    &keys[0], &values[0], &statuses[0]);
+
+      ASSERT_OK(statuses[0]);
+      ASSERT_EQ(values[0], first_value_of_default_column);
+
+      ASSERT_OK(statuses[1]);
+      ASSERT_TRUE(values[1].empty());
+    }
+
+    {
+      std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+
+      iter->SeekToFirst();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_value_of_default_column);
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_TRUE(iter->value().empty());
+
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+
+      iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), second_key);
+      ASSERT_TRUE(iter->value().empty());
+
+      iter->Prev();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), first_key);
+      ASSERT_EQ(iter->value(), first_value_of_default_column);
+
+      iter->Prev();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_OK(iter->status());
+    }
+  };
+
+  // Use the DB::PutEntity API
+  WideColumns first_columns{
+      {kDefaultWideColumnName, first_value_of_default_column},
+      {"attr_name1", "foo"},
+      {"attr_name2", "bar"}};
 
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                            first_key, first_columns));
 
   // Use WriteBatch
-  constexpr char second_key[] = "second";
   WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
 
   WriteBatch batch;
@@ -38,7 +113,51 @@ TEST_F(DBWideBasicTest, PutEntity) {
       batch.PutEntity(db_->DefaultColumnFamily(), second_key, second_columns));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
-  // Note: currently, read APIs are supposed to return NotSupported
+  // Try reading from memtable
+  verify();
+
+  // Try reading after recovery
+  Close();
+  options.avoid_flush_during_recovery = true;
+  Reopen(options);
+
+  verify();
+
+  // Try reading from storage
+  ASSERT_OK(Flush());
+
+  verify();
+}
+
+TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
+  Options options = GetDefaultOptions();
+  CreateAndReopenWithCF({"corinthian"}, options);
+
+  // Use the DB::PutEntity API
+  constexpr char first_key[] = "first";
+  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
+
+  ASSERT_OK(
+      db_->PutEntity(WriteOptions(), handles_[1], first_key, first_columns));
+
+  // Use WriteBatch
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
+
+  WriteBatch batch;
+  ASSERT_OK(batch.PutEntity(handles_[1], second_key, second_columns));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+}
+
+TEST_F(DBWideBasicTest, PutEntityMergeNotSupported) {
+  Options options = GetDefaultOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  constexpr char first_key[] = "first";
+  constexpr char second_key[] = "second";
+
+  // Note: Merge is currently not supported for wide-column entities
   auto verify = [&]() {
     {
       PinnableSlice result;
@@ -84,26 +203,23 @@ TEST_F(DBWideBasicTest, PutEntity) {
     }
   };
 
-  // Try reading from memtable
-  verify();
+  // Use the DB::PutEntity API
+  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
 
-  // Try reading after recovery
-  Close();
-  options.avoid_flush_during_recovery = true;
-  Reopen(options);
+  ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
+                           first_key, first_columns));
 
-  verify();
+  // Use WriteBatch
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
 
-  // Try reading from storage
+  WriteBatch batch;
+  ASSERT_OK(
+      batch.PutEntity(db_->DefaultColumnFamily(), second_key, second_columns));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
   ASSERT_OK(Flush());
 
-  verify();
-
   // Add a couple of merge operands
-  Close();
-  options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  Reopen(options);
-
   constexpr char merge_operand[] = "bla";
 
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), first_key,
@@ -111,15 +227,15 @@ TEST_F(DBWideBasicTest, PutEntity) {
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
                        merge_operand));
 
-  // Try reading from memtable
+  // Try reading when PutEntity is in storage, Merge is in memtable
   verify();
 
-  // Try reading from storage
+  // Try reading when PutEntity and Merge are both in storage
   ASSERT_OK(Flush());
 
   verify();
 
-  // Do it again, with the Put and the Merge in the same memtable
+  // Try reading when PutEntity and Merge are both in memtable
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                            first_key, first_columns));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
@@ -128,28 +244,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
   ASSERT_OK(db_->Merge(WriteOptions(), db_->DefaultColumnFamily(), second_key,
                        merge_operand));
 
-  // Try reading from memtable
   verify();
-}
-
-TEST_F(DBWideBasicTest, PutEntityColumnFamily) {
-  Options options = GetDefaultOptions();
-  CreateAndReopenWithCF({"corinthian"}, options);
-
-  // Use the DB::PutEntity API
-  constexpr char first_key[] = "first";
-  WideColumns first_columns{{"attr_name1", "foo"}, {"attr_name2", "bar"}};
-
-  ASSERT_OK(
-      db_->PutEntity(WriteOptions(), handles_[1], first_key, first_columns));
-
-  // Use WriteBatch
-  constexpr char second_key[] = "second";
-  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
-
-  WriteBatch batch;
-  ASSERT_OK(batch.PutEntity(handles_[1], second_key, second_columns));
-  ASSERT_OK(db_->Write(WriteOptions(), &batch));
 }
 
 TEST_F(DBWideBasicTest, PutEntityTimestampError) {

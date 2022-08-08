@@ -21,6 +21,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/read_callback.h"
+#include "db/wide/wide_column_serialization.h"
 #include "logging/logging.h"
 #include "memory/arena.h"
 #include "memory/memory_usage.h"
@@ -786,12 +787,6 @@ static bool SaveValue(void* arg, const char* entry) {
                 "Encounter unsupported blob value. Please open DB with "
                 "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
           }
-        } else {
-          assert(type == kTypeWideColumnEntity);
-
-          // TODO: support wide-column entities
-          *(s->status) =
-              Status::NotSupported("Encountered unexpected wide-column entity");
         }
 
         if (!s->status->ok()) {
@@ -825,7 +820,17 @@ static bool SaveValue(void* arg, const char* entry) {
           merge_context->PushOperand(
               v, s->inplace_update_support == false /* operand_pinned */);
         } else if (s->value != nullptr) {
-          s->value->assign(v.data(), v.size());
+          if (type != kTypeWideColumnEntity) {
+            assert(type == kTypeValue || type == kTypeBlobIndex);
+            s->value->assign(v.data(), v.size());
+          } else {
+            Slice value;
+            *(s->status) =
+                WideColumnSerialization::GetValueOfDefaultColumn(v, value);
+            if (s->status->ok()) {
+              s->value->assign(value.data(), value.size());
+            }
+          }
         }
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
