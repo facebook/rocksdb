@@ -30,6 +30,7 @@
 
 ### Performance Improvements
 * Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.  
+* Improve read performance by avoiding dynamic memory allocation.
 
 ## 7.5.0 (07/15/2022)
 ### New Features
