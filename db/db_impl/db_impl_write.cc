@@ -235,10 +235,10 @@ Status DBImpl::MultiBatchWriteImpl(const WriteOptions& write_options,
                   write_options.ignore_missing_column_families, this);
               w->request->commit_lsn = next_sequence + count - 1;
               write_thread_.EnterCommitQueue(w->request);
+              next_sequence += count;
+              total_count += count;
+              memtable_write_cnt++;
             }
-            next_sequence += count;
-            total_count += count;
-            memtable_write_cnt++;
           }
           total_byte_size = WriteBatchInternal::AppendedByteSize(
               total_byte_size,

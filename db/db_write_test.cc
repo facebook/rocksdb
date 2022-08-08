@@ -31,8 +31,25 @@ class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
   void Open() { DBTestBase::Reopen(GetOptions()); }
 };
 
+TEST_P(DBWriteTest, WriteEmptyBatch) {
+  Options options = GetOptions();
+  options.write_buffer_size = 65536;
+  Reopen(options);
+  WriteOptions write_options;
+  WriteBatch batch;
+  Random rnd(301);
+  // Trigger a flush so that we will enter `WaitForPendingWrites`.
+  for (auto i = 0; i < 10; i++) {
+    batch.Clear();
+    ASSERT_OK(dbfull()->Write(write_options, &batch));
+    ASSERT_OK(batch.Put(std::to_string(i), rnd.RandomString(10240)));
+    ASSERT_OK(dbfull()->Write(write_options, &batch));
+  }
+}
+
 // It is invalid to do sync write while disabling WAL.
 TEST_P(DBWriteTest, SyncAndDisableWAL) {
+  Reopen(GetOptions());
   WriteOptions write_options;
   write_options.sync = true;
   write_options.disableWAL = true;
