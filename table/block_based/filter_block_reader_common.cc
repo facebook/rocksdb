@@ -67,7 +67,8 @@ template <typename TBlocklike>
 Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    CachableEntry<TBlocklike>* filter_block, BlockType block_type) const {
+    CachableEntry<TBlocklike>* filter_block, BlockType block_type,
+    const ReadOptions& read_options) const {
   assert(filter_block);
 
   if (!filter_block_.IsEmpty()) {
@@ -75,13 +76,12 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     return Status::OK();
   }
 
-  ReadOptions read_options;
+  ReadOptions ro = read_options;
   if (no_io) {
-    read_options.read_tier = kBlockCacheTier;
+    ro.read_tier = kBlockCacheTier;
   }
-  read_options.verify_checksums = false;
 
-  return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, read_options,
+  return ReadFilterBlock(table_, nullptr /* prefetch_buffer */, ro,
                          cache_filter_blocks(), get_context, lookup_context,
                          filter_block, block_type);
 }

@@ -20,6 +20,7 @@ int main() {
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/options.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -469,7 +470,7 @@ void FilterBench::Go() {
           nullptr /* cache */, nullptr /* cache_handle */,
           true /* own_value */);
       info.full_block_reader_.reset(
-          new FullFilterBlockReader(table_.get(), std::move(block)));
+          new FullFilterBlockReader(table_.get(), std::move(block), rocksdb::ReadOptions()));
     }
     total_size += info.filter_.size();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE

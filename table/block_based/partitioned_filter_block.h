@@ -102,7 +102,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
 class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
  public:
   PartitionedFilterBlockReader(const BlockBasedTable* t,
-                               CachableEntry<Block>&& filter_block);
+                               CachableEntry<Block>&& filter_block,
+                               const ReadOptions& ro);
 
   static std::unique_ptr<FilterBlockReader> Create(
       const BlockBasedTable* table, const ReadOptions& ro,
@@ -163,6 +164,8 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
   // For partition blocks pinned in cache. Can be a subset of blocks
   // in case some fail insertion on attempt to pin.
   UnorderedMap<uint64_t, CachableEntry<ParsedFullFilterBlock>> filter_map_;
+
+  const ReadOptions read_options_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

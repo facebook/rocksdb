@@ -59,7 +59,8 @@ class FilterBlockReaderCommon : public FilterBlockReader {
   Status GetOrReadFilterBlock(bool no_io, GetContext* get_context,
                               BlockCacheLookupContext* lookup_context,
                               CachableEntry<TBlocklike>* filter_block,
-                              BlockType block_type) const;
+                              BlockType block_type,
+                              const ReadOptions& read_options) const;
 
   size_t ApproximateFilterBlockMemoryUsage() const;
 

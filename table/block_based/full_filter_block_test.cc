@@ -113,7 +113,7 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block));
+  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
@@ -135,7 +135,7 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block));
+  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
@@ -183,7 +183,7 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block));
+  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
@@ -284,7 +284,7 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block));
+  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                                  /*get_context=*/nullptr,
