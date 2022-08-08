@@ -56,9 +56,9 @@ class MergeIteratorBuilder {
   // to where the merging iterator stores iter when Finish() is called.
   // This is used by level iterator to update range tombstones when switching
   // to a different SST file.
-  void AddRangeTombstoneIterator(
-      TruncatedRangeDelIterator* iter,
-      TruncatedRangeDelIterator*** range_del_iter_ptr = nullptr);
+  size_t AddRangeTombstoneIterator(
+      TruncatedRangeDelIterator* iter, std::set<size_t>** active_iter = nullptr,
+      TruncatedRangeDelIterator*** iter_ptr = nullptr);
 
   // Get arena used to build the merging iterator. It is called one a child
   // iterator needs to be allocated.
@@ -77,7 +77,7 @@ class MergeIteratorBuilder {
   bool use_merging_iter;
   Arena* arena;
   // Used to set LevelIterator.range_tombstone_iter_.
-  // See AddRangeTombstoneIterator() and Finish() for more detail.
+  // See AddRangeTombstoneIterator() for more detail.
   std::vector<std::pair<size_t, TruncatedRangeDelIterator***>>
       range_del_iter_ptrs_;
 };

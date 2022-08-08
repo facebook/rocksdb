@@ -2322,7 +2322,7 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   delete level_iter;
 }
 
-TEST_F(DBRangeDelTest, TombstoneOnlyWithVisibleKey) {
+TEST_F(DBRangeDelTest, TombstoneOnlyWithOlderVisibleKey) {
   // L1: [3, 5)
   // L2: 2, 4, 5
   // 2 and 5 should be visible
@@ -2386,6 +2386,45 @@ TEST_F(DBRangeDelTest, TombstoneOnlyWithVisibleKey) {
   delete iter;
 }
 
+TEST_F(DBRangeDelTest, TombstoneOnlyWithNewerVisibleKey) {
+  // L1: 5
+  // L2: [4, 6)
+  // L3: 4
+  // Seek(5) will have 5 at top, 6 sentinel next.
+  //  then do a prev, how would sentinel work?
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = 3 * 1024;
+
+  DestroyAndReopen(options);
+  // L3
+  ASSERT_OK(db_->Put(WriteOptions(), Key(4), "bar"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(3);
+  ASSERT_EQ(1, NumTableFilesAtLevel(3));
+  // L2
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(4),
+                             Key(6)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  // L2
+  ASSERT_OK(db_->Put(WriteOptions(), Key(5), "foobar"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  auto iter = db_->NewIterator(ReadOptions());
+  iter->Seek(Key(5));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(5));
+  iter->Prev();
+  ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+  delete iter;
+}
+
 // Right sentinel tested in many test cases above
 TEST_F(DBRangeDelTest, LeftSentinelKeyTest) {
   // L1_0: 0, 1    L1_1: [2, 3), 5
@@ -2437,7 +2476,7 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTest) {
 TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
   // L1_0: 1, 2 and newer than L1_1,    L1_1: [2, 4), 5
   // L2: 3
-  // SeekForPrev(4) then Next() should give 2 and then 1.
+  // SeekForPrev(4) then Prev() should give 2 and then 1.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;

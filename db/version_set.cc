@@ -971,13 +971,14 @@ class LevelIterator final : public InternalIterator {
         compaction_boundaries_(compaction_boundaries),
         is_next_read_sequential_(false),
         range_tombstone_iter_(nullptr),
+        active_range_tombstones_(nullptr),
         to_return_sentinel_(false) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
     if (merge_iter_builder && !read_options.ignore_range_deletions) {
       // lazily initialize range_tombstone_iter_ together with file_iter_
-      merge_iter_builder->AddRangeTombstoneIterator(nullptr,
-                                                    &range_tombstone_iter_);
+      range_tombstone_level_ = merge_iter_builder->AddRangeTombstoneIterator(
+          nullptr, &active_range_tombstones_, &range_tombstone_iter_);
     }
   }
 
@@ -1081,6 +1082,15 @@ class LevelIterator final : public InternalIterator {
                *read_options_.iterate_upper_bound, /*b_has_ts=*/false) >= 0;
   }
 
+  void ClearRangeTombstoneIter() {
+    if (range_tombstone_iter_ && *range_tombstone_iter_) {
+      // Since we are abount to install a new range tombstone iterator
+      delete *range_tombstone_iter_;
+      // will be reset in the NewIterator call below, just to be precautious
+      *range_tombstone_iter_ = nullptr;
+    }
+  }
+
   // Move file_iter_ to the file at file_index_.
   // range_tombstone_iter_ is updated with a range tombstone iterator
   // into the new file.
@@ -1098,19 +1108,23 @@ class LevelIterator final : public InternalIterator {
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
     CheckMayBeOutOfLowerBound();
-    if (range_tombstone_iter_ != nullptr && *range_tombstone_iter_ != nullptr) {
-      // Since we are abount to install a new range tombstone iterator
-      delete *range_tombstone_iter_;
-      // will be reset in the NewIterator call below, just to be precautious
-      *range_tombstone_iter_ = nullptr;
-    }
-    return table_cache_->NewIterator(
+    ClearRangeTombstoneIter();
+    auto to_return = table_cache_->NewIterator(
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_, range_tombstone_iter_);
+    if (range_tombstone_iter_) {
+      if (*range_tombstone_iter_) {
+        // initally should be valid()
+        (*active_range_tombstones_).insert(range_tombstone_level_);
+      } else {
+        (*active_range_tombstones_).erase(range_tombstone_level_);
+      }
+    }
+    return to_return;
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1169,7 +1183,11 @@ class LevelIterator final : public InternalIterator {
   // under a merging iterator that processes range tombstones. The level
   // iterator needs to produce a fake file boundary key when the file boundary
   // is defined by a range tombstone (op_type = kTypeRangeDeletion).
+  //
+  // *range_tombstone_iter_ points to range tombstones of the current SST file
   TruncatedRangeDelIterator** range_tombstone_iter_;
+  std::set<size_t>* active_range_tombstones_;
+  size_t range_tombstone_level_;
 
   // Whether next/prev key is the range tombstone sentinel key
   bool to_return_sentinel_ = false;
@@ -1181,6 +1199,7 @@ void LevelIterator::trySetTombstoneSentinelKey(const Slice& boundary_key) {
   assert(range_tombstone_iter_ && *range_tombstone_iter_);
   if (file_iter_.iter() != nullptr && !file_iter_.Valid() &&
       file_iter_.status().ok()) {
+    // range_tombstone_iter_.Valid() can also be a prerequisite for sentinel?
     ParsedInternalKey pik;
     ParseInternalKey(boundary_key, &pik, false).PermitUncheckedError();
     // Not checking pik.sequence == kMaxSequenceNumber since it is possible
@@ -1266,6 +1285,14 @@ void LevelIterator::Seek(const Slice& target) {
 void LevelIterator::SeekForPrev(const Slice& target) {
   to_return_sentinel_ = false;
   size_t new_file_index = FindFile(icomparator_, *flevel_, target);
+  // Seek beyond level's smallest key
+  if (new_file_index == 0 &&
+      icomparator_.Compare(target, file_smallest_key(0)) < 0) {
+    SetFileIterator(nullptr);
+    ClearRangeTombstoneIter();
+    CheckMayBeOutOfLowerBound();
+    return;
+  }
   if (new_file_index >= flevel_->num_files) {
     new_file_index = flevel_->num_files - 1;
   }
@@ -1314,6 +1341,10 @@ void LevelIterator::SeekToLast() {
 }
 
 void LevelIterator::Next() {
+  // For range tombstones, Next() call should update range_tombstone_iter_
+  // if file_iter_ changes. Maintain active_range_tombstones_ set
+  // correspondingly. Before advancing to next SST file, check boundary for
+  // possible tombstone sentinel key.
   assert(Valid());
   if (to_return_sentinel_) {
     to_return_sentinel_ = false;
@@ -1395,6 +1426,14 @@ bool LevelIterator::SkipEmptyFileForward() {
           file_iter_.iter()->UpperBoundCheckResult() !=
               IterBoundCheck::kOutOfBound)) {
     seen_empty_file = true;
+    // clear tombstone of current file
+    if (range_tombstone_iter_ && *range_tombstone_iter_) {
+      // Since we are about to install a new range tombstone iterator
+      delete *range_tombstone_iter_;
+      // will be reset in the NewIterator call below, just to be precautious
+      *range_tombstone_iter_ = nullptr;
+      active_range_tombstones_->erase(range_tombstone_level_);
+    }
     // Move to next file
     if (file_index_ >= flevel_->num_files - 1) {
       // Already at the last file
@@ -1405,6 +1444,7 @@ bool LevelIterator::SkipEmptyFileForward() {
       SetFileIterator(nullptr);
       break;
     }
+    // may init a new *range_tombstone_iter
     InitFileIterator(file_index_ + 1);
     // We moved to a new SST file
     // Seek range_tombstone_iter_ to reset its !Valid() default state.
@@ -1412,6 +1452,10 @@ bool LevelIterator::SkipEmptyFileForward() {
       file_iter_.SeekToFirst();
       if (range_tombstone_iter_ && *range_tombstone_iter_) {
         (*range_tombstone_iter_)->SeekToFirst();
+        // bookkeeping for active range tombstones in merging iter
+        if ((*range_tombstone_iter_)->Valid()) {
+          active_range_tombstones_->insert(range_tombstone_level_);
+        }
         trySetTombstoneSentinelKey(file_largest_key(file_index_));
         if (to_return_sentinel_) {
           break;
@@ -1425,6 +1469,14 @@ bool LevelIterator::SkipEmptyFileForward() {
 void LevelIterator::SkipEmptyFileBackward() {
   while (file_iter_.iter() == nullptr ||
          (!file_iter_.Valid() && file_iter_.status().ok())) {
+    // clear tombstone of current file
+    if (range_tombstone_iter_ && *range_tombstone_iter_) {
+      // Since we are about to install a new range tombstone iterator
+      delete *range_tombstone_iter_;
+      // will be reset in the NewIterator call below, just to be precautious
+      *range_tombstone_iter_ = nullptr;
+      active_range_tombstones_->erase(range_tombstone_level_);
+    }
     // Move to previous file
     if (file_index_ == 0) {
       // Already the first file
@@ -1438,6 +1490,9 @@ void LevelIterator::SkipEmptyFileBackward() {
       file_iter_.SeekToLast();
       if (range_tombstone_iter_ && *range_tombstone_iter_) {
         (*range_tombstone_iter_)->SeekToLast();
+        if ((*range_tombstone_iter_)->Valid()) {
+          active_range_tombstones_->insert(range_tombstone_level_);
+        }
         trySetTombstoneSentinelKey(file_smallest_key(file_index_));
         if (to_return_sentinel_) {
           break;
@@ -1473,6 +1528,7 @@ void LevelIterator::InitFileIterator(size_t new_file_index) {
     // We could clear the range tombstone here too since we have surpassed the
     // sentinel key. Though there should be no harm and leave it to be
     // precautious.
+    ClearRangeTombstoneIter();
     return;
   } else {
     // If the file iterator shows incomplete, we try it again if users seek
