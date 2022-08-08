@@ -6,7 +6,6 @@ import os
 import sys
 import time
 import random
-import re
 import tempfile
 import subprocess
 import shutil
@@ -367,6 +366,14 @@ ts_params = {
     "ingest_external_file_one_in": 0,
 }
 
+tiered_params = {
+    "enable_tiered_storage": 1,
+    "preclude_last_level_data_seconds": lambda: random.choice([3600]),
+    # only test universal compaction for now, level has known issue of
+    # endless compaction
+    "compaction_style": 1,
+}
+
 multiops_txn_default_params = {
     "test_cf_consistency": 0,
     "test_batches_snapshots": 0,
@@ -573,6 +580,8 @@ def gen_cmd_params(args):
             params.update(multiops_wc_txn_params)
         elif args.write_policy == 'write_prepared':
             params.update(multiops_wp_txn_params)
+    if args.enable_tiered_storage:
+        params.update(tiered_params)
 
     # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
     # if specified on the command line; otherwise, apply BlobDB related overrides
@@ -820,6 +829,7 @@ def main():
     parser.add_argument("--test_multiops_txn", action='store_true')
     parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
+    parser.add_argument("--enable_tiered_storage", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())

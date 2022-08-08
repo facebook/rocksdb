@@ -483,6 +483,12 @@ DEFINE_int32(prepopulate_blob_cache, 0,
              "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
              "to disable and 1 to insert during flush.");
 
+DEFINE_bool(enable_tiered_storage, false, "Set last_level_temperature");
+
+DEFINE_int64(preclude_last_level_data_seconds, 0,
+             "Preclude data from the last level. Used with tiered storage "
+             "feature to preclude new data from comacting to the last level.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
