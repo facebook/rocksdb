@@ -817,11 +817,13 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   // size of the base sorted run for size amp calculation
   uint64_t base_sr_size = sorted_runs_.back().size;
   size_t sr_end_idx = sorted_runs_.size() - 1;
-  if (ioptions_.preclude_last_level_data_seconds > 0) {
-    if (sorted_runs_.back().level == ioptions_.num_levels - 1) {
-      sr_end_idx = sorted_runs_.size() - 2;
-      base_sr_size = sorted_runs_[sr_end_idx].size;
-    }
+  // If tiered compaction is enabled and the last sorted run is the last level
+  if (ioptions_.preclude_last_level_data_seconds > 0 &&
+      ioptions_.num_levels > 2 &&
+      sorted_runs_.back().level == ioptions_.num_levels - 1 &&
+      sorted_runs_.size() > 1) {
+    sr_end_idx = sorted_runs_.size() - 2;
+    base_sr_size = sorted_runs_[sr_end_idx].size;
   }
 
   // keep adding up all the remaining files

@@ -3246,6 +3246,42 @@ TEST_F(CompactionPickerTest, UniversalSizeRatioTierCompactionLastLevel) {
   ASSERT_EQ(compaction->input_levels(6)->num_files, 0);
 }
 
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
+  // Tiered compaction only support level_num > 2 (otherwise the penultimate
+  // level is going to be level 0, which may make thing more complicated), so
+  // when there's only 2 level, still treating level 1 as the last level for
+  // size amp compaction
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 2;
+  const int kLastLevel = kNumLevels - 1;
+  const int kPenultimateLevel = kLastLevel - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(0, 90U, "100", "600", 4 * kFileSize);
+  Add(1, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // size amp compaction is still triggered even preclude_last_level is set
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->output_level(), kLastLevel);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 3);
+  ASSERT_EQ(compaction->input_levels(1)->num_files, 1);
+}
+
 TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionLastLevel) {
   // This test makes sure the size amp compaction for tiered storage could still
   // be triggered, but only for non-last-level files
