@@ -214,7 +214,7 @@ std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
   }
 
   return std::unique_ptr<FilterBlockReader>(
-      new PartitionedFilterBlockReader(table, std::move(filter_block)));
+      new PartitionedFilterBlockReader(table, std::move(filter_block), ro));
 }
 
 bool PartitionedFilterBlockReader::KeyMayMatch(
@@ -326,11 +326,11 @@ Status PartitionedFilterBlockReader::GetFilterPartitionBlock(
 bool PartitionedFilterBlockReader::MayMatch(
     const Slice& slice, bool no_io, const Slice* const_ikey_ptr,
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority,
+    const ReadOptions& read_options,
     FilterFunction filter_function) const {
   CachableEntry<Block_kFilterPartitionIndex> filter_block;
   Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
-                                  &filter_block, rate_limiter_priority);
+                                  &filter_block, read_options);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -355,7 +355,8 @@ bool PartitionedFilterBlockReader::MayMatch(
   }
 
   FullFilterBlockReader filter_partition(table(),
-                                         std::move(filter_partition_block));
+                                         std::move(filter_partition_block),
+                                         read_options_);
   return (filter_partition.*filter_function)(slice, no_io, const_ikey_ptr,
                                              get_context, lookup_context,
                                              rate_limiter_priority);
@@ -364,12 +365,12 @@ bool PartitionedFilterBlockReader::MayMatch(
 void PartitionedFilterBlockReader::MayMatch(
     MultiGetRange* range, const SliceTransform* prefix_extractor, bool no_io,
     BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority,
+    const ReadOptions& read_options,
     FilterManyFunction filter_function) const {
   CachableEntry<Block_kFilterPartitionIndex> filter_block;
   Status s =
       GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
-                           &filter_block, rate_limiter_priority);
+                           &filter_block, read_options);
   if (UNLIKELY(!s.ok())) {
     IGNORE_STATUS_IF_ERROR(s);
     return;  // Any/all may match
@@ -431,7 +432,8 @@ void PartitionedFilterBlockReader::MayMatchPartition(
   }
 
   FullFilterBlockReader filter_partition(table(),
-                                         std::move(filter_partition_block));
+                                         std::move(filter_partition_block),
+                                         read_options_);
   (filter_partition.*filter_function)(range, prefix_extractor, no_io,
                                       lookup_context, rate_limiter_priority);
 }
@@ -461,7 +463,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
 
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                                   &lookup_context, &filter_block,
-                                  ro.rate_limiter_priority);
+                                  ro);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep->ioptions.logger,
                     "Error retrieving top-level filter block while trying to "

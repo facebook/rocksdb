@@ -98,7 +98,8 @@ class FullFilterBlockReader
     : public FilterBlockReaderCommon<ParsedFullFilterBlock> {
  public:
   FullFilterBlockReader(const BlockBasedTable* t,
-                        CachableEntry<ParsedFullFilterBlock>&& filter_block);
+                        CachableEntry<ParsedFullFilterBlock>&& filter_block,
+                        const ReadOptions& ro);
 
   static std::unique_ptr<FilterBlockReader> Create(
       const BlockBasedTable* table, const ReadOptions& ro,
@@ -141,7 +142,7 @@ class FullFilterBlockReader
   void MayMatch(MultiGetRange* range, bool no_io,
                 const SliceTransform* prefix_extractor,
                 BlockCacheLookupContext* lookup_context,
-                Env::IOPriority rate_limiter_priority) const;
+                const ReadOptions& read_options) const;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

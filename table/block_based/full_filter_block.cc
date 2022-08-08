@@ -159,7 +159,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
   }
 
   return std::unique_ptr<FilterBlockReader>(
-      new FullFilterBlockReader(table, std::move(filter_block)));
+      new FullFilterBlockReader(table, std::move(filter_block), ro));
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(
@@ -178,7 +178,7 @@ bool FullFilterBlockReader::MayMatch(
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
-                                        &filter_block, rate_limiter_priority);
+                                        &filter_block, read_options_);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;
@@ -229,7 +229,7 @@ void FullFilterBlockReader::MayMatch(
 
   const Status s =
       GetOrReadFilterBlock(no_io, range->begin()->get_context, lookup_context,
-                           &filter_block, rate_limiter_priority);
+                           &filter_block, read_options_);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return;
