@@ -168,12 +168,9 @@ commands:
           command: |
             echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
             echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
+
   setup-folly:
     steps:
-      - run:
-          name: Install folly dependencies
-          command: |
-            sudo apt-get install libgoogle-glog-dev
       - run:
           name: Checkout folly sources
           command: |
@@ -281,12 +278,11 @@ jobs:
       - post-steps
 
   build-linux-encrypted_env-no_compression:
-    machine:
-      image: ubuntu-2004:202111-02
+    docker:
+      - image: cooldoger/rocksdb:0.3
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
       - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
       - run: |
           ./sst_dump --help | egrep -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
@@ -330,12 +326,11 @@ jobs:
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
-    machine:
-      image: ubuntu-2004:202111-02
+    docker:
+      - image: cooldoger/rocksdb:0.3
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
       - run: LITE=1 make V=1 J=8 -j8 check
       - post-steps
 
@@ -450,26 +445,22 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    docker:
+      - image: cooldoger/rocksdb:0.3
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - upgrade-cmake
       - setup-folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-cmake-with-benchmark:
-    machine:
-      image: ubuntu-2004:202111-02
+    docker:
+      - image: cooldoger/rocksdb:0.3
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-benchmark
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20)
+      - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20
       - post-steps
 
   build-linux-unity-and-headers:
@@ -486,12 +477,11 @@ jobs:
       - post-steps
 
   build-linux-gcc-7-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    docker:
+      - image: cooldoger/rocksdb:0.3
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
       - setup-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
@@ -931,11 +921,11 @@ workflows:
   jobs-linux-run-tests:
     jobs:
       - build-linux
-#      - build-linux-cmake-with-folly
-#      - build-linux-gcc-7-with-folly
-#      - build-linux-cmake-with-benchmark
-#      - build-linux-encrypted_env-no_compression
-#      - build-linux-lite
+      - build-linux-cmake-with-folly
+      - build-linux-gcc-7-with-folly
+      - build-linux-cmake-with-benchmark
+      - build-linux-encrypted_env-no_compression
+      - build-linux-lite
 #  jobs-linux-run-tests-san:
 #    jobs:
 #      - build-linux-clang10-asan
