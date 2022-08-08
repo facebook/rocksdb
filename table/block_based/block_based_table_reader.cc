@@ -592,21 +592,12 @@ Status BlockBasedTable::Open(
   Footer footer;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
-  // From read_options, retain deadline, io_timeout, and rate_limiter_priority.
-  // In future, we may retain more
-  // options.
-  ReadOptions ro;
-  ro.deadline = read_options.deadline;
-  ro.io_timeout = read_options.io_timeout;
-  ro.rate_limiter_priority = read_options.rate_limiter_priority;
-  ro.verify_checksums = read_options.verify_checksums;
-
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
   const bool preload_all = !table_options.cache_index_and_filter_blocks;
 
   if (!ioptions.allow_mmap_reads) {
-    s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
+    s = PrefetchTail(read_options, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
                      &prefetch_buffer);
     // Return error in prefetch path to users.
@@ -629,7 +620,7 @@ Status BlockBasedTable::Open(
   //    6. [meta block: index]
   //    7. [meta block: filter]
   IOOptions opts;
-  s = file->PrepareIOOptions(ro, opts);
+  s = file->PrepareIOOptions(read_options, opts);
   if (s.ok()) {
     s = ReadFooterFromFile(opts, file.get(), prefetch_buffer.get(), file_size,
                            &footer, kBlockBasedTableMagicNumber);
@@ -665,7 +656,7 @@ Status BlockBasedTable::Open(
       new BlockBasedTable(rep, block_cache_tracer));
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
-  s = new_table->ReadMetaIndexBlock(ro, prefetch_buffer.get(), &metaindex,
+  s = new_table->ReadMetaIndexBlock(read_options, prefetch_buffer.get(), &metaindex,
                                     &metaindex_iter);
   if (!s.ok()) {
     return s;
@@ -673,7 +664,7 @@ Status BlockBasedTable::Open(
 
   // Populates table_properties and some fields that depend on it,
   // such as index_type.
-  s = new_table->ReadPropertiesBlock(ro, prefetch_buffer.get(),
+  s = new_table->ReadPropertiesBlock(read_options, prefetch_buffer.get(),
                                      metaindex_iter.get(), largest_seqno);
   if (!s.ok()) {
     return s;
@@ -717,14 +708,14 @@ Status BlockBasedTable::Open(
       PersistentCacheOptions(rep->table_options.persistent_cache,
                              rep->base_cache_key, rep->ioptions.stats);
 
-  s = new_table->ReadRangeDelBlock(ro, prefetch_buffer.get(),
+  s = new_table->ReadRangeDelBlock(read_options, prefetch_buffer.get(),
                                    metaindex_iter.get(), internal_comparator,
                                    &lookup_context);
   if (!s.ok()) {
     return s;
   }
   s = new_table->PrefetchIndexAndFilterBlocks(
-      ro, prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
+      read_options, prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
       prefetch_all, table_options, level, file_size,
       max_file_size_for_l0_meta_pin, &lookup_context);
 
