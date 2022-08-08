@@ -3254,7 +3254,6 @@ TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
   const uint64_t kFileSize = 100000;
   const int kNumLevels = 2;
   const int kLastLevel = kNumLevels - 1;
-  const int kPenultimateLevel = kLastLevel - 1;
 
   ioptions_.compaction_style = kCompactionStyleUniversal;
   ioptions_.preclude_last_level_data_seconds = 1000;
