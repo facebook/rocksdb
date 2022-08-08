@@ -43,7 +43,7 @@ TEST_F(CloudEnvTest, ConfigureOptions) {
   copts.create_bucket_if_missing = false;
   copts.validate_filesize = false;
   copts.skip_dbid_verification = false;
-  copts.ephemeral_resync_on_open = false;
+  copts.resync_on_open = false;
   copts.skip_cloud_files_in_getchildren = false;
   copts.constant_sst_file_size_in_sst_file_manager = 100;
   copts.run_purger = false;
@@ -57,7 +57,7 @@ TEST_F(CloudEnvTest, ConfigureOptions) {
   ASSERT_FALSE(copy.create_bucket_if_missing);
   ASSERT_FALSE(copy.validate_filesize);
   ASSERT_FALSE(copy.skip_dbid_verification);
-  ASSERT_FALSE(copy.ephemeral_resync_on_open);
+  ASSERT_FALSE(copy.resync_on_open);
   ASSERT_FALSE(copy.skip_cloud_files_in_getchildren);
   ASSERT_FALSE(copy.run_purger);
   ASSERT_EQ(copy.constant_sst_file_size_in_sst_file_manager, 100);
@@ -69,7 +69,7 @@ TEST_F(CloudEnvTest, ConfigureOptions) {
   copts.create_bucket_if_missing = true;
   copts.validate_filesize = true;
   copts.skip_dbid_verification = true;
-  copts.ephemeral_resync_on_open = true;
+  copts.resync_on_open = true;
   copts.skip_cloud_files_in_getchildren = true;
   copts.constant_sst_file_size_in_sst_file_manager = 200;
   copts.run_purger = true;
@@ -82,7 +82,7 @@ TEST_F(CloudEnvTest, ConfigureOptions) {
   ASSERT_TRUE(copy.create_bucket_if_missing);
   ASSERT_TRUE(copy.validate_filesize);
   ASSERT_TRUE(copy.skip_dbid_verification);
-  ASSERT_TRUE(copy.ephemeral_resync_on_open);
+  ASSERT_TRUE(copy.resync_on_open);
   ASSERT_TRUE(copy.skip_cloud_files_in_getchildren);
   ASSERT_TRUE(copy.run_purger);
   ASSERT_EQ(copy.constant_sst_file_size_in_sst_file_manager, 200);

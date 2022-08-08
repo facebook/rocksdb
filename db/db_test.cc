@@ -3236,6 +3236,18 @@ class ModelDB : public DB {
 
   ColumnFamilyHandle* DefaultColumnFamily() const override { return nullptr; }
 
+  Status ApplyReplicationLogRecord(
+      ReplicationLogRecord /*record*/, std::string /*replication_sequence*/,
+      ApplyReplicationLogRecordInfo* /*info*/) override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
+  Status GetPersistedReplicationSequence(std::string* /*out*/) override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
+  Status GetManifestUpdateSequence(uint64_t* /*out*/) override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
+
  private:
   class ModelIter : public Iterator {
    public:

@@ -26,9 +26,8 @@ TEST_F(CloudManifestTest, BasicTest) {
   {
     std::unique_ptr<CloudManifest> manifest;
     ASSERT_OK(CloudManifest::CreateForEmptyDatabase("firstEpoch", &manifest));
-    manifest->Finalize();
 
-    ASSERT_EQ(manifest->GetEpoch(130).ToString(), "firstEpoch");
+    ASSERT_EQ(manifest->GetEpoch(130), "firstEpoch");
   }
   {
     std::unique_ptr<CloudManifest> manifest;
@@ -36,16 +35,15 @@ TEST_F(CloudManifestTest, BasicTest) {
     manifest->AddEpoch(10, "secondEpoch");
     manifest->AddEpoch(10, "thirdEpoch");
     manifest->AddEpoch(40, "fourthEpoch");
-    manifest->Finalize();
 
     for (int iter = 0; iter < 2; ++iter) {
-      ASSERT_EQ(manifest->GetEpoch(0).ToString(), "firstEpoch");
-      ASSERT_EQ(manifest->GetEpoch(5).ToString(), "firstEpoch");
-      ASSERT_EQ(manifest->GetEpoch(10).ToString(), "thirdEpoch");
-      ASSERT_EQ(manifest->GetEpoch(11).ToString(), "thirdEpoch");
-      ASSERT_EQ(manifest->GetEpoch(39).ToString(), "thirdEpoch");
-      ASSERT_EQ(manifest->GetEpoch(40).ToString(), "fourthEpoch");
-      ASSERT_EQ(manifest->GetEpoch(41).ToString(), "fourthEpoch");
+      ASSERT_EQ(manifest->GetEpoch(0), "firstEpoch");
+      ASSERT_EQ(manifest->GetEpoch(5), "firstEpoch");
+      ASSERT_EQ(manifest->GetEpoch(10), "thirdEpoch");
+      ASSERT_EQ(manifest->GetEpoch(11), "thirdEpoch");
+      ASSERT_EQ(manifest->GetEpoch(39), "thirdEpoch");
+      ASSERT_EQ(manifest->GetEpoch(40), "fourthEpoch");
+      ASSERT_EQ(manifest->GetEpoch(41), "fourthEpoch");
 
       // serialize and deserialize
       auto tmpfile = tmp_dir_ + "/cloudmanifest";

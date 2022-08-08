@@ -796,6 +796,8 @@ all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
 all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(ROCKSDBTESTS_SUBSET)
 
+rocksdb_cloud_all: $(LIBRARY) tools tools_lib test_libs $(TESTS)
+
 static_lib: $(STATIC_LIBRARY)
 
 shared_lib: $(SHARED)
