@@ -277,8 +277,6 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-streaming-compress-libs
       - run: make V=1 J=32 -j32 check
       - post-steps
 
