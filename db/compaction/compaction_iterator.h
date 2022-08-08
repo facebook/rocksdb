@@ -332,29 +332,26 @@ class CompactionIterator {
   // earliest visible snapshot of an older value.
   // See WritePreparedTransactionTest::ReleaseSnapshotDuringCompaction3.
   std::unordered_set<SequenceNumber> released_snapshots_;
-  std::vector<SequenceNumber>::const_iterator earliest_snapshot_iter_;
   const SequenceNumber earliest_write_conflict_snapshot_;
   const SequenceNumber job_snapshot_;
   const SnapshotChecker* const snapshot_checker_;
   Env* env_;
   SystemClock* clock_;
-  bool report_detailed_time_;
-  bool expect_valid_internal_key_;
+  const bool report_detailed_time_;
+  const bool expect_valid_internal_key_;
   CompactionRangeDelAggregator* range_del_agg_;
   BlobFileBuilder* blob_file_builder_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<bool>& manual_compaction_canceled_;
-  bool bottommost_level_;
-  bool valid_ = false;
-  bool visible_at_tip_;
-  SequenceNumber earliest_snapshot_;
-  SequenceNumber latest_snapshot_;
+  const bool bottommost_level_;
+  const bool visible_at_tip_;
+  const SequenceNumber earliest_snapshot_;
 
   std::shared_ptr<Logger> info_log_;
 
-  bool allow_data_in_errors_;
+  const bool allow_data_in_errors_;
 
   const bool enforce_single_del_contracts_;
 
@@ -370,6 +367,7 @@ class CompactionIterator {
 
   // State
   //
+  bool valid_ = false;
   // Points to a copy of the current compaction iterator output (current_key_)
   // if valid_.
   Slice key_;

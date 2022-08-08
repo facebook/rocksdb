@@ -80,6 +80,12 @@ CompactionIterator::CompactionIterator(
       compaction_filter_(compaction_filter),
       shutting_down_(shutting_down),
       manual_compaction_canceled_(manual_compaction_canceled),
+      bottommost_level_(!compaction_ ? false
+                                     : compaction_->bottommost_level() &&
+                                           !compaction_->allow_ingest_behind()),
+      visible_at_tip_(snapshots_->empty()),
+      earliest_snapshot_(snapshots_->empty() ? kMaxSequenceNumber
+                                             : snapshots_->at(0)),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
       enforce_single_del_contracts_(enforce_single_del_contracts),
@@ -98,24 +104,9 @@ CompactionIterator::CompactionIterator(
       level_(compaction_ == nullptr ? 0 : compaction_->level()),
       penultimate_level_cutoff_seqno_(penultimate_level_cutoff_seqno) {
   assert(snapshots_ != nullptr);
-  bottommost_level_ = compaction_ == nullptr
-                          ? false
-                          : compaction_->bottommost_level() &&
-                                !compaction_->allow_ingest_behind();
+
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
-  }
-  if (snapshots_->size() == 0) {
-    // optimize for fast path if there are no snapshots
-    visible_at_tip_ = true;
-    earliest_snapshot_iter_ = snapshots_->end();
-    earliest_snapshot_ = kMaxSequenceNumber;
-    latest_snapshot_ = 0;
-  } else {
-    visible_at_tip_ = false;
-    earliest_snapshot_iter_ = snapshots_->begin();
-    earliest_snapshot_ = snapshots_->at(0);
-    latest_snapshot_ = snapshots_->back();
   }
 #ifndef NDEBUG
   // findEarliestVisibleSnapshot assumes this ordering.
