@@ -106,6 +106,9 @@ class UniversalCompactionBuilder {
   Compaction* PickCompactionToOldest(size_t start_index,
                                      CompactionReason compaction_reason);
 
+  Compaction* PickCompactionWithSortedRunRange(
+      size_t start_index, size_t end_index, CompactionReason compaction_reason);
+
   // Try to pick periodic compaction. The caller should only call it
   // if there is at least one file marked for periodic compaction.
   // null will be returned if no such a compaction can be formed
@@ -811,8 +814,20 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
         cf_name_.c_str(), file_num_buf, start_index, " to reduce size amp.\n");
   }
 
+  // size of the base sorted run for size amp calculation
+  uint64_t base_sr_size = sorted_runs_.back().size;
+  size_t sr_end_idx = sorted_runs_.size() - 1;
+  // If tiered compaction is enabled and the last sorted run is the last level
+  if (ioptions_.preclude_last_level_data_seconds > 0 &&
+      ioptions_.num_levels > 2 &&
+      sorted_runs_.back().level == ioptions_.num_levels - 1 &&
+      sorted_runs_.size() > 1) {
+    sr_end_idx = sorted_runs_.size() - 2;
+    base_sr_size = sorted_runs_[sr_end_idx].size;
+  }
+
   // keep adding up all the remaining files
-  for (size_t loop = start_index; loop + 1 < sorted_runs_.size(); loop++) {
+  for (size_t loop = start_index; loop < sr_end_idx; loop++) {
     sr = &sorted_runs_[loop];
     if (sr->being_compacted) {
       // TODO with incremental compaction is supported, we might want to
@@ -832,23 +847,20 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
     return nullptr;
   }
 
-  // size of earliest file
-  uint64_t earliest_file_size = sorted_runs_.back().size;
-
   // size amplification = percentage of additional size
-  if (candidate_size * 100 < ratio * earliest_file_size) {
+  if (candidate_size * 100 < ratio * base_sr_size) {
     ROCKS_LOG_BUFFER(
         log_buffer_,
         "[%s] Universal: size amp not needed. newer-files-total-size %" PRIu64
         " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, earliest_file_size);
+        cf_name_.c_str(), candidate_size, base_sr_size);
     return nullptr;
   } else {
     ROCKS_LOG_BUFFER(
         log_buffer_,
         "[%s] Universal: size amp needed. newer-files-total-size %" PRIu64
         " earliest-file-size %" PRIu64,
-        cf_name_.c_str(), candidate_size, earliest_file_size);
+        cf_name_.c_str(), candidate_size, base_sr_size);
   }
   // Since incremental compaction can't include more than second last
   // level, it can introduce penalty, compared to full compaction. We
@@ -860,7 +872,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
   // This also prevent the case when compaction falls behind and we
   // need to compact more levels for compactions to catch up.
   if (mutable_cf_options_.compaction_options_universal.incremental) {
-    double fanout_threshold = static_cast<double>(earliest_file_size) /
+    double fanout_threshold = static_cast<double>(base_sr_size) /
                               static_cast<double>(candidate_size) * 1.8;
     Compaction* picked = PickIncrementalForReduceSizeAmp(fanout_threshold);
     if (picked != nullptr) {
@@ -869,8 +881,8 @@ Compaction* UniversalCompactionBuilder::PickCompactionToReduceSizeAmp() {
       return picked;
     }
   }
-  return PickCompactionToOldest(start_index,
-                                CompactionReason::kUniversalSizeAmplification);
+  return PickCompactionWithSortedRunRange(
+      start_index, sr_end_idx, CompactionReason::kUniversalSizeAmplification);
 }
 
 Compaction* UniversalCompactionBuilder::PickIncrementalForReduceSizeAmp(
@@ -1233,11 +1245,17 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
 
 Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
     size_t start_index, CompactionReason compaction_reason) {
+  return PickCompactionWithSortedRunRange(start_index, sorted_runs_.size() - 1,
+                                          compaction_reason);
+}
+
+Compaction* UniversalCompactionBuilder::PickCompactionWithSortedRunRange(
+    size_t start_index, size_t end_index, CompactionReason compaction_reason) {
   assert(start_index < sorted_runs_.size());
 
   // Estimate total file size
   uint64_t estimated_total_size = 0;
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
+  for (size_t loop = start_index; loop <= end_index; loop++) {
     estimated_total_size += sorted_runs_[loop].size;
   }
   uint32_t path_id =
@@ -1248,7 +1266,7 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
   }
-  for (size_t loop = start_index; loop < sorted_runs_.size(); loop++) {
+  for (size_t loop = start_index; loop <= end_index; loop++) {
     auto& picking_sr = sorted_runs_[loop];
     if (picking_sr.level == 0) {
       FileMetaData* f = picking_sr.file;
@@ -1279,12 +1297,19 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
                      file_num_buf);
   }
 
-  // output files at the bottom most level, unless it's reserved
-  int output_level = vstorage_->num_levels() - 1;
-  // last level is reserved for the files ingested behind
-  if (ioptions_.allow_ingest_behind) {
-    assert(output_level > 1);
-    output_level--;
+  int output_level;
+  if (end_index == sorted_runs_.size() - 1) {
+    // output files at the last level, unless it's reserved
+    output_level = vstorage_->num_levels() - 1;
+    // last level is reserved for the files ingested behind
+    if (ioptions_.allow_ingest_behind) {
+      assert(output_level > 1);
+      output_level--;
+    }
+  } else {
+    // if it's not including all sorted_runs, it can only output to the level
+    // above the `end_index + 1` sorted_run.
+    output_level = sorted_runs_[end_index + 1].level - 1;
   }
 
   // We never check size for
