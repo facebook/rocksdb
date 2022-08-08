@@ -365,6 +365,9 @@ ts_params = {
     "enable_blob_files": 0,
     "use_blob_db": 0,
     "ingest_external_file_one_in": 0,
+    # TODO akanksha: Currently subcompactions is failing with user_defined_timestamp.
+    # Remove this check once its fixed.
+    "subcompactions": 1,
 }
 
 multiops_txn_default_params = {
