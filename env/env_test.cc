@@ -1078,11 +1078,19 @@ class IoctlFriendlyTmpdir {
       }
     }
 
+    // check if it's running test within a docker container, in which case, the
+    // file system inside `overlayfs` may not support FS_IOC_GETVERSION
+    // skip the tests
+    struct stat buffer;
+    if (stat ("/.dockerenv", &buffer) == 0) {
+      is_supported_ = false;
+    }
+
     fprintf(stderr, "failed to find an ioctl-friendly temporary directory;"
             " specify one via the TEST_IOCTL_FRIENDLY_TMPDIR envvar\n");
     std::abort();
 #endif
-}
+  }
 
   ~IoctlFriendlyTmpdir() {
     rmdir(dir_.c_str());
@@ -1092,8 +1100,14 @@ class IoctlFriendlyTmpdir {
     return dir_;
   }
 
+  bool is_supported() const {
+    return is_supported_;
+  }
+
  private:
   std::string dir_;
+
+  bool is_supported_ = true;
 };
 
 #ifndef ROCKSDB_LITE
@@ -1103,6 +1117,9 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
   IoctlFriendlyTmpdir ift;
+  if (!ift.is_supported()) {
+    ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+  }
   ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
   const size_t kBlockSize = 4096;
   const size_t kDataSize = kPageSize;
@@ -1139,6 +1156,9 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
     IoctlFriendlyTmpdir ift;
+      if (!ift.is_supported()) {
+    ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+  }
     std::string fname = ift.name() + "/testfile";
     std::unique_ptr<WritableFile> wfile;
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
@@ -1182,6 +1202,9 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
 TEST_P(EnvPosixTestWithParam, AllocateTest) {
   if (env_ == Env::Default()) {
     IoctlFriendlyTmpdir ift;
+      if (!ift.is_supported()) {
+    ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+  }
     std::string fname = ift.name() + "/preallocate_testfile";
 
     // Try fallocate in a file to see whether the target file system supports
@@ -1277,6 +1300,9 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
 
     // Create the files
     IoctlFriendlyTmpdir ift;
+      if (!ift.is_supported()) {
+    ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+  }
     std::vector<std::string> fnames;
     for (int i = 0; i < 1000; ++i) {
       fnames.push_back(ift.name() + "/" + "testfile" + std::to_string(i));
@@ -1318,6 +1344,9 @@ TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
 
     IoctlFriendlyTmpdir ift;
+      if (!ift.is_supported()) {
+    ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+  }
     std::string fname = ift.name() + "/" + "testfile";
 
     // Check that after file is deleted we don't get same ID again in a new
