@@ -657,7 +657,7 @@ class BackupEngineTest : public testing::Test {
     engine_options_->max_background_operations = 7;
 
     // delete old files in db
-    ASSERT_OK(DestroyDB(dbname_, options_));
+    EXPECT_OK(DestroyDB(dbname_, options_));
 
     // delete old LATEST_BACKUP file, which some tests create for compatibility
     // testing.

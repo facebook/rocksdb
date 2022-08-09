@@ -52,8 +52,7 @@ class ManualCompactionTest : public testing::Test {
     // Get rid of any state from an old run.
     dbname_ = ROCKSDB_NAMESPACE::test::PerThreadDBPath(
         "rocksdb_manual_compaction_test");
-    ROCKSDB_NAMESPACE::Status s = DestroyDB(dbname_, Options());
-    assert(s.ok());
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   std::string dbname_;
