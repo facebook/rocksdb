@@ -669,7 +669,7 @@ void CompactionIterator::NextFromInput() {
             // We cannot drop the SingleDelete as timestamp is enabled, and
             // timestamp of this key is greater than or equal to
             // *full_history_ts_low_. We will output the SingleDelete.
-            validity_info_.SetValid(ValidContext::kKeepHistory);
+            validity_info_.SetValid(ValidContext::kKeepTsHistory);
           } else if (has_outputted_key_ ||
                      DefinitelyInSnapshot(ikey_.sequence,
                                           earliest_write_conflict_snapshot_) ||
@@ -704,7 +704,7 @@ void CompactionIterator::NextFromInput() {
             // outputted on the next iteration.)
 
             // Setting valid_ to true will output the current SingleDelete
-            validity_info_.SetValid(ValidContext::kKeepSDForCC);
+            validity_info_.SetValid(ValidContext::kKeepSDForConflictCheck);
 
             // Set up the Put to be outputted in the next iteration.
             // (Optimization 3).
@@ -1153,14 +1153,14 @@ void CompactionIterator::PrepareOutput() {
             "earliest_snapshot %" PRIu64
             ", earliest_write_conflict_snapshot %" PRIu64
             " job_snapshot %" PRIu64
-            ". timestamp_size: %d full_history_ts_low_ %s. validity %s",
+            ". timestamp_size: %d full_history_ts_low_ %s. validity %x",
             ikey_.DebugString(allow_data_in_errors_, true).c_str(),
             earliest_snapshot_, earliest_write_conflict_snapshot_,
             job_snapshot_, static_cast<int>(timestamp_size_),
             full_history_ts_low_ != nullptr
                 ? Slice(*full_history_ts_low_).ToString(true).c_str()
                 : "null",
-            validity_info_.ToString().c_str());
+            validity_info_.rep);
         assert(false);
       }
       ikey_.sequence = 0;

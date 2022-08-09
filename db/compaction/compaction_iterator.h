@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <deque>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -236,7 +235,7 @@ class CompactionIterator {
   const Slice& value() const { return value_; }
   const Status& status() const { return status_; }
   const ParsedInternalKey& ikey() const { return ikey_; }
-  bool Valid() const { return validity_info_.IsValid(); }
+  inline bool Valid() const { return validity_info_.IsValid(); }
   const Slice& user_key() const { return current_user_key_; }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
   uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
@@ -374,13 +373,14 @@ class CompactionIterator {
     kParseKeyError = 2,
     kCurrentKeyUncommitted = 3,
     kKeepSDAndClearPut = 4,
-    kKeepHistory = 5,
-    kKeepSDForCC = 6,
+    kKeepTsHistory = 5,
+    kKeepSDForConflictCheck = 6,
     kKeepSDForSnapshot = 7,
     kKeepSD = 8,
     kKeepDel = 9,
     kNewUserKey = 10,
   };
+
   struct ValidityInfo {
     inline bool IsValid() const { return rep & 1; }
     ValidContext GetContext() const {
@@ -388,13 +388,9 @@ class CompactionIterator {
     }
     inline void SetValid(uint8_t ctx) { rep = (ctx << 1) | 1; }
     inline void Invalidate() { rep = 0; }
-    std::string ToString() const {
-      std::ostringstream oss;
-      oss << "valid=" << IsValid() << ", ctx=" << GetContext();
-      return oss.str();
-    }
-    uint8_t rep;
-  } validity_info_{.rep = 0};
+
+    uint8_t rep{0};
+  } validity_info_;
 
   // Points to a copy of the current compaction iterator output (current_key_)
   // if valid.
