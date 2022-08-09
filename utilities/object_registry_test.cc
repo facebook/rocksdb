@@ -260,6 +260,77 @@ class MyCustomizable : public Customizable {
   std::string name_;
 };
 
+TEST_F(ObjRegistryTest, TestFactoryCount) {
+  std::string msg;
+  auto grand = ObjectRegistry::Default();
+  auto local = ObjectRegistry::NewInstance();
+  std::unordered_set<std::string> grand_types, local_types;
+  std::vector<std::string> grand_names, local_names;
+
+  // Check how many types we have on startup.
+  // Grand should equal local
+  grand->GetFactoryTypes(&grand_types);
+  local->GetFactoryTypes(&local_types);
+  ASSERT_EQ(grand_types, local_types);
+  size_t grand_count = grand->GetFactoryCount(Env::Type());
+  size_t local_count = local->GetFactoryCount(Env::Type());
+
+  ASSERT_EQ(grand_count, local_count);
+  grand->GetFactoryNames(Env::Type(), &grand_names);
+  local->GetFactoryNames(Env::Type(), &local_names);
+  ASSERT_EQ(grand_names.size(), grand_count);
+  ASSERT_EQ(local_names.size(), local_count);
+  ASSERT_EQ(grand_names, local_names);
+
+  // Add an Env to the local registry.
+  // This will add one factory.
+  auto library = local->AddLibrary("local");
+  library->AddFactory<Env>(
+      "A", [](const std::string& /*uri*/, std::unique_ptr<Env>* /*guard */,
+              std::string* /* errmsg */) { return nullptr; });
+  ASSERT_EQ(local_count + 1, local->GetFactoryCount(Env::Type()));
+  ASSERT_EQ(grand_count, grand->GetFactoryCount(Env::Type()));
+  local->GetFactoryTypes(&local_types);
+  local->GetFactoryNames(Env::Type(), &local_names);
+  ASSERT_EQ(grand_names.size() + 1, local_names.size());
+  ASSERT_EQ(local_names.size(), local->GetFactoryCount(Env::Type()));
+
+  if (grand_count == 0) {
+    // There were no Env when we started.  Should have one more type
+    // than previously
+    ASSERT_NE(grand_types, local_types);
+    ASSERT_EQ(grand_types.size() + 1, local_types.size());
+  } else {
+    // There was an Env type when we started.  The types should match
+    ASSERT_EQ(grand_types, local_types);
+  }
+
+  // Add a MyCustomizable to the registry.  This should be a new type
+  library->AddFactory<MyCustomizable>(
+      "MY", [](const std::string& /*uri*/,
+               std::unique_ptr<MyCustomizable>* /*guard */,
+               std::string* /* errmsg */) { return nullptr; });
+  ASSERT_EQ(local_count + 1, local->GetFactoryCount(Env::Type()));
+  ASSERT_EQ(grand_count, grand->GetFactoryCount(Env::Type()));
+  ASSERT_EQ(0U, grand->GetFactoryCount(MyCustomizable::Type()));
+  ASSERT_EQ(1U, local->GetFactoryCount(MyCustomizable::Type()));
+
+  local->GetFactoryNames(MyCustomizable::Type(), &local_names);
+  ASSERT_EQ(1U, local_names.size());
+  ASSERT_EQ(local_names[0], "MY");
+
+  local->GetFactoryTypes(&local_types);
+  ASSERT_EQ(grand_count == 0 ? 2 : grand_types.size() + 1, local_types.size());
+
+  // Add the same name again.  We should now have 2 factories.
+  library->AddFactory<MyCustomizable>(
+      "MY", [](const std::string& /*uri*/,
+               std::unique_ptr<MyCustomizable>* /*guard */,
+               std::string* /* errmsg */) { return nullptr; });
+  local->GetFactoryNames(MyCustomizable::Type(), &local_names);
+  ASSERT_EQ(2U, local_names.size());
+}
+
 TEST_F(ObjRegistryTest, TestManagedObjects) {
   auto registry = ObjectRegistry::NewInstance();
   auto m_a1 = std::make_shared<MyCustomizable>("", "A");

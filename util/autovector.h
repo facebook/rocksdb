@@ -36,7 +36,7 @@ class autovector : public std::vector<T> {
 // full-fledged generic container.
 //
 // Currently we don't support:
-//  * reserve()/shrink_to_fit()
+//  * shrink_to_fit()
 //     If used correctly, in most cases, people should not touch the
 //     underlying vector at all.
 //  * random insert()/erase(), please only use push_back()/pop_back().
@@ -222,6 +222,16 @@ class autovector {
   }
 
   bool empty() const { return size() == 0; }
+
+  size_type capacity() const { return kSize + vect_.capacity(); }
+
+  void reserve(size_t cap) {
+    if (cap > kSize) {
+      vect_.reserve(cap - kSize);
+    }
+
+    assert(cap <= capacity());
+  }
 
   const_reference operator[](size_type n) const {
     assert(n < size());

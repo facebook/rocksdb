@@ -180,6 +180,9 @@ class TestFSDirectory : public FSDirectory {
   virtual IOStatus Fsync(const IOOptions& options,
                          IODebugContext* dbg) override;
 
+  virtual IOStatus Close(const IOOptions& options,
+                         IODebugContext* dbg) override;
+
   virtual IOStatus FsyncWithDirOptions(
       const IOOptions& options, IODebugContext* dbg,
       const DirFsyncOptions& dir_fsync_options) override;

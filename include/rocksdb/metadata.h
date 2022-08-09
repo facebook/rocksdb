@@ -232,7 +232,7 @@ struct ColumnFamilyMetaData {
   uint64_t blob_file_size = 0;
   // The number of blob files in this column family.
   size_t blob_file_count = 0;
-  // The metadata of the blobs in this column family
+  // The metadata of the blobs in this column family.
   std::vector<BlobMetaData> blob_files;
 };
 

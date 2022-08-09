@@ -9,6 +9,7 @@
 
 #include "table/block_fetcher.h"
 
+#include <cassert>
 #include <cinttypes>
 #include <string>
 
@@ -72,10 +73,10 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
     if (io_s.ok()) {
       bool read_from_prefetch_buffer = false;
-      if (read_options_.async_io) {
+      if (read_options_.async_io && !for_compaction_) {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCacheAsync(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
-            &io_s, read_options_.rate_limiter_priority, for_compaction_);
+            &io_s, read_options_.rate_limiter_priority);
       } else {
         read_from_prefetch_buffer = prefetch_buffer_->TryReadFromCache(
             opts, file_, handle_.offset(), block_size_with_trailer_, &slice_,
@@ -125,7 +126,7 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
   if ((do_uncompress_ || ioptions_.allow_mmap_reads) &&
       block_size_with_trailer_ < kDefaultStackBufferSize) {
-    // If we've got a small enough hunk of data, read it in to the
+    // If we've got a small enough chunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
     //
     // `GetBlockContents()` cannot return this data as its lifetime is tied to
@@ -283,6 +284,7 @@ IOStatus BlockFetcher::ReadBlockContents() {
     // TODO: introduce dedicated perf counter for range tombstones
     switch (block_type_) {
       case BlockType::kFilter:
+      case BlockType::kFilterPartitionIndex:
         PERF_COUNTER_ADD(filter_block_read_count, 1);
         break;
 
@@ -338,6 +340,62 @@ IOStatus BlockFetcher::ReadBlockContents() {
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
 
+  return io_status_;
+}
+
+IOStatus BlockFetcher::ReadAsyncBlockContents() {
+  if (TryGetUncompressBlockFromPersistentCache()) {
+    compression_type_ = kNoCompression;
+#ifndef NDEBUG
+    contents_->is_raw_block = true;
+#endif  // NDEBUG
+    return IOStatus::OK();
+  } else if (!TryGetCompressedBlockFromPersistentCache()) {
+    assert(prefetch_buffer_ != nullptr);
+    if (!for_compaction_) {
+      IOOptions opts;
+      IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
+      if (!io_s.ok()) {
+        return io_s;
+      }
+      io_s = status_to_io_status(prefetch_buffer_->PrefetchAsync(
+          opts, file_, handle_.offset(), block_size_with_trailer_, &slice_));
+      if (io_s.IsTryAgain()) {
+        return io_s;
+      }
+      if (io_s.ok()) {
+        // Data Block is already in prefetch.
+        got_from_prefetch_buffer_ = true;
+        ProcessTrailerIfPresent();
+        if (!io_status_.ok()) {
+          return io_status_;
+        }
+        used_buf_ = const_cast<char*>(slice_.data());
+
+        if (do_uncompress_ && compression_type_ != kNoCompression) {
+          PERF_TIMER_GUARD(block_decompress_time);
+          // compressed page, uncompress, update cache
+          UncompressionContext context(compression_type_);
+          UncompressionInfo info(context, uncompression_dict_,
+                                 compression_type_);
+          io_status_ = status_to_io_status(UncompressBlockContents(
+              info, slice_.data(), block_size_, contents_,
+              footer_.format_version(), ioptions_, memory_allocator_));
+#ifndef NDEBUG
+          num_heap_buf_memcpy_++;
+#endif
+          compression_type_ = kNoCompression;
+        } else {
+          GetBlockContents();
+        }
+        InsertUncompressedBlockToPersistentCacheIfNeeded();
+        return io_status_;
+      }
+    }
+    // Fallback to sequential reading of data blocks in case of io_s returns
+    // error or for_compaction_is true.
+    return ReadBlockContents();
+  }
   return io_status_;
 }
 

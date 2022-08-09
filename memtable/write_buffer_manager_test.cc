@@ -77,7 +77,9 @@ TEST_F(WriteBufferManagerTest, ShouldFlush) {
   ASSERT_FALSE(wbf->ShouldFlush());
 }
 
-TEST_F(WriteBufferManagerTest, CacheCost) {
+class ChargeWriteBufferTest : public testing::Test {};
+
+TEST_F(ChargeWriteBufferTest, Basic) {
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
 
   LRUCacheOptions co;
@@ -197,7 +199,7 @@ TEST_F(WriteBufferManagerTest, CacheCost) {
   ASSERT_EQ(cache->GetPinnedUsage(), 0);
 }
 
-TEST_F(WriteBufferManagerTest, NoCapCacheCost) {
+TEST_F(ChargeWriteBufferTest, BasicWithNoBufferSizeLimit) {
   constexpr std::size_t kMetaDataChargeOverhead = 10000;
   // 1GB cache
   std::shared_ptr<Cache> cache = NewLRUCache(1024 * 1024 * 1024, 4);
@@ -231,7 +233,7 @@ TEST_F(WriteBufferManagerTest, NoCapCacheCost) {
   ASSERT_LT(cache->GetPinnedUsage(), 4 * 256 * 1024 + kMetaDataChargeOverhead);
 }
 
-TEST_F(WriteBufferManagerTest, CacheFull) {
+TEST_F(ChargeWriteBufferTest, BasicWithCacheFull) {
   constexpr std::size_t kMetaDataChargeOverhead = 20000;
 
   // 12MB cache size with strict capacity

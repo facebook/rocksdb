@@ -108,7 +108,9 @@ DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
 DECLARE_int64(compressed_cache_size);
+DECLARE_int32(compressed_cache_numshardbits);
 DECLARE_int32(compaction_style);
+DECLARE_int32(compaction_pri);
 DECLARE_int32(num_levels);
 DECLARE_int32(level0_file_num_compaction_trigger);
 DECLARE_int32(level0_slowdown_writes_trigger);
@@ -135,11 +137,15 @@ DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
 DECLARE_int32(cache_numshardbits);
 DECLARE_bool(cache_index_and_filter_blocks);
-DECLARE_bool(reserve_table_reader_memory);
+DECLARE_bool(charge_compression_dictionary_building_buffer);
+DECLARE_bool(charge_filter_construction);
+DECLARE_bool(charge_table_reader);
+DECLARE_bool(charge_file_metadata);
+DECLARE_bool(charge_blob_cache);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
-DECLARE_bool(use_clock_cache);
+DECLARE_string(cache_type);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
 DECLARE_uint64(compaction_ttl);
@@ -148,12 +154,12 @@ DECLARE_double(experimental_mempurge_threshold);
 DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
-DECLARE_bool(use_block_based_filter);
 DECLARE_int32(ribbon_starting_level);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_bool(detect_filter_construct_corruption);
 DECLARE_int32(index_type);
+DECLARE_int32(data_block_index_type);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
@@ -218,6 +224,7 @@ DECLARE_int32(compression_max_dict_bytes);
 DECLARE_int32(compression_zstd_max_train_bytes);
 DECLARE_int32(compression_parallel_threads);
 DECLARE_uint64(compression_max_dict_buffer_bytes);
+DECLARE_bool(compression_use_zstd_dict_trainer);
 DECLARE_string(checksum_type);
 DECLARE_string(env_uri);
 DECLARE_string(fs_uri);
@@ -225,7 +232,6 @@ DECLARE_uint64(ops_per_thread);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_uint64(max_manifest_file_size);
 DECLARE_bool(in_place_update);
-DECLARE_int32(secondary_catch_up_one_in);
 DECLARE_string(memtablerep);
 DECLARE_int32(prefix_size);
 DECLARE_bool(use_merge);
@@ -262,6 +268,12 @@ DECLARE_bool(enable_blob_garbage_collection);
 DECLARE_double(blob_garbage_collection_age_cutoff);
 DECLARE_double(blob_garbage_collection_force_threshold);
 DECLARE_uint64(blob_compaction_readahead_size);
+DECLARE_int32(blob_file_starting_level);
+DECLARE_bool(use_blob_cache);
+DECLARE_bool(use_shared_block_and_blob_cache);
+DECLARE_uint64(blob_cache_size);
+DECLARE_int32(blob_cache_numshardbits);
+DECLARE_int32(prepopulate_blob_cache);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -289,6 +301,11 @@ DECLARE_uint64(wp_commit_cache_bits);
 DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
+DECLARE_bool(verify_sst_unique_id_in_manifest);
+
+DECLARE_int32(create_timestamped_snapshot_one_in);
+
+DECLARE_bool(allow_data_in_errors);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
@@ -578,6 +595,8 @@ extern void PoolSizeChangeThread(void* v);
 
 extern void DbVerificationThread(void* v);
 
+extern void TimestampedSnapshotsThread(void* v);
+
 extern void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz);
 
 extern int64_t GenerateOneKey(ThreadState* thread, uint64_t iteration);
@@ -596,8 +615,7 @@ extern void CheckAndSetOptionsForMultiOpsTxnStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
 
-extern std::string GenerateTimestampForRead();
-extern std::string NowNanosStr();
+extern std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);

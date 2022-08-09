@@ -53,15 +53,7 @@ class SharedState {
   // local variable updated via sync points to keep track of errors injected
   // while reading filter blocks in order to ignore the Get/MultiGet result
   // for those calls
-#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
-#if defined(OS_SOLARIS)
-  static __thread bool ignore_read_error;
-#else
   static thread_local bool ignore_read_error;
-#endif // OS_SOLARIS
-#else
-  static bool ignore_read_error;
-#endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
   SharedState(Env* /*env*/, StressTest* stress_test)
       : cv_(&mu_),
@@ -83,7 +75,8 @@ class SharedState {
         should_stop_test_(false),
         no_overwrite_ids_(GenerateNoOverwriteIds()),
         expected_state_manager_(nullptr),
-        printing_verification_results_(false) {
+        printing_verification_results_(false),
+        start_timestamp_(Env::Default()->NowNanos()) {
     Status status;
     // TODO: We should introduce a way to explicitly disable verification
     // during shutdown. When that is disabled and FLAGS_expected_values_dir
@@ -311,6 +304,8 @@ class SharedState {
     printing_verification_results_.store(false, std::memory_order_relaxed);
   }
 
+  uint64_t GetStartTimestamp() const { return start_timestamp_; }
+
  private:
   static void IgnoreReadErrorCallback(void*) {
     ignore_read_error = true;
@@ -373,6 +368,7 @@ class SharedState {
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::unique_ptr<port::Mutex[]>> key_locks_;
   std::atomic<bool> printing_verification_results_;
+  const uint64_t start_timestamp_;
 };
 
 // Per-thread state for concurrent executions of the same benchmark.

@@ -714,7 +714,9 @@ class ChanglingMergeOperator : public MergeOperator {
     return false;
   }
   static const char* kClassName() { return "ChanglingMergeOperator"; }
-  virtual bool IsInstanceOf(const std::string& id) const override {
+  const char* NickName() const override { return kNickName(); }
+  static const char* kNickName() { return "Changling"; }
+  bool IsInstanceOf(const std::string& id) const override {
     if (id == kClassName()) {
       return true;
     } else {
@@ -747,7 +749,10 @@ class ChanglingCompactionFilter : public CompactionFilter {
   }
 
   static const char* kClassName() { return "ChanglingCompactionFilter"; }
-  virtual bool IsInstanceOf(const std::string& id) const override {
+  const char* NickName() const override { return kNickName(); }
+  static const char* kNickName() { return "Changling"; }
+
+  bool IsInstanceOf(const std::string& id) const override {
     if (id == kClassName()) {
       return true;
     } else {
@@ -781,7 +786,10 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
   // Returns a name that identifies this compaction filter factory.
   const char* Name() const override { return name_.c_str(); }
   static const char* kClassName() { return "ChanglingCompactionFilterFactory"; }
-  virtual bool IsInstanceOf(const std::string& id) const override {
+  const char* NickName() const override { return kNickName(); }
+  static const char* kNickName() { return "Changling"; }
+
+  bool IsInstanceOf(const std::string& id) const override {
     if (id == kClassName()) {
       return true;
     } else {

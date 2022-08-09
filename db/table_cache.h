@@ -24,6 +24,7 @@
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/coro_utils.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -115,8 +116,8 @@ class TableCache {
   //                   in the embedded GetContext
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
-  Status MultiGet(
-      const ReadOptions& options,
+  DECLARE_SYNC_AND_ASYNC(
+      Status, MultiGet, const ReadOptions& options,
       const InternalKeyComparator& internal_comparator,
       const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
@@ -163,6 +164,11 @@ class TableCache {
       std::shared_ptr<const TableProperties>* properties,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       bool no_io = false);
+
+  Status ApproximateKeyAnchors(const ReadOptions& ro,
+                               const InternalKeyComparator& internal_comparator,
+                               const FileDescriptor& file_meta,
+                               std::vector<TableReader::Anchor>& anchors);
 
   // Return total memory usage of the table reader of the file.
   // 0 if table reader of the file is not loaded.

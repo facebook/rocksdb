@@ -232,7 +232,7 @@ GEM
       jekyll-seo-tag (~> 2.1)
     minitest (5.15.0)
     multipart-post (2.1.1)
-    nokogiri (1.13.4)
+    nokogiri (1.13.6)
       mini_portile2 (~> 2.8.0)
       racc (~> 1.4)
     octokit (4.22.0)
@@ -265,7 +265,7 @@ GEM
     thread_safe (0.3.6)
     typhoeus (1.4.0)
       ethon (>= 0.9.0)
-    tzinfo (1.2.9)
+    tzinfo (1.2.10)
       thread_safe (~> 0.1)
     unf (0.1.4)
       unf_ext

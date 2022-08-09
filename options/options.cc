@@ -49,6 +49,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.max_write_buffer_size_to_maintain),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
+      experimental_mempurge_threshold(options.experimental_mempurge_threshold),
       inplace_callback(options.inplace_callback),
       memtable_prefix_bloom_size_ratio(
           options.memtable_prefix_bloom_size_ratio),
@@ -91,6 +92,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
       sample_for_compression(options.sample_for_compression),
+      preclude_last_level_data_seconds(
+          options.preclude_last_level_data_seconds),
       enable_blob_files(options.enable_blob_files),
       min_blob_size(options.min_blob_size),
       blob_file_size(options.blob_file_size),
@@ -100,7 +103,10 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.blob_garbage_collection_age_cutoff),
       blob_garbage_collection_force_threshold(
           options.blob_garbage_collection_force_threshold),
-      blob_compaction_readahead_size(options.blob_compaction_readahead_size) {
+      blob_compaction_readahead_size(options.blob_compaction_readahead_size),
+      blob_file_starting_level(options.blob_file_starting_level),
+      blob_cache(options.blob_cache),
+      prepopulate_blob_cache(options.prepopulate_blob_cache) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -211,6 +217,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         "        Options.bottommost_compression_opts.max_dict_buffer_bytes: "
         "%" PRIu64,
         bottommost_compression_opts.max_dict_buffer_bytes);
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.use_zstd_dict_trainer: %s",
+        bottommost_compression_opts.use_zstd_dict_trainer ? "true" : "false");
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
                      compression_opts.window_bits);
     ROCKS_LOG_HEADER(log, "                 Options.compression_opts.level: %d",
@@ -225,6 +235,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "        Options.compression_opts.zstd_max_train_bytes: "
                      "%" PRIu32,
                      compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(
+        log, "        Options.compression_opts.use_zstd_dict_trainer: %s",
+        compression_opts.use_zstd_dict_trainer ? "true" : "false");
     ROCKS_LOG_HEADER(log,
                      "        Options.compression_opts.parallel_threads: "
                      "%" PRIu32,
@@ -388,6 +401,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
+    ROCKS_LOG_HEADER(log, " Options.preclude_last_level_data_seconds: %" PRIu64,
+                     preclude_last_level_data_seconds);
     ROCKS_LOG_HEADER(log, "                      Options.enable_blob_files: %s",
                      enable_blob_files ? "true" : "false");
     ROCKS_LOG_HEADER(
@@ -407,12 +422,27 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "         Options.blob_compaction_readahead_size: %" PRIu64,
         blob_compaction_readahead_size);
+    ROCKS_LOG_HEADER(log, "               Options.blob_file_starting_level: %d",
+                     blob_file_starting_level);
+    if (blob_cache) {
+      ROCKS_LOG_HEADER(log, "                          Options.blob_cache: %s",
+                       blob_cache->Name());
+      ROCKS_LOG_HEADER(log, "                          blob_cache options: %s",
+                       blob_cache->GetPrintableOptions().c_str());
+      ROCKS_LOG_HEADER(
+          log, "                          blob_cache prepopulated: %s",
+          prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+              ? "flush only"
+              : "disabled");
+    }
+    ROCKS_LOG_HEADER(log, "Options.experimental_mempurge_threshold: %f",
+                     experimental_mempurge_threshold);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
   DBOptions::Dump(log);
   ColumnFamilyOptions::Dump(log);
-}   // Options::Dump
+}  // Options::Dump
 
 void Options::DumpCFOptions(Logger* log) const {
   ColumnFamilyOptions::Dump(log);

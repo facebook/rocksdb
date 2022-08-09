@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cache/cache_reservation_manager.h"
 #include "db/memtable_list.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
@@ -46,6 +47,7 @@ class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
 class BlobFileCache;
+class BlobSource;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -375,7 +377,7 @@ class ColumnFamilyData {
                          SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
-  BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
+  BlobSource* blob_source() const { return blob_source_.get(); }
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
@@ -478,11 +480,8 @@ class ColumnFamilyData {
       const MutableCFOptions& mutable_cf_options,
       const ImmutableCFOptions& immutable_cf_options);
 
-  // Recalculate some small conditions, which are changed only during
-  // compaction, adding new memtable and/or
-  // recalculation of compaction score. These values are used in
-  // DBImpl::MakeRoomForWrite function to decide, if it need to make
-  // a write stall
+  // Recalculate some stall conditions, which are changed only during
+  // compaction, adding new memtable and/or recalculation of compaction score.
   WriteStallCondition RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options);
 
@@ -520,8 +519,18 @@ class ColumnFamilyData {
 
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
   WriteBufferManager* write_buffer_mgr() { return write_buffer_manager_; }
+  std::shared_ptr<CacheReservationManager>
+  GetFileMetadataCacheReservationManager() {
+    return file_metadata_cache_res_mgr_;
+  }
+
+  SequenceNumber GetFirstMemtableSequenceNumber() const;
 
   static const uint32_t kDummyColumnFamilyDataId;
+
+  // Keep track of whether the mempurge feature was ever used.
+  void SetMempurgeUsed() { mempurge_used_ = true; }
+  bool GetMempurgeUsed() { return mempurge_used_; }
 
  private:
   friend class ColumnFamilySet;
@@ -534,7 +543,7 @@ class ColumnFamilyData {
                    ColumnFamilySet* column_family_set,
                    BlockCacheTracer* const block_cache_tracer,
                    const std::shared_ptr<IOTracer>& io_tracer,
-                   const std::string& db_session_id);
+                   const std::string& db_id, const std::string& db_session_id);
 
   std::vector<std::string> GetDbPaths() const;
 
@@ -558,6 +567,7 @@ class ColumnFamilyData {
 
   std::unique_ptr<TableCache> table_cache_;
   std::unique_ptr<BlobFileCache> blob_file_cache_;
+  std::unique_ptr<BlobSource> blob_source_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 
@@ -618,6 +628,11 @@ class ColumnFamilyData {
   bool db_paths_registered_;
 
   std::string full_history_ts_low_;
+
+  // For charging memory usage of file metadata created for newly added files to
+  // a Version associated with this CFD
+  std::shared_ptr<CacheReservationManager> file_metadata_cache_res_mgr_;
+  bool mempurge_used_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -664,7 +679,7 @@ class ColumnFamilySet {
                   WriteController* _write_controller,
                   BlockCacheTracer* const block_cache_tracer,
                   const std::shared_ptr<IOTracer>& io_tracer,
-                  const std::string& db_session_id);
+                  const std::string& db_id, const std::string& db_session_id);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -726,6 +741,7 @@ class ColumnFamilySet {
   WriteController* write_controller_;
   BlockCacheTracer* const block_cache_tracer_;
   std::shared_ptr<IOTracer> io_tracer_;
+  const std::string& db_id_;
   std::string db_session_id_;
 };
 

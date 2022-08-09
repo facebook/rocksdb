@@ -130,6 +130,12 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFiles) {
     ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, "K4", &value));
     ASSERT_EQ(value, "V2");
   }
+  EXPECT_OK(db_->DestroyColumnFamilyHandle(import_cfh_));
+  import_cfh_ = nullptr;
+
+  // verify sst unique id during reopen
+  options.verify_sst_unique_id_in_manifest = true;
+  ReopenWithColumnFamilies({"default", "koko", "yoyo"}, options);
 }
 
 TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {

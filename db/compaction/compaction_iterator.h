@@ -32,7 +32,7 @@ class SequenceIterWrapper : public InternalIterator {
  public:
   SequenceIterWrapper(InternalIterator* iter, const Comparator* cmp,
                       bool need_count_entries)
-      : icmp_(cmp, /*named=*/false),
+      : icmp_(cmp),
         inner_iter_(iter),
         need_count_entries_(need_count_entries) {}
   bool Valid() const override { return inner_iter_->Valid(); }
@@ -105,6 +105,10 @@ class CompactionIterator {
     virtual bool DoesInputReferenceBlobFiles() const = 0;
 
     virtual const Compaction* real_compaction() const = 0;
+
+    virtual bool SupportsPerKeyPlacement() const = 0;
+
+    virtual bool WithinPenultimateLevelOutputRange(const Slice& key) const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -142,12 +146,11 @@ class CompactionIterator {
     }
 
     bool enable_blob_garbage_collection() const override {
-      return compaction_->mutable_cf_options()->enable_blob_garbage_collection;
+      return compaction_->enable_blob_garbage_collection();
     }
 
     double blob_garbage_collection_age_cutoff() const override {
-      return compaction_->mutable_cf_options()
-          ->blob_garbage_collection_age_cutoff;
+      return compaction_->blob_garbage_collection_age_cutoff();
     }
 
     uint64_t blob_compaction_readahead_size() const override {
@@ -164,6 +167,16 @@ class CompactionIterator {
 
     const Compaction* real_compaction() const override { return compaction_; }
 
+    bool SupportsPerKeyPlacement() const override {
+      return compaction_->SupportsPerKeyPlacement();
+    }
+
+    // Check if key is within penultimate level output range, to see if it's
+    // safe to output to the penultimate level for per_key_placement feature.
+    bool WithinPenultimateLevelOutputRange(const Slice& key) const override {
+      return compaction_->WithinPenultimateLevelOutputRange(key);
+    }
+
    private:
     const Compaction* compaction_;
   };
@@ -176,13 +189,14 @@ class CompactionIterator {
       Env* env, bool report_detailed_time, bool expect_valid_internal_key,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
+      bool enforce_single_del_contracts,
+      const std::atomic<bool>& manual_compaction_canceled,
       const Compaction* compaction = nullptr,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
-      const std::atomic<int>* manual_compaction_paused = nullptr,
-      const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
-      const std::string* full_history_ts_low = nullptr);
+      const std::string* full_history_ts_low = nullptr,
+      const SequenceNumber penultimate_level_cutoff_seqno = kMaxSequenceNumber);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(
@@ -193,13 +207,14 @@ class CompactionIterator {
       Env* env, bool report_detailed_time, bool expect_valid_internal_key,
       CompactionRangeDelAggregator* range_del_agg,
       BlobFileBuilder* blob_file_builder, bool allow_data_in_errors,
+      bool enforce_single_del_contracts,
+      const std::atomic<bool>& manual_compaction_canceled,
       std::unique_ptr<CompactionProxy> compaction,
       const CompactionFilter* compaction_filter = nullptr,
       const std::atomic<bool>* shutting_down = nullptr,
-      const std::atomic<int>* manual_compaction_paused = nullptr,
-      const std::atomic<bool>* manual_compaction_canceled = nullptr,
       const std::shared_ptr<Logger> info_log = nullptr,
-      const std::string* full_history_ts_low = nullptr);
+      const std::string* full_history_ts_low = nullptr,
+      const SequenceNumber penultimate_level_cutoff_seqno = kMaxSequenceNumber);
 
   ~CompactionIterator();
 
@@ -224,6 +239,12 @@ class CompactionIterator {
   const Slice& user_key() const { return current_user_key_; }
   const CompactionIterationStats& iter_stats() const { return iter_stats_; }
   uint64_t num_input_entry_scanned() const { return input_.num_itered(); }
+  // If the current key should be placed on penultimate level, only valid if
+  // per_key_placement is supported
+  bool output_to_penultimate_level() const {
+    return output_to_penultimate_level_;
+  }
+  Status InputStatus() const { return input_.status(); }
 
  private:
   // Processes the input stream to find the next output
@@ -231,6 +252,10 @@ class CompactionIterator {
 
   // Do final preparations before presenting the output to the callee.
   void PrepareOutput();
+
+  // Decide the current key should be output to the last level or penultimate
+  // level, only call for compaction supports per key placement
+  void DecideOutputLevel();
 
   // Passes the output value to the blob file builder (if any), and replaces it
   // with the corresponding blob reference if it has been actually written to a
@@ -320,8 +345,7 @@ class CompactionIterator {
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
-  const std::atomic<int>* manual_compaction_paused_;
-  const std::atomic<bool>* manual_compaction_canceled_;
+  const std::atomic<bool>& manual_compaction_canceled_;
   bool bottommost_level_;
   bool valid_ = false;
   bool visible_at_tip_;
@@ -331,6 +355,8 @@ class CompactionIterator {
   std::shared_ptr<Logger> info_log_;
 
   bool allow_data_in_errors_;
+
+  const bool enforce_single_del_contracts_;
 
   // Comes from comparator.
   const size_t timestamp_size_;
@@ -413,6 +439,15 @@ class CompactionIterator {
   // just been zeroed out during bottommost compaction.
   bool last_key_seq_zeroed_{false};
 
+  // True if the current key should be output to the penultimate level if
+  // possible, compaction logic makes the final decision on which level to
+  // output to.
+  bool output_to_penultimate_level_{false};
+
+  // any key later than this sequence number should have
+  // output_to_penultimate_level_ set to true
+  const SequenceNumber penultimate_level_cutoff_seqno_ = kMaxSequenceNumber;
+
   void AdvanceInputIter() { input_.Next(); }
 
   void SkipUntil(const Slice& skip_until) { input_.Seek(skip_until); }
@@ -424,10 +459,7 @@ class CompactionIterator {
 
   bool IsPausingManualCompaction() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
-    return (manual_compaction_paused_ &&
-            manual_compaction_paused_->load(std::memory_order_relaxed) > 0) ||
-           (manual_compaction_canceled_ &&
-            manual_compaction_canceled_->load(std::memory_order_relaxed));
+    return manual_compaction_canceled_.load(std::memory_order_relaxed);
   }
 };
 

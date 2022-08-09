@@ -17,6 +17,7 @@
 #include "port/port.h"
 #include "rocksdb/secondary_cache.h"
 #include "util/autovector.h"
+#include "util/distributed_mutex.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace lru_cache {
@@ -66,7 +67,7 @@ struct LRUHandle {
   };
   LRUHandle* next;
   LRUHandle* prev;
-  size_t charge;  // TODO(opt): Only allow uint32_t?
+  size_t total_charge;  // TODO(opt): Only allow uint32_t?
   size_t key_length;
   // The hash of key(). Used for fast sharding and comparisons.
   uint32_t hash;
@@ -209,19 +210,32 @@ struct LRUHandle {
     delete[] reinterpret_cast<char*>(this);
   }
 
-  // Calculate the memory usage by metadata.
-  inline size_t CalcTotalCharge(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    size_t meta_charge = 0;
-    if (metadata_charge_policy == kFullChargeCacheMetadata) {
+  inline size_t CalcuMetaCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) const {
+    if (metadata_charge_policy != kFullChargeCacheMetadata) {
+      return 0;
+    } else {
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-      meta_charge += malloc_usable_size(static_cast<void*>(this));
+      return malloc_usable_size(
+          const_cast<void*>(static_cast<const void*>(this)));
 #else
       // This is the size that is used when a new handle is created.
-      meta_charge += sizeof(LRUHandle) - 1 + key_length;
+      return sizeof(LRUHandle) - 1 + key_length;
 #endif
     }
-    return charge + meta_charge;
+  }
+
+  // Calculate the memory usage by metadata.
+  inline void CalcTotalCharge(
+      size_t charge, CacheMetadataChargePolicy metadata_charge_policy) {
+    total_charge = charge + CalcuMetaCharge(metadata_charge_policy);
+  }
+
+  inline size_t GetCharge(
+      CacheMetadataChargePolicy metadata_charge_policy) const {
+    size_t meta_charge = CalcuMetaCharge(metadata_charge_policy);
+    assert(total_charge >= meta_charge);
+    return total_charge - meta_charge;
   }
 };
 
@@ -440,7 +454,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
-  mutable port::Mutex mutex_;
+  mutable DMutex mutex_;
 
   std::shared_ptr<SecondaryCache> secondary_cache_;
 };
@@ -468,10 +482,11 @@ class LRUCache
   virtual DeleterFn GetDeleter(Handle* handle) const override;
   virtual void DisownData() override;
   virtual void WaitAll(std::vector<Handle*>& handles) override;
+  std::string GetPrintableOptions() const override;
 
-  //  Retrieves number of elements in LRU, for unit test purpose only.
+  // Retrieves number of elements in LRU, for unit test purpose only.
   size_t TEST_GetLRUSize();
-  //  Retrieves high pri pool ratio.
+  // Retrieves high pri pool ratio.
   double GetHighPriPoolRatio();
 
  private:

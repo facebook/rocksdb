@@ -164,15 +164,16 @@ double HistogramStat::Average() const {
 }
 
 double HistogramStat::StandardDeviation() const {
-  uint64_t cur_num = num();
-  uint64_t cur_sum = sum();
-  uint64_t cur_sum_squares = sum_squares();
+  double cur_num =
+      static_cast<double>(num());  // Use double to avoid integer overflow
+  double cur_sum = static_cast<double>(sum());
+  double cur_sum_squares = static_cast<double>(sum_squares());
   if (cur_num == 0) return 0;
   double variance =
-      static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
-      static_cast<double>(cur_num * cur_num);
+      (cur_sum_squares * cur_num - cur_sum * cur_sum) / (cur_num * cur_num);
   return std::sqrt(variance);
 }
+
 std::string HistogramStat::ToString() const {
   uint64_t cur_num = num();
   std::string r;

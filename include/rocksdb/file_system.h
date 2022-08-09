@@ -53,6 +53,7 @@ struct ConfigOptions;
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
 
+// DEPRECATED
 // Priority of an IO request. This is a hint and does not guarantee any
 // particular QoS.
 // IO_LOW - Typically background reads/writes such as compaction/flush
@@ -86,6 +87,7 @@ struct IOOptions {
   // Timeout for the operation in microseconds
   std::chrono::microseconds timeout;
 
+  // DEPRECATED
   // Priority - high or low
   IOPriority prio;
 
@@ -579,7 +581,7 @@ class FileSystem : public Customizable {
   // logger.
   virtual IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                              std::shared_ptr<Logger>* result,
-                             IODebugContext* dbg) = 0;
+                             IODebugContext* dbg);
 
   // Get full directory name for this db.
   virtual IOStatus GetAbsolutePath(const std::string& db_path,
@@ -760,7 +762,7 @@ struct FSReadRequest {
   // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
-  // A buffer that MultiRead()  can optionally place data in. It can
+  // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.
   // The lifecycle of scratch will be until IO is completed.
   //
@@ -949,7 +951,7 @@ class FSWritableFile {
   virtual ~FSWritableFile() {}
 
   // Append data to the end of the file
-  // Note: A WriteableFile object must support either Append or
+  // Note: A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
@@ -1019,7 +1021,9 @@ class FSWritableFile {
                             IODebugContext* /*dbg*/) {
     return IOStatus::OK();
   }
-  virtual IOStatus Close(const IOOptions& options, IODebugContext* dbg) = 0;
+  virtual IOStatus Close(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) = 0;
+
   virtual IOStatus Flush(const IOOptions& options, IODebugContext* dbg) = 0;
   virtual IOStatus Sync(const IOOptions& options,
                         IODebugContext* dbg) = 0;  // sync data
@@ -1263,6 +1267,12 @@ class FSDirectory {
       const IOOptions& options, IODebugContext* dbg,
       const DirFsyncOptions& /*dir_fsync_options*/) {
     return Fsync(options, dbg);
+  }
+
+  // Close directory
+  virtual IOStatus Close(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported("Close");
   }
 
   virtual size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const {
@@ -1807,6 +1817,10 @@ class FSDirectoryWrapper : public FSDirectory {
       const IOOptions& options, IODebugContext* dbg,
       const DirFsyncOptions& dir_fsync_options) override {
     return target_->FsyncWithDirOptions(options, dbg, dir_fsync_options);
+  }
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override {
+    return target_->Close(options, dbg);
   }
 
   size_t GetUniqueId(char* id, size_t max_size) const override {

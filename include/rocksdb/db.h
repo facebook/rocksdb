@@ -27,6 +27,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
+#include "rocksdb/wide_columns.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -406,6 +407,11 @@ class DB {
     return Put(options, DefaultColumnFamily(), key, ts, value);
   }
 
+  // UNDER CONSTRUCTION -- DO NOT USE
+  virtual Status PutEntity(const WriteOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns);
+
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
   // did not exist in the database.
@@ -575,6 +581,10 @@ class DB {
   // `merge_operands`- Points to an array of at-least
   //             merge_operands_options.expected_max_number_of_operands and the
   //             caller is responsible for allocating it.
+  //
+  // The caller should delete or `Reset()` the `merge_operands` entries when
+  // they are no longer needed. All `merge_operands` entries must be destroyed
+  // or `Reset()` before this DB is closed or destroyed.
   virtual Status GetMergeOperands(
       const ReadOptions& options, ColumnFamilyHandle* column_family,
       const Slice& key, PinnableSlice* merge_operands,
@@ -1074,6 +1084,17 @@ class DB {
     // "rocksdb.live-blob-file-garbage-size" - returns the total amount of
     // garbage in the blob files in the current version.
     static const std::string kLiveBlobFileGarbageSize;
+
+    //  "rocksdb.blob-cache-capacity" - returns blob cache capacity.
+    static const std::string kBlobCacheCapacity;
+
+    //  "rocksdb.blob-cache-usage" - returns the memory size for the entries
+    //      residing in blob cache.
+    static const std::string kBlobCacheUsage;
+
+    // "rocksdb.blob-cache-pinned-usage" - returns the memory size for the
+    //      entries being pinned in blob cache.
+    static const std::string kBlobCachePinnedUsage;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -1139,6 +1160,9 @@ class DB {
   //  "rocksdb.num-blob-files"
   //  "rocksdb.total-blob-file-size"
   //  "rocksdb.live-blob-file-size"
+  //  "rocksdb.blob-cache-capacity"
+  //  "rocksdb.blob-cache-usage"
+  //  "rocksdb.blob-cache-pinned-usage"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -1421,6 +1445,8 @@ class DB {
 
   // Increase the full_history_ts of column family. The new ts_low value should
   // be newer than current full_history_ts value.
+  // If another thread updates full_history_ts_low concurrently to a higher
+  // timestamp than the requested ts_low, a try again error will be returned.
   virtual Status IncreaseFullHistoryTsLow(ColumnFamilyHandle* column_family,
                                           std::string ts_low) = 0;
 
@@ -1516,8 +1542,8 @@ class DB {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
 
-  // Obtains the LSM-tree meta data of all column families of the DB,
-  // including metadata for each live table (SST) file in the DB.
+  // Obtains the LSM-tree meta data of all column families of the DB, including
+  // metadata for each live table (SST) file and each blob file in the DB.
   virtual void GetAllColumnFamilyMetaData(
       std::vector<ColumnFamilyMetaData>* /*metadata*/) {}
 

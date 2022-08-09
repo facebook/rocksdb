@@ -321,7 +321,7 @@ TEST_F(DBTest, MixedSlowdownOptions) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -379,7 +379,7 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -448,7 +448,7 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
   // We need the 2nd write to trigger delay. This is because delay is
   // estimated based on the last write size which is 0 for the first write.
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
-          token.reset();
+  token.reset();
 
   for (auto& t : threads) {
     t.join();
@@ -483,7 +483,6 @@ TEST_F(DBTest, LevelLimitReopen) {
 }
 #endif  // ROCKSDB_LITE
 
-
 TEST_F(DBTest, PutSingleDeleteGet) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
@@ -493,7 +492,7 @@ TEST_F(DBTest, PutSingleDeleteGet) {
     ASSERT_EQ("v2", Get(1, "foo2"));
     ASSERT_OK(SingleDelete(1, "foo"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -646,7 +645,7 @@ TEST_F(DBTest, SingleDeleteFlush) {
 
     ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction beccaus they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -669,7 +668,7 @@ TEST_F(DBTest, SingleDeletePutFlush) {
     ASSERT_OK(Flush(1));
 
     ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction beccaus they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -781,7 +780,6 @@ TEST_F(DBTest, GetFromImmutableLayer) {
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
   } while (ChangeOptions());
 }
-
 
 TEST_F(DBTest, GetLevel0Ordering) {
   do {
@@ -1844,6 +1842,8 @@ TEST_F(DBTest, Snapshot) {
     uint64_t time_snap1 = GetTimeOldestSnapshots();
     ASSERT_GT(time_snap1, 0U);
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_OK(Put(0, "foo", "0v2"));
     ASSERT_OK(Put(1, "foo", "1v2"));
 
@@ -1853,6 +1853,8 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_OK(Put(0, "foo", "0v3"));
     ASSERT_OK(Put(1, "foo", "1v3"));
 
@@ -1861,6 +1863,8 @@ TEST_F(DBTest, Snapshot) {
       ASSERT_EQ(3U, GetNumSnapshots());
       ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
       ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+      ASSERT_EQ(GetTimeOldestSnapshots(),
+                static_cast<uint64_t>(s1->GetUnixTime()));
 
       ASSERT_OK(Put(0, "foo", "0v4"));
       ASSERT_OK(Put(1, "foo", "1v4"));
@@ -1877,6 +1881,8 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s1->GetUnixTime()));
     ASSERT_EQ("0v1", Get(0, "foo", s1));
     ASSERT_EQ("1v1", Get(1, "foo", s1));
     ASSERT_EQ("0v2", Get(0, "foo", s2));
@@ -1892,6 +1898,8 @@ TEST_F(DBTest, Snapshot) {
     ASSERT_EQ(1U, GetNumSnapshots());
     ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
+    ASSERT_EQ(GetTimeOldestSnapshots(),
+              static_cast<uint64_t>(s2->GetUnixTime()));
 
     db_->ReleaseSnapshot(s2);
     ASSERT_EQ(0U, GetNumSnapshots());
@@ -1985,7 +1993,7 @@ TEST_F(DBTest, UnremovableSingleDelete) {
     ASSERT_EQ("first", Get(1, "foo", snapshot));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
     db_->ReleaseSnapshot(snapshot);
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -2769,7 +2777,7 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // ROCKSDB_LITE
 
 // Group commit test:
-#if !defined(TRAVIS) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 // Disable this test temporarily on Travis and appveyor as it fails
 // intermittently. Github issue: #4151
 namespace {
@@ -2846,7 +2854,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));
 }
-#endif  // TRAVIS
+#endif  // OS_WIN
 
 namespace {
 using KVMap = std::map<std::string, std::string>;
@@ -2859,6 +2867,18 @@ class ModelDB : public DB {
     KVMap map_;
 
     SequenceNumber GetSequenceNumber() const override {
+      // no need to call this
+      assert(false);
+      return 0;
+    }
+
+    int64_t GetUnixTime() const override {
+      // no need to call this
+      assert(false);
+      return 0;
+    }
+
+    uint64_t GetTimestamp() const override {
       // no need to call this
       assert(false);
       return 0;
@@ -2881,6 +2901,15 @@ class ModelDB : public DB {
              const Slice& /*v*/) override {
     return Status::NotSupported();
   }
+
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& /* options */,
+                   ColumnFamilyHandle* /* column_family */,
+                   const Slice& /* key */,
+                   const WideColumns& /* columns */) override {
+    return Status::NotSupported();
+  }
+
   using DB::Close;
   Status Close() override { return Status::OK(); }
   using DB::Delete;
@@ -3455,7 +3484,40 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_OK(Flush());
   ASSERT_OK(Put("k2", "v2"));
 
-  // Reopen it without prefix extractor, make sure everything still works.
+  // Reopen with different prefix extractor, make sure everything still works.
+  // RocksDB should just fall back to the binary index.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+
+  Reopen(options);
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+
+#ifndef ROCKSDB_LITE
+  // Back to original
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:1"}}));
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+#endif  // !ROCKSDB_LITE
+
+  // Same if there's a problem initally loading prefix transform
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::ForceNullTablePrefixExtractor",
+      [&](void* arg) { *static_cast<bool*>(arg) = true; });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+
+#ifndef ROCKSDB_LITE
+  // Change again
+  ASSERT_OK(dbfull()->SetOptions({{"prefix_extractor", "fixed:2"}}));
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+#endif  // !ROCKSDB_LITE
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Reopen with no prefix extractor, make sure everything still works.
   // RocksDB should just fall back to the binary index.
   table_options.index_type = BlockBasedTableOptions::kBinarySearch;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -3465,6 +3527,7 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 }
+
 TEST_F(DBTest, BlockBasedTablePrefixHashIndexTest) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
@@ -3755,7 +3818,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
 
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.ttl = 1 * 60 * 60 ;  // 1 hour
+    options.ttl = 1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -3829,7 +3892,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     options.write_buffer_size = 10 << 10;                              // 10KB
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.ttl =  1 * 60 * 60;  // 1 hour
+    options.ttl = 1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -4042,9 +4105,6 @@ class MockedRateLimiterWithNoOptionalAPIImpl : public RateLimiter {
 
   ~MockedRateLimiterWithNoOptionalAPIImpl() override {}
 
-  const char* Name() const override {
-    return "MockedRateLimiterWithNoOptionalAPI";
-  }
   void SetBytesPerSecond(int64_t bytes_per_second) override {
     (void)bytes_per_second;
   }
@@ -4221,7 +4281,9 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
         threads.emplace_back([&] {
           for (size_t i = cnt; i < 2 * cnt; i++) {
             auto istr = std::to_string(i);
-            WriteBatch batch;
+            WriteBatch batch(0 /* reserved_bytes */, 0 /* max_bytes */,
+                             wopt.protection_bytes_per_key,
+                             0 /* default_cf_ts_sz */);
             ASSERT_OK(batch.Put("a" + istr, "b" + istr));
             ASSERT_OK(
                 dbfull()->WriteImpl(wopt, &batch, nullptr, nullptr, 0, true));
@@ -6018,7 +6080,6 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
 }
 
-
 TEST_F(DBTest, PromoteL0) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -6199,13 +6260,12 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   port::Thread manual_compaction_thread([&]() {
-      auto s = db_->CompactFiles(CompactionOptions(),
-          db_->DefaultColumnFamily(), input_files, 0);
-      ASSERT_OK(s);
+    auto s = db_->CompactFiles(CompactionOptions(), db_->DefaultColumnFamily(),
+                               input_files, 0);
+    ASSERT_OK(s);
   });
 
-  TEST_SYNC_POINT(
-          "DBTest::CompactFilesShouldTriggerAutoCompaction:Begin");
+  TEST_SYNC_POINT("DBTest::CompactFilesShouldTriggerAutoCompaction:Begin");
   // generate enough files to trigger compaction
   for (int i = 0; i < 20; ++i) {
     for (int j = 0; j < 2; ++j) {
@@ -6215,16 +6275,15 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
   }
   db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_data);
   ASSERT_GT(cf_meta_data.levels[0].files.size(),
-      options.level0_file_num_compaction_trigger);
-  TEST_SYNC_POINT(
-          "DBTest::CompactFilesShouldTriggerAutoCompaction:End");
+            options.level0_file_num_compaction_trigger);
+  TEST_SYNC_POINT("DBTest::CompactFilesShouldTriggerAutoCompaction:End");
 
   manual_compaction_thread.join();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_data);
   ASSERT_LE(cf_meta_data.levels[0].files.size(),
-      options.level0_file_num_compaction_trigger);
+            options.level0_file_num_compaction_trigger);
 }
 #endif  // ROCKSDB_LITE
 
@@ -6449,8 +6508,9 @@ class WriteStallListener : public EventListener {
     MutexLock l(&mutex_);
     return expected == condition_;
   }
+
  private:
-  port::Mutex   mutex_;
+  port::Mutex mutex_;
   WriteStallCondition condition_;
 };
 
@@ -6678,7 +6738,8 @@ TEST_F(DBTest, LastWriteBufferDelay) {
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
 }
-#endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
+#endif  // !defined(ROCKSDB_LITE) &&
+        // !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 
 TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
@@ -6752,6 +6813,89 @@ TEST_F(DBTest, PinnableSliceAndRowCache) {
     PinnableSlice pin_slice;
     ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
     ASSERT_EQ(pin_slice.ToString(), "bar");
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+}
+
+TEST_F(DBTest, ReusePinnableSlice) {
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.row_cache = NewLRUCache(8192);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    PinnableSlice pin_slice;
+    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_EQ(pin_slice.ToString(), "bar");
+
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    std::vector<Slice> multiget_keys;
+    multiget_keys.push_back("foo");
+    std::vector<PinnableSlice> multiget_values(1);
+    std::vector<Status> statuses({Status::NotFound()});
+    ReadOptions ropt;
+    dbfull()->MultiGet(ropt, dbfull()->DefaultColumnFamily(),
+                       multiget_keys.size(), multiget_keys.data(),
+                       multiget_values.data(), statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+    dbfull()->MultiGet(ropt, dbfull()->DefaultColumnFamily(),
+                       multiget_keys.size(), multiget_keys.data(),
+                       multiget_values.data(), statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    std::vector<ColumnFamilyHandle*> multiget_cfs;
+    multiget_cfs.push_back(dbfull()->DefaultColumnFamily());
+    std::vector<Slice> multiget_keys;
+    multiget_keys.push_back("foo");
+    std::vector<PinnableSlice> multiget_values(1);
+    std::vector<Status> statuses({Status::NotFound()});
+    ReadOptions ropt;
+    dbfull()->MultiGet(ropt, multiget_keys.size(), multiget_cfs.data(),
+                       multiget_keys.data(), multiget_values.data(),
+                       statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+    dbfull()->MultiGet(ropt, multiget_keys.size(), multiget_cfs.data(),
+                       multiget_keys.data(), multiget_values.data(),
+                       statuses.data());
+    ASSERT_EQ(Status::OK(), statuses[0]);
+
     // Entry is already in cache, lookup will remove the element from lru
     ASSERT_EQ(
         reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
@@ -6842,9 +6986,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
 TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   std::atomic<int> flushes_done{0};
   std::atomic<int> threads_destroyed{0};
-  auto done = [&] {
-    return flushes_done.load() > 10;
-  };
+  auto done = [&] { return flushes_done.load() > 10; };
 
   port::Thread flushing_thread([&] {
     for (int i = 0; !done(); ++i) {
@@ -6857,7 +6999,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
   });
 
   std::vector<port::Thread> thread_spawning_threads(10);
-  for (auto& t: thread_spawning_threads) {
+  for (auto& t : thread_spawning_threads) {
     t = port::Thread([&] {
       while (!done()) {
         {
@@ -6873,7 +7015,7 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     });
   }
 
-  for (auto& t: thread_spawning_threads) {
+  for (auto& t : thread_spawning_threads) {
     t.join();
   }
   flushing_thread.join();
@@ -7038,51 +7180,6 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
       memory_limit_exceeded = false;
     }
   }
-}
-
-TEST_F(DBTest, ManualFlushWithStoppedWritesTest) {
-  Options options = CurrentOptions();
-
-  // Setting a small write buffer size. This will block writes
-  // rather quickly until a flush is made.
-  constexpr unsigned int memtableSize = 1000;
-  options.db_write_buffer_size = memtableSize;
-  options.max_background_flushes = 1;
-  Reopen(options);
-
-  std::atomic<bool> done(false);
-
-  // Will suppress future flushes.
-  // This simulates a situation where the writes will be stopped for any reason.
-  ASSERT_OK(dbfull()->PauseBackgroundWork());
-
-  port::Thread backgroundWriter([&]() {
-    Random rnd(301);
-    // These writes won't finish.
-    ASSERT_OK(Put("k1", rnd.RandomString(memtableSize / 2)));
-    ASSERT_OK(Put("k2", rnd.RandomString(memtableSize / 2)));
-    ASSERT_OK(Put("k3", rnd.RandomString(memtableSize / 2)));
-    ASSERT_OK(Put("k4", rnd.RandomString(memtableSize / 2)));
-    done.store(true);
-  });
-
-  env_->SleepForMicroseconds(1000000 / 2);
-  // make sure thread is stuck waiting for flush.
-  ASSERT_FALSE(done.load());
-
-  FlushOptions flushOptions;
-  flushOptions.wait = false;
-  flushOptions.allow_write_stall = true;
-
-  // This is the main goal of the test. This manual flush should not deadlock
-  // as we use wait=false, and even allow_write_stall=true for extra safety.
-  ASSERT_OK(dbfull()->Flush(flushOptions));
-
-  // This will re-allow background flushes.
-  ASSERT_OK(dbfull()->ContinueBackgroundWork());
-
-  backgroundWriter.join();
-  ASSERT_TRUE(done.load());
 }
 
 #endif

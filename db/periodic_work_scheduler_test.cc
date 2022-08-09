@@ -66,7 +66,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_persist_period_sec);
 
   ASSERT_GT(kPeriodSec, 1u);
-  dbfull()->TEST_WaitForStatsDumpRun([&] {
+  dbfull()->TEST_WaitForPeridicWorkerRun([&] {
     mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1);
   });
 
@@ -78,14 +78,14 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(1, pst_st_counter);
   ASSERT_EQ(1, flush_info_log_counter);
 
-  dbfull()->TEST_WaitForStatsDumpRun(
+  dbfull()->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(2, dump_st_counter);
   ASSERT_EQ(2, pst_st_counter);
   ASSERT_EQ(2, flush_info_log_counter);
 
-  dbfull()->TEST_WaitForStatsDumpRun(
+  dbfull()->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(3, dump_st_counter);
@@ -99,7 +99,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
   // Info log flush should still run.
-  dbfull()->TEST_WaitForStatsDumpRun(
+  dbfull()->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
@@ -117,7 +117,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_NE(nullptr, scheduler);
   ASSERT_EQ(2, scheduler->TEST_GetValidTaskNum());
 
-  dbfull()->TEST_WaitForStatsDumpRun(
+  dbfull()->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(4, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
@@ -157,19 +157,19 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
   ASSERT_EQ(kInstanceNum * 3, scheduler->TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;
-  dbi->TEST_WaitForStatsDumpRun(
+  dbi->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(kPeriodSec - 1); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
-  dbi->TEST_WaitForStatsDumpRun(
+  dbi->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
-  dbi->TEST_WaitForStatsDumpRun(
+  dbi->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
@@ -181,9 +181,9 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
 
   expected_run += (kInstanceNum - half) * 2;
 
-  dbi->TEST_WaitForStatsDumpRun(
+  dbi->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
-  dbi->TEST_WaitForStatsDumpRun(
+  dbi->TEST_WaitForPeridicWorkerRun(
       [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);

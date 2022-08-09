@@ -81,7 +81,11 @@ class Compaction {
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, const std::string& trim_ts = "",
              double score = -1, bool deletion_compaction = false,
-             CompactionReason compaction_reason = CompactionReason::kUnknown);
+             bool l0_files_might_overlap = true,
+             CompactionReason compaction_reason = CompactionReason::kUnknown,
+             BlobGarbageCollectionPolicy blob_garbage_collection_policy =
+                 BlobGarbageCollectionPolicy::kUseDefault,
+             double blob_garbage_collection_age_cutoff = -1);
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -173,6 +177,12 @@ class Compaction {
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
+
+  // The split user key in the output level if this compaction is required to
+  // split the output files according to the existing cursor in the output
+  // level under round-robin compaction policy. Empty indicates no required
+  // splitting key
+  const InternalKey* GetOutputSplitKey() const { return output_split_key_; }
 
   // If true, then the compaction can be done by simply deleting input files.
   bool deletion_compaction() const { return deletion_compaction_; }
@@ -292,7 +302,25 @@ class Compaction {
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
-  int GetInputBaseLevel() const;
+  // Return true if the compaction supports per_key_placement
+  bool SupportsPerKeyPlacement() const;
+
+  // Get per_key_placement penultimate output level, which is `last_level - 1`
+  // if per_key_placement feature is supported. Otherwise, return -1.
+  int GetPenultimateLevel() const;
+
+  // Return true if the given range is overlap with penultimate level output
+  // range.
+  bool OverlapPenultimateLevelOutputRange(const Slice& smallest_key,
+                                          const Slice& largest_key) const;
+
+  // Return true if the key is within penultimate level output range for
+  // per_key_placement feature, which is safe to place the key to the
+  // penultimate level. different compaction strategy has different rules.
+  // If per_key_placement is not supported, always return false.
+  // TODO: currently it doesn't support moving data from the last level to the
+  //  penultimate level
+  bool WithinPenultimateLevelOutputRange(const Slice& key) const;
 
   CompactionReason compaction_reason() const { return compaction_reason_; }
 
@@ -305,6 +333,14 @@ class Compaction {
   Temperature output_temperature() const { return output_temperature_; }
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
+
+  bool enable_blob_garbage_collection() const {
+    return enable_blob_garbage_collection_;
+  }
+
+  double blob_garbage_collection_age_cutoff() const {
+    return blob_garbage_collection_age_cutoff_;
+  }
 
   // start and end are sub compact range. Null if no boundary.
   // This is used to filter out some input files' ancester's time range.
@@ -321,6 +357,15 @@ class Compaction {
     return notify_on_compaction_completion_;
   }
 
+  static constexpr int kInvalidLevel = -1;
+  // Evaluate penultimate output level. If the compaction supports
+  // per_key_placement feature, it returns the penultimate level number.
+  // Otherwise, it's set to kInvalidLevel (-1), which means
+  // output_to_penultimate_level is not supported.
+  static int EvaluatePenultimateLevel(const ImmutableOptions& immutable_options,
+                                      const int start_level,
+                                      const int output_level);
+
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -328,12 +373,24 @@ class Compaction {
   // get the smallest and largest key present in files to be compacted
   static void GetBoundaryKeys(VersionStorageInfo* vstorage,
                               const std::vector<CompactionInputFiles>& inputs,
-                              Slice* smallest_key, Slice* largest_key);
+                              Slice* smallest_key, Slice* largest_key,
+                              int exclude_level = -1);
+
+  // populate penultimate level output range, which will be used to determine if
+  // a key is safe to output to the penultimate level (details see
+  // `Compaction::WithinPenultimateLevelOutputRange()`.
+  // TODO: Currently the penultimate level output range is the min/max keys of
+  //  non-last-level input files. Which is only good if there's no key moved
+  //  from the last level to the penultimate level. For a more complicated per
+  //  key placement which may move data from the last level to the penultimate
+  //  level, it needs extra check.
+  void PopulatePenultimateLevelOutputRange();
 
   // Get the atomic file boundaries for all files in the compaction. Necessary
   // in order to avoid the scenario described in
-  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and plumb
-  // down appropriate key boundaries to RangeDelAggregator during compaction.
+  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and
+  // plumb down appropriate key boundaries to RangeDelAggregator during
+  // compaction.
   static std::vector<CompactionInputFiles> PopulateWithAtomicBoundaries(
       VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs);
 
@@ -348,7 +405,7 @@ class Compaction {
 
   VersionStorageInfo* input_vstorage_;
 
-  const int start_level_;    // the lowest level to be compacted
+  const int start_level_;   // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
@@ -359,7 +416,7 @@ class Compaction {
   VersionEdit edit_;
   const int number_levels_;
   ColumnFamilyData* cfd_;
-  Arena arena_;          // Arena used to allocate space for file_levels_
+  Arena arena_;  // Arena used to allocate space for file_levels_
 
   const uint32_t output_path_id_;
   CompressionType output_compression_;
@@ -367,6 +424,13 @@ class Compaction {
   Temperature output_temperature_;
   // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
+  // should it split the output file using the compact cursor?
+  const InternalKey* output_split_key_;
+
+  // L0 files in LSM-tree might be overlapping. But the compaction picking
+  // logic might pick a subset of the files that aren't overlapping. if
+  // that is the case, set the value to false. Otherwise, set it true.
+  bool l0_files_might_overlap_;
 
   // Compaction input files organized by level. Constant after construction
   const std::vector<CompactionInputFiles> inputs_;
@@ -377,7 +441,7 @@ class Compaction {
   // State used to check for number of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
-  const double score_;         // score that was used to pick this compaction.
+  const double score_;  // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?
   const bool bottommost_level_;
@@ -412,7 +476,41 @@ class Compaction {
   // Notify on compaction completion only if listener was notified on compaction
   // begin.
   bool notify_on_compaction_completion_;
+
+  // Enable/disable GC collection for blobs during compaction.
+  bool enable_blob_garbage_collection_;
+
+  // Blob garbage collection age cutoff.
+  double blob_garbage_collection_age_cutoff_;
+
+  // only set when per_key_placement feature is enabled, -1 (kInvalidLevel)
+  // means not supported.
+  const int penultimate_level_;
+
+  // Key range for penultimate level output
+  Slice penultimate_level_smallest_user_key_;
+  Slice penultimate_level_largest_user_key_;
 };
+
+#ifndef NDEBUG
+// Helper struct only for tests, which contains the data to decide if a key
+// should be output to the penultimate level.
+// TODO: remove this when the public feature knob is available
+struct PerKeyPlacementContext {
+  const int level;
+  const Slice key;
+  const Slice value;
+  const SequenceNumber seq_num;
+
+  bool output_to_penultimate_level;
+
+  PerKeyPlacementContext(int _level, Slice _key, Slice _value,
+                         SequenceNumber _seq_num)
+      : level(_level), key(_key), value(_value), seq_num(_seq_num) {
+    output_to_penultimate_level = false;
+  }
+};
+#endif /* !NDEBUG */
 
 // Return sum of sizes of all files in `files`.
 extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);

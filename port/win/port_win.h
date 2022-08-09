@@ -60,11 +60,6 @@ using ssize_t = SSIZE_T;
 #ifdef _MSC_VER
 #define __attribute__(A)
 
-// thread_local is part of C++11 and later (TODO: clean up this define)
-#ifndef __thread
-#define __thread thread_local
-#endif
-
 #endif
 
 namespace ROCKSDB_NAMESPACE {
@@ -75,20 +70,6 @@ extern const bool kDefaultToAdaptiveMutex;
 
 namespace port {
 
-// VS < 2015
-#if defined(_MSC_VER) && (_MSC_VER < 1900)
-
-// VS 15 has snprintf
-#define snprintf _snprintf
-
-#define ROCKSDB_NOEXCEPT
-
-#else // VS >= 2015 or MinGW
-
-#define ROCKSDB_NOEXCEPT noexcept
-
-#endif //_MSC_VER
-
 // "Windows is designed to run on little-endian computer architectures."
 // https://docs.microsoft.com/en-us/windows/win32/sysinfo/registry-value-types
 constexpr bool kLittleEndian = true;
@@ -98,12 +79,15 @@ class CondVar;
 
 class Mutex {
  public:
+  static const char* kName() { return "std::mutex"; }
 
-   /* implicit */ Mutex(bool adaptive = kDefaultToAdaptiveMutex)
+  explicit Mutex(bool IGNORED_adaptive = kDefaultToAdaptiveMutex)
 #ifndef NDEBUG
-     : locked_(false)
+      : locked_(false)
 #endif
-   { }
+  {
+    (void)IGNORED_adaptive;
+  }
 
   ~Mutex();
 
@@ -138,6 +122,11 @@ class Mutex {
     assert(locked_);
 #endif
   }
+
+  // Also implement std Lockable
+  inline void lock() { Lock(); }
+  inline void unlock() { Unlock(); }
+  inline bool try_lock() { return TryLock(); }
 
   // Mutex is move only with lock ownership transfer
   Mutex(const Mutex&) = delete;
@@ -235,8 +224,8 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifdef ROCKSDB_JEMALLOC
 // Separate inlines so they can be replaced if needed
-void* jemalloc_aligned_alloc(size_t size, size_t alignment) ROCKSDB_NOEXCEPT;
-void jemalloc_aligned_free(void* p) ROCKSDB_NOEXCEPT;
+void* jemalloc_aligned_alloc(size_t size, size_t alignment) noexcept;
+void jemalloc_aligned_free(void* p) noexcept;
 #endif
 
 inline void *cacheline_aligned_alloc(size_t size) {

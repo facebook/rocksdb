@@ -191,6 +191,24 @@ class LDBTestCase(unittest.TestCase):
         blob_files = self.getBlobFiles(dbPath)
         self.assertTrue(len(blob_files) >= 1)
 
+    def testBlobStartingLevel(self):
+        print("Running testBlobStartingLevel...")
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put --create_if_missing --enable_blob_files --blob_file_starting_level=10 x1 y1", "OK")
+        self.assertRunOK("get x1", "y1")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) == 0)
+
+        self.assertRunOK("put --enable_blob_files --blob_file_starting_level=0 x2 y2", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("get x2", "y2")
+        self.assertRunFAIL("get x3")
+
+        blob_files = self.getBlobFiles(dbPath)
+        self.assertTrue(len(blob_files) >= 1)
+
     def testCountDelimDump(self):
         print("Running testCountDelimDump...")
         self.assertRunOK("batchput x.1 x1 --create_if_missing", "OK")

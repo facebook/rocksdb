@@ -21,6 +21,7 @@
 
 #include "db/db_test_util.h"
 #include "env/emulated_clock.h"
+#include "logging/env_logger.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -53,6 +54,8 @@ class AutoRollLoggerTest : public testing::Test {
     env_ = Env::Default();
     test_dir_ = test::PerThreadDBPath(env_, "db_log_test");
     log_file_ = test_dir_ + "/LOG";
+    test_db_dir_ = test::PerThreadDBPath(env_, "db_log_test_db");
+						 
     RecreateLogDir();
   }
 
@@ -60,7 +63,9 @@ class AutoRollLoggerTest : public testing::Test {
 
   void RecreateLogDir() {
     EXPECT_OK(DestroyDir(env_, test_dir_));
+    EXPECT_OK(DestroyDir(env_, test_db_dir_));
     EXPECT_OK(env_->CreateDir(test_dir_));
+    EXPECT_OK(env_->CreateDir(test_db_dir_));
   }
 
   void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
@@ -107,6 +112,7 @@ class AutoRollLoggerTest : public testing::Test {
 
   static const std::string kSampleMessage;
   std::string test_dir_;
+  std::string test_db_dir_;
   std::string log_file_;
   Env* env_;
 };
@@ -274,7 +280,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 }
 
 #ifndef OS_WIN
-// TODO: does not build for Windows because of PosixLogger use below. Need to
+// TODO: does not build for Windows because of EnvLogger use below. Need to
 // port
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
@@ -286,7 +292,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
 
   // Normal logger
   ASSERT_OK(CreateLoggerFromOptions(test_dir_, options, &logger));
-  ASSERT_TRUE(dynamic_cast<PosixLogger*>(logger.get()));
+  ASSERT_TRUE(dynamic_cast<EnvLogger*>(logger.get()));
 
   // Only roll by size
   options.max_log_file_size = 1024;
@@ -357,8 +363,8 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     options.max_log_file_size = 512;
     options.log_file_time_to_roll = 2;
     options.keep_log_file_num = kFileNum;
-    options.db_log_dir = test_dir_;
-    ASSERT_OK(CreateLoggerFromOptions("/dummy/db/name", options, &logger));
+    options.db_log_dir = kTestDir;
+    ASSERT_OK(CreateLoggerFromOptions(test_db_dir_, options, &logger));
     auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
 
     // Roll the log 4 times, and it will trim to 3 files.
@@ -374,7 +380,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     std::vector<std::string> files = GetLogFiles();
     ASSERT_EQ(kFileNum, files.size());
     for (const auto& f : files) {
-      ASSERT_TRUE(f.find("dummy") != std::string::npos);
+      ASSERT_TRUE(f.find("db_log_test_db") != std::string::npos);
     }
 
     // Cleaning up those files.
@@ -440,20 +446,20 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   // (1) Need to pin the old logger before beginning the roll, as rolling grabs
   //     the mutex, which would prevent us from accessing the old logger. This
   //     also marks flush_thread with AutoRollLogger::Flush:PinnedLogger.
-  // (2) Need to reset logger during PosixLogger::Flush() to exercise a race
+  // (2) Need to reset logger during EnvLogger::Flush() to exercise a race
   //     condition case, which is executing the flush with the pinned (old)
   //     logger after auto-roll logger has cut over to a new logger.
-  // (3) PosixLogger::Flush() happens in both threads but its SyncPoints only
+  // (3) EnvLogger::Flush() happens in both threads but its SyncPoints only
   //     are enabled in flush_thread (the one pinning the old logger).
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
       {{"AutoRollLogger::Flush:PinnedLogger",
         "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
-       {"PosixLogger::Flush:Begin1",
+       {"EnvLogger::Flush:Begin1",
         "AutoRollLogger::ResetLogger:BeforeNewLogger"},
        {"AutoRollLogger::ResetLogger:AfterNewLogger",
-        "PosixLogger::Flush:Begin2"}},
-      {{"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin1"},
-       {"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin2"}});
+        "EnvLogger::Flush:Begin2"}},
+      {{"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin1"},
+       {"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin2"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   flush_thread = port::Thread([&]() { auto_roll_logger->Flush(); });

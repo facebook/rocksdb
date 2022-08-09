@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <memory>
 
+#include "db/blob/blob_read_request.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
@@ -47,12 +48,9 @@ class BlobFileReader {
                  uint64_t* bytes_read) const;
 
   // offsets must be sorted in ascending order by caller.
-  void MultiGetBlob(
-      const ReadOptions& read_options,
-      const autovector<std::reference_wrapper<const Slice>>& user_keys,
-      const autovector<uint64_t>& offsets,
-      const autovector<uint64_t>& value_sizes, autovector<Status*>& statuses,
-      autovector<PinnableSlice*>& values, uint64_t* bytes_read) const;
+  void MultiGetBlob(const ReadOptions& read_options,
+                    autovector<BlobReadRequest*>& blob_reqs,
+                    uint64_t* bytes_read) const;
 
   CompressionType GetCompressionType() const { return compression_type_; }
 
