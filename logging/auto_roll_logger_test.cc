@@ -363,7 +363,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
     options.max_log_file_size = 512;
     options.log_file_time_to_roll = 2;
     options.keep_log_file_num = kFileNum;
-    options.db_log_dir = kTestDir;
+    options.db_log_dir = test_dir_;
     ASSERT_OK(CreateLoggerFromOptions(test_db_dir_, options, &logger));
     auto_roll_logger = dynamic_cast<AutoRollLogger*>(logger.get());
 
