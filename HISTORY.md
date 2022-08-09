@@ -23,6 +23,7 @@
 * Fixed a bug where blobs read during compaction would pollute the cache.
 * Fixed a data race in LRUCache when used with a secondary_cache.
 * Fixed a bug where blobs read by iterators would be inserted into the cache even with the `fill_cache` read option set to false.
+* Fixed the segfault caused by `AllocateData()` in `CompressedSecondaryCache::SplitValueIntoChunks()` and `MergeChunksIntoValueTest`.
 
 ### Behavior Change
 * Added checksum handshake during the copying of decompressed WAL fragment. This together with #9875, #10037, #10212, #10114 and #10319 provides end-to-end integrity protection for write batch during recovery.
@@ -32,7 +33,7 @@
 * Improve universal tiered storage compaction picker to avoid extra major compaction triggered by size amplification. If `preclude_last_level_data_seconds` is enabled, the size amplification is calculated within non last_level data only which skip the last level and use the penultimate level as the size base.
 
 ### Performance Improvements
-* Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.  
+* Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.
 * Improve read performance by avoiding dynamic memory allocation.
 * When using iterators with the integrated BlobDB implementation, blob cache handles are now released immediately when the iterator's position changes.
 

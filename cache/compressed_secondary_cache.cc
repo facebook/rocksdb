@@ -149,7 +149,6 @@ CompressedSecondaryCache::SplitValueIntoChunks(
 
   CacheValueChunk dummy_head = CacheValueChunk();
   CacheValueChunk* current_chunk = &dummy_head;
-  CacheAllocationPtr ptr;
   // Do not split when value size is large or there is no compression.
   size_t predicted_chunk_size{0};
   size_t actual_chunk_size{0};
@@ -170,8 +169,9 @@ CompressedSecondaryCache::SplitValueIntoChunks(
       tmp_size = *(--upper);
     }
 
-    ptr = AllocateBlock(tmp_size, cache_options_.memory_allocator.get());
-    current_chunk->next = reinterpret_cast<CacheValueChunk*>(ptr.release());
+    CacheValueChunk* new_chunk =
+        reinterpret_cast<CacheValueChunk*>(new char[tmp_size]);
+    current_chunk->next = new_chunk;
     current_chunk = current_chunk->next;
     actual_chunk_size = tmp_size - sizeof(CacheValueChunk) + 1;
     memcpy(current_chunk->data, src_ptr, actual_chunk_size);
