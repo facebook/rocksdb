@@ -46,9 +46,6 @@ Writer::~Writer() {
 }
 
 IOStatus Writer::WriteBuffer() {
-  if (dest_->seen_error()) {
-    return IOStatus::IOError("Seen error. Skip writing buffer.");
-  }
   return dest_->Flush();
 }
 

@@ -72,6 +72,7 @@ Status BlobLogWriter::AppendFooter(BlobLogFooter& footer,
 
   Status s;
   if (dest_->seen_error()) {
+    s.PermitUncheckedError();
     return Status::IOError("Seen Error. Skip closing.");
   } else {
     s = dest_->Append(Slice(str));

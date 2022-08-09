@@ -24,6 +24,13 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
+namespace {
+IOStatus AssertFalseAndGetStatusForPrevError() {
+  assert(false);
+  return IOStatus::IOError("Writer has previous error.");
+}
+}  // namespace
+
 IOStatus WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
                                     const std::string& fname,
                                     const FileOptions& file_opts,
@@ -45,9 +52,7 @@ IOStatus WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
 IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
                                     Env::IOPriority op_rate_limiter_priority) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   const char* src = data.data();
@@ -182,9 +187,7 @@ IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
 IOStatus WritableFileWriter::Pad(const size_t pad_bytes,
                                  Env::IOPriority op_rate_limiter_priority) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
   assert(pad_bytes < kDefaultPageSize);
   size_t left = pad_bytes;
@@ -226,7 +229,8 @@ IOStatus WritableFileWriter::Close() {
       writable_file_.reset();
     }
     if (interim.ok()) {
-      return IOStatus::IOError("Writer has previous error.");
+      return IOStatus::IOError(
+          "File is closed but data not flushed as writer has previous error.");
     } else {
       return interim;
     }
@@ -339,9 +343,7 @@ IOStatus WritableFileWriter::Close() {
 // enabled
 IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   IOStatus s;
@@ -454,9 +456,7 @@ const char* WritableFileWriter::GetFileChecksumFuncName() const {
 
 IOStatus WritableFileWriter::Sync(bool use_fsync) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   IOStatus s = Flush();
@@ -479,9 +479,7 @@ IOStatus WritableFileWriter::Sync(bool use_fsync) {
 
 IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   if (!writable_file_->IsSyncThreadSafe()) {
@@ -500,9 +498,7 @@ IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
 
 IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   IOStatus s;
@@ -548,9 +544,7 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
 
 IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   IOSTATS_TIMER_GUARD(range_sync_nanos);
@@ -585,9 +579,7 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
 IOStatus WritableFileWriter::WriteBuffered(
     const char* data, size_t size, Env::IOPriority op_rate_limiter_priority) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   IOStatus s;
@@ -685,9 +677,7 @@ IOStatus WritableFileWriter::WriteBuffered(
 IOStatus WritableFileWriter::WriteBufferedWithChecksum(
     const char* data, size_t size, Env::IOPriority op_rate_limiter_priority) {
   if (seen_error_) {
-    assert(false);
-
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   IOStatus s;
@@ -916,8 +906,7 @@ IOStatus WritableFileWriter::WriteDirect(
 IOStatus WritableFileWriter::WriteDirectWithChecksum(
     Env::IOPriority op_rate_limiter_priority) {
   if (seen_error_) {
-    assert(false);
-    return IOStatus::IOError("Writer has previous error.");
+    return AssertFalseAndGetStatusForPrevError();
   }
 
   assert(use_direct_io());

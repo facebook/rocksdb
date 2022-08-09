@@ -567,7 +567,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   EXPECT_TRUE(builder->status().ok());
 
   Status s = builder->Finish();
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
   EXPECT_TRUE(s.ok()) << s.ToString();
 
   EXPECT_EQ(sink->contents().size(), builder->FileSize());
