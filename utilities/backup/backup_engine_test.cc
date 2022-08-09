@@ -2760,7 +2760,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInBackup) {
       10 /* fairness */, RateLimiter::Mode::kWritesOnly /* mode */));
   engine_options_->backup_rate_limiter = backup_rate_limiter;
 
-  ASSERT_OK(DestroyDB(dbname_, Options()));
+  DestroyDB(dbname_, Options()).PermitUncheckedError();
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kShareWithChecksum /* shared_option */);
   FillDB(db_.get(), 0, 10);
@@ -2798,7 +2798,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam, RateLimitingChargeReadInRestore) {
       10 /* fairness */, RateLimiter::Mode::kWritesOnly /* mode */));
   engine_options_->restore_rate_limiter = restore_rate_limiter;
 
-  ASSERT_OK(DestroyDB(dbname_, Options()));
+  DestroyDB(dbname_, Options()).PermitUncheckedError();
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, 10);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
@@ -2840,7 +2840,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam,
       10 /* fairness */, RateLimiter::Mode::kAllIo /* mode */));
   engine_options_->backup_rate_limiter = backup_rate_limiter;
 
-  ASSERT_OK(DestroyDB(dbname_, Options()));
+  DestroyDB(dbname_, Options()).PermitUncheckedError();
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   FillDB(db_.get(), 0, 10);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
@@ -2908,7 +2908,7 @@ TEST_P(BackupEngineRateLimitingTestWithParam2,
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(DestroyDB(dbname_, Options()));
+  DestroyDB(dbname_, Options()).PermitUncheckedError();
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kShareWithChecksum /* shared_option */);
 

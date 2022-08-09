@@ -205,7 +205,7 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
 }
 
 void ProfileQueries(bool enabled_time = false) {
-  ASSERT_OK(DestroyDB(kDbName, Options()));    // Start this test with a fresh DB
+  ASSERT_OK(DestroyDB(kDbName, Options()));  // Start this test with a fresh DB
 
   auto db = OpenDb();
 
