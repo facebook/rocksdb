@@ -214,7 +214,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   CompactionFilter::Decision filter = CompactionFilter::Decision::kUndetermined;
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
-  blob_value_.Reset();
   CompactionFilter::ValueType value_type =
       ikey_.type == kTypeValue ? CompactionFilter::ValueType::kValue
                                : CompactionFilter::ValueType::kBlobIndex;
@@ -373,6 +372,7 @@ void CompactionIterator::NextFromInput() {
          !IsShuttingDown()) {
     key_ = input_.key();
     value_ = input_.value();
+    blob_value_.Reset();
     iter_stats_.num_input_records++;
 
     Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
