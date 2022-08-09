@@ -94,13 +94,18 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      bool wait, bool& is_in_sec_cache) {
   std::unique_ptr<SecondaryCacheResultHandle> hdl =
       base_->Lookup(key, create_cb, wait, is_in_sec_cache);
-  auto handle =
-      new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl));
 
-  if (wait) {
-    FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(handle);
+  if (hdl) {
+    auto handle =
+        new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl));
+
+    if (wait) {
+      FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(handle);
+    }
+    return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(handle);
+  } else {
+    return nullptr;
   }
-  return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(handle);
 }
 
 void FaultInjectionSecondaryCache::Erase(const Slice& key) {
