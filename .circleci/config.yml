@@ -215,7 +215,7 @@ executors:
       shell: bash.exe
   linux-docker:
     docker:
-      - image: zjay437/rocksdb:0.4
+      - image: zjay437/rocksdb:0.5
 
 jobs:
   build-macos:
@@ -289,7 +289,6 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
       - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check
       - post-steps
 
@@ -299,10 +298,11 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: make V=1 -j32 release
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - install-gflags
-      - run: make V=1 -j32 release
       - run: ./db_stress --version # ensure with gflags
+      - run: make clean
+      - run: apt-get remove -y libgflags-dev
+      - run: make V=1 -j32 release
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
   build-linux-release-rtti:
@@ -310,13 +310,12 @@ jobs:
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: make clean
       - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: ./db_stress --version # ensure with gflags
+      - run: make clean
+      - run: apt-get remove -y libgflags-dev
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
 
   build-linux-lite:
     executor: linux-docker
@@ -332,10 +331,11 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: LITE=1 make V=1 -j8 release
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - install-gflags
-      - run: LITE=1 make V=1 -j8 release
       - run: ./db_stress --version # ensure with gflags
+      - run: make clean
+      - run: apt-get remove -y libgflags-dev
+      - run: LITE=1 make V=1 -j8 release
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
   build-linux-clang-no_test_run:
@@ -343,7 +343,6 @@ jobs:
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev libtbb-dev
       - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
       - post-steps
 
@@ -357,28 +356,10 @@ jobs:
 
   build-linux-clang10-mini-tsan:
     executor: linux-docker
-    resource_class: 2xlarge
-    # find test list by `make list_all_tests`
-    parameters:
-      start_test:
-        default: ""
-        type: string
-      end_test:
-        default: ""
-        type: string
+    resource_class: 2xlarge+
     steps:
       - pre-steps
-      - run:
-          name: "Build unit tests"
-          command: |
-            echo "env: $(env)"
-            ROCKSDBTESTS_START=<<parameters.start_test>> ROCKSDBTESTS_END=<<parameters.end_test>> ROCKSDBTESTS_SUBSET_TESTS_TO_FILE=/tmp/test_list COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 --output-sync=target build_subset_tests
-      - run:
-          name: "Run unit tests in parallel"
-          command: |
-            sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
-            cat /tmp/test_list
-            gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
+      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       - post-steps
 
   build-linux-clang10-ubsan:
@@ -731,7 +712,6 @@ jobs:
       - run:
           name: "Build cmake-mingw"
           command: |
-            sudo apt-get install snapd && sudo snap install cmake --beta --classic
             export PATH=/snap/bin:$PATH
             sudo apt-get install -y openjdk-8-jdk
             export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
@@ -753,28 +733,34 @@ jobs:
       - post-steps
 
   build-linux-arm-test-full:
-    executor: linux-docker
+    machine:
+      image: ubuntu-2004:202111-02
     resource_class: arm.large
     steps:
       - pre-steps
+      - install-gflags
       - run: make V=1 J=4 -j4 check
       - post-steps
 
   build-linux-arm:
-    executor: linux-docker
+    machine:
+      image: ubuntu-2004:202111-02
     resource_class: arm.large
     steps:
       - pre-steps
+      - install-gflags
       - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
       - post-steps
 
   build-linux-arm-cmake-no_test_run:
-    executor: linux-docker
+    machine:
+      image: ubuntu-2004:202111-02
     resource_class: arm.large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-8-openjdk-arm64
     steps:
       - pre-steps
+      - install-gflags
       - run:
           name: "Set Java Environment"
           command: |
@@ -848,12 +834,7 @@ workflows:
     jobs:
       - build-linux-clang10-asan
       - build-linux-clang10-ubsan
-      - build-linux-clang10-mini-tsan:
-          start_test: ""
-          end_test: "env_test"
-      - build-linux-clang10-mini-tsan:
-          start_test: "env_test"
-          end_test: ""
+      - build-linux-clang10-mini-tsan
       - build-linux-shared_lib-alt_namespace-status_checked
   jobs-linux-no-test-run:
     jobs:
