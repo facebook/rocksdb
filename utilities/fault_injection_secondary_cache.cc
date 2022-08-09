@@ -8,8 +8,6 @@
 
 #include "utilities/fault_injection_secondary_cache.h"
 
-#include "cache/compressed_secondary_cache.h"
-
 namespace ROCKSDB_NAMESPACE {
 
 void FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(
@@ -90,13 +88,11 @@ std::unique_ptr<SecondaryCacheResultHandle>
 FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      const Cache::CreateCallback& create_cb,
                                      bool wait, bool& is_in_sec_cache) {
-  std::unique_ptr<SecondaryCacheResultHandle> hdl;
+  std::unique_ptr<SecondaryCacheResultHandle> hdl =
+      base_->Lookup(key, create_cb, wait, is_in_sec_cache);
   ErrorContext* ctx = GetErrorContext();
   if (wait && ctx->rand.OneIn(prob_)) {
-    // Inject a dummy handle.
-    hdl.reset(new FaultInjectionSecondaryCache::ResultHandle(this, nullptr));
-  } else {
-    hdl = base_->Lookup(key, create_cb, wait, is_in_sec_cache);
+    hdl.reset();
   }
   return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(
       new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl)));

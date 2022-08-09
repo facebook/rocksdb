@@ -23,7 +23,6 @@
 * Fixed a bug where blobs read during compaction would pollute the cache.
 * Fixed a data race in LRUCache when used with a secondary_cache.
 * Fixed a bug where blobs read by iterators would be inserted into the cache even with the `fill_cache` read option set to false.
-* Fixed the memory leak in db_stress tests that are caused by `FaultInjectionSecondaryCache`.
 
 ### Behavior Change
 * Added checksum handshake during the copying of decompressed WAL fragment. This together with #9875, #10037, #10212, #10114 and #10319 provides end-to-end integrity protection for write batch during recovery.
