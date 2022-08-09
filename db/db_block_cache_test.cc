@@ -1709,7 +1709,7 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   delete metadata_ptr_;
   metadata_ptr_ = nullptr;
 
-  DestroyDB(export_files_dir, options);
+  ASSERT_OK(DestroyDB(export_files_dir, options));
 
   ReopenWithColumnFamilies({"default", "yoyo"}, options);
 

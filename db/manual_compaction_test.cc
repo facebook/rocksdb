@@ -52,7 +52,8 @@ class ManualCompactionTest : public testing::Test {
     // Get rid of any state from an old run.
     dbname_ = ROCKSDB_NAMESPACE::test::PerThreadDBPath(
         "rocksdb_manual_compaction_test");
-    DestroyDB(dbname_, Options());
+    ROCKSDB_NAMESPACE::Status s = DestroyDB(dbname_, Options());
+    assert(s.ok());
   }
 
   std::string dbname_;
@@ -130,7 +131,7 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
 
     delete options.compaction_filter;
     delete db;
-    DestroyDB(dbname_, options);
+    ASSERT_OK(DestroyDB(dbname_, options));
   }
 }
 
@@ -186,7 +187,7 @@ TEST_F(ManualCompactionTest, Test) {
 
   // close database
   delete db;
-  DestroyDB(dbname_, Options());
+  ASSERT_OK(DestroyDB(dbname_, Options()));
 }
 
 TEST_F(ManualCompactionTest, SkipLevel) {
@@ -298,7 +299,7 @@ TEST_F(ManualCompactionTest, SkipLevel) {
 
   delete filter;
   delete db;
-  DestroyDB(dbname_, options);
+  ASSERT_OK(DestroyDB(dbname_, options));
 }
 
 }  // anonymous namespace

@@ -22,7 +22,8 @@ class ReduceLevelTest : public testing::Test {
 public:
   ReduceLevelTest() {
     dbname_ = test::PerThreadDBPath("db_reduce_levels_test");
-    DestroyDB(dbname_, Options());
+    Status s = DestroyDB(dbname_, Options());
+    assert(s.ok());
     db_ = nullptr;
   }
 

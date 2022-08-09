@@ -122,7 +122,8 @@ private:
 class CassandraFunctionalTest : public testing::Test {
 public:
   CassandraFunctionalTest() {
-    DestroyDB(kDbName, Options());    // Start each test with a fresh DB
+    Status s = DestroyDB(kDbName, Options());    // Start each test with a fresh DB
+    assert(s.ok());
   }
 
   std::shared_ptr<DB> OpenDb() {
