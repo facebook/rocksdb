@@ -63,9 +63,9 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
     static void WaitAll(FaultInjectionSecondaryCache* cache,
                         std::vector<SecondaryCacheResultHandle*> handles);
 
-   private:
     static void UpdateHandleValue(ResultHandle* handle);
 
+   private:
     FaultInjectionSecondaryCache* cache_;
     std::unique_ptr<SecondaryCacheResultHandle> base_;
     void* value_;
