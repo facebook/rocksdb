@@ -23,6 +23,7 @@
 * Fixed a bug where blobs read during compaction would pollute the cache.
 * Fixed a data race in LRUCache when used with a secondary_cache.
 * Fixed a bug where blobs read by iterators would be inserted into the cache even with the `fill_cache` read option set to false.
+* Fixed the segfault caused by `AllocateData()` in `CompressedSecondaryCache::SplitValueIntoChunks()` and `MergeChunksIntoValueTest`.
 
 ### Behavior Change
 * Added checksum handshake during the copying of decompressed WAL fragment. This together with #9875, #10037, #10212, #10114 and #10319 provides end-to-end integrity protection for write batch during recovery.
@@ -34,6 +35,7 @@
 ### Performance Improvements
 * Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.
 * Improve read performance by avoiding dynamic memory allocation.
+* When using iterators with the integrated BlobDB implementation, blob cache handles are now released immediately when the iterator's position changes.
 
 ## 7.5.0 (07/15/2022)
 ### New Features

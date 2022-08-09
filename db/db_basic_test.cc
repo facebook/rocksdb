@@ -2146,7 +2146,7 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
 
     // Put all keys in the bottommost level, and overwrite some keys
     // in L0 and L1
-    for (int i = 0; i < 128; ++i) {
+    for (int i = 0; i < 256; ++i) {
       EXPECT_OK(Put(Key(i), "val_l2_" + std::to_string(i)));
       num_keys++;
       if (num_keys == 8) {
@@ -2171,6 +2171,21 @@ class DBMultiGetAsyncIOTest : public DBBasicTest {
     if (num_keys > 0) {
       EXPECT_OK(Flush());
       num_keys = 0;
+    }
+    // Put some range deletes in L1
+    for (int i = 128; i < 256; i += 32) {
+      std::string range_begin = Key(i);
+      std::string range_end = Key(i + 16);
+      EXPECT_OK(dbfull()->DeleteRange(WriteOptions(),
+                                      dbfull()->DefaultColumnFamily(),
+                                      range_begin, range_end));
+      // Also do some Puts to force creation of bloom filter
+      for (int j = i + 16; j < i + 32; ++j) {
+        if (j % 3 == 0) {
+          EXPECT_OK(Put(Key(j), "val_l1_" + std::to_string(j)));
+        }
+      }
+      EXPECT_OK(Flush());
     }
     MoveFilesToLevel(1);
 
@@ -2362,6 +2377,32 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
   ASSERT_EQ(statuses[1], Status::OK());
   ASSERT_EQ(values[0], "val_l2_" + std::to_string(19));
   ASSERT_EQ(values[1], "val_l2_" + std::to_string(26));
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
+}
+
+TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 139 and 163 are in L2, but overlap with a range deletes in L1
+  key_strs.push_back(Key(139));
+  key_strs.push_back(Key(163));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = true;
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), 2);
+  ASSERT_EQ(statuses[0], Status::NotFound());
+  ASSERT_EQ(statuses[1], Status::NotFound());
 
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);

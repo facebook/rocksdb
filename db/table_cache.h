@@ -235,6 +235,11 @@ class TableCache {
       size_t max_file_size_for_l0_meta_pin = 0,
       Temperature file_temperature = Temperature::kUnknown);
 
+  // Update the max_covering_tombstone_seq in the GetContext for each key based
+  // on the range deletions in the table
+  void UpdateRangeTombstoneSeqnums(const ReadOptions& options, TableReader* t,
+                                   MultiGetContext::Range& table_range);
+
   // Create a key prefix for looking up the row cache. The prefix is of the
   // format row_cache_id + fd_number + seq_no. Later, the user key can be
   // appended to form the full key

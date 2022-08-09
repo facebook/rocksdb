@@ -303,6 +303,11 @@ class DBIter final : public Iterator {
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
 
+  void ResetBlobValue() {
+    is_blob_ = false;
+    blob_value_.Reset();
+  }
+
   bool SetWideColumnValueIfNeeded(const Slice& wide_columns_slice);
 
   void ResetWideColumnValue() {
