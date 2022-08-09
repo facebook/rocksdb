@@ -21,7 +21,7 @@
 * Fix a bug that `best_efforts_recovery` may fail to open the db with mmap read.
 * Fixed a bug where blobs read during compaction would pollute the cache.
 * Fixed a data race in LRUCache when used with a secondary_cache.
-* Fixed a memory leak in `CompressedSecondaryCache::Lookup`.
+* Fixed the memory leak in db_stress tests that are caused by `FaultInjectionSecondaryCache`.
 
 ### Behavior Change
 * Added checksum handshake during the copying of decompressed WAL fragment. This together with #9875, #10037, #10212, #10114 and #10319 provides end-to-end integrity protection for write batch during recovery.
@@ -30,7 +30,7 @@
 * Remove [min|max]_timestamp from VersionEdit for now since they are not tracked in MANIFEST anyway but consume two empty std::string (up to 64 bytes) for each file. Should they be added back in the future, we should store them more compactly.
 
 ### Performance Improvements
-* Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.  
+* Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.
 
 ## 7.5.0 (07/15/2022)
 ### New Features
