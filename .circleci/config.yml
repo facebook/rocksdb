@@ -3,11 +3,6 @@ version: 2.1
 orbs:
   win: circleci/windows@2.4.0
 
-aliases:
-  - &notify-on-main-failure
-    fail_only: true
-    only_for_branches: main
-
 commands:
   install-cmake-on-macos:
     steps:
@@ -218,6 +213,9 @@ executors:
       image: 'windows-server-2019-vs2019:stable'
       resource_class: windows.2xlarge
       shell: bash.exe
+  linux-docker:
+    docker:
+      - image: cooldoger/rocksdb:0.3
 
 jobs:
   build-macos:
@@ -269,8 +267,7 @@ jobs:
       - post-steps
 
   build-linux:
-    docker:
-      - image: cooldoger/rocksdb:0.3
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -278,8 +275,7 @@ jobs:
       - post-steps
 
   build-linux-encrypted_env-no_compression:
-    docker:
-      - image: cooldoger/rocksdb:0.3
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -326,8 +322,7 @@ jobs:
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
-    docker:
-      - image: cooldoger/rocksdb:0.3
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
@@ -358,19 +353,15 @@ jobs:
       - post-steps
 
   build-linux-clang10-asan:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
       - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-mini-tsan:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     # find test list by `make list_all_tests`
     parameters:
@@ -382,9 +373,6 @@ jobs:
         type: string
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
-      - install-gtest-parallel
       - run:
           name: "Build unit tests"
           command: |
@@ -399,36 +387,26 @@ jobs:
       - post-steps
 
   build-linux-clang10-ubsan:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
       - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-valgrind:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-valgrind
       - run: PORTABLE=1 make V=1 -j32 valgrind_test
       - post-steps
 
   build-linux-clang10-clang-analyze:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
-      - run: sudo apt-get update -y && sudo apt-get install -y clang-tools-10
       - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
       - post-steps
 
@@ -445,8 +423,7 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly:
-    docker:
-      - image: cooldoger/rocksdb:0.3
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -455,8 +432,7 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-benchmark:
-    docker:
-      - image: cooldoger/rocksdb:0.3
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -477,8 +453,7 @@ jobs:
       - post-steps
 
   build-linux-gcc-7-with-folly:
-    docker:
-      - image: cooldoger/rocksdb:0.3
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -487,90 +462,69 @@ jobs:
       - post-steps
 
   build-linux-gcc-8-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 make -j16 all
+      - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
-      - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all
+      - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j32 all
       - post-steps
 
   build-linux-gcc-11-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-11 g++-11 libgflags-dev
-      - install-benchmark
-      - run: CC=gcc-11 CXX=g++-11 V=1 make -j16 all microbench
+      - run: CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
       - post-steps
 
   build-linux-clang-13-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-clang-13
-      - install-benchmark
-      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all microbench
+      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j32 all microbench
       - post-steps
 
   # Ensure ASAN+UBSAN with folly, and full testsuite with clang 13
   build-linux-clang-13-asan-ubsan-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-clang-13
-      - install-gflags
       - setup-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
   build-linux-run-microbench:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-benchmark
       - run: DEBUG_LEVEL=0 make -j32 run_microbench
       - post-steps
 
   build-linux-mini-crashtest:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
-      - install-compression-libs
       - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
       - post-steps
 
   build-linux-crashtest-tiered-storage-bb:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-compression-libs
       - run:
           name: "run crashtest"
           command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 blackbox_crash_test_with_tiered_storage
@@ -578,13 +532,10 @@ jobs:
       - post-steps
 
   build-linux-crashtest-tiered-storage-wb:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-compression-libs
       - run:
           name: "run crashtest"
           command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 whitebox_crash_test_with_tiered_storage
@@ -660,14 +611,10 @@ jobs:
             build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
 
   build-linux-java:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
-    environment:
-      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Set Java Environment"
           command: |
@@ -681,14 +628,10 @@ jobs:
       - post-steps
 
   build-linux-java-static:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
-    environment:
-      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Set Java Environment"
           command: |
@@ -774,27 +717,22 @@ jobs:
       - post-steps
 
   build-examples:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Build examples"
           command: |
-            OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
+            make V=1 -j4 static_lib && cd examples && make V=1 -j4
       - post-steps
 
   build-cmake-mingw:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
-      - run: sudo apt-get update -y && sudo apt-get install -y mingw-w64
-      - run: sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+      - run: update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
       - run:
           name: "Build cmake-mingw"
           command: |
@@ -926,30 +864,30 @@ workflows:
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
       - build-linux-lite
-#  jobs-linux-run-tests-san:
-#    jobs:
-#      - build-linux-clang10-asan
-#      - build-linux-clang10-ubsan
-#      - build-linux-clang10-mini-tsan:
-#          start_test: ""
-#          end_test: "env_test"
-#      - build-linux-clang10-mini-tsan:
-#          start_test: "env_test"
-#          end_test: ""
-#      - build-linux-shared_lib-alt_namespace-status_checked
-#  jobs-linux-no-test-run:
-#    jobs:
-#      - build-linux-release
-#      - build-linux-release-rtti
-#      - build-linux-lite-release
-#      - build-examples
-#      - build-fuzzers
-#      - build-linux-clang-no_test_run
-#      - build-linux-clang-13-no_test_run
-#      - build-linux-gcc-8-no_test_run
-#      - build-linux-gcc-10-cxx20-no_test_run
-#      - build-linux-gcc-11-no_test_run
-#      - build-linux-arm-cmake-no_test_run
+  jobs-linux-run-tests-san:
+    jobs:
+      - build-linux-clang10-asan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-mini-tsan:
+          start_test: ""
+          end_test: "env_test"
+      - build-linux-clang10-mini-tsan:
+          start_test: "env_test"
+          end_test: ""
+      - build-linux-shared_lib-alt_namespace-status_checked
+  jobs-linux-no-test-run:
+    jobs:
+      - build-linux-release
+      - build-linux-release-rtti
+      - build-linux-lite-release
+      - build-examples
+      - build-fuzzers
+      - build-linux-clang-no_test_run
+      - build-linux-clang-13-no_test_run
+      - build-linux-gcc-8-no_test_run
+      - build-linux-gcc-10-cxx20-no_test_run
+      - build-linux-gcc-11-no_test_run
+      - build-linux-arm-cmake-no_test_run
 #  jobs-linux-other-checks:
 #    jobs:
 #      - build-linux-clang10-clang-analyze
