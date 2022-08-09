@@ -55,7 +55,7 @@ class AutoRollLoggerTest : public testing::Test {
     test_dir_ = test::PerThreadDBPath(env_, "db_log_test");
     log_file_ = test_dir_ + "/LOG";
     test_db_dir_ = test::PerThreadDBPath(env_, "db_log_test_db");
-						 
+
     RecreateLogDir();
   }
 
@@ -189,14 +189,14 @@ void AutoRollLoggerTest::RollLogFileByTimeTest(
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
-    size_t log_max_size = 1024 * 5;
-    size_t keep_log_file_num = 10;
+  size_t log_max_size = 1024 * 5;
+  size_t keep_log_file_num = 10;
 
-    AutoRollLogger logger(FileSystem::Default(), SystemClock::Default(),
-                          test_dir_, "", log_max_size, 0, keep_log_file_num);
+  AutoRollLogger logger(FileSystem::Default(), SystemClock::Default(),
+                        test_dir_, "", log_max_size, 0, keep_log_file_num);
 
-    RollLogFileBySizeTest(&logger, log_max_size,
-                          kSampleMessage + ":RollLogFileBySize");
+  RollLogFileBySizeTest(&logger, log_max_size,
+                        kSampleMessage + ":RollLogFileBySize");
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileByTime) {

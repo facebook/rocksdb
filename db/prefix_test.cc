@@ -54,7 +54,6 @@ DEFINE_int32(memtable_huge_page_size, 2 * 1024 * 1024, "");
 DEFINE_int32(value_size, 40, "");
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 
-
 namespace ROCKSDB_NAMESPACE {
 
 struct TestKey {

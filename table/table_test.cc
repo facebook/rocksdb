@@ -607,7 +607,6 @@ class DBConstructor: public Constructor {
  private:
   std::string dbname_;
   void NewDB() {
-
     Options options;
     options.comparator = comparator_;
     Status status = DestroyDB(dbname_, options);
