@@ -20,6 +20,7 @@ num_threads=${NUM_THREADS:-16}
 key_size=${KEY_SIZE:-20}
 value_size=${VALUE_SIZE:-400}
 mb_write_per_sec=${MB_WRITE_PER_SEC:-2}
+ci_tests_only=${CI_TESTS_ONLY:-"false"}
 
 # RocksDB configuration
 compression_type=${COMPRESSION_TYPE:-lz4}
@@ -157,6 +158,7 @@ function usage {
   echo -e "\tSTATS_INTERVAL_SECONDS\t\tvalue for stats_interval_seconds"
   echo -e "\tSUBCOMPACTIONS\t\t\tvalue for subcompactions"
   echo -e "\tCOMPACTION_STYLE\t\tCompaction style to use, one of: leveled, universal, blob"
+  echo -e "\tCI_TESTS_ONLY\t\tRun a subset of tests tailored to a CI regression job, one of: true, false (default)"
   echo ""
   echo -e "\tOptions specific to leveled compaction:"
   echo -e "\t\tLEVEL0_FILE_NUM_COMPACTION_TRIGGER\tvalue for level0_file_num_compaction_trigger"
@@ -257,8 +259,15 @@ for v in "$@" ; do
   # was used during the load.
 
   env -i "${args_nolim[@]}" DURATION="$duration_ro" bash ./benchmark.sh readrandom
-  env -i "${args_nolim[@]}" DURATION="$duration_ro" bash ./benchmark.sh fwdrange
-  env -i "${args_lim[@]}"   DURATION="$duration_ro" bash ./benchmark.sh multireadrandom
+
+  # Skipped for CI - a single essentail readrandom is enough to set up for other tests
+  if [ "$ci_tests_only" != "true" ]; then
+    env -i "${args_nolim[@]}" DURATION="$duration_ro" bash ./benchmark.sh fwdrange
+    env -i "${args_lim[@]}"   DURATION="$duration_ro" bash ./benchmark.sh multireadrandom
+  else
+    echo "CI_TESTS_ONLY is set, skipping optional read steps."
+  fi
+
   # Skipping --multiread_batched for now because it isn't supported on older 6.X releases
   # env "${args_lim[@]}" DURATION=$duration_ro bash ./benchmark.sh multireadrandom --multiread_batched
 
