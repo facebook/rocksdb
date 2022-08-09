@@ -215,7 +215,7 @@ executors:
       shell: bash.exe
   linux-docker:
     docker:
-      - image: cooldoger/rocksdb:0.3
+      - image: zjay437/rocksdb:0.4
 
 jobs:
   build-macos:
