@@ -8,7 +8,6 @@
 #include <vector>
 #include <memory>
 
-#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
@@ -18,7 +17,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/filter_policy.h"
-#include "test_util/testharness.h"
+#include "port/port.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -38,9 +37,12 @@ class SanityTest {
     Options options = GetOptions();
     options.create_if_missing = true;
     std::string dbname = path_ + Name();
-    EXPECT_OK(DestroyDB(dbname, options));
+    Status s = DestroyDB(dbname, options);
+    if (!s.ok()) {
+      return s;
+    }
     DB* db = nullptr;
-    Status s = DB::Open(options, dbname, &db);
+    s = DB::Open(options, dbname, &db);
     std::unique_ptr<DB> db_guard(db);
     if (!s.ok()) {
       return s;
