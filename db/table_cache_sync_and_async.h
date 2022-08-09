@@ -79,18 +79,7 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
       }
     }
     if (s.ok() && !options.ignore_range_deletions) {
-      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          t->NewRangeTombstoneIterator(options));
-      if (range_del_iter != nullptr) {
-        for (auto iter = table_range.begin(); iter != table_range.end();
-             ++iter) {
-          SequenceNumber* max_covering_tombstone_seq =
-              iter->get_context->max_covering_tombstone_seq();
-          *max_covering_tombstone_seq = std::max(
-              *max_covering_tombstone_seq,
-              range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
-        }
-      }
+      UpdateRangeTombstoneSeqnums(options, t, table_range);
     }
     if (s.ok()) {
       CO_AWAIT(t->MultiGet)
