@@ -172,7 +172,6 @@ CompressedSecondaryCache::SplitValueIntoChunks(
 
     ptr = AllocateBlock(tmp_size, cache_options_.memory_allocator.get());
     current_chunk->next = reinterpret_cast<CacheValueChunk*>(ptr.release());
-    current_chunk->next = new_chunk;
     current_chunk = current_chunk->next;
     actual_chunk_size = tmp_size - sizeof(CacheValueChunk) + 1;
     memcpy(current_chunk->data, src_ptr, actual_chunk_size);
