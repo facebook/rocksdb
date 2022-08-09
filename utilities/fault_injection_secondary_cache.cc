@@ -97,7 +97,6 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
   auto handle =
       new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl));
 
-  ErrorContext* ctx = GetErrorContext();
   if (wait) {
     FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(handle);
   }
