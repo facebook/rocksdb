@@ -600,8 +600,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string str = str1 + str2 + str3;
 
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5,
-                                                   allocator);
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5);
     size_t charge{0};
     CacheAllocationPtr value =
         sec_cache->MergeChunksIntoValue(chunks_head, charge);
