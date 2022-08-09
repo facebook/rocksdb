@@ -1082,7 +1082,7 @@ class IoctlFriendlyTmpdir {
     // file system inside `overlayfs` may not support FS_IOC_GETVERSION
     // skip the tests
     struct stat buffer;
-    if (stat ("/.dockerenv", &buffer) == 0) {
+    if (stat("/.dockerenv", &buffer) == 0) {
       is_supported_ = false;
       return;
     }
@@ -1101,9 +1101,7 @@ class IoctlFriendlyTmpdir {
     return dir_;
   }
 
-  bool is_supported() const {
-    return is_supported_;
-  }
+  bool is_supported() const { return is_supported_; }
 
  private:
   std::string dir_;
@@ -1119,7 +1117,8 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   options.use_mmap_writes = false;
   IoctlFriendlyTmpdir ift;
   if (!ift.is_supported()) {
-    ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+    ROCKSDB_GTEST_BYPASS(
+        "FS_IOC_GETVERSION is not supported by the filesystem");
     return;
   }
   ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
@@ -1159,7 +1158,8 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
     IoctlFriendlyTmpdir ift;
     if (!ift.is_supported()) {
-      ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
       return;
     }
     std::string fname = ift.name() + "/testfile";
@@ -1206,7 +1206,8 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
   if (env_ == Env::Default()) {
     IoctlFriendlyTmpdir ift;
     if (!ift.is_supported()) {
-      ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
       return;
     }
     std::string fname = ift.name() + "/preallocate_testfile";
@@ -1305,7 +1306,8 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
     // Create the files
     IoctlFriendlyTmpdir ift;
     if (!ift.is_supported()) {
-      ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
       return;
     }
     std::vector<std::string> fnames;
@@ -1350,7 +1352,8 @@ TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
 
     IoctlFriendlyTmpdir ift;
     if (!ift.is_supported()) {
-      ROCKSDB_GTEST_BYPASS("FS_IOC_GETVERSION is not supported by the filesystem");
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
       return;
     }
     std::string fname = ift.name() + "/" + "testfile";
