@@ -164,7 +164,7 @@ void CompactionIterator::Next() {
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
-      valid_ = true;
+      validity_info_.SetValid(ValidContext::kMerge1);
     } else {
       // We consumed all pinned merge operands, release pinned iterators
       pinned_iters_mgr_.ReleasePinnedData();
@@ -182,7 +182,7 @@ void CompactionIterator::Next() {
     NextFromInput();
   }
 
-  if (valid_) {
+  if (Valid()) {
     // Record that we've outputted a record for the current key.
     has_outputted_key_ = true;
   }
@@ -228,7 +228,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         if (compaction_ == nullptr) {
           status_ =
               Status::Corruption("Unexpected blob index outside of compaction");
-          valid_ = false;
+          validity_info_.Invalidate();
           return false;
         }
 
@@ -243,7 +243,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         Status s = blob_index.DecodeFrom(value_);
         if (!s.ok()) {
           status_ = s;
-          valid_ = false;
+          validity_info_.Invalidate();
           return false;
         }
 
@@ -261,7 +261,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                      &bytes_read);
         if (!s.ok()) {
           status_ = s;
-          valid_ = false;
+          validity_info_.Invalidate();
           return false;
         }
 
@@ -285,7 +285,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // Should not reach here, since FilterV2 should never return kUndetermined.
     status_ =
         Status::NotSupported("FilterV2() should never return kUndetermined");
-    valid_ = false;
+    validity_info_.Invalidate();
     return false;
   }
 
@@ -334,7 +334,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       status_ = Status::NotSupported(
           "Only stacked BlobDB's internal compaction filter can return "
           "kChangeBlobIndex.");
-      valid_ = false;
+      validity_info_.Invalidate();
       return false;
     }
     if (ikey_.type == kTypeValue) {
@@ -347,7 +347,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     if (!compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
       status_ = Status::NotSupported(
           "CompactionFilter for integrated BlobDB should not return kIOError");
-      valid_ = false;
+      validity_info_.Invalidate();
       return false;
     }
     status_ = Status::IOError("Failed to access blob during compaction filter");
@@ -358,9 +358,9 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
 
 void CompactionIterator::NextFromInput() {
   at_next_ = false;
-  valid_ = false;
+  validity_info_.Invalidate();
 
-  while (!valid_ && input_.Valid() && !IsPausingManualCompaction() &&
+  while (!Valid() && input_.Valid() && !IsPausingManualCompaction() &&
          !IsShuttingDown()) {
     key_ = input_.key();
     value_ = input_.value();
@@ -380,7 +380,7 @@ void CompactionIterator::NextFromInput() {
       has_current_user_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
-      valid_ = true;
+      validity_info_.SetValid(ValidContext::kParseKeyError);
       break;
     }
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
@@ -493,7 +493,7 @@ void CompactionIterator::NextFromInput() {
 
     if (UNLIKELY(!current_key_committed_)) {
       assert(snapshot_checker_ != nullptr);
-      valid_ = true;
+      validity_info_.SetValid(ValidContext::kCurrentKeyUncommitted);
       break;
     }
 
@@ -536,7 +536,7 @@ void CompactionIterator::NextFromInput() {
       }
 
       value_.clear();
-      valid_ = true;
+      validity_info_.SetValid(ValidContext::kKeepSDAndClearPut);
       clear_and_output_next_key_ = false;
     } else if (ikey_.type == kTypeSingleDeletion) {
       // We can compact out a SingleDelete if:
@@ -660,7 +660,7 @@ void CompactionIterator::NextFromInput() {
             ++iter_stats_.num_single_del_mismatch;
             if (enforce_single_del_contracts_) {
               ROCKS_LOG_ERROR(info_log_, "%s", oss.str().c_str());
-              valid_ = false;
+              validity_info_.Invalidate();
               status_ = Status::Corruption(oss.str());
               return;
             }
@@ -669,7 +669,7 @@ void CompactionIterator::NextFromInput() {
             // We cannot drop the SingleDelete as timestamp is enabled, and
             // timestamp of this key is greater than or equal to
             // *full_history_ts_low_. We will output the SingleDelete.
-            valid_ = true;
+            validity_info_.SetValid(ValidContext::kKeepHistory);
           } else if (has_outputted_key_ ||
                      DefinitelyInSnapshot(ikey_.sequence,
                                           earliest_write_conflict_snapshot_) ||
@@ -704,7 +704,7 @@ void CompactionIterator::NextFromInput() {
             // outputted on the next iteration.)
 
             // Setting valid_ to true will output the current SingleDelete
-            valid_ = true;
+            validity_info_.SetValid(ValidContext::kKeepSDForCC);
 
             // Set up the Put to be outputted in the next iteration.
             // (Optimization 3).
@@ -716,7 +716,7 @@ void CompactionIterator::NextFromInput() {
         } else {
           // We hit the next snapshot without hitting a put, so the iterator
           // returns the single delete.
-          valid_ = true;
+          validity_info_.SetValid(ValidContext::kKeepSDForSnapshot);
           TEST_SYNC_POINT_CALLBACK(
               "CompactionIterator::NextFromInput:SingleDelete:3",
               const_cast<Compaction*>(c));
@@ -749,11 +749,11 @@ void CompactionIterator::NextFromInput() {
           assert(bottommost_level_);
         } else {
           // Output SingleDelete
-          valid_ = true;
+          validity_info_.SetValid(ValidContext::kKeepSD);
         }
       }
 
-      if (valid_) {
+      if (Valid()) {
         at_next_ = true;
       }
     } else if (last_snapshot == current_user_key_snapshot_ ||
@@ -852,7 +852,7 @@ void CompactionIterator::NextFromInput() {
           (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                .ok()) &&
           cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
-        valid_ = true;
+        validity_info_.SetValid(ValidContext::kKeepDel);
         at_next_ = true;
       }
     } else if (ikey_.type == kTypeMerge) {
@@ -896,7 +896,7 @@ void CompactionIterator::NextFromInput() {
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
         key_ = current_key_.GetInternalKey();
         ikey_.user_key = current_key_.GetUserKey();
-        valid_ = true;
+        validity_info_.SetValid(ValidContext::kMerge2);
       } else {
         // all merge operands were filtered out. reset the user key, since the
         // batch consumed by the merge operator should not shadow any keys
@@ -918,7 +918,7 @@ void CompactionIterator::NextFromInput() {
         ++iter_stats_.num_record_drop_range_del;
         AdvanceInputIter();
       } else {
-        valid_ = true;
+        validity_info_.SetValid(ValidContext::kNewUserKey);
       }
     }
 
@@ -927,7 +927,7 @@ void CompactionIterator::NextFromInput() {
     }
   }
 
-  if (!valid_ && IsShuttingDown()) {
+  if (!Valid() && IsShuttingDown()) {
     status_ = Status::ShutdownInProgress();
   }
 
@@ -946,7 +946,7 @@ bool CompactionIterator::ExtractLargeValueIfNeededImpl() {
 
   if (!s.ok()) {
     status_ = s;
-    valid_ = false;
+    validity_info_.Invalidate();
 
     return false;
   }
@@ -991,7 +991,7 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
       if (!s.ok()) {
         status_ = s;
-        valid_ = false;
+        validity_info_.Invalidate();
 
         return;
       }
@@ -1017,7 +1017,7 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
       if (!s.ok()) {
         status_ = s;
-        valid_ = false;
+        validity_info_.Invalidate();
 
         return;
       }
@@ -1050,14 +1050,14 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
       status_ =
           Status::Corruption("Corrupted blob reference encountered during GC");
-      valid_ = false;
+      validity_info_.Invalidate();
 
       return;
     }
 
     if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
       status_ = Status::IOError("Could not relocate blob during GC");
-      valid_ = false;
+      validity_info_.Invalidate();
 
       return;
     }
@@ -1117,7 +1117,7 @@ void CompactionIterator::DecideOutputLevel() {
 }
 
 void CompactionIterator::PrepareOutput() {
-  if (valid_) {
+  if (Valid()) {
     if (ikey_.type == kTypeValue) {
       ExtractLargeValueIfNeeded();
     } else if (ikey_.type == kTypeBlobIndex) {
@@ -1139,7 +1139,7 @@ void CompactionIterator::PrepareOutput() {
     //
     // Can we do the same for levels above bottom level as long as
     // KeyNotExistsBeyondOutputLevel() return true?
-    if (valid_ && compaction_ != nullptr &&
+    if (Valid() && compaction_ != nullptr &&
         !compaction_->allow_ingest_behind() && bottommost_level_ &&
         DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
         ikey_.type != kTypeMerge && current_key_committed_ &&
@@ -1153,13 +1153,14 @@ void CompactionIterator::PrepareOutput() {
             "earliest_snapshot %" PRIu64
             ", earliest_write_conflict_snapshot %" PRIu64
             " job_snapshot %" PRIu64
-            ". timestamp_size: %d full_history_ts_low_ %s",
+            ". timestamp_size: %d full_history_ts_low_ %s. validity %s",
             ikey_.DebugString(allow_data_in_errors_, true).c_str(),
             earliest_snapshot_, earliest_write_conflict_snapshot_,
             job_snapshot_, static_cast<int>(timestamp_size_),
             full_history_ts_low_ != nullptr
                 ? Slice(*full_history_ts_low_).ToString(true).c_str()
-                : "null");
+                : "null",
+            validity_info_.ToString().c_str());
         assert(false);
       }
       ikey_.sequence = 0;
