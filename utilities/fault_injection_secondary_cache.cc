@@ -15,13 +15,11 @@ namespace ROCKSDB_NAMESPACE {
 void FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(
     FaultInjectionSecondaryCache::ResultHandle* handle) {
   ErrorContext* ctx = handle->cache_->GetErrorContext();
-  if (ctx->rand.OneIn(handle->cache_->prob_)) {
-    handle->value_ = nullptr;
-    handle->size_ = 0;
-  } else {
+  if (!ctx->rand.OneIn(handle->cache_->prob_)) {
     handle->value_ = handle->base_->Value();
     handle->size_ = handle->base_->Size();
   }
+  handle->base_.reset();
 }
 
 bool FaultInjectionSecondaryCache::ResultHandle::IsReady() {
@@ -92,20 +90,16 @@ std::unique_ptr<SecondaryCacheResultHandle>
 FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      const Cache::CreateCallback& create_cb,
                                      bool wait, bool& is_in_sec_cache) {
-  std::unique_ptr<SecondaryCacheResultHandle> hdl =
-      base_->Lookup(key, create_cb, wait, is_in_sec_cache);
-
-  if (hdl) {
-    auto handle =
-        new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl));
-
-    if (wait) {
-      FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(handle);
-    }
-    return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(handle);
+  std::unique_ptr<SecondaryCacheResultHandle> hdl;
+  ErrorContext* ctx = GetErrorContext();
+  if (wait && ctx->rand.OneIn(prob_)) {
+    // Inject a dummy handle.
+    hdl.reset(new FaultInjectionSecondaryCache::ResultHandle(this, nullptr));
   } else {
-    return nullptr;
+    hdl = base_->Lookup(key, create_cb, wait, is_in_sec_cache);
   }
+  return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(
+      new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl)));
 }
 
 void FaultInjectionSecondaryCache::Erase(const Slice& key) {
