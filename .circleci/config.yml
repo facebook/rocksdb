@@ -285,8 +285,7 @@ jobs:
       - post-steps
 
   build-linux-shared_lib-alt_namespace-status_checked:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -295,8 +294,7 @@ jobs:
       - post-steps
 
   build-linux-release:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
@@ -308,8 +306,7 @@ jobs:
       - post-steps
 
   build-linux-release-rtti:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
@@ -330,8 +327,7 @@ jobs:
       - post-steps
 
   build-linux-lite-release:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
@@ -343,8 +339,7 @@ jobs:
       - post-steps
 
   build-linux-clang-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
@@ -748,46 +743,38 @@ jobs:
       - post-steps
 
   build-linux-non-shm:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     environment:
       TEST_TMPDIR: /tmp/rocksdb_test_tmp
     steps:
       - pre-steps
-      - install-gflags
       - run: make V=1 -j32 check
       - post-steps
 
   build-linux-arm-test-full:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: arm.large
     steps:
       - pre-steps
-      - install-gflags
       - run: make V=1 J=4 -j4 check
       - post-steps
 
   build-linux-arm:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: arm.large
     steps:
       - pre-steps
-      - install-gflags
       - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some
       - post-steps
 
   build-linux-arm-cmake-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: arm.large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-8-openjdk-arm64
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Set Java Environment"
           command: |
@@ -813,13 +800,10 @@ jobs:
       - post-steps
 
   build-format-compatible:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-compression-libs
       - run:
           name: "test"
           command: |
@@ -830,14 +814,10 @@ jobs:
       - post-steps
 
   build-fuzzers:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-clang-13
-      - run: sudo apt-get update -y && sudo apt-get install -y cmake ninja-build binutils liblzma-dev libz-dev pkg-config autoconf libtool
-      - install-libprotobuf-mutator
       - run:
           name: "Build rocksdb lib"
           command: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
@@ -888,43 +868,43 @@ workflows:
       - build-linux-gcc-10-cxx20-no_test_run
       - build-linux-gcc-11-no_test_run
       - build-linux-arm-cmake-no_test_run
-#  jobs-linux-other-checks:
-#    jobs:
-#      - build-linux-clang10-clang-analyze
-#      - build-linux-unity-and-headers
-#      - build-linux-mini-crashtest
-#  jobs-windows:
-#    jobs:
-#      - build-windows:
-#          name: "build-windows-vs2019"
-#      - build-windows:
-#          name: "build-windows-vs2019-cxx20"
-#          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-#      - build-windows:
-#          name: "build-windows-vs2017"
-#          vs_year: "2017"
-#          cmake_generator: "Visual Studio 15 Win64"
-#      - build-cmake-mingw
-#  jobs-java:
-#    jobs:
-#      - build-linux-java
-#      - build-linux-java-static
-#      - build-macos-java
-#      - build-macos-java-static
-#      - build-macos-java-static-universal
-#  jobs-macos:
-#    jobs:
-#      - build-macos
-#      - build-macos-cmake:
-#          run_even_tests: true
-#      - build-macos-cmake:
-#          run_even_tests: false
-#  jobs-linux-arm:
-#    jobs:
-#      - build-linux-arm
-#  build-fuzzers:
-#    jobs:
-#      - build-fuzzers
+  jobs-linux-other-checks:
+    jobs:
+      - build-linux-clang10-clang-analyze
+      - build-linux-unity-and-headers
+      - build-linux-mini-crashtest
+  jobs-windows:
+    jobs:
+      - build-windows:
+          name: "build-windows-vs2019"
+      - build-windows:
+          name: "build-windows-vs2019-cxx20"
+          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
+      - build-windows:
+          name: "build-windows-vs2017"
+          vs_year: "2017"
+          cmake_generator: "Visual Studio 15 Win64"
+      - build-cmake-mingw
+  jobs-java:
+    jobs:
+      - build-linux-java
+      - build-linux-java-static
+      - build-macos-java
+      - build-macos-java-static
+      - build-macos-java-static-universal
+  jobs-macos:
+    jobs:
+      - build-macos
+      - build-macos-cmake:
+          run_even_tests: true
+      - build-macos-cmake:
+          run_even_tests: false
+  jobs-linux-arm:
+    jobs:
+      - build-linux-arm
+  build-fuzzers:
+    jobs:
+      - build-fuzzers
   benchmark-linux:
     triggers:
       - schedule:
