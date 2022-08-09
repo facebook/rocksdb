@@ -83,9 +83,12 @@ CompactionIterator::CompactionIterator(
       bottommost_level_(!compaction_ ? false
                                      : compaction_->bottommost_level() &&
                                            !compaction_->allow_ingest_behind()),
-      visible_at_tip_(snapshots_->empty()),
-      earliest_snapshot_(snapshots_->empty() ? kMaxSequenceNumber
-                                             : snapshots_->at(0)),
+      // snapshots_ cannot be nullptr, but we will assert later in the body of
+      // the constructor.
+      visible_at_tip_(snapshots_ ? snapshots_->empty() : false),
+      earliest_snapshot_(!snapshots_ || snapshots_->empty()
+                             ? kMaxSequenceNumber
+                             : snapshots_->at(0)),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
       enforce_single_del_contracts_(enforce_single_del_contracts),
