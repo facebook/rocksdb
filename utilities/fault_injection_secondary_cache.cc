@@ -96,7 +96,7 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
   ErrorContext* ctx = GetErrorContext();
   if (wait && ctx->rand.OneIn(prob_)) {
     // Inject a dummy handle.
-    hdl.reset(new FaultInjectionSecondaryCache::ResultHandle(nullptr, 0));
+    hdl.reset(new CompressedSecondaryCacheResultHandle(nullptr, 0));
   } else {
     hdl = base_->Lookup(key, create_cb, wait, is_in_sec_cache);
   }
