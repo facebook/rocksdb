@@ -712,9 +712,6 @@ jobs:
       - run:
           name: "Build cmake-mingw"
           command: |
-            export PATH=/snap/bin:$PATH
-            sudo apt-get install -y openjdk-8-jdk
-            export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
             export PATH=$JAVA_HOME/bin:$PATH
             echo "JAVA_HOME=${JAVA_HOME}"
             which java && java -version
