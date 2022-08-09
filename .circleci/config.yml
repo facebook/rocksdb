@@ -56,12 +56,20 @@ commands:
       - store_artifacts: # store LOG for debugging if there's any
           path: LOG
       - run: # on fail, compress Test Logs for diagnosing the issue
-         name: Compress Test Logs
-         command: tar -cvzf t.tar.gz t
-         when: on_fail
+          name: Compress Test Logs
+          command: tar -cvzf t.tar.gz t
+          when: on_fail
       - store_artifacts: # on fail, store Test Logs for diagnosing the issue
           path: t.tar.gz
           destination: test_logs
+          when: on_fail
+      - run: # store core dumps if there's any
+          command: |
+            mkdir -p /tmp/core_dumps
+            cp core.* /tmp/core_dumps
+          when: on_fail
+      - store_artifacts:
+          path: /tmp/core_dumps
           when: on_fail
 
   install-clang-10:
@@ -359,7 +367,7 @@ jobs:
     resource_class: 2xlarge+
     steps:
       - pre-steps
-      - run: COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
+      - run: COMPILE_WITH_TSAN=1 CC=clang-13 CXX=clang++-13 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       - post-steps
 
   build-linux-clang10-ubsan:
@@ -385,6 +393,14 @@ jobs:
       - pre-steps
       - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
       - post-steps
+      - run:
+          name: "compress test report"
+          command: tar -cvzf scan_build_report.tar.gz scan_build_report
+          when: on_fail
+      - store_artifacts:
+          path: scan_build_report.tar.gz
+          destination: scan_build_report
+          when: on_fail
 
   build-linux-runner:
     machine: true
