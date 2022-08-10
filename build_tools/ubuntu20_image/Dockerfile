@@ -43,8 +43,7 @@ ENV PATH $PATH:/root/gtest-parallel
 
 # install libprotobuf for fuzzers test
 RUN apt-get install -y ninja-build binutils liblzma-dev libz-dev pkg-config autoconf libtool
-RUN git clone --branch v1.0 https://github.com/google/libprotobuf-mutator.git ~/libprotobuf-mutator && cd ~/libprotobuf-mutator && git checkout ffd86a32874e5c08a143019aad1aaf0907294c9f && mkdir build && cd build && cmake .. -GNinja -DCMAKE_C_COMPILER=clang-13 -DCMAKE_CXX_COMPILER=clang++-13 -DCMAKE
-_BUILD_TYPE=Release -DLIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF=ON && ninja && ninja install
+RUN git clone --branch v1.0 https://github.com/google/libprotobuf-mutator.git ~/libprotobuf-mutator && cd ~/libprotobuf-mutator && git checkout ffd86a32874e5c08a143019aad1aaf0907294c9f && mkdir build && cd build && cmake .. -GNinja -DCMAKE_C_COMPILER=clang-13 -DCMAKE_CXX_COMPILER=clang++-13 -DCMAKE_BUILD_TYPE=Release -DLIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF=ON && ninja && ninja install
 ENV PKG_CONFIG_PATH /usr/local/OFF/:/root/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/
 ENV PROTOC_BIN /root/libprotobuf-mutator/build/external.protobuf/bin/protoc
 
