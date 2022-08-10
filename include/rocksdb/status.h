@@ -48,7 +48,6 @@ class Status {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     if (!checked_) {
       fprintf(stderr, "Failed to check Status %p\n", this);
-      std::this_thread::sleep_for(std::chrono::microseconds(1000000000));
       port::PrintStack();
       std::abort();
     }
