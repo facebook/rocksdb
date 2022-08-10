@@ -3226,7 +3226,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
       ASSERT_OK(builder->Finish());
-      fwriter->Flush();
+      ASSERT_OK(fwriter->Flush());
       uint64_t file_size = 0;
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
