@@ -841,6 +841,9 @@ static void DBGetMergeOperandsInMemtable(benchmark::State& state) {
     if (num_value_operands != static_cast<int>(kNumEntriesPerKey)) {
       state.SkipWithError("Unexpected number of merge operands found for key");
     }
+    for (auto& value_operand : value_operands) {
+      value_operand.Reset();
+    }
   }
 
   if (state.thread_index() == 0) {
@@ -937,6 +940,9 @@ static void DBGetMergeOperandsInSstFile(benchmark::State& state) {
     }
     if (num_value_operands != static_cast<int>(kNumEntriesPerKey)) {
       state.SkipWithError("Unexpected number of merge operands found for key");
+    }
+    for (auto& value_operand : value_operands) {
+      value_operand.Reset();
     }
   }
 

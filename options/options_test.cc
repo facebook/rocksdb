@@ -116,6 +116,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_successive_merges", "30"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
+      {"experimental_mempurge_threshold", "0.003"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
       {"min_blob_size", "1K"},
@@ -126,7 +127,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
-      {"bottommost_temperature", "kWarm"},
+      {"prepopulate_blob_cache", "kDisable"},
+      {"last_level_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -164,7 +166,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
@@ -256,6 +257,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.experimental_mempurge_threshold, 0.003);
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -265,6 +267,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
+  ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -329,7 +333,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
@@ -2345,6 +2348,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"max_successive_merges", "30"},
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
+      {"experimental_mempurge_threshold", "0.003"},
       {"optimize_filters_for_hits", "true"},
       {"enable_blob_files", "true"},
       {"min_blob_size", "1K"},
@@ -2355,7 +2359,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_garbage_collection_force_threshold", "0.75"},
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
-      {"bottommost_temperature", "kWarm"},
+      {"prepopulate_blob_cache", "kDisable"},
+      {"last_level_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2393,7 +2398,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"persist_stats_to_disk", "false"},
       {"stats_history_buffer_size", "69"},
       {"advise_random_on_open", "true"},
-      {"experimental_mempurge_threshold", "0.0"},
       {"use_adaptive_mutex", "false"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
@@ -2479,6 +2483,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(new_cf_opt.prefix_extractor->AsString(), "rocksdb.FixedPrefix.31");
+  ASSERT_EQ(new_cf_opt.experimental_mempurge_threshold, 0.003);
   ASSERT_EQ(new_cf_opt.enable_blob_files, true);
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
@@ -2488,6 +2493,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_garbage_collection_force_threshold, 0.75);
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
+  ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
+  ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -2553,7 +2560,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.persist_stats_to_disk, false);
   ASSERT_EQ(new_db_opt.stats_history_buffer_size, 69U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
-  ASSERT_EQ(new_db_opt.experimental_mempurge_threshold, 0.0);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
@@ -4952,6 +4958,22 @@ TEST_F(ConfigOptionsTest, MergeOperatorFromString) {
   delimiter = copy->GetOptions<std::string>("Delimiter");
   ASSERT_NE(delimiter, nullptr);
   ASSERT_EQ(*delimiter, "&&");
+}
+
+TEST_F(ConfigOptionsTest, ConfiguringOptionsDoesNotRevertRateLimiterBandwidth) {
+  // Regression test for bug where rate limiter's dynamically set bandwidth
+  // could be silently reverted when configuring an options structure with an
+  // existing `rate_limiter`.
+  Options base_options;
+  base_options.rate_limiter.reset(
+      NewGenericRateLimiter(1 << 20 /* rate_bytes_per_sec */));
+  Options copy_options(base_options);
+
+  base_options.rate_limiter->SetBytesPerSecond(2 << 20);
+  ASSERT_EQ(2 << 20, base_options.rate_limiter->GetBytesPerSecond());
+
+  ASSERT_OK(GetOptionsFromString(base_options, "", &copy_options));
+  ASSERT_EQ(2 << 20, base_options.rate_limiter->GetBytesPerSecond());
 }
 
 INSTANTIATE_TEST_CASE_P(OptionsSanityCheckTest, OptionsSanityCheckTest,

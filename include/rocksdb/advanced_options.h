@@ -55,6 +55,11 @@ enum CompactionPri : char {
   // and its size is the smallest. It in many cases can optimize write
   // amplification.
   kMinOverlappingRatio = 0x3,
+  // Keeps a cursor(s) of the successor of the file (key range) was/were
+  // compacted before, and always picks the next files (key range) in that
+  // level. The file picking process will cycle through all the files in a
+  // round-robin manner.
+  kRoundRobin = 0x4,
 };
 
 struct CompactionOptionsFIFO {
@@ -112,7 +117,7 @@ struct CompressionOptions {
   //
   // The amount of data buffered can be limited by `max_dict_buffer_bytes`. This
   // buffered memory is charged to the block cache when there is a block cache.
-  // If block cache insertion fails with `Status::Incomplete` (i.e., it is
+  // If block cache insertion fails with `Status::MemoryLimit` (i.e., it is
   // full), we finalize the dictionary with whatever data we have and then stop
   // buffering.
   //
@@ -241,6 +246,11 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATED         = 2, // No inplace update. Merged value set
 };
 
+enum class PrepopulateBlobCache : uint8_t {
+  kDisable = 0x0,    // Disable prepopulate blob cache
+  kFlushOnly = 0x1,  // Prepopulate blobs during flush only
+};
+
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
   // The default and the minimum number is 2, so that when 1 write buffer
@@ -339,6 +349,23 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   size_t inplace_update_num_locks = 10000;
+
+  // [experimental]
+  // Used to activate or deactive the Mempurge feature (memtable garbage
+  // collection). (deactivated by default). At every flush, the total useful
+  // payload (total entries minus garbage entries) is estimated as a ratio
+  // [useful payload bytes]/[size of a memtable (in bytes)]. This ratio is then
+  // compared to this `threshold` value:
+  //     - if ratio<threshold: the flush is replaced by a mempurge operation
+  //     - else: a regular flush operation takes place.
+  // Threshold values:
+  //   0.0: mempurge deactivated (default).
+  //   1.0: recommended threshold value.
+  //   >1.0 : aggressive mempurge.
+  //   0 < threshold < 1.0: mempurge triggered only for very low useful payload
+  //   ratios.
+  // [experimental]
+  double experimental_mempurge_threshold = 0.0;
 
   // existing_value - pointer to previous value (from both memtable and sst).
   //                  nullptr if key doesn't exist
@@ -845,12 +872,34 @@ struct AdvancedColumnFamilyOptions {
 
   // EXPERIMENTAL
   // The feature is still in development and is incomplete.
-  // If this option is set, when creating bottommost files, pass this
+  // If this option is set, when creating the last level files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
   //
+  // Note: the feature is changed from `bottommost_temperature` to
+  //  `last_level_temperature` which now only apply for the last level files.
+  //  The option name `bottommost_temperature` is kept only for migration, the
+  //  behavior is the same as `last_level_temperature`. Please stop using
+  //  `bottommost_temperature` and will be removed in next release.
+  //
   // Dynamically changeable through the SetOptions() API
   Temperature bottommost_temperature = Temperature::kUnknown;
+  Temperature last_level_temperature = Temperature::kUnknown;
+
+  // EXPERIMENTAL
+  // The feature is still in development and is incomplete.
+  // If this option is set, when data insert time is within this time range, it
+  // will be precluded from the last level.
+  // 0 means no key will be precluded from the last level.
+  //
+  // Note: when enabled, universal size amplification (controlled by option
+  //  `compaction_options_universal.max_size_amplification_percent`) calculation
+  //  will exclude the last level. As the feature is designed for tiered storage
+  //  and a typical setting is the last level is cold tier which is likely not
+  //  size constrained, the size amp is going to be only for non-last levels.
+  //
+  // Default: 0 (disable the feature)
+  uint64_t preclude_last_level_data_seconds = 0;
 
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write
@@ -960,6 +1009,20 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: nullptr (disabled)
   std::shared_ptr<Cache> blob_cache = nullptr;
+
+  // If enabled, prepopulate warm/hot blobs which are already in memory into
+  // blob cache at the time of flush. On a flush, the blob that is in memory (in
+  // memtables) get flushed to the device. If using Direct IO, additional IO is
+  // incurred to read this blob back into memory again, which is avoided by
+  // enabling this option. This further helps if the workload exhibits high
+  // temporal locality, where most of the reads go to recently written data.
+  // This also helps in case of the remote file system since it involves network
+  // traffic and higher latencies.
+  //
+  // Default: disabled
+  //
+  // Dynamically changeable through the SetOptions() API
+  PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

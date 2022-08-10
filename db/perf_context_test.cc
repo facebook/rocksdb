@@ -390,7 +390,7 @@ void ProfileQueries(bool enabled_time = false) {
     EXPECT_GT(hist_write_scheduling_time.Average(), 0);
 
 #ifndef NDEBUG
-    ASSERT_GT(total_db_mutex_nanos, 2000U);
+    ASSERT_LT(total_db_mutex_nanos, 100U);
 #endif
   }
 

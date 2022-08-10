@@ -74,6 +74,8 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
+    // TODO: remove once wide-column entities are supported by Get/MultiGet
+    kUnexpectedWideColumnEntity,
   };
   GetContextStats get_context_stats_;
 

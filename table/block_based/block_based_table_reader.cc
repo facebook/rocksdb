@@ -392,11 +392,16 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
     cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
   }
 
-  if (cache_handle != nullptr) {
-    UpdateCacheHitMetrics(block_type, get_context,
-                          block_cache->GetUsage(cache_handle));
-  } else {
-    UpdateCacheMissMetrics(block_type, get_context);
+  // Avoid updating metrics here if the handle is not complete yet. This
+  // happens with MultiGet and secondary cache. So update the metrics only
+  // if its a miss, or a hit and value is ready
+  if (!cache_handle || block_cache->Value(cache_handle)) {
+    if (cache_handle != nullptr) {
+      UpdateCacheHitMetrics(block_type, get_context,
+                            block_cache->GetUsage(cache_handle));
+    } else {
+      UpdateCacheMissMetrics(block_type, get_context);
+    }
   }
 
   return cache_handle;
@@ -743,7 +748,7 @@ Status BlockBasedTable::Open(
     std::size_t mem_usage = new_table->ApproximateMemoryUsage();
     s = table_reader_cache_res_mgr->MakeCacheReservation(
         mem_usage, &(rep->table_reader_cache_res_handle));
-    if (s.IsIncomplete()) {
+    if (s.IsMemoryLimit()) {
       s = Status::MemoryLimit(
           "Can't allocate " +
           kCacheEntryRoleToCamelString[static_cast<std::uint32_t>(
@@ -1248,8 +1253,12 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Statistics* statistics = rep_->ioptions.statistics.get();
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
-  Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
-      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
+  CacheCreateCallback<TBlocklike> callback(read_amp_bytes_per_bit, statistics,
+                                           using_zstd, filter_policy);
+  // avoid dynamic memory allocation by using the reference (std::ref) of the
+  // callback. Otherwise, binding a functor to std::function will allocate extra
+  // memory from heap.
+  Cache::CreateCallback create_cb(std::ref(callback));
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1279,8 +1288,11 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents contents;
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
+    CacheCreateCallback<BlockContents> special_callback(
         read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
+    // avoid dynamic memory allocation by using the reference (std::ref) of the
+    // callback. Make sure the callback is only used within this code block.
+    Cache::CreateCallback create_cb_special(std::ref(special_callback));
     block_cache_compressed_handle = block_cache_compressed->Lookup(
         cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
@@ -1902,7 +1914,8 @@ bool BlockBasedTable::PrefixRangeMayMatch(
     may_match = filter->RangeMayExist(
         read_options.iterate_upper_bound, user_key_without_ts, prefix_extractor,
         rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-        &filter_checked, need_upper_bound_check, no_io, lookup_context);
+        &filter_checked, need_upper_bound_check, no_io, lookup_context,
+        read_options.rate_limiter_priority);
   }
 
   if (filter_checked) {
@@ -1974,7 +1987,8 @@ FragmentedRangeTombstoneIterator* BlockBasedTable::NewRangeTombstoneIterator(
 bool BlockBasedTable::FullFilterKeyMayMatch(
     FilterBlockReader* filter, const Slice& internal_key, const bool no_io,
     const SliceTransform* prefix_extractor, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context) const {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) const {
   if (filter == nullptr) {
     return true;
   }
@@ -1984,13 +1998,15 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   size_t ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
   Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
   if (rep_->whole_key_filtering) {
-    may_match = filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
-                                    get_context, lookup_context);
+    may_match =
+        filter->KeyMayMatch(user_key_without_ts, no_io, const_ikey_ptr,
+                            get_context, lookup_context, rate_limiter_priority);
   } else if (!PrefixExtractorChanged(prefix_extractor) &&
              prefix_extractor->InDomain(user_key_without_ts) &&
              !filter->PrefixMayMatch(
                  prefix_extractor->Transform(user_key_without_ts), no_io,
-                 const_ikey_ptr, get_context, lookup_context)) {
+                 const_ikey_ptr, get_context, lookup_context,
+                 rate_limiter_priority)) {
     // FIXME ^^^: there should be no reason for Get() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
     may_match = false;
@@ -2005,14 +2021,15 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
 void BlockBasedTable::FullFilterKeysMayMatch(
     FilterBlockReader* filter, MultiGetRange* range, const bool no_io,
     const SliceTransform* prefix_extractor,
-    BlockCacheLookupContext* lookup_context) const {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) const {
   if (filter == nullptr) {
     return;
   }
   uint64_t before_keys = range->KeysLeft();
   assert(before_keys > 0);  // Caller should ensure
   if (rep_->whole_key_filtering) {
-    filter->KeysMayMatch(range, no_io, lookup_context);
+    filter->KeysMayMatch(range, no_io, lookup_context, rate_limiter_priority);
     uint64_t after_keys = range->KeysLeft();
     if (after_keys) {
       RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_POSITIVE, after_keys);
@@ -2028,7 +2045,8 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   } else if (!PrefixExtractorChanged(prefix_extractor)) {
     // FIXME ^^^: there should be no reason for MultiGet() to depend on current
     // prefix_extractor at all. It should always use table_prefix_extractor.
-    filter->PrefixesMayMatch(range, prefix_extractor, false, lookup_context);
+    filter->PrefixesMayMatch(range, prefix_extractor, false, lookup_context,
+                             rate_limiter_priority);
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_PREFIX_CHECKED, before_keys);
     uint64_t after_keys = range->KeysLeft();
     uint64_t filtered_keys = before_keys - after_keys;
@@ -2037,6 +2055,57 @@ void BlockBasedTable::FullFilterKeysMayMatch(
                  filtered_keys);
     }
   }
+}
+
+Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
+                                              std::vector<Anchor>& anchors) {
+  // We iterator the whole index block here. More efficient implementation
+  // is possible if we push this operation into IndexReader. For example, we
+  // can directly sample from restart block entries in the index block and
+  // only read keys needed. Here we take a simple solution. Performance is
+  // likely not to be a problem. We are compacting the whole file, so all
+  // keys will be read out anyway. An extra read to index block might be
+  // a small share of the overhead. We can try to optimize if needed.
+  IndexBlockIter iiter_on_stack;
+  auto iiter = NewIndexIterator(
+      read_options, /*disable_prefix_seek=*/false, &iiter_on_stack,
+      /*get_context=*/nullptr, /*lookup_context=*/nullptr);
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+  if (iiter != &iiter_on_stack) {
+    iiter_unique_ptr.reset(iiter);
+  }
+
+  // If needed the threshold could be more adaptive. For example, it can be
+  // based on size, so that a larger will be sampled to more partitions than a
+  // smaller file. The size might also need to be passed in by the caller based
+  // on total compaction size.
+  const uint64_t kMaxNumAnchors = uint64_t{128};
+  uint64_t num_blocks = this->GetTableProperties()->num_data_blocks;
+  uint64_t num_blocks_per_anchor = num_blocks / kMaxNumAnchors;
+  if (num_blocks_per_anchor == 0) {
+    num_blocks_per_anchor = 1;
+  }
+
+  uint64_t count = 0;
+  std::string last_key;
+  uint64_t range_size = 0;
+  uint64_t prev_offset = 0;
+  for (iiter->SeekToFirst(); iiter->Valid(); iiter->Next()) {
+    const BlockHandle& bh = iiter->value().handle;
+    range_size += bh.offset() + bh.size() - prev_offset;
+    prev_offset = bh.offset() + bh.size();
+    if (++count % num_blocks_per_anchor == 0) {
+      count = 0;
+      anchors.emplace_back(iiter->user_key(), range_size);
+      range_size = 0;
+    } else {
+      last_key = iiter->user_key().ToString();
+    }
+  }
+  if (count != 0) {
+    anchors.emplace_back(last_key, range_size);
+  }
+  return Status::OK();
 }
 
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
@@ -2065,7 +2134,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   }
   TEST_SYNC_POINT("BlockBasedTable::Get:BeforeFilterMatch");
   const bool may_match = FullFilterKeyMayMatch(
-      filter, key, no_io, prefix_extractor, get_context, &lookup_context);
+      filter, key, no_io, prefix_extractor, get_context, &lookup_context,
+      read_options.rate_limiter_priority);
   TEST_SYNC_POINT("BlockBasedTable::Get:AfterFilterMatch");
   if (!may_match) {
     RecordTick(rep_->ioptions.stats, BLOOM_FILTER_USEFUL);
@@ -2208,6 +2278,36 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   }
 
   return s;
+}
+
+Status BlockBasedTable::MultiGetFilter(const ReadOptions& read_options,
+                                       const SliceTransform* prefix_extractor,
+                                       MultiGetRange* mget_range) {
+  if (mget_range->empty()) {
+    // Caller should ensure non-empty (performance bug)
+    assert(false);
+    return Status::OK();  // Nothing to do
+  }
+
+  FilterBlockReader* const filter = rep_->filter.get();
+  if (!filter) {
+    return Status::OK();
+  }
+
+  // First check the full filter
+  // If full filter not useful, Then go into each block
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
+  if (mget_range->begin()->get_context) {
+    tracing_mget_id = mget_range->begin()->get_context->get_tracing_get_id();
+  }
+  BlockCacheLookupContext lookup_context{
+      TableReaderCaller::kUserMultiGet, tracing_mget_id,
+      /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
+  FullFilterKeysMayMatch(filter, mget_range, no_io, prefix_extractor,
+                         &lookup_context, read_options.rate_limiter_priority);
+
+  return Status::OK();
 }
 
 Status BlockBasedTable::Prefetch(const Slice* const begin,

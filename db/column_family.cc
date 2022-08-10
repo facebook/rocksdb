@@ -550,7 +550,8 @@ ColumnFamilyData::ColumnFamilyData(
       prev_compaction_needed_bytes_(0),
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0),
-      db_paths_registered_(false) {
+      db_paths_registered_(false),
+      mempurge_used_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.
@@ -698,19 +699,6 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
-
-  if (data_dirs_.size()) {  // Explicitly close data directories
-    Status s = Status::OK();
-    for (auto& data_dir_ptr : data_dirs_) {
-      if (data_dir_ptr) {
-        s = data_dir_ptr->Close(IOOptions(), nullptr);
-        if (!s.ok()) {
-          // TODO(zichen): add `Status Close()` and `CloseDirectories()
-          s.PermitUncheckedError();
-        }
-      }
-    }
-  }
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {
@@ -785,13 +773,13 @@ namespace {
 std::unique_ptr<WriteControllerToken> SetupDelay(
     WriteController* write_controller, uint64_t compaction_needed_bytes,
     uint64_t prev_compaction_need_bytes, bool penalize_stop,
-    bool auto_comapctions_disabled) {
+    bool auto_compactions_disabled) {
   const uint64_t kMinWriteRate = 16 * 1024u;  // Minimum write rate 16KB/s.
 
   uint64_t max_write_rate = write_controller->max_delayed_write_rate();
   uint64_t write_rate = write_controller->delayed_write_rate();
 
-  if (auto_comapctions_disabled) {
+  if (auto_compactions_disabled) {
     // When auto compaction is disabled, always use the value user gave.
     write_rate = max_write_rate;
   } else if (write_controller->NeedsDelay() && max_write_rate > kMinWriteRate) {
@@ -1161,8 +1149,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 
   auto read_seq = super_version->current->version_set()->LastSequence();
   ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
-  auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
+  auto* active_range_del_iter = super_version->mem->NewRangeTombstoneIterator(
+      read_opts, read_seq, false /* immutable_memtable */);
   range_del_agg.AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
   Status status;
@@ -1315,9 +1303,18 @@ void ColumnFamilyData::InstallSuperVersion(
   super_version_ = new_superversion;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
-  super_version_->write_stall_condition =
-      RecalculateWriteStallConditions(mutable_cf_options);
-
+  if (old_superversion == nullptr || old_superversion->current != current() ||
+      old_superversion->mem != mem_ ||
+      old_superversion->imm != imm_.current()) {
+    // Should not recalculate slow down condition if nothing has changed, since
+    // currently RecalculateWriteStallConditions() treats it as further slowing
+    // down is needed.
+    super_version_->write_stall_condition =
+        RecalculateWriteStallConditions(mutable_cf_options);
+  } else {
+    super_version_->write_stall_condition =
+        old_superversion->write_stall_condition;
+  }
   if (old_superversion != nullptr) {
     // Reset SuperVersions cached in thread local storage.
     // This should be done before old_superversion->Unref(). That's to ensure

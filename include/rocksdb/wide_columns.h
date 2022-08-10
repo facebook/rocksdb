@@ -71,4 +71,6 @@ inline bool operator!=(const WideColumn& lhs, const WideColumn& rhs) {
 
 using WideColumns = std::vector<WideColumn>;
 
+extern const Slice kDefaultWideColumnName;
+
 }  // namespace ROCKSDB_NAMESPACE

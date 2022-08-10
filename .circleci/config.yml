@@ -190,14 +190,17 @@ commands:
   perform-benchmarks:
     steps:
       - run:
-          name: "Run basic benchmark, 5 min"
-          command: ./tools/benchmark.sh fillseq_enable_wal
+          name: "Test low-variance benchmarks"
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
-            DB_DIR: /tmp/rocksdb-benchmark-datadir
-            WAL_DIR: /tmp/rocksdb-benchmark-waldir
-            OUTPUT_DIR: /tmp/benchmark-results
-            NUM_KEYS: 10000000
+            # How long to run parts of the test(s)
+            DURATION_RO: 450
+            DURATION_RW: 450
+            # The benchmark host has 32GB memory
+            # The folllowing values are tailored to work with that
+            # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
+
 
   post-benchmarks:
     steps:
@@ -206,7 +209,11 @@ commands:
           destination: test_logs
       - run:
           name: Send benchmark report to visualisation
-          command: ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
+          command: |
+            set +e
+            set +o pipefail
+            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3_rix/_doc
+            true
 
 executors:
   windows-2xlarge:
@@ -566,6 +573,34 @@ jobs:
       - install-gflags
       - install-compression-libs
       - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
+      - post-steps
+
+  build-linux-crashtest-tiered-storage-bb:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-compression-libs
+      - run:
+          name: "run crashtest"
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 blackbox_crash_test_with_tiered_storage
+          no_output_timeout: 100m
+      - post-steps
+
+  build-linux-crashtest-tiered-storage-wb:
+    machine:
+      image: ubuntu-2004:202111-02
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-compression-libs
+      - run:
+          name: "run crashtest"
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 whitebox_crash_test_with_tiered_storage
+          no_output_timeout: 100m
       - post-steps
 
   build-windows:
@@ -964,6 +999,16 @@ workflows:
   build-fuzzers:
     jobs:
       - build-fuzzers
+  benchmark-linux:
+    triggers:
+      - schedule:
+          cron: "0 * * * *"
+          filters:
+            branches:
+              only:
+                - main
+    jobs:
+      - benchmark-linux
   nightly:
     triggers:
       - schedule:

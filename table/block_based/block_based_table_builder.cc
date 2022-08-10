@@ -541,7 +541,6 @@ struct BlockBasedTableBuilder::Rep {
     // These are only needed for populating table properties
     props.column_family_id = tbo.column_family_id;
     props.column_family_name = tbo.column_family_name;
-    props.creation_time = tbo.creation_time;
     props.oldest_key_time = tbo.oldest_key_time;
     props.file_creation_time = tbo.file_creation_time;
     props.orig_file_number = tbo.cur_file_num;
@@ -944,7 +943,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
           Status s =
               r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
                   r->data_begin_offset);
-          exceeds_global_block_cache_limit = s.IsIncomplete();
+          exceeds_global_block_cache_limit = s.IsMemoryLimit();
         }
 
         if (exceeds_buffer_limit || exceeds_global_block_cache_limit) {
@@ -2083,6 +2082,12 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   } else {
     return kUnknownFileChecksumFuncName;
   }
+}
+void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
+    const std::string& encoded_seqno_to_time_mapping,
+    uint64_t oldest_ancestor_time) {
+  rep_->props.seqno_to_time_mapping = encoded_seqno_to_time_mapping;
+  rep_->props.creation_time = oldest_ancestor_time;
 }
 
 const std::string BlockBasedTable::kObsoleteFilterBlockPrefix = "filter.";

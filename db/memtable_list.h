@@ -129,6 +129,11 @@ class MemTableListVersion {
   // History.
   SequenceNumber GetEarliestSequenceNumber(bool include_history = false) const;
 
+  // Return the first sequence number from the memtable list, which is the
+  // smallest sequence number of all FirstSequenceNumber.
+  // Return kMaxSequenceNumber if the list is empty.
+  SequenceNumber GetFirstSequenceNumber() const;
+
  private:
   friend class MemTableList;
 

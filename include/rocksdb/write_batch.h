@@ -100,6 +100,11 @@ class WriteBatch : public WriteBatchBase {
     return Put(nullptr, key, value);
   }
 
+  // UNDER CONSTRUCTION -- DO NOT USE
+  using WriteBatchBase::PutEntity;
+  Status PutEntity(ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns) override;
+
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   // The following Delete(..., const Slice& key) can be used when user-defined
@@ -240,6 +245,12 @@ class WriteBatch : public WriteBatchBase {
     }
     virtual void Put(const Slice& /*key*/, const Slice& /*value*/) {}
 
+    virtual Status PutEntityCF(uint32_t /* column_family_id */,
+                               const Slice& /* key */,
+                               const Slice& /* entity */) {
+      return Status::NotSupported("PutEntityCF not implemented");
+    }
+
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
         Delete(key);
@@ -346,6 +357,9 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if PutCF will be called during Iterate
   bool HasPut() const;
 
+  // Returns true if PutEntityCF will be called during Iterate
+  bool HasPutEntity() const;
+
   // Returns true if DeleteCF will be called during Iterate
   bool HasDelete() const;
 
@@ -433,24 +447,11 @@ class WriteBatch : public WriteBatchBase {
   // the WAL.
   SavePoint wal_term_point_;
 
-  // For HasXYZ.  Mutable to allow lazy computation of results
-  mutable std::atomic<uint32_t> content_flags_;
-
-  // Performs deferred computation of content_flags if necessary
-  uint32_t ComputeContentFlags() const;
-
-  // Maximum size of rep_.
-  size_t max_bytes_;
-
   // Is the content of the batch the application's latest state that meant only
   // to be used for recovery? Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for
   // more details.
   bool is_latest_persistent_state_ = false;
-
-  std::unique_ptr<ProtectionInfo> prot_info_;
-
-  size_t default_cf_ts_sz_ = 0;
 
   // False if all keys are from column families that disable user-defined
   // timestamp OR UpdateTimestamps() has been called at least once.
@@ -464,6 +465,19 @@ class WriteBatch : public WriteBatchBase {
   // True if the write batch contains at least one key from a column family
   // that enables user-defined timestamp.
   bool has_key_with_ts_ = false;
+
+  // For HasXYZ.  Mutable to allow lazy computation of results
+  mutable std::atomic<uint32_t> content_flags_;
+
+  // Performs deferred computation of content_flags if necessary
+  uint32_t ComputeContentFlags() const;
+
+  // Maximum size of rep_.
+  size_t max_bytes_;
+
+  std::unique_ptr<ProtectionInfo> prot_info_;
+
+  size_t default_cf_ts_sz_ = 0;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_

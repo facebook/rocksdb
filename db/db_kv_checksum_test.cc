@@ -15,6 +15,7 @@ enum class WriteBatchOpType {
   kSingleDelete,
   kDeleteRange,
   kMerge,
+  kPutEntity,
   kNum,
 };
 
@@ -62,18 +63,38 @@ std::pair<WriteBatch, Status> GetWriteBatch(ColumnFamilyHandle* cf_handle,
     case WriteBatchOpType::kMerge:
       s = wb.Merge(cf_handle, "key", "val");
       break;
+    case WriteBatchOpType::kPutEntity:
+      s = wb.PutEntity(cf_handle, "key",
+                       {{"attr_name1", "foo"}, {"attr_name2", "bar"}});
+      break;
     case WriteBatchOpType::kNum:
       assert(false);
   }
   return {std::move(wb), std::move(s)};
 }
 
-class DbKvChecksumTest : public DBTestBase,
+class DbKvChecksumTestBase : public DBTestBase {
+ public:
+  DbKvChecksumTestBase(const std::string& path, bool env_do_fsync)
+      : DBTestBase(path, env_do_fsync) {}
+
+  ColumnFamilyHandle* GetCFHandleToUse(ColumnFamilyHandle* column_family,
+                                       WriteBatchOpType op_type) const {
+    // Note: PutEntity cannot be called without column family
+    if (op_type == WriteBatchOpType::kPutEntity && !column_family) {
+      return db_->DefaultColumnFamily();
+    }
+
+    return column_family;
+  }
+};
+
+class DbKvChecksumTest : public DbKvChecksumTestBase,
                          public ::testing::WithParamInterface<
                              std::tuple<WriteBatchOpType, char, WriteMode>> {
  public:
   DbKvChecksumTest()
-      : DBTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {
+      : DbKvChecksumTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {
     op_type_ = std::get<0>(GetParam());
     corrupt_byte_addend_ = std::get<1>(GetParam());
     write_mode_ = std::get<2>(GetParam());
@@ -82,14 +103,16 @@ class DbKvChecksumTest : public DBTestBase,
   Status ExecuteWrite(ColumnFamilyHandle* cf_handle) {
     switch (write_mode_) {
       case WriteMode::kWriteProtectedBatch: {
-        auto batch_and_status = GetWriteBatch(
-            cf_handle, 8 /* protection_bytes_per_key */, op_type_);
+        auto batch_and_status =
+            GetWriteBatch(GetCFHandleToUse(cf_handle, op_type_),
+                          8 /* protection_bytes_per_key */, op_type_);
         assert(batch_and_status.second.ok());
         return db_->Write(WriteOptions(), &batch_and_status.first);
       }
       case WriteMode::kWriteUnprotectedBatch: {
-        auto batch_and_status = GetWriteBatch(
-            cf_handle, 0 /* protection_bytes_per_key */, op_type_);
+        auto batch_and_status =
+            GetWriteBatch(GetCFHandleToUse(cf_handle, op_type_),
+                          0 /* protection_bytes_per_key */, op_type_);
         assert(batch_and_status.second.ok());
         WriteOptions write_opts;
         write_opts.protection_bytes_per_key = 8;
@@ -135,10 +158,10 @@ std::string GetOpTypeString(const WriteBatchOpType& op_type) {
       return "SingleDelete";
     case WriteBatchOpType::kDeleteRange:
       return "DeleteRange";
-      break;
     case WriteBatchOpType::kMerge:
       return "Merge";
-      break;
+    case WriteBatchOpType::kPutEntity:
+      return "PutEntity";
     case WriteBatchOpType::kNum:
       assert(false);
   }
@@ -242,7 +265,8 @@ TEST_P(DbKvChecksumTest, MemTableAddWithColumnFamilyCorrupted) {
 TEST_P(DbKvChecksumTest, NoCorruptionCase) {
   // If this test fails, we may have found a piece of malfunctioned hardware
   auto batch_and_status =
-      GetWriteBatch(nullptr, 8 /* protection_bytes_per_key */, op_type_);
+      GetWriteBatch(GetCFHandleToUse(nullptr, op_type_),
+                    8 /* protection_bytes_per_key */, op_type_);
   ASSERT_OK(batch_and_status.second);
   ASSERT_OK(batch_and_status.first.VerifyChecksum());
 }
@@ -323,12 +347,12 @@ TEST_P(DbKvChecksumTest, WriteToWALWithColumnFamilyCorrupted) {
 }
 
 class DbKvChecksumTestMergedBatch
-    : public DBTestBase,
+    : public DbKvChecksumTestBase,
       public ::testing::WithParamInterface<
           std::tuple<WriteBatchOpType, WriteBatchOpType, char>> {
  public:
   DbKvChecksumTestMergedBatch()
-      : DBTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {
+      : DbKvChecksumTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {
     op_type1_ = std::get<0>(GetParam());
     op_type2_ = std::get<1>(GetParam());
     corrupt_byte_addend_ = std::get<2>(GetParam());
@@ -349,10 +373,10 @@ void CorruptWriteBatch(Slice* content, size_t offset,
 
 TEST_P(DbKvChecksumTestMergedBatch, NoCorruptionCase) {
   // Veirfy write batch checksum after write batch append
-  auto batch1 = GetWriteBatch(nullptr /* cf_handle */,
+  auto batch1 = GetWriteBatch(GetCFHandleToUse(nullptr, op_type1_),
                               8 /* protection_bytes_per_key */, op_type1_);
   ASSERT_OK(batch1.second);
-  auto batch2 = GetWriteBatch(nullptr /* cf_handle */,
+  auto batch2 = GetWriteBatch(GetCFHandleToUse(nullptr, op_type2_),
                               8 /* protection_bytes_per_key */, op_type2_);
   ASSERT_OK(batch2.second);
   ASSERT_OK(WriteBatchInternal::Append(&batch1.first, &batch2.first));
@@ -374,11 +398,13 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALCorrupted) {
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
 
-  auto leader_batch_and_status = GetWriteBatch(
-      nullptr /* cf_handle */, 8 /* protection_bytes_per_key */, op_type1_);
+  auto leader_batch_and_status =
+      GetWriteBatch(GetCFHandleToUse(nullptr, op_type1_),
+                    8 /* protection_bytes_per_key */, op_type1_);
   ASSERT_OK(leader_batch_and_status.second);
-  auto follower_batch_and_status = GetWriteBatch(
-      nullptr /* cf_handle */, 8 /* protection_bytes_per_key */, op_type2_);
+  auto follower_batch_and_status =
+      GetWriteBatch(GetCFHandleToUse(nullptr, op_type2_),
+                    8 /* protection_bytes_per_key */, op_type2_);
   size_t leader_batch_size = leader_batch_and_status.first.GetDataSize();
   size_t total_bytes =
       leader_batch_size + follower_batch_and_status.first.GetDataSize();
@@ -419,7 +445,7 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALCorrupted) {
         // follower
         follower_thread = port::Thread([&]() {
           follower_batch_and_status =
-              GetWriteBatch(nullptr /* cf_handle */,
+              GetWriteBatch(GetCFHandleToUse(nullptr, op_type2_),
                             8 /* protection_bytes_per_key */, op_type2_);
           ASSERT_OK(follower_batch_and_status.second);
           ASSERT_TRUE(
@@ -443,8 +469,9 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALCorrupted) {
     Reopen(options);
     SyncPoint::GetInstance()->EnableProcessing();
     auto log_size_pre_write = dbfull()->TEST_total_log_size();
-    leader_batch_and_status = GetWriteBatch(
-        nullptr /* cf_handle */, 8 /* protection_bytes_per_key */, op_type1_);
+    leader_batch_and_status =
+        GetWriteBatch(GetCFHandleToUse(nullptr, op_type1_),
+                      8 /* protection_bytes_per_key */, op_type1_);
     ASSERT_OK(leader_batch_and_status.second);
     ASSERT_TRUE(db_->Write(WriteOptions(), &leader_batch_and_status.first)
                     .IsCorruption());
@@ -484,10 +511,12 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALWithColumnFamilyCorrupted) {
   CreateAndReopenWithCF({"ramen"}, options);
 
   auto leader_batch_and_status =
-      GetWriteBatch(handles_[1], 8 /* protection_bytes_per_key */, op_type1_);
+      GetWriteBatch(GetCFHandleToUse(handles_[1], op_type1_),
+                    8 /* protection_bytes_per_key */, op_type1_);
   ASSERT_OK(leader_batch_and_status.second);
   auto follower_batch_and_status =
-      GetWriteBatch(handles_[1], 8 /* protection_bytes_per_key */, op_type2_);
+      GetWriteBatch(GetCFHandleToUse(handles_[1], op_type2_),
+                    8 /* protection_bytes_per_key */, op_type2_);
   size_t leader_batch_size = leader_batch_and_status.first.GetDataSize();
   size_t total_bytes =
       leader_batch_size + follower_batch_and_status.first.GetDataSize();
@@ -527,8 +556,9 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALWithColumnFamilyCorrupted) {
         // Start the other writer thread which will join the write group as
         // follower
         follower_thread = port::Thread([&]() {
-          follower_batch_and_status = GetWriteBatch(
-              handles_[1], 8 /* protection_bytes_per_key */, op_type2_);
+          follower_batch_and_status =
+              GetWriteBatch(GetCFHandleToUse(handles_[1], op_type2_),
+                            8 /* protection_bytes_per_key */, op_type2_);
           ASSERT_OK(follower_batch_and_status.second);
           ASSERT_TRUE(
               db_->Write(WriteOptions(), &follower_batch_and_status.first)
@@ -553,7 +583,8 @@ TEST_P(DbKvChecksumTestMergedBatch, WriteToWALWithColumnFamilyCorrupted) {
     SyncPoint::GetInstance()->EnableProcessing();
     auto log_size_pre_write = dbfull()->TEST_total_log_size();
     leader_batch_and_status =
-        GetWriteBatch(handles_[1], 8 /* protection_bytes_per_key */, op_type1_);
+        GetWriteBatch(GetCFHandleToUse(handles_[1], op_type1_),
+                      8 /* protection_bytes_per_key */, op_type1_);
     ASSERT_OK(leader_batch_and_status.second);
     ASSERT_TRUE(db_->Write(WriteOptions(), &leader_batch_and_status.first)
                     .IsCorruption());
@@ -596,6 +627,39 @@ INSTANTIATE_TEST_CASE_P(
 
 // TODO: add test for transactions
 // TODO: add test for corrupted write batch with WAL disabled
+
+class DbKVChecksumWALToWriteBatchTest : public DBTestBase {
+ public:
+  DbKVChecksumWALToWriteBatchTest()
+      : DBTestBase("db_kv_checksum_test", /*env_do_fsync=*/false) {}
+};
+
+TEST_F(DbKVChecksumWALToWriteBatchTest, WriteBatchChecksumHandoff) {
+  Options options = CurrentOptions();
+  Reopen(options);
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
+  std::string content = "";
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch",
+      [&](void* batch_ptr) {
+        WriteBatch* batch = reinterpret_cast<WriteBatch*>(batch_ptr);
+        content.assign(batch->Data().data(), batch->GetDataSize());
+        Slice batch_content = batch->Data();
+        // Corrupt first bit
+        CorruptWriteBatch(&batch_content, 0, 1);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
+      [&](void* checksum_ptr) {
+        // Verify that checksum is produced on the batch content
+        uint64_t checksum = *reinterpret_cast<uint64_t*>(checksum_ptr);
+        ASSERT_EQ(checksum, XXH3_64bits(content.data(), content.size()));
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_TRUE(TryReopen(options).IsCorruption());
+  SyncPoint::GetInstance()->DisableProcessing();
+};
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

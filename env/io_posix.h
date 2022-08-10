@@ -52,8 +52,37 @@ class PosixHelper {
                                                size_t* size);
 };
 
+/*
+ * DirectIOHelper
+ */
+inline bool IsSectorAligned(const size_t off, size_t sector_size) {
+  assert((sector_size & (sector_size - 1)) == 0);
+  return (off & (sector_size - 1)) == 0;
+}
+
+#ifndef NDEBUG
+inline bool IsSectorAligned(const void* ptr, size_t sector_size) {
+  return uintptr_t(ptr) % sector_size == 0;
+}
+#endif
+
 #if defined(ROCKSDB_IOURING_PRESENT)
 struct Posix_IOHandle {
+  Posix_IOHandle(struct io_uring* _iu,
+                 std::function<void(const FSReadRequest&, void*)> _cb,
+                 void* _cb_arg, uint64_t _offset, size_t _len, char* _scratch,
+                 bool _use_direct_io, size_t _alignment)
+      : iu(_iu),
+        cb(_cb),
+        cb_arg(_cb_arg),
+        offset(_offset),
+        len(_len),
+        scratch(_scratch),
+        use_direct_io(_use_direct_io),
+        alignment(_alignment),
+        is_finished(false),
+        req_count(0) {}
+
   struct iovec iov;
   struct io_uring* iu;
   std::function<void(const FSReadRequest&, void*)> cb;
@@ -61,15 +90,19 @@ struct Posix_IOHandle {
   uint64_t offset;
   size_t len;
   char* scratch;
-  bool is_finished = false;
+  bool use_direct_io;
+  size_t alignment;
+  bool is_finished;
   // req_count is used by AbortIO API to keep track of number of requests.
-  uint32_t req_count = 0;
+  uint32_t req_count;
 };
 
 inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
                          size_t len, size_t iov_len, bool async_read,
+                         bool use_direct_io, size_t alignment,
                          size_t& finished_len, FSReadRequest* req,
-                         size_t& bytes_read) {
+                         size_t& bytes_read, bool& read_again) {
+  read_again = false;
   if (cqe->res < 0) {
     req->result = Slice(req->scratch, 0);
     req->status = IOError("Req failed", file_name, cqe->res);
@@ -80,10 +113,24 @@ inline void UpdateResult(struct io_uring_cqe* cqe, const std::string& file_name,
       req->result = Slice(req->scratch, req->len);
       req->status = IOStatus::OK();
     } else if (bytes_read == 0) {
-      if (async_read) {
-        // No  bytes read. It can means EOF.
-        req->result = Slice(req->scratch, 0);
+      /// cqe->res == 0 can means EOF, or can mean partial results. See
+      // comment
+      // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+      // Fall back to pread in this case.
+      if (use_direct_io && !IsSectorAligned(finished_len, alignment)) {
+        // Bytes reads don't fill sectors. Should only happen at the end
+        // of the file.
+        req->result = Slice(req->scratch, finished_len);
         req->status = IOStatus::OK();
+      } else {
+        if (async_read) {
+          // No  bytes read. It can means EOF. In case of partial results, it's
+          // caller responsibility to call read/readasync again.
+          req->result = Slice(req->scratch, 0);
+          req->status = IOStatus::OK();
+        } else {
+          read_again = true;
+        }
       }
     } else if (bytes_read < iov_len) {
       assert(bytes_read > 0);

@@ -3,6 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "cache_key.h"
 #ifdef GFLAGS
 #include <cinttypes>
 #include <cstddef>
@@ -12,6 +13,7 @@
 #include <set>
 #include <sstream>
 
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db/db_impl/db_impl.h"
 #include "monitoring/histogram.h"
@@ -72,6 +74,11 @@ DEFINE_uint32(
 DEFINE_uint32(gather_stats_entries_per_lock, 256,
               "For Cache::ApplyToAllEntries");
 DEFINE_bool(skewed, false, "If true, skew the key access distribution");
+
+DEFINE_bool(lean, false,
+            "If true, no additional computation is performed besides cache "
+            "operations.");
+
 #ifndef ROCKSDB_LITE
 DEFINE_string(secondary_cache_uri, "",
               "Full URI for creating a custom secondary cache object");
@@ -107,6 +114,8 @@ DEFINE_uint32(
     "(-stress_cache_key) Simulated file size in MiB, for accounting purposes");
 DEFINE_uint32(sck_reopen_nfiles, 100,
               "(-stress_cache_key) Simulate DB re-open average every n files");
+DEFINE_uint32(sck_newdb_nreopen, 1000,
+              "(-stress_cache_key) Simulate new DB average every n re-opens");
 DEFINE_uint32(sck_restarts_per_day, 24,
               "(-stress_cache_key) Average simulated process restarts per day "
               "(across DBs)");
@@ -214,7 +223,8 @@ struct KeyGen {
     EncodeFixed64(key_data + 10, key);
     key_data[18] = char{4};
     EncodeFixed64(key_data + 19, key);
-    return Slice(&key_data[off], sizeof(key_data) - off);
+    assert(27 >= kCacheKeySize);
+    return Slice(&key_data[off], kCacheKeySize);
   }
 };
 
@@ -282,7 +292,9 @@ class CacheBench {
     }
 
     if (FLAGS_cache_type == "clock_cache") {
-      cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
+      cache_ = ExperimentalNewClockCache(
+          FLAGS_cache_size, FLAGS_value_bytes, FLAGS_num_shard_bits,
+          false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
       if (!cache_) {
         fprintf(stderr, "Clock cache not supported.\n");
         exit(1);
@@ -321,8 +333,9 @@ class CacheBench {
     Random64 rnd(1);
     KeyGen keygen;
     for (uint64_t i = 0; i < 2 * FLAGS_cache_size; i += FLAGS_value_bytes) {
-      cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_), createValue(rnd),
-                     &helper1, FLAGS_value_bytes);
+      Status s = cache_->Insert(keygen.GetRand(rnd, max_key_, max_log_),
+                                createValue(rnd), &helper1, FLAGS_value_bytes);
+      assert(s.ok());
     }
   }
 
@@ -516,7 +529,6 @@ class CacheBench {
     StopWatchNano timer(clock);
 
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      timer.Start();
       Slice key = gen.GetRand(thread->rnd, max_key_, max_log_);
       uint64_t random_op = thread->rnd.Next();
       Cache::CreateCallback create_cb = [](const void* buf, size_t size,
@@ -528,6 +540,8 @@ class CacheBench {
         return Status::OK();
       };
 
+      timer.Start();
+
       if (random_op < lookup_insert_threshold_) {
         if (handle) {
           cache_->Release(handle);
@@ -537,13 +551,16 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         } else {
           // do insert
-          cache_->Insert(key, createValue(thread->rnd), &helper2,
-                         FLAGS_value_bytes, &handle);
+          Status s = cache_->Insert(key, createValue(thread->rnd), &helper2,
+                                    FLAGS_value_bytes, &handle);
+          assert(s.ok());
         }
       } else if (random_op < insert_threshold_) {
         if (handle) {
@@ -551,8 +568,9 @@ class CacheBench {
           handle = nullptr;
         }
         // do insert
-        cache_->Insert(key, createValue(thread->rnd), &helper3,
-                       FLAGS_value_bytes, &handle);
+        Status s = cache_->Insert(key, createValue(thread->rnd), &helper3,
+                                  FLAGS_value_bytes, &handle);
+        assert(s.ok());
       } else if (random_op < lookup_threshold_) {
         if (handle) {
           cache_->Release(handle);
@@ -562,9 +580,11 @@ class CacheBench {
         handle = cache_->Lookup(key, &helper2, create_cb, Cache::Priority::LOW,
                                 true);
         if (handle) {
-          // do something with the data
-          result += NPHash64(static_cast<char*>(cache_->Value(handle)),
-                             FLAGS_value_bytes);
+          if (!FLAGS_lean) {
+            // do something with the data
+            result += NPHash64(static_cast<char*>(cache_->Value(handle)),
+                               FLAGS_value_bytes);
+          }
         }
       } else if (random_op < erase_threshold_) {
         // do erase
@@ -762,7 +782,7 @@ class StressCacheKey {
 
   void RunOnce() {
     // Re-initialized simulated state
-    const size_t db_count = FLAGS_sck_db_count;
+    const size_t db_count = std::max(size_t{FLAGS_sck_db_count}, size_t{1});
     dbs_.reset(new TableProperties[db_count]{});
     const size_t table_mask = (size_t{1} << FLAGS_sck_table_bits) - 1;
     table_.reset(new uint64_t[table_mask + 1]{});
@@ -779,7 +799,8 @@ class StressCacheKey {
 
     process_count_ = 0;
     session_count_ = 0;
-    ResetProcess();
+    newdb_count_ = 0;
+    ResetProcess(/*newdbs*/ true);
 
     Random64 r{std::random_device{}()};
 
@@ -798,9 +819,9 @@ class StressCacheKey {
       }
       // Any other periodic actions before simulating next file
       if (!FLAGS_sck_footer_unique_id && r.OneIn(FLAGS_sck_reopen_nfiles)) {
-        ResetSession(db_i);
+        ResetSession(db_i, /*newdb*/ r.OneIn(FLAGS_sck_newdb_nreopen));
       } else if (r.OneIn(restart_nfiles_)) {
-        ResetProcess();
+        ResetProcess(/*newdbs*/ false);
       }
       // Simulate next file
       OffsetableCacheKey ock;
@@ -852,7 +873,7 @@ class StressCacheKey {
         // Our goal is to predict probability of no collisions, not expected
         // number of collisions. To make the distinction, we have to get rid
         // of observing correlated collisions, which this takes care of:
-        ResetProcess();
+        ResetProcess(/*newdbs*/ false);
       } else {
         // Replace (end of lifetime for file that was in this slot)
         table_[pos] = reduced_key;
@@ -870,10 +891,11 @@ class StressCacheKey {
         }
         // Report
         printf(
-            "%" PRIu64 " days, %" PRIu64 " proc, %" PRIu64
-            " sess, %u coll, occ %g%%, ejected %g%%   \r",
+            "%" PRIu64 " days, %" PRIu64 " proc, %" PRIu64 " sess, %" PRIu64
+            " newdb, %u coll, occ %g%%, ejected %g%%      \r",
             file_count / FLAGS_sck_files_per_day, process_count_,
-            session_count_, collisions_this_run, 100.0 * sampled_count / 1000.0,
+            session_count_, newdb_count_ - FLAGS_sck_db_count,
+            collisions_this_run, 100.0 * sampled_count / 1000.0,
             100.0 * (1.0 - sampled_count / 1000.0 * table_mask / file_count));
         fflush(stdout);
       }
@@ -881,16 +903,27 @@ class StressCacheKey {
     collisions_ += collisions_this_run;
   }
 
-  void ResetSession(size_t i) {
+  void ResetSession(size_t i, bool newdb) {
     dbs_[i].db_session_id = DBImpl::GenerateDbSessionId(nullptr);
+    if (newdb) {
+      ++newdb_count_;
+      if (FLAGS_sck_footer_unique_id) {
+        // Simulate how footer id would behave
+        dbs_[i].db_id = "none";
+      } else {
+        // db_id might be ignored, depending on the implementation details
+        dbs_[i].db_id = std::to_string(newdb_count_);
+        dbs_[i].orig_file_number = 0;
+      }
+    }
     session_count_++;
   }
 
-  void ResetProcess() {
+  void ResetProcess(bool newdbs) {
     process_count_++;
     DBImpl::TEST_ResetDbSessionIdGen();
     for (size_t i = 0; i < FLAGS_sck_db_count; ++i) {
-      ResetSession(i);
+      ResetSession(i, newdbs);
     }
     if (FLAGS_sck_footer_unique_id) {
       // For footer unique ID, this tracks process-wide generated SST file
@@ -905,6 +938,7 @@ class StressCacheKey {
   std::unique_ptr<uint64_t[]> table_;
   uint64_t process_count_ = 0;
   uint64_t session_count_ = 0;
+  uint64_t newdb_count_ = 0;
   uint64_t collisions_ = 0;
   uint32_t restart_nfiles_ = 0;
   double multiplier_ = 0.0;
