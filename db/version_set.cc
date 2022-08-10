@@ -2758,21 +2758,23 @@ void VersionStorageInfo::ComputeCompactionScore(
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
-          uint64_t l0_target_size = mutable_cf_options.max_bytes_for_level_base;
           if (immutable_options.level_compaction_dynamic_level_bytes &&
-              level_multiplier_ != 0.0) {
-            // Prevent L0 to Lbase fanout from growing larger than
-            // `level_multiplier_`. This prevents us from getting stuck picking
+              total_size > level_max_bytes_[base_level_]) {
+            // In this case, we compare L0 files that are not in compaction to
+            // target size of the base level to determine whether L0->L0
+            // compaction should be executed. We mimic the score calculating in
+            // L1 so that L0->L1 is only prioritized against L1->L2 if the size
+            // of L0 size is larger than L1.
+            // This prevents us from getting stuck picking
             // L0 forever even when it is hurting write-amp. That could happen
             // in dynamic level compaction's write-burst mode where the base
             // level's target size can grow to be enormous.
-            l0_target_size =
-                std::max(l0_target_size,
-                         static_cast<uint64_t>(level_max_bytes_[base_level_] /
-                                               level_multiplier_));
+            score = std::max(
+                score,
+                static_cast<double>(total_size) /
+                    (static_cast<double>(level_max_bytes_[base_level_] +
+                                         static_cast<double>(total_size))));
           }
-          score =
-              std::max(score, static_cast<double>(total_size) / l0_target_size);
           if (immutable_options.level_compaction_dynamic_level_bytes &&
               score > 1.0) {
             score *= kScoreScale;
