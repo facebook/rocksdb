@@ -1294,10 +1294,12 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
   const size_t capacity = size_t{1} << 25;
   int iterations_tested = 0;
   for (bool partition : {false, true}) {
-    for (std::shared_ptr<Cache> cache : {NewLRUCache(capacity)}) {
-      // This test doesn't support FastLRUCache nor ClockCache because the
-      // keys used are not 16B long.
-      // TODO(guido) Add support for FastLRUCache and ClockCache.
+    for (std::shared_ptr<Cache> cache :
+         {NewLRUCache(capacity),
+          ExperimentalNewClockCache(capacity, 1 /*estimated_value_size*/,
+                                    -1 /*num_shard_bits*/,
+                                    false /*strict_capacity_limit*/,
+                                    kDefaultCacheMetadataChargePolicy)}) {
       if (!cache) {
         // Skip clock cache when not supported
         continue;
@@ -1450,9 +1452,16 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       // even if the cache is full
       ClearCache(cache.get());
       Cache::Handle* h = nullptr;
-      ASSERT_OK(cache->Insert("Fill-it-up", nullptr, capacity + 1,
-                              GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
-                              &h, Cache::Priority::HIGH));
+      if (strcmp(cache->Name(), "LRUCache") == 0) {
+        ASSERT_OK(cache->Insert("Fill-it-up", nullptr, capacity + 1,
+                                GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
+                                &h, Cache::Priority::HIGH));
+      } else {
+        // For ClockCache we use a 16-byte key.
+        ASSERT_OK(cache->Insert("Fill-it-up-xxxxx", nullptr, capacity + 1,
+                                GetNoopDeleterForRole<CacheEntryRole::kMisc>(),
+                                &h, Cache::Priority::HIGH));
+      }
       ASSERT_GT(cache->GetUsage(), cache->GetCapacity());
       expected = {};
       // For CacheEntryStatsCollector
