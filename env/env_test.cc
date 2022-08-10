@@ -1115,13 +1115,9 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   EnvOptions options;
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
-  IoctlFriendlyTmpdir ift;
-  if (!ift.is_supported()) {
-    ROCKSDB_GTEST_BYPASS(
-        "FS_IOC_GETVERSION is not supported by the filesystem");
-    return;
-  }
-  ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
+  std::string fname = test::PerThreadDBPath(env_, "positioned_append");
+
+  ASSERT_OK(env_->NewWritableFile(fname, &writable_file, options));
   const size_t kBlockSize = 4096;
   const size_t kDataSize = kPageSize;
   // Write a page worth of 'a'
@@ -1137,7 +1133,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
 
   // Verify the above
   std::unique_ptr<SequentialFile> seq_file;
-  ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
+  ASSERT_OK(env_->NewSequentialFile(fname, &seq_file, options));
   size_t scratch_len = kPageSize * 2;
   std::unique_ptr<char[]> scratch(new char[scratch_len]);
   Slice result;
@@ -1204,18 +1200,11 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST_P(EnvPosixTestWithParam, AllocateTest) {
   if (env_ == Env::Default()) {
-    IoctlFriendlyTmpdir ift;
-    if (!ift.is_supported()) {
-      ROCKSDB_GTEST_BYPASS(
-          "FS_IOC_GETVERSION is not supported by the filesystem");
-      return;
-    }
-    std::string fname = ift.name() + "/preallocate_testfile";
-
+    std::string fname = test::PerThreadDBPath(env_, "preallocate_testfile");
     // Try fallocate in a file to see whether the target file system supports
     // it.
     // Skip the test if fallocate is not supported.
-    std::string fname_test_fallocate = ift.name() + "/preallocate_testfile_2";
+    std::string fname_test_fallocate = test::PerThreadDBPath(env_, "preallocate_testfile_2");;
     int fd = -1;
     do {
       fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
