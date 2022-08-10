@@ -1116,6 +1116,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
   std::string fname = test::PerThreadDBPath(env_, "positioned_append");
+  SetupSyncPointsToMockDirectIO();
 
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, options));
   const size_t kBlockSize = 4096;
@@ -1200,6 +1201,7 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST_P(EnvPosixTestWithParam, AllocateTest) {
   if (env_ == Env::Default()) {
+    SetupSyncPointsToMockDirectIO();
     std::string fname = test::PerThreadDBPath(env_, "preallocate_testfile");
     // Try fallocate in a file to see whether the target file system supports
     // it.
