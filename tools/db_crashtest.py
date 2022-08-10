@@ -178,8 +178,7 @@ default_params = {
     "async_io": lambda: random.choice([0, 1]),
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
-    "secondary_cache_uri": lambda: random.choice(
-        ["", "compressed_secondary_cache://capacity=8388608"]),
+    "secondary_cache_uri": "",
     "allow_data_in_errors": True,
 }
 
