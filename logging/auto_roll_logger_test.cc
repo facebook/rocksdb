@@ -468,18 +468,13 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   // (1) Need to pin the old logger before beginning the roll, as rolling grabs
   //     the mutex, which would prevent us from accessing the old logger. This
   //     also marks flush_thread with AutoRollLogger::Flush:PinnedLogger.
-  // (2) Need to reset logger during EnvLogger::Flush() to exercise a race
-  //     condition case, which is executing the flush with the pinned (old)
-  //     logger after auto-roll logger has cut over to a new logger.
+  // (2) New logger will be cut in AutoRollLogger::RollLogFile only when flush
+  //     is completed and reference to pinned logger is released.
   // (3) EnvLogger::Flush() happens in both threads but its SyncPoints only
   //     are enabled in flush_thread (the one pinning the old logger).
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
       {{"AutoRollLogger::Flush:PinnedLogger",
-        "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
-       {"EnvLogger::Flush:Begin1",
-        "AutoRollLogger::ResetLogger:BeforeNewLogger"},
-       {"AutoRollLogger::ResetLogger:AfterNewLogger",
-        "EnvLogger::Flush:Begin2"}},
+        "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"}},
       {{"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin1"},
        {"AutoRollLogger::Flush:PinnedLogger", "EnvLogger::Flush:Begin2"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();

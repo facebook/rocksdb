@@ -4046,6 +4046,9 @@ TEST_F(BackupEngineTest, FileTemperatures) {
   // Use temperatures
   options_.bottommost_temperature = Temperature::kWarm;
   options_.level0_file_num_compaction_trigger = 2;
+  // set dynamic_level to true so the compaction would compact the data to the
+  // last level directly which will have the last_level_temperature
+  options_.level_compaction_dynamic_level_bytes = true;
 
   OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
                         kShareWithChecksum);

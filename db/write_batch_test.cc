@@ -60,7 +60,8 @@ static std::string PrintContents(WriteBatch* b,
       arena_iter_guard.set(iter);
     } else {
       iter = mem->NewRangeTombstoneIterator(ReadOptions(),
-                                            kMaxSequenceNumber /* read_seq */);
+                                            kMaxSequenceNumber /* read_seq */,
+                                            false /* immutable_memtable */);
       iter_guard.reset(iter);
     }
     if (iter == nullptr) {

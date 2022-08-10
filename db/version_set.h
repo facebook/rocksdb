@@ -990,10 +990,10 @@ class Version {
   DECLARE_SYNC_AND_ASYNC(
       /* ret_type */ Status, /* func_name */ MultiGetFromSST,
       const ReadOptions& read_options, MultiGetRange file_range,
-      int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
+      int hit_file_level, bool skip_filters, FdWithKeyRange* f,
       std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
-      uint64_t& num_filter_read, uint64_t& num_index_read,
-      uint64_t& num_sst_read);
+      Cache::Handle* table_handle, uint64_t& num_filter_read,
+      uint64_t& num_index_read, uint64_t& num_sst_read);
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
