@@ -963,8 +963,7 @@ class Version {
 
   InternalIterator* TEST_GetLevelIterator(
       const ReadOptions& read_options, MergeIteratorBuilder* merge_iter_builder,
-      int level, RangeDelAggregator* range_del_agg,
-      bool allow_unprepared_value);
+      int level, bool allow_unprepared_value);
 
  private:
   Env* env_;

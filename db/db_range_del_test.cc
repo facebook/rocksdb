@@ -2283,6 +2283,7 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
     ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count,
               ++expected_reseek);
   }
+  delete iter;
 
   ColumnFamilyData* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
@@ -2293,10 +2294,10 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), &arena,
                                           false /* prefix seek */);
   InternalIterator* level_iter = sv->current->TEST_GetLevelIterator(
-      read_options, &merge_iter_builder, 1 /* level */,
-      nullptr /* range_del_aggregator */, true);
+      read_options, &merge_iter_builder, 1 /* level */, true);
   // This is needed to make LevelIterator range tombstone aware
-  merge_iter_builder.Finish();
+  merge_iter_builder.AddIterator(level_iter);
+  auto miter = merge_iter_builder.Finish();
   auto k = Key(3);
   IterKey target;
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
@@ -2308,18 +2309,17 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   target.SetInternalKey(k, 0, kValueTypeForSeekForPrev);
   level_iter->SeekForPrev(target.GetInternalKey());
   VerifyIteratorKey(level_iter, {Key(3)}, false);
-  VerifyIteratorReachesEnd(iter);
+  VerifyIteratorReachesEnd(level_iter);
 
   level_iter->SeekToFirst();
   VerifyIteratorKey(level_iter, {Key(5)});
-  VerifyIteratorReachesEnd(iter);
+  VerifyIteratorReachesEnd(level_iter);
 
   level_iter->SeekToLast();
   VerifyIteratorKey(level_iter, {Key(3)}, false);
-  VerifyIteratorReachesEnd(iter);
+  VerifyIteratorReachesEnd(level_iter);
 
-  delete iter;
-  delete level_iter;
+  miter->~InternalIterator();
 }
 
 TEST_F(DBRangeDelTest, TombstoneOnlyWithOlderVisibleKey) {
@@ -2386,12 +2386,13 @@ TEST_F(DBRangeDelTest, TombstoneOnlyWithOlderVisibleKey) {
   delete iter;
 }
 
-TEST_F(DBRangeDelTest, TombstoneOnlyWithNewerVisibleKey) {
-  // L1: 5
+TEST_F(DBRangeDelTest, TombstoneSentinelDirectionChange) {
+  // L1: 7
   // L2: [4, 6)
   // L3: 4
-  // Seek(5) will have 5 at top, 6 sentinel next.
+  // Seek(5) will have 6 sentinel at top.
   //  then do a prev, how would sentinel work?
+  // Redo the test after Put(5) into L1 so that there is a visible key.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2410,13 +2411,26 @@ TEST_F(DBRangeDelTest, TombstoneOnlyWithNewerVisibleKey) {
   MoveFilesToLevel(2);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
 
-  // L2
-  ASSERT_OK(db_->Put(WriteOptions(), Key(5), "foobar"));
+  // L1
+  ASSERT_OK(db_->Put(WriteOptions(), Key(7), "foobar"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   MoveFilesToLevel(1);
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
 
   auto iter = db_->NewIterator(ReadOptions());
+  iter->Seek(Key(5));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), Key(7));
+  iter->Prev();
+  ASSERT_TRUE(!iter->Valid() && iter->status().ok());
+  delete iter;
+
+  ASSERT_OK(db_->Put(WriteOptions(), Key(5), "foobar"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(1);
+  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+
+  iter = db_->NewIterator(ReadOptions());
   iter->Seek(Key(5));
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(5));
@@ -2580,10 +2594,9 @@ TEST_F(DBRangeDelTest, SentinelKeyCommonCaseTest) {
   MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), &arena,
                                           false /* prefix seek */);
   InternalIterator* level_iter = sv->current->TEST_GetLevelIterator(
-      read_options, &merge_iter_builder, 1 /* level */,
-      nullptr /* range_del_aggregator */, true);
+      read_options, &merge_iter_builder, 1 /* level */, true);
   // This is needed to make LevelIterator range tombstone aware
-  merge_iter_builder.Finish();
+  auto miter = merge_iter_builder.Finish();
   auto k = Key(7);
   IterKey target;
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
@@ -2614,7 +2627,45 @@ TEST_F(DBRangeDelTest, SentinelKeyCommonCaseTest) {
   VerifyIteratorKey(level_iter,
                     {Key(9), Key(6), Key(5), Key(3), Key(2), Key(1)}, false);
 
-  delete level_iter;
+  miter->~InternalIterator();
+}
+
+TEST_F(DBRangeDelTest, PrefixSentinelKey) {
+  // L1: ['aaaa', 'aaad'), 'bbbb'
+  // L2: 'aaac', 'aaae'
+  // Prefix extracts first 3 chars
+  // Seek('aaab') should give 'aaae' as first key.
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // L2:
+  ASSERT_OK(db_->Put(WriteOptions(), "aaac", rnd.RandomString(10)));
+  ASSERT_OK(db_->Put(WriteOptions(), "aaae", rnd.RandomString(10)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(2);
+  ASSERT_EQ(1, NumTableFilesAtLevel(2));
+
+  // L1
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "aaaa",
+                             "aaad"));
+  ASSERT_OK(db_->Put(WriteOptions(), "bbbb", rnd.RandomString(10)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(1);
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  auto iter = db_->NewIterator(ReadOptions());
+  iter->Seek("aaab");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key(), "aaae");
+  delete iter;
 }
 
 #endif  // ROCKSDB_LITE

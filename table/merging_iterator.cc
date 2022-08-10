@@ -146,7 +146,7 @@ class MergingIterator : public InternalIterator {
       }
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.active.empty()) {
+    if (!range_tombstones_.iters.empty()) {
       FindNextVisibleEntry();
     }
     direction_ = kForward;
@@ -173,7 +173,7 @@ class MergingIterator : public InternalIterator {
       }
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.active.empty()) {
+    if (!range_tombstones_.iters.empty()) {
       FindPrevVisibleEntry();
     }
     direction_ = kReverse;
@@ -209,7 +209,7 @@ class MergingIterator : public InternalIterator {
            range_tombstones_.iters.size() == children_.size());
     SeekImpl(target);
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.active.empty()) {
+    if (!range_tombstones_.iters.empty()) {
       // Skip range tombstone covered keys
       FindNextVisibleEntry();
     }
@@ -227,7 +227,7 @@ class MergingIterator : public InternalIterator {
            range_tombstones_.iters.size() == children_.size());
     SeekForPrevImpl(target);
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.active.empty()) {
+    if (!range_tombstones_.iters.empty()) {
       // Skip range tombstone covered keys
       FindPrevVisibleEntry();
     }
@@ -270,7 +270,12 @@ class MergingIterator : public InternalIterator {
       minHeap_.pop();
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.active.empty()) {
+    if (!range_tombstones_.iters.empty()) {
+      // We cannot just check range_tombstones_.active.empty() for the following
+      // case. When a child iter is about to return a sentinel key due to prefix
+      // seek, its range tombstone iter could already be !Valid() and hence not
+      // in the active set. We need to skip that file's sentinel key if it's at
+      // the top of the heap before returning.
       FindNextVisibleEntry();
     }
     current_ = CurrentForward();
@@ -316,7 +321,7 @@ class MergingIterator : public InternalIterator {
       maxHeap_->pop();
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.active.empty()) {
+    if (!range_tombstones_.iters.empty()) {
       FindPrevVisibleEntry();
     }
     current_ = CurrentReverse();
@@ -501,7 +506,6 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
           range_tombstones_.active.erase(level);
         } else {
           range_tombstones_.active.insert(level);
-
           // current_search_key < end_key guaranteed by the Seek() and Valid()
           // calls above. Only interested in user key coverage since older
           // sorted runs must have smaller sequence numbers than this tombstone.
@@ -513,7 +517,12 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
                   current_search_key.GetUserKey()) <= 0 &&
               range_tombstone_iter->seq()) {
             range_tombstone_reseek = true;
-            // covered by this range tombstone
+            // Current target is covered by this range tombstone.
+            // All older sorted runs will seek to range tombstone end key.
+            // Note that for prefix seek case, it is possible that the prefix
+            // is not the same as the original target, it should not affect
+            // correctness. Besides, in most cases, range tombstone start and
+            // end key should have the same prefix?
             current_search_key.SetInternalKey(
                 range_tombstone_iter->end_key().user_key, kMaxSequenceNumber);
           }
@@ -597,10 +606,6 @@ bool MergingIterator::IsNextDeleted() {
     } else {
       considerStatus(current->status());
       minHeap_.pop();
-      // beyond last sst file, so there must not be tombstone
-      // Check LevelIterator does the bookkeeping for active iter
-      assert(!range_tombstones_.iters[level] &&
-             range_tombstones_.active.count(level) == 0);
     }
     return true /* entry deleted */;
   }
@@ -1062,15 +1067,13 @@ void MergingIterator::InitMaxHeap() {
 void MergingIterator::FindNextVisibleEntry() {
   // If a range tombstone iter is invalid, then its level iterator must already
   // post its sentinel.
-  while (!minHeap_.empty() && !range_tombstones_.active.empty() &&
-         IsNextDeleted()) {
+  while (!minHeap_.empty() && IsNextDeleted()) {
     // move to next entry
   }
 }
 
 void MergingIterator::FindPrevVisibleEntry() {
-  while (!maxHeap_->empty() && !range_tombstones_.active.empty() &&
-         IsPrevDeleted()) {
+  while (!maxHeap_->empty() && IsPrevDeleted()) {
     // move to previous entry
   }
 }
@@ -1128,8 +1131,10 @@ size_t MergeIteratorBuilder::AddRangeTombstoneIterator(
     TruncatedRangeDelIterator*** iter_ptr) {
   if (!use_merging_iter) {
     use_merging_iter = true;
-    merge_iter->AddIterator(first_iter);
-    first_iter = nullptr;
+    if (first_iter) {
+      merge_iter->AddIterator(first_iter);
+      first_iter = nullptr;
+    }
   }
   merge_iter->AddRangeTombstoneIterator(iter);
   if (active_iter) {
