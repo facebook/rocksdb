@@ -1005,14 +1005,10 @@ class PosixFileSystem : public FileSystem {
   }
 #endif  // ROCKSDB_IOURING_PRESENT
 
-  // EXPERIMENTAL
-  //
   // TODO akankshamahajan:
   // 1. Update Poll API to take into account min_completions
   // and returns if number of handles in io_handles (any order) completed is
   // equal to atleast min_completions.
-  // 2. Currently in case of direct_io, Read API is called because of which call
-  // to Poll API fails as it expects IOHandle to be populated.
   virtual IOStatus Poll(std::vector<void*>& io_handles,
                         size_t /*min_completions*/) override {
 #if defined(ROCKSDB_IOURING_PRESENT)
