@@ -23,7 +23,6 @@
 
 #include <memory>
 #include <string>
-#include <thread>
 
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
 #include "port/stack_trace.h"

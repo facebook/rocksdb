@@ -1204,7 +1204,8 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     // Try fallocate in a file to see whether the target file system supports
     // it.
     // Skip the test if fallocate is not supported.
-    std::string fname_test_fallocate = test::PerThreadDBPath(env_, "preallocate_testfile_2");;
+    std::string fname_test_fallocate =
+        test::PerThreadDBPath(env_, "preallocate_testfile_2");
     int fd = -1;
     do {
       fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
