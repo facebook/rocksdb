@@ -22,7 +22,7 @@ bool AsyncFileReader::MultiReadAsyncImpl(ReadAwaiter* awaiter) {
   for (size_t i = 0; i < awaiter->num_reqs_; ++i) {
     awaiter->file_
         ->ReadAsync(
-            awaiter->read_reqs_[i], awaiter->opts_, ENV::IO_TOTAL,
+            awaiter->read_reqs_[i], awaiter->opts_, Env::IO_TOTAL,
             [](const FSReadRequest& req, void* cb_arg) {
               FSReadRequest* read_req = static_cast<FSReadRequest*>(cb_arg);
               read_req->status = req.status;
