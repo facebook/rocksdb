@@ -162,6 +162,10 @@ class IteratorWrapperBase {
     }
   }
 
+  bool IsRangeDeleteSentinelKey() const {
+    return iter_->IsDeleteRangeSentinelKey();
+  }
+
  private:
   void Update() {
     valid_ = iter_->Valid();

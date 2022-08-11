@@ -392,6 +392,13 @@ inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
   return num >> 8;
 }
 
+inline ValueType GetInternalKeyOpType(const Slice& internal_key) {
+  const size_t n = internal_key.size();
+  assert(n >= kNumInternalBytes);
+  uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
+  return static_cast<ValueType>(num & 0xff);
+}
+
 // The class to store keys in an efficient way. It allows:
 // 1. Users can either copy the key into it, or have it point to an unowned
 //    address.

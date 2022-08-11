@@ -1059,6 +1059,8 @@ class LevelIterator final : public InternalIterator {
            file_iter_.iter() && file_iter_.IsValuePinned();
   }
 
+  bool IsDeleteRangeSentinelKey() const override { return to_return_sentinel_; }
+
  private:
   // Return true if at least one invalid file is seen and skipped.
   bool SkipEmptyFileForward();
@@ -1191,10 +1193,6 @@ class LevelIterator final : public InternalIterator {
   bool prefix_sentinel_ = false;
   // The sentinel key to be returned
   Slice sentinel_;
-  // We mark sentinel keys with op_type=kTypeRangeDeletion.
-  // In the case of sentinel key due to prefix seek, the file boundary
-  // may not have this op_type, so we need to create such a key.
-  std::string pinned_sentinel_;
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
   // file_iter_: !Valid() && status.().ok(), and file boundary key has op_type
@@ -1204,7 +1202,6 @@ class LevelIterator final : public InternalIterator {
   void ClearSentinel() {
     to_return_sentinel_ = false;
     prefix_sentinel_ = false;
-    pinned_sentinel_.clear();
   }
   std::string seek_prefix_;
 };
@@ -1214,24 +1211,12 @@ void LevelIterator::TrySetDeleteRangeSentinel(const Slice& boundary_key,
   assert(range_tombstone_iter_ && *range_tombstone_iter_);
   if (file_iter_.iter() != nullptr && !file_iter_.Valid() &&
       file_iter_.status().ok()) {
-    // range_tombstone_iter_.Valid() can also be a prerequisite for sentinel?
-    ParsedInternalKey pik;
-    ParseInternalKey(boundary_key, &pik, false).PermitUncheckedError();
-    // Not checking pik.sequence == kMaxSequenceNumber since it is possible
-    // that file boundary is set to tombstone key AND tombstone sequence number
     if (try_prefix_sentinel && prefix_extractor_ != nullptr &&
         !read_options_.total_order_seek) {
       prefix_sentinel_ = true;
       to_return_sentinel_ = true;
-      if (pik.type != kTypeRangeDeletion) {
-        pik.type = kTypeRangeDeletion;
-        pinned_sentinel_.clear();
-        AppendInternalKey(&pinned_sentinel_, pik);
-        sentinel_ = pinned_sentinel_;
-      } else {
-        sentinel_ = boundary_key;
-      }
-    } else if (pik.type == kTypeRangeDeletion) {
+      sentinel_ = boundary_key;
+    } else if (GetInternalKeyOpType(boundary_key) == kTypeRangeDeletion) {
       to_return_sentinel_ = true;
       sentinel_ = boundary_key;
     }

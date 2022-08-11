@@ -146,9 +146,7 @@ class MergingIterator : public InternalIterator {
       }
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.iters.empty()) {
-      FindNextVisibleEntry();
-    }
+    FindNextVisibleEntry();
     direction_ = kForward;
     current_ = CurrentForward();
   }
@@ -173,9 +171,7 @@ class MergingIterator : public InternalIterator {
       }
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.iters.empty()) {
-      FindPrevVisibleEntry();
-    }
+    FindPrevVisibleEntry();
     direction_ = kReverse;
     current_ = CurrentReverse();
   }
@@ -209,10 +205,7 @@ class MergingIterator : public InternalIterator {
            range_tombstones_.iters.size() == children_.size());
     SeekImpl(target);
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.iters.empty()) {
-      // Skip range tombstone covered keys
-      FindNextVisibleEntry();
-    }
+    FindNextVisibleEntry();
 
     direction_ = kForward;
 
@@ -227,10 +220,7 @@ class MergingIterator : public InternalIterator {
            range_tombstones_.iters.size() == children_.size());
     SeekForPrevImpl(target);
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.iters.empty()) {
-      // Skip range tombstone covered keys
-      FindPrevVisibleEntry();
-    }
+    FindPrevVisibleEntry();
 
     direction_ = kReverse;
     {
@@ -270,14 +260,7 @@ class MergingIterator : public InternalIterator {
       minHeap_.pop();
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.iters.empty()) {
-      // We cannot just check range_tombstones_.active.empty() for the following
-      // case. When a child iter is about to return a sentinel key due to prefix
-      // seek, its range tombstone iter could already be !Valid() and hence not
-      // in the active set. We need to skip that file's sentinel key if it's at
-      // the top of the heap before returning.
-      FindNextVisibleEntry();
-    }
+    FindNextVisibleEntry();
     current_ = CurrentForward();
   }
 
@@ -321,9 +304,7 @@ class MergingIterator : public InternalIterator {
       maxHeap_->pop();
     }
     assert(range_tombstones_.ActiveIsCorrect());
-    if (!range_tombstones_.iters.empty()) {
-      FindPrevVisibleEntry();
-    }
+    FindPrevVisibleEntry();
     current_ = CurrentReverse();
   }
 
@@ -584,15 +565,8 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
 // REQUIRES: min heap is currently not empty, and iter is in kForward direction.
 bool MergingIterator::IsNextDeleted() {
   auto current = minHeap_.top();
-  ParsedInternalKey pik;
-  // TODO: error handling
-  ParseInternalKey(current->key(), &pik, false /* log_error_key */)
-      .PermitUncheckedError();
   auto level = GetChildIndex(current);
-  if (pik.type == kTypeRangeDeletion) {
-    // Sentinel key: file boundary used as a fake key, always delete and move to
-    // next. We need this sentinel key to keep level iterator from advancing to
-    // next SST file when current range tombstone is still in effect.
+  if (current->IsRangeDeleteSentinelKey()) {
     current->Next();
     // enters new file
     if (current->Valid()) {
@@ -609,6 +583,10 @@ bool MergingIterator::IsNextDeleted() {
     }
     return true /* entry deleted */;
   }
+  ParsedInternalKey pik;
+  // TODO: error handling
+  ParseInternalKey(current->key(), &pik, false /* log_error_key */)
+      .PermitUncheckedError();
   // Check for sorted runs [0, level] for potential covering range tombstone.
   // For all sorted runs newer than the sorted run containing current key:
   //  we can advance their range tombstone iter to after current user key,
@@ -817,12 +795,8 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
 // REQUIRES: max heap is currently not empty, and iter is in kReverse direction.
 bool MergingIterator::IsPrevDeleted() {
   auto current = maxHeap_->top();
-  ParsedInternalKey pik;
-  // TODO: error handling
-  ParseInternalKey(current->key(), &pik, false /* log_error_key */)
-      .PermitUncheckedError();
   auto level = GetChildIndex(current);
-  if (pik.type == kTypeRangeDeletion) {
+  if (current->IsRangeDeleteSentinelKey()) {
     // Sentinel key: file boundary used as a fake key, always delete and move to
     // prev. We need this sentinel key to keep level iterator from advancing to
     // next SST file when current range tombstone is still in effect.
@@ -842,7 +816,10 @@ bool MergingIterator::IsPrevDeleted() {
     }
     return true /* entry deleted */;
   }
-
+  ParsedInternalKey pik;
+  // TODO: error handling
+  ParseInternalKey(current->key(), &pik, false /* log_error_key */)
+      .PermitUncheckedError();
   // Check for sorted runs [0, level] for potential covering range tombstone.
   // For all sorted runs newer than the sorted run containing current key:
   //  we advance their range tombstone iter to cover current user key (or before
@@ -1065,15 +1042,24 @@ void MergingIterator::InitMaxHeap() {
 // key's level, then the current child iterator is simply advanced to its next
 // key without reseeking.
 void MergingIterator::FindNextVisibleEntry() {
-  // If a range tombstone iter is invalid, then its level iterator must already
-  // post its sentinel.
-  while (!minHeap_.empty() && IsNextDeleted()) {
+  // We cannot just check range_tombstones_.active.empty() for the following
+  // case. When a child iter is about to return a sentinel key due to prefix
+  // seek, its range tombstone iter could already be !Valid() and hence not
+  // in the active set. We need to skip that file's sentinel key if it's at
+  // the top of the heap before returning.
+  while (!minHeap_.empty() &&
+         (!range_tombstones_.active.empty() ||
+          minHeap_.top()->IsRangeDeleteSentinelKey()) &&
+         IsNextDeleted()) {
     // move to next entry
   }
 }
 
 void MergingIterator::FindPrevVisibleEntry() {
-  while (!maxHeap_->empty() && IsPrevDeleted()) {
+  while (!maxHeap_->empty() &&
+         (!range_tombstones_.active.empty() ||
+          maxHeap_->top()->IsRangeDeleteSentinelKey()) &&
+         IsPrevDeleted()) {
     // move to previous entry
   }
 }
