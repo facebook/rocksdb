@@ -315,6 +315,19 @@ Status DBCloudImpl::DoCheckpointToCloud(
   if (!st.ok()) {
     return st;
   }
+  
+  // Create a temp MANIFEST file first as this captures all the files we need
+  auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch();
+  auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
+  auto tmp_manifest_fname = manifest_fname + ".tmp";
+  auto fs = base_env->GetFileSystem();
+  st = CopyFile(fs.get(), GetName() + "/" + manifest_fname,
+                GetName() + "/" + tmp_manifest_fname, manifest_file_size, false,
+                nullptr, Temperature::kUnknown);
+  if (!st.ok()) {
+    return st;
+  }
+
 
   std::vector<std::pair<std::string, std::string>> files_to_copy;
   for (auto& f : live_files) {
@@ -393,21 +406,10 @@ Status DBCloudImpl::DoCheckpointToCloud(
     return st;
   }
 
-  // Copy MANIFEST and CLOUDMANIFEST sequentially only after copying all data
+  // Upload MANIFEST and CLOUDMANIFEST sequentially only after copying all data
   // files
 
   // MANIFEST file
-  auto current_epoch = cenv->GetCloudManifest()->GetCurrentEpoch();
-  auto manifest_fname = ManifestFileWithEpoch("", current_epoch);
-  auto tmp_manifest_fname = manifest_fname + ".tmp";
-  auto fs = base_env->GetFileSystem();
-  st = CopyFile(fs.get(), GetName() + "/" + manifest_fname,
-                GetName() + "/" + tmp_manifest_fname, manifest_file_size, false,
-                nullptr, Temperature::kUnknown);
-  if (!st.ok()) {
-    return st;
-  }
-
   st = upload_file(cenv->GetStorageProvider(), tmp_manifest_fname,
                    manifest_fname);
   if (!st.ok()) {
