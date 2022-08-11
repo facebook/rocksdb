@@ -174,7 +174,7 @@ done
 generate_db()
 {
     set +e
-    $script_copy_dir/generate_random_db.sh $1 $2
+    bash "$script_copy_dir"/generate_random_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error loading data from $2 to $1 ====
         exit 1
@@ -185,7 +185,7 @@ generate_db()
 compare_db()
 {
     set +e
-    $script_copy_dir/verify_random_db.sh $1 $2 $3 $4 $5
+    bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
         exit 1
@@ -196,7 +196,7 @@ compare_db()
 write_external_sst()
 {
     set +e
-    $script_copy_dir/write_external_sst.sh $1 $2 $3
+    bash "$script_copy_dir"/write_external_sst.sh "$1" "$2" "$3"
     if [ $? -ne 0 ]; then
         echo ==== Error writing external SST file using data from $1 to $3 ====
         exit 1
@@ -207,7 +207,7 @@ write_external_sst()
 ingest_external_sst()
 {
     set +e
-    $script_copy_dir/ingest_external_sst.sh $1 $2
+    bash "$script_copy_dir"/ingest_external_sst.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error ingesting external SST in $2 to DB at $1 ====
         exit 1
@@ -218,7 +218,7 @@ ingest_external_sst()
 backup_db()
 {
     set +e
-    $script_copy_dir/backup_db.sh $1 $2
+    bash "$script_copy_dir"/backup_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error backing up DB $1 to $2 ====
         exit 1
@@ -229,7 +229,7 @@ backup_db()
 restore_db()
 {
     set +e
-    $script_copy_dir/restore_db.sh $1 $2
+    bash "$script_copy_dir"/restore_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error restoring from $1 to $2 ====
         exit 1
