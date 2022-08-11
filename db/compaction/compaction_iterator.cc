@@ -222,7 +222,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   {
     StopWatchNano timer(clock_, report_detailed_time_);
     if (kTypeBlobIndex == ikey_.type) {
-      blob_value_.Reset();
       filter = compaction_filter_->FilterBlobByKey(
           level_, filter_key, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
@@ -367,6 +366,7 @@ void CompactionIterator::NextFromInput() {
          !IsShuttingDown()) {
     key_ = input_.key();
     value_ = input_.value();
+    blob_value_.Reset();
     iter_stats_.num_input_records++;
 
     Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
