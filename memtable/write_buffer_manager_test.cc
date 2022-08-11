@@ -194,7 +194,7 @@ TEST_F(ChargeWriteBufferTest, Basic) {
   ASSERT_GE(cache->GetPinnedUsage(), 44 * 256 * 1024);
   ASSERT_LT(cache->GetPinnedUsage(), 44 * 256 * 1024 + kMetaDataChargeOverhead);
 
-  // Destory write buffer manger should free everything
+  // Destroy write buffer manger should free everything
   wbf.reset();
   ASSERT_EQ(cache->GetPinnedUsage(), 0);
 }

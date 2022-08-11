@@ -171,7 +171,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     DB* db;
     DBImpl* db_impl;
 
-    DestroyDB(dbname, options);
+    ASSERT_OK(DestroyDB(dbname, options));
 
     DBOptions db_options(options);
     ColumnFamilyOptions cf_options(options);
@@ -372,7 +372,7 @@ TEST_P(WriteCallbackPTest, WriteWithCallbackTest) {
     ASSERT_EQ(seq.load(), db_impl->TEST_GetLastVisibleSequence());
 
     delete db;
-    DestroyDB(dbname, options);
+    ASSERT_OK(DestroyDB(dbname, options));
   }
 }
 
@@ -391,7 +391,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   DB* db;
   DBImpl* db_impl;
 
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 
   options.create_if_missing = true;
   Status s = DB::Open(options, dbname, &db);
@@ -441,7 +441,7 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   ASSERT_EQ("value.a2", value);
 
   delete db;
-  DestroyDB(dbname, options);
+  ASSERT_OK(DestroyDB(dbname, options));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
