@@ -769,6 +769,7 @@ workflows:
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
       - build-linux-lite
+      - build-format-compatible
   jobs-linux-run-tests-san:
     jobs:
       - build-linux-clang10-asan
