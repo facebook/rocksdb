@@ -286,8 +286,6 @@ Note: The next release will be major release 7.0. See https://github.com/faceboo
 * BackupEngineOptions::sync (default true) now applies to restoring backups in addition to creating backups. This could slow down restores, but ensures they are fully persisted before returning OK. (Consider increasing max_background_operations to improve performance.)
 
 ## 6.23.0 (2021-07-16)
-### Behavior Changes
-* Obsolete keys in the bottommost level that were preserved for a snapshot will now be cleaned upon snapshot release in all cases. This form of compaction (snapshot release triggered compaction) previously had an artificial limitation that multiple tombstones needed to be present.
 ### Bug Fixes
 * Blob file checksums are now printed in hexadecimal format when using the `manifest_dump` `ldb` command.
 * `GetLiveFilesMetaData()` now populates the `temperature`, `oldest_ancester_time`, and `file_creation_time` fields of its `LiveFileMetaData` results when the information is available. Previously these fields always contained zero indicating unknown.
