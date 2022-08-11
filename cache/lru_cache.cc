@@ -444,7 +444,13 @@ Cache::Handle* LRUCacheShard::Lookup(
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
         secondary_cache_->Lookup(key, create_cb, wait, is_in_sec_cache);
     if (secondary_handle != nullptr) {
-      priority = Cache::Priority::HIGH;
+      // if thousandths digit of high_pri_pool_ratio is 1, set priority to HIGH
+      if ((int)(GetHighPriPoolRatio() * 1000) % 10 == 1) {
+        priority = Cache::Priority::HIGH;
+      } else {
+        priority = Cache::Priority::LOW;
+      }
+
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
 
