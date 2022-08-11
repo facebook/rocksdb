@@ -2764,24 +2764,37 @@ void VersionStorageInfo::ComputeCompactionScore(
           // and data is not moved to L1 fast enough. With potential L0->L0
           // compaction, number of L0 files aren't always an indication of
           // L0 oversizing, and we also need to consider total size of L0.
-          if (immutable_options.level_compaction_dynamic_level_bytes &&
-              total_size > level_max_bytes_[base_level_]) {
-            // In this case, we compare L0 size with actual L1 size and make
-            // sure score is more than 1.0 (10.0 after scaled) if L0 is larger
-            // than L1. Since in this case L1 score is lower than 10.0, L0->L1
-            // is prioritized over L1->L2.
-            uint64_t base_level_size = 0;
-            for (auto f : files_[base_level_]) {
-              base_level_size += f->compensated_file_size;
+          if (immutable_options.level_compaction_dynamic_level_bytes) {
+            if (total_size >= mutable_cf_options.max_bytes_for_level_base) {
+              // When calculating estimated_compaction_needed_bytes, we assume
+              // L0 is qualified as pending compactions. We will need to make
+              // sure that it qualifies for compaction.
+              // It might be guafanteed by logic below anyway, but we are
+              // explicit here to make sure we don't stop writes with no
+              // compaction scheduled.
+              score = std::max(score, 1.01);
             }
-            score = std::max(score, static_cast<double>(total_size) /
-                                        static_cast<double>(std::max(
-                                            base_level_size,
-                                            level_max_bytes_[base_level_])));
-          }
-          if (immutable_options.level_compaction_dynamic_level_bytes &&
-              score > 1.0) {
-            score *= kScoreScale;
+            if (total_size > level_max_bytes_[base_level_]) {
+              // In this case, we compare L0 size with actual L1 size and make
+              // sure score is more than 1.0 (10.0 after scaled) if L0 is larger
+              // than L1. Since in this case L1 score is lower than 10.0, L0->L1
+              // is prioritized over L1->L2.
+              uint64_t base_level_size = 0;
+              for (auto f : files_[base_level_]) {
+                base_level_size += f->compensated_file_size;
+              }
+              score = std::max(score, static_cast<double>(total_size) /
+                                          static_cast<double>(std::max(
+                                              base_level_size,
+                                              level_max_bytes_[base_level_])));
+            }
+            if (score > 1.0) {
+              score *= kScoreScale;
+            }
+          } else {
+            score = std::max(score,
+                             static_cast<double>(total_size) /
+                                 mutable_cf_options.max_bytes_for_level_base);
           }
         }
       }
