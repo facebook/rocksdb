@@ -2774,10 +2774,10 @@ void VersionStorageInfo::ComputeCompactionScore(
             for (auto f : files_[base_level_]) {
               base_level_size += f->compensated_file_size;
             }
-            if (base_level_size > 0) {
-              score = std::max(score, static_cast<double>(total_size) /
-                                          static_cast<double>(base_level_size));
-            }
+            score = std::max(score, static_cast<double>(total_size) /
+                                        static_cast<double>(std::max(
+                                            base_level_size,
+                                            level_max_bytes_[base_level_])));
           }
           if (immutable_options.level_compaction_dynamic_level_bytes &&
               score > 1.0) {
