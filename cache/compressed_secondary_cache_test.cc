@@ -570,42 +570,28 @@ class CompressedSecondaryCacheTest : public testing::Test {
   }
 
   void MergeChunksIntoValueTest() {
-    JemallocAllocatorOptions jopts;
-    std::shared_ptr<MemoryAllocator> allocator;
-    std::string msg;
-    if (JemallocNodumpAllocator::IsSupported(&msg)) {
-      Status s = NewJemallocNodumpAllocator(jopts, &allocator);
-      if (!s.ok()) {
-        ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
-      }
-    } else {
-      ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
-    }
-
     using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
     Random rnd(301);
     size_t size1{2048};
     std::string str1 = rnd.RandomString(static_cast<int>(size1));
-    CacheAllocationPtr ptr =
-        AllocateBlock(sizeof(CacheValueChunk) - 1 + size1, allocator.get());
-    CacheValueChunk* current_chunk =
-        reinterpret_cast<CacheValueChunk*>(ptr.release());
+    CacheValueChunk* current_chunk = reinterpret_cast<CacheValueChunk*>(
+        new char[sizeof(CacheValueChunk) - 1 + size1]);
     CacheValueChunk* chunks_head = current_chunk;
     memcpy(current_chunk->data, str1.data(), size1);
     current_chunk->size = size1;
 
     size_t size2{256};
     std::string str2 = rnd.RandomString(static_cast<int>(size2));
-    ptr = AllocateBlock(sizeof(CacheValueChunk) - 1 + size2, allocator.get());
-    current_chunk->next = reinterpret_cast<CacheValueChunk*>(ptr.release());
+    current_chunk->next = reinterpret_cast<CacheValueChunk*>(
+        new char[sizeof(CacheValueChunk) - 1 + size2]);
     current_chunk = current_chunk->next;
     memcpy(current_chunk->data, str2.data(), size2);
     current_chunk->size = size2;
 
     size_t size3{31};
     std::string str3 = rnd.RandomString(static_cast<int>(size3));
-    ptr = AllocateBlock(sizeof(CacheValueChunk) - 1 + size3, allocator.get());
-    current_chunk->next = reinterpret_cast<CacheValueChunk*>(ptr.release());
+    current_chunk->next = reinterpret_cast<CacheValueChunk*>(
+        new char[sizeof(CacheValueChunk) - 1 + size3]);
     current_chunk = current_chunk->next;
     memcpy(current_chunk->data, str3.data(), size3);
     current_chunk->size = size3;
@@ -614,8 +600,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string str = str1 + str2 + str3;
 
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5,
-                                                   allocator);
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5);
     size_t charge{0};
     CacheAllocationPtr value =
         sec_cache->MergeChunksIntoValue(chunks_head, charge);

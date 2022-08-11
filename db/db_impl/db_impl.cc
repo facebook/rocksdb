@@ -1761,8 +1761,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
   Status s;
   if (!read_options.ignore_range_deletions) {
-    range_del_iter.reset(
-        super_version->mem->NewRangeTombstoneIterator(read_options, sequence));
+    range_del_iter.reset(super_version->mem->NewRangeTombstoneIterator(
+        read_options, sequence, false /* immutable_memtable */));
     range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   // Collect all needed child iterators for immutable memtables
@@ -1982,7 +1982,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     if (get_impl_options.get_value) {
       if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), timestamp, &s,
                        &merge_context, &max_covering_tombstone_seq,
-                       read_options, get_impl_options.callback,
+                       read_options, false /* immutable_memtable */,
+                       get_impl_options.callback,
                        get_impl_options.is_blob_index)) {
         done = true;
         get_impl_options.value->PinSelf();
@@ -2002,7 +2003,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       // merged and raw values should be returned to the user.
       if (sv->mem->Get(lkey, /*value*/ nullptr, /*timestamp=*/nullptr, &s,
                        &merge_context, &max_covering_tombstone_seq,
-                       read_options, nullptr, nullptr, false)) {
+                       read_options, false /* immutable_memtable */, nullptr,
+                       nullptr, false)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -2252,6 +2254,7 @@ std::vector<Status> DBImpl::MultiGet(
     if (!skip_memtable) {
       if (super_version->mem->Get(lkey, value, timestamp, &s, &merge_context,
                                   &max_covering_tombstone_seq, read_options,
+                                  false /* immutable_memtable */,
                                   read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
@@ -2788,7 +2791,8 @@ Status DBImpl::MultiGetImpl(
         (read_options.read_tier == kPersistedTier &&
          has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
-      super_version->mem->MultiGet(read_options, &range, callback);
+      super_version->mem->MultiGet(read_options, &range, callback,
+                                   false /* immutable_memtable */);
       if (!range.empty()) {
         super_version->imm->MultiGet(read_options, &range, callback);
       }
@@ -4859,7 +4863,8 @@ Status DBImpl::GetLatestSequenceForKey(
   // Check if there is a record for this key in the latest memtable
   sv->mem->Get(lkey, /*value=*/nullptr, timestamp, &s, &merge_context,
                &max_covering_tombstone_seq, seq, read_options,
-               nullptr /*read_callback*/, is_blob_index);
+               false /* immutable_memtable */, nullptr /*read_callback*/,
+               is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.

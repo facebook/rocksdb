@@ -411,7 +411,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"bottommost_temperature",
-         {offsetof(struct MutableCFOptions, bottommost_temperature),
+         {0, OptionType::kTemperature, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable}},
+        {"last_level_temperature",
+         {offsetof(struct MutableCFOptions, last_level_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"enable_blob_files",
@@ -1105,8 +1108,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
                      ? "flush only"
                      : "disable");
-  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
-                 static_cast<int>(bottommost_temperature));
+  ROCKS_LOG_INFO(log, "                   last_level_temperature: %d",
+                 static_cast<int>(last_level_temperature));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

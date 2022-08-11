@@ -109,12 +109,18 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
+      if (error_handler_.IsRecoveryInProgress()) {
+        log->file()->reset_seen_error();
+      }
       io_s = log->file()->Sync(immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
         break;
       }
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
+        if (error_handler_.IsRecoveryInProgress()) {
+          log->file()->reset_seen_error();
+        }
         io_s = log->Close();
         if (!io_s.ok()) {
           break;

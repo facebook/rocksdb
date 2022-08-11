@@ -9,6 +9,7 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/read_callback.h"
+#include "db/wide/wide_column_serialization.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -258,10 +259,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             state_ = kUnexpectedBlobIndex;
             return false;
           }
-        } else if (type == kTypeWideColumnEntity) {
-          // TODO: support wide-column entities
-          state_ = kUnexpectedWideColumnEntity;
-          return false;
         }
 
         if (is_blob_index_ != nullptr) {
@@ -272,14 +269,27 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kFound;
           if (do_merge_) {
             if (LIKELY(pinnable_val_ != nullptr)) {
+              Slice value_to_use = value;
+
+              if (type == kTypeWideColumnEntity) {
+                Slice value_copy = value;
+
+                if (!WideColumnSerialization::GetValueOfDefaultColumn(
+                         value_copy, value_to_use)
+                         .ok()) {
+                  state_ = kCorrupt;
+                  return false;
+                }
+              }
+
               if (LIKELY(value_pinner != nullptr)) {
                 // If the backing resources for the value are provided, pin them
-                pinnable_val_->PinSlice(value, value_pinner);
+                pinnable_val_->PinSlice(value_to_use, value_pinner);
               } else {
                 TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf",
                                          this);
                 // Otherwise copy the value
-                pinnable_val_->PinSelf(value);
+                pinnable_val_->PinSelf(value_to_use);
               }
             }
           } else {

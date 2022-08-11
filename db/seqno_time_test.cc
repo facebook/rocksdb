@@ -232,13 +232,9 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
     }
     ASSERT_OK(Flush());
   }
-  // TODO(zjay): all data become cold because of level 5 (penultimate level) is
-  //  the bottommost level, which converts the data to cold. PerKeyPlacement is
-  //  for the last level (level 6). Will be fixed by change the
-  //  bottommost_temperature to the last_level_temperature
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
+  ASSERT_EQ(GetSstSizeHelper(Temperature::kCold), 0);
 
   // Compact the files to the last level which should split the hot/cold data
   MoveFilesToLevel(6);
@@ -249,7 +245,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   // the first a few key should be cold
   AssertKetTemperature(20, Temperature::kCold);
 
-  // Wait some time, each it wait, the cold data is increasing and hot data is
+  // Wait some time, with each wait, the cold data is increasing and hot data is
   // decreasing
   for (int i = 0; i < 30; i++) {
     dbfull()->TEST_WaitForPeridicWorkerRun(

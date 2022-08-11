@@ -4186,7 +4186,8 @@ TEST_F(MemTableTest, Simple) {
       arena_iter_guard.set(iter);
     } else {
       iter = GetMemTable()->NewRangeTombstoneIterator(
-          ReadOptions(), kMaxSequenceNumber /* read_seq */);
+          ReadOptions(), kMaxSequenceNumber /* read_seq */,
+          false /* immutable_memtable */);
       iter_guard.reset(iter);
     }
     if (iter == nullptr) {
