@@ -2758,22 +2758,26 @@ void VersionStorageInfo::ComputeCompactionScore(
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
+          // If score in L0 is always too high, L0->L1 will always be
+          // prioritized over L1->L2 compaction and L1 will accumulate to
+          // too large. But if L0 score isn't high enough, L0 will accumulate
+          // and data is not moved to L1 fast enough. With potential L0->L0
+          // compaction, number of L0 files aren't always an indication of
+          // L0 oversizing, and we also need to consider total size of L0.
           if (immutable_options.level_compaction_dynamic_level_bytes &&
               total_size > level_max_bytes_[base_level_]) {
-            // In this case, we compare L0 files that are not in compaction to
-            // target size of the base level to determine whether L0->L0
-            // compaction should be executed. We mimic the score calculating in
-            // L1 so that L0->L1 is only prioritized against L1->L2 if the size
-            // of L0 size is larger than L1.
-            // This prevents us from getting stuck picking
-            // L0 forever even when it is hurting write-amp. That could happen
-            // in dynamic level compaction's write-burst mode where the base
-            // level's target size can grow to be enormous.
-            score = std::max(
-                score,
-                static_cast<double>(total_size) /
-                    (static_cast<double>(level_max_bytes_[base_level_] +
-                                         static_cast<double>(total_size))));
+            // In this case, we compare L0 size with actual L1 size and make
+            // sure score is more than 1.0 (10.0 after scaled) if L0 is larger
+            // than L1. Since in this case L1 score is lower than 10.0, L0->L1
+            // is prioritized over L1->L2.
+            uint64_t base_level_size = 0;
+            for (auto f : files_[base_level_]) {
+              base_level_size += f->compensated_file_size;
+            }
+            if (base_level_size > 0) {
+              score = std::max(score, static_cast<double>(total_size) /
+                                          static_cast<double>(base_level_size));
+            }
           }
           if (immutable_options.level_compaction_dynamic_level_bytes &&
               score > 1.0) {
