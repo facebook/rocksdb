@@ -284,6 +284,7 @@ DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
 DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
+DECLARE_uint32(memtable_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
