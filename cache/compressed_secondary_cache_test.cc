@@ -558,7 +558,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5,
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
     // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
@@ -610,7 +610,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string str = str1 + str2 + str3;
 
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5);
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0);
     size_t charge{0};
     CacheAllocationPtr value =
         sec_cache->MergeChunksIntoValue(chunks_head, charge);
@@ -636,7 +636,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
     std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5,
+        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
     // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
