@@ -41,6 +41,10 @@ void CloudEnvOptions::Dump(Logger* log) const {
          use_direct_io_for_cloud_download);
   Header(log, "        COptions.roll_cloud_manifest_on_open: %d",
          roll_cloud_manifest_on_open);
+  Header(log, "                     COptions.cookie_on_open: %s",
+         cookie_on_open.c_str());
+  Header(log, "                 COptions.new_cookie_on_open: %s",
+         new_cookie_on_open.c_str());
   if (sst_file_cache != nullptr) {
     Header(log, "           COptions.sst_file_cache size: %ld bytes",
            sst_file_cache->GetCapacity());

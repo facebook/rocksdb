@@ -195,6 +195,10 @@ class CloudEnvImpl : public CloudEnv {
 
   // Load CLOUDMANIFEST if exists in local disk to current env.
   Status LoadLocalCloudManifest(const std::string& dbname);
+  // TODO(wei): this function is used to temporarily support open db and switch
+  // cookie. Remove it once that's not needed
+  Status LoadLocalCloudManifest(const std::string& dbname,
+                                const std::string& cookie);
 
   // Local CLOUDMANIFEST from `base_env` into `cloud_manifest`.
   static Status LoadLocalCloudManifest(
@@ -202,6 +206,10 @@ class CloudEnvImpl : public CloudEnv {
       std::unique_ptr<CloudManifest>* cloud_manifest);
 
   Status CreateCloudManifest(const std::string& local_dbname);
+  // TODO(wei): this function is used to temporarily support open db and switch
+  // cookie. Remove it once that's not needed
+  Status CreateCloudManifest(const std::string& local_dbname,
+                             const std::string& cookie);
 
   // Transfers the filename from RocksDB's domain to the physical domain, based
   // on information stored in CLOUDMANIFEST.

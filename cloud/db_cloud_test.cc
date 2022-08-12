@@ -1940,26 +1940,28 @@ TEST_F(CloudTest, EmptyCookieTest) {
 }
 
 TEST_F(CloudTest, NonEmptyCookieTest) {
-  cloud_env_options_.cookie_on_open = "000001";
+  cloud_env_options_.new_cookie_on_open = "000001";
   OpenDB();
   std::string value;
   ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
   ASSERT_EQ(value, "World");
 
-  auto cenv_impl = static_cast<CloudEnvImpl*>(aenv_.get());
-  auto cloud_manifest_file = cenv_impl->CloudManifestFile(dbname_);
-  aenv_->GetStorageProvider()->ExistsCloudObject(aenv_->GetSrcBucketName(),
-                                                 cloud_manifest_file);
+  auto cloud_manifest_file =
+      MakeCloudManifestFile(dbname_, cloud_env_options_.new_cookie_on_open);
+  ASSERT_OK(aenv_->GetStorageProvider()->ExistsCloudObject(
+      aenv_->GetSrcBucketName(), cloud_manifest_file));
   EXPECT_EQ(basename(cloud_manifest_file), "CLOUDMANIFEST-000001");
   CloseDB();
   DestroyDir(dbname_);
+  cloud_env_options_.cookie_on_open = "000001";
+  cloud_env_options_.new_cookie_on_open = "000001";
   OpenDB();
 
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
   ASSERT_EQ(value, "World");
-  aenv_->GetStorageProvider()->ExistsCloudObject(aenv_->GetSrcBucketName(),
-                                                 cloud_manifest_file);
+  ASSERT_OK(aenv_->GetStorageProvider()->ExistsCloudObject(
+      aenv_->GetSrcBucketName(), cloud_manifest_file));
   EXPECT_EQ(basename(cloud_manifest_file), "CLOUDMANIFEST-000001");
   CloseDB();
 }
@@ -1967,6 +1969,7 @@ TEST_F(CloudTest, NonEmptyCookieTest) {
 // Verify that live sst files are the same after applying cloud manifest delta
 TEST_F(CloudTest, LiveFilesConsistentAfterApplyLocalCloudManifestDeltaTest) {
   cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.new_cookie_on_open = "1";
   OpenDB();
 
   ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
@@ -1997,6 +2000,7 @@ TEST_F(CloudTest, LiveFilesConsistentAfterApplyLocalCloudManifestDeltaTest) {
 // sst files only visible in new Manifest
 TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
   cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.new_cookie_on_open = "1";
   OpenDB();
   ASSERT_OK(db_->Put(WriteOptions(), "Hello1", "world1"));
   ASSERT_OK(db_->Flush(FlushOptions()));
@@ -2017,6 +2021,7 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
   // reopen with cookie = 1, new updates after rolling are not visible
   CloseDB();
   cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.new_cookie_on_open = "1";
   cloud_env_options_.dest_bucket.SetBucketName("");
   cloud_env_options_.dest_bucket.SetObjectPath("");
   OpenDB();
@@ -2029,6 +2034,7 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
   // reopen with cookie = 2, new updates should still be visible
   CloseDB();
   cloud_env_options_.cookie_on_open = "2";
+  cloud_env_options_.new_cookie_on_open = "2";
   OpenDB();
   ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
   EXPECT_EQ(value, "world1");
@@ -2039,6 +2045,7 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
   // Make sure that the changes in cloud are correct
   DestroyDir(dbname_);
   cloud_env_options_.cookie_on_open = "2";
+  cloud_env_options_.new_cookie_on_open = "2";
   OpenDB();
   ASSERT_OK(db_->Get(ReadOptions(), "Hello1", &value));
   EXPECT_EQ(value, "world1");
@@ -2122,52 +2129,91 @@ TEST_F(CloudTest, RollNewEpochTest) {
   EXPECT_NE(epoch1, epoch2);
 }
 
-// Test cloud_env_option: `upload_cloud_manifest_without_cookie_suffix`
+// Test that we can rollback to empty cookie
 TEST_F(CloudTest, CookieBackwardsCompatibilityTest) {
   cloud_env_options_.resync_on_open = true;
-  cloud_env_options_.roll_cloud_manifest_on_open = false;
+  cloud_env_options_.roll_cloud_manifest_on_open = true;
 
-  // Case 1: CLOUDMANIFEST file is uploaded when opening a new db
-  cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.cookie_on_open = "";
+  cloud_env_options_.new_cookie_on_open = "1";
   OpenDB();
-  ASSERT_OK(db_->Put({}, "k", "v"));
+  ASSERT_OK(db_->Put({}, "k1", "v1"));
   ASSERT_OK(db_->Flush({}));
   CloseDB();
 
-  // roll back to empty cookie
-  cloud_env_options_.cookie_on_open = "";
+  // switch cookie
+  cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.new_cookie_on_open = "2";
   OpenDB();
   std::string value;
-  ASSERT_OK(db_->Get({}, "k", &value));
-  EXPECT_EQ(value, "v");
+  ASSERT_OK(db_->Get({}, "k1", &value));
+  EXPECT_EQ(value, "v1");
+
+  ASSERT_OK(db_->Put({}, "k2", "v2"));
+  ASSERT_OK(db_->Flush({}));
   CloseDB();
 
-  // Case 2: CLOUDMANIFEST file is uploaded when opening existing DB
-  cloud_env_options_.cookie_on_open = "1";
+  // switch back to empty cookie
+  cloud_env_options_.cookie_on_open = "2";
+  cloud_env_options_.new_cookie_on_open = "";
   OpenDB();
+  ASSERT_OK(db_->Get({}, "k1", &value));
+  EXPECT_EQ(value, "v1");
+
+  ASSERT_OK(db_->Get({}, "k2", &value));
+  EXPECT_EQ(value, "v2");
   CloseDB();
 
+  // open with both cookies being empty
   cloud_env_options_.cookie_on_open = "";
+  cloud_env_options_.new_cookie_on_open = "";
   OpenDB();
-  ASSERT_OK(db_->Get({}, "k", &value));
-  EXPECT_EQ(value, "v");
-  CloseDB();
+  ASSERT_OK(db_->Get({}, "k1", &value));
+  EXPECT_EQ(value, "v1");
 
-  // Case 3: CLOUDMANIFEST file is uploaded when Switching CM/M
+  ASSERT_OK(db_->Get({}, "k2", &value));
+  EXPECT_EQ(value, "v2");
+  CloseDB();
+}
+
+TEST_F(CloudTest, NewCookieOnOpenTest) {
   cloud_env_options_.cookie_on_open = "1";
+
+  // when opening new db, only new_cookie_on_open is used as CLOUDMANIFEST suffix
+  cloud_env_options_.new_cookie_on_open = "2";
   OpenDB();
-  std::string new_cookie = "2";
-  std::string new_epoch = "dca7f3e19212c4b3";
-  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
-      dbname_, new_cookie,
-      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
-  ASSERT_OK(GetCloudEnvImpl()->UploadLocalCloudManifestAndManifest(dbname_, new_cookie));
+  ASSERT_OK(db_->Put({}, "k1", "v1"));
+  ASSERT_OK(db_->Flush({}));
+
+  ASSERT_NOK(aenv_->GetStorageProvider()->ExistsCloudObject(
+      aenv_->GetSrcBucketName(), MakeCloudManifestFile(dbname_, "1")));
+  // CLOUDMANIFEST-2 should exist since this is a new db
+  ASSERT_OK(aenv_->GetStorageProvider()->ExistsCloudObject(
+      aenv_->GetSrcBucketName(), MakeCloudManifestFile(dbname_, "2")));
   CloseDB();
 
-  cloud_env_options_.cookie_on_open = "";
+  // reopen and switch cookie
+  cloud_env_options_.cookie_on_open = "2";
+  cloud_env_options_.new_cookie_on_open = "3";
   OpenDB();
-  ASSERT_OK(db_->Get({}, "k", &value));
-  EXPECT_EQ(value, "v");
+  // CLOUDMANIFEST-3 is the new cloud manifest
+  ASSERT_OK(aenv_->GetStorageProvider()->ExistsCloudObject(
+      aenv_->GetSrcBucketName(), MakeCloudManifestFile(dbname_, "3")));
+
+  std::string value;
+  ASSERT_OK(db_->Get({}, "k1", &value));
+  EXPECT_EQ(value, "v1");
+
+  ASSERT_OK(db_->Put({}, "k2", "v2"));
+  ASSERT_OK(db_->Flush({}));
+  CloseDB();
+
+  // reopen DB, but don't switch CLOUDMANIFEST
+  cloud_env_options_.cookie_on_open = "3";
+  cloud_env_options_.new_cookie_on_open = "3";
+  OpenDB();
+  ASSERT_OK(db_->Get({}, "k2", &value));
+  EXPECT_EQ(value, "v2");
   CloseDB();
 }
 
