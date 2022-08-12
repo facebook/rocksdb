@@ -3830,7 +3830,8 @@ Status DBImpl::WaitForCompact(bool wait_unscheduled) {
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||
-          (wait_unscheduled && unscheduled_compactions_)) &&
+          (wait_unscheduled &&
+           (unscheduled_compactions_ || unscheduled_flushes_))) &&
          (error_handler_.GetBGError().ok())) {
     bg_cv_.Wait();
   }

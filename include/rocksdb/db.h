@@ -1742,6 +1742,9 @@ class DB {
     return Status::NotSupported("NewDefaultReplayer() is not implemented.");
   }
 
+  virtual Status WaitForCompact(bool wait_unscheduled) {
+    return Status::NotSupported("WaitForCompact() is not implemented.");
+  }
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

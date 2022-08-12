@@ -1032,7 +1032,7 @@ class DBImpl : public DB {
   // Wait for any compaction
   // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
   // is only for the special test of CancelledCompactions
-  Status WaitForCompact(bool waitUnscheduled = false);
+  Status WaitForCompact(bool waitUnscheduled = false) override;
 
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]
