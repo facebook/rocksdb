@@ -1961,7 +1961,10 @@ void CompactionJob::LogCompaction() {
       stream.EndArray();
     }
     stream << "score" << compaction->score() << "input_data_size"
-           << compaction->CalculateTotalInputSize();
+           << compaction->CalculateTotalInputSize() << "oldest_snapshot_seqno"
+           << (existing_snapshots_.empty()
+                   ? int64_t{-1}  // Use -1 for "none"
+                   : static_cast<int64_t>(existing_snapshots_[0]));
   }
 }
 
