@@ -38,10 +38,10 @@ class TruncatedRangeDelIterator {
 
   bool Valid() const;
 
-  void Next();
-  void Prev();
+  void Next() { iter_->TopNext(); }
+  void Prev() { iter_->TopPrev(); }
 
-  void InternalNext();
+  void InternalNext() { iter_->Next(); }
 
   // Seeks to the tombstone with the highest visible sequence number that covers
   // target (a user key). If no such tombstone exists, the position will be at
@@ -281,11 +281,11 @@ class RangeDelAggregator {
       const InternalKey* smallest = nullptr,
       const InternalKey* largest = nullptr) = 0;
 
-  bool ShouldDelete(const Slice& key, RangeDelPositioningMode mode) {
+  bool ShouldDelete(const Slice& ikey, RangeDelPositioningMode mode) {
     ParsedInternalKey parsed;
 
     Status pik_status =
-        ParseInternalKey(key, &parsed, false /* log_err_key */);  // TODO
+        ParseInternalKey(ikey, &parsed, false /* log_err_key */);  // TODO
     assert(pik_status.ok());
     if (!pik_status.ok()) {
       return false;
