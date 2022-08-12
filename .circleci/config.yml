@@ -3,11 +3,6 @@ version: 2.1
 orbs:
   win: circleci/windows@2.4.0
 
-aliases:
-  - &notify-on-main-failure
-    fail_only: true
-    only_for_branches: main
-
 commands:
   install-cmake-on-macos:
     steps:
@@ -61,35 +56,21 @@ commands:
       - store_artifacts: # store LOG for debugging if there's any
           path: LOG
       - run: # on fail, compress Test Logs for diagnosing the issue
-         name: Compress Test Logs
-         command: tar -cvzf t.tar.gz t
-         when: on_fail
+          name: Compress Test Logs
+          command: tar -cvzf t.tar.gz t
+          when: on_fail
       - store_artifacts: # on fail, store Test Logs for diagnosing the issue
           path: t.tar.gz
           destination: test_logs
           when: on_fail
-
-  install-clang-10:
-    steps:
-      - run:
-          name: Install Clang 10
+      - run: # store core dumps if there's any
           command: |
-            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-10 main" | sudo tee -a /etc/apt/sources.list
-            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-10 main" | sudo tee -a /etc/apt/sources.list
-            echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
-            sudo apt-get update -y && sudo apt-get install -y clang-10
-
-  install-clang-13:
-    steps:
-      - run:
-          name: Install Clang 13
-          command: |
-            echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
-            echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-13 main" | sudo tee -a /etc/apt/sources.list
-            echo "APT::Acquire::Retries \"10\";" | sudo tee -a /etc/apt/apt.conf.d/80-retries # llvm.org unreliable
-            wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
-            sudo apt-get update -y && sudo apt-get install -y clang-13
+            mkdir -p /tmp/core_dumps
+            cp core.* /tmp/core_dumps
+          when: on_fail
+      - store_artifacts:
+          path: /tmp/core_dumps
+          when: on_fail
 
   install-gflags:
     steps:
@@ -98,33 +79,6 @@ commands:
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
 
-  install-benchmark:
-    steps:
-      - run:
-          name: Install ninja build
-          command: sudo apt-get update -y && sudo apt-get install -y ninja-build
-      - run:
-          name: Install benchmark
-          command: |
-            git clone --depth 1 --branch v1.6.1 https://github.com/google/benchmark.git ~/benchmark
-            cd ~/benchmark && mkdir build && cd build
-            cmake .. -GNinja -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_ENABLE_GTEST_TESTS=0
-            ninja && sudo ninja install
-
-  install-valgrind:
-    steps:
-      - run:
-          name: Install valgrind
-          command: sudo apt-get update -y && sudo apt-get install -y valgrind
-
-  upgrade-cmake:
-    steps:
-      - run:
-          name: Upgrade cmake
-          command: |
-            sudo apt remove --purge cmake
-            sudo snap install cmake --classic
-
   install-gflags-on-macos:
     steps:
       - run:
@@ -132,48 +86,8 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
 
-  install-gtest-parallel:
-    steps:
-      - run:
-          name: Install gtest-parallel
-          command: |
-            git clone --single-branch --branch master --depth 1 https://github.com/google/gtest-parallel.git ~/gtest-parallel
-            echo 'export PATH=$HOME/gtest-parallel:$PATH' >> $BASH_ENV
-
-  install-compression-libs:
-    steps:
-      - run:
-          name: Install compression libs
-          command: |
-            sudo apt-get update -y && sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
-
-  install-streaming-compress-libs:
-    steps:
-      - run:
-          name: Install streaming compression libs
-          command: |
-            sudo apt-get update -y && sudo apt-get install -y libzstd-dev
-
-  install-libprotobuf-mutator:
-    steps:
-      - run:
-          name: Install libprotobuf-mutator libs
-          command: |
-            git clone -b v1.0 git@github.com:google/libprotobuf-mutator.git ~/libprotobuf-mutator
-            cd ~/libprotobuf-mutator && git checkout ffd86a32874e5c08a143019aad1aaf0907294c9f && mkdir build && cd build
-            cmake .. -GNinja -DCMAKE_C_COMPILER=clang-13 -DCMAKE_CXX_COMPILER=clang++-13 -DCMAKE_BUILD_TYPE=Release -DLIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF=ON
-            ninja && sudo ninja install
-      - run:
-          name: Setup environment variables
-          command: |
-            echo "export PKG_CONFIG_PATH=/usr/local/OFF/:~/libprotobuf-mutator/build/external.protobuf/lib/pkgconfig/" >> $BASH_ENV
-            echo "export PROTOC_BIN=~/libprotobuf-mutator/build/external.protobuf/bin/protoc" >> $BASH_ENV
   setup-folly:
     steps:
-      - run:
-          name: Install folly dependencies
-          command: |
-            sudo apt-get install libgoogle-glog-dev
       - run:
           name: Checkout folly sources
           command: |
@@ -190,14 +104,17 @@ commands:
   perform-benchmarks:
     steps:
       - run:
-          name: "Run basic benchmark, 5 min"
-          command: ./tools/benchmark.sh fillseq_enable_wal
+          name: "Test low-variance benchmarks"
+          command: ./tools/benchmark_ci.py --db_dir /tmp/rocksdb-benchmark-datadir --output_dir /tmp/benchmark-results --num_keys 10000000
           environment:
             LD_LIBRARY_PATH: /usr/local/lib
-            DB_DIR: /tmp/rocksdb-benchmark-datadir
-            WAL_DIR: /tmp/rocksdb-benchmark-waldir
-            OUTPUT_DIR: /tmp/benchmark-results
-            NUM_KEYS: 10000000
+            # How long to run parts of the test(s)
+            DURATION_RO: 450
+            DURATION_RW: 450
+            # The benchmark host has 32GB memory
+            # The folllowing values are tailored to work with that
+            # Note, tests may not exercise the targeted issues if the memory is increased on new test hosts.
+
 
   post-benchmarks:
     steps:
@@ -209,7 +126,7 @@ commands:
           command: |
             set +e
             set +o pipefail
-            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3/_doc
+            ./build_tools/benchmark_log_tool.py --tsvfile /tmp/benchmark-results/report.tsv --esdocument https://search-rocksdb-bench-k2izhptfeap2hjfxteolsgsynm.us-west-2.es.amazonaws.com/bench_test3_rix/_doc
             true
 
 executors:
@@ -218,6 +135,21 @@ executors:
       image: 'windows-server-2019-vs2019:stable'
       resource_class: windows.2xlarge
       shell: bash.exe
+  linux-docker:
+    docker:
+      # The image configuration is build_tools/ubuntu20_image/Dockerfile
+      # To update and build the image:
+      #  $ cd build_tools/ubuntu20_image
+      #  $ docker build -t zjay437/rocksdb:0.5 .
+      #  $ docker push zjay437/rocksdb:0.5
+      # `zjay437` is the account name for zjay@meta.com which readwrite token is shared internally. To login:
+      #  $ docker login --username zjay437
+      # Or please feel free to change it to your docker hub account for hosting the image, meta employee should already have the account and able to login with SSO.
+      # To avoid impacting the existing CI runs, please bump the version every time creating a new image
+      # to run the CI image environment locally:
+      #  $ docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -it zjay437/rocksdb:0.5 bash
+      # option `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined` is used to enable gdb to attach an existing process
+      - image: zjay437/rocksdb:0.5
 
 jobs:
   build-macos:
@@ -269,172 +201,132 @@ jobs:
       - post-steps
 
   build-linux:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-streaming-compress-libs
       - run: make V=1 J=32 -j32 check
       - post-steps
 
   build-linux-encrypted_env-no_compression:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
       - run: ENCRYPTED_ENV=1 ROCKSDB_DISABLE_SNAPPY=1 ROCKSDB_DISABLE_ZLIB=1 ROCKSDB_DISABLE_BZIP=1 ROCKSDB_DISABLE_LZ4=1 ROCKSDB_DISABLE_ZSTD=1 make V=1 J=32 -j32 check
       - run: |
           ./sst_dump --help | egrep -q 'Supported compression types: kNoCompression$' # Verify no compiled in compression
       - post-steps
 
   build-linux-shared_lib-alt_namespace-status_checked:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
       - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check
       - post-steps
 
   build-linux-release:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - checkout # check out the code in the project directory
       - run: make V=1 -j32 release
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - install-gflags
-      - run: make V=1 -j32 release
       - run: ./db_stress --version # ensure with gflags
+      - run: make clean
+      - run: apt-get remove -y libgflags-dev
+      - run: make V=1 -j32 release
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
   build-linux-release-rtti:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-      - run: make clean
       - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
       - run: ./db_stress --version # ensure with gflags
+      - run: make clean
+      - run: apt-get remove -y libgflags-dev
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
 
   build-linux-lite:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
       - run: LITE=1 make V=1 J=8 -j8 check
       - post-steps
 
   build-linux-lite-release:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
       - run: LITE=1 make V=1 -j8 release
-      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
-      - install-gflags
-      - run: LITE=1 make V=1 -j8 release
       - run: ./db_stress --version # ensure with gflags
+      - run: make clean
+      - run: apt-get remove -y libgflags-dev
+      - run: LITE=1 make V=1 -j8 release
+      - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - post-steps
 
   build-linux-clang-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
-      - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev libtbb-dev
       - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all
       - post-steps
 
   build-linux-clang10-asan:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
       - run: COMPILE_WITH_ASAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-clang10-mini-tsan:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: 2xlarge
-    # find test list by `make list_all_tests`
-    parameters:
-      start_test:
-        default: ""
-        type: string
-      end_test:
-        default: ""
-        type: string
+    executor: linux-docker
+    resource_class: 2xlarge+
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
-      - install-gtest-parallel
-      - run:
-          name: "Build unit tests"
-          command: |
-            echo "env: $(env)"
-            ROCKSDBTESTS_START=<<parameters.start_test>> ROCKSDBTESTS_END=<<parameters.end_test>> ROCKSDBTESTS_SUBSET_TESTS_TO_FILE=/tmp/test_list COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 --output-sync=target build_subset_tests
-      - run:
-          name: "Run unit tests in parallel"
-          command: |
-            sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
-            cat /tmp/test_list
-            gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
+      - run: COMPILE_WITH_TSAN=1 CC=clang-13 CXX=clang++-13 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 check
       - post-steps
 
   build-linux-clang10-ubsan:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
       - run: COMPILE_WITH_UBSAN=1 OPT="-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1 make V=1 -j32 ubsan_check # aligned new doesn't work for reason we haven't figured out
       - post-steps
 
   build-linux-valgrind:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-valgrind
       - run: PORTABLE=1 make V=1 -j32 valgrind_test
       - post-steps
 
   build-linux-clang10-clang-analyze:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-clang-10
-      - run: sudo apt-get update -y && sudo apt-get install -y clang-tools-10
       - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
       - post-steps
+      - run:
+          name: "compress test report"
+          command: tar -cvzf scan_build_report.tar.gz scan_build_report
+          when: on_fail
+      - store_artifacts:
+          path: scan_build_report.tar.gz
+          destination: scan_build_report
+          when: on_fail
 
   build-linux-runner:
     machine: true
@@ -449,26 +341,20 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - upgrade-cmake
       - setup-folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-cmake-with-benchmark:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-benchmark
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20)
+      - run: mkdir build && cd build && cmake -DWITH_GFLAGS=1 -DWITH_BENCHMARK=1 .. && make V=1 -j20 && ctest -j20
       - post-steps
 
   build-linux-unity-and-headers:
@@ -485,91 +371,93 @@ jobs:
       - post-steps
 
   build-linux-gcc-7-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
       - setup-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
 
   build-linux-gcc-8-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
-      - run: CC=gcc-8 CXX=g++-8 V=1 make -j16 all
+      - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
-      - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all
+      - run: CC=gcc-10 CXX=g++-10 V=1 ROCKSDB_CXX_STANDARD=c++20 make -j32 all
       - post-steps
 
   build-linux-gcc-11-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-11 g++-11 libgflags-dev
-      - install-benchmark
-      - run: CC=gcc-11 CXX=g++-11 V=1 make -j16 all microbench
+      - run: CC=gcc-11 CXX=g++-11 V=1 make -j32 all microbench
       - post-steps
 
   build-linux-clang-13-no_test_run:
-    machine:
-      image: ubuntu-2004:202111-02
-    resource_class: xlarge
+    executor: linux-docker
+    resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-clang-13
-      - install-benchmark
-      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j16 all microbench
+      - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j32 all microbench
       - post-steps
 
   # Ensure ASAN+UBSAN with folly, and full testsuite with clang 13
   build-linux-clang-13-asan-ubsan-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-clang-13
-      - install-gflags
       - setup-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 
   # This job is only to make sure the microbench tests are able to run, the benchmark result is not meaningful as the CI host is changing.
   build-linux-run-microbench:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-benchmark
       - run: DEBUG_LEVEL=0 make -j32 run_microbench
       - post-steps
 
   build-linux-mini-crashtest:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
-      - install-compression-libs
       - run: ulimit -S -n `ulimit -H -n` && make V=1 -j8 CRASH_TEST_EXT_ARGS=--duration=960 blackbox_crash_test_with_atomic_flush
+      - post-steps
+
+  build-linux-crashtest-tiered-storage-bb:
+    executor: linux-docker
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - run:
+          name: "run crashtest"
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 blackbox_crash_test_with_tiered_storage
+          no_output_timeout: 100m
+      - post-steps
+
+  build-linux-crashtest-tiered-storage-wb:
+    executor: linux-docker
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - run:
+          name: "run crashtest"
+          command: ulimit -S -n `ulimit -H -n` && make V=1 -j32 CRASH_TEST_EXT_ARGS=--duration=10800 whitebox_crash_test_with_tiered_storage
+          no_output_timeout: 100m
       - post-steps
 
   build-windows:
@@ -641,14 +529,10 @@ jobs:
             build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test,db_test2,db_merge_operand_test,bloom_test,c_test,coding_test,crc32c_test,dynamic_bloom_test,env_basic_test,env_test,hash_test,random_test -Concurrency 16
 
   build-linux-java:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
-    environment:
-      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Set Java Environment"
           command: |
@@ -662,14 +546,10 @@ jobs:
       - post-steps
 
   build-linux-java-static:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
-    environment:
-      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Set Java Environment"
           command: |
@@ -755,34 +635,25 @@ jobs:
       - post-steps
 
   build-examples:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
       - run:
           name: "Build examples"
           command: |
-            OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
+            make V=1 -j4 static_lib && cd examples && make V=1 -j4
       - post-steps
 
   build-cmake-mingw:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-gflags
-      - run: sudo apt-get update -y && sudo apt-get install -y mingw-w64
-      - run: sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+      - run: update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
       - run:
           name: "Build cmake-mingw"
           command: |
-            sudo apt-get install snapd && sudo snap install cmake --beta --classic
-            export PATH=/snap/bin:$PATH
-            sudo apt-get install -y openjdk-8-jdk
-            export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
             export PATH=$JAVA_HOME/bin:$PATH
             echo "JAVA_HOME=${JAVA_HOME}"
             which java && java -version
@@ -791,14 +662,12 @@ jobs:
       - post-steps
 
   build-linux-non-shm:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     environment:
       TEST_TMPDIR: /tmp/rocksdb_test_tmp
     steps:
       - pre-steps
-      - install-gflags
       - run: make V=1 -j32 check
       - post-steps
 
@@ -856,13 +725,10 @@ jobs:
       - post-steps
 
   build-format-compatible:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
-      - install-compression-libs
       - run:
           name: "test"
           command: |
@@ -873,14 +739,10 @@ jobs:
       - post-steps
 
   build-fuzzers:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: large
     steps:
       - pre-steps
-      - install-clang-13
-      - run: sudo apt-get update -y && sudo apt-get install -y cmake ninja-build binutils liblzma-dev libz-dev pkg-config autoconf libtool
-      - install-libprotobuf-mutator
       - run:
           name: "Build rocksdb lib"
           command: CC=clang-13 CXX=clang++-13 USE_CLANG=1 make -j4 static_lib
@@ -911,12 +773,7 @@ workflows:
     jobs:
       - build-linux-clang10-asan
       - build-linux-clang10-ubsan
-      - build-linux-clang10-mini-tsan:
-          start_test: ""
-          end_test: "env_test"
-      - build-linux-clang10-mini-tsan:
-          start_test: "env_test"
-          end_test: ""
+      - build-linux-clang10-mini-tsan
       - build-linux-shared_lib-alt_namespace-status_checked
   jobs-linux-no-test-run:
     jobs:

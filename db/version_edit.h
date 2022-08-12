@@ -216,10 +216,6 @@ struct FileMetaData {
 
   // File checksum function name
   std::string file_checksum_func_name = kUnknownFileChecksumFuncName;
-  // Min (oldest) timestamp of keys in this file
-  std::string min_timestamp;
-  // Max (newest) timestamp of keys in this file
-  std::string max_timestamp;
 
   // SST unique id
   UniqueId64x2 unique_id{};
@@ -234,7 +230,6 @@ struct FileMetaData {
                uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
                const std::string& _file_checksum,
                const std::string& _file_checksum_func_name,
-               std::string _min_timestamp, std::string _max_timestamp,
                UniqueId64x2 _unique_id)
       : fd(file, file_path_id, file_size, smallest_seq, largest_seq),
         smallest(smallest_key),
@@ -246,8 +241,6 @@ struct FileMetaData {
         file_creation_time(_file_creation_time),
         file_checksum(_file_checksum),
         file_checksum_func_name(_file_checksum_func_name),
-        min_timestamp(std::move(_min_timestamp)),
-        max_timestamp(std::move(_max_timestamp)),
         unique_id(std::move(_unique_id)) {
     TEST_SYNC_POINT_CALLBACK("FileMetaData::FileMetaData", this);
   }
@@ -309,8 +302,7 @@ struct FileMetaData {
     usage += sizeof(*this);
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     usage += smallest.size() + largest.size() + file_checksum.size() +
-             file_checksum_func_name.size() + min_timestamp.size() +
-             max_timestamp.size();
+             file_checksum_func_name.size();
     return usage;
   }
 };
@@ -435,8 +427,6 @@ class VersionEdit {
                uint64_t oldest_ancester_time, uint64_t file_creation_time,
                const std::string& file_checksum,
                const std::string& file_checksum_func_name,
-               const std::string& min_timestamp,
-               const std::string& max_timestamp,
                const UniqueId64x2& unique_id) {
     assert(smallest_seqno <= largest_seqno);
     new_files_.emplace_back(
@@ -445,7 +435,7 @@ class VersionEdit {
                      smallest_seqno, largest_seqno, marked_for_compaction,
                      temperature, oldest_blob_file_number, oldest_ancester_time,
                      file_creation_time, file_checksum, file_checksum_func_name,
-                     min_timestamp, max_timestamp, unique_id));
+                     unique_id));
     if (!HasLastSequence() || largest_seqno > GetLastSequence()) {
       SetLastSequence(largest_seqno);
     }

@@ -1470,6 +1470,8 @@ struct ReadOptions {
   // need to have the same prefix. This is because ordering is not guaranteed
   // outside of prefix domain.
   //
+  // In case of user_defined timestamp, if enabled, iterate_lower_bound should
+  // point to key without timestamp part.
   // Default: nullptr
   const Slice* iterate_lower_bound;
 
@@ -1489,6 +1491,8 @@ struct ReadOptions {
   // If iterate_upper_bound is not null, SeekToLast() will position the iterator
   // at the first key smaller than iterate_upper_bound.
   //
+  // In case of user_defined timestamp, if enabled, iterate_upper_bound should
+  // point to key without timestamp part.
   // Default: nullptr
   const Slice* iterate_upper_bound;
 
@@ -1843,8 +1847,11 @@ enum class BlobGarbageCollectionPolicy {
 // CompactRangeOptions is used by CompactRange() call.
 struct CompactRangeOptions {
   // If true, no other compaction will run at the same time as this
-  // manual compaction
-  bool exclusive_manual_compaction = true;
+  // manual compaction.
+  //
+  // Default: false
+  bool exclusive_manual_compaction = false;
+
   // If true, compacted files will be moved to the minimum level capable
   // of holding the data or given level (specified non-negative target_level).
   bool change_level = false;
@@ -1865,7 +1872,7 @@ struct CompactRangeOptions {
   uint32_t max_subcompactions = 0;
   // Set user-defined timestamp low bound, the data with older timestamp than
   // low bound maybe GCed by compaction. Default: nullptr
-  Slice* full_history_ts_low = nullptr;
+  const Slice* full_history_ts_low = nullptr;
 
   // Allows cancellation of an in-progress manual compaction.
   //
