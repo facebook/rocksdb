@@ -400,7 +400,7 @@ class MemTableIterator : public InternalIterator {
   PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
 #endif
 
-  bool Valid() const override { return valid_; }
+  bool Valid() const override { return valid_ && status_.ok(); }
   void Seek(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
@@ -524,7 +524,6 @@ class MemTableIterator : public InternalIterator {
       status_ = MemTable::VerifyEntryChecksum(iter_->key(),
                                               protection_bytes_per_key_);
       if (!status_.ok()) {
-        valid_ = false;
         ROCKS_LOG_ERROR(logger_, "In MemtableIterator: %s", status_.getState());
       }
     }
@@ -884,7 +883,7 @@ static bool SaveValue(void* arg, const char* entry) {
 
   assert(merge_context != nullptr);
 
-  // Refer to comments under MemTable::Add for entry format.
+  // Refer to comments under MemTable::Add() for entry format.
   // Check that it belongs to same user key.
   uint32_t key_length = 0;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
@@ -1245,7 +1244,7 @@ Status MemTable::Update(SequenceNumber seq, ValueType value_type,
   iter->Seek(lkey.internal_key(), mem_key.data());
 
   if (iter->Valid()) {
-    // Refer to comments under MemTable::Add for entry format.
+    // Refer to comments under MemTable::Add() for entry format.
     // Check that it belongs to same user key.  We do not check the
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
@@ -1308,7 +1307,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
   iter->Seek(lkey.internal_key(), memkey.data());
 
   if (iter->Valid()) {
-    // Refer to comments under MemTable::Add for entry format.
+    // Refer to comments under MemTable::Add() for entry format.
     // Check that it belongs to same user key.  We do not check the
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.

@@ -26,7 +26,7 @@ WriteBatchOpType operator+(WriteBatchOpType lhs, const int rhs) {
 }
 
 enum class WriteMode {
-  // `Write()` a `WriteBach` constructed with `protection_bytes_per_key = 0`
+  // `Write()` a `WriteBatch` constructed with `protection_bytes_per_key = 0`
   // and `WriteOptions::protection_bytes_per_key = 0`
   kWriteUnprotectedBatch = 0,
   // `Write()` a `WriteBatch` constructed with `protection_bytes_per_key > 0`.
@@ -694,7 +694,7 @@ class DbMemtableKVChecksumTest : public DbKvChecksumTest {
   // key length field is at index 0 and value length field is at index 12.
   const std::set<size_t> index_not_to_corrupt{0, 12};
 
-  void skip_not_to_corrupt_entry() {
+  void SkipNotToCorruptEntry() {
     if (index_not_to_corrupt.find(corrupt_byte_offset_) !=
         index_not_to_corrupt.end()) {
       corrupt_byte_offset_++;
@@ -747,14 +747,14 @@ TEST_P(DbMemtableKVChecksumTest, GetWithCorruptAfterMemtableInsert) {
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
 
-  skip_not_to_corrupt_entry();
+  SkipNotToCorruptEntry();
   while (MoreBytesToCorrupt()) {
     Reopen(options);
     ASSERT_OK(ExecuteWrite(nullptr));
     std::string val;
     ASSERT_TRUE(db_->Get(ReadOptions(), "key", &val).IsCorruption());
     Destroy(options);
-    skip_not_to_corrupt_entry();
+    SkipNotToCorruptEntry();
   }
 }
 
@@ -784,7 +784,7 @@ TEST_P(DbMemtableKVChecksumTest,
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
 
-  skip_not_to_corrupt_entry();
+  SkipNotToCorruptEntry();
   while (MoreBytesToCorrupt()) {
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -793,7 +793,7 @@ TEST_P(DbMemtableKVChecksumTest,
     ASSERT_TRUE(
         db_->Get(ReadOptions(), handles_[1], "key", &val).IsCorruption());
     Destroy(options);
-    skip_not_to_corrupt_entry();
+    SkipNotToCorruptEntry();
   }
 }
 
@@ -810,7 +810,7 @@ TEST_P(DbMemtableKVChecksumTest, IteratorWithCorruptAfterMemtableInsert) {
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
 
-  skip_not_to_corrupt_entry();
+  SkipNotToCorruptEntry();
   while (MoreBytesToCorrupt()) {
     Reopen(options);
     ASSERT_OK(ExecuteWrite(nullptr));
@@ -820,7 +820,7 @@ TEST_P(DbMemtableKVChecksumTest, IteratorWithCorruptAfterMemtableInsert) {
     ASSERT_TRUE(it->status().IsCorruption());
     delete it;
     Destroy(options);
-    skip_not_to_corrupt_entry();
+    SkipNotToCorruptEntry();
   }
 }
 
@@ -838,7 +838,7 @@ TEST_P(DbMemtableKVChecksumTest,
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
 
-  skip_not_to_corrupt_entry();
+  SkipNotToCorruptEntry();
   while (MoreBytesToCorrupt()) {
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -849,7 +849,7 @@ TEST_P(DbMemtableKVChecksumTest,
     ASSERT_TRUE(it->status().IsCorruption());
     delete it;
     Destroy(options);
-    skip_not_to_corrupt_entry();
+    SkipNotToCorruptEntry();
   }
 }
 
@@ -866,7 +866,7 @@ TEST_P(DbMemtableKVChecksumTest, FlushWithCorruptAfterMemtableInsert) {
     options.merge_operator = MergeOperators::CreateStringAppendOperator();
   }
 
-  skip_not_to_corrupt_entry();
+  SkipNotToCorruptEntry();
   // Not corruping each byte like other tests since Flush() is relatively slow.
   Reopen(options);
   ASSERT_OK(ExecuteWrite(nullptr));
