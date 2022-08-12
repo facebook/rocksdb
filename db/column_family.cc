@@ -699,19 +699,6 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
-
-  if (data_dirs_.size()) {  // Explicitly close data directories
-    Status s = Status::OK();
-    for (auto& data_dir_ptr : data_dirs_) {
-      if (data_dir_ptr) {
-        s = data_dir_ptr->Close(IOOptions(), nullptr);
-        if (!s.ok()) {
-          // TODO(zichen): add `Status Close()` and `CloseDirectories()
-          s.PermitUncheckedError();
-        }
-      }
-    }
-  }
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {
@@ -786,13 +773,13 @@ namespace {
 std::unique_ptr<WriteControllerToken> SetupDelay(
     WriteController* write_controller, uint64_t compaction_needed_bytes,
     uint64_t prev_compaction_need_bytes, bool penalize_stop,
-    bool auto_comapctions_disabled) {
+    bool auto_compactions_disabled) {
   const uint64_t kMinWriteRate = 16 * 1024u;  // Minimum write rate 16KB/s.
 
   uint64_t max_write_rate = write_controller->max_delayed_write_rate();
   uint64_t write_rate = write_controller->delayed_write_rate();
 
-  if (auto_comapctions_disabled) {
+  if (auto_compactions_disabled) {
     // When auto compaction is disabled, always use the value user gave.
     write_rate = max_write_rate;
   } else if (write_controller->NeedsDelay() && max_write_rate > kMinWriteRate) {
@@ -1162,8 +1149,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 
   auto read_seq = super_version->current->version_set()->LastSequence();
   ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
-  auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
+  auto* active_range_del_iter = super_version->mem->NewRangeTombstoneIterator(
+      read_opts, read_seq, false /* immutable_memtable */);
   range_del_agg.AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
   Status status;

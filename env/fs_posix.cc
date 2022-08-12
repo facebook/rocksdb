@@ -48,7 +48,6 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/lang.h"
@@ -83,8 +82,6 @@ namespace {
 inline mode_t GetDBFileMode(bool allow_non_owner_access) {
   return allow_non_owner_access ? 0644 : 0600;
 }
-
-static uint64_t gettid() { return Env::Default()->GetThreadID(); }
 
 // list of pathnames that are locked
 // Only used for error message.
@@ -555,47 +552,6 @@ class PosixFileSystem : public FileSystem {
     return IOStatus::OK();
   }
 
-  IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
-                     std::shared_ptr<Logger>* result,
-                     IODebugContext* /*dbg*/) override {
-    FILE* f = nullptr;
-    int fd;
-    {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(),
-                cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr),
-                GetDBFileMode(allow_non_owner_access_));
-      if (fd != -1) {
-        f = fdopen(fd,
-                   "w"
-#ifdef __GLIBC_PREREQ
-#if __GLIBC_PREREQ(2, 7)
-                   "e"  // glibc extension to enable O_CLOEXEC
-#endif
-#endif
-        );
-      }
-    }
-    if (fd == -1) {
-      result->reset();
-      return status_to_io_status(
-          IOError("when open a file for new logger", fname, errno));
-    }
-    if (f == nullptr) {
-      close(fd);
-      result->reset();
-      return status_to_io_status(
-          IOError("when fdopen a file for new logger", fname, errno));
-    } else {
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
-#endif
-      SetFD_CLOEXEC(fd, nullptr);
-      result->reset(new PosixLogger(f, &gettid, Env::Default()));
-      return IOStatus::OK();
-    }
-  }
-
   IOStatus FileExists(const std::string& fname, const IOOptions& /*opts*/,
                       IODebugContext* /*dbg*/) override {
     int result = access(fname.c_str(), F_OK);
@@ -883,8 +839,8 @@ class PosixFileSystem : public FileSystem {
       return IOStatus::OK();
     }
 
-    char the_path[256];
-    char* ret = getcwd(the_path, 256);
+    char the_path[4096];
+    char* ret = getcwd(the_path, 4096);
     if (ret == nullptr) {
       return IOStatus::IOError(errnoStr(errno).c_str());
     }

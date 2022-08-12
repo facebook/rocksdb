@@ -141,6 +141,10 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
+  Status MultiGetFilter(const ReadOptions& read_options,
+                        const SliceTransform* prefix_extractor,
+                        MultiGetRange* mget_range) override;
+
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
                                   const ReadOptions& readOptions,
                                   const MultiGetContext::Range* mget_range,
@@ -167,6 +171,9 @@ class BlockBasedTable : public TableReader {
   // The start key must not be greater than the end key.
   uint64_t ApproximateSize(const Slice& start, const Slice& end,
                            TableReaderCaller caller) override;
+
+  Status ApproximateKeyAnchors(const ReadOptions& read_options,
+                               std::vector<Anchor>& anchors) override;
 
   bool TEST_BlockInCache(const BlockHandle& handle) const;
 

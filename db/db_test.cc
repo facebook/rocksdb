@@ -492,7 +492,7 @@ TEST_F(DBTest, PutSingleDeleteGet) {
     ASSERT_EQ("v2", Get(1, "foo2"));
     ASSERT_OK(SingleDelete(1, "foo"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -645,7 +645,7 @@ TEST_F(DBTest, SingleDeleteFlush) {
 
     ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction beccaus they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -668,7 +668,7 @@ TEST_F(DBTest, SingleDeletePutFlush) {
     ASSERT_OK(Flush(1));
 
     ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction beccaus they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -1993,7 +1993,7 @@ TEST_F(DBTest, UnremovableSingleDelete) {
     ASSERT_EQ("first", Get(1, "foo", snapshot));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
     db_->ReleaseSnapshot(snapshot);
-    // Skip FIFO and universal compaction beccause they do not apply to the test
+    // Skip FIFO and universal compaction because they do not apply to the test
     // case. Skip MergePut because single delete does not get removed when it
     // encounters a merge.
   } while (ChangeOptions(kSkipFIFOCompaction | kSkipUniversalCompaction |
@@ -2773,7 +2773,7 @@ INSTANTIATE_TEST_CASE_P(
 #endif  // ROCKSDB_LITE
 
 // Group commit test:
-#if !defined(TRAVIS) && !defined(OS_WIN)
+#if !defined(OS_WIN)
 // Disable this test temporarily on Travis and appveyor as it fails
 // intermittently. Github issue: #4151
 namespace {
@@ -2850,7 +2850,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));
 }
-#endif  // TRAVIS
+#endif  // OS_WIN
 
 namespace {
 using KVMap = std::map<std::string, std::string>;
@@ -5968,7 +5968,7 @@ TEST_F(DBTest, EmptyCompactedDB) {
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
+TEST_F(DBTest, SuggestCompactRangeTest) {
   class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
    public:
     std::unique_ptr<CompactionFilter> CreateCompactionFilter(
@@ -6007,41 +6007,17 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
 
   Random rnd(301);
 
-  for (int num = 0; num < 3; num++) {
+  for (int num = 0; num < 10; num++) {
     GenerateNewRandomFile(&rnd);
   }
 
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4", FilesPerLevel(0));
   ASSERT_TRUE(!CompactionFilterFactoryGetContext::IsManual(
       options.compaction_filter_factory.get()));
 
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("2,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("3,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("2,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("3,4,4", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("0,4,8", FilesPerLevel(0));
-
-  GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,4,8", FilesPerLevel(0));
+  // make sure either L0 or L1 has file
+  while (NumTableFilesAtLevel(0) == 0 && NumTableFilesAtLevel(1) == 0) {
+    GenerateNewRandomFile(&rnd);
+  }
 
   // compact it three times
   for (int i = 0; i < 3; ++i) {
@@ -6068,12 +6044,69 @@ TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   end = Slice("m");
   ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_TRUE(CompactionFilterFactoryGetContext::IsManual(
+  // SuggestCompactRange() is not going to be reported as manual compaction
+  ASSERT_TRUE(!CompactionFilterFactoryGetContext::IsManual(
       options.compaction_filter_factory.get()));
 
   // now it should compact the level 0 file
+  // as it's a trivial move to L1, it triggers another one to compact to L2
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+}
+
+TEST_F(DBTest, SuggestCompactRangeUniversal) {
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(test::NewSpecialSkipListFactory(
+      DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 200 << 10;
+  options.arena_block_size = 4 << 10;
+  options.level0_file_num_compaction_trigger = 4;
+  options.num_levels = 4;
+  options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 450 << 10;
+  options.target_file_size_base = 98 << 10;
+  options.max_compaction_bytes = static_cast<uint64_t>(1) << 60;  // inf
+
+  Reopen(options);
+
+  Random rnd(301);
+
+  for (int num = 0; num < 10; num++) {
+    GenerateNewRandomFile(&rnd);
+  }
+
+  ASSERT_EQ("1,2,3,4", FilesPerLevel());
+  for (int i = 0; i < 3; i++) {
+    ASSERT_OK(
+        db_->SuggestCompactRange(db_->DefaultColumnFamily(), nullptr, nullptr));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+
+  // All files are compacted
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
+  ASSERT_EQ(0, NumTableFilesAtLevel(2));
+
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // nonoverlapping with the file on level 0
+  Slice start("a"), end("b");
+  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // should not compact the level 0 file
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  start = Slice("j");
+  end = Slice("m");
+  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  // now it should compact the level 0 file to the last level
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
 }
 
 TEST_F(DBTest, PromoteL0) {

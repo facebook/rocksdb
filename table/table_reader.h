@@ -86,6 +86,20 @@ class TableReader {
   virtual uint64_t ApproximateSize(const Slice& start, const Slice& end,
                                    TableReaderCaller caller) = 0;
 
+  struct Anchor {
+    Anchor(const Slice& _user_key, size_t _range_size)
+        : user_key(_user_key.ToStringView()), range_size(_range_size) {}
+    std::string user_key;
+    size_t range_size;
+  };
+
+  // Now try to return approximately 128 anchor keys.
+  // The last one tends to be the largest key.
+  virtual Status ApproximateKeyAnchors(const ReadOptions& /*read_options*/,
+                                       std::vector<Anchor>& /*anchors*/) {
+    return Status::NotSupported("ApproximateKeyAnchors() not supported.");
+  }
+
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   virtual void SetupForCompaction() = 0;
@@ -113,6 +127,15 @@ class TableReader {
                      GetContext* get_context,
                      const SliceTransform* prefix_extractor,
                      bool skip_filters = false) = 0;
+
+  // Use bloom filters in the table file, if present, to filter out keys. The
+  // mget_range will be updated to skip keys that get a negative result from
+  // the filter lookup.
+  virtual Status MultiGetFilter(const ReadOptions& /*readOptions*/,
+                                const SliceTransform* /*prefix_extractor*/,
+                                MultiGetContext::Range* /*mget_range*/) {
+    return Status::NotSupported();
+  }
 
   virtual void MultiGet(const ReadOptions& readOptions,
                         const MultiGetContext::Range* mget_range,

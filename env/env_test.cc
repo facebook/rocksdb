@@ -969,10 +969,6 @@ TEST_P(EnvPosixTestWithParam, ReserveThreads) {
 }
 
 #if (defined OS_LINUX || defined OS_WIN)
-// Travis doesn't support fallocate or getting unique ID from files for whatever
-// reason.
-#ifndef TRAVIS
-
 namespace {
 bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
@@ -1082,11 +1078,20 @@ class IoctlFriendlyTmpdir {
       }
     }
 
+    // check if it's running test within a docker container, in which case, the
+    // file system inside `overlayfs` may not support FS_IOC_GETVERSION
+    // skip the tests
+    struct stat buffer;
+    if (stat("/.dockerenv", &buffer) == 0) {
+      is_supported_ = false;
+      return;
+    }
+
     fprintf(stderr, "failed to find an ioctl-friendly temporary directory;"
             " specify one via the TEST_IOCTL_FRIENDLY_TMPDIR envvar\n");
     std::abort();
 #endif
-}
+  }
 
   ~IoctlFriendlyTmpdir() {
     rmdir(dir_.c_str());
@@ -1096,8 +1101,12 @@ class IoctlFriendlyTmpdir {
     return dir_;
   }
 
+  bool is_supported() const { return is_supported_; }
+
  private:
   std::string dir_;
+
+  bool is_supported_ = true;
 };
 
 #ifndef ROCKSDB_LITE
@@ -1106,8 +1115,10 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   EnvOptions options;
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
-  IoctlFriendlyTmpdir ift;
-  ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
+  std::string fname = test::PerThreadDBPath(env_, "positioned_append");
+  SetupSyncPointsToMockDirectIO();
+
+  ASSERT_OK(env_->NewWritableFile(fname, &writable_file, options));
   const size_t kBlockSize = 4096;
   const size_t kDataSize = kPageSize;
   // Write a page worth of 'a'
@@ -1123,7 +1134,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
 
   // Verify the above
   std::unique_ptr<SequentialFile> seq_file;
-  ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
+  ASSERT_OK(env_->NewSequentialFile(fname, &seq_file, options));
   size_t scratch_len = kPageSize * 2;
   std::unique_ptr<char[]> scratch(new char[scratch_len]);
   Slice result;
@@ -1143,6 +1154,11 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::string fname = ift.name() + "/testfile";
     std::unique_ptr<WritableFile> wfile;
     ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
@@ -1185,13 +1201,13 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST_P(EnvPosixTestWithParam, AllocateTest) {
   if (env_ == Env::Default()) {
-    IoctlFriendlyTmpdir ift;
-    std::string fname = ift.name() + "/preallocate_testfile";
-
+    SetupSyncPointsToMockDirectIO();
+    std::string fname = test::PerThreadDBPath(env_, "preallocate_testfile");
     // Try fallocate in a file to see whether the target file system supports
     // it.
     // Skip the test if fallocate is not supported.
-    std::string fname_test_fallocate = ift.name() + "/preallocate_testfile_2";
+    std::string fname_test_fallocate =
+        test::PerThreadDBPath(env_, "preallocate_testfile_2");
     int fd = -1;
     do {
       fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
@@ -1281,6 +1297,11 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
 
     // Create the files
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::vector<std::string> fnames;
     for (int i = 0; i < 1000; ++i) {
       fnames.push_back(ift.name() + "/" + "testfile" + std::to_string(i));
@@ -1322,6 +1343,11 @@ TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
 
     IoctlFriendlyTmpdir ift;
+    if (!ift.is_supported()) {
+      ROCKSDB_GTEST_BYPASS(
+          "FS_IOC_GETVERSION is not supported by the filesystem");
+      return;
+    }
     std::string fname = ift.name() + "/" + "testfile";
 
     // Check that after file is deleted we don't get same ID again in a new
@@ -1780,7 +1806,6 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     ASSERT_OK(env_->DeleteFile(fname));
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearTrace();
 }
-#endif  // not TRAVIS
 #endif  // OS_LINUX || OS_WIN
 
 class TestLogger : public Logger {

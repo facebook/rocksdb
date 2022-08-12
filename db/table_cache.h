@@ -107,6 +107,19 @@ class TableCache {
       const FileMetaData& file_meta,
       std::unique_ptr<FragmentedRangeTombstoneIterator>* out_iter);
 
+  // Call table reader's MultiGetFilter to use the bloom filter to filter out
+  // keys. Returns Status::NotSupported() if row cache needs to be checked.
+  // If the table cache is looked up to get the table reader, the cache handle
+  // is returned in table_handle. This handle should be passed back to
+  // MultiGet() so it can be released.
+  Status MultiGetFilter(
+      const ReadOptions& options,
+      const InternalKeyComparator& internal_comparator,
+      const FileMetaData& file_meta,
+      const std::shared_ptr<const SliceTransform>& prefix_extractor,
+      HistogramImpl* file_read_hist, int level,
+      MultiGetContext::Range* mget_range, Cache::Handle** table_handle);
+
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
   // it returns false. As a side effect, it will insert the TableReader
@@ -122,7 +135,7 @@ class TableCache {
       const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-      int level = -1);
+      int level = -1, Cache::Handle* table_handle = nullptr);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
@@ -164,6 +177,11 @@ class TableCache {
       std::shared_ptr<const TableProperties>* properties,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       bool no_io = false);
+
+  Status ApproximateKeyAnchors(const ReadOptions& ro,
+                               const InternalKeyComparator& internal_comparator,
+                               const FileDescriptor& file_meta,
+                               std::vector<TableReader::Anchor>& anchors);
 
   // Return total memory usage of the table reader of the file.
   // 0 if table reader of the file is not loaded.
@@ -216,6 +234,11 @@ class TableCache {
       bool prefetch_index_and_filter_in_cache = true,
       size_t max_file_size_for_l0_meta_pin = 0,
       Temperature file_temperature = Temperature::kUnknown);
+
+  // Update the max_covering_tombstone_seq in the GetContext for each key based
+  // on the range deletions in the table
+  void UpdateRangeTombstoneSeqnums(const ReadOptions& options, TableReader* t,
+                                   MultiGetContext::Range& table_range);
 
   // Create a key prefix for looking up the row cache. The prefix is of the
   // format row_cache_id + fd_number + seq_no. Later, the user key can be

@@ -137,6 +137,7 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& handle,
       bool no_io, GetContext* get_context,
       BlockCacheLookupContext* lookup_context,
+      Env::IOPriority rate_limiter_priority,
       CachableEntry<ParsedFullFilterBlock>* filter_block) const;
 
   using FilterFunction = bool (FullFilterBlockReader::*)(

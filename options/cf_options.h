@@ -158,7 +158,10 @@ struct MutableCFOptions {
         bottommost_compression(options.bottommost_compression),
         compression_opts(options.compression_opts),
         bottommost_compression_opts(options.bottommost_compression_opts),
-        bottommost_temperature(options.bottommost_temperature),
+        last_level_temperature(options.last_level_temperature ==
+                                       Temperature::kUnknown
+                                   ? options.bottommost_temperature
+                                   : options.last_level_temperature),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level) {
@@ -206,7 +209,7 @@ struct MutableCFOptions {
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
         bottommost_compression(kDisableCompressionOption),
-        bottommost_temperature(Temperature::kUnknown),
+        last_level_temperature(Temperature::kUnknown),
         sample_for_compression(0) {}
 
   explicit MutableCFOptions(const Options& options);
@@ -294,9 +297,7 @@ struct MutableCFOptions {
   CompressionType bottommost_compression;
   CompressionOptions compression_opts;
   CompressionOptions bottommost_compression_opts;
-  // TODO this experimental option isn't made configurable
-  // through strings yet.
-  Temperature bottommost_temperature;
+  Temperature last_level_temperature;
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
