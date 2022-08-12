@@ -128,7 +128,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
-      {"bottommost_temperature", "kWarm"},
+      {"last_level_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -268,6 +268,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
+  ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";
@@ -2359,7 +2360,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"blob_compaction_readahead_size", "256K"},
       {"blob_file_starting_level", "1"},
       {"prepopulate_blob_cache", "kDisable"},
-      {"bottommost_temperature", "kWarm"},
+      {"last_level_temperature", "kWarm"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -2493,6 +2494,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.blob_compaction_readahead_size, 262144);
   ASSERT_EQ(new_cf_opt.blob_file_starting_level, 1);
   ASSERT_EQ(new_cf_opt.prepopulate_blob_cache, PrepopulateBlobCache::kDisable);
+  ASSERT_EQ(new_cf_opt.last_level_temperature, Temperature::kWarm);
   ASSERT_EQ(new_cf_opt.bottommost_temperature, Temperature::kWarm);
 
   cf_options_map["write_buffer_size"] = "hello";

@@ -3016,6 +3016,8 @@ void InitializeOptionsFromFlags(
   options.track_and_verify_wals_in_manifest = true;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
+  options.memtable_protection_bytes_per_key =
+      FLAGS_memtable_protection_bytes_per_key;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;
@@ -3062,6 +3064,12 @@ void InitializeOptionsFromFlags(
 
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
+
+  if (FLAGS_enable_tiered_storage) {
+    options.bottommost_temperature = Temperature::kCold;
+  }
+  options.preclude_last_level_data_seconds =
+      FLAGS_preclude_last_level_data_seconds;
 
   switch (FLAGS_rep_factory) {
     case kSkipList:

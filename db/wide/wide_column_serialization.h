@@ -48,6 +48,7 @@ class WideColumnSerialization {
 
   static WideColumns::const_iterator Find(const WideColumns& columns,
                                           const Slice& column_name);
+  static Status GetValueOfDefaultColumn(Slice& input, Slice& value);
 
   static constexpr uint32_t kCurrentVersion = 1;
 };

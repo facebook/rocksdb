@@ -1523,8 +1523,25 @@ TEST_F(DBWALTest, RaceInstallFlushResultsWithWalObsoletion) {
       /*wait=*/false, /*allow_write_stall=*/true, handles_[0]));
 
   bool called = false;
+  std::atomic<int> bg_flush_threads{0};
+  std::atomic<bool> wal_synced{false};
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void* /*arg*/) {
+        int cur = bg_flush_threads.load();
+        int desired = cur + 1;
+        if (cur > 0 ||
+            !bg_flush_threads.compare_exchange_strong(cur, desired)) {
+          while (!wal_synced.load()) {
+            // Wait until the other bg flush thread finishes committing WAL sync
+            // operation to the MANIFEST.
+          }
+        }
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTableToOutputFile:CommitWal:1",
+      [&](void* /*arg*/) { wal_synced.store(true); });
   // This callback will be called when the first bg flush thread reaches the
   // point before entering the MANIFEST write queue after flushing the SST
   // file.

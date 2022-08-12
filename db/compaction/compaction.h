@@ -212,6 +212,11 @@ class Compaction {
   // Is this compaction creating a file in the bottom most level?
   bool bottommost_level() const { return bottommost_level_; }
 
+  // Is the compaction compact to the last level
+  bool is_last_level() const {
+    return output_level_ == immutable_options_.num_levels - 1;
+  }
+
   // Does this compaction include all sst files?
   bool is_full_compaction() const { return is_full_compaction_; }
 

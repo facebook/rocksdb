@@ -3226,7 +3226,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
       ASSERT_OK(builder->Finish());
-      fwriter->Flush();
+      ASSERT_OK(fwriter->Flush());
       uint64_t file_size = 0;
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
@@ -3526,9 +3526,15 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   // file metadata above. This results in 1 *
   // CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>::GetDummyEntrySize()
   // cache reservation for file metadata.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
+        "ChargeFileMetadataTestWithParam::"
+        "PreVerifyingCacheReservationRelease"}});
+  SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
-
+  TEST_SYNC_POINT(
+      "ChargeFileMetadataTestWithParam::PreVerifyingCacheReservationRelease");
   if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
               1 * CacheReservationManagerImpl<
@@ -3536,6 +3542,7 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   } else {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(), 0);
   }
+  SyncPoint::GetInstance()->DisableProcessing();
 
   // Destroying the db will delete the remaining 1 new file metadata
   // This results in no cache reservation for file metadata.

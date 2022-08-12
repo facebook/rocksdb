@@ -141,6 +141,10 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
+  Status MultiGetFilter(const ReadOptions& read_options,
+                        const SliceTransform* prefix_extractor,
+                        MultiGetRange* mget_range) override;
+
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
                                   const ReadOptions& readOptions,
                                   const MultiGetContext::Range* mget_range,
@@ -227,15 +231,9 @@ class BlockBasedTable : public TableReader {
 
   class IndexReaderCommon;
 
-  // Maximum SST file size that uses standard CacheKey encoding scheme.
-  // See GetCacheKey to explain << 2. + 3 is permitted because it is trimmed
-  // off by >> 2 in GetCacheKey.
-  static constexpr uint64_t kMaxFileSizeStandardEncoding =
-      (OffsetableCacheKey::kMaxOffsetStandardEncoding << 2) + 3;
-
   static void SetupBaseCacheKey(const TableProperties* properties,
                                 const std::string& cur_db_session_id,
-                                uint64_t cur_file_number, uint64_t file_size,
+                                uint64_t cur_file_number,
                                 OffsetableCacheKey* out_base_cache_key,
                                 bool* out_is_stable = nullptr);
 

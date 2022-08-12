@@ -431,8 +431,8 @@ class Repairer {
       auto write_hint = cfd->CalculateSSTWriteHint(0);
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
-      auto range_del_iter =
-          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+      auto range_del_iter = mem->NewRangeTombstoneIterator(
+          ro, kMaxSequenceNumber, false /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }

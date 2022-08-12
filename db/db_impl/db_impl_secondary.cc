@@ -261,6 +261,7 @@ Status DBImplSecondary::RecoverLogFiles(
             MemTable* new_mem =
                 cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
+            cfd->mem()->ConstructFragmentedRangeTombstones();
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
             cfd->SetMemtable(new_mem);
@@ -391,7 +392,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   std::string* ts = ucmp->timestamp_size() > 0 ? timestamp : nullptr;
   if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), ts, &s,
                               &merge_context, &max_covering_tombstone_seq,
-                              read_options, &read_cb)) {
+                              read_options, false /* immutable_memtable */,
+                              &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);

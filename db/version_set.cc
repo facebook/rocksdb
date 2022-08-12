@@ -2215,11 +2215,13 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     if (!read_options.async_io || !using_coroutines() ||
         fp.GetHitFileLevel() == 0 || !fp.RemainingOverlapInLevel()) {
       if (f) {
+        bool skip_filters = IsFilterSkipped(
+            static_cast<int>(fp.GetHitFileLevel()), fp.IsHitFileLastInLevel());
         // Call MultiGetFromSST for looking up a single file
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
-                            fp.GetHitFileLevel(), fp.IsHitFileLastInLevel(), f,
-                            blob_ctxs, num_filter_read, num_index_read,
-                            num_sst_read);
+                            fp.GetHitFileLevel(), skip_filters, f, blob_ctxs,
+                            /*table_handle=*/nullptr, num_filter_read,
+                            num_index_read, num_sst_read);
         if (fp.GetHitFileLevel() == 0) {
           dump_stats_for_l0_file = true;
         }
@@ -2231,16 +2233,39 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     } else {
       std::vector<folly::coro::Task<Status>> mget_tasks;
       while (f != nullptr) {
-        mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
-            read_options, fp.CurrentFileRange(), fp.GetHitFileLevel(),
-            fp.IsHitFileLastInLevel(), f, blob_ctxs, num_filter_read,
-            num_index_read, num_sst_read));
+        MultiGetRange file_range = fp.CurrentFileRange();
+        Cache::Handle* table_handle = nullptr;
+        bool skip_filters = IsFilterSkipped(
+            static_cast<int>(fp.GetHitFileLevel()), fp.IsHitFileLastInLevel());
+        if (!skip_filters) {
+          Status status = table_cache_->MultiGetFilter(
+              read_options, *internal_comparator(), *f->file_metadata,
+              mutable_cf_options_.prefix_extractor,
+              cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+              fp.GetHitFileLevel(), &file_range, &table_handle);
+          if (status.ok()) {
+            skip_filters = true;
+          } else if (!status.IsNotSupported()) {
+            s = status;
+          }
+        }
+
+        if (!s.ok()) {
+          break;
+        }
+
+        if (!file_range.empty()) {
+          mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
+              read_options, file_range, fp.GetHitFileLevel(), skip_filters, f,
+              blob_ctxs, table_handle, num_filter_read, num_index_read,
+              num_sst_read));
+        }
         if (fp.KeyMaySpanNextFile()) {
           break;
         }
         f = fp.GetNextFileInLevel();
       }
-      if (mget_tasks.size() > 0) {
+      if (s.ok() && mget_tasks.size() > 0) {
         RecordTick(db_statistics_, MULTIGET_COROUTINE_COUNT, mget_tasks.size());
         // Collect all results so far
         std::vector<Status> statuses = folly::coro::blockingWait(
@@ -2733,24 +2758,43 @@ void VersionStorageInfo::ComputeCompactionScore(
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
-          uint64_t l0_target_size = mutable_cf_options.max_bytes_for_level_base;
-          if (immutable_options.level_compaction_dynamic_level_bytes &&
-              level_multiplier_ != 0.0) {
-            // Prevent L0 to Lbase fanout from growing larger than
-            // `level_multiplier_`. This prevents us from getting stuck picking
-            // L0 forever even when it is hurting write-amp. That could happen
-            // in dynamic level compaction's write-burst mode where the base
-            // level's target size can grow to be enormous.
-            l0_target_size =
-                std::max(l0_target_size,
-                         static_cast<uint64_t>(level_max_bytes_[base_level_] /
-                                               level_multiplier_));
-          }
-          score =
-              std::max(score, static_cast<double>(total_size) / l0_target_size);
-          if (immutable_options.level_compaction_dynamic_level_bytes &&
-              score > 1.0) {
-            score *= kScoreScale;
+          // If score in L0 is always too high, L0->L1 will always be
+          // prioritized over L1->L2 compaction and L1 will accumulate to
+          // too large. But if L0 score isn't high enough, L0 will accumulate
+          // and data is not moved to L1 fast enough. With potential L0->L0
+          // compaction, number of L0 files aren't always an indication of
+          // L0 oversizing, and we also need to consider total size of L0.
+          if (immutable_options.level_compaction_dynamic_level_bytes) {
+            if (total_size >= mutable_cf_options.max_bytes_for_level_base) {
+              // When calculating estimated_compaction_needed_bytes, we assume
+              // L0 is qualified as pending compactions. We will need to make
+              // sure that it qualifies for compaction.
+              // It might be guafanteed by logic below anyway, but we are
+              // explicit here to make sure we don't stop writes with no
+              // compaction scheduled.
+              score = std::max(score, 1.01);
+            }
+            if (total_size > level_max_bytes_[base_level_]) {
+              // In this case, we compare L0 size with actual L1 size and make
+              // sure score is more than 1.0 (10.0 after scaled) if L0 is larger
+              // than L1. Since in this case L1 score is lower than 10.0, L0->L1
+              // is prioritized over L1->L2.
+              uint64_t base_level_size = 0;
+              for (auto f : files_[base_level_]) {
+                base_level_size += f->compensated_file_size;
+              }
+              score = std::max(score, static_cast<double>(total_size) /
+                                          static_cast<double>(std::max(
+                                              base_level_size,
+                                              level_max_bytes_[base_level_])));
+            }
+            if (score > 1.0) {
+              score *= kScoreScale;
+            }
+          } else {
+            score = std::max(score,
+                             static_cast<double>(total_size) /
+                                 mutable_cf_options.max_bytes_for_level_base);
           }
         }
       }
