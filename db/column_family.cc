@@ -699,19 +699,6 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
-
-  if (data_dirs_.size()) {  // Explicitly close data directories
-    Status s = Status::OK();
-    for (auto& data_dir_ptr : data_dirs_) {
-      if (data_dir_ptr) {
-        s = data_dir_ptr->Close(IOOptions(), nullptr);
-        if (!s.ok()) {
-          // TODO(zichen): add `Status Close()` and `CloseDirectories()
-          s.PermitUncheckedError();
-        }
-      }
-    }
-  }
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {
@@ -1162,8 +1149,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 
   auto read_seq = super_version->current->version_set()->LastSequence();
   ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
-  auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
+  auto* active_range_del_iter = super_version->mem->NewRangeTombstoneIterator(
+      read_opts, read_seq, false /* immutable_memtable */);
   range_del_agg.AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
   Status status;

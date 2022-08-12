@@ -541,6 +541,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
+    // TODO: share file descriptors (FSDirectory) with SetDirectories above
     std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
@@ -1545,7 +1546,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter =
-          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+          // This is called during recovery, where a live memtable is flushed
+          // directly. In this case, no fragmented tombstone list is cached in
+          // this memtable yet.
+          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                         false /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
@@ -1600,8 +1605,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.marked_for_compaction, meta.temperature,
                   meta.oldest_blob_file_number, meta.oldest_ancester_time,
                   meta.file_creation_time, meta.file_checksum,
-                  meta.file_checksum_func_name, meta.min_timestamp,
-                  meta.max_timestamp, meta.unique_id);
+                  meta.file_checksum_func_name, meta.unique_id);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);

@@ -307,6 +307,10 @@ DECLARE_int32(create_timestamped_snapshot_one_in);
 
 DECLARE_bool(allow_data_in_errors);
 
+// Tiered storage
+DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
+DECLARE_int64(preclude_last_level_data_seconds);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;

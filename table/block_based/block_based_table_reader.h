@@ -141,6 +141,10 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, const SliceTransform* prefix_extractor,
              bool skip_filters = false) override;
 
+  Status MultiGetFilter(const ReadOptions& read_options,
+                        const SliceTransform* prefix_extractor,
+                        MultiGetRange* mget_range) override;
+
   DECLARE_SYNC_AND_ASYNC_OVERRIDE(void, MultiGet,
                                   const ReadOptions& readOptions,
                                   const MultiGetContext::Range* mget_range,

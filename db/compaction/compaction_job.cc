@@ -1716,13 +1716,16 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
                            &syncpoint_arg);
 #endif
 
-  // Pass temperature of botommost files to FileSystem.
+  // Pass temperature of the last level files to FileSystem.
   FileOptions fo_copy = file_options_;
   Temperature temperature = sub_compact->compaction->output_temperature();
-  if (temperature == Temperature::kUnknown && bottommost_level_ &&
+  // only set for the last level compaction and also it's not output to
+  // penultimate level (when preclude_last_level feature is enabled)
+  if (temperature == Temperature::kUnknown &&
+      sub_compact->compaction->is_last_level() &&
       !sub_compact->IsCurrentPenultimateLevel()) {
     temperature =
-        sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
+        sub_compact->compaction->mutable_cf_options()->last_level_temperature;
   }
   fo_copy.temperature = temperature;
 

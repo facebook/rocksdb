@@ -460,10 +460,10 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->sec_handle = secondary_handle.release();
       e->total_charge = 0;
       e->Ref();
+      e->SetIsInSecondaryCache(is_in_sec_cache);
 
       if (wait) {
         Promote(e);
-        e->SetIsInSecondaryCache(is_in_sec_cache);
         if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed.
           e->Unref();
@@ -477,7 +477,6 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIncomplete(true);
-        e->SetIsInSecondaryCache(is_in_sec_cache);
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
