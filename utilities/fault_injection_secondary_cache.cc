@@ -25,7 +25,6 @@ Status FaultInjectionSecondaryCache::Insert(
     const Slice& key, void* value, const Cache::CacheItemHelper* helper) {
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {
-    fprintf(stdout, "Insert");
     return Status::IOError();
   }
 
@@ -39,7 +38,6 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
   std::unique_ptr<SecondaryCacheResultHandle> hdl;
   ErrorContext* ctx = GetErrorContext();
   if (ctx->rand.OneIn(prob_)) {
-    fprintf(stdout, "Lookup");
     return nullptr;
   } else {
     return base_->Lookup(key, create_cb, wait, is_in_sec_cache);
@@ -56,7 +54,6 @@ void FaultInjectionSecondaryCache::WaitAll(
   std::vector<SecondaryCacheResultHandle*> base_handles;
   for (SecondaryCacheResultHandle* hdl : handles) {
     if (ctx->rand.OneIn(prob_)) {
-      fprintf(stdout, "WaitAll");
       continue;
     }
     base_handles.push_back(hdl);
