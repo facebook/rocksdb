@@ -190,7 +190,7 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
 
 Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   // Wait until the compaction completes
-  return WaitForCompact(wait_unscheduled);
+  return WaitForFlushAndCompact(wait_unscheduled);
 }
 
 Status DBImpl::TEST_WaitForPurge() {

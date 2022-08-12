@@ -2549,7 +2549,7 @@ void StressTest::Open(SharedState* shared) {
             // wait for all compactions to finish to make sure DB is in
             // clean state before executing queries.
             s = static_cast_with_check<DBImpl>(db_->GetRootDB())
-                    ->WaitForCompact(true /* wait_unscheduled */);
+                    ->WaitForFlushAndCompact(true /* wait_unscheduled */);
             if (!s.ok()) {
               for (auto cf : column_families_) {
                 delete cf;

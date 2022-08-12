@@ -1030,9 +1030,7 @@ class DBImpl : public DB {
   VersionSet* GetVersionSet() const { return versions_.get(); }
 
   // Wait for any compaction
-  // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
-  // is only for the special test of CancelledCompactions
-  Status WaitForCompact(bool waitUnscheduled = false) override;
+  Status WaitForFlushAndCompact(bool waitUnscheduled = false) override;
 
 #ifndef NDEBUG
   // Compact any files in the named level that overlap [*begin, *end]

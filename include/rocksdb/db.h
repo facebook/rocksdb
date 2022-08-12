@@ -1743,8 +1743,13 @@ class DB {
   }
 #endif  // !ROCKSDB_LITE
 
-  virtual Status WaitForCompact(bool /*wait_unscheduled*/) {
-    return Status::NotSupported("WaitForCompact() is not implemented.");
+  // Experimental and subject to change
+  // Wait for the background flush and Compaction to finish.
+  // `wait_unscheduled` will wait for unscheduled job to be finished. It might
+  // be useful for the user to wait the DB instance to be stable status.
+  // If there's any background error, return the error.
+  virtual Status WaitForFlushAndCompact(bool /*wait_unscheduled*/) {
+    return Status::NotSupported("WaitForFlushAndCompact() is not implemented.");
   }
 
   // Needed for StackableDB

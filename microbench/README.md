@@ -57,4 +57,4 @@ $ ./db_basic_bench --benchmark_filter=<TEST_NAME> --benchmark_repetitions=10
 ...
 <TEST_NAME>_cv    3.2%
 ```
-RocksDB has background compaction jobs which may cause the test result to vary a lot. If the micro-benchmark is not purposely testing the operation while compaction is in progress, it should wait for the compaction to finish (`db_impl->WaitForCompact()`) or disable auto-compaction.
+RocksDB has background compaction jobs which may cause the test result to vary a lot. If the micro-benchmark is not purposely testing the operation while compaction is in progress, it should wait for the compaction to finish (`db_impl->WaitForFlushAndCompact()`) or disable auto-compaction.

@@ -207,7 +207,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageUniversal) {
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact(true));
 
   // the penultimate level file temperature is not cold, all data are output to
   // the penultimate level.
@@ -372,7 +372,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
     ASSERT_OK(Flush());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact(true));
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -461,7 +461,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageUniversal) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact(
       true));  // make sure the compaction is able to finish
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
@@ -916,7 +916,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     expect_stats[0].Add(kBasicFlushStats);
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact(true));
 
   // non last level is hot
   ASSERT_EQ("0,1", FilesPerLevel());
@@ -959,7 +959,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact(true));
   ASSERT_EQ("0,1,0,0,0,0,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
@@ -1010,7 +1010,7 @@ TEST_P(TieredCompactionTest, SequenceBasedTieredStorageLevel) {
     ASSERT_OK(Flush());
     seq_history.emplace_back(dbfull()->GetLatestSequenceNumber());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact(true));
 
   latest_cold_seq = seq_history[0];
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
@@ -1139,7 +1139,7 @@ TEST_P(TieredCompactionTest, RangeBasedTieredStorageLevel) {
     }
     ASSERT_OK(Flush());
   }
-  ASSERT_OK(dbfull()->WaitForCompact(true));
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact(true));
   ASSERT_EQ("0,0,0,0,0,1,1", FilesPerLevel());
   ASSERT_GT(GetSstSizeHelper(Temperature::kUnknown), 0);
   ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);

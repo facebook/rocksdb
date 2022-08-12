@@ -3825,7 +3825,7 @@ void DBImpl::GetSnapshotContext(
   *snapshot_seqs = snapshots_.GetAll(earliest_write_conflict_snapshot);
 }
 
-Status DBImpl::WaitForCompact(bool wait_unscheduled) {
+Status DBImpl::WaitForFlushAndCompact(bool wait_unscheduled) {
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||

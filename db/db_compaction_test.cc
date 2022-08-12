@@ -5407,7 +5407,7 @@ TEST_P(RoundRobinSubcompactionsAgainstPressureToken, PressureTokenTest) {
   }
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstPressureToken:2");
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact());
   ASSERT_TRUE(num_planned_subcompactions_verified);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -5482,7 +5482,7 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
         "CompactionJob::ReleaseSubcompactionResources:1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact());
   ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:0");
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:1");
@@ -5498,7 +5498,7 @@ TEST_P(RoundRobinSubcompactionsAgainstResources, SubcompactionsUsingResources) {
       total_low_pri_threads_ - 1,
       env_->ReleaseThreads(total_low_pri_threads_ - 1, Env::Priority::LOW));
   TEST_SYNC_POINT("RoundRobinSubcompactionsAgainstResources:4");
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact());
   ASSERT_TRUE(num_planned_subcompactions_verified);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -5570,11 +5570,11 @@ TEST_P(DBCompactionTestWithParam, RoundRobinWithoutAdditionalResources) {
         "BackgroundCallCompaction:0"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact());
   ASSERT_OK(dbfull()->EnableAutoCompaction({dbfull()->DefaultColumnFamily()}));
   TEST_SYNC_POINT("DBCompactionTest::RoundRobinWithoutAdditionalResources:0");
 
-  ASSERT_OK(dbfull()->WaitForCompact());
+  ASSERT_OK(dbfull()->WaitForFlushAndCompact());
   ASSERT_TRUE(num_planned_subcompactions_verified);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
