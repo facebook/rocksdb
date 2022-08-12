@@ -39,6 +39,9 @@
 * Improve read performance by avoiding dynamic memory allocation.
 * When using iterators with the integrated BlobDB implementation, blob cache handles are now released immediately when the iterator's position changes.
 
+## Behavior Change
+* Block cache keys have changed, which will cause any persistent caches to miss between versions.
+
 ## 7.5.0 (07/15/2022)
 ### New Features
 * Mempurge option flag `experimental_mempurge_threshold` is now a ColumnFamilyOptions and can now be dynamically configured using `SetOptions()`.

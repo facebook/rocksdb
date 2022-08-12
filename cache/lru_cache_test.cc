@@ -558,19 +558,12 @@ class TestSecondaryCache : public SecondaryCache {
 
   void ResetInjectFailure() { inject_failure_ = false; }
 
-  void SetDbSessionId(const std::string& db_session_id) {
-    // NOTE: we assume the file is smaller than kMaxFileSizeStandardEncoding
-    // for this to work, but that's safe in a test.
-    auto base = OffsetableCacheKey("unknown", db_session_id, 1, 1);
-    ckey_prefix_ = base.CommonPrefixSlice().ToString();
-  }
-
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override {
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
-    EXPECT_TRUE(IsDbSessionLowerAsKeyPrefix(key));
+    CheckCacheKeyCommonPrefix(key);
     size_t size;
     char* buf;
     Status s;
@@ -648,8 +641,13 @@ class TestSecondaryCache : public SecondaryCache {
 
   uint32_t num_lookups() { return num_lookups_; }
 
-  bool IsDbSessionLowerAsKeyPrefix(const Slice& key) {
-    return key.starts_with(ckey_prefix_);
+  void CheckCacheKeyCommonPrefix(const Slice& key) {
+    Slice current_prefix(key.data(), OffsetableCacheKey::kCommonPrefixSize);
+    if (ckey_prefix_.empty()) {
+      ckey_prefix_ = current_prefix.ToString();
+    } else {
+      EXPECT_EQ(ckey_prefix_, current_prefix.ToString());
+    }
   }
 
  private:
@@ -794,28 +792,30 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
   std::shared_ptr<Statistics> stats = CreateDBStatistics();
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, &LRUCacheSecondaryCacheTest::helper_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, &LRUCacheSecondaryCacheTest::helper_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
 
   get_perf_context()->Reset();
   Cache::Handle* handle;
   handle =
-      cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                     test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should promote k1 and demote k2
   handle =
-      cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_,
+      cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                     test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -837,21 +837,23 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicFailTest) {
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   auto item1 = std::make_unique<TestItem>(str1.data(), str1.length());
-  ASSERT_TRUE(cache->Insert("k1", item1.get(), nullptr, str1.length())
+  ASSERT_TRUE(cache->Insert(k1.AsSlice(), item1.get(), nullptr, str1.length())
                   .IsInvalidArgument());
-  ASSERT_OK(cache->Insert("k1", item1.get(),
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1.get(),
                           &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   item1.release();  // Appease clang-analyze "potential memory leak"
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", nullptr, test_item_creator, Cache::Priority::LOW,
-                         true);
+  handle = cache->Lookup(k2.AsSlice(), nullptr, test_item_creator,
+                         Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, false);
   ASSERT_EQ(handle, nullptr);
 
@@ -866,30 +868,37 @@ TEST_F(LRUCacheSecondaryCacheTest, SaveFailTest) {
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert(
-      "k1", item1, &LRUCacheSecondaryCacheTest::helper_fail_, str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_fail_,
+                          str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert(
-      "k2", item2, &LRUCacheSecondaryCacheTest::helper_fail_, str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_fail_,
+                          str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_fail_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
+                    test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 demotion would have failed
-  handle = cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_fail_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
+                    test_item_creator, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_fail_,
-                         test_item_creator, Cache::Priority::LOW, true);
+  handle =
+      cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_fail_,
+                    test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
@@ -906,30 +915,32 @@ TEST_F(LRUCacheSecondaryCacheTest, CreateFailTest) {
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, &LRUCacheSecondaryCacheTest::helper_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, &LRUCacheSecondaryCacheTest::helper_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
 
   Cache::Handle* handle;
   SetFailCreate(true);
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   // This lookup should fail, since k1 creation would have failed
-  handle = cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_EQ(handle, nullptr);
   // Since k1 didn't get promoted, k2 should still be in cache
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -947,32 +958,34 @@ TEST_F(LRUCacheSecondaryCacheTest, FullCapacityTest) {
       std::make_shared<TestSecondaryCache>(2048);
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
+  CacheKey k1 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
+  CacheKey k2 = CacheKey::CreateUniqueForCacheLifetime(cache.get());
 
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  ASSERT_OK(cache->Insert("k1", item1, &LRUCacheSecondaryCacheTest::helper_,
-                          str1.length()));
+  ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
+                          &LRUCacheSecondaryCacheTest::helper_, str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
-  ASSERT_OK(cache->Insert("k2", item2, &LRUCacheSecondaryCacheTest::helper_,
-                          str2.length()));
+  ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
+                          &LRUCacheSecondaryCacheTest::helper_, str2.length()));
 
   Cache::Handle* handle;
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   // k1 promotion should fail due to the block cache being at capacity,
   // but the lookup should still succeed
   Cache::Handle* handle2;
-  handle2 = cache->Lookup("k1", &LRUCacheSecondaryCacheTest::helper_,
+  handle2 = cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                           test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle2, nullptr);
   // Since k1 didn't get inserted, k2 should still be in cache
   cache->Release(handle);
   cache->Release(handle2);
-  handle = cache->Lookup("k2", &LRUCacheSecondaryCacheTest::helper_,
+  handle = cache->Lookup(k2.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
                          test_item_creator, Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
@@ -1009,9 +1022,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1103,9 +1113,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   options.env = fault_env_.get();
   fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1197,9 +1204,6 @@ TEST_F(DBSecondaryCacheTest, NoSecondaryCacheInsertion) {
   fault_fs_->SetFailGetUniqueId(true);
 
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1249,9 +1253,6 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheIntensiveTesting) {
   options.env = fault_env_.get();
   fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 256;
   for (int i = 0; i < N; i++) {
@@ -1299,9 +1300,6 @@ TEST_F(DBSecondaryCacheTest, SecondaryCacheFailureTest) {
   options.env = fault_env_.get();
   fault_fs_->SetFailGetUniqueId(true);
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1382,6 +1380,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
   opts.secondary_cache = secondary_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
   const int num_keys = 32;
+  OffsetableCacheKey ock{"foo", "bar", 1};
 
   Random rnd(301);
   std::vector<std::string> values;
@@ -1389,7 +1388,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
     std::string str = rnd.RandomString(1020);
     values.emplace_back(str);
     TestItem* item = new TestItem(str.data(), str.length());
-    ASSERT_OK(cache->Insert("k" + std::to_string(i), item,
+    ASSERT_OK(cache->Insert(ock.WithOffset(i).AsSlice(), item,
                             &LRUCacheSecondaryCacheTest::helper_,
                             str.length()));
   }
@@ -1399,13 +1398,16 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicWaitAllTest) {
   cache->SetCapacity(32 * 1024);
 
   secondary_cache->SetResultMap(
-      {{"k3", TestSecondaryCache::ResultType::DEFER},
-       {"k4", TestSecondaryCache::ResultType::DEFER_AND_FAIL},
-       {"k5", TestSecondaryCache::ResultType::FAIL}});
+      {{ock.WithOffset(3).AsSlice().ToString(),
+        TestSecondaryCache::ResultType::DEFER},
+       {ock.WithOffset(4).AsSlice().ToString(),
+        TestSecondaryCache::ResultType::DEFER_AND_FAIL},
+       {ock.WithOffset(5).AsSlice().ToString(),
+        TestSecondaryCache::ResultType::FAIL}});
   std::vector<Cache::Handle*> results;
   for (int i = 0; i < 6; ++i) {
     results.emplace_back(cache->Lookup(
-        "k" + std::to_string(i), &LRUCacheSecondaryCacheTest::helper_,
+        ock.WithOffset(i).AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
         test_item_creator, Cache::Priority::LOW, false));
   }
   cache->WaitAll(results);
@@ -1891,9 +1893,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionBasic) {
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -1986,9 +1985,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionChange) {
   // all the blocks will be accessed.
   options.paranoid_file_checks = true;
   DestroyAndReopen(options);
-  std::string session_id;
-  ASSERT_OK(db_->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
   Random rnd(301);
   const int N = 6;
   for (int i = 0; i < N; i++) {
@@ -2086,12 +2082,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheOptionTwoDB) {
   options2.lowest_used_cache_tier = CacheTier::kVolatileTier;
   ASSERT_OK(DB::Open(options2, dbname2, &db2));
   fault_fs_->SetFailGetUniqueId(true);
-
-  // Set the file paranoid check, so after flush, the file will be read
-  // all the blocks will be accessed.
-  std::string session_id;
-  ASSERT_OK(db1->GetDbSessionId(session_id));
-  secondary_cache->SetDbSessionId(session_id);
 
   WriteOptions wo;
   Random rnd(301);

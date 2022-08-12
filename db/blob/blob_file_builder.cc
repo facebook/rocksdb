@@ -399,12 +399,8 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
       creation_reason_ == BlobFileCreationReason::kFlush;
 
   if (blob_cache && warm_cache) {
-    // The blob file during flush is unknown to be exactly how big it is.
-    // Therefore, we set the file size to kMaxOffsetStandardEncoding. For any
-    // max_offset <= this value, the same encoding scheme is guaranteed.
-    const OffsetableCacheKey base_cache_key(
-        db_id_, db_session_id_, blob_file_number,
-        OffsetableCacheKey::kMaxOffsetStandardEncoding);
+    const OffsetableCacheKey base_cache_key(db_id_, db_session_id_,
+                                            blob_file_number);
     const CacheKey cache_key = base_cache_key.WithOffset(blob_offset);
     const Slice key = cache_key.AsSlice();
 

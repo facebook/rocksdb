@@ -521,7 +521,6 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
                                         const std::string& cur_db_session_id,
                                         uint64_t cur_file_number,
-                                        uint64_t file_size,
                                         OffsetableCacheKey* out_base_cache_key,
                                         bool* out_is_stable) {
   // Use a stable cache key if sufficient data is in table properties
@@ -565,8 +564,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
   // from offsets. See GetCacheKey.
-  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
-                                           /*max_offset*/ file_size >> 2);
+  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num);
 }
 
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
@@ -717,7 +715,7 @@ Status BlockBasedTable::Open(
 
   // With properties loaded, we can set up portable/stable cache keys
   SetupBaseCacheKey(rep->table_properties.get(), cur_db_session_id,
-                    cur_file_num, file_size, &rep->base_cache_key);
+                    cur_file_num, &rep->base_cache_key);
 
   rep->persistent_cache_options =
       PersistentCacheOptions(rep->table_options.persistent_cache,
