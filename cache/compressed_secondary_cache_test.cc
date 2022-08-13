@@ -533,119 +533,6 @@ class CompressedSecondaryCacheTest : public testing::Test {
     secondary_cache.reset();
   }
 
-  void SplitValueIntoChunksTest() {
-    JemallocAllocatorOptions jopts;
-    std::shared_ptr<MemoryAllocator> allocator;
-    std::string msg;
-    if (JemallocNodumpAllocator::IsSupported(&msg)) {
-      Status s = NewJemallocNodumpAllocator(jopts, &allocator);
-      if (!s.ok()) {
-        ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
-      }
-    } else {
-      ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
-    }
-
-    using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
-    std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5,
-                                                   allocator);
-    Random rnd(301);
-    // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
-    size_t str_size{10000};
-    std::string str = rnd.RandomString(static_cast<int>(str_size));
-    size_t charge{0};
-    CacheValueChunk* chunks_head =
-        sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
-    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
-
-    CacheValueChunk* current_chunk = chunks_head;
-    ASSERT_EQ(current_chunk->size, 8192 - sizeof(CacheValueChunk) + 1);
-    current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 1792 - sizeof(CacheValueChunk) + 1);
-    current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 62);
-
-    sec_cache->DeletionCallback("dummy", chunks_head);
-  }
-
-  void MergeChunksIntoValueTest() {
-    using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
-    Random rnd(301);
-    size_t size1{2048};
-    std::string str1 = rnd.RandomString(static_cast<int>(size1));
-    CacheValueChunk* current_chunk = reinterpret_cast<CacheValueChunk*>(
-        new char[sizeof(CacheValueChunk) - 1 + size1]);
-    CacheValueChunk* chunks_head = current_chunk;
-    memcpy(current_chunk->data, str1.data(), size1);
-    current_chunk->size = size1;
-
-    size_t size2{256};
-    std::string str2 = rnd.RandomString(static_cast<int>(size2));
-    current_chunk->next = reinterpret_cast<CacheValueChunk*>(
-        new char[sizeof(CacheValueChunk) - 1 + size2]);
-    current_chunk = current_chunk->next;
-    memcpy(current_chunk->data, str2.data(), size2);
-    current_chunk->size = size2;
-
-    size_t size3{31};
-    std::string str3 = rnd.RandomString(static_cast<int>(size3));
-    current_chunk->next = reinterpret_cast<CacheValueChunk*>(
-        new char[sizeof(CacheValueChunk) - 1 + size3]);
-    current_chunk = current_chunk->next;
-    memcpy(current_chunk->data, str3.data(), size3);
-    current_chunk->size = size3;
-    current_chunk->next = nullptr;
-
-    std::string str = str1 + str2 + str3;
-
-    std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5);
-    size_t charge{0};
-    CacheAllocationPtr value =
-        sec_cache->MergeChunksIntoValue(chunks_head, charge);
-    ASSERT_EQ(charge, size1 + size2 + size3);
-    std::string value_str{value.get(), charge};
-    ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
-
-    sec_cache->DeletionCallback("dummy", chunks_head);
-  }
-
-  void SplictValueAndMergeChunksTest() {
-    JemallocAllocatorOptions jopts;
-    std::shared_ptr<MemoryAllocator> allocator;
-    std::string msg;
-    if (JemallocNodumpAllocator::IsSupported(&msg)) {
-      Status s = NewJemallocNodumpAllocator(jopts, &allocator);
-      if (!s.ok()) {
-        ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
-      }
-    } else {
-      ROCKSDB_GTEST_BYPASS("JEMALLOC not supported");
-    }
-
-    using CacheValueChunk = CompressedSecondaryCache::CacheValueChunk;
-    std::unique_ptr<CompressedSecondaryCache> sec_cache =
-        std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5,
-                                                   allocator);
-    Random rnd(301);
-    // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
-    size_t str_size{10000};
-    std::string str = rnd.RandomString(static_cast<int>(str_size));
-    size_t charge{0};
-    CacheValueChunk* chunks_head =
-        sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
-    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
-
-    CacheAllocationPtr value =
-        sec_cache->MergeChunksIntoValue(chunks_head, charge);
-    ASSERT_EQ(charge, str_size);
-    std::string value_str{value.get(), charge};
-    ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
-
-    sec_cache->DeletionCallback("dummy", chunks_head);
-  }
-
  private:
   bool fail_create_;
 };
@@ -764,18 +651,6 @@ TEST_F(CompressedSecondaryCacheTest,
 TEST_F(CompressedSecondaryCacheTest,
        IntegrationFullCapacityTestWithCompression) {
   IntegrationFullCapacityTest(true);
-}
-
-TEST_F(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
-  SplitValueIntoChunksTest();
-}
-
-TEST_F(CompressedSecondaryCacheTest, MergeChunksIntoValueTest) {
-  MergeChunksIntoValueTest();
-}
-
-TEST_F(CompressedSecondaryCacheTest, SplictValueAndMergeChunksTest) {
-  SplictValueAndMergeChunksTest();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

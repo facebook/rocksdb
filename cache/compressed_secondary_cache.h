@@ -82,32 +82,6 @@ class CompressedSecondaryCache : public SecondaryCache {
 
  private:
   friend class CompressedSecondaryCacheTest;
-  static constexpr std::array<uint16_t, 33> malloc_bin_sizes_{
-      32,   64,   96,   128,  160,  192,  224,   256,   320,   384,   448,
-      512,  640,  768,  896,  1024, 1280, 1536,  1792,  2048,  2560,  3072,
-      3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 32768};
-
-  struct CacheValueChunk {
-    // TODO try "CacheAllocationPtr next;".
-    CacheValueChunk* next;
-    size_t size;
-    // Beginning of the chunk data (MUST BE THE LAST FIELD IN THIS STRUCT!)
-    char data[1];
-
-    void Free() { delete[] reinterpret_cast<char*>(this); }
-  };
-
-  // Split value into chunks to better fit into jemalloc bins. The chunks
-  // are stored in CacheValueChunk and extra charge is needed for each chunk,
-  // so the cache charge is recalculated here.
-  CacheValueChunk* SplitValueIntoChunks(const Slice& value,
-                                        const CompressionType compression_type,
-                                        size_t& charge);
-
-  // After merging chunks, the extra charge for each chunk is removed, so
-  // the charge is recalculated.
-  CacheAllocationPtr MergeChunksIntoValue(const void* chunks_head,
-                                          size_t& charge);
 
   // An implementation of Cache::DeleterFn.
   static void DeletionCallback(const Slice& /*key*/, void* obj);
