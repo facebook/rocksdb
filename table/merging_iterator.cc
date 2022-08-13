@@ -566,7 +566,7 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
 bool MergingIterator::IsNextDeleted() {
   auto current = minHeap_.top();
   auto level = GetChildIndex(current);
-  if (current->IsRangeDeleteSentinelKey()) {
+  if (current->IsDeleteRangeSentinelKey()) {
     current->Next();
     // enters new file
     if (current->Valid()) {
@@ -796,7 +796,7 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
 bool MergingIterator::IsPrevDeleted() {
   auto current = maxHeap_->top();
   auto level = GetChildIndex(current);
-  if (current->IsRangeDeleteSentinelKey()) {
+  if (current->IsDeleteRangeSentinelKey()) {
     // Sentinel key: file boundary used as a fake key, always delete and move to
     // prev. We need this sentinel key to keep level iterator from advancing to
     // next SST file when current range tombstone is still in effect.
@@ -1041,7 +1041,7 @@ void MergingIterator::InitMaxHeap() {
 // seek from current key's level. If the covering tombstone is from current
 // key's level, then the current child iterator is simply advanced to its next
 // key without reseeking.
-void MergingIterator::FindNextVisibleEntry() {
+inline void MergingIterator::FindNextVisibleEntry() {
   // We cannot just check range_tombstones_.active.empty() for the following
   // case. When a child iter is about to return a sentinel key due to prefix
   // seek, its range tombstone iter could already be !Valid() and hence not
@@ -1049,16 +1049,16 @@ void MergingIterator::FindNextVisibleEntry() {
   // the top of the heap before returning.
   while (!minHeap_.empty() &&
          (!range_tombstones_.active.empty() ||
-          minHeap_.top()->IsRangeDeleteSentinelKey()) &&
+          minHeap_.top()->IsDeleteRangeSentinelKey()) &&
          IsNextDeleted()) {
     // move to next entry
   }
 }
 
-void MergingIterator::FindPrevVisibleEntry() {
+inline void MergingIterator::FindPrevVisibleEntry() {
   while (!maxHeap_->empty() &&
          (!range_tombstones_.active.empty() ||
-          maxHeap_->top()->IsRangeDeleteSentinelKey()) &&
+          maxHeap_->top()->IsDeleteRangeSentinelKey()) &&
          IsPrevDeleted()) {
     // move to previous entry
   }

@@ -162,7 +162,7 @@ class IteratorWrapperBase {
     }
   }
 
-  bool IsRangeDeleteSentinelKey() const {
+  bool IsDeleteRangeSentinelKey() const {
     return iter_->IsDeleteRangeSentinelKey();
   }
 
