@@ -33,7 +33,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
-      bool& is_in_sec_cache) override;
+      bool erase_handle, bool& is_in_sec_cache) override;
 
   void Erase(const Slice& /*key*/) override;
 
@@ -41,37 +41,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
 
   std::string GetPrintableOptions() const override { return ""; }
 
-  void EnableErrorInjection(uint64_t prob);
-
  private:
-  class ResultHandle : public SecondaryCacheResultHandle {
-   public:
-    ResultHandle(FaultInjectionSecondaryCache* cache,
-                 std::unique_ptr<SecondaryCacheResultHandle>&& base)
-        : cache_(cache), base_(std::move(base)), value_(nullptr), size_(0) {}
-
-    ~ResultHandle() override {}
-
-    bool IsReady() override;
-
-    void Wait() override;
-
-    void* Value() override;
-
-    size_t Size() override;
-
-    static void WaitAll(FaultInjectionSecondaryCache* cache,
-                        std::vector<SecondaryCacheResultHandle*> handles);
-
-   private:
-    static void UpdateHandleValue(ResultHandle* handle);
-
-    FaultInjectionSecondaryCache* cache_;
-    std::unique_ptr<SecondaryCacheResultHandle> base_;
-    void* value_;
-    size_t size_;
-  };
-
   static void DeleteThreadLocalErrorContext(void* p) {
     ErrorContext* ctx = static_cast<ErrorContext*>(p);
     delete ctx;

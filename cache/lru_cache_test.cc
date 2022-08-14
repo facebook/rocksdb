@@ -740,9 +740,10 @@ class TestSecondaryCache : public SecondaryCache {
                           });
   }
 
+  // TODO: Add erase_handle feature.
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool& is_in_sec_cache) override {
+      bool /*erase_handle*/, bool& is_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 

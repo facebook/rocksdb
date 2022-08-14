@@ -1330,7 +1330,7 @@ class TestSecondaryCache : public SecondaryCache {
   }
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& /*key*/, const Cache::CreateCallback& /*create_cb*/,
-      bool /*wait*/, bool& is_in_sec_cache) override {
+      bool /*wait*/, bool /*erase_handle*/, bool& is_in_sec_cache) override {
     is_in_sec_cache = true;
     return nullptr;
   }
