@@ -35,12 +35,12 @@ CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
 
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-    bool& is_in_sec_cache) {
+    bool erase_handle, bool& is_in_sec_cache) {
   std::unique_ptr<SecondaryCacheResultHandle> handle;
-  is_in_sec_cache = false;
+  is_in_sec_cache = true;
   Cache::Handle* lru_handle = cache_->Lookup(key);
-  if (lru_handle == nullptr) {
-    return handle;
+  if (!lru_handle) {
+    return nullptr;
   }
 
   CacheValueChunk* handle_value =
@@ -69,17 +69,20 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
     if (!uncompressed) {
       cache_->Release(lru_handle, /* erase_if_last_ref */ true);
-      return handle;
+      return nullptr;
     }
     s = create_cb(uncompressed.get(), uncompressed_size, &value, &charge);
   }
 
   if (!s.ok()) {
     cache_->Release(lru_handle, /* erase_if_last_ref */ true);
-    return handle;
+    return nullptr;
   }
 
-  cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+  if (erase_handle) {
+    is_in_sec_cache = false;
+    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+  }
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
 
   return handle;

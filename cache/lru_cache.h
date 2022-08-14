@@ -93,6 +93,9 @@ struct LRUHandle {
     IS_LOW_PRI = (1 << 7),
     // Whether this entry is in low-pri pool.
     IN_LOW_PRI_POOL = (1 << 8),
+    // Whether this entry used to be in a lower tier and it was inserted into
+    // the primary cache as dummy handle.
+    WAS_IN_SECONDARY_CACHE = (1 << 9),
   };
 
   uint16_t flags;
@@ -138,6 +141,7 @@ struct LRUHandle {
   }
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
+  bool WasInSecondaryCache() const { return flags & WAS_IN_SECONDARY_CACHE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -202,6 +206,14 @@ struct LRUHandle {
       flags |= IS_IN_SECONDARY_CACHE;
     } else {
       flags &= ~IS_IN_SECONDARY_CACHE;
+    }
+  }
+
+  void SetWasInSecondaryCache(bool was_in_secondary_cache) {
+    if (was_in_secondary_cache) {
+      flags |= WAS_IN_SECONDARY_CACHE;
+    } else {
+      flags &= ~WAS_IN_SECONDARY_CACHE;
     }
   }
 

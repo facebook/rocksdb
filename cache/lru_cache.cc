@@ -440,13 +440,23 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   // InsertItem() to free the handle, since the item is already in memory
   // and the caller will most likely just read from disk if we erase it here.
   if (e->value) {
-    Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
-    Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
-    if (!s.ok()) {
-      // Item is in memory, but not accounted against the cache capacity.
-      // When the handle is released, the item should get deleted.
-      assert(!e->InCache());
+    if (e->WasInSecondaryCache()) {
+      Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
+      Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
+      if (!s.ok()) {
+        // Item is in memory, but not accounted against the cache capacity.
+        // When the handle is released, the item should get deleted.
+        assert(!e->InCache());
+      }
+    } else {
+      // Insert a dummy handle into the primary cache.
+      Cache::Priority priority =
+          e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
+      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
+             nullptr /*deleter*/, e->info_.helper, nullptr /*handle*/,
+             priority);
     }
+
   } else {
     // Since the secondary cache lookup failed, mark the item as not in cache
     // Don't charge the cache as its only metadata that'll shortly be released
@@ -463,6 +473,7 @@ Cache::Handle* LRUCacheShard::Lookup(
     const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
     bool wait, Statistics* stats) {
   LRUHandle* e = nullptr;
+  bool erase_handle_in_sec_cache{false};
   {
     DMutexLock l(mutex_);
     e = table_.Lookup(key, hash);
@@ -474,6 +485,15 @@ Cache::Handle* LRUCacheShard::Lookup(
       }
       e->Ref();
       e->SetHit();
+      // A dummy handle, that was retrieved from secondary cache, may still
+      // exist in secondary cache.
+      // If the handle exists in secondary cache, the value should be
+      // erased from sec cache and be inserted into primary cache.
+      if (secondary_cache_ && !e->value && e->IsInSecondaryCache()) {
+        erase_handle_in_sec_cache = true;
+        Release(reinterpret_cast<Cache::Handle*>(e),
+                /* erase_if_last_ref */ true);
+      }
     }
   }
 
@@ -481,7 +501,8 @@ Cache::Handle* LRUCacheShard::Lookup(
   // mutex if we're going to lookup in the secondary cache.
   // Only support synchronous for now.
   // TODO: Support asynchronous lookup in secondary cache
-  if (!e && secondary_cache_ && helper && helper->saveto_cb) {
+  if ((!e || erase_handle_in_sec_cache) && secondary_cache_ && helper &&
+      helper->saveto_cb) {
     // For objects from the secondary cache, we expect the caller to provide
     // a way to create/delete the primary cache object. The only case where
     // a deleter would not be required is for dummy entries inserted for
@@ -490,7 +511,8 @@ Cache::Handle* LRUCacheShard::Lookup(
     assert(create_cb && helper->del_cb);
     bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
-        secondary_cache_->Lookup(key, create_cb, wait, is_in_sec_cache);
+        secondary_cache_->Lookup(key, create_cb, wait,
+                                 erase_handle_in_sec_cache, is_in_sec_cache);
     if (secondary_handle != nullptr) {
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
@@ -509,6 +531,9 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->total_charge = 0;
       e->Ref();
       e->SetIsInSecondaryCache(is_in_sec_cache);
+      if (erase_handle_in_sec_cache) {
+        e->SetWasInSecondaryCache(true);
+      }
 
       if (wait) {
         Promote(e);
@@ -615,6 +640,10 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   if (helper) {
     e->SetSecondaryCacheCompatible(true);
     e->info_.helper = helper;
+    // If the value is nullptr, assume it is in secondary cache.
+    if (!value) {
+      e->SetIsInSecondaryCache(true);
+    }
   } else {
 #ifdef __SANITIZE_THREAD__
     e->is_secondary_cache_compatible_for_tsan = false;
