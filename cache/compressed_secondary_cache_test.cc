@@ -298,6 +298,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_NE(val1_1, nullptr);
     ASSERT_EQ(memcmp(val1_1->Buf(), str1_clone.data(), str1_clone.size()), 0);
     cache->Release(handle);
+    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+    ASSERT_NE(handle, nullptr);
+    cache->Release(handle);
 
     handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,

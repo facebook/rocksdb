@@ -448,6 +448,11 @@ enum Tickers : uint32_t {
   // # of bytes written into blob cache.
   BLOB_DB_CACHE_BYTES_WRITE,
 
+  // # of dummy block in primary cache.
+  DUMMY_BLOCK_IN_PRIMARY_CACHE_COUNT,
+  // # of erasing block in secondary cache.
+  ERASE_BLOCK_IN_SECONDARY_CACHE_COUNT,
+
   TICKER_ENUM_MAX
 };
 
