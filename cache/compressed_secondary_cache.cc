@@ -79,9 +79,8 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     cache_->Release(lru_handle, /* erase_if_last_ref */ true);
     return nullptr;
   }
-  std::cout << "erase_handle 1: " << erase_handle << std::endl;
+
   if (erase_handle) {
-    std::cout << "erase_handle 2: " << key.ToString() << std::endl;
     is_in_sec_cache = false;
     cache_->Release(lru_handle, /* erase_if_last_ref */ true);
   }
