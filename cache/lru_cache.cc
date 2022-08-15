@@ -12,7 +12,6 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -348,8 +347,6 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
       if (!entry->value) {
         fprintf(stdout, "Avoid-1 inserting dummy entry into sec cache.");
       }
-      std::cout << "SetCapacity: Insert sec cache " << entry->key().ToString()
-                << std::endl;
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
@@ -425,8 +422,6 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       if (!entry->value) {
         fprintf(stdout, "Avoid-2 inserting dummy entry into sec cache.");
       }
-      std::cout << "InsertItem: Insert sec cache " << entry->key().ToString()
-                << std::endl;
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
@@ -437,7 +432,6 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
 }
 
 void LRUCacheShard::Promote(LRUHandle* e) {
-  std::cout << "Promote start " << std::endl;
   SecondaryCacheResultHandle* secondary_handle = e->sec_handle;
 
   assert(secondary_handle->IsReady());
@@ -453,7 +447,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   // and the caller will most likely just read from disk if we erase it here.
   if (e->value) {
     if (e->WasInSecondaryCache()) {
-      std::cout << "Insert e " << std::endl;
       Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
       Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
       if (!s.ok()) {
@@ -461,16 +454,12 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         // When the handle is released, the item should get deleted.
         assert(!e->InCache());
       }
-      std::cout << "Insert e end" << std::endl;
     } else {
-      std::cout << "Insert dummy " << std::endl;
       // Insert a dummy handle into the primary cache.
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
-             nullptr /*deleter*/, e->info_.helper, nullptr /*handle*/,
-             priority);
-      std::cout << "Insert dummy end" << std::endl;
+      Insert(e->key(), e->hash, nullptr /*value*/, e->info_.helper,
+             0 /*charge*/, nullptr /*handle*/, priority);
     }
 
   } else {
@@ -481,8 +470,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
     e->CalcTotalCharge(0, metadata_charge_policy_);
     e->SetInCache(false);
   }
-
-  std::cout << "Promote end " << std::endl;
 }
 
 Cache::Handle* LRUCacheShard::Lookup(
@@ -511,11 +498,8 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If the handle exists in secondary cache, the value should be
         // erased from sec cache and be inserted into primary cache.
         if (e->IsInSecondaryCache()) {
-          std::cout << "T1 start " << std::endl;
           erase_handle_in_sec_cache = true;
-          std::cout << "T1 end" << std::endl;
         } else {
-          std::cout << "nullptr start " << std::endl;
           e = nullptr;
         }
       }
@@ -533,14 +517,12 @@ Cache::Handle* LRUCacheShard::Lookup(
     // a deleter would not be required is for dummy entries inserted for
     // accounting purposes, which we won't demote to the secondary cache
     // anyway.
-    std::cout << "T2 start " << std::endl;
     assert(create_cb && helper->del_cb);
     bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
         secondary_cache_->Lookup(key, create_cb, wait,
                                  erase_handle_in_sec_cache, is_in_sec_cache);
     if (secondary_handle != nullptr && secondary_handle->Value()) {
-      std::cout << "T3 start " << std::endl;
       e = reinterpret_cast<LRUHandle*>(
           new char[sizeof(LRUHandle) - 1 + key.size()]);
 
