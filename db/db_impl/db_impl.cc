@@ -1822,6 +1822,16 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return s;
 }
 
+Status DBImpl::GetEntity(const ReadOptions& read_options,
+                         ColumnFamilyHandle* column_family, const Slice& key,
+                         WideColumns& columns) {
+  GetImplOptions get_impl_options;
+  get_impl_options.column_family = column_family;
+  get_impl_options.columns = &columns;
+
+  return GetImpl(read_options, key, get_impl_options);
+}
+
 bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
   // If both thresholds are reached, a function returning merge operands as
   // `PinnableSlice`s should reference the `SuperVersion` to avoid large and/or
