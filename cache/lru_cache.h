@@ -96,6 +96,7 @@ struct LRUHandle {
     // Whether this entry used to be in a lower tier and it was inserted into
     // the primary cache as dummy handle.
     WAS_IN_SECONDARY_CACHE = (1 << 9),
+    DUMMY_HANDLE = (1 << 10),
   };
 
   uint16_t flags;
@@ -142,6 +143,7 @@ struct LRUHandle {
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
   bool WasInSecondaryCache() const { return flags & WAS_IN_SECONDARY_CACHE; }
+  bool IsDummyHandle() const { return flags & DUMMY_HANDLE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -214,6 +216,14 @@ struct LRUHandle {
       flags |= WAS_IN_SECONDARY_CACHE;
     } else {
       flags &= ~WAS_IN_SECONDARY_CACHE;
+    }
+  }
+
+  void SetDummyHandle(bool dummy_handle) {
+    if (dummy_handle) {
+      flags |= DUMMY_HANDLE;
+    } else {
+      flags &= ~DUMMY_HANDLE;
     }
   }
 

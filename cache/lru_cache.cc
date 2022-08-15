@@ -436,7 +436,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
 
   assert(secondary_handle->IsReady());
   e->SetIncomplete(false);
-  e->SetInCache(true);
   e->value = secondary_handle->Value();
   e->CalcTotalCharge(secondary_handle->Size(), metadata_charge_policy_);
   delete secondary_handle;
@@ -447,6 +446,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   // and the caller will most likely just read from disk if we erase it here.
   if (e->value) {
     if (e->WasInSecondaryCache()) {
+      e->SetInCache(true);
       Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
       Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
       if (!s.ok()) {
@@ -455,6 +455,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         assert(!e->InCache());
       }
     } else {
+      e->SetInCache(false);
+      e->SetDummyHandle(true);
       // Insert a dummy handle into the primary cache.
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
@@ -483,25 +485,22 @@ Cache::Handle* LRUCacheShard::Lookup(
     DMutexLock l(mutex_);
     e = table_.Lookup(key, hash);
     if (e != nullptr) {
-      if (e->value) {
-        assert(e->InCache());
-        if (!e->HasRefs()) {
-          // The entry is in LRU since it's in hash and has no external
-          // references
-          LRU_Remove(e);
-        }
-        e->Ref();
-        e->SetHit();
-      } else {
-        // A dummy handle, that was retrieved from secondary cache, may still
-        // exist in secondary cache.
-        // If the handle exists in secondary cache, the value should be
-        // erased from sec cache and be inserted into primary cache.
-        if (e->IsInSecondaryCache()) {
-          erase_handle_in_sec_cache = true;
-        } else {
-          e = nullptr;
-        }
+      assert(e->InCache());
+      if (!e->HasRefs()) {
+        // The entry is in LRU since it's in hash and has no external
+        // references
+        LRU_Remove(e);
+      }
+      e->Ref();
+      e->SetHit();
+
+      // For a dummy handle, if it was retrieved from secondary cache,
+      // it may still exist in secondary cache.
+      // If the handle exists in secondary cache, the value should be
+      // erased from sec cache and be inserted into primary cache.
+      if (!e->value) {
+        // CacheLibWrapper should ignore this param.
+        erase_handle_in_sec_cache = true;
       }
     }
   }
@@ -625,7 +624,8 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // cache compatible and has a non-null value, then decrement the cache
     // usage. If value is null in the latter case, that means the lookup
     // failed and we didn't charge the cache.
-    if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value)) {
+    if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value) &&
+        !e->IsDummyHandle()) {
       assert(usage_ >= e->total_charge);
       usage_ -= e->total_charge;
     }

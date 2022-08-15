@@ -69,6 +69,8 @@ class SecondaryCache : public Customizable {
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
   // the handle is ready.
+  // The erase_handle param should be ignored by the implementation
+  // on non-volatile media
   // is_in_sec_cache is to indicate whether the handle is possibly erased
   // from the secondary cache after the Lookup.
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
