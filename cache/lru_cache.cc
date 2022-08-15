@@ -344,9 +344,6 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsInSecondaryCache()) {
-      if (!entry->value) {
-        fprintf(stdout, "Avoid-1 inserting dummy entry into sec cache.");
-      }
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
@@ -419,9 +416,6 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsInSecondaryCache()) {
-      if (!entry->value) {
-        fprintf(stdout, "Avoid-2 inserting dummy entry into sec cache.");
-      }
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
@@ -489,7 +483,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       assert(e->InCache());
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external
-        // references
+        // references.
         LRU_Remove(e);
       }
       e->Ref();
@@ -500,14 +494,13 @@ Cache::Handle* LRUCacheShard::Lookup(
       // If the handle exists in secondary cache, the value should be
       // erased from sec cache and be inserted into primary cache.
       if (!e->value) {
-        // CacheLibWrapper should ignore this param.
         erase_handle_in_sec_cache = true;
       }
     }
   }
 
-  // If handle table lookup failed, then allocate a handle outside the
-  // mutex if we're going to lookup in the secondary cache.
+  // If handle table lookup failed or the handle is a dummy one, allocate
+  // a handle outside the mutex if we're going to lookup in the secondary cache.
   // Only support synchronous for now.
   // TODO: Support asynchronous lookup in secondary cache
   if ((!e || erase_handle_in_sec_cache) && secondary_cache_ && helper &&
@@ -651,10 +644,6 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   if (helper) {
     e->SetSecondaryCacheCompatible(true);
     e->info_.helper = helper;
-    // If the value is nullptr, assume it is in secondary cache.
-    if (!value) {
-      e->SetIsInSecondaryCache(true);
-    }
   } else {
 #ifdef __SANITIZE_THREAD__
     e->is_secondary_cache_compatible_for_tsan = false;
