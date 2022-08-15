@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <iostream>
 #include <memory>
 
 #include "memory/memory_allocator.h"
@@ -40,7 +39,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = true;
   Cache::Handle* lru_handle = cache_->Lookup(key);
-  if (!lru_handle) {
+  if (lru_handle == nullptr) {
     return nullptr;
   }
 
@@ -91,6 +90,10 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
 Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
                                         const Cache::CacheItemHelper* helper) {
+  if (value == nullptr) {
+    return Status::Aborted();
+  }
+
   size_t size = (*helper->size_cb)(value);
   CacheAllocationPtr ptr =
       AllocateBlock(size, cache_options_.memory_allocator.get());
