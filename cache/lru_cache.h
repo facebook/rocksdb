@@ -40,8 +40,11 @@ namespace lru_cache {
 //    In that case the entry is not in the LRU list and not in hash table.
 //    The entry can be freed when refs becomes 0.
 //    (refs >= 1 && in_cache == false)
-//
-// All newly created LRUHandles are in state 1. If you call
+// 4. The handle is never inserted into the LRUCache (both hash table and LRU
+//    list) and it doesn't experience the above three states.
+//    The entry can be freed when refs becomes 0.
+//    (refs >= 1 && in_cache == false && IS_STANDALONE == true)
+// All newly created LRUHandles are in state 1 or 4. If you call
 // LRUCacheShard::Release on entry in state 1, it will go into state 2.
 // To move from state 1 to state 3, either call LRUCacheShard::Erase or
 // LRUCacheShard::Insert with the same key (but possibly different value).
@@ -96,7 +99,9 @@ struct LRUHandle {
     // Whether this entry used to be in a lower tier and it was inserted into
     // the primary cache as dummy handle.
     WAS_IN_SECONDARY_CACHE = (1 << 9),
-    DUMMY_HANDLE = (1 << 10),
+    // Whether this entry is not inserted into the cache (both hash table and
+    // LRU list).
+    IS_STANDALONE = (1 << 10),
   };
 
   uint16_t flags;
@@ -143,7 +148,7 @@ struct LRUHandle {
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
   bool WasInSecondaryCache() const { return flags & WAS_IN_SECONDARY_CACHE; }
-  bool IsDummyHandle() const { return flags & DUMMY_HANDLE; }
+  bool IsStandalone() const { return flags & IS_STANDALONE; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -219,11 +224,11 @@ struct LRUHandle {
     }
   }
 
-  void SetDummyHandle(bool dummy_handle) {
-    if (dummy_handle) {
-      flags |= DUMMY_HANDLE;
+  void SetIsStandalone(bool is_standalone) {
+    if (is_standalone) {
+      flags |= IS_STANDALONE;
     } else {
-      flags &= ~DUMMY_HANDLE;
+      flags &= ~IS_STANDALONE;
     }
   }
 

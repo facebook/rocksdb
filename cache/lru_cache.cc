@@ -455,8 +455,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         assert(!e->InCache());
       }
     } else {
+      // Update the properties for the standalone handle.
       e->SetInCache(false);
-      e->SetDummyHandle(true);
+      e->SetIsStandalone(true);
       // Insert a dummy handle into the primary cache.
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
@@ -539,12 +540,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->total_charge = 0;
       e->Ref();
       e->SetIsInSecondaryCache(is_in_sec_cache);
-      if (erase_handle_in_sec_cache) {
-        e->SetWasInSecondaryCache(true);
-        RecordTick(stats, ERASE_BLOCK_IN_SECONDARY_CACHE_COUNT);
-      } else {
-        RecordTick(stats, DUMMY_BLOCK_IN_PRIMARY_CACHE_COUNT);
-      }
+      e->SetWasInSecondaryCache(erase_handle_in_sec_cache);
 
       if (wait) {
         Promote(e);
@@ -605,7 +601,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   {
     DMutexLock l(mutex_);
     last_reference = e->Unref();
-    if (last_reference && e->InCache()) {
+    if (last_reference && e->InCache() && !e->IsStandalone()) {
       // The item is still in cache, and nobody else holds a reference to it.
       if (usage_ > capacity_ || erase_if_last_ref) {
         // The LRU list must be empty since the cache is full.
@@ -624,8 +620,9 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // cache compatible and has a non-null value, then decrement the cache
     // usage. If value is null in the latter case, that means the lookup
     // failed and we didn't charge the cache.
+    // A standalone handle doesn't charge usage_.
     if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value) &&
-        !e->IsDummyHandle()) {
+        !e->IsStandalone()) {
       assert(usage_ >= e->total_charge);
       usage_ -= e->total_charge;
     }
