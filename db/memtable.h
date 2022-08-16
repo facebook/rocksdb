@@ -611,8 +611,7 @@ class MemTable {
       SequenceNumber s, ValueType type, const Slice& key, /* user key */
       const Slice& value, std::unique_ptr<MemTableRep>& table, char** out_buf,
       uint32_t* encoded_len,
-      const std::set<SequenceNumber, std::greater<SequenceNumber>>&
-          tombstone_seqs,
+      const std::vector<SequenceNumber>& tombstone_seqs,
       Slice* key_slice = nullptr);
   bool InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
                  SequenceNumber s, ValueType type,
