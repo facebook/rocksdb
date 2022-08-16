@@ -717,6 +717,10 @@ class TestSecondaryCache : public SecondaryCache {
 
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override {
+    if (value == nullptr) {
+      return Status::Aborted();
+    }
+
     if (inject_failure_) {
       return Status::Corruption("Insertion Data Corrupted");
     }
@@ -974,6 +978,11 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
                     test_item_creator, Cache::Priority::LOW, true, stats.get());
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
+  handle =
+      cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
+                    test_item_creator, Cache::Priority::LOW, true, stats.get());
+  ASSERT_NE(handle, nullptr);
+  cache->Release(handle);
   // This lookup should promote k1 and demote k2
   handle =
       cache->Lookup(k1.AsSlice(), &LRUCacheSecondaryCacheTest::helper_,
@@ -981,7 +990,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 2u);
   ASSERT_EQ(stats->getTickerCount(SECONDARY_CACHE_HITS),
             secondary_cache->num_lookups());
   PerfContext perf_ctx = *get_perf_context();
@@ -1245,14 +1254,6 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   // block_2 is in the block cache. There is a block cache hit. No need to
   // lookup or insert the secondary cache.
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
-
-  v = Get(Key(0));
-  ASSERT_EQ(1007, v.size());
-  // Lookup the first data block, not in the block cache, so lookup the
-  // secondary cache. Also not in the secondary cache. After Get, still
-  // block_1 is will not be cached.
-  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 6u);
 
   v = Get(Key(0));
@@ -1262,6 +1263,14 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness1) {
   // block_1 is will not be cached.
   ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 7u);
+
+  v = Get(Key(0));
+  ASSERT_EQ(1007, v.size());
+  // Lookup the first data block, not in the block cache, so lookup the
+  // secondary cache. Also not in the secondary cache. After Get, still
+  // block_1 is will not be cached.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 8u);
 
   Destroy(options);
 }
@@ -1312,49 +1321,46 @@ TEST_F(DBSecondaryCacheTest, TestSecondaryCacheCorrectness2) {
   Compact("a", "z");
   // Compaction will create the iterator to scan the whole file. So all the
   // blocks are needed. After Flush, only block_2 is cached in block cache
-  // and block_1 is in the secondary cache. So when read block_1, it is
-  // read out from secondary cache and inserted to block cache. At the same
-  // time, block_2 is inserted to secondary cache. Now, secondary cache has
-  // both block_1 and block_2. After compaction, block_1 is in the cache.
-  ASSERT_EQ(secondary_cache->num_inserts(), 2u);
+  // and block_1 is in the secondary cache. So when read block_1, it is read
+  // out from secondary cache and a dummy handle is inserted to block cache.
+  // Now, secondary cache has block_1.
+  ASSERT_EQ(secondary_cache->num_inserts(), 1u);
   ASSERT_EQ(secondary_cache->num_lookups(), 3u);
 
   std::string v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
-  // This Get needs to access block_1, since block_1 is cached in block cache
-  // there is no secondary cache lookup.
+  // This Get needs to access block_1, since block_1 is cached in sec cache
+  // there is one more secondary cache lookup.
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 3u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
 
   v = Get(Key(5));
   ASSERT_EQ(1007, v.size());
   // This Get needs to access block_2 which is not in the block cache. So
-  // it will lookup the secondary cache for block_2 and cache it in the
-  // block_cache.
+  // it will lookup the secondary cache for block_2.
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
 
   v = Get(Key(5));
   ASSERT_EQ(1007, v.size());
-  // This Get needs to access block_2 which is already in the block cache.
-  // No need to lookup secondary cache.
+  // This Get needs to access block_2. Since block_2 is cached in sec cache
+  // there is one more secondary cache lookup.
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 4u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 6u);
 
   v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
   // This Get needs to access block_1, since block_1 is not in block cache
-  // there is one econdary cache lookup. Then, block_1 is cached in the
-  // block cache.
+  // there is one econdary cache lookup.
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 7u);
 
   v = Get(Key(0));
   ASSERT_EQ(1007, v.size());
-  // This Get needs to access block_1, since block_1 is cached in block cache
-  // there is no secondary cache lookup.
+  // This Get needs to access block_1, since block_1 is cached in secondary
+  // cache, there is one more secondary cache lookup.
   ASSERT_EQ(secondary_cache->num_inserts(), 2u);
-  ASSERT_EQ(secondary_cache->num_lookups(), 5u);
+  ASSERT_EQ(secondary_cache->num_lookups(), 8u);
 
   Destroy(options);
 }
@@ -1889,7 +1895,7 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadBasic) {
   // no insert to secondary cache
   ASSERT_EQ(0, static_cast<int>(final_insert));
   // lookup the secondary to get all blocks
-  ASSERT_EQ(64, static_cast<int>(final_lookup));
+  ASSERT_EQ(128, static_cast<int>(final_lookup));
   uint32_t block_insert = tmp_cache->GetInsertCount() - cache_insert;
   uint32_t block_lookup = tmp_cache->GetLookupcount() - cache_lookup;
   // Check the new block cache insert and lookup, should be no insert since all
@@ -2061,7 +2067,7 @@ TEST_F(DBSecondaryCacheTest, LRUCacheDumpLoadWithFilter) {
   // no insert to secondary cache
   ASSERT_EQ(0, static_cast<int>(final_insert));
   // lookup the secondary to get all blocks
-  ASSERT_EQ(64, static_cast<int>(final_lookup));
+  ASSERT_EQ(128, static_cast<int>(final_lookup));
   uint32_t block_insert = tmp_cache->GetInsertCount() - cache_insert;
   uint32_t block_lookup = tmp_cache->GetLookupcount() - cache_lookup;
   // Check the new block cache insert and lookup, should be no insert since all
