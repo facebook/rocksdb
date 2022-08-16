@@ -36,7 +36,7 @@
 * Improve universal tiered storage compaction picker to avoid extra major compaction triggered by size amplification. If `preclude_last_level_data_seconds` is enabled, the size amplification is calculated within non last_level data only which skip the last level and use the penultimate level as the size base.
 * If an error is hit when writing to a file (append, sync, etc), RocksDB is more strict with not issuing more operations to it, except closing the file, with exceptions of some WAL file operations in error recovery path.
 * Block cache keys have changed, which will cause any persistent caches to miss between versions.
-* DBOptions::verify_sst_unique_id_in_manifest is now an on-by-default feature that verifies SST file identity as files are loaded naturally, rather than only at DB::Open.
+* DBOptions::verify_sst_unique_id_in_manifest is now an on-by-default feature that verifies SST file identity whenever they are opened by a DB, rather than only at DB::Open time.
 
 ### Performance Improvements
 * Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.
