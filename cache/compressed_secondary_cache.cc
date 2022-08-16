@@ -37,7 +37,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
     bool erase_handle, bool& is_in_sec_cache) {
   std::unique_ptr<SecondaryCacheResultHandle> handle;
-  is_in_sec_cache = true;
+  is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
   if (lru_handle == nullptr) {
     return nullptr;
@@ -80,8 +80,9 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   }
 
   if (erase_handle) {
-    is_in_sec_cache = false;
     cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+  } else {
+    is_in_sec_cache = true;
   }
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
 
