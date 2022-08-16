@@ -1049,7 +1049,8 @@ class BlobSecondaryCacheTest : public DBTestBase {
 
     secondary_cache_opts_.capacity = 8 << 20;  // 8 MB
     secondary_cache_opts_.num_shard_bits = 0;
-    secondary_cache_opts_.metadata_charge_policy = kDontChargeCacheMetadata;
+    secondary_cache_opts_.metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy;
 
     // Read blobs from the secondary cache if they are not in the primary cache
     options_.lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
@@ -1259,8 +1260,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key1 should be in the primary cache.
       handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
-      value = static_cast<std::string*>(blob_cache->Value(handle1));
-      ASSERT_EQ(*value, blobs[1]);
+      // handl1 is a dummy handle.
+      ASSERT_EQ(blob_cache->Value(handle1), nullptr);
       blob_cache->Release(handle1);
     }
   }

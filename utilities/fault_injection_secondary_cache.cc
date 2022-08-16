@@ -8,8 +8,6 @@
 
 #include "utilities/fault_injection_secondary_cache.h"
 
-#include <asm-generic/errno.h>
-
 namespace ROCKSDB_NAMESPACE {
 
 FaultInjectionSecondaryCache::ErrorContext*
