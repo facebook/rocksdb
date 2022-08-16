@@ -265,26 +265,26 @@ class MemTable {
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
            bool do_merge = true) {
-    return Get(key, value, /*timestamp=*/nullptr, s, merge_context,
-               max_covering_tombstone_seq, seq, read_opts, immutable_memtable,
-               callback, is_blob_index, do_merge);
+    return Get(key, value, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
+               merge_context, max_covering_tombstone_seq, seq, read_opts,
+               immutable_memtable, callback, is_blob_index, do_merge);
   }
 
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value, WideColumns* columns,
+           std::string* timestamp, Status* s, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
            bool do_merge = true);
 
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value, WideColumns* columns,
+           std::string* timestamp, Status* s, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, bool immutable_memtable,
            ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
            bool do_merge = true) {
     SequenceNumber seq;
-    return Get(key, value, timestamp, s, merge_context,
+    return Get(key, value, columns, timestamp, s, merge_context,
                max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
                callback, is_blob_index, do_merge);
   }

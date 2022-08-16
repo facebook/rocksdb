@@ -597,6 +597,7 @@ class DBImpl : public DB {
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
     PinnableSlice* value = nullptr;
+    WideColumns* columns = nullptr;
     std::string* timestamp = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
@@ -610,8 +611,6 @@ class DBImpl : public DB {
     PinnableSlice* merge_operands = nullptr;
     GetMergeOperandsOptions* get_merge_operands_options = nullptr;
     int* number_of_operands = nullptr;
-
-    WideColumns* columns = nullptr;
   };
 
   // Function that Get and KeyMayExist call with no_io true or false

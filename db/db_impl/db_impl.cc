@@ -1868,7 +1868,8 @@ bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
-         get_impl_options.merge_operands != nullptr);
+         get_impl_options.merge_operands != nullptr ||
+         get_impl_options.columns != nullptr);
 
   assert(get_impl_options.column_family);
 
@@ -1995,11 +1996,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), timestamp, &s,
-                       &merge_context, &max_covering_tombstone_seq,
-                       read_options, false /* immutable_memtable */,
-                       get_impl_options.callback,
-                       get_impl_options.is_blob_index)) {
+      if (sv->mem->Get(
+              lkey, get_impl_options.value->GetSelf(), get_impl_options.columns,
+              timestamp, &s, &merge_context, &max_covering_tombstone_seq,
+              read_options, false /* immutable_memtable */,
+              get_impl_options.callback, get_impl_options.is_blob_index)) {
         done = true;
         get_impl_options.value->PinSelf();
         RecordTick(stats_, MEMTABLE_HIT);
@@ -2016,10 +2017,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     } else {
       // Get Merge Operands associated with key, Merge Operands should not be
       // merged and raw values should be returned to the user.
-      if (sv->mem->Get(lkey, /*value*/ nullptr, /*timestamp=*/nullptr, &s,
-                       &merge_context, &max_covering_tombstone_seq,
-                       read_options, false /* immutable_memtable */, nullptr,
-                       nullptr, false)) {
+      if (sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr,
+                       /*timestamp=*/nullptr, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options,
+                       false /* immutable_memtable */, nullptr, nullptr,
+                       false)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -2267,10 +2269,10 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, value, timestamp, &s, &merge_context,
-                                  &max_covering_tombstone_seq, read_options,
-                                  false /* immutable_memtable */,
-                                  read_callback)) {
+      if (super_version->mem->Get(
+              lkey, value, /*columns=*/nullptr, timestamp, &s, &merge_context,
+              &max_covering_tombstone_seq, read_options,
+              false /* immutable_memtable */, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if (super_version->imm->Get(lkey, value, timestamp, &s,
@@ -4876,8 +4878,8 @@ Status DBImpl::GetLatestSequenceForKey(
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, /*value=*/nullptr, timestamp, &s, &merge_context,
-               &max_covering_tombstone_seq, seq, read_options,
+  sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
+               &merge_context, &max_covering_tombstone_seq, seq, read_options,
                false /* immutable_memtable */, nullptr /*read_callback*/,
                is_blob_index);
 

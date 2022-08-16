@@ -1051,8 +1051,8 @@ static bool SaveValue(void* arg, const char* entry) {
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value,
-                   std::string* timestamp, Status* s,
-                   MergeContext* merge_context,
+                   WideColumns* /* columns */, std::string* timestamp,
+                   Status* s, MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback,

@@ -266,7 +266,7 @@ TEST_F(MemTableListTest, GetTest) {
 
   // Fetch the newly written keys
   merge_context.Clear();
-  found = mem->Get(LookupKey("key1", seq), &value,
+  found = mem->Get(LookupKey("key1", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
                    false /* immutable_memtable */);
@@ -274,7 +274,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(value, "value1");
 
   merge_context.Clear();
-  found = mem->Get(LookupKey("key1", 2), &value,
+  found = mem->Get(LookupKey("key1", 2), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
                    false /* immutable_memtable */);
@@ -282,7 +282,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
-  found = mem->Get(LookupKey("key2", seq), &value,
+  found = mem->Get(LookupKey("key2", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
                    false /* immutable_memtable */);
@@ -396,7 +396,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Fetch the newly written keys
   merge_context.Clear();
-  found = mem->Get(LookupKey("key1", seq), &value,
+  found = mem->Get(LookupKey("key1", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
                    false /* immutable_memtable */);
@@ -404,7 +404,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
-  found = mem->Get(LookupKey("key2", seq), &value,
+  found = mem->Get(LookupKey("key2", seq), &value, /*columns*/ nullptr,
                    /*timestamp*/ nullptr, &s, &merge_context,
                    &max_covering_tombstone_seq, ReadOptions(),
                    false /* immutable_memtable */);

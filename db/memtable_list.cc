@@ -131,10 +131,10 @@ bool MemTableListVersion::GetMergeOperands(
     const LookupKey& key, Status* s, MergeContext* merge_context,
     SequenceNumber* max_covering_tombstone_seq, const ReadOptions& read_opts) {
   for (MemTable* memtable : memlist_) {
-    bool done =
-        memtable->Get(key, /*value*/ nullptr, /*timestamp*/ nullptr, s,
-                      merge_context, max_covering_tombstone_seq, read_opts,
-                      true /* immutable_memtable */, nullptr, nullptr, false);
+    bool done = memtable->Get(
+        key, /*value=*/nullptr, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
+        merge_context, max_covering_tombstone_seq, read_opts,
+        true /* immutable_memtable */, nullptr, nullptr, false);
     if (done) {
       return true;
     }
@@ -162,10 +162,10 @@ bool MemTableListVersion::GetFromList(
     assert(memtable->IsFragmentedRangeTombstonesConstructed());
     SequenceNumber current_seq = kMaxSequenceNumber;
 
-    bool done =
-        memtable->Get(key, value, timestamp, s, merge_context,
-                      max_covering_tombstone_seq, &current_seq, read_opts,
-                      true /* immutable_memtable */, callback, is_blob_index);
+    bool done = memtable->Get(
+        key, value, /*columns=*/nullptr, timestamp, s, merge_context,
+        max_covering_tombstone_seq, &current_seq, read_opts,
+        true /* immutable_memtable */, callback, is_blob_index);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to
