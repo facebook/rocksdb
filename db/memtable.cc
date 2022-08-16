@@ -600,45 +600,73 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
     int end_compare = user_comparator->Compare(value, tombstone_end_key);
     if (start_compare > 0) {
       if (end_compare < 0) {
-        to_insert.emplace_back(tombstone_start_key, key, std::vector<SequenceNumber>(tombstone_seqs.begin(), tombstone_seqs.end()));
+        // why we insert in decreasing start key order ? see this example:
+        // memtable has: [a, f)@2
+        // current range delete: [c, d)@3
+        // to_insert: [a, c)@2, [c, d)@[3, 2], [d, f)@2
+        // current read: key e at snapshot 2.
+        // The expected max covering tombstone seq is 2 from [a, f)@2.
+        // If max covering seqno is computed after [c, d)@[3, 2] is inserted but
+        // before [d, f)@2 then we might find there is no covering range
+        // tombstone
+        to_insert.emplace_back(
+            value, tombstone_end_key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
         to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
         auto& back = std::get<2>(to_insert.back());
         back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
-        to_insert.emplace_back(value, tombstone_end_key, std::vector<SequenceNumber>(tombstone_seqs.begin(), tombstone_seqs.end()));
+        to_insert.emplace_back(
+            tombstone_start_key, key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
         done = true;
         break;
       } else if (end_compare == 0) {
-        to_insert.emplace_back(tombstone_start_key, key, std::vector<SequenceNumber>(tombstone_seqs.begin(), tombstone_seqs.end()));
         to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
         auto& back = std::get<2>(to_insert.back());
         back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(
+            tombstone_start_key, key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
         done = true;
         break;
       } else if (user_comparator->Compare(key, tombstone_end_key) < 0) {
-        to_insert.emplace_back(tombstone_start_key, key, std::vector<SequenceNumber>(tombstone_seqs.begin(), tombstone_seqs.end()));
-        to_insert.emplace_back(key, tombstone_end_key, std::vector<SequenceNumber>({s}));
+        to_insert.emplace_back(key, tombstone_end_key,
+                               std::vector<SequenceNumber>({s}));
         auto& back = std::get<2>(to_insert.back());
         back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(
+            tombstone_start_key, key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
         key = tombstone_end_key;
       } else {
         break;
       }
     } else if (start_compare < 0) {
       if (end_compare > 0) {
-        to_insert.emplace_back(key, tombstone_start_key, std::vector<SequenceNumber>({s}));
-        to_insert.emplace_back(tombstone_start_key, tombstone_end_key, std::vector<SequenceNumber>({s}));
+        to_insert.emplace_back(tombstone_start_key, tombstone_end_key,
+                               std::vector<SequenceNumber>({s}));
         auto& back = std::get<2>(to_insert.back());
         back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(key, tombstone_start_key,
+                               std::vector<SequenceNumber>({s}));
         key = tombstone_end_key;
       } else if (user_comparator->Compare(value, tombstone_start_key) > 0) {
-        to_insert.emplace_back(key, tombstone_start_key, std::vector<SequenceNumber>({s}));
-        to_insert.emplace_back(tombstone_start_key, value, std::vector<SequenceNumber>({s}));
+        if (end_compare < 0) {
+          to_insert.emplace_back(
+              value, tombstone_end_key,
+              std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                          tombstone_seqs.end()));
+        }
+        to_insert.emplace_back(tombstone_start_key, value,
+                               std::vector<SequenceNumber>({s}));
         auto& back = std::get<2>(to_insert.back());
         back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
-
-        if (end_compare < 0) {
-          to_insert.emplace_back(value, tombstone_end_key, std::vector<SequenceNumber>(tombstone_seqs.begin(), tombstone_seqs.end()));
-        }
+        to_insert.emplace_back(key, tombstone_start_key,
+                               std::vector<SequenceNumber>({s}));
         done = true;
         break;
       } else {
@@ -646,14 +674,18 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
       }
     } else {
       if (end_compare < 0) {
+        to_insert.emplace_back(
+            value, tombstone_end_key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
         to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
         auto& back = std::get<2>(to_insert.back());
         back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
-        to_insert.emplace_back(value, tombstone_end_key, std::vector<SequenceNumber>(tombstone_seqs.begin(), tombstone_seqs.end()));
         done = true;
         break;
       } else if (end_compare > 0) {
-        to_insert.emplace_back(key, tombstone_end_key, std::vector<SequenceNumber>({s}));
+        to_insert.emplace_back(key, tombstone_end_key,
+                               std::vector<SequenceNumber>({s}));
         auto& back = std::get<2>(to_insert.back());
         back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
         key = tombstone_end_key;
@@ -676,8 +708,8 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
     char* buf = nullptr;
     uint32_t elen;
     KeyHandle h =
-        FormatEntry(s, kTypeRangeDeletion, std::get<0>(i),
-                    std::get<1>(i), table, &buf, &elen, std::get<2>(i));
+        FormatEntry(s, kTypeRangeDeletion, std::get<0>(i), std::get<1>(i),
+                    table, &buf, &elen, std::get<2>(i));
     if (insert(table.get(), h)) {
       entries++;
       len += elen;
@@ -695,8 +727,7 @@ bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
 KeyHandle MemTable::FormatEntry(
     SequenceNumber s, ValueType type, const Slice& key, /* user key */
     const Slice& value, std::unique_ptr<MemTableRep>& table, char** out_buf,
-    uint32_t* encoded_len,
-    const std::vector<SequenceNumber>& tombstone_seqs,
+    uint32_t* encoded_len, const std::vector<SequenceNumber>& tombstone_seqs,
     Slice* key_slice) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()

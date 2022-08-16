@@ -607,12 +607,12 @@ class MemTable {
   // Always returns non-null and assumes certain pre-checks are done
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq);
-  KeyHandle FormatEntry(
-      SequenceNumber s, ValueType type, const Slice& key, /* user key */
-      const Slice& value, std::unique_ptr<MemTableRep>& table, char** out_buf,
-      uint32_t* encoded_len,
-      const std::vector<SequenceNumber>& tombstone_seqs,
-      Slice* key_slice = nullptr);
+  KeyHandle FormatEntry(SequenceNumber s, ValueType type,
+                        const Slice& key, /* user key */
+                        const Slice& value, std::unique_ptr<MemTableRep>& table,
+                        char** out_buf, uint32_t* encoded_len,
+                        const std::vector<SequenceNumber>& tombstone_seqs,
+                        Slice* key_slice = nullptr);
   bool InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
                  SequenceNumber s, ValueType type,
                  const Slice& key, /* user key */
