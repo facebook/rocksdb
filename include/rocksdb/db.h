@@ -570,7 +570,8 @@ class DB {
   // UNDER CONSTRUCTION -- DO NOT USE
   virtual Status GetEntity(const ReadOptions& /* options */,
                            ColumnFamilyHandle* /* column_family */,
-                           const Slice& /* key */, WideColumns& /* columns */) {
+                           const Slice& /* key */,
+                           PinnableWideColumns& /* columns */) {
     return Status::NotSupported("GetEntity not supported");
   }
 

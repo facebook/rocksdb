@@ -1824,7 +1824,7 @@ Status DBImpl::Get(const ReadOptions& read_options,
 
 Status DBImpl::GetEntity(const ReadOptions& read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
-                         WideColumns& columns) {
+                         PinnableWideColumns& columns) {
   if (!column_family) {
     return Status::InvalidArgument(
         "Cannot call this method without a column family handle");

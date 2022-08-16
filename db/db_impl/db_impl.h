@@ -241,7 +241,7 @@ class DBImpl : public DB {
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
-                   WideColumns& columns) override;
+                   PinnableWideColumns& columns) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
@@ -597,7 +597,7 @@ class DBImpl : public DB {
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
     PinnableSlice* value = nullptr;
-    WideColumns* columns = nullptr;
+    PinnableWideColumns* columns = nullptr;
     std::string* timestamp = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
