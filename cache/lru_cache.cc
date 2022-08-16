@@ -455,8 +455,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       // Insert a dummy handle into the primary cache.
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      Insert(e->key(), e->hash, nullptr /*value*/, e->info_.helper,
-             0 /*charge*/, nullptr /*handle*/, priority);
+      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/, 0 /*deleter*/,
+             e->info_.helper, nullptr /*handle*/, priority);
     }
 
   } else {
