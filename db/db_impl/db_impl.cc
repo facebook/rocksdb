@@ -1825,6 +1825,11 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::GetEntity(const ReadOptions& read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          WideColumns& columns) {
+  if (!column_family) {
+    return Status::InvalidArgument(
+        "Cannot call this method without a column family handle");
+  }
+
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.columns = &columns;
