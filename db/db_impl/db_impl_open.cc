@@ -441,11 +441,14 @@ Status DBImpl::Recover(
         uint64_t number = 0;
         FileType type = kWalFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
-          // Found MANIFEST (descriptor log), thus best-efforts recovery does
-          // not have to treat the db as empty.
-          s = Status::OK();
-          manifest_path = dbname_ + "/" + file;
-          break;
+          uint64_t bytes;
+          s = env_->GetFileSize(DescriptorFileName(dbname_, number), &bytes);
+          if (s.ok() && bytes != 0) {
+            // Found non-empty MANIFEST (descriptor log), thus best-efforts
+            // recovery does not have to treat the db as empty.
+            manifest_path = dbname_ + "/" + file;
+            break;
+          }
         }
       }
     }
@@ -538,6 +541,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
+    // TODO: share file descriptors (FSDirectory) with SetDirectories above
     std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
@@ -718,6 +722,12 @@ Status DBImpl::VerifySstUniqueIdInManifest() {
       status = version->VerifySstUniqueIds();
       mutex_.Lock();
       version->Unref();
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "SST unique id mismatch in column family \"%s\": %s",
+                       cfd->GetName().c_str(), status.ToString().c_str());
+        return status;
+      }
     }
   }
   return status;
@@ -1108,9 +1118,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
 
     TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
                              /*arg=*/nullptr);
+    uint64_t record_checksum;
     while (!stop_replay_by_wal_filter &&
            reader.ReadRecord(&record, &scratch,
-                             immutable_db_options_.wal_recovery_mode) &&
+                             immutable_db_options_.wal_recovery_mode,
+                             &record_checksum) &&
            status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(record.size(),
@@ -1126,8 +1138,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       if (!status.ok()) {
         return status;
       }
-      status = WriteBatchInternal::UpdateProtectionInfo(&batch,
-                                                        8 /* bytes_per_key */);
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:batch", &batch);
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::RecoverLogFiles:BeforeUpdateProtectionInfo:checksum",
+          &record_checksum);
+      status = WriteBatchInternal::UpdateProtectionInfo(
+          &batch, 8 /* bytes_per_key */, &record_checksum);
       if (!status.ok()) {
         return status;
       }
@@ -1446,9 +1463,6 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   Status s;
   mutex_.AssertHeld();
   assert(immutable_db_options_.avoid_flush_during_recovery);
-  if (two_write_queues_) {
-    log_write_mutex_.Lock();
-  }
   // Mark these as alive so they'll be considered for deletion later by
   // FindObsoleteFiles()
   total_log_size_ = 0;
@@ -1472,9 +1486,6 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     }
     total_log_size_ += log.size;
     alive_log_files_.push_back(log);
-  }
-  if (two_write_queues_) {
-    log_write_mutex_.Unlock();
   }
   return s;
 }
@@ -1535,7 +1546,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
       auto range_del_iter =
-          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+          // This is called during recovery, where a live memtable is flushed
+          // directly. In this case, no fragmented tombstone list is cached in
+          // this memtable yet.
+          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber,
+                                         false /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
@@ -1547,17 +1562,19 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.compression_opts, cfd->GetID(), cfd->GetName(),
           0 /* level */, false /* is_bottommost */,
-          TableFileCreationReason::kRecovery, current_time,
-          0 /* oldest_key_time */, 0 /* file_creation_time */, db_id_,
-          db_session_id_, 0 /* target_file_size */, meta.fd.GetNumber());
+          TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
+          0 /* file_creation_time */, db_id_, db_session_id_,
+          0 /* target_file_size */, meta.fd.GetNumber());
+      SeqnoToTimeMapping empty_seqno_time_mapping;
       s = BuildTable(
           dbname_, versions_.get(), immutable_db_options_, tboptions,
           file_options_for_compaction_, cfd->table_cache(), iter.get(),
           std::move(range_del_iters), &meta, &blob_file_additions,
           snapshot_seqs, earliest_write_conflict_snapshot, kMaxSequenceNumber,
           snapshot_checker, paranoid_file_checks, cfd->internal_stats(), &io_s,
-          io_tracer_, BlobFileCreationReason::kRecovery, &event_logger_, job_id,
-          Env::IO_HIGH, nullptr /* table_properties */, write_hint,
+          io_tracer_, BlobFileCreationReason::kRecovery,
+          empty_seqno_time_mapping, &event_logger_, job_id, Env::IO_HIGH,
+          nullptr /* table_properties */, write_hint,
           nullptr /*full_history_ts_low*/, &blob_callback_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
@@ -1588,8 +1605,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                   meta.marked_for_compaction, meta.temperature,
                   meta.oldest_blob_file_number, meta.oldest_ancester_time,
                   meta.file_creation_time, meta.file_checksum,
-                  meta.file_checksum_func_name, meta.min_timestamp,
-                  meta.max_timestamp, meta.unique_id);
+                  meta.file_checksum_func_name, meta.unique_id);
 
     for (const auto& blob : blob_file_additions) {
       edit->AddBlobFile(blob);
@@ -1856,16 +1872,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
 
     if (s.ok()) {
-      if (impl->two_write_queues_) {
-        impl->log_write_mutex_.Lock();
-      }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
-      if (impl->two_write_queues_) {
-        impl->log_write_mutex_.Unlock();
-      }
-    }
-    if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
@@ -2098,6 +2106,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   if (s.ok()) {
     s = impl->StartPeriodicWorkScheduler();
+  }
+
+  if (s.ok()) {
+    s = impl->RegisterRecordSeqnoTimeWorker();
   }
   if (!s.ok()) {
     for (auto* h : *handles) {

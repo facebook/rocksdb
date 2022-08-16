@@ -1116,7 +1116,7 @@ TEST_P(ColumnFamilyTest, DifferentWriteBufferSizes) {
   CreateColumnFamilies({"one", "two", "three"});
   ColumnFamilyOptions default_cf, one, two, three;
   // setup options. all column families have max_write_buffer_number setup to 10
-  // "default" -> 100KB memtable, start flushing immediatelly
+  // "default" -> 100KB memtable, start flushing immediately
   // "one" -> 200KB memtable, start flushing with two immutable memtables
   // "two" -> 1MB memtable, start flushing with three immutable memtables
   // "three" -> 90KB memtable, start flushing with four immutable memtables
@@ -2207,9 +2207,22 @@ TEST_P(ColumnFamilyTest, FlushStaleColumnFamilies) {
   PutRandomData(0, 100, 1000);  // flush
   WaitForFlush(0);
   WaitForFlush(2);
-  // 3 files for default column families, 1 file for column family [two], zero
-  // files for column family [one], because it's empty
-  AssertCountLiveFiles(4);
+  // at least 3 files for default column families, 1 file for column family
+  // [two], zero files for column family [one], because it's empty
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_GE(metadata.size(), 4);
+  bool has_cf1_sst = false;
+  bool has_cf2_sst = false;
+  for (const auto& file : metadata) {
+    if (file.column_family_name == "one") {
+      has_cf1_sst = true;
+    } else if (file.column_family_name == "two") {
+      has_cf2_sst = true;
+    }
+  }
+  ASSERT_FALSE(has_cf1_sst);
+  ASSERT_TRUE(has_cf2_sst);
 
   ASSERT_OK(Flush(0));
   ASSERT_EQ(0, dbfull()->TEST_total_log_size());
@@ -2926,7 +2939,7 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 }
 
-TEST_P(ColumnFamilyTest, CreateAndDestoryOptions) {
+TEST_P(ColumnFamilyTest, CreateAndDestroyOptions) {
   std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
   ColumnFamilyHandle* cfh;
   Open();

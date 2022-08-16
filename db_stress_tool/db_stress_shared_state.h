@@ -75,7 +75,8 @@ class SharedState {
         should_stop_test_(false),
         no_overwrite_ids_(GenerateNoOverwriteIds()),
         expected_state_manager_(nullptr),
-        printing_verification_results_(false) {
+        printing_verification_results_(false),
+        start_timestamp_(Env::Default()->NowNanos()) {
     Status status;
     // TODO: We should introduce a way to explicitly disable verification
     // during shutdown. When that is disabled and FLAGS_expected_values_dir
@@ -303,6 +304,8 @@ class SharedState {
     printing_verification_results_.store(false, std::memory_order_relaxed);
   }
 
+  uint64_t GetStartTimestamp() const { return start_timestamp_; }
+
  private:
   static void IgnoreReadErrorCallback(void*) {
     ignore_read_error = true;
@@ -365,6 +368,7 @@ class SharedState {
   // and storing it in the container may require copying depending on the impl.
   std::vector<std::unique_ptr<port::Mutex[]>> key_locks_;
   std::atomic<bool> printing_verification_results_;
+  const uint64_t start_timestamp_;
 };
 
 // Per-thread state for concurrent executions of the same benchmark.

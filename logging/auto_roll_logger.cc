@@ -94,6 +94,18 @@ void AutoRollLogger::RollLogFile() {
       dbname_, now, db_absolute_path_, db_log_dir_);
     now++;
   } while (fs_->FileExists(old_fname, io_options_, &io_context_).ok());
+  // Wait for logger_ reference count to turn to 1 as it might be pinned by
+  // Flush. Pinned Logger can't be closed till Flush is completed on that
+  // Logger.
+  while (logger_.use_count() > 1) {
+  }
+  // Close the existing logger first to release the existing handle
+  // before renaming the file using the file system. If this call
+  // fails there is nothing much we can do and we will continue with the
+  // rename and hence ignoring the result status.
+  if (logger_) {
+    logger_->Close().PermitUncheckedError();
+  }
   Status s = fs_->RenameFile(log_fname_, old_fname, io_options_, &io_context_);
   if (!s.ok()) {
     // What should we do on error?

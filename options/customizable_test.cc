@@ -27,7 +27,6 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/memory_allocator.h"
-#include "rocksdb/rate_limiter.h"
 #include "rocksdb/secondary_cache.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/sst_partitioner.h"
@@ -42,7 +41,6 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/file_checksum_helper.h"
-#include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "utilities/compaction_filters/remove_emptyvalue_compactionfilter.h"
 #include "utilities/memory_allocators.h"
@@ -1472,21 +1470,6 @@ class MockFileChecksumGenFactory : public FileChecksumGenFactory {
   }
 };
 
-class MockRateLimiter : public RateLimiter {
- public:
-  static const char* kClassName() { return "MockRateLimiter"; }
-  const char* Name() const override { return kClassName(); }
-  void SetBytesPerSecond(int64_t /*bytes_per_second*/) override {}
-  int64_t GetBytesPerSecond() const override { return 0; }
-  int64_t GetSingleBurstBytes() const override { return 0; }
-  int64_t GetTotalBytesThrough(const Env::IOPriority /*pri*/) const override {
-    return 0;
-  }
-  int64_t GetTotalRequests(const Env::IOPriority /*pri*/) const override {
-    return 0;
-  }
-};
-
 class MockFilterPolicy : public FilterPolicy {
  public:
   static const char* kClassName() { return "MockFilterPolicy"; }
@@ -1615,14 +1598,6 @@ static int RegisterLocalObjects(ObjectLibrary& library,
          std::unique_ptr<TablePropertiesCollectorFactory>* guard,
          std::string* /* errmsg */) {
         guard->reset(new MockTablePropertiesCollectorFactory());
-        return guard->get();
-      });
-
-  library.AddFactory<RateLimiter>(
-      MockRateLimiter::kClassName(),
-      [](const std::string& /*uri*/, std::unique_ptr<RateLimiter>* guard,
-         std::string* /* errmsg */) {
-        guard->reset(new MockRateLimiter());
         return guard->get();
       });
 
@@ -2147,37 +2122,6 @@ TEST_F(LoadCustomizableTest, LoadMemoryAllocatorTest) {
   if (RegisterTests("Test")) {
     ExpectCreateShared<MemoryAllocator>(MockMemoryAllocator::kClassName());
   }
-}
-
-TEST_F(LoadCustomizableTest, LoadRateLimiterTest) {
-#ifndef ROCKSDB_LITE
-  ASSERT_OK(TestSharedBuiltins<RateLimiter>(MockRateLimiter::kClassName(),
-                                            GenericRateLimiter::kClassName()));
-#else
-  ASSERT_OK(TestSharedBuiltins<RateLimiter>(MockRateLimiter::kClassName(), ""));
-#endif  // ROCKSDB_LITE
-
-  std::shared_ptr<RateLimiter> result;
-  ASSERT_OK(RateLimiter::CreateFromString(
-      config_options_, std::string(GenericRateLimiter::kClassName()) + ":1234",
-      &result));
-  ASSERT_NE(result, nullptr);
-  ASSERT_TRUE(result->IsInstanceOf(GenericRateLimiter::kClassName()));
-#ifndef ROCKSDB_LITE
-  ASSERT_OK(GetDBOptionsFromString(
-      config_options_, db_opts_,
-      std::string("rate_limiter=") + GenericRateLimiter::kClassName(),
-      &db_opts_));
-  ASSERT_NE(db_opts_.rate_limiter, nullptr);
-  if (RegisterTests("Test")) {
-    ExpectCreateShared<RateLimiter>(MockRateLimiter::kClassName());
-    ASSERT_OK(GetDBOptionsFromString(
-        config_options_, db_opts_,
-        std::string("rate_limiter=") + MockRateLimiter::kClassName(),
-        &db_opts_));
-    ASSERT_NE(db_opts_.rate_limiter, nullptr);
-  }
-#endif  // ROCKSDB_LITE
 }
 
 TEST_F(LoadCustomizableTest, LoadFilterPolicyTest) {

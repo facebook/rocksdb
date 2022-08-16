@@ -52,6 +52,7 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h, LRUHandle** old) {
                                                1 /*displacement*/);
   *old = nullptr;
   if (slot == -1) {
+    // TODO(Guido) Don't we need to roll back displacements here?
     return nullptr;
   }
 
@@ -298,10 +299,12 @@ int LRUCacheShard::CalcHashBits(
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
-  assert(false);  // Not supported. TODO(Guido) Support it?
   autovector<LRUHandle> last_reference_list;
   {
     DMutexLock l(mutex_);
+    if (capacity > capacity_) {
+      assert(false);  // Not supported.
+    }
     capacity_ = capacity;
     EvictFromLRU(0, &last_reference_list);
   }
@@ -368,11 +371,12 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
         last_reference_list.push_back(tmp);
       } else {
         if (table_.GetOccupancy() == table_.GetOccupancyLimit()) {
-          s = Status::Incomplete(
+          // TODO: Consider using a distinct status for this case, but usually
+          // it will be handled the same way as reaching charge capacity limit
+          s = Status::MemoryLimit(
               "Insert failed because all slots in the hash table are full.");
-          // TODO(Guido) Use the correct statuses.
         } else {
-          s = Status::Incomplete(
+          s = Status::MemoryLimit(
               "Insert failed because the total charge has exceeded the "
               "capacity.");
         }

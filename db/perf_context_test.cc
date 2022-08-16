@@ -69,7 +69,7 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
 class PerfContextTest : public testing::Test {};
 
 TEST_F(PerfContextTest, SeekIntoDeletion) {
-  DestroyDB(kDbName, Options());
+  ASSERT_OK(DestroyDB(kDbName, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;
@@ -205,7 +205,7 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
 }
 
 void ProfileQueries(bool enabled_time = false) {
-  DestroyDB(kDbName, Options());    // Start this test with a fresh DB
+  ASSERT_OK(DestroyDB(kDbName, Options()));  // Start this test with a fresh DB
 
   auto db = OpenDb();
 
@@ -390,7 +390,7 @@ void ProfileQueries(bool enabled_time = false) {
     EXPECT_GT(hist_write_scheduling_time.Average(), 0);
 
 #ifndef NDEBUG
-    ASSERT_GT(total_db_mutex_nanos, 2000U);
+    ASSERT_LT(total_db_mutex_nanos, 100U);
 #endif
   }
 
@@ -518,7 +518,7 @@ TEST_F(PerfContextTest, KeyComparisonCount) {
 // starts to become linear to the input size.
 
 TEST_F(PerfContextTest, SeekKeyComparison) {
-  DestroyDB(kDbName, Options());
+  ASSERT_OK(DestroyDB(kDbName, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;
@@ -652,7 +652,7 @@ TEST_F(PerfContextTest, ToString) {
 }
 
 TEST_F(PerfContextTest, MergeOperatorTime) {
-  DestroyDB(kDbName, Options());
+  ASSERT_OK(DestroyDB(kDbName, Options()));
   DB* db;
   Options options;
   options.create_if_missing = true;
@@ -833,7 +833,7 @@ TEST_F(PerfContextTest, CPUTimer) {
     return;
   }
 
-  DestroyDB(kDbName, Options());
+  ASSERT_OK(DestroyDB(kDbName, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;

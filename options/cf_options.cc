@@ -411,7 +411,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"bottommost_temperature",
-         {offsetof(struct MutableCFOptions, bottommost_temperature),
+         {0, OptionType::kTemperature, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable}},
+        {"last_level_temperature",
+         {offsetof(struct MutableCFOptions, last_level_temperature),
           OptionType::kTemperature, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {"enable_blob_files",
@@ -451,6 +454,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_file_starting_level),
           OptionType::kInt, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"prepopulate_blob_cache",
+         OptionTypeInfo::Enum<PrepopulateBlobCache>(
+             offsetof(struct MutableCFOptions, prepopulate_blob_cache),
+             &prepopulate_blob_cache_string_map, OptionTypeFlags::kMutable)},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -467,6 +474,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"experimental_mempurge_threshold",
          {offsetof(struct MutableCFOptions, experimental_mempurge_threshold),
           OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"memtable_protection_bytes_per_key",
+         {offsetof(struct MutableCFOptions, memtable_protection_bytes_per_key),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
         {kOptNameCompOpts,
          OptionTypeInfo::Struct(
@@ -546,6 +557,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"force_consistency_checks",
          {offsetof(struct ImmutableCFOptions, force_consistency_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"preclude_last_level_data_seconds",
+         {offsetof(struct ImmutableCFOptions, preclude_last_level_data_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         // Need to keep this around to be able to read old OPTIONS files.
         {"max_mem_compaction_level",
@@ -880,6 +895,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
+      preclude_last_level_data_seconds(
+          cf_options.preclude_last_level_data_seconds),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),
@@ -1091,9 +1108,12 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_compaction_readahead_size);
   ROCKS_LOG_INFO(log, "                 blob_file_starting_level: %d",
                  blob_file_starting_level);
-
-  ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
-                 static_cast<int>(bottommost_temperature));
+  ROCKS_LOG_INFO(log, "                   prepopulate_blob_cache: %s",
+                 prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
+                     ? "flush only"
+                     : "disable");
+  ROCKS_LOG_INFO(log, "                   last_level_temperature: %d",
+                 static_cast<int>(last_level_temperature));
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

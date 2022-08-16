@@ -95,6 +95,7 @@ function display_usage() {
   echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache (default: 1)"
   echo -e "\tBLOB_CACHE_SIZE\t\t\tSize of the blob cache (default: 16GB)"
   echo -e "\tBLOB_CACHE_NUMSHARDBITS\t\t\tNumber of shards for the blob cache is 2 ** blob_cache_numshardbits (default: 6)"
+  echo -e "\tPREPOPULATE_BLOB_CACHE\t\t\tPre-populate hot/warm blobs in blob cache (default: 0)"
 }
 
 if [ $# -lt 1 ]; then
@@ -191,7 +192,7 @@ if [[ $cache_index_and_filter -eq 0 ]]; then
 elif [[ $cache_index_and_filter -eq 1 ]]; then
   cache_meta_flags="\
   --cache_index_and_filter_blocks=$cache_index_and_filter \
-  --cache_high_pri_pool_ratio=0.5"
+  --cache_high_pri_pool_ratio=0.5 --cache_low_pri_pool_ratio=0"
 else
   echo CACHE_INDEX_AND_FILTER_BLOCKS was $CACHE_INDEX_AND_FILTER_BLOCKS but must be 0 or 1
   exit $EXIT_INVALID_ARGS
@@ -239,6 +240,7 @@ use_blob_cache=${USE_BLOB_CACHE:-1}
 use_shared_block_and_blob_cache=${USE_SHARED_BLOCK_AND_BLOB_CACHE:-1}
 blob_cache_size=${BLOB_CACHE_SIZE:-$(( 16 * $G ))}
 blob_cache_numshardbits=${BLOB_CACHE_NUMSHARDBITS:-6}
+prepopulate_blob_cache=${PREPOPULATE_BLOB_CACHE:-0}
 
 const_params_base="
   --db=$DB_DIR \
@@ -306,7 +308,8 @@ blob_const_params="
   --use_shared_block_and_blob_cache=$use_shared_block_and_blob_cache \
   --blob_cache_size=$blob_cache_size \
   --blob_cache_numshardbits=$blob_cache_numshardbits \
-  --undefok=use_blob_cache,use_shared_block_and_blob_cache,blob_cache_size,blob_cache_numshardbits \
+  --prepopulate_blob_cache=$prepopulate_blob_cache \
+  --undefok=use_blob_cache,use_shared_block_and_blob_cache,blob_cache_size,blob_cache_numshardbits,prepopulate_blob_cache \
 "
 
 # TODO:
@@ -390,7 +393,7 @@ params_univ_compact="$const_params \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
-tsv_header="ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id"
+tsv_header="ops_sec\tmb_sec\tlsm_sz\tblob_sz\tc_wgb\tw_amp\tc_mbps\tc_wsecs\tc_csecs\tb_rgb\tb_wgb\tusec_op\tp50\tp99\tp99.9\tp99.99\tpmax\tuptime\tstall%\tNstall\tu_cpu\ts_cpu\trss\ttest\tdate\tversion\tjob_id\tgithash"
 
 function get_cmd() {
   output=$1
@@ -493,11 +496,15 @@ function summarize_result {
   test_name=$2
   bench_name=$3
 
+  # In recent versions these can be found directly via db_bench --version, --build_info but
+  # grepping from the log lets this work on older versions.
+  version="$( grep "RocksDB version:" "$DB_DIR"/LOG | head -1 | awk '{ printf "%s", $5 }' )"
+  git_hash="$( grep "Git sha" "$DB_DIR"/LOG | head -1 | awk '{ printf "%s", substr($5, 1, 10) }' )"
+
   # Note that this function assumes that the benchmark executes long enough so
   # that "Compaction Stats" is written to stdout at least once. If it won't
   # happen then empty output from grep when searching for "Sum" will cause
   # syntax errors.
-  version=$( grep ^RocksDB: $test_out | awk '{ print $3 }' )
   date=$( grep ^Date: $test_out | awk '{ print $6 "-" $3 "-" $4 "T" $5 }' )
   my_date=$( month_to_num $date )
   uptime=$( grep ^Uptime\(secs $test_out | tail -1 | awk '{ printf "%.0f", $2 }' )
@@ -595,10 +602,11 @@ function summarize_result {
     echo -e "# date - Date/time of test" >> $report
     echo -e "# version - RocksDB version" >> $report
     echo -e "# job_id - User-provided job ID" >> $report
+    echo -e "# githash - git hash at which db_bench was compiled"
     echo -e $tsv_header >> $report
   fi
 
-  echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_wsecs\t$c_csecs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id" \
+  echo -e "$ops_sec\t$mb_sec\t$lsm_size\t$blob_size\t$sum_wgb\t$wamp\t$cmb_ps\t$c_wsecs\t$c_csecs\t$b_rgb\t$b_wgb\t$usecs_op\t$p50\t$p99\t$p999\t$p9999\t$pmax\t$uptime\t$stall_pct\t$nstall\t$u_cpu\t$s_cpu\t$rss\t$test_name\t$my_date\t$version\t$job_id\t$git_hash" \
     >> $report
 }
 

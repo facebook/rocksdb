@@ -501,6 +501,78 @@ Status TableCache::Get(
   return s;
 }
 
+void TableCache::UpdateRangeTombstoneSeqnums(
+    const ReadOptions& options, TableReader* t,
+    MultiGetContext::Range& table_range) {
+  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+      t->NewRangeTombstoneIterator(options));
+  if (range_del_iter != nullptr) {
+    for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
+      SequenceNumber* max_covering_tombstone_seq =
+          iter->get_context->max_covering_tombstone_seq();
+      *max_covering_tombstone_seq = std::max(
+          *max_covering_tombstone_seq,
+          range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
+    }
+  }
+}
+
+Status TableCache::MultiGetFilter(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
+    const std::shared_ptr<const SliceTransform>& prefix_extractor,
+    HistogramImpl* file_read_hist, int level,
+    MultiGetContext::Range* mget_range, Cache::Handle** table_handle) {
+  auto& fd = file_meta.fd;
+#ifndef ROCKSDB_LITE
+  IterKey row_cache_key;
+  std::string row_cache_entry_buffer;
+
+  // Check if we need to use the row cache. If yes, then we cannot do the
+  // filtering here, since the filtering needs to happen after the row cache
+  // lookup.
+  KeyContext& first_key = *mget_range->begin();
+  if (ioptions_.row_cache && !first_key.get_context->NeedToReadSequence()) {
+    return Status::NotSupported();
+  }
+#endif  // ROCKSDB_LITE
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  MultiGetContext::Range tombstone_range(*mget_range, mget_range->begin(),
+                                         mget_range->end());
+  if (t == nullptr) {
+    s = FindTable(
+        options, file_options_, internal_comparator, fd, &handle,
+        prefix_extractor, options.read_tier == kBlockCacheTier /* no_io */,
+        true /* record_read_stats */, file_read_hist, /*skip_filters=*/false,
+        level, true /* prefetch_index_and_filter_in_cache */,
+        /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+    *table_handle = handle;
+  }
+  if (s.ok()) {
+    s = t->MultiGetFilter(options, prefix_extractor.get(), mget_range);
+  }
+  if (mget_range->empty()) {
+    if (s.ok() && !options.ignore_range_deletions) {
+      // If all the keys have been filtered out by the bloom filter, then
+      // update the range tombstone sequence numbers for the keys as
+      // MultiGet() will not be called for this set of keys.
+      UpdateRangeTombstoneSeqnums(options, t, tombstone_range);
+    }
+    if (handle) {
+      ReleaseHandle(handle);
+      *table_handle = nullptr;
+    }
+  }
+
+  return s;
+}
+
 Status TableCache::GetTableProperties(
     const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
@@ -524,6 +596,27 @@ Status TableCache::GetTableProperties(
   auto table = GetTableReaderFromHandle(table_handle);
   *properties = table->GetTableProperties();
   ReleaseHandle(table_handle);
+  return s;
+}
+
+Status TableCache::ApproximateKeyAnchors(
+    const ReadOptions& ro, const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& fd, std::vector<TableReader::Anchor>& anchors) {
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (t == nullptr) {
+    s = FindTable(ro, file_options_, internal_comparator, fd, &handle);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+  }
+  if (s.ok() && t != nullptr) {
+    s = t->ApproximateKeyAnchors(ro, anchors);
+  }
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
   return s;
 }
 

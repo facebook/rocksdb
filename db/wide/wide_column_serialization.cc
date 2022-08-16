@@ -15,6 +15,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+const Slice kDefaultWideColumnName;
+
 Status WideColumnSerialization::Serialize(const WideColumns& columns,
                                           std::string& output) {
   if (columns.size() >
@@ -135,6 +137,25 @@ WideColumns::const_iterator WideColumnSerialization::Find(
   }
 
   return it;
+}
+
+Status WideColumnSerialization::GetValueOfDefaultColumn(Slice& input,
+                                                        Slice& value) {
+  WideColumns columns;
+
+  const Status s = Deserialize(input, columns);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (columns.empty() || columns[0].name() != kDefaultWideColumnName) {
+    value.clear();
+    return Status::OK();
+  }
+
+  value = columns[0].value();
+
+  return Status::OK();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

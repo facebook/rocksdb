@@ -146,10 +146,12 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: lock is held
-  // Update the compact cursor and advance the file index so that it can point
-  // to the next cursor
-  const InternalKey& GetNextCompactCursor(int level) {
-    int cmp_idx = next_file_to_compact_by_size_[level] + 1;
+  // Update the compact cursor and advance the file index using increment
+  // so that it can point to the next cursor (increment means the number of
+  // input files in this level of the last compaction)
+  const InternalKey& GetNextCompactCursor(int level, size_t increment) {
+    int cmp_idx = next_file_to_compact_by_size_[level] + (int)increment;
+    assert(cmp_idx <= (int)files_by_compaction_pri_[level].size());
     // TODO(zichen): may need to update next_file_to_compact_by_size_
     // for parallel compaction.
     InternalKey new_cursor;
@@ -988,10 +990,10 @@ class Version {
   DECLARE_SYNC_AND_ASYNC(
       /* ret_type */ Status, /* func_name */ MultiGetFromSST,
       const ReadOptions& read_options, MultiGetRange file_range,
-      int hit_file_level, bool is_hit_file_last_in_level, FdWithKeyRange* f,
+      int hit_file_level, bool skip_filters, FdWithKeyRange* f,
       std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
-      uint64_t& num_filter_read, uint64_t& num_index_read,
-      uint64_t& num_sst_read);
+      Cache::Handle* table_handle, uint64_t& num_filter_read,
+      uint64_t& num_index_read, uint64_t& num_sst_read);
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;

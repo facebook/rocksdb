@@ -267,22 +267,25 @@ TEST_F(MemTableListTest, GetTest) {
   // Fetch the newly written keys
   merge_context.Clear();
   found = mem->Get(LookupKey("key1", seq), &value,
-                   /*timestamp*/nullptr, &s, &merge_context,
-                   &max_covering_tombstone_seq, ReadOptions());
+                   /*timestamp*/ nullptr, &s, &merge_context,
+                   &max_covering_tombstone_seq, ReadOptions(),
+                   false /* immutable_memtable */);
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value1");
 
   merge_context.Clear();
   found = mem->Get(LookupKey("key1", 2), &value,
-                   /*timestamp*/nullptr, &s, &merge_context,
-                   &max_covering_tombstone_seq, ReadOptions());
+                   /*timestamp*/ nullptr, &s, &merge_context,
+                   &max_covering_tombstone_seq, ReadOptions(),
+                   false /* immutable_memtable */);
   // MemTable found out that this key is *not* found (at this sequence#)
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
   found = mem->Get(LookupKey("key2", seq), &value,
-                   /*timestamp*/nullptr, &s, &merge_context,
-                   &max_covering_tombstone_seq, ReadOptions());
+                   /*timestamp*/ nullptr, &s, &merge_context,
+                   &max_covering_tombstone_seq, ReadOptions(),
+                   false /* immutable_memtable */);
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value2.2");
 
@@ -290,6 +293,9 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(1, mem->num_deletes());
 
   // Add memtable to list
+  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
+  // in MemTableListVersion::GetFromList work.
+  mem->ConstructFragmentedRangeTombstones();
   list.Add(mem, &to_delete);
 
   SequenceNumber saved_seq = seq;
@@ -306,6 +312,9 @@ TEST_F(MemTableListTest, GetTest) {
                       nullptr /* kv_prot_info */));
 
   // Add second memtable to list
+  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
+  // in MemTableListVersion::GetFromList work.
+  mem2->ConstructFragmentedRangeTombstones();
   list.Add(mem2, &to_delete);
 
   // Fetch keys via MemTableList
@@ -388,19 +397,24 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Fetch the newly written keys
   merge_context.Clear();
   found = mem->Get(LookupKey("key1", seq), &value,
-                   /*timestamp*/nullptr, &s, &merge_context,
-                   &max_covering_tombstone_seq, ReadOptions());
+                   /*timestamp*/ nullptr, &s, &merge_context,
+                   &max_covering_tombstone_seq, ReadOptions(),
+                   false /* immutable_memtable */);
   // MemTable found out that this key is *not* found (at this sequence#)
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
   found = mem->Get(LookupKey("key2", seq), &value,
-                   /*timestamp*/nullptr, &s, &merge_context,
-                   &max_covering_tombstone_seq, ReadOptions());
+                   /*timestamp*/ nullptr, &s, &merge_context,
+                   &max_covering_tombstone_seq, ReadOptions(),
+                   false /* immutable_memtable */);
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value2.2");
 
   // Add memtable to list
+  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
+  // in MemTableListVersion::GetFromList work.
+  mem->ConstructFragmentedRangeTombstones();
   list.Add(mem, &to_delete);
   ASSERT_EQ(0, to_delete.size());
 
@@ -472,6 +486,9 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
                       nullptr /* kv_prot_info */));
 
   // Add second memtable to list
+  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
+  // in MemTableListVersion::GetFromList work.
+  mem2->ConstructFragmentedRangeTombstones();
   list.Add(mem2, &to_delete);
   ASSERT_EQ(0, to_delete.size());
 
@@ -493,6 +510,9 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   MemTable* mem3 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb3,
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem3->Ref();
+  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
+  // in MemTableListVersion::GetFromList work.
+  mem3->ConstructFragmentedRangeTombstones();
   list.Add(mem3, &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_EQ(1, list.NumFlushed());

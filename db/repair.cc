@@ -425,13 +425,14 @@ class Repairer {
       immutable_db_options_.clock->GetCurrentTime(&_current_time)
           .PermitUncheckedError();  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
+      meta.file_creation_time = current_time;
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 
       auto write_hint = cfd->CalculateSSTWriteHint(0);
       std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
           range_del_iters;
-      auto range_del_iter =
-          mem->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+      auto range_del_iter = mem->NewRangeTombstoneIterator(
+          ro, kMaxSequenceNumber, false /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
@@ -443,10 +444,11 @@ class Repairer {
           cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
           kNoCompression, default_compression, cfd->GetID(), cfd->GetName(),
           -1 /* level */, false /* is_bottommost */,
-          TableFileCreationReason::kRecovery, current_time,
-          0 /* oldest_key_time */, 0 /* file_creation_time */,
-          "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/,
-          meta.fd.GetNumber());
+          TableFileCreationReason::kRecovery, 0 /* oldest_key_time */,
+          0 /* file_creation_time */, "DB Repairer" /* db_id */, db_session_id_,
+          0 /*target_file_size*/, meta.fd.GetNumber());
+
+      SeqnoToTimeMapping empty_seqno_time_mapping;
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_, tboptions,
           file_options_, table_cache_.get(), iter.get(),
@@ -454,8 +456,8 @@ class Repairer {
           {}, kMaxSequenceNumber, kMaxSequenceNumber, snapshot_checker,
           false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
           nullptr /*IOTracer*/, BlobFileCreationReason::kRecovery,
-          nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
-          nullptr /* table_properties */, write_hint);
+          empty_seqno_time_mapping, nullptr /* event_logger */, 0 /* job_id */,
+          Env::IO_HIGH, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),
@@ -649,7 +651,6 @@ class Repairer {
             table->meta.temperature, table->meta.oldest_blob_file_number,
             table->meta.oldest_ancester_time, table->meta.file_creation_time,
             table->meta.file_checksum, table->meta.file_checksum_func_name,
-            table->meta.min_timestamp, table->meta.max_timestamp,
             table->meta.unique_id);
       }
       assert(next_file_number_ > 0);

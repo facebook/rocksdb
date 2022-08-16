@@ -50,8 +50,7 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-        kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     files_.push_back(f);
   }
 
@@ -159,8 +158,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         /* largest_seq */ 0, /* marked_for_compact */ false,
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }
@@ -1978,6 +1976,7 @@ TEST_F(VersionSetTest, WalCreateAfterClose) {
 
 TEST_F(VersionSetTest, AddWalWithSmallerSize) {
   NewDB();
+  assert(versions_);
 
   constexpr WalNumber kLogNumber = 10;
   constexpr uint64_t kSizeInBytes = 111;
@@ -1990,6 +1989,9 @@ TEST_F(VersionSetTest, AddWalWithSmallerSize) {
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
   }
+  // Copy for future comparison.
+  const std::map<WalNumber, WalMetadata> wals1 =
+      versions_->GetWalSet().GetWals();
 
   {
     // Add the same WAL with smaller synced size.
@@ -1998,13 +2000,11 @@ TEST_F(VersionSetTest, AddWalWithSmallerSize) {
     edit.AddWal(kLogNumber, wal);
 
     Status s = LogAndApplyToDefaultCF(edit);
-    ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(
-        s.ToString().find(
-            "WAL 10 must not have smaller synced size than previous one") !=
-        std::string::npos)
-        << s.ToString();
+    ASSERT_OK(s);
   }
+  const std::map<WalNumber, WalMetadata> wals2 =
+      versions_->GetWalSet().GetWals();
+  ASSERT_EQ(wals1, wals2);
 }
 
 TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
@@ -3226,16 +3226,15 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
       ASSERT_OK(builder->Finish());
-      fwriter->Flush();
+      ASSERT_OK(fwriter->Flush());
       uint64_t file_size = 0;
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
-      file_metas->emplace_back(
-          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
-          Temperature::kUnknown, 0, 0, 0, kUnknownFileChecksum,
-          kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-          kDisableUserTimestamp, kNullUniqueId64x2);
+      file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
+                               ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
+                               0, kUnknownFileChecksum,
+                               kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     }
   }
 
@@ -3290,8 +3289,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     FileMetaData meta = FileMetaData(
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3346,8 +3344,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     FileMetaData meta = FileMetaData(
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3529,9 +3526,15 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   // file metadata above. This results in 1 *
   // CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>::GetDummyEntrySize()
   // cache reservation for file metadata.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
+        "ChargeFileMetadataTestWithParam::"
+        "PreVerifyingCacheReservationRelease"}});
+  SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
-
+  TEST_SYNC_POINT(
+      "ChargeFileMetadataTestWithParam::PreVerifyingCacheReservationRelease");
   if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
               1 * CacheReservationManagerImpl<
@@ -3539,6 +3542,7 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   } else {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(), 0);
   }
+  SyncPoint::GetInstance()->DisableProcessing();
 
   // Destroying the db will delete the remaining 1 new file metadata
   // This results in no cache reservation for file metadata.

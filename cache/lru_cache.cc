@@ -111,14 +111,17 @@ void LRUHandleTable::Resize() {
 
 LRUCacheShard::LRUCacheShard(
     size_t capacity, bool strict_capacity_limit, double high_pri_pool_ratio,
-    bool use_adaptive_mutex, CacheMetadataChargePolicy metadata_charge_policy,
-    int max_upper_hash_bits,
+    double low_pri_pool_ratio, bool use_adaptive_mutex,
+    CacheMetadataChargePolicy metadata_charge_policy, int max_upper_hash_bits,
     const std::shared_ptr<SecondaryCache>& secondary_cache)
     : capacity_(0),
       high_pri_pool_usage_(0),
+      low_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
       high_pri_pool_ratio_(high_pri_pool_ratio),
       high_pri_pool_capacity_(0),
+      low_pri_pool_ratio_(low_pri_pool_ratio),
+      low_pri_pool_capacity_(0),
       table_(max_upper_hash_bits),
       usage_(0),
       lru_usage_(0),
@@ -129,6 +132,7 @@ LRUCacheShard::LRUCacheShard(
   lru_.next = &lru_;
   lru_.prev = &lru_;
   lru_low_pri_ = &lru_;
+  lru_bottom_pri_ = &lru_;
   SetCapacity(capacity);
 }
 
@@ -192,10 +196,12 @@ void LRUCacheShard::ApplyToSomeEntries(
       index_begin, index_end);
 }
 
-void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri) {
+void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri,
+                                    LRUHandle** lru_bottom_pri) {
   DMutexLock l(mutex_);
   *lru = &lru_;
   *lru_low_pri = lru_low_pri_;
+  *lru_bottom_pri = lru_bottom_pri_;
 }
 
 size_t LRUCacheShard::TEST_GetLRUSize() {
@@ -214,20 +220,32 @@ double LRUCacheShard::GetHighPriPoolRatio() {
   return high_pri_pool_ratio_;
 }
 
+double LRUCacheShard::GetLowPriPoolRatio() {
+  DMutexLock l(mutex_);
+  return low_pri_pool_ratio_;
+}
+
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
   if (lru_low_pri_ == e) {
     lru_low_pri_ = e->prev;
   }
+  if (lru_bottom_pri_ == e) {
+    lru_bottom_pri_ = e->prev;
+  }
   e->next->prev = e->prev;
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
   assert(lru_usage_ >= e->total_charge);
   lru_usage_ -= e->total_charge;
+  assert(!e->InHighPriPool() || !e->InLowPriPool());
   if (e->InHighPriPool()) {
     assert(high_pri_pool_usage_ >= e->total_charge);
     high_pri_pool_usage_ -= e->total_charge;
+  } else if (e->InLowPriPool()) {
+    assert(low_pri_pool_usage_ >= e->total_charge);
+    low_pri_pool_usage_ -= e->total_charge;
   }
 }
 
@@ -241,17 +259,34 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(true);
+    e->SetInLowPriPool(false);
     high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
-  } else {
-    // Insert "e" to the head of low-pri pool. Note that when
-    // high_pri_pool_ratio is 0, head of low-pri pool is also head of LRU list.
+  } else if (low_pri_pool_ratio_ > 0 &&
+             (e->IsHighPri() || e->IsLowPri() || e->HasHit())) {
+    // Insert "e" to the head of low-pri pool.
     e->next = lru_low_pri_->next;
     e->prev = lru_low_pri_;
     e->prev->next = e;
     e->next->prev = e;
     e->SetInHighPriPool(false);
+    e->SetInLowPriPool(true);
+    low_pri_pool_usage_ += e->total_charge;
+    MaintainPoolSize();
     lru_low_pri_ = e;
+  } else {
+    // Insert "e" to the head of bottom-pri pool.
+    e->next = lru_bottom_pri_->next;
+    e->prev = lru_bottom_pri_;
+    e->prev->next = e;
+    e->next->prev = e;
+    e->SetInHighPriPool(false);
+    e->SetInLowPriPool(false);
+    // if the low-pri pool is empty, lru_low_pri_ also needs to be updated.
+    if (lru_bottom_pri_ == lru_low_pri_) {
+      lru_low_pri_ = e;
+    }
+    lru_bottom_pri_ = e;
   }
   lru_usage_ += e->total_charge;
 }
@@ -262,8 +297,20 @@ void LRUCacheShard::MaintainPoolSize() {
     lru_low_pri_ = lru_low_pri_->next;
     assert(lru_low_pri_ != &lru_);
     lru_low_pri_->SetInHighPriPool(false);
+    lru_low_pri_->SetInLowPriPool(true);
     assert(high_pri_pool_usage_ >= lru_low_pri_->total_charge);
     high_pri_pool_usage_ -= lru_low_pri_->total_charge;
+    low_pri_pool_usage_ += lru_low_pri_->total_charge;
+  }
+
+  while (low_pri_pool_usage_ > low_pri_pool_capacity_) {
+    // Overflow last entry in low-pri pool to bottom-pri pool.
+    lru_bottom_pri_ = lru_bottom_pri_->next;
+    assert(lru_bottom_pri_ != &lru_);
+    lru_bottom_pri_->SetInHighPriPool(false);
+    lru_bottom_pri_->SetInLowPriPool(false);
+    assert(low_pri_pool_usage_ >= lru_bottom_pri_->total_charge);
+    low_pri_pool_usage_ -= lru_bottom_pri_->total_charge;
   }
 }
 
@@ -288,6 +335,7 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
     DMutexLock l(mutex_);
     capacity_ = capacity;
     high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
+    low_pri_pool_capacity_ = capacity_ * low_pri_pool_ratio_;
     EvictFromLRU(0, &last_reference_list);
   }
 
@@ -332,7 +380,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
           delete[] reinterpret_cast<char*>(e);
           *handle = nullptr;
         }
-        s = Status::Incomplete("Insert failed due to LRU cache being full.");
+        s = Status::MemoryLimit("Insert failed due to LRU cache being full.");
       }
     } else {
       // Insert into the cache. Note that the cache might get larger than its
@@ -458,11 +506,12 @@ Cache::Handle* LRUCacheShard::Lookup(
       memcpy(e->key_data, key.data(), key.size());
       e->value = nullptr;
       e->sec_handle = secondary_handle.release();
+      e->total_charge = 0;
       e->Ref();
+      e->SetIsInSecondaryCache(is_in_sec_cache);
 
       if (wait) {
         Promote(e);
-        e->SetIsInSecondaryCache(is_in_sec_cache);
         if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed.
           e->Unref();
@@ -476,7 +525,6 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIncomplete(true);
-        e->SetIsInSecondaryCache(is_in_sec_cache);
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
@@ -500,6 +548,13 @@ void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
   DMutexLock l(mutex_);
   high_pri_pool_ratio_ = high_pri_pool_ratio;
   high_pri_pool_capacity_ = capacity_ * high_pri_pool_ratio_;
+  MaintainPoolSize();
+}
+
+void LRUCacheShard::SetLowPriorityPoolRatio(double low_pri_pool_ratio) {
+  DMutexLock l(mutex_);
+  low_pri_pool_ratio_ = low_pri_pool_ratio;
+  low_pri_pool_capacity_ = capacity_ * low_pri_pool_ratio_;
   MaintainPoolSize();
 }
 
@@ -529,7 +584,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     // If it was the last reference, and the entry is either not secondary
     // cache compatible (i.e a dummy entry for accounting), or is secondary
     // cache compatible and has a non-null value, then decrement the cache
-    // usage. If value is null in the latter case, taht means the lookup
+    // usage. If value is null in the latter case, that means the lookup
     // failed and we didn't charge the cache.
     if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value)) {
       assert(usage_ >= e->total_charge);
@@ -634,12 +689,15 @@ std::string LRUCacheShard::GetPrintableOptions() const {
     DMutexLock l(mutex_);
     snprintf(buffer, kBufferSize, "    high_pri_pool_ratio: %.3lf\n",
              high_pri_pool_ratio_);
+    snprintf(buffer + strlen(buffer), kBufferSize - strlen(buffer),
+             "    low_pri_pool_ratio: %.3lf\n", low_pri_pool_ratio_);
   }
   return std::string(buffer);
 }
 
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio,
+                   double low_pri_pool_ratio,
                    std::shared_ptr<MemoryAllocator> allocator,
                    bool use_adaptive_mutex,
                    CacheMetadataChargePolicy metadata_charge_policy,
@@ -653,7 +711,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i]) LRUCacheShard(
         per_shard, strict_capacity_limit, high_pri_pool_ratio,
-        use_adaptive_mutex, metadata_charge_policy,
+        low_pri_pool_ratio, use_adaptive_mutex, metadata_charge_policy,
         /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
   }
   secondary_cache_ = secondary_cache;
@@ -757,6 +815,17 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
   }
 }
 
+std::string LRUCache::GetPrintableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  ret.append(ShardedCache::GetPrintableOptions());
+  if (secondary_cache_) {
+    ret.append("  secondary_cache:\n");
+    ret.append(secondary_cache_->GetPrintableOptions());
+  }
+  return ret;
+}
+
 }  // namespace lru_cache
 
 std::shared_ptr<Cache> NewLRUCache(
@@ -764,7 +833,8 @@ std::shared_ptr<Cache> NewLRUCache(
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
-    const std::shared_ptr<SecondaryCache>& secondary_cache) {
+    const std::shared_ptr<SecondaryCache>& secondary_cache,
+    double low_pri_pool_ratio) {
   if (num_shard_bits >= 20) {
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
@@ -772,30 +842,40 @@ std::shared_ptr<Cache> NewLRUCache(
     // Invalid high_pri_pool_ratio
     return nullptr;
   }
+  if (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0) {
+    // Invalid high_pri_pool_ratio
+    return nullptr;
+  }
+  if (low_pri_pool_ratio + high_pri_pool_ratio > 1.0) {
+    // Invalid high_pri_pool_ratio and low_pri_pool_ratio combination
+    return nullptr;
+  }
   if (num_shard_bits < 0) {
     num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<LRUCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
-      std::move(memory_allocator), use_adaptive_mutex, metadata_charge_policy,
-      secondary_cache);
+      low_pri_pool_ratio, std::move(memory_allocator), use_adaptive_mutex,
+      metadata_charge_policy, secondary_cache);
 }
 
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
-  return NewLRUCache(
-      cache_opts.capacity, cache_opts.num_shard_bits,
-      cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
-      cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+  return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
+                     cache_opts.strict_capacity_limit,
+                     cache_opts.high_pri_pool_ratio,
+                     cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
+                     cache_opts.metadata_charge_policy,
+                     cache_opts.secondary_cache, cache_opts.low_pri_pool_ratio);
 }
 
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy) {
+    CacheMetadataChargePolicy metadata_charge_policy,
+    double low_pri_pool_ratio) {
   return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                      high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                     metadata_charge_policy, nullptr);
+                     metadata_charge_policy, nullptr, low_pri_pool_ratio);
 }
 }  // namespace ROCKSDB_NAMESPACE

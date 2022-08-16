@@ -39,12 +39,12 @@ class OptimisticTransactionTest
     options.merge_operator.reset(new TestPutOperator());
     dbname = test::PerThreadDBPath("optimistic_transaction_testdb");
 
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
     Open();
   }
   ~OptimisticTransactionTest() override {
     delete txn_db;
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
   }
 
   void Reopen() {

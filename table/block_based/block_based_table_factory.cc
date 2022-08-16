@@ -454,6 +454,7 @@ void BlockBasedTableFactory::InitializeOptions() {
     // It makes little sense to pay overhead for mid-point insertion while the
     // block size is only 8MB.
     co.high_pri_pool_ratio = 0.0;
+    co.low_pri_pool_ratio = 0.0;
     table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
@@ -695,12 +696,13 @@ Status BlockBasedTableFactory::ValidateOptions(
     static const std::set<CacheEntryRole> kMemoryChargingSupported = {
         CacheEntryRole::kCompressionDictionaryBuildingBuffer,
         CacheEntryRole::kFilterConstruction,
-        CacheEntryRole::kBlockBasedTableReader, CacheEntryRole::kFileMetadata};
+        CacheEntryRole::kBlockBasedTableReader, CacheEntryRole::kFileMetadata,
+        CacheEntryRole::kBlobCache};
     if (options.charged != CacheEntryRoleOptions::Decision::kFallback &&
         kMemoryChargingSupported.count(role) == 0) {
       return Status::NotSupported(
           "Enable/Disable CacheEntryRoleOptions::charged"
-          "for CacheEntryRole  " +
+          " for CacheEntryRole " +
           kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
           " is not supported");
     }
@@ -708,9 +710,41 @@ Status BlockBasedTableFactory::ValidateOptions(
         options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
       return Status::InvalidArgument(
           "Enable CacheEntryRoleOptions::charged"
-          "for CacheEntryRole  " +
+          " for CacheEntryRole " +
           kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
           " but block cache is disabled");
+    }
+    if (role == CacheEntryRole::kBlobCache &&
+        options.charged == CacheEntryRoleOptions::Decision::kEnabled) {
+      if (cf_opts.blob_cache == nullptr) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but blob cache is not configured");
+      }
+      if (table_options_.no_block_cache) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but block cache is disabled");
+      }
+      if (table_options_.block_cache == cf_opts.blob_cache) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but blob cache is the same as block cache");
+      }
+      if (cf_opts.blob_cache->GetCapacity() >
+          table_options_.block_cache->GetCapacity()) {
+        return Status::InvalidArgument(
+            "Enable CacheEntryRoleOptions::charged"
+            " for CacheEntryRole " +
+            kCacheEntryRoleToCamelString[static_cast<uint32_t>(role)] +
+            " but blob cache capacity is larger than block cache capacity");
+      }
     }
   }
   {

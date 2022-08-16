@@ -316,23 +316,28 @@ DEFINE_bool(cache_index_and_filter_blocks, false,
 
 DEFINE_bool(charge_compression_dictionary_building_buffer, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kCompressionDictionaryBuildingBuffer");
 
 DEFINE_bool(charge_filter_construction, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kFilterConstruction");
 
 DEFINE_bool(charge_table_reader, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "CacheEntryRole::kBlockBasedTableReader");
 
 DEFINE_bool(charge_file_metadata, false,
             "Setting for "
-            "CacheEntryRoleOptions::charged of"
+            "CacheEntryRoleOptions::charged of "
             "kFileMetadata");
+
+DEFINE_bool(charge_blob_cache, false,
+            "Setting for "
+            "CacheEntryRoleOptions::charged of "
+            "kBlobCache");
 
 DEFINE_int32(
     top_level_index_pinning,
@@ -473,6 +478,16 @@ DEFINE_int32(blob_cache_numshardbits, 6,
              "It only takes effect if blob_cache_size is greater than 0, and "
              "the block and blob caches are different "
              "(use_shared_block_and_blob_cache = false).");
+
+DEFINE_int32(prepopulate_blob_cache, 0,
+             "[Integrated BlobDB] Pre-populate hot/warm blobs in blob cache. 0 "
+             "to disable and 1 to insert during flush.");
+
+DEFINE_bool(enable_tiered_storage, false, "Set last_level_temperature");
+
+DEFINE_int64(preclude_last_level_data_seconds, 0,
+             "Preclude data from the last level. Used with tiered storage "
+             "feature to preclude new data from comacting to the last level.");
 
 static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
@@ -925,6 +940,12 @@ DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "If nonzero, enables integrity protection in `WriteBatch` at the "
               "specified number of bytes per key. Currently the only supported "
               "nonzero value is eight.");
+
+DEFINE_uint32(
+    memtable_protection_bytes_per_key, 0,
+    "If nonzero, enables integrity protection in memtable entries at the "
+    "specified number of bytes per key. Currently the supported "
+    "nonzero values are 1, 2, 4 and 8.");
 
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
