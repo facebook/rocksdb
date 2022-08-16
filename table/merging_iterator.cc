@@ -26,8 +26,6 @@
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
-// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
-namespace {
 // For merging iterator to process range deletions, we treat the start and end
 // key of a range deletion as point keys and put them into the minHeap/maxHeap
 // used in merging iterator. Take minHeap for example, we are able to keep track
@@ -105,7 +103,8 @@ class MaxHeapItemComparator {
  private:
   const InternalKeyComparator* comparator_;
 };
-
+// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
+namespace {
 using MergerMinIterHeap = BinaryHeap<HeapItem*, MinHeapItemComparator>;
 using MergerMaxIterHeap = BinaryHeap<HeapItem*, MaxHeapItemComparator>;
 }  // namespace
