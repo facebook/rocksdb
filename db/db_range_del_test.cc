@@ -2601,31 +2601,37 @@ TEST_F(DBRangeDelTest, SentinelKeyCommonCaseTest) {
   IterKey target;
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
   level_iter->Seek(target.GetInternalKey());
-  VerifyIteratorKey(level_iter, {Key(8), Key(9)});
+  VerifyIteratorKey(level_iter, {Key(8), Key(9), Key(9)});
   ASSERT_TRUE(!level_iter->Valid() && level_iter->status().ok());
 
   k = Key(6);
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
   level_iter->Seek(target.GetInternalKey());
-  VerifyIteratorKey(level_iter, {Key(6), Key(8), Key(9)});
+  VerifyIteratorKey(level_iter, {Key(6), Key(8), Key(9), Key(9)});
+  ASSERT_TRUE(!level_iter->Valid() && level_iter->status().ok());
 
   k = Key(4);
   target.SetInternalKey(k, 0, kValueTypeForSeekForPrev);
   level_iter->SeekForPrev(target.GetInternalKey());
-  VerifyIteratorKey(level_iter, {Key(3), Key(2), Key(1)}, false);
+  VerifyIteratorKey(level_iter, {Key(3), Key(2), Key(1), Key(1)}, false);
+  ASSERT_TRUE(!level_iter->Valid() && level_iter->status().ok());
 
   k = Key(5);
   target.SetInternalKey(k, 0, kValueTypeForSeekForPrev);
   level_iter->SeekForPrev(target.GetInternalKey());
-  VerifyIteratorKey(level_iter, {Key(5), Key(3), Key(2), Key(1)}, false);
+  VerifyIteratorKey(level_iter, {Key(5), Key(3), Key(2), Key(1), Key(1)},
+                    false);
 
   level_iter->SeekToFirst();
-  VerifyIteratorKey(level_iter,
-                    {Key(1), Key(2), Key(5), Key(6), Key(8), Key(9)});
+  VerifyIteratorKey(level_iter, {Key(1), Key(2), Key(2), Key(5), Key(6), Key(8),
+                                 Key(9), Key(9)});
+  ASSERT_TRUE(!level_iter->Valid() && level_iter->status().ok());
 
   level_iter->SeekToLast();
-  VerifyIteratorKey(level_iter,
-                    {Key(9), Key(6), Key(5), Key(3), Key(2), Key(1)}, false);
+  VerifyIteratorKey(
+      level_iter,
+      {Key(9), Key(9), Key(6), Key(5), Key(3), Key(2), Key(1), Key(1)}, false);
+  ASSERT_TRUE(!level_iter->Valid() && level_iter->status().ok());
 
   miter->~InternalIterator();
 }
