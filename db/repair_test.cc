@@ -60,6 +60,7 @@ class RepairTest : public DBTestBase {
     Reopen(options);
 
     ASSERT_GT(verify_passed, 0);
+    SyncPoint::GetInstance()->DisableProcessing();
   }
 };
 
