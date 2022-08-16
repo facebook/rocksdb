@@ -67,8 +67,8 @@ DEFINE_SYNC_AND_ASYNC(Status, TableCache::MultiGet)
   if (s.ok() && !table_range.empty()) {
     if (t == nullptr) {
       assert(handle == nullptr);
-      s = FindTable(options, file_options_, internal_comparator, fd, &handle,
-                    prefix_extractor,
+      s = FindTable(options, file_options_, internal_comparator, file_meta,
+                    &handle, prefix_extractor,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     true /* record_read_stats */, file_read_hist, skip_filters,
                     level, true /* prefetch_index_and_filter_in_cache */,

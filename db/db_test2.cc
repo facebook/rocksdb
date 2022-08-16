@@ -7339,18 +7339,18 @@ TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
   auto options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kLevel0Trigger;
   options.statistics = CreateDBStatistics();
+  // Skip for now
+  options.verify_sst_unique_id_in_manifest = false;
+  Reopen(options);
 
-  // Existing manifest doesn't have unique id
-  SyncPoint::GetInstance()->SetCallBack(
-      "VersionEdit::EncodeTo:UniqueId", [&](void* arg) {
-        auto unique_id = static_cast<UniqueId64x2*>(arg);
-        // remove id before writing it to manifest
-        (*unique_id)[0] = 0;
-        (*unique_id)[1] = 0;
-      });
   std::atomic_int skipped = 0;
-  SyncPoint::GetInstance()->SetCallBack("Version::VerifySstUniqueIds::Skipped",
-                                        [&](void* /*arg*/) { skipped++; });
+  std::atomic_int passed = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::SkippedVerifyUniqueId",
+      [&](void* /*arg*/) { skipped++; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::Open::PassedVerifyUniqueId",
+      [&](void* /*arg*/) { passed++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   // generate a few SSTs
@@ -7361,13 +7361,28 @@ TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
     ASSERT_OK(Flush());
   }
 
-  // Reopen without verification
-  Reopen(options);
+  // Verification has been skipped on files so far
+  EXPECT_EQ(skipped, kNumSst);
+  EXPECT_EQ(passed, 0);
 
-  // Reopen with verification, but it's skipped because manifest doesn't have id
+  // Reopen with verification
   options.verify_sst_unique_id_in_manifest = true;
+  skipped = 0;
+  passed = 0;
   Reopen(options);
-  ASSERT_EQ(skipped, kNumSst);
+  EXPECT_EQ(skipped, 0);
+  EXPECT_EQ(passed, kNumSst);
+
+  // Now simulate no unique id in manifest for next file
+  // NOTE: this only works for loading manifest from disk,
+  // not in-memory manifest, so we need to re-open below.
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionEdit::EncodeTo:UniqueId", [&](void* arg) {
+        auto unique_id = static_cast<UniqueId64x2*>(arg);
+        // remove id before writing it to manifest
+        (*unique_id)[0] = 0;
+        (*unique_id)[1] = 0;
+      });
 
   // test compaction generated Sst
   for (int i = kNumSst; i < kLevel0Trigger; i++) {
@@ -7382,11 +7397,13 @@ TEST_F(DBTest2, SstUniqueIdVerifyBackwardCompatible) {
   ASSERT_EQ("0,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
 
-  // Reopen with verification should fail
-  options.verify_sst_unique_id_in_manifest = true;
+  // Reopen (with verification)
+  ASSERT_TRUE(options.verify_sst_unique_id_in_manifest);
   skipped = 0;
+  passed = 0;
   Reopen(options);
-  ASSERT_EQ(skipped, 1);
+  EXPECT_EQ(skipped, 1);
+  EXPECT_EQ(passed, 0);
 }
 
 TEST_F(DBTest2, SstUniqueIdVerify) {
@@ -7394,11 +7411,15 @@ TEST_F(DBTest2, SstUniqueIdVerify) {
   const int kLevel0Trigger = 4;
   auto options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kLevel0Trigger;
+  // Allow mismatch for now
+  options.verify_sst_unique_id_in_manifest = false;
+  Reopen(options);
 
   SyncPoint::GetInstance()->SetCallBack(
       "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
         auto props = static_cast<TableProperties*>(props_vs);
-        // update table property session_id to a different one
+        // update table property session_id to a different one, which
+        // changes unique ID
         props->db_session_id = DBImpl::GenerateDbSessionId(nullptr);
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -7444,6 +7465,8 @@ TEST_F(DBTest2, SstUniqueIdVerifyMultiCFs) {
   const int kLevel0Trigger = 4;
   auto options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kLevel0Trigger;
+  // Allow mismatch for now
+  options.verify_sst_unique_id_in_manifest = false;
 
   CreateAndReopenWithCF({"one", "two"}, options);
 

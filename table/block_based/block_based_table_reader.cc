@@ -588,7 +588,7 @@ Status BlockBasedTable::Open(
     TailPrefetchStats* tail_prefetch_stats,
     BlockCacheTracer* const block_cache_tracer,
     size_t max_file_size_for_l0_meta_pin, const std::string& cur_db_session_id,
-    uint64_t cur_file_num) {
+    uint64_t cur_file_num, UniqueId64x2 expected_unique_id) {
   table_reader->reset();
 
   Status s;
@@ -597,7 +597,7 @@ Status BlockBasedTable::Open(
 
   // From read_options, retain deadline, io_timeout, and rate_limiter_priority.
   // In future, we may retain more
-  // options. Specifically, w ignore verify_checksums and default to
+  // options. Specifically, we ignore verify_checksums and default to
   // checksum verification anyway when creating the index and filter
   // readers.
   ReadOptions ro;
@@ -682,6 +682,35 @@ Status BlockBasedTable::Open(
   if (!s.ok()) {
     return s;
   }
+
+  // Check expected unique id if provided
+  if (expected_unique_id != kNullUniqueId64x2) {
+    auto props = rep->table_properties;
+    if (!props) {
+      return Status::Corruption("Missing table properties on file " +
+                                std::to_string(cur_file_num) +
+                                " with known unique ID");
+    }
+    UniqueId64x2 actual_unique_id{};
+    s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                               props->orig_file_number, &actual_unique_id,
+                               /*force*/ true);
+    assert(s.ok());  // because force=true
+    if (expected_unique_id != actual_unique_id) {
+      return Status::Corruption(
+          "Mismatch in unique ID on table file " +
+          std::to_string(cur_file_num) +
+          ". Expected: " + InternalUniqueIdToHumanString(&expected_unique_id) +
+          " Actual: " + InternalUniqueIdToHumanString(&actual_unique_id));
+    }
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::PassedVerifyUniqueId",
+                             &actual_unique_id);
+  } else {
+    TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::SkippedVerifyUniqueId",
+                             nullptr);
+  }
+
+  // Set up prefix extracto as needed
   bool force_null_table_prefix_extractor = false;
   TEST_SYNC_POINT_CALLBACK(
       "BlockBasedTable::Open::ForceNullTablePrefixExtractor",

@@ -2083,6 +2083,10 @@ TEST_F(BackupEngineTest, ShareTableFilesWithChecksumsOldFileNaming) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  // Corrupting the table properties corrupts the unique id.
+  // Ignore the unique id recorded in the manifest.
+  options_.verify_sst_unique_id_in_manifest = false;
+
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   FillDB(db_.get(), 0, keys_iteration);
   CloseDBAndBackupEngine();
