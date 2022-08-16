@@ -259,17 +259,6 @@ class MemTable {
   // @param immutable_memtable Whether this memtable is immutable. Used
   // internally by NewRangeTombstoneIterator(). See comment above
   // NewRangeTombstoneIterator() for more detail.
-  bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context,
-           SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-           const ReadOptions& read_opts, bool immutable_memtable,
-           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-           bool do_merge = true) {
-    return Get(key, value, /*columns=*/nullptr, /*timestamp=*/nullptr, s,
-               merge_context, max_covering_tombstone_seq, seq, read_opts,
-               immutable_memtable, callback, is_blob_index, do_merge);
-  }
-
   bool Get(const LookupKey& key, std::string* value, WideColumns* columns,
            std::string* timestamp, Status* s, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
