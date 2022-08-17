@@ -68,7 +68,8 @@ class BlockBasedTable::IndexReaderCommon : public BlockBasedTable::IndexReader {
   Status GetOrReadIndexBlock(bool no_io, Env::IOPriority rate_limiter_priority,
                              GetContext* get_context,
                              BlockCacheLookupContext* lookup_context,
-                             CachableEntry<Block>* index_block) const;
+                             CachableEntry<Block>* index_block,
+                             const ReadOptions& read_options) const;
 
   size_t ApproximateIndexBlockMemoryUsage() const {
     assert(!index_block_.GetOwnValue() || index_block_.GetValue() != nullptr);
