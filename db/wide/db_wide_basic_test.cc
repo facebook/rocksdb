@@ -23,9 +23,14 @@ TEST_F(DBWideBasicTest, PutEntity) {
   Options options = GetDefaultOptions();
 
   constexpr char first_key[] = "first";
-  constexpr char second_key[] = "second";
-
   constexpr char first_value_of_default_column[] = "hello";
+  WideColumns first_columns{
+      {kDefaultWideColumnName, first_value_of_default_column},
+      {"attr_name1", "foo"},
+      {"attr_name2", "bar"}};
+
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
 
   auto verify = [&]() {
     {
@@ -36,10 +41,24 @@ TEST_F(DBWideBasicTest, PutEntity) {
     }
 
     {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, result));
+      ASSERT_EQ(result.columns, first_columns);
+    }
+
+    {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
                          &result));
       ASSERT_TRUE(result.empty());
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, result));
+      ASSERT_EQ(result.columns, second_columns);
     }
 
     {
@@ -97,17 +116,10 @@ TEST_F(DBWideBasicTest, PutEntity) {
   };
 
   // Use the DB::PutEntity API
-  WideColumns first_columns{
-      {kDefaultWideColumnName, first_value_of_default_column},
-      {"attr_name1", "foo"},
-      {"attr_name2", "bar"}};
-
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                            first_key, first_columns));
 
   // Use WriteBatch
-  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
-
   WriteBatch batch;
   ASSERT_OK(
       batch.PutEntity(db_->DefaultColumnFamily(), second_key, second_columns));
