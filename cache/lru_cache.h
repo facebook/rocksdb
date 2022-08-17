@@ -333,12 +333,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, double low_pri_pool_ratio,
-                bool use_adaptive_mutex,
+                bool use_compressed_secondary_cache,
+                size_t standalone_pool_capacity, bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
                 int max_upper_hash_bits,
-                const std::shared_ptr<SecondaryCache>& secondary_cache,
-                bool use_compressed_secondary_cache,
-                size_t standalone_pool_capacity);
+                const std::shared_ptr<SecondaryCache>& secondary_cache);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
