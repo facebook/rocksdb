@@ -889,7 +889,7 @@ TEST_F(LdbCmdTest, LoadCFOptionsAndOverride) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   ColumnFamilyHandle* cf_handle;
@@ -932,7 +932,7 @@ TEST_F(LdbCmdTest, UnsafeRemoveSstFile) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(Env::Default(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   // Create three SST files
@@ -1041,7 +1041,7 @@ TEST_F(LdbCmdTest, FileTemperatureUpdateManifest) {
 
   DB* db = nullptr;
   std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
-  DestroyDB(dbname, opts);
+  ASSERT_OK(DestroyDB(dbname, opts));
   ASSERT_OK(DB::Open(opts, dbname, &db));
 
   std::array<Temperature, 5> kTestTemps = {
@@ -1123,8 +1123,8 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
 
   std::string old_dbname = test::PerThreadDBPath(env, "ldb_cmd_test");
   std::string new_dbname = old_dbname + "_2";
-  DestroyDB(old_dbname, opts);
-  DestroyDB(new_dbname, opts);
+  ASSERT_OK(DestroyDB(old_dbname, opts));
+  ASSERT_OK(DestroyDB(new_dbname, opts));
 
   char old_arg[1024];
   snprintf(old_arg, sizeof(old_arg), "--db=%s", old_dbname.c_str());
@@ -1168,7 +1168,7 @@ TEST_F(LdbCmdTest, RenameDbAndLoadOptions) {
       0, LDBCommandRunner::RunCommand(5, argv4, opts, LDBOptions(), nullptr));
   ASSERT_EQ(
       0, LDBCommandRunner::RunCommand(5, argv5, opts, LDBOptions(), nullptr));
-  DestroyDB(new_dbname, opts);
+  ASSERT_OK(DestroyDB(new_dbname, opts));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

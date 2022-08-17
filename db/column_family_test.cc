@@ -2939,7 +2939,7 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 }
 
-TEST_P(ColumnFamilyTest, CreateAndDestoryOptions) {
+TEST_P(ColumnFamilyTest, CreateAndDestroyOptions) {
   std::unique_ptr<ColumnFamilyOptions> cfo(new ColumnFamilyOptions());
   ColumnFamilyHandle* cfh;
   Open();

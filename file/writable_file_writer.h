@@ -151,6 +151,7 @@ class WritableFileWriter {
   uint64_t next_write_offset_;
 #endif  // ROCKSDB_LITE
   bool pending_sync_;
+  bool seen_error_;
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
@@ -186,6 +187,7 @@ class WritableFileWriter {
         next_write_offset_(0),
 #endif  // ROCKSDB_LITE
         pending_sync_(false),
+        seen_error_(false),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
@@ -287,6 +289,11 @@ class WritableFileWriter {
   std::string GetFileChecksum();
 
   const char* GetFileChecksumFuncName() const;
+
+  bool seen_error() const { return seen_error_; }
+  // For options of relaxed consistency, users might hope to continue
+  // operating on the file after an error happens.
+  void reset_seen_error() { seen_error_ = false; }
 
  private:
   // Decide the Rate Limiter priority.

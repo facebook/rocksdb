@@ -1089,6 +1089,9 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
     // Maybe change the return status to void?
     error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
+  } else {
+    // Force writable file to be continue writable.
+    logs_.back().writer->file()->reset_seen_error();
   }
 }
 
@@ -2084,6 +2087,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (!logs_.empty()) {
       // Alway flush the buffer of the last log before switching to a new one
       log::Writer* cur_log_writer = logs_.back().writer;
+      if (error_handler_.IsRecoveryInProgress()) {
+        // In recovery path, we force another try of writing WAL buffer.
+        cur_log_writer->file()->reset_seen_error();
+      }
       io_s = cur_log_writer->WriteBuffer();
       if (s.ok()) {
         s = io_s;

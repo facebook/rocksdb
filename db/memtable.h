@@ -58,6 +58,7 @@ struct ImmutableMemTableOptions {
   MergeOperator* merge_operator;
   Logger* info_log;
   bool allow_data_in_errors;
+  uint32_t protection_bytes_per_key;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -539,6 +540,11 @@ class MemTable {
     }
   }
 
+  // Returns Corruption status if verification fails.
+  static Status VerifyEntryChecksum(const char* entry,
+                                    size_t protection_bytes_per_key,
+                                    bool allow_data_in_errors = false);
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -650,6 +656,10 @@ class MemTable {
   // if !is_range_del_table_empty_.
   std::unique_ptr<FragmentedRangeTombstoneList>
       fragmented_range_tombstone_list_;
+
+  void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
+                           const Slice& key, const Slice& value, ValueType type,
+                           SequenceNumber s, char* checksum_ptr);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

@@ -454,6 +454,7 @@ void BlockBasedTableFactory::InitializeOptions() {
     // It makes little sense to pay overhead for mid-point insertion while the
     // block size is only 8MB.
     co.high_pri_pool_ratio = 0.0;
+    co.low_pri_pool_ratio = 0.0;
     table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||

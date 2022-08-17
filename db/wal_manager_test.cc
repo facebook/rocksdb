@@ -37,7 +37,8 @@ class WalManagerTest : public testing::Test {
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         current_log_number_(0) {
-    env_.reset(MockEnv::Create(Env::Default())), DestroyDB(dbname_, Options());
+    env_.reset(MockEnv::Create(Env::Default()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   void Init() {
