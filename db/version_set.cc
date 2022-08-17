@@ -2439,7 +2439,8 @@ Status Version::ProcessBatch(
     std::unordered_map<uint64_t, BlobReadContexts>* blob_ctxs,
     autovector<FilePickerMultiGet, 4>& batches, std::queue<size_t>& waiting,
     std::queue<size_t>& to_process, unsigned int& num_tasks_queued,
-    uint64_t num_filter_read, uint64_t num_index_read, uint64_t num_sst_read) {
+    uint64_t& num_filter_read, uint64_t& num_index_read,
+    uint64_t& num_sst_read) {
   FilePickerMultiGet& fp = *batch;
   MultiGetRange range = fp.GetRange();
   // Initialize a new empty range. Any keys that are not in this level will
