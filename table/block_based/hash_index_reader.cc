@@ -118,7 +118,7 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
   CachableEntry<Block> index_block;
   const Status s =
       GetOrReadIndexBlock(no_io, read_options.rate_limiter_priority,
-                          get_context, lookup_context, &index_block);
+                          get_context, lookup_context, &index_block, read_options);
   if (!s.ok()) {
     if (iter != nullptr) {
       iter->Invalidate(s);
