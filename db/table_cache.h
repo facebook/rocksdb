@@ -135,7 +135,8 @@ class TableCache {
       const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
       const std::shared_ptr<const SliceTransform>& prefix_extractor = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool skip_filters = false,
-      int level = -1, Cache::Handle* table_handle = nullptr);
+      bool skip_range_deletions = false, int level = -1,
+      Cache::Handle* table_handle = nullptr);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
