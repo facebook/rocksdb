@@ -841,6 +841,7 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
 
   // Clean up DBs.
   sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
   ASSERT_OK(shared_wbm_db->Close());
   ASSERT_OK(DestroyDB(dbname, options));
   delete shared_wbm_db;
