@@ -560,6 +560,12 @@ class LRUCache
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
   std::shared_ptr<SecondaryCache> secondary_cache_;
+  bool use_compressed_secondary_cache_{false};
+  // Standalone pool size, charged in the secondary cache.
+  // It equals to capacity of secondary_cache * standard_pool_ratio.
+  double standalone_pool_capacity_{0};
+  // Memory size for entries in standalone pool.
+  size_t standalone_pool_usage_{0};
 };
 
 }  // namespace lru_cache

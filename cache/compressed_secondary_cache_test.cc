@@ -236,7 +236,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
     }
 
-    secondary_cache_opts.capacity = 2300;
+    secondary_cache_opts.capacity = 3500;
     secondary_cache_opts.num_shard_bits = 0;
     std::shared_ptr<SecondaryCache> secondary_cache =
         NewCompressedSecondaryCache(secondary_cache_opts);

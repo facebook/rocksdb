@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 
+#include "cache/compressed_secondary_cache.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/lang.h"
@@ -744,6 +745,13 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
         /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
   }
   secondary_cache_ = secondary_cache;
+  if (secondary_cache_ && std::strcmp(secondary_cache_->Name(),
+                                      kCompressedSecondaryCacheName) == 0) {
+    use_compressed_secondary_cache_ = true;
+    standalone_pool_capacity_ =
+        static_cast<CompressedSecondaryCache*>(secondary_cache_.get())
+            ->GetStandalonePoolCapacity();
+  }
 }
 
 LRUCache::~LRUCache() {
