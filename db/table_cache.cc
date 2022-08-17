@@ -557,17 +557,15 @@ Status TableCache::MultiGetFilter(
   if (s.ok()) {
     s = t->MultiGetFilter(options, prefix_extractor.get(), mget_range);
   }
-  if (mget_range->empty()) {
-    if (s.ok() && !options.ignore_range_deletions) {
-      // If all the keys have been filtered out by the bloom filter, then
-      // update the range tombstone sequence numbers for the keys as
-      // MultiGet() will not be called for this set of keys.
-      UpdateRangeTombstoneSeqnums(options, t, tombstone_range);
-    }
-    if (handle) {
-      ReleaseHandle(handle);
-      *table_handle = nullptr;
-    }
+  if (s.ok() && !options.ignore_range_deletions) {
+    // Update the range tombstone sequence numbers for the keys here
+    // as TableCache::MultiGet may or may not be called, and even if it
+    // is, it may be called with fewer keys in the rangedue to filtering.
+    UpdateRangeTombstoneSeqnums(options, t, tombstone_range);
+  }
+  if (mget_range->empty() && handle) {
+    ReleaseHandle(handle);
+    *table_handle = nullptr;
   }
 
   return s;
