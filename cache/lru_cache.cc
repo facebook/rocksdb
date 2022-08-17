@@ -112,10 +112,10 @@ void LRUHandleTable::Resize() {
 
 LRUCacheShard::LRUCacheShard(
     size_t capacity, bool strict_capacity_limit, double high_pri_pool_ratio,
-    double low_pri_pool_ratio, bool use_adaptive_mutex,
+    double low_pri_pool_ratio, bool use_compressed_secondary_cache,
+    size_t standalone_pool_capacity, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy, int max_upper_hash_bits,
-    const std::shared_ptr<SecondaryCache>& secondary_cache,
-    bool use_compressed_secondary_cache, size_t standalone_pool_capacity)
+    const std::shared_ptr<SecondaryCache>& secondary_cache)
     : capacity_(0),
       high_pri_pool_usage_(0),
       low_pri_pool_usage_(0),
@@ -776,9 +776,10 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i]) LRUCacheShard(
         per_shard, strict_capacity_limit, high_pri_pool_ratio,
-        low_pri_pool_ratio, use_adaptive_mutex, metadata_charge_policy,
-        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache,
-        use_compressed_secondary_cache, standalone_pool_capacity_per_shard);
+        low_pri_pool_ratio, use_compressed_secondary_cache,
+        standalone_pool_capacity_per_shard, use_adaptive_mutex,
+        metadata_charge_policy,
+        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
   }
   secondary_cache_ = secondary_cache;
 }

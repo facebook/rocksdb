@@ -48,8 +48,10 @@ class LRUCacheTest : public testing::Test {
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
     new (cache_) LRUCacheShard(
         capacity, false /*strict_capcity_limit*/, high_pri_pool_ratio,
-        low_pri_pool_ratio, use_adaptive_mutex, kDontChargeCacheMetadata,
-        24 /*max_upper_hash_bits*/, nullptr /*secondary_cache*/);
+        low_pri_pool_ratio, false /*use_compressed_secondary_cache*/,
+        0 /*standalone_pool_capacity*/, use_adaptive_mutex,
+        kDontChargeCacheMetadata, 24 /*max_upper_hash_bits*/,
+        nullptr /*secondary_cache*/);
   }
 
   void Insert(const std::string& key,
