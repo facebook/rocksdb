@@ -1996,22 +1996,32 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(
-              lkey, get_impl_options.value->GetSelf(), get_impl_options.columns,
-              timestamp, &s, &merge_context, &max_covering_tombstone_seq,
-              read_options, false /* immutable_memtable */,
-              get_impl_options.callback, get_impl_options.is_blob_index)) {
+      std::string* const value =
+          get_impl_options.value ? get_impl_options.value->GetSelf() : nullptr;
+
+      if (sv->mem->Get(lkey, value, get_impl_options.columns, timestamp, &s,
+                       &merge_context, &max_covering_tombstone_seq,
+                       read_options, false /* immutable_memtable */,
+                       get_impl_options.callback,
+                       get_impl_options.is_blob_index)) {
         done = true;
-        get_impl_options.value->PinSelf();
+
+        if (get_impl_options.value) {
+          get_impl_options.value->PinSelf();
+        }
+
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey, get_impl_options.value->GetSelf(),
-                              timestamp, &s, &merge_context,
+                 sv->imm->Get(lkey, value, timestamp, &s, &merge_context,
                               &max_covering_tombstone_seq, read_options,
                               get_impl_options.callback,
                               get_impl_options.is_blob_index)) {
         done = true;
-        get_impl_options.value->PinSelf();
+
+        if (get_impl_options.value) {
+          get_impl_options.value->PinSelf();
+        }
+
         RecordTick(stats_, MEMTABLE_HIT);
       }
     } else {
