@@ -490,7 +490,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   LRUHandle* lru_bottom_pri_;
 
   // Whether the secondary cache is CompressedSecondaryCache.
-  bool use_compressed_secondary_cache_{false};
+  bool use_compressed_secondary_cache_;
 
   // Standalone pool size, charged in the secondary cache.
   // It equals to capacity of secondary_cache * standardalone_pool_ratio.
