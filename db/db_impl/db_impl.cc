@@ -1027,6 +1027,8 @@ void DBImpl::DumpStats() {
     return;
   }
 
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
+                       immutable_db_options_.info_log.get());
   TEST_SYNC_POINT("DBImpl::DumpStats:StartRunning");
   {
     InstrumentedMutexLock l(&mutex_);
@@ -1055,6 +1057,8 @@ void DBImpl::DumpStats() {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetStringProperty(*property_info, *property,
                                                  &stats);
+        LogToBuffer(&log_buffer, stats.length() + 1, "%s", stats.c_str());
+        stats.clear();
       }
     }
 
@@ -1066,13 +1070,15 @@ void DBImpl::DumpStats() {
       if (cfd->initialized()) {
         cfd->internal_stats()->GetStringProperty(*property_info, *property,
                                                  &stats);
+        LogToBuffer(&log_buffer, stats.length() + 1, "%s", stats.c_str());
+        stats.clear();
       }
     }
   }
   TEST_SYNC_POINT("DBImpl::DumpStats:2");
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "------- DUMPING STATS -------");
-  ROCKS_LOG_INFO(immutable_db_options_.info_log, "%s", stats.c_str());
+  log_buffer.FlushBufferToLog();
   if (immutable_db_options_.dump_malloc_stats) {
     stats.clear();
     DumpMallocStats(&stats);
