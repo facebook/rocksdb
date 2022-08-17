@@ -1561,6 +1561,7 @@ sub save_stdin_stdout_stderr {
 	::die_bug("Can't dup STDERR: $!");
     open $Global::original_stdin, "<&", "STDIN" or
 	::die_bug("Can't dup STDIN: $!");
+    $Global::is_terminal = (-t $Global::original_stderr) && !$ENV{'CIRCLECI'} && !$ENV{'TRAVIS'};
 }
 
 sub enough_file_handles {
@@ -1840,12 +1841,17 @@ sub start_another_job {
 }
 }
 
+$opt::min_progress_interval = 0;
+
 sub init_progress {
     # Uses:
     #   $opt::bar
     # Returns:
     #   list of computers for progress output
     $|=1;
+    if (not $Global::is_terminal) {
+      $opt::min_progress_interval = 30;
+    }
     if($opt::bar) {
 	return("","");
     }
@@ -1870,6 +1876,9 @@ sub drain_job_queue {
     }
     my $last_header="";
     my $sleep = 0.2;
+    my $last_left = 1000000000;
+    my $last_progress_time = 0;
+    my $ps_reported = 0;
     do {
         while($Global::total_running > 0) {
             debug($Global::total_running, "==", scalar
@@ -1880,14 +1889,38 @@ sub drain_job_queue {
 		    close $job->fh(0,"w");
 		}
 	    }
-            if($opt::progress) {
+            # When not connected to terminal, assume CI (e.g. CircleCI). In
+            # that case we want occasional progress output to prevent abort
+            # due to timeout with no output, but we also need to stop sending
+            # progress output if there has been no actual progress, so that
+            # the job can time out appropriately (CirecleCI: 10m) in case of
+            # a hung test. But without special output, it is extremely
+            # annoying to diagnose which test is hung, so we add that using
+            # `ps` below.
+            if($opt::progress and
+               ($Global::is_terminal or (time() - $last_progress_time) >= 30)) {
                 my %progress = progress();
                 if($last_header ne $progress{'header'}) {
                     print $Global::original_stderr "\n", $progress{'header'}, "\n";
                     $last_header = $progress{'header'};
                 }
-                print $Global::original_stderr "\r",$progress{'status'};
-		flush $Global::original_stderr;
+                if ($Global::is_terminal) {
+                    print $Global::original_stderr "\r",$progress{'status'};
+                }
+                if ($last_left > $Global::left) {
+                    if (not $Global::is_terminal) {
+                        print $Global::original_stderr $progress{'status'},"\n";
+                    }
+                    $last_progress_time = time();
+                    $ps_reported = 0;
+                } elsif (not $ps_reported and (time() - $last_progress_time) >= 60) {
+                    # No progress in at least 60 seconds: run ps
+                    print $Global::original_stderr "\n";
+                    system("ps", "-wf");
+                    $ps_reported = 1;
+                }
+                $last_left = $Global::left;
+                flush $Global::original_stderr;
             }
 	    if($Global::total_running < $Global::max_jobs_running
 	       and not $Global::JobQueue->empty()) {
@@ -1921,7 +1954,7 @@ sub drain_job_queue {
 	     not $Global::start_no_new_jobs and not $Global::JobQueue->empty());
     if($opt::progress) {
 	my %progress = progress();
-	print $Global::original_stderr "\r", $progress{'status'}, "\n";
+	print $Global::original_stderr $opt::progress_sep, $progress{'status'}, "\n";
 	flush $Global::original_stderr;
     }
 }
@@ -1954,10 +1987,11 @@ sub progress {
     my $eta = "";
     my ($status,$header)=("","");
     if($opt::eta) {
-	my($total, $completed, $left, $pctcomplete, $avgtime, $this_eta) =
-	    compute_eta();
-	$eta = sprintf("ETA: %ds Left: %d AVG: %.2fs  ",
-		       $this_eta, $left, $avgtime);
+      my($total, $completed, $left, $pctcomplete, $avgtime, $this_eta) =
+        compute_eta();
+      $eta = sprintf("ETA: %ds Left: %d AVG: %.2fs  ",
+        $this_eta, $left, $avgtime);
+      $Global::left = $left;
     }
     my $termcols = terminal_columns();
     my @workers = sort keys %Global::host;

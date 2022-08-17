@@ -36,6 +36,8 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <sys/sysctl.h>
 #endif
 
+#include "port/lang.h"
+
 namespace ROCKSDB_NAMESPACE {
 namespace port {
 
@@ -163,8 +165,7 @@ static void StackTraceHandler(int sig) {
 
   // Efforts to fix or suppress TSAN warnings "signal-unsafe call inside of
   // a signal" have failed, so just warn the user about them.
-#if defined(__clang__) && defined(__has_feature)
-#if __has_feature(thread_sanitizer)
+#ifdef __SANITIZE_THREAD__
   fprintf(stderr,
           "==> NOTE: any above warnings about \"signal-unsafe call\" are\n"
           "==> ignorable, as they are expected when generating a stack\n"
@@ -173,7 +174,6 @@ static void StackTraceHandler(int sig) {
           "==> in the TSAN warning can be useful for that. (The stack\n"
           "==> trace printed by the signal handler is likely obscured\n"
           "==> by TSAN output.)\n");
-#endif
 #endif
 
   // re-signal to default handler (so we still get core dump if needed...)

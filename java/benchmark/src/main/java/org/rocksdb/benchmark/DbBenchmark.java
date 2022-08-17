@@ -569,6 +569,7 @@ public class DbBenchmark {
     options.setMinWriteBufferNumberToMerge(
         (Integer)flags_.get(Flag.min_write_buffer_number_to_merge));
     options.setMemtablePrefixBloomSizeRatio((Double) flags_.get(Flag.memtable_bloom_size_ratio));
+    options.setMemtableWholeKeyFiltering((Boolean) flags_.get(Flag.memtable_whole_key_filtering));
     options.setNumLevels(
         (Integer)flags_.get(Flag.num_levels));
     options.setTargetFileSizeBase(
@@ -600,7 +601,6 @@ public class DbBenchmark {
     options.setCompressionType((String)flags_.get(Flag.compression_type));
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
     options.setMinLevelToCompress((Integer)flags_.get(Flag.min_level_to_compress));
-    options.setHdfs((String)flags_.get(Flag.hdfs)); // env
     options.setStatistics((Boolean)flags_.get(Flag.statistics));
     options.setUniversalSizeRatio(
         (Integer)flags_.get(Flag.universal_size_ratio));
@@ -1191,6 +1191,12 @@ public class DbBenchmark {
         return Double.parseDouble(value);
       }
     },
+    memtable_whole_key_filtering(false, "Enable whole key bloom filter in memtable.") {
+      @Override
+      public Object parseValue(String value) {
+        return parseBoolean(value);
+      }
+    },
     cache_numshardbits(-1,"Number of shards for the block cache\n" +
         "\tis 2 ** cache_numshardbits. Negative means use default settings.\n" +
         "\tThis is applied only if FLAGS_cache_size is non-negative.") {
@@ -1347,25 +1353,6 @@ public class DbBenchmark {
       }
     },
     perf_level(0,"Level of perf collection.") {
-      @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
-      }
-    },
-    soft_rate_limit(0.0d,"") {
-      @Override public Object parseValue(String value) {
-        return Double.parseDouble(value);
-      }
-    },
-    hard_rate_limit(0.0d,"When not equal to 0 this make threads\n" +
-        "\tsleep at each stats reporting interval until the compaction\n" +
-        "\tscore for all levels is less than or equal to this value.") {
-      @Override public Object parseValue(String value) {
-        return Double.parseDouble(value);
-      }
-    },
-    rate_limit_delay_max_milliseconds(1000,
-        "When hard_rate_limit is set then this is the max time a put will\n" +
-        "\tbe stalled.") {
       @Override public Object parseValue(String value) {
         return Integer.parseInt(value);
       }

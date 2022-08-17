@@ -84,6 +84,16 @@ class CacheHandleGuard {
   Cache::Handle* GetCacheHandle() const { return handle_; }
   T* GetValue() const { return value_; }
 
+  void TransferTo(Cleanable* cleanable) {
+    if (cleanable) {
+      if (handle_ != nullptr) {
+        assert(cache_);
+        cleanable->RegisterCleanup(&ReleaseCacheHandle, cache_, handle_);
+      }
+    }
+    ResetFields();
+  }
+
   void Reset() {
     ReleaseHandle();
     ResetFields();
@@ -105,10 +115,31 @@ class CacheHandleGuard {
     value_ = nullptr;
   }
 
+  static void ReleaseCacheHandle(void* arg1, void* arg2) {
+    Cache* const cache = static_cast<Cache*>(arg1);
+    assert(cache);
+
+    Cache::Handle* const cache_handle = static_cast<Cache::Handle*>(arg2);
+    assert(cache_handle);
+
+    cache->Release(cache_handle);
+  }
+
  private:
   Cache* cache_ = nullptr;
   Cache::Handle* handle_ = nullptr;
   T* value_ = nullptr;
 };
+
+// Build an aliasing shared_ptr that keeps `handle` in cache while there
+// are references, but the pointer is to the value for that cache entry,
+// which must be of type T. This is copyable, unlike CacheHandleGuard, but
+// does not provide access to caching details.
+template <typename T>
+std::shared_ptr<T> MakeSharedCacheHandleGuard(Cache* cache,
+                                              Cache::Handle* handle) {
+  auto wrapper = std::make_shared<CacheHandleGuard<T>>(cache, handle);
+  return std::shared_ptr<T>(wrapper, static_cast<T*>(cache->Value(handle)));
+}
 
 }  // namespace ROCKSDB_NAMESPACE

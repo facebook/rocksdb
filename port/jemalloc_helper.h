@@ -5,7 +5,7 @@
 
 #pragma once
 
-#if defined(__clang__)
+#if defined(__clang__) && defined(__GLIBC__)
 // glibc's `posix_memalign()` declaration specifies `throw()` while clang's
 // declaration does not. There is a hack in clang to make its re-declaration
 // compatible with glibc's if they are declared consecutively. That hack breaks

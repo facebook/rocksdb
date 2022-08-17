@@ -97,7 +97,7 @@ using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;
 // 1. Create an object of VersionEditHandler or its subclasses.
 //    VersionEditHandler handler(read_only, column_families, version_set,
 //                               track_missing_files,
-//                               no_error_if_table_files_missing);
+//                               no_error_if_files_missing);
 // 2. Status s = handler.Iterate(reader, &db_id);
 // 3. Check s and handle possible errors.
 //
@@ -109,10 +109,10 @@ class VersionEditHandler : public VersionEditHandlerBase {
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
-      bool no_error_if_table_files_missing,
+      bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer)
       : VersionEditHandler(read_only, column_families, version_set,
-                           track_missing_files, no_error_if_table_files_missing,
+                           track_missing_files, no_error_if_files_missing,
                            io_tracer, /*skip_load_table_files=*/false) {}
 
   ~VersionEditHandler() override {}
@@ -133,7 +133,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
   explicit VersionEditHandler(
       bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
       VersionSet* version_set, bool track_missing_files,
-      bool no_error_if_table_files_missing,
+      bool no_error_if_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files);
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
@@ -183,10 +183,12 @@ class VersionEditHandler : public VersionEditHandlerBase {
   const bool track_missing_files_;
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files_;
-  bool no_error_if_table_files_missing_;
+  std::unordered_map<uint32_t, uint64_t> cf_to_missing_blob_files_high_;
+  bool no_error_if_files_missing_;
   std::shared_ptr<IOTracer> io_tracer_;
   bool skip_load_table_files_;
   bool initialized_;
+  std::unique_ptr<std::unordered_map<uint32_t, std::string>> cf_to_cmp_names_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
@@ -213,6 +215,8 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
                             bool force_create_version) override;
   virtual Status VerifyFile(const std::string& fpath,
                             const FileMetaData& fmeta);
+  virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
+                                const BlobFileAddition& blob_addition);
 
   std::unordered_map<uint32_t, Version*> versions_;
 };
@@ -267,21 +271,27 @@ class DumpManifestHandler : public VersionEditHandler {
       : VersionEditHandler(
             /*read_only=*/true, column_families, version_set,
             /*track_missing_files=*/false,
-            /*no_error_if_table_files_missing=*/false, io_tracer,
+            /*no_error_if_files_missing=*/false, io_tracer,
             /*skip_load_table_files=*/true),
         verbose_(verbose),
         hex_(hex),
         json_(json),
-        count_(0) {}
+        count_(0) {
+    cf_to_cmp_names_.reset(new std::unordered_map<uint32_t, std::string>());
+  }
 
   ~DumpManifestHandler() override {}
 
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
     // Write out each individual edit
     if (verbose_ && !json_) {
-      fprintf(stdout, "%s\n", edit.DebugString(hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     } else if (json_) {
-      fprintf(stdout, "%s\n", edit.DebugJSON(count_, hex_).c_str());
+      // Print out DebugStrings. Can include non-terminating null characters.
+      fwrite(edit.DebugString(hex_).data(), sizeof(char),
+             edit.DebugString(hex_).size(), stdout);
     }
     ++count_;
     return VersionEditHandler::ApplyVersionEdit(edit, cfd);

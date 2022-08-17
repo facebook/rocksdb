@@ -19,8 +19,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-using namespace toku;
-
 typedef DeadlockInfoBufferTempl<RangeDeadlockPath> RangeDeadlockInfoBuffer;
 
 // A Range Lock Manager that uses PerconaFT's locktree library
@@ -91,17 +89,24 @@ class RangeTreeLockManager : public RangeLockManagerBase,
   }
 
   // Get the locktree which stores locks for the Column Family with given cf_id
-  std::shared_ptr<locktree> GetLockTreeForCF(ColumnFamilyId cf_id);
+  std::shared_ptr<toku::locktree> GetLockTreeForCF(ColumnFamilyId cf_id);
+
+  void SetEscalationBarrierFunc(EscalationBarrierFunc func) override {
+    barrier_func_ = func;
+  }
 
  private:
   toku::locktree_manager ltm_;
+
+  EscalationBarrierFunc barrier_func_ =
+      [](const Endpoint&, const Endpoint&) -> bool { return false; };
 
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
   // Map from cf_id to locktree*. Can only be accessed while holding the
   // ltree_map_mutex_. Must use a custom deleter that calls ltm_.release_lt
   using LockTreeMap =
-      std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>;
+      std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::locktree>>;
   LockTreeMap ltree_map_;
 
   InstrumentedMutex ltree_map_mutex_;
@@ -112,18 +117,20 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   RangeDeadlockInfoBuffer dlock_buffer_;
 
-  std::shared_ptr<locktree> MakeLockTreePtr(locktree* lt);
+  std::shared_ptr<toku::locktree> MakeLockTreePtr(toku::locktree* lt);
   static int CompareDbtEndpoints(void* arg, const DBT* a_key, const DBT* b_key);
 
   // Callbacks
-  static int on_create(locktree*, void*) { return 0; /* no error */ }
-  static void on_destroy(locktree*) {}
-  static void on_escalate(TXNID txnid, const locktree* lt,
-                          const range_buffer& buffer, void* extra);
+  static int on_create(toku::locktree*, void*);
+  static void on_destroy(toku::locktree*) {}
+  static void on_escalate(TXNID txnid, const toku::locktree* lt,
+                          const toku::range_buffer& buffer, void* extra);
+
+  static bool OnEscalationBarrierCheck(const DBT* a, const DBT* b, void* extra);
 };
 
 void serialize_endpoint(const Endpoint& endp, std::string* buf);
-void wait_callback_for_locktree(void* cdata, lock_wait_infos* infos);
+void wait_callback_for_locktree(void* cdata, toku::lock_wait_infos* infos);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // OS_WIN

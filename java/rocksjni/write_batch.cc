@@ -5,6 +5,8 @@
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::WriteBatch methods from Java side.
+#include "rocksdb/write_batch.h"
+
 #include <memory>
 
 #include "db/memtable.h"
@@ -16,8 +18,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
-#include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 #include "table/scoped_arena_iterator.h"
@@ -32,7 +34,7 @@ jlong Java_org_rocksdb_WriteBatch_newWriteBatch__I(JNIEnv* /*env*/,
                                                    jint jreserved_bytes) {
   auto* wb =
       new ROCKSDB_NAMESPACE::WriteBatch(static_cast<size_t>(jreserved_bytes));
-  return reinterpret_cast<jlong>(wb);
+  return GET_CPLUSPLUS_POINTER(wb);
 }
 
 /*
@@ -55,7 +57,7 @@ jlong Java_org_rocksdb_WriteBatch_newWriteBatch___3BI(JNIEnv* env,
   }
 
   auto* wb = new ROCKSDB_NAMESPACE::WriteBatch(serialized);
-  return reinterpret_cast<jlong>(wb);
+  return GET_CPLUSPLUS_POINTER(wb);
 }
 
 /*
@@ -363,10 +365,10 @@ void Java_org_rocksdb_WriteBatch_singleDelete__J_3BIJ(JNIEnv* env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_WriteBatch
- * Method:    removeDirect
+ * Method:    deleteDirect
  * Signature: (JLjava/nio/ByteBuffer;IIJ)V
  */
-void Java_org_rocksdb_WriteBatch_removeDirect(JNIEnv* env, jobject /*jobj*/,
+void Java_org_rocksdb_WriteBatch_deleteDirect(JNIEnv* env, jobject /*jobj*/,
                                               jlong jwb_handle, jobject jkey,
                                               jint jkey_offset, jint jkey_len,
                                               jlong jcf_handle) {
@@ -670,5 +672,5 @@ void Java_org_rocksdb_WriteBatch_disposeInternal(JNIEnv* /*env*/,
 jlong Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(JNIEnv* env,
                                                                  jobject jobj) {
   auto* wbjnic = new ROCKSDB_NAMESPACE::WriteBatchHandlerJniCallback(env, jobj);
-  return reinterpret_cast<jlong>(wbjnic);
+  return GET_CPLUSPLUS_POINTER(wbjnic);
 }

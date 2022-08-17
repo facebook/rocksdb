@@ -14,7 +14,7 @@ int main() {
   return 1;
 }
 #else
-#include <rocksdb/db_bench_tool.h>
+#include "rocksdb/db_bench_tool.h"
 int main(int argc, char** argv) {
   return ROCKSDB_NAMESPACE::db_bench_tool(argc, argv);
 }

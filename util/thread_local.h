@@ -31,7 +31,7 @@ namespace ROCKSDB_NAMESPACE {
 // is needed to avoid deadlocks. In particular, the handler shouldn't lock any
 // mutexes and shouldn't call any methods of any ThreadLocalPtr instances,
 // unless you know what you're doing.
-typedef void (*UnrefHandler)(void* ptr);
+using UnrefHandler = void (*)(void* ptr);
 
 // ThreadLocalPtr stores only values of pointer type.  Different from
 // the usual thread-local-storage, ThreadLocalPtr has the ability to
@@ -69,7 +69,7 @@ class ThreadLocalPtr {
   // data for all existing threads
   void Scrape(autovector<void*>* ptrs, void* const replacement);
 
-  typedef std::function<void(void*, void*)> FoldFunc;
+  using FoldFunc = std::function<void(void*, void*)>;
   // Update res by applying func on each thread-local value. Holds a lock that
   // prevents unref handler from running during this call, but clients must
   // still provide external synchronization since the owning thread can

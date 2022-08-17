@@ -10,12 +10,14 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "include/org_rocksdb_TtlDB.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
 
 /*
@@ -41,7 +43,7 @@ jlong Java_org_rocksdb_TtlDB_open(
   // as TTLDB extends RocksDB on the java side, we can reuse
   // the RocksDB portal here.
   if (s.ok()) {
-    return reinterpret_cast<jlong>(db);
+    return GET_CPLUSPLUS_POINTER(db);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
     return 0;
@@ -121,9 +123,9 @@ jlongArray Java_org_rocksdb_TtlDB_openCF(
     const jsize resultsLen = 1 + len_cols;  // db handle + column family handles
     std::unique_ptr<jlong[]> results =
         std::unique_ptr<jlong[]>(new jlong[resultsLen]);
-    results[0] = reinterpret_cast<jlong>(db);
+    results[0] = GET_CPLUSPLUS_POINTER(db);
     for (int i = 1; i <= len_cols; i++) {
-      results[i] = reinterpret_cast<jlong>(handles[i - 1]);
+      results[i] = GET_CPLUSPLUS_POINTER(handles[i - 1]);
     }
 
     jlongArray jresults = env->NewLongArray(resultsLen);
@@ -200,7 +202,7 @@ jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
   env->ReleaseByteArrayElements(jcolumn_name, cfname, JNI_ABORT);
 
   if (s.ok()) {
-    return reinterpret_cast<jlong>(handle);
+    return GET_CPLUSPLUS_POINTER(handle);
   }
   ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
   return 0;

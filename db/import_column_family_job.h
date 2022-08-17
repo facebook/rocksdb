@@ -1,10 +1,15 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #pragma once
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/dbformat.h"
 #include "db/external_sst_file_ingestion_job.h"
 #include "db/snapshot_impl.h"
 #include "options/db_options.h"
@@ -57,6 +62,7 @@ class ImportColumnFamilyJob {
   // Open the external file and populate `file_to_import` with all the
   // external information we need to import this file.
   Status GetIngestedFileInfo(const std::string& external_file,
+                             uint64_t new_file_number,
                              IngestedFileInfo* file_to_import,
                              SuperVersion* sv);
 

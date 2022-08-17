@@ -9,19 +9,14 @@
 
 #pragma once
 #include <stdio.h>
+
 #include <memory>
 #include <string>
 #include <utility>
-#include "db/lookup_key.h"
-#include "db/merge_context.h"
-#include "logging/logging.h"
-#include "monitoring/perf_context_imp.h"
+
 #include "rocksdb/comparator.h"
-#include "rocksdb/db.h"
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
 #include "util/user_comparator_wrapper.h"
@@ -70,6 +65,11 @@ enum ValueType : unsigned char {
   // another.
   kTypeBeginUnprepareXID = 0x13,  // WAL only.
   kTypeDeletionWithTimestamp = 0x14,
+  kTypeCommitXIDAndTimestamp = 0x15,  // WAL only
+  kTypeWideColumnEntity = 0x16,
+  kTypeColumnFamilyWideColumnEntity = 0x17,  // WAL only
+  kTypeMaxValid,    // Should be after the last valid type, only used for
+                    // validation
   kMaxValue = 0x7F  // Not used for storing records.
 };
 
@@ -80,8 +80,8 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex ||
-         kTypeDeletionWithTimestamp == t;
+  return t <= kTypeMerge || kTypeSingleDeletion == t || kTypeBlobIndex == t ||
+         kTypeDeletionWithTimestamp == t || kTypeWideColumnEntity == t;
 }
 
 // Checks whether a type is from user operation
@@ -94,9 +94,13 @@ inline bool IsExtendedValueType(ValueType t) {
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
-static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
+static const SequenceNumber kDisableGlobalSequenceNumber =
+    std::numeric_limits<uint64_t>::max();
 
 constexpr uint64_t kNumInternalBytes = 8;
+
+// Defined in dbformat.cc
+extern const std::string kDisableUserTimestamp;
 
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
@@ -192,19 +196,27 @@ inline Slice ExtractUserKey(const Slice& internal_key) {
 
 inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
                                              size_t ts_sz) {
-  assert(internal_key.size() >= kNumInternalBytes + ts_sz);
-  return Slice(internal_key.data(),
-               internal_key.size() - kNumInternalBytes - ts_sz);
+  Slice ret = internal_key;
+  ret.remove_suffix(kNumInternalBytes + ts_sz);
+  return ret;
 }
 
 inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
-  assert(user_key.size() >= ts_sz);
-  return Slice(user_key.data(), user_key.size() - ts_sz);
+  Slice ret = user_key;
+  ret.remove_suffix(ts_sz);
+  return ret;
 }
 
 inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
   assert(user_key.size() >= ts_sz);
   return Slice(user_key.data() + user_key.size() - ts_sz, ts_sz);
+}
+
+inline Slice ExtractTimestampFromKey(const Slice& internal_key, size_t ts_sz) {
+  const size_t key_size = internal_key.size();
+  assert(key_size >= kNumInternalBytes + ts_sz);
+  return Slice(internal_key.data() + key_size - ts_sz - kNumInternalBytes,
+               ts_sz);
 }
 
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
@@ -225,10 +237,9 @@ class InternalKeyComparator
 #ifdef NDEBUG
     final
 #endif
-    : public Comparator {
+    : public CompareInterface {
  private:
   UserComparatorWrapper user_comparator_;
-  std::string name_;
 
  public:
   // `InternalKeyComparator`s constructed with the default constructor are not
@@ -240,22 +251,19 @@ class InternalKeyComparator
   //    this constructor to precompute the result of `Name()`. To avoid this
   //    overhead, set `named` to false. In that case, `Name()` will return a
   //    generic name that is non-specific to the underlying comparator.
-  explicit InternalKeyComparator(const Comparator* c, bool named = true)
-      : Comparator(c->timestamp_size()), user_comparator_(c) {
-    if (named) {
-      name_ = "rocksdb.InternalKeyComparator:" +
-              std::string(user_comparator_.Name());
-    }
-  }
+  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) {}
   virtual ~InternalKeyComparator() {}
 
-  virtual const char* Name() const override;
-  virtual int Compare(const Slice& a, const Slice& b) const override;
+  int Compare(const Slice& a, const Slice& b) const override;
+
+  bool Equal(const Slice& a, const Slice& b) const {
+    // TODO Use user_comparator_.Equal(). Perhaps compare seqno before
+    // comparing the user key too.
+    return Compare(a, b) == 0;
+  }
+
   // Same as Compare except that it excludes the value type from comparison
-  virtual int CompareKeySeq(const Slice& a, const Slice& b) const;
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override;
-  virtual void FindShortSuccessor(std::string* key) const override;
+  int CompareKeySeq(const Slice& a, const Slice& b) const;
 
   const Comparator* user_comparator() const {
     return user_comparator_.user_comparator();
@@ -269,9 +277,6 @@ class InternalKeyComparator
   // value `kDisableGlobalSequenceNumber`.
   int Compare(const Slice& a, SequenceNumber a_global_seqno, const Slice& b,
               SequenceNumber b_global_seqno) const;
-  virtual const Comparator* GetRootComparator() const override {
-    return user_comparator_.GetRootComparator();
-  }
 };
 
 // The class represent the internal key in encoded form.
@@ -312,7 +317,7 @@ class InternalKey {
   }
 
   Slice user_key() const { return ExtractUserKey(rep_); }
-  size_t size() { return rep_.size(); }
+  size_t size() const { return rep_.size(); }
 
   void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {
     SetFrom(ParsedInternalKey(_user_key, s, t));
@@ -617,7 +622,7 @@ class IterKey {
 };
 
 // Convert from a SliceTransform of user keys, to a SliceTransform of
-// user keys.
+// internal keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:
   explicit InternalKeySliceTransform(const SliceTransform* transform)
@@ -656,7 +661,7 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 
 // Read record from a write batch piece from input.
 // tag, column_family, key, value and blob are return values. Callers own the
-// Slice they point to.
+// slice they point to.
 // Tag is defined as ValueType.
 // input will be advanced to after the record.
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,

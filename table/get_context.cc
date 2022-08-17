@@ -5,9 +5,11 @@
 
 #include "table/get_context.h"
 
+#include "db/blob//blob_fetcher.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/read_callback.h"
+#include "db/wide/wide_column_serialization.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -39,14 +41,17 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(
-    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
-    Statistics* statistics, GetState init_state, const Slice& user_key,
-    PinnableSlice* pinnable_val, std::string* timestamp, bool* value_found,
-    MergeContext* merge_context, bool do_merge,
-    SequenceNumber* _max_covering_tombstone_seq, SystemClock* clock,
-    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
-    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
+GetContext::GetContext(const Comparator* ucmp,
+                       const MergeOperator* merge_operator, Logger* logger,
+                       Statistics* statistics, GetState init_state,
+                       const Slice& user_key, PinnableSlice* pinnable_val,
+                       std::string* timestamp, bool* value_found,
+                       MergeContext* merge_context, bool do_merge,
+                       SequenceNumber* _max_covering_tombstone_seq,
+                       SystemClock* clock, SequenceNumber* seq,
+                       PinnedIteratorsManager* _pinned_iters_mgr,
+                       ReadCallback* callback, bool* is_blob_index,
+                       uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -65,7 +70,8 @@ GetContext::GetContext(
       callback_(callback),
       do_merge_(do_merge),
       is_blob_index_(is_blob_index),
-      tracing_get_id_(tracing_get_id) {
+      tracing_get_id_(tracing_get_id),
+      blob_fetcher_(blob_fetcher) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -79,11 +85,11 @@ GetContext::GetContext(
     bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
     SystemClock* clock, SequenceNumber* seq,
     PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id)
+    bool* is_blob_index, uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
                  pinnable_val, nullptr, value_found, merge_context, do_merge,
                  _max_covering_tombstone_seq, clock, seq, _pinned_iters_mgr,
-                 callback, is_blob_index, tracing_get_id) {}
+                 callback, is_blob_index, tracing_get_id, blob_fetcher) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -236,7 +242,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     auto type = parsed_key.type;
     // Key matches. Process it
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
+         type == kTypeWideColumnEntity) &&
         max_covering_tombstone_seq_ != nullptr &&
         *max_covering_tombstone_seq_ > parsed_key.sequence) {
       type = kTypeRangeDeletion;
@@ -244,52 +251,100 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     switch (type) {
       case kTypeValue:
       case kTypeBlobIndex:
+      case kTypeWideColumnEntity:
         assert(state_ == kNotFound || state_ == kMerge);
-        if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
-          // Blob value not supported. Stop.
-          state_ = kUnexpectedBlobIndex;
-          return false;
+        if (type == kTypeBlobIndex) {
+          if (is_blob_index_ == nullptr) {
+            // Blob value not supported. Stop.
+            state_ = kUnexpectedBlobIndex;
+            return false;
+          }
         }
+
+        if (is_blob_index_ != nullptr) {
+          *is_blob_index_ = (type == kTypeBlobIndex);
+        }
+
         if (kNotFound == state_) {
           state_ = kFound;
           if (do_merge_) {
             if (LIKELY(pinnable_val_ != nullptr)) {
+              Slice value_to_use = value;
+
+              if (type == kTypeWideColumnEntity) {
+                Slice value_copy = value;
+
+                if (!WideColumnSerialization::GetValueOfDefaultColumn(
+                         value_copy, value_to_use)
+                         .ok()) {
+                  state_ = kCorrupt;
+                  return false;
+                }
+              }
+
               if (LIKELY(value_pinner != nullptr)) {
                 // If the backing resources for the value are provided, pin them
-                pinnable_val_->PinSlice(value, value_pinner);
+                pinnable_val_->PinSlice(value_to_use, value_pinner);
               } else {
                 TEST_SYNC_POINT_CALLBACK("GetContext::SaveValue::PinSelf",
                                          this);
-
                 // Otherwise copy the value
-                pinnable_val_->PinSelf(value);
+                pinnable_val_->PinSelf(value_to_use);
               }
             }
           } else {
             // It means this function is called as part of DB GetMergeOperands
             // API and the current value should be part of
             // merge_context_->operand_list
-            push_operand(value, value_pinner);
+            if (type == kTypeBlobIndex) {
+              PinnableSlice pin_val;
+              if (GetBlobValue(value, &pin_val) == false) {
+                return false;
+              }
+              Slice blob_value(pin_val);
+              push_operand(blob_value, nullptr);
+            } else if (type == kTypeWideColumnEntity) {
+              // TODO: support wide-column entities
+              state_ = kUnexpectedWideColumnEntity;
+              return false;
+            } else {
+              assert(type == kTypeValue);
+              push_operand(value, value_pinner);
+            }
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
-          state_ = kFound;
-          if (do_merge_) {
-            if (LIKELY(pinnable_val_ != nullptr)) {
-              Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, &value,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, clock_);
-              pinnable_val_->PinSelf();
-              if (!merge_status.ok()) {
-                state_ = kCorrupt;
-              }
+          if (type == kTypeBlobIndex) {
+            PinnableSlice pin_val;
+            if (GetBlobValue(value, &pin_val) == false) {
+              return false;
             }
+            Slice blob_value(pin_val);
+            state_ = kFound;
+            if (do_merge_) {
+              Merge(&blob_value);
+            } else {
+              // It means this function is called as part of DB GetMergeOperands
+              // API and the current value should be part of
+              // merge_context_->operand_list
+              push_operand(blob_value, nullptr);
+            }
+          } else if (type == kTypeWideColumnEntity) {
+            // TODO: support wide-column entities
+            state_ = kUnexpectedWideColumnEntity;
+            return false;
           } else {
-            // It means this function is called as part of DB GetMergeOperands
-            // API and the current value should be part of
-            // merge_context_->operand_list
-            push_operand(value, value_pinner);
+            assert(type == kTypeValue);
+
+            state_ = kFound;
+            if (do_merge_) {
+              Merge(&value);
+            } else {
+              // It means this function is called as part of DB GetMergeOperands
+              // API and the current value should be part of
+              // merge_context_->operand_list
+              push_operand(value, value_pinner);
+            }
           }
         }
         if (state_ == kFound) {
@@ -298,9 +353,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
             timestamp_->assign(ts.data(), ts.size());
           }
-        }
-        if (is_blob_index_ != nullptr) {
-          *is_blob_index_ = (type == kTypeBlobIndex);
         }
         return false;
 
@@ -313,22 +365,16 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
           state_ = kDeleted;
+          size_t ts_sz = ucmp_->timestamp_size();
+          if (ts_sz > 0 && timestamp_ != nullptr) {
+            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+            timestamp_->assign(ts.data(), ts.size());
+          }
         } else if (kMerge == state_) {
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            if (do_merge_) {
-              Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, nullptr,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, clock_);
-              pinnable_val_->PinSelf();
-              if (!merge_status.ok()) {
-                state_ = kCorrupt;
-              }
-            }
-            // If do_merge_ = false then the current value shouldn't be part of
-            // merge_context_->operand_list
-          }
+          Merge(nullptr);
+          // If do_merge_ = false then the current value shouldn't be part of
+          // merge_context_->operand_list
         }
         return false;
 
@@ -341,20 +387,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
           state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            // do_merge_ = true this is the case where this function is called
-            // as part of DB Get API hence merge operators should be merged.
-            if (do_merge_) {
-              Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, nullptr,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, clock_);
-              pinnable_val_->PinSelf();
-              if (!merge_status.ok()) {
-                state_ = kCorrupt;
-              }
-            }
-          }
+          Merge(nullptr);
           return false;
         }
         return true;
@@ -367,6 +400,40 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
   // state_ could be Corrupt, merge or notfound
   return false;
+}
+
+void GetContext::Merge(const Slice* value) {
+  if (LIKELY(pinnable_val_ != nullptr)) {
+    if (do_merge_) {
+      Status merge_status = MergeHelper::TimedFullMerge(
+          merge_operator_, user_key_, value, merge_context_->GetOperands(),
+          pinnable_val_->GetSelf(), logger_, statistics_, clock_);
+      pinnable_val_->PinSelf();
+      if (!merge_status.ok()) {
+        state_ = kCorrupt;
+      }
+    }
+  }
+}
+
+bool GetContext::GetBlobValue(const Slice& blob_index,
+                              PinnableSlice* blob_value) {
+  constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr uint64_t* bytes_read = nullptr;
+
+  Status status = blob_fetcher_->FetchBlob(
+      user_key_, blob_index, prefetch_buffer, blob_value, bytes_read);
+  if (!status.ok()) {
+    if (status.IsIncomplete()) {
+      // FIXME: this code is not covered by unit tests
+      MarkKeyMayExist();
+      return false;
+    }
+    state_ = kCorrupt;
+    return false;
+  }
+  *is_blob_index_ = false;
+  return true;
 }
 
 void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {

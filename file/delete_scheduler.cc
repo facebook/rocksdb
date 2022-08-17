@@ -357,7 +357,9 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
           s = fs_->NewDirectory(dir_to_sync, IOOptions(), &dir_obj, nullptr);
         }
         if (s.ok()) {
-          s = dir_obj->Fsync(IOOptions(), nullptr);
+          s = dir_obj->FsyncWithDirOptions(
+              IOOptions(), nullptr,
+              DirFsyncOptions(DirFsyncOptions::FsyncReason::kFileDeleted));
           TEST_SYNC_POINT_CALLBACK(
               "DeleteScheduler::DeleteTrashFile::AfterSyncDir",
               reinterpret_cast<void*>(const_cast<std::string*>(&dir_to_sync)));

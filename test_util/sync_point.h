@@ -5,6 +5,7 @@
 #pragma once
 
 #include <assert.h>
+
 #include <functional>
 #include <mutex>
 #include <string>
@@ -12,35 +13,44 @@
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
-
-// This is only set from db_stress.cc and for testing only.
-// If non-zero, kill at various points in source code with probability 1/this
-extern int rocksdb_kill_odds;
-// If kill point has a prefix on this list, will skip killing.
-extern std::vector<std::string> rocksdb_kill_exclude_prefixes;
+#include "rocksdb/slice.h"
 
 #ifdef NDEBUG
 // empty in release build
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds)
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight)
+#define TEST_KILL_RANDOM(kill_point)
 #else
 
 namespace ROCKSDB_NAMESPACE {
-// Kill the process with probability 1/odds for testing.
-extern void TestKillRandom(std::string kill_point, int odds,
-                           const std::string& srcfile, int srcline);
 
 // To avoid crashing always at some frequently executed codepaths (during
 // kill random test), use this factor to reduce odds
 #define REDUCE_ODDS 2
 #define REDUCE_ODDS2 4
 
-#define TEST_KILL_RANDOM(kill_point, rocksdb_kill_odds)                  \
-  {                                                                      \
-    if (rocksdb_kill_odds > 0) {                                         \
-      TestKillRandom(kill_point, rocksdb_kill_odds, __FILE__, __LINE__); \
-    }                                                                    \
+// A class used to pass when a kill point is reached.
+struct KillPoint {
+ public:
+  // This is only set from db_stress.cc and for testing only.
+  // If non-zero, kill at various points in source code with probability 1/this
+  int rocksdb_kill_odds = 0;
+  // If kill point has a prefix on this list, will skip killing.
+  std::vector<std::string> rocksdb_kill_exclude_prefixes;
+  // Kill the process with probability 1/odds for testing.
+  void TestKillRandom(std::string kill_point, int odds,
+                      const std::string& srcfile, int srcline);
+
+  static KillPoint* GetInstance();
+};
+
+#define TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, rocksdb_kill_odds_weight) \
+  {                                                                        \
+    KillPoint::GetInstance()->TestKillRandom(                              \
+        kill_point, rocksdb_kill_odds_weight, __FILE__, __LINE__);         \
   }
+#define TEST_KILL_RANDOM(kill_point) TEST_KILL_RANDOM_WITH_WEIGHT(kill_point, 1)
 }  // namespace ROCKSDB_NAMESPACE
+
 #endif
 
 #ifdef NDEBUG
@@ -109,7 +119,16 @@ class SyncPoint {
   // triggered by TEST_SYNC_POINT, blocking execution until all predecessors
   // are executed.
   // And/or call registered callback function, with argument `cb_arg`
-  void Process(const std::string& point, void* cb_arg = nullptr);
+  void Process(const Slice& point, void* cb_arg = nullptr);
+
+  // template gets length of const string at compile time,
+  //  avoiding strlen() at runtime
+  template <size_t kLen>
+  void Process(const char (&point)[kLen], void* cb_arg = nullptr) {
+    static_assert(kLen > 0, "Must not be empty");
+    assert(point[kLen - 1] == '\0');
+    Process(Slice(point, kLen - 1), cb_arg);
+  }
 
   // TODO: it might be useful to provide a function that blocks until all
   // sync points are cleared.

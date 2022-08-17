@@ -5,9 +5,10 @@
 
 #pragma once
 #include <string>
-#include "db/dbformat.h"
+
 #include "db/table_properties_collector.h"
 #include "rocksdb/types.h"
+#include "util/coding.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -62,7 +63,7 @@ class SstFileWriterPropertiesCollector : public IntTblPropCollector {
   }
 
   virtual UserCollectedProperties GetReadableProperties() const override {
-    return {{ExternalSstFilePropertyNames::kVersion, ToString(version_)}};
+    return {{ExternalSstFilePropertyNames::kVersion, std::to_string(version_)}};
   }
 
  private:
@@ -78,7 +79,7 @@ class SstFileWriterPropertiesCollectorFactory
       : version_(version), global_seqno_(global_seqno) {}
 
   virtual IntTblPropCollector* CreateIntTblPropCollector(
-      uint32_t /*column_family_id*/) override {
+      uint32_t /*column_family_id*/, int /* level_at_creation */) override {
     return new SstFileWriterPropertiesCollector(version_, global_seqno_);
   }
 

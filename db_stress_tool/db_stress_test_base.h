@@ -16,6 +16,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 class Transaction;
 class TransactionDB;
+struct TransactionDBOptions;
 
 class StressTest {
  public:
@@ -23,23 +24,22 @@ class StressTest {
 
   virtual ~StressTest();
 
-  std::shared_ptr<Cache> NewCache(size_t capacity);
+  std::shared_ptr<Cache> NewCache(size_t capacity, int32_t num_shard_bits);
 
   static std::vector<std::string> GetBlobCompressionTags();
 
   bool BuildOptionsTable();
 
-  void InitDb();
+  void InitDb(SharedState*);
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
-  void FinishInitDb(SharedState*);
+  virtual void FinishInitDb(SharedState*);
 
-  // Return false if verification fails.
-  bool VerifySecondaries();
+  void TrackExpectedState(SharedState* shared);
 
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
-  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const {}
+  virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
 
   void PrintStatistics();
 
@@ -56,7 +56,7 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   Status NewTxn(WriteOptions& write_opts, Transaction** txn);
 
-  Status CommitTxn(Transaction* txn);
+  Status CommitTxn(Transaction* txn, ThreadState* thread = nullptr);
 
   Status RollbackTxn(Transaction* txn);
 #endif
@@ -64,6 +64,9 @@ class StressTest {
   virtual void MaybeClearOneColumnFamily(ThreadState* /* thread */) {}
 
   virtual bool ShouldAcquireMutexOnKey() const { return false; }
+
+  // Returns true if DB state is tracked by the stress test.
+  virtual bool IsStateTracked() const = 0;
 
   virtual std::vector<int> GenerateColumnFamilies(
       const int /* num_column_families */, int rand_column_family) const {
@@ -200,6 +203,12 @@ class StressTest {
       const std::vector<int64_t>& rand_keys);
 #endif  // !ROCKSDB_LITE
 
+  virtual Status TestCustomOperations(
+      ThreadState* /*thread*/,
+      const std::vector<int>& /*rand_column_families*/) {
+    return Status::NotSupported("TestCustomOperations() must be overridden");
+  }
+
   void VerificationAbort(SharedState* shared, std::string msg, Status s) const;
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
@@ -207,11 +216,25 @@ class StressTest {
 
   void PrintEnv() const;
 
-  void Open();
+  void Open(SharedState* shared);
 
   void Reopen(ThreadState* thread);
 
-  void CheckAndSetOptionsForUserTimestamp();
+  virtual void RegisterAdditionalListeners() {}
+
+#ifndef ROCKSDB_LITE
+  virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
+                                   TransactionDBOptions& /*txn_db_opts*/) {}
+#endif
+
+  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                            std::string& ts_str,
+                                            Slice& ts_slice,
+                                            ReadOptions& read_opts);
+
+  void MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                          std::string& ts_str, Slice& ts_slice,
+                                          ReadOptions& read_opts);
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
@@ -220,6 +243,10 @@ class StressTest {
 #ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
 #endif
+
+  // Currently only used in MultiOpsTxnsStressTest
+  std::atomic<DB*> db_aptr_;
+
   Options options_;
   SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;
@@ -230,14 +257,55 @@ class StressTest {
   std::vector<std::string> options_index_;
   std::atomic<bool> db_preload_finished_;
 
-  // Fields used for stress-testing secondary instance in the same process
-  std::vector<DB*> secondaries_;
-  std::vector<std::vector<ColumnFamilyHandle*>> secondary_cfh_lists_;
-
   // Fields used for continuous verification from another thread
   DB* cmp_db_;
   std::vector<ColumnFamilyHandle*> cmp_cfhs_;
+  bool is_db_stopped_;
 };
+
+// Load options from OPTIONS file and populate `options`.
+extern bool InitializeOptionsFromFile(Options& options);
+
+// Initialize `options` using command line arguments.
+// When this function is called, `cache`, `block_cache_compressed`,
+// `filter_policy` have all been initialized. Therefore, we just pass them as
+// input arguments.
+extern void InitializeOptionsFromFlags(
+    const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<Cache>& block_cache_compressed,
+    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+
+// Initialize `options` on which `InitializeOptionsFromFile()` and
+// `InitializeOptionsFromFlags()` have both been called already.
+// There are two cases.
+// Case 1: OPTIONS file is not specified. Command line arguments have been used
+//         to initialize `options`. InitializeOptionsGeneral() will use
+//         `cache`, `block_cache_compressed` and `filter_policy` to initialize
+//         corresponding fields of `options`. InitializeOptionsGeneral() will
+//         also set up other fields of `options` so that stress test can run.
+//         Examples include `create_if_missing` and
+//         `create_missing_column_families`, etc.
+// Case 2: OPTIONS file is specified. It is possible that, after loading from
+//         the given OPTIONS files, some shared object fields are still not
+//         initialized because they are not set in the OPTIONS file. In this
+//         case, if command line arguments indicate that the user wants to set
+//         up such shared objects, e.g. block cache, compressed block cache,
+//         row cache, filter policy, then InitializeOptionsGeneral() will honor
+//         the user's choice, thus passing `cache`, `block_cache_compressed`,
+//         `filter_policy` as input arguments.
+//
+// InitializeOptionsGeneral() must not overwrite fields of `options` loaded
+// from OPTIONS file.
+extern void InitializeOptionsGeneral(
+    const std::shared_ptr<Cache>& cache,
+    const std::shared_ptr<Cache>& block_cache_compressed,
+    const std::shared_ptr<const FilterPolicy>& filter_policy, Options& options);
+
+// If no OPTIONS file is specified, set up `options` so that we can test
+// user-defined timestamp which requires `-user_timestamp_size=8`.
+// This function also checks for known (currently) incompatible features with
+// user-defined timestamp.
+extern void CheckAndSetOptionsForUserTimestamp(Options& options);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

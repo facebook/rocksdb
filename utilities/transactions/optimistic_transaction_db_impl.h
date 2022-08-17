@@ -47,6 +47,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
                                 Transaction* old_txn) override;
 
   // Transactional `DeleteRange()` is not yet supported.
+  using StackableDB::DeleteRange;
   virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
                              const Slice&, const Slice&) override {
     return Status::NotSupported();

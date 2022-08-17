@@ -16,6 +16,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Env;
+class Logger;
+class ObjectRegistry;
+
 struct ColumnFamilyOptions;
 struct DBOptions;
 struct Options;
@@ -27,6 +30,15 @@ struct Options;
 // of the serialization (e.g. delimiter), and how to compare
 // options (sanity_level).
 struct ConfigOptions {
+  // Constructs a new ConfigOptions with a new object registry.
+  // This method should only be used when a DBOptions is not available,
+  // else registry settings may be lost
+  ConfigOptions();
+
+  // Constructs a new ConfigOptions using the settings from
+  // the input DBOptions.  Currently constructs a new object registry.
+  explicit ConfigOptions(const DBOptions&);
+
   // This enum defines the RocksDB options sanity level.
   enum SanityLevel : unsigned char {
     kSanityLevelNone = 0x01,  // Performs no sanity check at all.
@@ -78,6 +90,11 @@ struct ConfigOptions {
   // The environment to use for this option
   Env* env = Env::Default();
 
+#ifndef ROCKSDB_LITE
+  // The object registry to use for this options
+  std::shared_ptr<ObjectRegistry> registry;
+#endif
+
   bool IsShallow() const { return depth == Depth::kDepthShallow; }
   bool IsDetailed() const { return depth == Depth::kDepthDetailed; }
 
@@ -124,8 +141,10 @@ struct ConfigOptions {
 //   Doubles / Floating Points are converted directly from string.  Note that
 //   currently we do not support units.
 //   [Example]:
-//   - {"hard_rate_limit", "2.1"} in GetColumnFamilyOptionsFromMap, or
-//   - "hard_rate_limit=2.1" in GetColumnFamilyOptionsFromString.
+//   - {"memtable_prefix_bloom_size_ratio", "0.1"} in
+//   GetColumnFamilyOptionsFromMap, or
+//   - "memtable_prefix_bloom_size_ratio=0.1" in
+//   GetColumnFamilyOptionsFromString.
 // * Array / Vectors:
 //   An array is specified by a list of values, where ':' is used as
 //   the delimiter to separate each value.
@@ -499,8 +518,8 @@ Status VerifySstFileChecksum(const Options& options,
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& read_options,
-                             const std::string& file_path);
-
+                             const std::string& file_path,
+                             const SequenceNumber& largest_seqno = 0);
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

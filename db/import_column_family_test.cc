@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #ifndef ROCKSDB_LITE
 
 #include <functional>
@@ -14,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 class ImportColumnFamilyTest : public DBTestBase {
  public:
   ImportColumnFamilyTest()
-      : DBTestBase("/import_column_family_test", /*env_do_fsync=*/true) {
+      : DBTestBase("import_column_family_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     export_files_dir_ = test::PerThreadDBPath(env_, "export");
     DestroyAndRecreateExternalSSTFilesDir();
@@ -130,6 +136,12 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFiles) {
     ASSERT_OK(db_->Get(ReadOptions(), import_cfh_, "K4", &value));
     ASSERT_EQ(value, "V2");
   }
+  EXPECT_OK(db_->DestroyColumnFamilyHandle(import_cfh_));
+  import_cfh_ = nullptr;
+
+  // verify sst unique id during reopen
+  options.verify_sst_unique_id_in_manifest = true;
+  ReopenWithColumnFamilies({"default", "koko", "yoyo"}, options);
 }
 
 TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {

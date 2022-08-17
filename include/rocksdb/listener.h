@@ -12,30 +12,35 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/customizable.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
-    TablePropertiesCollection;
+using TablePropertiesCollection =
+    std::unordered_map<std::string, std::shared_ptr<const TableProperties>>;
 
 class DB;
 class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
 
-enum class TableFileCreationReason {
-  kFlush,
-  kCompaction,
-  kRecovery,
-  kMisc,
-};
-
-struct TableFileCreationBriefInfo {
-  // the name of the database where the file was created
+struct FileCreationBriefInfo {
+  FileCreationBriefInfo() = default;
+  FileCreationBriefInfo(const std::string& _db_name,
+                        const std::string& _cf_name,
+                        const std::string& _file_path, int _job_id)
+      : db_name(_db_name),
+        cf_name(_cf_name),
+        file_path(_file_path),
+        job_id(_job_id) {}
+  // the name of the database where the file was created.
   std::string db_name;
   // the name of the column family where the file was created.
   std::string cf_name;
@@ -43,7 +48,10 @@ struct TableFileCreationBriefInfo {
   std::string file_path;
   // the id of the job (which could be flush or compaction) that
   // created the file.
-  int job_id;
+  int job_id = 0;
+};
+
+struct TableFileCreationBriefInfo : public FileCreationBriefInfo {
   // reason of creating the table.
   TableFileCreationReason reason;
 };
@@ -61,6 +69,44 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   // The checksum of the table file being created
   std::string file_checksum;
   // The checksum function name of checksum generator used for this table file
+  std::string file_checksum_func_name;
+};
+
+struct BlobFileCreationBriefInfo : public FileCreationBriefInfo {
+  BlobFileCreationBriefInfo(const std::string& _db_name,
+                            const std::string& _cf_name,
+                            const std::string& _file_path, int _job_id,
+                            BlobFileCreationReason _reason)
+      : FileCreationBriefInfo(_db_name, _cf_name, _file_path, _job_id),
+        reason(_reason) {}
+  // reason of creating the blob file.
+  BlobFileCreationReason reason;
+};
+
+struct BlobFileCreationInfo : public BlobFileCreationBriefInfo {
+  BlobFileCreationInfo(const std::string& _db_name, const std::string& _cf_name,
+                       const std::string& _file_path, int _job_id,
+                       BlobFileCreationReason _reason,
+                       uint64_t _total_blob_count, uint64_t _total_blob_bytes,
+                       Status _status, const std::string& _file_checksum,
+                       const std::string& _file_checksum_func_name)
+      : BlobFileCreationBriefInfo(_db_name, _cf_name, _file_path, _job_id,
+                                  _reason),
+        total_blob_count(_total_blob_count),
+        total_blob_bytes(_total_blob_bytes),
+        status(_status),
+        file_checksum(_file_checksum),
+        file_checksum_func_name(_file_checksum_func_name) {}
+
+  // the number of blob in a file.
+  uint64_t total_blob_count;
+  // the total bytes in a file.
+  uint64_t total_blob_bytes;
+  // The status indicating whether the creation was successful or not.
+  Status status;
+  // The checksum of the blob file being created.
+  std::string file_checksum;
+  // The checksum function name of checksum generator used for this blob file.
   std::string file_checksum_func_name;
 };
 
@@ -98,6 +144,10 @@ enum class CompactionReason : int {
   kExternalSstIngestion,
   // Compaction due to SST file being too old
   kPeriodicCompaction,
+  // Compaction in order to move files to temperature
+  kChangeTemperature,
+  // Compaction scheduled to force garbage collection of blob files
+  kForcedBlobGC,
   // total number of compaction reasons, new reasons must be added above this.
   kNumOfReasons,
 };
@@ -118,6 +168,7 @@ enum class FlushReason : int {
   // When set the flush reason to kErrorRecoveryRetryFlush, SwitchMemtable
   // will not be called to avoid many small immutable memtables.
   kErrorRecoveryRetryFlush = 0xc,
+  kWalFull = 0xd,
 };
 
 // TODO: In the future, BackgroundErrorReason will only be used to indicate
@@ -152,15 +203,32 @@ struct WriteStallInfo {
 
 #ifndef ROCKSDB_LITE
 
-struct TableFileDeletionInfo {
+struct FileDeletionInfo {
+  FileDeletionInfo() = default;
+
+  FileDeletionInfo(const std::string& _db_name, const std::string& _file_path,
+                   int _job_id, Status _status)
+      : db_name(_db_name),
+        file_path(_file_path),
+        job_id(_job_id),
+        status(_status) {}
   // The name of the database where the file was deleted.
   std::string db_name;
   // The path to the deleted file.
   std::string file_path;
   // The id of the job which deleted the file.
-  int job_id;
+  int job_id = 0;
   // The status indicating whether the deletion was successful or not.
   Status status;
+};
+
+struct TableFileDeletionInfo : public FileDeletionInfo {};
+
+struct BlobFileDeletionInfo : public FileDeletionInfo {
+  BlobFileDeletionInfo(const std::string& _db_name,
+                       const std::string& _file_path, int _job_id,
+                       Status _status)
+      : FileDeletionInfo(_db_name, _file_path, _job_id, _status) {}
 };
 
 enum class FileOperationType {
@@ -171,7 +239,10 @@ enum class FileOperationType {
   kFlush,
   kSync,
   kFsync,
-  kRangeSync
+  kRangeSync,
+  kAppend,
+  kPositionedAppend,
+  kOpen
 };
 
 struct FileOperationInfo {
@@ -185,16 +256,22 @@ struct FileOperationInfo {
 
   FileOperationType type;
   const std::string& path;
+  // Rocksdb try to provide file temperature information, but it's not
+  // guaranteed.
+  Temperature temperature;
   uint64_t offset;
   size_t length;
   const Duration duration;
   const SystemTimePoint& start_ts;
   Status status;
+
   FileOperationInfo(const FileOperationType _type, const std::string& _path,
                     const StartTimePoint& _start_ts,
-                    const FinishTimePoint& _finish_ts, const Status& _status)
+                    const FinishTimePoint& _finish_ts, const Status& _status,
+                    const Temperature _temperature = Temperature::kUnknown)
       : type(_type),
         path(_path),
+        temperature(_temperature),
         duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
             _finish_ts - _start_ts.second)),
         start_ts(_start_ts.first),
@@ -206,6 +283,39 @@ struct FileOperationInfo {
   static FinishTimePoint FinishNow() {
     return std::chrono::steady_clock::now();
   }
+};
+
+struct BlobFileInfo {
+  BlobFileInfo(const std::string& _blob_file_path,
+               const uint64_t _blob_file_number)
+      : blob_file_path(_blob_file_path), blob_file_number(_blob_file_number) {}
+
+  std::string blob_file_path;
+  uint64_t blob_file_number;
+};
+
+struct BlobFileAdditionInfo : public BlobFileInfo {
+  BlobFileAdditionInfo(const std::string& _blob_file_path,
+                       const uint64_t _blob_file_number,
+                       const uint64_t _total_blob_count,
+                       const uint64_t _total_blob_bytes)
+      : BlobFileInfo(_blob_file_path, _blob_file_number),
+        total_blob_count(_total_blob_count),
+        total_blob_bytes(_total_blob_bytes) {}
+  uint64_t total_blob_count;
+  uint64_t total_blob_bytes;
+};
+
+struct BlobFileGarbageInfo : public BlobFileInfo {
+  BlobFileGarbageInfo(const std::string& _blob_file_path,
+                      const uint64_t _blob_file_number,
+                      const uint64_t _garbage_blob_count,
+                      const uint64_t _garbage_blob_bytes)
+      : BlobFileInfo(_blob_file_path, _blob_file_number),
+        garbage_blob_count(_garbage_blob_count),
+        garbage_blob_bytes(_garbage_blob_bytes) {}
+  uint64_t garbage_blob_count;
+  uint64_t garbage_blob_bytes;
 };
 
 struct FlushJobInfo {
@@ -241,6 +351,12 @@ struct FlushJobInfo {
   TableProperties table_properties;
 
   FlushReason flush_reason;
+
+  // Compression algorithm used for blob output files
+  CompressionType blob_compression_type;
+
+  // Information about blob files created during flush in Integrated BlobDB.
+  std::vector<BlobFileAdditionInfo> blob_file_addition_infos;
 };
 
 struct CompactionFileInfo {
@@ -252,6 +368,42 @@ struct CompactionFileInfo {
 
   // The file number of the oldest blob file this SST file references.
   uint64_t oldest_blob_file_number;
+};
+
+struct SubcompactionJobInfo {
+  ~SubcompactionJobInfo() { status.PermitUncheckedError(); }
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
+  // the name of the column family where the compaction happened.
+  std::string cf_name;
+  // the status indicating whether the compaction was successful or not.
+  Status status;
+  // the id of the thread that completed this compaction job.
+  uint64_t thread_id;
+  // the job id, which is unique in the same thread.
+  int job_id;
+
+  // sub-compaction job id, which is only unique within the same compaction, so
+  // use both 'job_id' and 'subcompaction_job_id' to identify a subcompaction
+  // within an instance.
+  // For non subcompaction job, it's set to -1.
+  int subcompaction_job_id;
+  // the smallest input level of the compaction.
+  int base_input_level;
+  // the output level of the compaction.
+  int output_level;
+
+  // Reason to run the compaction
+  CompactionReason compaction_reason;
+
+  // Compression algorithm used for output files
+  CompressionType compression;
+
+  // Statistics and other additional details on the compaction
+  CompactionJobStats stats;
+
+  // Compression algorithm used for blob output files.
+  CompressionType blob_compression_type;
 };
 
 struct CompactionJobInfo {
@@ -266,6 +418,7 @@ struct CompactionJobInfo {
   uint64_t thread_id;
   // the job id, which is unique in the same thread.
   int job_id;
+
   // the smallest input level of the compaction.
   int base_input_level;
   // the output level of the compaction.
@@ -301,6 +454,17 @@ struct CompactionJobInfo {
 
   // Statistics and other additional details on the compaction
   CompactionJobStats stats;
+
+  // Compression algorithm used for blob output files.
+  CompressionType blob_compression_type;
+
+  // Information about blob files created during compaction in Integrated
+  // BlobDB.
+  std::vector<BlobFileAdditionInfo> blob_file_addition_infos;
+
+  // Information about blob files deleted during compaction in Integrated
+  // BlobDB.
+  std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
 };
 
 struct MemTableInfo {
@@ -333,18 +497,49 @@ struct ExternalFileIngestionInfo {
   TableProperties table_properties;
 };
 
+// Result of auto background error recovery
+struct BackgroundErrorRecoveryInfo {
+  // The original error that triggered the recovery
+  Status old_bg_error;
+
+  // The final bg_error after all recovery attempts. Status::OK() means
+  // the recovery was successful and the database is fully operational.
+  Status new_bg_error;
+};
+
+struct IOErrorInfo {
+  IOErrorInfo(const IOStatus& _io_status, FileOperationType _operation,
+              const std::string& _file_path, size_t _length, uint64_t _offset)
+      : io_status(_io_status),
+        operation(_operation),
+        file_path(_file_path),
+        length(_length),
+        offset(_offset) {}
+
+  IOStatus io_status;
+  FileOperationType operation;
+  std::string file_path;
+  size_t length;
+  uint64_t offset;
+};
+
 // EventListener class contains a set of callback functions that will
 // be called when specific RocksDB event happens such as flush.  It can
 // be used as a building block for developing custom features such as
 // stats-collector or external compaction algorithm.
 //
-// Note that callback functions should not run for an extended period of
-// time before the function returns, otherwise RocksDB may be blocked.
-// For example, it is not suggested to do DB::CompactFiles() (as it may
-// run for a long while) or issue many of DB::Put() (as Put may be blocked
-// in certain cases) in the same thread in the EventListener callback.
-// However, doing DB::CompactFiles() and DB::Put() in another thread is
-// considered safe.
+// IMPORTANT
+// Because compaction is needed to resolve a "writes stopped" condition,
+// calling or waiting for any blocking DB write function (no_slowdown=false)
+// from a compaction-related listener callback can hang RocksDB. For DB
+// writes from a callback we recommend a WriteBatch and no_slowdown=true,
+// because the WriteBatch can accumulate writes for later in case DB::Write
+// returns Status::Incomplete. Similarly, calling CompactRange or similar
+// could hang by waiting for a background worker that is occupied until the
+// callback returns.
+//
+// Otherwise, callback functions should not run for an extended period of
+// time before the function returns, because this will slow RocksDB.
 //
 // [Threading] All EventListener callback will be called using the
 // actual thread that involves in that specific event.   For example, it
@@ -355,8 +550,21 @@ struct ExternalFileIngestionInfo {
 // the current thread holding any DB mutex. This is to prevent potential
 // deadlock and performance issue when using EventListener callback
 // in a complex way.
-class EventListener {
+//
+// [Exceptions] Exceptions MUST NOT propagate out of overridden functions into
+// RocksDB, because RocksDB is not exception-safe. This could cause undefined
+// behavior including data loss, unreported corruption, deadlocks, and more.
+class EventListener : public Customizable {
  public:
+  static const char* Type() { return "EventListener"; }
+  static Status CreateFromString(const ConfigOptions& options,
+                                 const std::string& id,
+                                 std::shared_ptr<EventListener>* result);
+  const char* Name() const override {
+    // Since EventListeners did not have a name previously, we will assume
+    // an empty name.  Instances should override this method.
+    return "";
+  }
   // A callback function to RocksDB which will be called whenever a
   // registered RocksDB flushes a file.  The default implementation is
   // no-op.
@@ -414,6 +622,43 @@ class EventListener {
   //  outside of this function.
   virtual void OnCompactionCompleted(DB* /*db*/,
                                      const CompactionJobInfo& /*ci*/) {}
+
+  // A callback function to RocksDB which will be called before a sub-compaction
+  // begins. If a compaction is split to 2 sub-compactions, it will trigger one
+  // `OnCompactionBegin()` first, then two `OnSubcompactionBegin()`.
+  // If compaction is not split, it will still trigger one
+  // `OnSubcompactionBegin()`, as internally, compaction is always handled by
+  // sub-compaction. The default implementation is a no-op.
+  //
+  // Note that this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // @param ci a reference to a CompactionJobInfo struct, it contains a
+  //  `sub_job_id` which is only unique within the specified compaction (which
+  //  can be identified by `job_id`). 'ci' is released after this function is
+  //  returned, and must be copied if it's needed outside this function.
+  //  Note: `table_properties` is not set for sub-compaction, the information
+  //  could be got from `OnCompactionBegin()`.
+  virtual void OnSubcompactionBegin(const SubcompactionJobInfo& /*si*/) {}
+
+  // A callback function to RocksDB which will be called whenever a
+  // sub-compaction completed. The same as `OnSubcompactionBegin()`, if a
+  // compaction is split to 2 sub-compactions, it will be triggered twice. If
+  // a compaction is not split, it will still be triggered once.
+  // The default implementation is a no-op.
+  //
+  // Note that this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  //
+  // @param ci a reference to a CompactionJobInfo struct, it contains a
+  //  `sub_job_id` which is only unique within the specified compaction (which
+  //  can be identified by `job_id`). 'ci' is released after this function is
+  //  returned, and must be copied if it's needed outside this function.
+  //  Note: `table_properties` is not set for sub-compaction, the information
+  //  could be got from `OnCompactionCompleted()`.
+  virtual void OnSubcompactionCompleted(const SubcompactionJobInfo& /*si*/) {}
 
   // A callback function for RocksDB which will be called whenever
   // a SST file is created.  Different from OnCompactionCompleted and
@@ -537,13 +782,56 @@ class EventListener {
                                     Status /* bg_error */,
                                     bool* /* auto_recovery */) {}
 
+  // DEPRECATED
   // A callback function for RocksDB which will be called once the database
   // is recovered from read-only mode after an error. When this is called, it
   // means normal writes to the database can be issued and the user can
   // initiate any further recovery actions needed
-  virtual void OnErrorRecoveryCompleted(Status /* old_bg_error */) {}
+  virtual void OnErrorRecoveryCompleted(Status old_bg_error) {
+    old_bg_error.PermitUncheckedError();
+  }
 
-  virtual ~EventListener() {}
+  // A callback function for RocksDB which will be called once the recovery
+  // attempt from a background retryable error is completed. The recovery
+  // may have been successful or not. In either case, the callback is called
+  // with the old and new error. If info.new_bg_error is Status::OK(), that
+  // means the recovery succeeded.
+  virtual void OnErrorRecoveryEnd(const BackgroundErrorRecoveryInfo& /*info*/) {
+  }
+
+  // A callback function for RocksDB which will be called before
+  // a blob file is being created. It will follow by OnBlobFileCreated after
+  // the creation finishes.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
+  virtual void OnBlobFileCreationStarted(
+      const BlobFileCreationBriefInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever
+  // a blob file is created.
+  // It will be called whether the file is successfully created or not. User can
+  // check info.status to see if it succeeded or not.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
+  virtual void OnBlobFileCreated(const BlobFileCreationInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever
+  // a blob file is deleted.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from these
+  // returned value.
+  virtual void OnBlobFileDeleted(const BlobFileDeletionInfo& /*info*/) {}
+
+  // A callback function for RocksDB which will be called whenever an IO error
+  // happens. ShouldBeNotifiedOnFileIO should be set to true to get a callback.
+  virtual void OnIOError(const IOErrorInfo& /*info*/) {}
+
+  ~EventListener() override {}
 };
 
 #else

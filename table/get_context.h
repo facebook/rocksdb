@@ -5,17 +5,20 @@
 
 #pragma once
 #include <string>
-#include "db/dbformat.h"
-#include "db/merge_context.h"
+
 #include "db/read_callback.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
-#include "table/block_based/block.h"
 
 namespace ROCKSDB_NAMESPACE {
+class BlobFetcher;
+class Comparator;
+class Logger;
 class MergeContext;
+class MergeOperator;
 class PinnedIteratorsManager;
+class Statistics;
 class SystemClock;
+struct ParsedInternalKey;
 
 // Data structure for accumulating statistics during a point lookup. At the
 // end of the point lookup, the corresponding ticker stats are updated. This
@@ -50,7 +53,6 @@ struct GetContextStats {
   // MultiGet stats.
   uint64_t num_filter_read = 0;
   uint64_t num_index_read = 0;
-  uint64_t num_data_read = 0;
   uint64_t num_sst_read = 0;
 };
 
@@ -72,6 +74,8 @@ class GetContext {
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
     kUnexpectedBlobIndex,
+    // TODO: remove once wide-column entities are supported by Get/MultiGet
+    kUnexpectedWideColumnEntity,
   };
   GetContextStats get_context_stats_;
 
@@ -103,7 +107,7 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
@@ -113,7 +117,7 @@ class GetContext {
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
-             uint64_t tracing_get_id = 0);
+             uint64_t tracing_get_id = 0, BlobFetcher* blob_fetcher = nullptr);
 
   GetContext() = delete;
 
@@ -170,6 +174,9 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
+  void Merge(const Slice* value);
+  bool GetBlobValue(const Slice& blob_index, PinnableSlice* blob_value);
+
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
   // the merge operations encountered;
@@ -200,6 +207,7 @@ class GetContext {
   // Used for block cache tracing only. A tracing get id uniquely identifies a
   // Get or a MultiGet.
   const uint64_t tracing_get_id_;
+  BlobFetcher* blob_fetcher_;
 };
 
 // Call this to replay a log and bring the get_context up to date. The replay

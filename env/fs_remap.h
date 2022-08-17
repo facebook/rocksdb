@@ -39,6 +39,14 @@ class RemapFileSystem : public FileSystemWrapper {
  public:
   // Left abstract:
   // const char* Name() const override { ... }
+  static const char* kClassName() { return "RemapFileSystem"; }
+  bool IsInstanceOf(const std::string& id) const override {
+    if (id == kClassName()) {
+      return true;
+    } else {
+      return FileSystemWrapper::IsInstanceOf(id);
+    }
+  }
 
   Status RegisterDbPaths(const std::vector<std::string>& paths) override;
 

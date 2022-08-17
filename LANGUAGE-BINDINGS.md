@@ -1,6 +1,6 @@
 This is the list of all known third-party language bindings for RocksDB. If something is missing, please open a pull request to add it.
 
-* Java - https://github.com/facebook/rocksdb/tree/master/java
+* Java - https://github.com/facebook/rocksdb/tree/main/java
 * Python
     * http://python-rocksdb.readthedocs.io/en/latest/
     * http://pyrocksdb.readthedocs.org/en/latest/ (unmaintained)

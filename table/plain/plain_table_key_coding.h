@@ -8,7 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <array>
-#include "db/dbformat.h"
+
 #include "rocksdb/slice.h"
 #include "table/plain/plain_table_reader.h"
 

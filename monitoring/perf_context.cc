@@ -9,30 +9,20 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(NPERF_CONTEXT)
+// Should not be used because the counters are not thread-safe.
+// Put here just to make get_perf_context() simple without ifdef.
 PerfContext perf_context;
-#else
-#if defined(OS_SOLARIS)
-__thread PerfContext perf_context_;
 #else
 thread_local PerfContext perf_context;
 #endif
-#endif
 
 PerfContext* get_perf_context() {
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   return &perf_context;
-#else
-#if defined(OS_SOLARIS)
-  return &perf_context_;
-#else
-  return &perf_context;
-#endif
-#endif
 }
 
 PerfContext::~PerfContext() {
-#if !defined(NPERF_CONTEXT) && defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && !defined(OS_SOLARIS)
+#if !defined(NPERF_CONTEXT) && !defined(OS_SOLARIS)
   ClearPerLevelPerfContext();
 #endif
 }
@@ -51,11 +41,20 @@ PerfContext::PerfContext(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
   multiget_read_bytes = other.multiget_read_bytes;
   iter_read_bytes = other.iter_read_bytes;
+
+  blob_cache_hit_count = other.blob_cache_hit_count;
+  blob_read_count = other.blob_read_count;
+  blob_read_byte = other.blob_read_byte;
+  blob_read_time = other.blob_read_time;
+  blob_checksum_time = other.blob_checksum_time;
+  blob_decompress_time = other.blob_decompress_time;
+
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
@@ -123,6 +122,7 @@ PerfContext::PerfContext(const PerfContext& other) {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  number_async_seek = other.number_async_seek;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -148,11 +148,20 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
   multiget_read_bytes = other.multiget_read_bytes;
   iter_read_bytes = other.iter_read_bytes;
+
+  blob_cache_hit_count = other.blob_cache_hit_count;
+  blob_read_count = other.blob_read_count;
+  blob_read_byte = other.blob_read_byte;
+  blob_read_time = other.blob_read_time;
+  blob_checksum_time = other.blob_checksum_time;
+  blob_decompress_time = other.blob_decompress_time;
+
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
@@ -220,6 +229,7 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  number_async_seek = other.number_async_seek;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -247,11 +257,20 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
+  secondary_cache_hit_count = other.secondary_cache_hit_count;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
   multiget_read_bytes = other.multiget_read_bytes;
   iter_read_bytes = other.iter_read_bytes;
+
+  blob_cache_hit_count = other.blob_cache_hit_count;
+  blob_read_count = other.blob_read_count;
+  blob_read_byte = other.blob_read_byte;
+  blob_read_time = other.blob_read_time;
+  blob_checksum_time = other.blob_checksum_time;
+  blob_decompress_time = other.blob_decompress_time;
+
   internal_key_skipped_count = other.internal_key_skipped_count;
   internal_delete_skipped_count = other.internal_delete_skipped_count;
   internal_recent_skipped_count = other.internal_recent_skipped_count;
@@ -319,6 +338,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   iter_next_cpu_nanos = other.iter_next_cpu_nanos;
   iter_prev_cpu_nanos = other.iter_prev_cpu_nanos;
   iter_seek_cpu_nanos = other.iter_seek_cpu_nanos;
+  number_async_seek = other.number_async_seek;
   if (per_level_perf_context_enabled && level_to_perf_context != nullptr) {
     ClearPerLevelPerfContext();
   }
@@ -343,11 +363,20 @@ void PerfContext::Reset() {
   block_cache_filter_hit_count = 0;
   filter_block_read_count = 0;
   compression_dict_block_read_count = 0;
+  secondary_cache_hit_count = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
   get_read_bytes = 0;
   multiget_read_bytes = 0;
   iter_read_bytes = 0;
+
+  blob_cache_hit_count = 0;
+  blob_read_count = 0;
+  blob_read_byte = 0;
+  blob_read_time = 0;
+  blob_checksum_time = 0;
+  blob_decompress_time = 0;
+
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
   internal_recent_skipped_count = 0;
@@ -413,6 +442,7 @@ void PerfContext::Reset() {
   iter_next_cpu_nanos = 0;
   iter_prev_cpu_nanos = 0;
   iter_seek_cpu_nanos = 0;
+  number_async_seek = 0;
   if (per_level_perf_context_enabled && level_to_perf_context) {
     for (auto& kv : *level_to_perf_context) {
       kv.second.Reset();
@@ -463,11 +493,18 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
   PERF_CONTEXT_OUTPUT(filter_block_read_count);
   PERF_CONTEXT_OUTPUT(compression_dict_block_read_count);
+  PERF_CONTEXT_OUTPUT(secondary_cache_hit_count);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
   PERF_CONTEXT_OUTPUT(get_read_bytes);
   PERF_CONTEXT_OUTPUT(multiget_read_bytes);
   PERF_CONTEXT_OUTPUT(iter_read_bytes);
+  PERF_CONTEXT_OUTPUT(blob_cache_hit_count);
+  PERF_CONTEXT_OUTPUT(blob_read_count);
+  PERF_CONTEXT_OUTPUT(blob_read_byte);
+  PERF_CONTEXT_OUTPUT(blob_read_time);
+  PERF_CONTEXT_OUTPUT(blob_checksum_time);
+  PERF_CONTEXT_OUTPUT(blob_decompress_time);
   PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);
@@ -531,6 +568,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(iter_next_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_prev_cpu_nanos);
   PERF_CONTEXT_OUTPUT(iter_seek_cpu_nanos);
+  PERF_CONTEXT_OUTPUT(number_async_seek);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_useful);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_positive);
   PERF_CONTEXT_BY_LEVEL_OUTPUT_ONE_COUNTER(bloom_filter_full_true_positive);

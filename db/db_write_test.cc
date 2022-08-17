@@ -24,11 +24,17 @@ namespace ROCKSDB_NAMESPACE {
 // Test variations of WriteImpl.
 class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
  public:
-  DBWriteTest() : DBTestBase("/db_write_test", /*env_do_fsync=*/true) {}
+  DBWriteTest() : DBTestBase("db_write_test", /*env_do_fsync=*/true) {}
 
   Options GetOptions() { return DBTestBase::GetOptions(GetParam()); }
 
   void Open() { DBTestBase::Reopen(GetOptions()); }
+};
+
+class DBWriteTestUnparameterized : public DBTestBase {
+ public:
+  explicit DBWriteTestUnparameterized()
+      : DBTestBase("pipelined_write_test", /*env_do_fsync=*/false) {}
 };
 
 // It is invalid to do sync write while disabling WAL.
@@ -289,7 +295,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
     threads.push_back(port::Thread(
         [&](int index) {
           // All threads should fail.
-          auto res = Put("key" + ToString(index), "value");
+          auto res = Put("key" + std::to_string(index), "value");
           if (options.manual_wal_flush) {
             ASSERT_TRUE(res.ok());
             // we should see fs error when we do the flush
@@ -318,20 +324,179 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   Close();
 }
 
+TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
+  // This test was written to trigger a race in ExitAsBatchGroupLeader in case
+  // enable_pipelined_write_ was true.
+  // Writers for which ShouldWriteToMemtable() evaluates to false are removed
+  // from the write_group via CompleteFollower/ CompleteLeader. Writers in the
+  // middle of the group are fully unlinked, but if that writers is the
+  // last_writer, then we did not update the predecessor's link_older, i.e.,
+  // this writer was still reachable via newest_writer_.
+  //
+  // But the problem was, that CompleteFollower already wakes up the thread
+  // owning that writer before the writer has been removed. This resulted in a
+  // race - if the leader thread was fast enough, then everything was fine.
+  // However, if the woken up thread finished the current write operation and
+  // then performed yet another write, then a new writer instance was added
+  // to newest_writer_. It is possible that the new writer is located on the
+  // same address on stack, and if this happened, then we had a problem,
+  // because the old code tried to find the last_writer in the list to unlink
+  // it, which in this case produced a cycle in the list.
+  // Whether two invocations of PipelinedWriteImpl() by the same thread actually
+  // allocate the writer on the same address depends on the OS and/or compiler,
+  // so it is rather hard to create a deterministic test for this.
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_pipelined_write = true;
+  std::vector<port::Thread> threads;
+
+  std::atomic<int> write_counter{0};
+  std::atomic<int> active_writers{0};
+  std::atomic<bool> second_write_starting{false};
+  std::atomic<bool> second_write_in_progress{false};
+  std::atomic<WriteThread::Writer*> leader{nullptr};
+  std::atomic<bool> finished_WAL_write{false};
+
+  DestroyAndReopen(options);
+
+  auto write_one_doc = [&]() {
+    int a = write_counter.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    WriteOptions wo;
+    ASSERT_OK(dbfull()->Put(wo, key, "bar"));
+    --active_writers;
+  };
+
+  auto write_two_docs = [&]() {
+    write_one_doc();
+    second_write_starting = true;
+    write_one_doc();
+  };
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
+        if (second_write_starting.load()) {
+          second_write_in_progress = true;
+          return;
+        }
+        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        if (w->state == WriteThread::STATE_GROUP_LEADER) {
+          active_writers++;
+          if (leader.load() == nullptr) {
+            leader.store(w);
+            while (active_writers.load() < 2) {
+              // wait for another thread to join the write_group
+            }
+          }
+        } else {
+          // we disable the memtable for all followers so that they they are
+          // removed from the write_group before enqueuing it for the memtable
+          // write
+          w->disable_memtable = true;
+          active_writers++;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::ExitAsBatchGroupLeader:Start", [&](void* arg) {
+        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        if (wg->leader == leader && !finished_WAL_write) {
+          finished_WAL_write = true;
+          while (active_writers.load() < 3) {
+            // wait for the new writer to be enqueued
+          }
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
+      [&](void* arg) {
+        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        if (wg->leader == leader) {
+          while (!second_write_in_progress.load()) {
+            // wait for the old follower thread to start the next write
+          }
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // start leader + one follower
+  threads.emplace_back(write_one_doc);
+  while (leader.load() == nullptr) {
+    // wait for leader
+  }
+
+  // we perform two writes in the follower, so that for the second write
+  // the thread reinserts a Writer with the same address
+  threads.emplace_back(write_two_docs);
+
+  // wait for the leader to enter ExitAsBatchGroupLeader
+  while (!finished_WAL_write.load()) {
+    // wait for write_group to have finished the WAL writes
+  }
+
+  // start another writer thread to be enqueued before the leader can
+  // complete the writers from its write_group
+  threads.emplace_back(write_one_doc);
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(DBWriteTest, ManualWalFlushInEffect) {
   Options options = GetOptions();
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
+  ASSERT_TRUE(Put("key" + std::to_string(0), "value").ok());
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
+}
+
+TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
+  // Repro race condition bug where unflushed WAL data extended the synced size
+  // recorded to MANIFEST despite being unrecoverable.
+  Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_env.get();
+  options.manual_wal_flush = true;
+  options.track_and_verify_wals_in_manifest = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "val1"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWAL:Begin",
+      [this](void* /* arg */) { ASSERT_OK(Put("key2", "val2")); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->FlushWAL(true /* sync */));
+
+  // Ensure callback ran.
+  ASSERT_EQ("val2", Get("key2"));
+
+  Close();
+
+  // Simulate full loss of unsynced data. This drops "key2" -> "val2" from the
+  // DB WAL.
+  fault_env->DropUnsyncedFileData();
+
+  Reopen(options);
+
+  // Need to close before `fault_env` goes out of scope.
+  Close();
 }
 
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
@@ -344,7 +509,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
     // Forcibly fail WAL write for the first Put only. Subsequent Puts should
     // fail due to read-only mode
     mock_env->SetFilesystemActive(i != 0);
-    auto res = Put("key" + ToString(i), "value");
+    auto res = Put("key" + std::to_string(i), "value");
     // TSAN reports a false alarm for lock-order-inversion but Open and
     // FlushWAL are not run concurrently. Disabling this until TSAN is
     // fixed.
@@ -398,14 +563,14 @@ TEST_P(DBWriteTest, LockWalInEffect) {
   Options options = GetOptions();
   Reopen(options);
   // try the 1st WAL created during open
-  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_OK(Put("key" + std::to_string(0), "value"));
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_OK(dbfull()->LockWAL());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
   ASSERT_OK(dbfull()->TEST_SwitchWAL());
-  ASSERT_OK(Put("key" + ToString(0), "value"));
+  ASSERT_OK(Put("key" + std::to_string(0), "value"));
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_OK(dbfull()->LockWAL());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
@@ -461,5 +626,6 @@ INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -10,6 +10,7 @@
 #include "db/compaction/compaction.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "test_util/testutil.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -31,7 +32,7 @@ std::string Timestamp(uint64_t ts) {
 class TimestampCompatibleCompactionTest : public DBTestBase {
  public:
   TimestampCompatibleCompactionTest()
-      : DBTestBase("/ts_compatible_compaction_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("ts_compatible_compaction_test", /*env_do_fsync=*/true) {}
 
   std::string Get(const std::string& key, uint64_t ts) {
     ReadOptions read_opts;
@@ -53,10 +54,11 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   Options options = CurrentOptions();
   options.env = env_;
   options.compaction_style = kCompactionStyleLevel;
-  options.comparator = test::ComparatorWithU64Ts();
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
   options.level0_file_num_compaction_trigger = 3;
   constexpr size_t kNumKeysPerFile = 101;
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_factory.reset(
+      test::NewSpecialSkipListFactory(kNumKeysPerFile));
   DestroyAndReopen(options);
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -76,9 +78,8 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   WriteOptions write_opts;
   for (; key < kNumKeysPerFile - 1; ++key, ++ts) {
     std::string ts_str = Timestamp(ts);
-    Slice ts_slice = ts_str;
-    write_opts.timestamp = &ts_slice;
-    ASSERT_OK(db_->Put(write_opts, Key1(key), "foo_" + std::to_string(key)));
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(key), ts_str, "foo_" + std::to_string(key)));
   }
   // Write another L0 with keys 99 with newer ts.
   ASSERT_OK(Flush());
@@ -86,18 +87,16 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   key = 99;
   for (int i = 0; i < 4; ++i, ++ts) {
     std::string ts_str = Timestamp(ts);
-    Slice ts_slice = ts_str;
-    write_opts.timestamp = &ts_slice;
-    ASSERT_OK(db_->Put(write_opts, Key1(key), "bar_" + std::to_string(key)));
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(key), ts_str, "bar_" + std::to_string(key)));
   }
   ASSERT_OK(Flush());
   uint64_t saved_read_ts2 = ts++;
   // Write another L0 with keys 99, 100, 101, ..., 150
   for (; key <= 150; ++key, ++ts) {
     std::string ts_str = Timestamp(ts);
-    Slice ts_slice = ts_str;
-    write_opts.timestamp = &ts_slice;
-    ASSERT_OK(db_->Put(write_opts, Key1(key), "foo1_" + std::to_string(key)));
+    ASSERT_OK(
+        db_->Put(write_opts, Key1(key), ts_str, "foo1_" + std::to_string(key)));
   }
   ASSERT_OK(Flush());
   // Wait for compaction to finish
@@ -108,6 +107,67 @@ TEST_F(TimestampCompatibleCompactionTest, UserKeyCrossFileBoundary) {
   ASSERT_EQ("foo1_99", Get(Key1(99), read_ts));
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(TimestampCompatibleCompactionTest, MultipleSubCompactions) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_subcompactions = 3;
+  options.target_file_size_base = 1024;
+  options.statistics = CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  uint64_t ts = 100;
+  uint64_t key = 0;
+  WriteOptions write_opts;
+
+  // Write keys 0, 1, ..., 499 with ts from 100 to 599.
+  {
+    for (; key <= 499; ++key, ++ts) {
+      std::string ts_str = Timestamp(ts);
+      ASSERT_OK(db_->Put(write_opts, Key1(key), ts_str,
+                         "foo_" + std::to_string(key)));
+    }
+  }
+
+  // Write keys 500, ..., 999 with ts from 600 to 1099.
+  {
+    for (; key <= 999; ++key, ++ts) {
+      std::string ts_str = Timestamp(ts);
+      ASSERT_OK(db_->Put(write_opts, Key1(key), ts_str,
+                         "foo_" + std::to_string(key)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Wait for compaction to finish
+  {
+    ASSERT_OK(dbfull()->RunManualCompaction(
+        static_cast_with_check<ColumnFamilyHandleImpl>(
+            db_->DefaultColumnFamily())
+            ->cfd(),
+        0 /* input_level */, 1 /* output_level */, CompactRangeOptions(),
+        nullptr /* begin */, nullptr /* end */, true /* exclusive */,
+        true /* disallow_trivial_move */,
+        std::numeric_limits<uint64_t>::max() /* max_file_num_to_ignore */,
+        "" /*trim_ts*/));
+  }
+
+  // Check stats to make sure multiple subcompactions were scheduled for
+  // boundaries not to be nullptr.
+  {
+    HistogramData num_sub_compactions;
+    options.statistics->histogramData(NUM_SUBCOMPACTIONS_SCHEDULED,
+                                      &num_sub_compactions);
+    ASSERT_GT(num_sub_compactions.sum, 1);
+  }
+
+  for (key = 0; key <= 999; ++key) {
+    ASSERT_EQ("foo_" + std::to_string(key), Get(Key1(key), ts));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

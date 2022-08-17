@@ -140,20 +140,15 @@ private:
   // The private mutex.  Developers should always use Mutex() instead of
   // using this variable directly.
   port::Mutex mutex_;
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
   // Thread local storage
-  static __thread ThreadData* tls_;
-#endif
+  static thread_local ThreadData* tls_;
 
   // Used to make thread exit trigger possible if !defined(OS_MACOSX).
   // Otherwise, used to retrieve thread data.
   pthread_key_t pthread_key_;
 };
 
-
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
-#endif
+thread_local ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 
 // Windows doesn't support a per-thread destructor with its
 // TLS primitives.  So, we build it manually by inserting a
@@ -263,13 +258,10 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   // the following variable will go first, then OnThreadExit, therefore causing
   // invalid access.
   //
-  // The above problem can be solved by using thread_local to store tls_ instead
-  // of using __thread.  The major difference between thread_local and __thread
-  // is that thread_local supports dynamic construction and destruction of
+  // The above problem can be solved by using thread_local to store tls_.
+  // thread_local supports dynamic construction and destruction of
   // non-primitive typed variables.  As a result, we can guarantee the
   // destruction order even when the main thread dies before any child threads.
-  // However, thread_local is not supported in all compilers that accept -std=c++11
-  // (e.g., eg Mac with XCode < 8. XCode 8+ supports thread_local).
   static ThreadLocalPtr::StaticMeta* inst = new ThreadLocalPtr::StaticMeta();
   return inst;
 }
@@ -328,10 +320,6 @@ ThreadLocalPtr::StaticMeta::StaticMeta()
 #if !defined(OS_WIN)
   static struct A {
     ~A() {
-#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
-      ThreadData* tls_ =
-        static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
-#endif
       if (tls_) {
         OnThreadExit(tls_);
       }
@@ -366,13 +354,6 @@ void ThreadLocalPtr::StaticMeta::RemoveThreadData(
 }
 
 ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
-#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
-  // Make this local variable name look like a member variable so that we
-  // can share all the code below
-  ThreadData* tls_ =
-      static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
-#endif
-
   if (UNLIKELY(tls_ == nullptr)) {
     auto* inst = Instance();
     tls_ = new ThreadData(inst);

@@ -12,7 +12,7 @@ namespace ROCKSDB_NAMESPACE {
 class DBBlobCorruptionTest : public DBTestBase {
  protected:
   DBBlobCorruptionTest()
-      : DBTestBase("/db_blob_corruption_test", /* env_do_fsync */ false) {}
+      : DBTestBase("db_blob_corruption_test", /* env_do_fsync */ false) {}
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
     // Pick file to corrupt
@@ -77,5 +77,6 @@ TEST_F(DBBlobCorruptionTest, VerifyWholeBlobFileChecksum) {
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }

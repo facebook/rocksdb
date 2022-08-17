@@ -65,7 +65,7 @@ class DynamicBloom {
   // Multithreaded access to this function is OK
   bool MayContain(const Slice& key) const;
 
-  void MayContain(int num_keys, Slice** keys, bool* may_match) const;
+  void MayContain(int num_keys, Slice* keys, bool* may_match) const;
 
   // Multithreaded access to this function is OK
   bool MayContainHash(uint32_t hash) const;
@@ -120,12 +120,12 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(BloomHash(key)));
 }
 
-inline void DynamicBloom::MayContain(int num_keys, Slice** keys,
+inline void DynamicBloom::MayContain(int num_keys, Slice* keys,
                                      bool* may_match) const {
   std::array<uint32_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
   std::array<size_t, MultiGetContext::MAX_BATCH_SIZE> byte_offsets;
   for (int i = 0; i < num_keys; ++i) {
-    hashes[i] = BloomHash(*keys[i]);
+    hashes[i] = BloomHash(keys[i]);
     size_t a = FastRange32(kLen, hashes[i]);
     PREFETCH(data_ + a, 0, 3);
     byte_offsets[i] = a;

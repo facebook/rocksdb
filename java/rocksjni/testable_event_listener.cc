@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #include <climits>
 #include <cstdint>
+#include <iostream>
 #include <utility>
 
 #include "include/org_rocksdb_test_TestableEventListener.h"
@@ -11,7 +12,25 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 
-using namespace ROCKSDB_NAMESPACE;
+using ROCKSDB_NAMESPACE::BackgroundErrorReason;
+using ROCKSDB_NAMESPACE::CompactionJobInfo;
+using ROCKSDB_NAMESPACE::CompactionJobStats;
+using ROCKSDB_NAMESPACE::CompactionReason;
+using ROCKSDB_NAMESPACE::CompressionType;
+using ROCKSDB_NAMESPACE::ExternalFileIngestionInfo;
+using ROCKSDB_NAMESPACE::FileOperationInfo;
+using ROCKSDB_NAMESPACE::FileOperationType;
+using ROCKSDB_NAMESPACE::FlushJobInfo;
+using ROCKSDB_NAMESPACE::FlushReason;
+using ROCKSDB_NAMESPACE::MemTableInfo;
+using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::TableFileCreationBriefInfo;
+using ROCKSDB_NAMESPACE::TableFileCreationInfo;
+using ROCKSDB_NAMESPACE::TableFileCreationReason;
+using ROCKSDB_NAMESPACE::TableFileDeletionInfo;
+using ROCKSDB_NAMESPACE::TableProperties;
+using ROCKSDB_NAMESPACE::WriteStallCondition;
+using ROCKSDB_NAMESPACE::WriteStallInfo;
 
 static TableProperties newTablePropertiesForTest() {
   TableProperties table_properties;
@@ -37,6 +56,7 @@ static TableProperties newTablePropertiesForTest() {
   table_properties.file_creation_time = UINT64_MAX;
   table_properties.slow_compression_estimated_data_size = UINT64_MAX;
   table_properties.fast_compression_estimated_data_size = UINT64_MAX;
+  table_properties.external_sst_file_global_seqno_offset = UINT64_MAX;
   table_properties.db_id = "dbId";
   table_properties.db_session_id = "sessionId";
   table_properties.column_family_name = "columnFamilyName";
@@ -49,7 +69,6 @@ static TableProperties newTablePropertiesForTest() {
   table_properties.compression_options = "compressionOptions";
   table_properties.user_collected_properties = {{"key", "value"}};
   table_properties.readable_properties = {{"key", "value"}};
-  table_properties.properties_offsets = {{"key", UINT64_MAX}};
   return table_properties;
 }
 
@@ -166,21 +185,23 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
   write_stall_info.condition.prev = WriteStallCondition::kStopped;
   el->OnStallConditionsChanged(write_stall_info);
 
-  FileOperationInfo op_info = FileOperationInfo(
-      FileOperationType::kRead, "/file/path",
+  const std::string file_path = "/file/path";
+  const auto start_timestamp =
       std::make_pair(std::chrono::time_point<std::chrono::system_clock,
                                              std::chrono::nanoseconds>(
                          std::chrono::nanoseconds(1600699420000000000ll)),
                      std::chrono::time_point<std::chrono::steady_clock,
                                              std::chrono::nanoseconds>(
-                         std::chrono::nanoseconds(1600699420000000000ll))),
+                         std::chrono::nanoseconds(1600699420000000000ll)));
+  const auto finish_timestamp =
       std::chrono::time_point<std::chrono::steady_clock,
                               std::chrono::nanoseconds>(
-          std::chrono::nanoseconds(1600699425000000000ll)),
-      status);
+          std::chrono::nanoseconds(1600699425000000000ll));
+  FileOperationInfo op_info =
+      FileOperationInfo(FileOperationType::kRead, file_path, start_timestamp,
+                        finish_timestamp, status);
   op_info.offset = UINT64_MAX;
   op_info.length = SIZE_MAX;
-  op_info.status = status;
 
   el->OnFileReadFinish(op_info);
   el->OnFileWriteFinish(op_info);

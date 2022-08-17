@@ -6,16 +6,18 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ ROCKSDB_NAMESPACE::Env methods from Java side.
 
+#include "rocksdb/env.h"
+
 #include <jni.h>
+
 #include <vector>
 
-#include "portal.h"
-#include "rocksdb/env.h"
 #include "include/org_rocksdb_Env.h"
-#include "include/org_rocksdb_HdfsEnv.h"
 #include "include/org_rocksdb_RocksEnv.h"
 #include "include/org_rocksdb_RocksMemEnv.h"
 #include "include/org_rocksdb_TimedEnv.h"
+#include "portal.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 
 /*
  * Class:     org_rocksdb_Env
@@ -24,7 +26,7 @@
  */
 jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
     JNIEnv*, jclass) {
-  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::Env::Default());
+  return GET_CPLUSPLUS_POINTER(ROCKSDB_NAMESPACE::Env::Default());
 }
 
 /*
@@ -161,7 +163,7 @@ jobjectArray Java_org_rocksdb_Env_getThreadList(
 jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
     JNIEnv*, jclass, jlong jbase_env_handle) {
   auto* base_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jbase_env_handle);
-  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::NewMemEnv(base_env));
+  return GET_CPLUSPLUS_POINTER(ROCKSDB_NAMESPACE::NewMemEnv(base_env));
 }
 
 /*
@@ -177,43 +179,6 @@ void Java_org_rocksdb_RocksMemEnv_disposeInternal(
 }
 
 /*
- * Class:     org_rocksdb_HdfsEnv
- * Method:    createHdfsEnv
- * Signature: (Ljava/lang/String;)J
- */
-jlong Java_org_rocksdb_HdfsEnv_createHdfsEnv(
-    JNIEnv* env, jclass, jstring jfsname) {
-  jboolean has_exception = JNI_FALSE;
-  auto fsname =
-      ROCKSDB_NAMESPACE::JniUtil::copyStdString(env, jfsname, &has_exception);
-  if (has_exception == JNI_TRUE) {
-    // exception occurred
-    return 0;
-  }
-  ROCKSDB_NAMESPACE::Env* hdfs_env;
-  ROCKSDB_NAMESPACE::Status s =
-      ROCKSDB_NAMESPACE::NewHdfsEnv(&hdfs_env, fsname);
-  if (!s.ok()) {
-    // error occurred
-    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
-    return 0;
-  }
-  return reinterpret_cast<jlong>(hdfs_env);
-}
-
-/*
- * Class:     org_rocksdb_HdfsEnv
- * Method:    disposeInternal
- * Signature: (J)V
- */
-void Java_org_rocksdb_HdfsEnv_disposeInternal(
-    JNIEnv*, jobject, jlong jhandle) {
-  auto* e = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jhandle);
-  assert(e != nullptr);
-  delete e;
-}
-
-/*
  * Class:     org_rocksdb_TimedEnv
  * Method:    createTimedEnv
  * Signature: (J)J
@@ -221,7 +186,7 @@ void Java_org_rocksdb_HdfsEnv_disposeInternal(
 jlong Java_org_rocksdb_TimedEnv_createTimedEnv(
     JNIEnv*, jclass, jlong jbase_env_handle) {
   auto* base_env = reinterpret_cast<ROCKSDB_NAMESPACE::Env*>(jbase_env_handle);
-  return reinterpret_cast<jlong>(ROCKSDB_NAMESPACE::NewTimedEnv(base_env));
+  return GET_CPLUSPLUS_POINTER(ROCKSDB_NAMESPACE::NewTimedEnv(base_env));
 }
 
 /*

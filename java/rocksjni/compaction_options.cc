@@ -10,8 +10,8 @@
 
 #include "include/org_rocksdb_CompactionOptions.h"
 #include "rocksdb/options.h"
+#include "rocksjni/cplusplus_to_java_convert.h"
 #include "rocksjni/portal.h"
-
 
 /*
  * Class:     org_rocksdb_CompactionOptions
@@ -21,7 +21,7 @@
 jlong Java_org_rocksdb_CompactionOptions_newCompactionOptions(
     JNIEnv*, jclass) {
   auto* compact_opts = new ROCKSDB_NAMESPACE::CompactionOptions();
-  return reinterpret_cast<jlong>(compact_opts);
+  return GET_CPLUSPLUS_POINTER(compact_opts);
 }
 
 /*

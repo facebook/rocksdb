@@ -15,7 +15,7 @@
 namespace ROCKSDB_NAMESPACE {
 class UniversalCompactionPicker : public CompactionPicker {
  public:
-  UniversalCompactionPicker(const ImmutableCFOptions& ioptions,
+  UniversalCompactionPicker(const ImmutableOptions& ioptions,
                             const InternalKeyComparator* icmp)
       : CompactionPicker(ioptions, icmp) {}
   virtual Compaction* PickCompaction(

@@ -22,8 +22,6 @@
 #include "util/crc32c.h"
 #include "util/random.h"
 
-using std::string;
-
 namespace ROCKSDB_NAMESPACE {
 
 class OptimisticTransactionTest
@@ -31,22 +29,22 @@ class OptimisticTransactionTest
       public testing::WithParamInterface<OccValidationPolicy> {
  public:
   OptimisticTransactionDB* txn_db;
-  string dbname;
+  std::string dbname;
   Options options;
 
   OptimisticTransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
-    options.max_write_buffer_size_to_maintain = 1600;
+    options.max_write_buffer_size_to_maintain = 2 * Arena::kInlineSize;
     options.merge_operator.reset(new TestPutOperator());
     dbname = test::PerThreadDBPath("optimistic_transaction_testdb");
 
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
     Open();
   }
   ~OptimisticTransactionTest() override {
     delete txn_db;
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
   }
 
   void Reopen() {
@@ -78,7 +76,7 @@ private:
 TEST_P(OptimisticTransactionTest, SuccessTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, Slice("foo"), Slice("bar")));
   ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
@@ -105,7 +103,7 @@ TEST_P(OptimisticTransactionTest, SuccessTest) {
 TEST_P(OptimisticTransactionTest, WriteConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
   ASSERT_OK(txn_db->Put(write_options, "foo2", "bar"));
@@ -138,7 +136,7 @@ TEST_P(OptimisticTransactionTest, WriteConflictTest2) {
   WriteOptions write_options;
   ReadOptions read_options;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
   ASSERT_OK(txn_db->Put(write_options, "foo2", "bar"));
@@ -172,7 +170,7 @@ TEST_P(OptimisticTransactionTest, ReadConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "foo", "bar"));
   ASSERT_OK(txn_db->Put(write_options, "foo2", "bar"));
@@ -211,7 +209,7 @@ TEST_P(OptimisticTransactionTest, TxnOnlyTest) {
 
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
   ASSERT_NE(txn, nullptr);
@@ -226,7 +224,7 @@ TEST_P(OptimisticTransactionTest, TxnOnlyTest) {
 TEST_P(OptimisticTransactionTest, FlushTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, Slice("foo"), Slice("bar")));
   ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
@@ -263,7 +261,7 @@ TEST_P(OptimisticTransactionTest, FlushTest) {
 TEST_P(OptimisticTransactionTest, FlushTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, Slice("foo"), Slice("bar")));
   ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
@@ -318,14 +316,13 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
   const int kAttemptImmMemTable = 1;
   for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
        attempt++) {
-    options.max_write_buffer_number_to_maintain = 3;
     Reopen();
 
     WriteOptions write_options;
     ReadOptions read_options;
     ReadOptions snapshot_read_options;
     ReadOptions snapshot_read_options2;
-    string value;
+    std::string value;
 
     ASSERT_OK(txn_db->Put(write_options, Slice("foo"), Slice("bar")));
     ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
@@ -427,7 +424,7 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
 TEST_P(OptimisticTransactionTest, NoSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "AAA", "bar"));
 
@@ -454,7 +451,7 @@ TEST_P(OptimisticTransactionTest, NoSnapshotTest) {
 TEST_P(OptimisticTransactionTest, MultipleSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "AAA", "bar"));
   ASSERT_OK(txn_db->Put(write_options, "BBB", "bar"));
@@ -550,7 +547,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   ColumnFamilyHandle *cfa, *cfb;
   ColumnFamilyOptions cf_options;
@@ -706,7 +703,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
 TEST_P(OptimisticTransactionTest, EmptyTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "aaa", "aaa"));
 
@@ -740,7 +737,7 @@ TEST_P(OptimisticTransactionTest, PredicateManyPreceders) {
   WriteOptions write_options;
   ReadOptions read_options1, read_options2;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   txn_options.set_snapshot = true;
   Transaction* txn1 = txn_db->BeginTransaction(write_options, txn_options);
@@ -805,7 +802,7 @@ TEST_P(OptimisticTransactionTest, LostUpdate) {
   WriteOptions write_options;
   ReadOptions read_options, read_options1, read_options2;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   // Test 2 transactions writing to the same key in multiple orders and
   // with/without snapshots
@@ -893,7 +890,7 @@ TEST_P(OptimisticTransactionTest, LostUpdate) {
 TEST_P(OptimisticTransactionTest, UntrackedWrites) {
   WriteOptions write_options;
   ReadOptions read_options;
-  string value;
+  std::string value;
   Status s;
 
   // Verify transaction rollback works for untracked keys.
@@ -943,7 +940,7 @@ TEST_P(OptimisticTransactionTest, IteratorTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   // Write some keys to the db
   ASSERT_OK(txn_db->Put(write_options, "A", "a"));
@@ -1048,7 +1045,7 @@ TEST_P(OptimisticTransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
   ASSERT_NE(txn, nullptr);
@@ -1170,7 +1167,7 @@ TEST_P(OptimisticTransactionTest, UndoGetForUpdateTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
-  string value;
+  std::string value;
 
   ASSERT_OK(txn_db->Put(write_options, "A", ""));
 
@@ -1391,6 +1388,21 @@ TEST_P(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
   ASSERT_OK(s);
 
   delete transaction;
+}
+
+TEST_P(OptimisticTransactionTest, TimestampedSnapshotMissingCommitTs) {
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+  ASSERT_OK(txn->Put("a", "v"));
+  Status s = txn->CommitAndTryCreateSnapshot();
+  ASSERT_TRUE(s.IsInvalidArgument());
+}
+
+TEST_P(OptimisticTransactionTest, TimestampedSnapshotSetCommitTs) {
+  std::unique_ptr<Transaction> txn(txn_db->BeginTransaction(WriteOptions()));
+  ASSERT_OK(txn->Put("a", "v"));
+  std::shared_ptr<const Snapshot> snapshot;
+  Status s = txn->CommitAndTryCreateSnapshot(nullptr, /*ts=*/100, &snapshot);
+  ASSERT_TRUE(s.IsNotSupported());
 }
 
 INSTANTIATE_TEST_CASE_P(

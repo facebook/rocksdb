@@ -13,20 +13,35 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/fs_remap.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"  // errnoStr
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
-class ChrootFileSystem : public RemapFileSystem {
- public:
-  ChrootFileSystem(const std::shared_ptr<FileSystem>& base,
-                   const std::string& chroot_dir)
-      : RemapFileSystem(base) {
+static std::unordered_map<std::string, OptionTypeInfo> chroot_fs_type_info = {
+    {"chroot_dir", {0, OptionType::kString}}};
+}  // namespace
+ChrootFileSystem::ChrootFileSystem(const std::shared_ptr<FileSystem>& base,
+                                   const std::string& chroot_dir)
+    : RemapFileSystem(base), chroot_dir_(chroot_dir) {
+  RegisterOptions("chroot_dir", &chroot_dir_, &chroot_fs_type_info);
+}
+
+Status ChrootFileSystem::PrepareOptions(const ConfigOptions& options) {
+  Status s = FileSystemWrapper::PrepareOptions(options);
+  if (!s.ok()) {
+    return s;
+  } else if (chroot_dir_.empty()) {
+    s = Status::InvalidArgument("ChRootFileSystem requires a chroot dir");
+  } else {
+    s = target_->FileExists(chroot_dir_, IOOptions(), nullptr);
+  }
+  if (s.ok()) {
 #if defined(OS_AIX)
     char resolvedName[PATH_MAX];
-    char* real_chroot_dir = realpath(chroot_dir.c_str(), resolvedName);
+    char* real_chroot_dir = realpath(chroot_dir_.c_str(), resolvedName);
 #else
-    char* real_chroot_dir = realpath(chroot_dir.c_str(), nullptr);
+    char* real_chroot_dir = realpath(chroot_dir_.c_str(), nullptr);
 #endif
     // chroot_dir must exist so realpath() returns non-nullptr.
     assert(real_chroot_dir != nullptr);
@@ -35,32 +50,32 @@ class ChrootFileSystem : public RemapFileSystem {
     free(real_chroot_dir);
 #endif
   }
+  return s;
+}
 
-  const char* Name() const override { return "ChrootFS"; }
+IOStatus ChrootFileSystem::GetTestDirectory(const IOOptions& options,
+                                            std::string* path,
+                                            IODebugContext* dbg) {
+  // Adapted from PosixEnv's implementation since it doesn't provide a way to
+  // create directory in the chroot.
+  char buf[256];
+  snprintf(buf, sizeof(buf), "/rocksdbtest-%d", static_cast<int>(geteuid()));
+  *path = buf;
 
-  IOStatus GetTestDirectory(const IOOptions& options, std::string* path,
-                            IODebugContext* dbg) override {
-    // Adapted from PosixEnv's implementation since it doesn't provide a way to
-    // create directory in the chroot.
-    char buf[256];
-    snprintf(buf, sizeof(buf), "/rocksdbtest-%d", static_cast<int>(geteuid()));
-    *path = buf;
+  // Directory may already exist, so ignore return
+  return CreateDirIfMissing(*path, options, dbg);
+}
 
-    // Directory may already exist, so ignore return
-    return CreateDirIfMissing(*path, options, dbg);
-  }
-
- protected:
   // Returns status and expanded absolute path including the chroot directory.
   // Checks whether the provided path breaks out of the chroot. If it returns
   // non-OK status, the returned path should not be used.
-  std::pair<IOStatus, std::string> EncodePath(
-      const std::string& path) override {
-    if (path.empty() || path[0] != '/') {
-      return {IOStatus::InvalidArgument(path, "Not an absolute path"), ""};
-    }
-    std::pair<IOStatus, std::string> res;
-    res.second = chroot_dir_ + path;
+std::pair<IOStatus, std::string> ChrootFileSystem::EncodePath(
+    const std::string& path) {
+  if (path.empty() || path[0] != '/') {
+    return {IOStatus::InvalidArgument(path, "Not an absolute path"), ""};
+  }
+  std::pair<IOStatus, std::string> res;
+  res.second = chroot_dir_ + path;
 #if defined(OS_AIX)
     char resolvedName[PATH_MAX];
     char* normalized_path = realpath(res.second.c_str(), resolvedName);
@@ -81,47 +96,51 @@ class ChrootFileSystem : public RemapFileSystem {
     free(normalized_path);
 #endif
     return res;
-  }
+}
 
   // Similar to EncodePath() except assumes the basename in the path hasn't been
   // created yet.
-  std::pair<IOStatus, std::string> EncodePathWithNewBasename(
-      const std::string& path) override {
-    if (path.empty() || path[0] != '/') {
-      return {IOStatus::InvalidArgument(path, "Not an absolute path"), ""};
-    }
-    // Basename may be followed by trailing slashes
-    size_t final_idx = path.find_last_not_of('/');
-    if (final_idx == std::string::npos) {
-      // It's only slashes so no basename to extract
-      return EncodePath(path);
-    }
-
-    // Pull off the basename temporarily since realname(3) (used by
-    // EncodePath()) requires a path that exists
-    size_t base_sep = path.rfind('/', final_idx);
-    auto status_and_enc_path = EncodePath(path.substr(0, base_sep + 1));
-    status_and_enc_path.second.append(path.substr(base_sep + 1));
-    return status_and_enc_path;
+std::pair<IOStatus, std::string> ChrootFileSystem::EncodePathWithNewBasename(
+    const std::string& path) {
+  if (path.empty() || path[0] != '/') {
+    return {IOStatus::InvalidArgument(path, "Not an absolute path"), ""};
+  }
+  // Basename may be followed by trailing slashes
+  size_t final_idx = path.find_last_not_of('/');
+  if (final_idx == std::string::npos) {
+    // It's only slashes so no basename to extract
+    return EncodePath(path);
   }
 
- private:
-  std::string chroot_dir_;
-};
-}  // namespace
+  // Pull off the basename temporarily since realname(3) (used by
+  // EncodePath()) requires a path that exists
+  size_t base_sep = path.rfind('/', final_idx);
+  auto status_and_enc_path = EncodePath(path.substr(0, base_sep + 1));
+  status_and_enc_path.second.append(path.substr(base_sep + 1));
+  return status_and_enc_path;
+}
 
 std::shared_ptr<FileSystem> NewChrootFileSystem(
     const std::shared_ptr<FileSystem>& base, const std::string& chroot_dir) {
-  return std::make_shared<ChrootFileSystem>(base, chroot_dir);
+  auto chroot_fs = std::make_shared<ChrootFileSystem>(base, chroot_dir);
+  Status s = chroot_fs->PrepareOptions(ConfigOptions());
+  if (s.ok()) {
+    return chroot_fs;
+  } else {
+    return nullptr;
+  }
 }
 
 Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
   if (!base_env->FileExists(chroot_dir).ok()) {
     return nullptr;
   }
-  std::shared_ptr<FileSystem> chroot_fs =
-      NewChrootFileSystem(base_env->GetFileSystem(), chroot_dir);
-  return new CompositeEnvWrapper(base_env, chroot_fs);
+  auto chroot_fs = NewChrootFileSystem(base_env->GetFileSystem(), chroot_dir);
+  if (chroot_fs != nullptr) {
+    return new CompositeEnvWrapper(base_env, chroot_fs);
+  } else {
+    return nullptr;
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1,3 +1,9 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #ifndef ROCKSDB_LITE
 
 #include "db/import_column_family_job.h"
@@ -10,10 +16,12 @@
 #include "db/version_edit.h"
 #include "file/file_util.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
+#include "table/unique_id_impl.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -26,7 +34,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   for (const auto& file_metadata : metadata_) {
     const auto file_path = file_metadata.db_path + "/" + file_metadata.name;
     IngestedFileInfo file_to_import;
-    status = GetIngestedFileInfo(file_path, &file_to_import, sv);
+    status =
+        GetIngestedFileInfo(file_path, next_file_number++, &file_to_import, sv);
     if (!status.ok()) {
       return status;
     }
@@ -85,8 +94,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
   // Copy/Move external files into DB
   auto hardlink_files = import_options_.move_files;
   for (auto& f : files_to_import_) {
-    f.fd = FileDescriptor(next_file_number++, 0, f.file_size);
-
     const auto path_outside_db = f.external_file_path;
     const auto path_inside_db = TableFileName(
         cfd_->ioptions()->cf_paths, f.fd.GetNumber(), f.fd.GetPathId());
@@ -97,11 +104,15 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
         hardlink_files = false;
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Try to link file %s but it's not supported : %s",
+                       f.internal_file_path.c_str(), status.ToString().c_str());
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync, io_tracer_);
+      status =
+          CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                   db_options_.use_fsync, io_tracer_, Temperature::kUnknown);
     }
     if (!status.ok()) {
       break;
@@ -152,9 +163,10 @@ Status ImportColumnFamilyJob::Run() {
     edit_.AddFile(file_metadata.level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key,
                   f.largest_internal_key, file_metadata.smallest_seqno,
-                  file_metadata.largest_seqno, false, kInvalidBlobFileNumber,
-                  oldest_ancester_time, current_time, kUnknownFileChecksum,
-                  kUnknownFileChecksumFuncName);
+                  file_metadata.largest_seqno, false, file_metadata.temperature,
+                  kInvalidBlobFileNumber, oldest_ancester_time, current_time,
+                  kUnknownFileChecksum, kUnknownFileChecksumFuncName,
+                  f.unique_id);
 
     // If incoming sequence number is higher, update local sequence number.
     if (file_metadata.largest_seqno > versions_->LastSequence()) {
@@ -196,8 +208,8 @@ void ImportColumnFamilyJob::Cleanup(const Status& status) {
 }
 
 Status ImportColumnFamilyJob::GetIngestedFileInfo(
-    const std::string& external_file, IngestedFileInfo* file_to_import,
-    SuperVersion* sv) {
+    const std::string& external_file, uint64_t new_file_number,
+    IngestedFileInfo* file_to_import, SuperVersion* sv) {
   file_to_import->external_file_path = external_file;
 
   // Get external file size
@@ -206,6 +218,10 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
+
+  // Assign FD with number
+  file_to_import->fd =
+      FileDescriptor(new_file_number, 0, file_to_import->file_size);
 
   // Create TableReader for external file
   std::unique_ptr<TableReader> table_reader;
@@ -221,9 +237,14 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
       std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd_->ioptions(),
-                         sv->mutable_cf_options.prefix_extractor.get(),
-                         env_options_, cfd_->internal_comparator()),
+      TableReaderOptions(
+          *cfd_->ioptions(), sv->mutable_cf_options.prefix_extractor,
+          env_options_, cfd_->internal_comparator(),
+          /*skip_filters*/ false, /*immortal*/ false,
+          /*force_direct_prefetch*/ false, /*level*/ -1,
+          /*block_cache_tracer*/ nullptr,
+          /*max_file_size_for_l0_meta_pin*/ 0, versions_->DbSessionId(),
+          /*cur_file_num*/ new_file_number),
       std::move(sst_file_reader), file_to_import->file_size, &table_reader);
   if (!status.ok()) {
     return status;
@@ -273,6 +294,15 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   file_to_import->cf_id = static_cast<uint32_t>(props->column_family_id);
 
   file_to_import->table_properties = *props;
+
+  auto s = GetSstInternalUniqueId(props->db_id, props->db_session_id,
+                                  props->orig_file_number,
+                                  &(file_to_import->unique_id));
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Failed to get SST unique id for file %s",
+                   file_to_import->internal_file_path.c_str());
+  }
 
   return status;
 }

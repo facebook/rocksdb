@@ -34,14 +34,14 @@ namespace ROCKSDB_NAMESPACE {
 class ObsoleteFilesTest : public DBTestBase {
  public:
   ObsoleteFilesTest()
-      : DBTestBase("/obsolete_files_test", /*env_do_fsync=*/true),
+      : DBTestBase("obsolete_files_test", /*env_do_fsync=*/true),
         wal_dir_(dbname_ + "/wal_files") {}
 
   void AddKeys(int numkeys, int startkey) {
     WriteOptions options;
     options.sync = false;
     for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = ToString(i);
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));
@@ -54,7 +54,9 @@ class ObsoleteFilesTest : public DBTestBase {
       AddKeys(numKeysPerFile, startKey);
       startKey += numKeysPerFile;
       ASSERT_OK(dbfull()->TEST_FlushMemTable());
-      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+      ASSERT_OK(
+          dbfull()->TEST_WaitForCompact());  // wait for background flush (flush
+                                             // is also a kind of compaction).
     }
   }
 
@@ -149,18 +151,6 @@ TEST_F(ObsoleteFilesTest, RaceForObsoleteFileDeletion) {
 
 TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
   ReopenDB();
-  SyncPoint::GetInstance()->DisableProcessing();
-  std::vector<uint64_t> optsfiles_nums;
-  std::vector<bool> optsfiles_keep;
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:1", [&](void* arg) {
-        optsfiles_nums.push_back(*reinterpret_cast<uint64_t*>(arg));
-      });
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::PurgeObsoleteFiles:CheckOptionsFiles:2", [&](void* arg) {
-        optsfiles_keep.push_back(*reinterpret_cast<bool*>(arg));
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
 
   createLevel0Files(2, 50000);
   CheckFileTypeCounts(wal_dir_, 1, 0, 0);
@@ -176,7 +166,6 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
     }
   }
   ASSERT_OK(dbfull()->EnableFileDeletions(true /* force */));
-  ASSERT_EQ(optsfiles_nums.size(), optsfiles_keep.size());
 
   Close();
 
@@ -200,7 +189,7 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
 TEST_F(ObsoleteFilesTest, BlobFiles) {
   ReopenDB();
 
-  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  VersionSet* const versions = dbfull()->GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
 
@@ -228,7 +217,7 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
   constexpr uint64_t second_total_blob_count = 100;
   constexpr uint64_t second_total_blob_bytes = 2000000;
   constexpr char second_checksum_method[] = "CRC32B";
-  constexpr char second_checksum_value[] = "6dbdf23a";
+  constexpr char second_checksum_value[] = "\x6d\xbd\xf2\x3a";
 
   auto shared_meta = SharedBlobFileMetaData::Create(
       second_blob_file_number, second_total_blob_count, second_total_blob_bytes,
@@ -318,14 +307,6 @@ TEST_F(ObsoleteFilesTest, BlobFiles) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-
-#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
-extern "C" {
-void RegisterCustomObjects(int argc, char** argv);
-}
-#else
-void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
-#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
 
 int main(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();

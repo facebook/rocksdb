@@ -10,6 +10,8 @@
 #include "db/blob/blob_log_format.h"
 #include "rocksdb/slice.h"
 
+#define MAX_HEADER_SIZE(a, b, c) (a > b ? (a > c ? a : c) : (b > c ? b : c))
+
 namespace ROCKSDB_NAMESPACE {
 
 class RandomAccessFileReader;
@@ -69,10 +71,13 @@ class BlobLogSequentialReader {
   Statistics* statistics_;
 
   Slice buffer_;
-  char header_buf_[BlobLogRecord::kHeaderSize];
+  char header_buf_[MAX_HEADER_SIZE(BlobLogHeader::kSize, BlobLogFooter::kSize,
+                                   BlobLogRecord::kHeaderSize)];
 
   // which byte to read next
   uint64_t next_byte_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
+
+#undef MAX_HEADER_SIZE

@@ -10,16 +10,18 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/advanced_options.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class VersionSet;
 class FileSystem;
 class SystemClock;
-struct ImmutableCFOptions;
+struct ImmutableOptions;
 struct MutableCFOptions;
 struct FileOptions;
 class BlobFileAddition;
@@ -32,29 +34,32 @@ class BlobFileCompletionCallback;
 class BlobFileBuilder {
  public:
   BlobFileBuilder(VersionSet* versions, FileSystem* fs,
-                  const ImmutableCFOptions* immutable_cf_options,
+                  const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, int job_id,
+                  const FileOptions* file_options, std::string db_id,
+                  std::string db_session_id, int job_id,
                   uint32_t column_family_id,
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
                   const std::shared_ptr<IOTracer>& io_tracer,
                   BlobFileCompletionCallback* blob_callback,
+                  BlobFileCreationReason creation_reason,
                   std::vector<std::string>* blob_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
   BlobFileBuilder(std::function<uint64_t()> file_number_generator,
-                  FileSystem* fs,
-                  const ImmutableCFOptions* immutable_cf_options,
+                  FileSystem* fs, const ImmutableOptions* immutable_options,
                   const MutableCFOptions* mutable_cf_options,
-                  const FileOptions* file_options, int job_id,
+                  const FileOptions* file_options, std::string db_id,
+                  std::string db_session_id, int job_id,
                   uint32_t column_family_id,
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
                   const std::shared_ptr<IOTracer>& io_tracer,
                   BlobFileCompletionCallback* blob_callback,
+                  BlobFileCreationReason creation_reason,
                   std::vector<std::string>* blob_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
@@ -65,7 +70,7 @@ class BlobFileBuilder {
 
   Status Add(const Slice& key, const Slice& value, std::string* blob_index);
   Status Finish();
-  void Abandon();
+  void Abandon(const Status& s);
 
  private:
   bool IsBlobFileOpen() const;
@@ -76,13 +81,19 @@ class BlobFileBuilder {
   Status CloseBlobFile();
   Status CloseBlobFileIfNeeded();
 
+  Status PutBlobIntoCacheIfNeeded(const Slice& blob, uint64_t blob_file_number,
+                                  uint64_t blob_offset) const;
+
   std::function<uint64_t()> file_number_generator_;
   FileSystem* fs_;
-  const ImmutableCFOptions* immutable_cf_options_;
+  const ImmutableOptions* immutable_options_;
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
   CompressionType blob_compression_type_;
+  PrepopulateBlobCache prepopulate_blob_cache_;
   const FileOptions* file_options_;
+  const std::string db_id_;
+  const std::string db_session_id_;
   int job_id_;
   uint32_t column_family_id_;
   std::string column_family_name_;
@@ -90,6 +101,7 @@ class BlobFileBuilder {
   Env::WriteLifeTimeHint write_hint_;
   std::shared_ptr<IOTracer> io_tracer_;
   BlobFileCompletionCallback* blob_callback_;
+  BlobFileCreationReason creation_reason_;
   std::vector<std::string>* blob_file_paths_;
   std::vector<BlobFileAddition>* blob_file_additions_;
   std::unique_ptr<BlobLogWriter> writer_;
