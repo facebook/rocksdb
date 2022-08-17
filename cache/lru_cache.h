@@ -96,12 +96,9 @@ struct LRUHandle {
     IS_LOW_PRI = (1 << 7),
     // Whether this entry is in low-pri pool.
     IN_LOW_PRI_POOL = (1 << 8),
-    // Whether this entry used to be in a lower tier and it was inserted into
-    // the primary cache as dummy handle.
-    WAS_IN_SECONDARY_CACHE = (1 << 9),
     // Whether this entry is not inserted into the cache (both hash table and
     // LRU list).
-    IS_STANDALONE = (1 << 10),
+    IS_STANDALONE = (1 << 9),
   };
 
   uint16_t flags;
@@ -147,7 +144,6 @@ struct LRUHandle {
   }
   bool IsPending() const { return flags & IS_PENDING; }
   bool IsInSecondaryCache() const { return flags & IS_IN_SECONDARY_CACHE; }
-  bool WasInSecondaryCache() const { return flags & WAS_IN_SECONDARY_CACHE; }
   bool IsStandalone() const { return flags & IS_STANDALONE; }
 
   void SetInCache(bool in_cache) {
@@ -213,14 +209,6 @@ struct LRUHandle {
       flags |= IS_IN_SECONDARY_CACHE;
     } else {
       flags &= ~IS_IN_SECONDARY_CACHE;
-    }
-  }
-
-  void SetWasInSecondaryCache(bool was_in_secondary_cache) {
-    if (was_in_secondary_cache) {
-      flags |= WAS_IN_SECONDARY_CACHE;
-    } else {
-      flags &= ~WAS_IN_SECONDARY_CACHE;
     }
   }
 
@@ -348,7 +336,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                 bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
                 int max_upper_hash_bits,
-                const std::shared_ptr<SecondaryCache>& secondary_cache);
+                const std::shared_ptr<SecondaryCache>& secondary_cache,
+                bool use_compressed_secondary_cache,
+                size_t standalone_pool_capacity);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -499,6 +489,16 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Pointer to head of bottom-pri pool in LRU list.
   LRUHandle* lru_bottom_pri_;
 
+  // Whether the secondary cache is CompressedSecondaryCache.
+  bool use_compressed_secondary_cache_{false};
+
+  // Standalone pool size, charged in the secondary cache.
+  // It equals to capacity of secondary_cache * standardalone_pool_ratio.
+  size_t standalone_pool_capacity_;
+
+  // Memory size for entries in standalone pool.
+  size_t standalone_pool_usage_;
+
   // ------------^^^^^^^^^^^^^-----------
   // Not frequently modified data members
   // ------------------------------------
@@ -560,12 +560,6 @@ class LRUCache
   LRUCacheShard* shards_ = nullptr;
   int num_shards_ = 0;
   std::shared_ptr<SecondaryCache> secondary_cache_;
-  bool use_compressed_secondary_cache_{false};
-  // Standalone pool size, charged in the secondary cache.
-  // It equals to capacity of secondary_cache * standard_pool_ratio.
-  double standalone_pool_capacity_{0};
-  // Memory size for entries in standalone pool.
-  size_t standalone_pool_usage_{0};
 };
 
 }  // namespace lru_cache

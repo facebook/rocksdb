@@ -114,7 +114,8 @@ LRUCacheShard::LRUCacheShard(
     size_t capacity, bool strict_capacity_limit, double high_pri_pool_ratio,
     double low_pri_pool_ratio, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy, int max_upper_hash_bits,
-    const std::shared_ptr<SecondaryCache>& secondary_cache)
+    const std::shared_ptr<SecondaryCache>& secondary_cache,
+    bool use_compressed_secondary_cache, size_t standalone_pool_capacity)
     : capacity_(0),
       high_pri_pool_usage_(0),
       low_pri_pool_usage_(0),
@@ -127,7 +128,10 @@ LRUCacheShard::LRUCacheShard(
       usage_(0),
       lru_usage_(0),
       mutex_(use_adaptive_mutex),
-      secondary_cache_(secondary_cache) {
+      secondary_cache_(secondary_cache),
+      use_compressed_secondary_cache_(use_compressed_secondary_cache),
+      standalone_pool_capacity_(standalone_pool_capacity),
+      standalone_pool_usage_(0) {
   set_metadata_charge_policy(metadata_charge_policy);
   // Make empty circular linked list.
   lru_.next = &lru_;
@@ -435,13 +439,30 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   e->CalcTotalCharge(secondary_handle->Size(), metadata_charge_policy_);
   delete secondary_handle;
 
-  // This call could fail if the cache is over capacity and
-  // strict_capacity_limit_ is true. In such a case, we don't want
-  // InsertItem() to free the handle, since the item is already in memory
-  // and the caller will most likely just read from disk if we erase it here.
   if (e->value) {
-    if (e->WasInSecondaryCache()) {
+    // Insert a dummy handle and return a standalone handle to caller
+    // when secondary_cache_ is CompressedSecondaryCache, e is a standalone
+    // handle, and the standalone pool has enough space for e.
+    if (use_compressed_secondary_cache_ && e->IsStandalone() &&
+        e->total_charge + standalone_pool_usage_ <= standalone_pool_capacity_) {
+      // Update the properties for the standalone handle.
+      e->SetInCache(false);
+      standalone_pool_usage_ += e->total_charge;
+
+      // Insert a dummy handle into the primary cache.
+      Cache::Priority priority =
+          e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
+      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
+             nullptr /*deleter*/, e->info_.helper, nullptr /*handle*/,
+             priority);
+    } else {
+      // This call could fail if the cache is over capacity and
+      // strict_capacity_limit_ is true. In such a case, we don't want
+      // InsertItem() to free the handle, since the item is already in memory
+      // and the caller will most likely just read from disk if we erase it
+      // here.
       e->SetInCache(true);
+      e->SetIsStandalone(false);
       Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
       Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
       if (!s.ok()) {
@@ -449,17 +470,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         // When the handle is released, the item should get deleted.
         assert(!e->InCache());
       }
-    } else {
-      // Update the properties for the standalone handle.
-      e->SetInCache(false);
-      e->SetIsStandalone(true);
-      // Insert a dummy handle into the primary cache.
-      Cache::Priority priority =
-          e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/, 0 /*deleter*/,
-             e->info_.helper, nullptr /*handle*/, priority);
     }
-
   } else {
     // Since the secondary cache lookup failed, mark the item as not in cache
     // Don't charge the cache as its only metadata that'll shortly be released
@@ -467,6 +478,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
     // TODO
     e->CalcTotalCharge(0, metadata_charge_policy_);
     e->SetInCache(false);
+    e->SetIsStandalone(false);
   }
 }
 
@@ -494,7 +506,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       // it may still exist in secondary cache.
       // If the handle exists in secondary cache, the value should be
       // erased from sec cache and be inserted into primary cache.
-      if (!e->value) {
+      if (!e->value && use_compressed_secondary_cache_) {
         erase_handle_in_sec_cache = true;
       }
     }
@@ -534,7 +546,10 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->total_charge = 0;
       e->Ref();
       e->SetIsInSecondaryCache(is_in_sec_cache);
-      e->SetWasInSecondaryCache(erase_handle_in_sec_cache);
+
+      if (use_compressed_secondary_cache_ && !erase_handle_in_sec_cache) {
+        e->SetIsStandalone(true);
+      }
 
       if (wait) {
         Promote(e);
@@ -595,30 +610,38 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   {
     DMutexLock l(mutex_);
     last_reference = e->Unref();
-    if (last_reference && e->InCache() && !e->IsStandalone()) {
-      // The item is still in cache, and nobody else holds a reference to it.
-      if (usage_ > capacity_ || erase_if_last_ref) {
-        // The LRU list must be empty since the cache is full.
-        assert(lru_.next == &lru_ || erase_if_last_ref);
-        // Take this opportunity and remove the item.
-        table_.Remove(e->key(), e->hash);
-        e->SetInCache(false);
-      } else {
-        // Put the item back on the LRU list, and don't free it.
-        LRU_Insert(e);
-        last_reference = false;
+    if (last_reference) {
+      if (e->InCache() && !e->IsStandalone()) {
+        // The item is still in cache, and nobody else holds a reference to it.
+        if (usage_ > capacity_ || erase_if_last_ref) {
+          // The LRU list must be empty since the cache is full.
+          assert(lru_.next == &lru_ || erase_if_last_ref);
+          // Take this opportunity and remove the item.
+          table_.Remove(e->key(), e->hash);
+          e->SetInCache(false);
+        } else {
+          // Put the item back on the LRU list, and don't free it.
+          LRU_Insert(e);
+          last_reference = false;
+        }
       }
-    }
-    // If it was the last reference, and the entry is either not secondary
-    // cache compatible (i.e a dummy entry for accounting), or is secondary
-    // cache compatible and has a non-null value, then decrement the cache
-    // usage. If value is null in the latter case, that means the lookup
-    // failed and we didn't charge the cache.
-    // A standalone handle doesn't charge usage_.
-    if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value) &&
-        !e->IsStandalone()) {
-      assert(usage_ >= e->total_charge);
-      usage_ -= e->total_charge;
+      // If it was the last reference, and the entry is either not secondary
+      // cache compatible (i.e a dummy entry for accounting), or is secondary
+      // cache compatible and has a non-null value, then decrement the cache
+      // usage. If value is null in the latter case, that means the lookup
+      // failed and we didn't charge the cache.
+      // A standalone handle doesn't charge usage_.
+      if ((!e->IsSecondaryCacheCompatible() || e->value) &&
+          !e->IsStandalone()) {
+        assert(usage_ >= e->total_charge);
+        usage_ -= e->total_charge;
+      }
+
+      // If the entry is a standalone one, decrease standalone pool usage.
+      if (e->IsStandalone() && !e->InCache()) {
+        assert(standalone_pool_usage_ >= e->total_charge);
+        standalone_pool_usage_ -= e->total_charge;
+      }
     }
   }
 
@@ -738,20 +761,26 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
   shards_ = reinterpret_cast<LRUCacheShard*>(
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
   size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
+  bool use_compressed_secondary_cache{false};
+  size_t standalone_pool_capacity_per_shard{0};
+  if (secondary_cache_ && std::strcmp(secondary_cache_->Name(),
+                                      kCompressedSecondaryCacheName) == 0) {
+    use_compressed_secondary_cache = true;
+    size_t standalone_pool_capacity =
+        static_cast<CompressedSecondaryCache*>(secondary_cache_.get())
+            ->GetStandalonePoolCapacity();
+    standalone_pool_capacity_per_shard =
+        (standalone_pool_capacity + (num_shards_ - 1)) / num_shards_;
+  }
+
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i]) LRUCacheShard(
         per_shard, strict_capacity_limit, high_pri_pool_ratio,
         low_pri_pool_ratio, use_adaptive_mutex, metadata_charge_policy,
-        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
+        /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache,
+        use_compressed_secondary_cache, standalone_pool_capacity_per_shard);
   }
   secondary_cache_ = secondary_cache;
-  if (secondary_cache_ && std::strcmp(secondary_cache_->Name(),
-                                      kCompressedSecondaryCacheName) == 0) {
-    use_compressed_secondary_cache_ = true;
-    standalone_pool_capacity_ =
-        static_cast<CompressedSecondaryCache*>(secondary_cache_.get())
-            ->GetStandalonePoolCapacity();
-  }
 }
 
 LRUCache::~LRUCache() {
