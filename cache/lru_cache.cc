@@ -124,14 +124,14 @@ LRUCacheShard::LRUCacheShard(
       high_pri_pool_capacity_(0),
       low_pri_pool_ratio_(low_pri_pool_ratio),
       low_pri_pool_capacity_(0),
+      use_compressed_secondary_cache_(use_compressed_secondary_cache),
+      standalone_pool_capacity_(standalone_pool_capacity),
+      standalone_pool_usage_(0),
       table_(max_upper_hash_bits),
       usage_(0),
       lru_usage_(0),
       mutex_(use_adaptive_mutex),
-      secondary_cache_(secondary_cache),
-      use_compressed_secondary_cache_(use_compressed_secondary_cache),
-      standalone_pool_capacity_(standalone_pool_capacity),
-      standalone_pool_usage_(0) {
+      secondary_cache_(secondary_cache) {
   set_metadata_charge_policy(metadata_charge_policy);
   // Make empty circular linked list.
   lru_.next = &lru_;
