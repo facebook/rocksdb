@@ -780,6 +780,8 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+#ifndef ROCKSDB_LITE
+
 // Tests a `WriteBufferManager` constructed with `allow_stall == false` does not
 // thrash memtable switching when full and a CF receives multiple writes.
 // Instead, we expect to switch a CF's memtable for flush only when that CF does
@@ -788,6 +790,8 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 // This test uses multiple DBs each with a single CF instead of a single DB
 // with multiple CFs. That way we can control which CF is considered for switch
 // by writing to that CF's DB.
+//
+// Not supported in LITE mode due to `GetProperty()` unavailable.
 TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   Options options = CurrentOptions();
   options.arena_block_size = 4 << 10;   // 4KB
@@ -841,6 +845,8 @@ TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
   ASSERT_OK(DestroyDB(dbname, options));
   delete shared_wbm_db;
 }
+
+#endif  // ROCKSDB_LITE
 
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());
