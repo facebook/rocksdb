@@ -2070,7 +2070,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     size_t size = 0;
     if (s.ok()) {
       if (get_impl_options.get_value) {
-        size = get_impl_options.value->size();
+        if (get_impl_options.value) {  // FIXME
+          size = get_impl_options.value->size();
+        }
       } else {
         // Return all merge operands for get_impl_options.key
         *get_impl_options.number_of_operands =
