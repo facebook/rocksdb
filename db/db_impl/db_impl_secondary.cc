@@ -399,8 +399,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
-                 lkey, pinnable_val->GetSelf(), ts, &s, &merge_context,
-                 &max_covering_tombstone_seq, read_options, &read_cb)) {
+                 lkey, pinnable_val->GetSelf(), /*columns=*/nullptr, ts, &s,
+                 &merge_context, &max_covering_tombstone_seq, read_options,
+                 &read_cb)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);

@@ -105,14 +105,15 @@ int MemTableList::NumFlushed() const {
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
+                              PinnableWideColumns* columns,
                               std::string* timestamp, Status* s,
                               MergeContext* merge_context,
                               SequenceNumber* max_covering_tombstone_seq,
                               SequenceNumber* seq, const ReadOptions& read_opts,
                               ReadCallback* callback, bool* is_blob_index) {
-  return GetFromList(&memlist_, key, value, timestamp, s, merge_context,
-                     max_covering_tombstone_seq, seq, read_opts, callback,
-                     is_blob_index);
+  return GetFromList(&memlist_, key, value, columns, timestamp, s,
+                     merge_context, max_covering_tombstone_seq, seq, read_opts,
+                     callback, is_blob_index);
 }
 
 void MemTableListVersion::MultiGet(const ReadOptions& read_options,
@@ -143,29 +144,31 @@ bool MemTableListVersion::GetMergeOperands(
 }
 
 bool MemTableListVersion::GetFromHistory(
-    const LookupKey& key, std::string* value, std::string* timestamp, Status* s,
-    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
-    SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
-  return GetFromList(&memlist_history_, key, value, timestamp, s, merge_context,
-                     max_covering_tombstone_seq, seq, read_opts,
+    const LookupKey& key, std::string* value, PinnableWideColumns* columns,
+    std::string* timestamp, Status* s, MergeContext* merge_context,
+    SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
+    const ReadOptions& read_opts, bool* is_blob_index) {
+  return GetFromList(&memlist_history_, key, value, columns, timestamp, s,
+                     merge_context, max_covering_tombstone_seq, seq, read_opts,
                      nullptr /*read_callback*/, is_blob_index);
 }
 
 bool MemTableListVersion::GetFromList(
     std::list<MemTable*>* list, const LookupKey& key, std::string* value,
-    std::string* timestamp, Status* s, MergeContext* merge_context,
-    SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-    const ReadOptions& read_opts, ReadCallback* callback, bool* is_blob_index) {
+    PinnableWideColumns* columns, std::string* timestamp, Status* s,
+    MergeContext* merge_context, SequenceNumber* max_covering_tombstone_seq,
+    SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback,
+    bool* is_blob_index) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
     assert(memtable->IsFragmentedRangeTombstonesConstructed());
     SequenceNumber current_seq = kMaxSequenceNumber;
 
-    bool done = memtable->Get(
-        key, value, /*columns=*/nullptr, timestamp, s, merge_context,
-        max_covering_tombstone_seq, &current_seq, read_opts,
-        true /* immutable_memtable */, callback, is_blob_index);
+    bool done =
+        memtable->Get(key, value, columns, timestamp, s, merge_context,
+                      max_covering_tombstone_seq, &current_seq, read_opts,
+                      true /* immutable_memtable */, callback, is_blob_index);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to

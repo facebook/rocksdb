@@ -2012,9 +2012,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->Get(lkey, value, timestamp, &s, &merge_context,
-                              &max_covering_tombstone_seq, read_options,
-                              get_impl_options.callback,
+                 sv->imm->Get(lkey, value, get_impl_options.columns, timestamp,
+                              &s, &merge_context, &max_covering_tombstone_seq,
+                              read_options, get_impl_options.callback,
                               get_impl_options.is_blob_index)) {
         done = true;
 
@@ -2287,8 +2287,8 @@ std::vector<Status> DBImpl::MultiGet(
               false /* immutable_memtable */, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if (super_version->imm->Get(lkey, value, timestamp, &s,
-                                         &merge_context,
+      } else if (super_version->imm->Get(lkey, value, /*columns=*/nullptr,
+                                         timestamp, &s, &merge_context,
                                          &max_covering_tombstone_seq,
                                          read_options, read_callback)) {
         done = true;
@@ -4924,8 +4924,8 @@ Status DBImpl::GetLatestSequenceForKey(
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, /*value=*/nullptr, timestamp, &s, &merge_context,
-               &max_covering_tombstone_seq, seq, read_options,
+  sv->imm->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
+               &merge_context, &max_covering_tombstone_seq, seq, read_options,
                nullptr /*read_callback*/, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
@@ -4956,9 +4956,10 @@ Status DBImpl::GetLatestSequenceForKey(
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->GetFromHistory(lkey, /*value=*/nullptr, timestamp, &s,
-                          &merge_context, &max_covering_tombstone_seq, seq,
-                          read_options, is_blob_index);
+  sv->imm->GetFromHistory(lkey, /*value=*/nullptr, /*columns=*/nullptr,
+                          timestamp, &s, &merge_context,
+                          &max_covering_tombstone_seq, seq, read_options,
+                          is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
