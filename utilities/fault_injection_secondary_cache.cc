@@ -10,6 +10,59 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+void FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(
+    FaultInjectionSecondaryCache::ResultHandle* handle) {
+  ErrorContext* ctx = handle->cache_->GetErrorContext();
+  if (!ctx->rand.OneIn(handle->cache_->prob_)) {
+    handle->value_ = handle->base_->Value();
+    handle->size_ = handle->base_->Size();
+  }
+  handle->base_.reset();
+}
+
+bool FaultInjectionSecondaryCache::ResultHandle::IsReady() {
+  bool ready = true;
+  if (base_) {
+    ready = base_->IsReady();
+    if (ready) {
+      UpdateHandleValue(this);
+    }
+  }
+  return ready;
+}
+
+void FaultInjectionSecondaryCache::ResultHandle::Wait() {
+  base_->Wait();
+  UpdateHandleValue(this);
+}
+
+void* FaultInjectionSecondaryCache::ResultHandle::Value() { return value_; }
+
+size_t FaultInjectionSecondaryCache::ResultHandle::Size() { return size_; }
+
+void FaultInjectionSecondaryCache::ResultHandle::WaitAll(
+    FaultInjectionSecondaryCache* cache,
+    std::vector<SecondaryCacheResultHandle*> handles) {
+  std::vector<SecondaryCacheResultHandle*> base_handles;
+  for (SecondaryCacheResultHandle* hdl : handles) {
+    FaultInjectionSecondaryCache::ResultHandle* handle =
+        static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
+    if (!handle->base_) {
+      continue;
+    }
+    base_handles.emplace_back(handle->base_.get());
+  }
+
+  cache->base_->WaitAll(base_handles);
+  for (SecondaryCacheResultHandle* hdl : handles) {
+    FaultInjectionSecondaryCache::ResultHandle* handle =
+        static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
+    if (handle->base_) {
+      UpdateHandleValue(handle);
+    }
+  }
+}
+
 FaultInjectionSecondaryCache::ErrorContext*
 FaultInjectionSecondaryCache::GetErrorContext() {
   ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
@@ -35,12 +88,21 @@ std::unique_ptr<SecondaryCacheResultHandle>
 FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      const Cache::CreateCallback& create_cb,
                                      bool wait, bool& is_in_sec_cache) {
-  std::unique_ptr<SecondaryCacheResultHandle> hdl;
   ErrorContext* ctx = GetErrorContext();
-  if (ctx->rand.OneIn(prob_)) {
-    return nullptr;
+  if (base_is_compressed_sec_cache_) {
+    if (ctx->rand.OneIn(prob_)) {
+      return nullptr;
+    } else {
+      return base_->Lookup(key, create_cb, wait, is_in_sec_cache);
+    }
   } else {
-    return base_->Lookup(key, create_cb, wait, is_in_sec_cache);
+    std::unique_ptr<SecondaryCacheResultHandle> hdl =
+        base_->Lookup(key, create_cb, wait, is_in_sec_cache);
+    if (wait && ctx->rand.OneIn(prob_)) {
+      hdl.reset();
+    }
+    return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(
+        new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl)));
   }
 }
 
@@ -50,16 +112,19 @@ void FaultInjectionSecondaryCache::Erase(const Slice& key) {
 
 void FaultInjectionSecondaryCache::WaitAll(
     std::vector<SecondaryCacheResultHandle*> handles) {
-  ErrorContext* ctx = GetErrorContext();
-  std::vector<SecondaryCacheResultHandle*> base_handles;
-  for (SecondaryCacheResultHandle* hdl : handles) {
-    if (ctx->rand.OneIn(prob_)) {
-      continue;
+  if (base_is_compressed_sec_cache_) {
+    ErrorContext* ctx = GetErrorContext();
+    std::vector<SecondaryCacheResultHandle*> base_handles;
+    for (SecondaryCacheResultHandle* hdl : handles) {
+      if (ctx->rand.OneIn(prob_)) {
+        continue;
+      }
+      base_handles.push_back(hdl);
     }
-    base_handles.push_back(hdl);
+    base_->WaitAll(base_handles);
+  } else {
+    FaultInjectionSecondaryCache::ResultHandle::WaitAll(this, handles);
   }
-
-  base_->WaitAll(base_handles);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
