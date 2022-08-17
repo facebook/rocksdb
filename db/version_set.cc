@@ -421,7 +421,6 @@ class FilePickerMultiGet {
         user_comparator_(other.user_comparator_),
         internal_comparator_(other.internal_comparator_),
         hit_file_(nullptr) {
-    assert(curr_level_ >= 0);
     PrepareNextLevelForSearch();
   }
 
@@ -2235,7 +2234,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   if (read_options.async_io && using_coroutines()) {
     s = MultiGetAsync(read_options, range, &blob_ctxs);
   } else
-#endif // USE_COROUTINES
+#endif  // USE_COROUTINES
   {
     MultiGetRange file_picker_range(*range, range->begin(), range->end());
     FilePickerMultiGet fp(&file_picker_range, &storage_info_.level_files_brief_,
