@@ -82,8 +82,9 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   std::string GetPrintableOptions() const override;
 
-  double GetStandalonePoolCapacity() {
-    return cache_options_.capacity * cache_options_.standalone_pool_ratio;
+  size_t GetStandalonePoolCapacity() {
+    return (size_t)(cache_options_.capacity *
+                    cache_options_.standalone_pool_ratio);
   }
 
  private:
