@@ -21,10 +21,10 @@ void LogBuffer::AddLogToBuffer(size_t max_log_size, const char* format,
     return;
   }
 
-  char* alloc_mem = arena_.AllocateAligned(max_log_size);
+  char* alloc_mem = arena_.AllocateAligned(max_log_size + sizeof(BufferedLog));
   BufferedLog* buffered_log = new (alloc_mem) BufferedLog();
   char* p = buffered_log->message;
-  char* limit = alloc_mem + max_log_size - 1;
+  char* limit = alloc_mem + sizeof(BufferedLog) + max_log_size - 1;
 
   // store the time
   port::GetTimeOfDay(&(buffered_log->now_tv), nullptr);
