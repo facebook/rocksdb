@@ -2053,8 +2053,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
-        read_options, lkey, get_impl_options.value, timestamp, &s,
-        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
+        read_options, lkey, get_impl_options.value, get_impl_options.columns,
+        timestamp, &s, &merge_context, &max_covering_tombstone_seq,
+        &pinned_iters_mgr,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
@@ -2299,9 +2300,9 @@ std::vector<Status> DBImpl::MultiGet(
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
       PinnedIteratorsManager pinned_iters_mgr;
-      super_version->current->Get(read_options, lkey, &pinnable_val, timestamp,
-                                  &s, &merge_context,
-                                  &max_covering_tombstone_seq,
+      super_version->current->Get(read_options, lkey, &pinnable_val,
+                                  /*columns=*/nullptr, timestamp, &s,
+                                  &merge_context, &max_covering_tombstone_seq,
                                   &pinned_iters_mgr, /*value_found=*/nullptr,
                                   /*key_exists=*/nullptr,
                                   /*seq=*/nullptr, read_callback);
@@ -4992,8 +4993,8 @@ Status DBImpl::GetLatestSequenceForKey(
   if (!cache_only) {
     // Check tables
     PinnedIteratorsManager pinned_iters_mgr;
-    sv->current->Get(read_options, lkey, /*value=*/nullptr, timestamp, &s,
-                     &merge_context, &max_covering_tombstone_seq,
+    sv->current->Get(read_options, lkey, /*value=*/nullptr, /*columns=*/nullptr,
+                     timestamp, &s, &merge_context, &max_covering_tombstone_seq,
                      &pinned_iters_mgr, nullptr /* value_found */,
                      found_record_for_key, seq, nullptr /*read_callback*/,
                      is_blob_index);

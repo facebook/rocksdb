@@ -95,8 +95,8 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
     PERF_TIMER_GUARD(get_from_output_files_time);
     PinnedIteratorsManager pinned_iters_mgr;
     super_version->current->Get(
-        read_options, lkey, pinnable_val, ts, &s, &merge_context,
-        &max_covering_tombstone_seq, &pinned_iters_mgr,
+        read_options, lkey, pinnable_val, /*columns=*/nullptr, ts, &s,
+        &merge_context, &max_covering_tombstone_seq, &pinned_iters_mgr,
         /*value_found*/ nullptr,
         /*key_exists*/ nullptr, /*seq*/ nullptr, &read_cb,
         /*is_blob*/ nullptr,
