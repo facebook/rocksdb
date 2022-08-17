@@ -72,9 +72,9 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
       user_comparator_->timestamp_size() > 0 ? timestamp : nullptr;
   LookupKey lkey(key, kMaxSequenceNumber, options.timestamp);
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, lkey.user_key(), value, ts,
-                         nullptr, nullptr, true, nullptr, nullptr, nullptr,
-                         nullptr, &read_cb);
+                         GetContext::kNotFound, lkey.user_key(), value,
+                         /*columns=*/nullptr, ts, nullptr, nullptr, true,
+                         nullptr, nullptr, nullptr, nullptr, &read_cb);
 
   const FdWithKeyRange& f = files_.files[FindFile(lkey.user_key())];
   if (user_comparator_->CompareWithoutTimestamp(
@@ -159,7 +159,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(
       std::string* timestamp = timestamps ? &(*timestamps)[idx] : nullptr;
       GetContext get_context(
           user_comparator_, nullptr, nullptr, nullptr, GetContext::kNotFound,
-          lkey.user_key(), &pinnable_val,
+          lkey.user_key(), &pinnable_val, /*columns=*/nullptr,
           user_comparator_->timestamp_size() > 0 ? timestamp : nullptr, nullptr,
           nullptr, true, nullptr, nullptr, nullptr, nullptr, &read_cb);
       Status s = r->Get(options, lkey.internal_key(), &get_context, nullptr);
