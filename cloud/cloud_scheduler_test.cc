@@ -8,12 +8,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <iostream>
 #include <mutex>
 #include <thread>
 #include <unordered_set>
 
-#include "test_util/testharness.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -23,7 +22,7 @@ class CloudSchedulerTest : public testing::Test {
   ~CloudSchedulerTest() {}
 
   std::shared_ptr<CloudScheduler> scheduler_;
-  void WaitForJobs(const std::vector<long> &jobs, uint32_t delay) {
+  void WaitForJobs(const std::vector<long> &jobs, uint32_t delayMicros) {
     bool running = true;
     while (running) {
       running = false;
@@ -34,7 +33,7 @@ class CloudSchedulerTest : public testing::Test {
         }
       }
       if (running) {
-        usleep(delay);
+        usleep(delayMicros);
       }
     }
   }
@@ -172,6 +171,39 @@ TEST_F(CloudSchedulerTest, TestLongRunningJobCancel) {
 
   scheduler_->CancelJob(handle);
   ASSERT_EQ(status.load(), JobStatus::FINISHED);
+}
+
+// Once cloud scheduler is destructed, jobs shouldn't be erased after it's scheduled
+TEST(CloudSchedulerRaceTest, SkipJobEraseOnceDestructedTest) {
+  // Verify that cloud scheduler can handle the race between LocalCloudScheduler destruction
+  // and job cleanup after execution. 
+  // Use SyncPoint to define related execution order:
+  // - Destructor called
+  // - job scheduled to execute
+  // - job execution is done, job erased
+  // - Destruction is still ongoing
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"LocalCloudScheduler::~LocalCloudScheduler:BeforeCancelJobs1",
+        "LocalCloudScheduler::ScheduleJob:BeforeEraseJob"},
+        {"LocalCloudScheduler::ScheduleJob:AfterEraseJob",
+        "LocalCloudScheduler::~LocalCloudScheduler:BeforeCancelJobs2"
+        }
+        });
+  SyncPoint::GetInstance()->SetCallBack(
+      "LocalCloudScheduler::ScheduleJob::AfterEraseJob", [](void *arg) {
+        ASSERT_NE(nullptr, arg);
+        auto job_erased = *reinterpret_cast<bool *>(arg);
+        EXPECT_FALSE(job_erased);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  {
+    auto scheduler = CloudScheduler::Get();
+    auto job = [](void *) {};
+    scheduler->ScheduleJob(std::chrono::milliseconds(10), job, nullptr);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  //  namespace ROCKSDB_NAMESPACE
