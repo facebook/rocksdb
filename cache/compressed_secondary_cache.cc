@@ -20,15 +20,17 @@ CompressedSecondaryCache::CompressedSecondaryCache(
     double high_pri_pool_ratio, double low_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
-    CompressionType compression_type, uint32_t compress_format_version)
+    CompressionType compression_type, uint32_t compress_format_version,
+    double standalone_pool_ratio)
     : cache_options_(capacity, num_shard_bits, strict_capacity_limit,
-                     high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                     metadata_charge_policy, compression_type,
-                     compress_format_version, low_pri_pool_ratio) {
-  cache_ =
-      NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
-                  high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                  metadata_charge_policy, low_pri_pool_ratio);
+                     high_pri_pool_ratio, low_pri_pool_ratio, memory_allocator,
+                     use_adaptive_mutex, metadata_charge_policy,
+                     compression_type, compress_format_version,
+                     standalone_pool_ratio) {
+  cache_ = NewLRUCache(capacity * (1 - standalone_pool_ratio), num_shard_bits,
+                       strict_capacity_limit, high_pri_pool_ratio,
+                       memory_allocator, use_adaptive_mutex,
+                       metadata_charge_policy, low_pri_pool_ratio);
 }
 
 CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
@@ -145,6 +147,9 @@ std::string CompressedSecondaryCache::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "    compress_format_version : %d\n",
            cache_options_.compress_format_version);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "    standalone_pool_ratio: %.3lf\n",
+           cache_options_.standalone_pool_ratio);
+  ret.append(buffer);
   return ret;
 }
 
@@ -231,15 +236,26 @@ void CompressedSecondaryCache::DeletionCallback(const Slice& /*key*/,
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
-    double high_pri_pool_ratio,
+    double high_pri_pool_ratio, double low_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
-    double low_pri_pool_ratio) {
+    double standalone_pool_ratio) {
+  if (capacity <= 0) {
+    // Invalid capacity.
+    return nullptr;
+  }
+
+  if (standalone_pool_ratio < 0.0 || standalone_pool_ratio > 1.0) {
+    // Invalid standalone_pool_ratio.
+    return nullptr;
+  }
+
   return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-      metadata_charge_policy, compression_type, compress_format_version);
+      metadata_charge_policy, compression_type, compress_format_version,
+      standalone_pool_ratio);
 }
 
 std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
@@ -248,9 +264,10 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
   assert(opts.secondary_cache == nullptr);
   return NewCompressedSecondaryCache(
       opts.capacity, opts.num_shard_bits, opts.strict_capacity_limit,
-      opts.high_pri_pool_ratio, opts.memory_allocator, opts.use_adaptive_mutex,
-      opts.metadata_charge_policy, opts.compression_type,
-      opts.compress_format_version, opts.low_pri_pool_ratio);
+      opts.high_pri_pool_ratio, opts.low_pri_pool_ratio, opts.memory_allocator,
+      opts.use_adaptive_mutex, opts.metadata_charge_policy,
+      opts.compression_type, opts.compress_format_version,
+      opts.standalone_pool_ratio);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -18,6 +18,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+constexpr char kCompressedSecondaryCacheName[] = "CompressedSecondaryCache";
+
 class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
   CompressedSecondaryCacheResultHandle(void* value, size_t size)
@@ -62,10 +64,10 @@ class CompressedSecondaryCache : public SecondaryCache {
       CacheMetadataChargePolicy metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy,
       CompressionType compression_type = CompressionType::kLZ4Compression,
-      uint32_t compress_format_version = 2);
+      uint32_t compress_format_version = 2, double standalone_pool_ratio = 0.3);
   virtual ~CompressedSecondaryCache() override;
 
-  const char* Name() const override { return "CompressedSecondaryCache"; }
+  const char* Name() const override { return kCompressedSecondaryCacheName; }
 
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override;
@@ -79,6 +81,10 @@ class CompressedSecondaryCache : public SecondaryCache {
   void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
 
   std::string GetPrintableOptions() const override;
+
+  double GetStandalonePoolCapacity() {
+    return cache_options_.capacity * cache_options_.standalone_pool_ratio;
+  }
 
  private:
   friend class CompressedSecondaryCacheTest;
