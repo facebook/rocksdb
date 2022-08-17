@@ -867,6 +867,7 @@ static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
   Saver* s = reinterpret_cast<Saver*>(arg);
   assert(s != nullptr);
+  assert(!s->value || !s->columns);
 
   if (s->protection_bytes_per_key > 0) {
     *(s->status) = MemTable::VerifyEntryChecksum(
@@ -958,7 +959,7 @@ static bool SaveValue(void* arg, const char* entry) {
           // raw merge operands to the user
           merge_context->PushOperand(
               v, s->inplace_update_support == false /* operand_pinned */);
-        } else if (s->value != nullptr) {
+        } else if (s->value) {
           if (type != kTypeWideColumnEntity) {
             assert(type == kTypeValue || type == kTypeBlobIndex);
             s->value->assign(v.data(), v.size());
@@ -970,7 +971,19 @@ static bool SaveValue(void* arg, const char* entry) {
               s->value->assign(value.data(), value.size());
             }
           }
+        } else if (s->columns) {
+          s->columns->value.PinSelf(v);
+
+          if (type != kTypeWideColumnEntity) {
+            assert(type == kTypeValue || type == kTypeBlobIndex);
+            s->columns->columns =
+                WideColumns{{kDefaultWideColumnName, s->columns->value}};
+          } else {
+            *(s->status) =
+                WideColumnSerialization::Deserialize(v, s->columns->columns);
+          }
         }
+
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
