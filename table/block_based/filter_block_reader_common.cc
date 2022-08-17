@@ -68,6 +68,7 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
     bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
     CachableEntry<TBlocklike>* filter_block, BlockType block_type,
+    Env::IOPriority rate_limiter_priority,
     const ReadOptions& read_options) const {
   assert(filter_block);
 
@@ -77,6 +78,7 @@ Status FilterBlockReaderCommon<TBlocklike>::GetOrReadFilterBlock(
   }
 
   ReadOptions ro = read_options;
+  ro.rate_limiter_priority = rate_limiter_priority;
   if (no_io) {
     ro.read_tier = kBlockCacheTier;
   }
@@ -101,7 +103,8 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
     bool need_upper_bound_check, bool no_io,
-    BlockCacheLookupContext* lookup_context) {
+    BlockCacheLookupContext* lookup_context,
+    Env::IOPriority rate_limiter_priority) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key_without_ts)) {
     *filter_checked = false;
     return true;
@@ -114,7 +117,8 @@ bool FilterBlockReaderCommon<TBlocklike>::RangeMayExist(
   } else {
     *filter_checked = true;
     return PrefixMayMatch(prefix, no_io, const_ikey_ptr,
-                          /* get_context */ nullptr, lookup_context);
+                          /* get_context */ nullptr, lookup_context,
+                          rate_limiter_priority);
   }
 }
 

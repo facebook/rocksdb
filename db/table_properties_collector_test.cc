@@ -281,7 +281,7 @@ void TestCustomizedTablePropertiesCollector(
     builder->Add(ikey.Encode(), kv.second);
   }
   ASSERT_OK(builder->Finish());
-  writer->Flush();
+  ASSERT_OK(writer->Flush());
 
   // -- Step 2: Read properties
   test::StringSink* fwf =
@@ -421,7 +421,7 @@ void TestInternalKeyPropertiesCollector(
     }
 
     ASSERT_OK(builder->Finish());
-    writable->Flush();
+    ASSERT_OK(writable->Flush());
 
     test::StringSink* fwf =
         static_cast<test::StringSink*>(writable->writable_file());

@@ -77,7 +77,7 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   options.compression = kNoCompression;
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   assert(s.ok());
   assert(db);
@@ -128,7 +128,7 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   ASSERT_NE(db, nullptr);
@@ -211,7 +211,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   ASSERT_NE(db, nullptr);
@@ -250,7 +250,7 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   assert(s.ok());
   assert(db);
@@ -288,7 +288,7 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   assert(db);
@@ -366,7 +366,7 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   options.compaction_filter = cf.get();
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
 
@@ -404,7 +404,7 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
        {CompactionStyle::kCompactionStyleLevel,
         CompactionStyle::kCompactionStyleUniversal,
         CompactionStyle::kCompactionStyleNone}) {
-    DestroyDB(db_name_, Options());
+    ASSERT_OK(DestroyDB(db_name_, Options()));
     Options options;
     options.compaction_style = compaction_style;
     // L0: Snappy, L1: ZSTD, L2: Snappy
@@ -458,7 +458,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   options.listeners.emplace_back(collector);
 
   DB* db = nullptr;
-  DestroyDB(db_name_, options);
+  ASSERT_OK(DestroyDB(db_name_, options));
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
   assert(db);

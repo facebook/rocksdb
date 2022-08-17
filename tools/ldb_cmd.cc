@@ -102,6 +102,8 @@ const std::string LDBCommand::ARG_BLOB_COMPACTION_READAHEAD_SIZE =
     "blob_compaction_readahead_size";
 const std::string LDBCommand::ARG_BLOB_FILE_STARTING_LEVEL =
     "blob_file_starting_level";
+const std::string LDBCommand::ARG_PREPOPULATE_BLOB_CACHE =
+    "prepopulate_blob_cache";
 const std::string LDBCommand::ARG_DECODE_BLOB_INDEX = "decode_blob_index";
 const std::string LDBCommand::ARG_DUMP_UNCOMPRESSED_BLOBS =
     "dump_uncompressed_blobs";
@@ -115,7 +117,8 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  LDBCommandExecuteResult* exec_state);
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties, bool decode_blob_index);
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key = "", std::string to_key = "");
 
 void DumpBlobFile(const std::string& filename, bool is_key_hex,
                   bool is_value_hex, bool dump_uncompressed_blobs);
@@ -556,6 +559,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD,
                                   ARG_BLOB_COMPACTION_READAHEAD_SIZE,
                                   ARG_BLOB_FILE_STARTING_LEVEL,
+                                  ARG_PREPOPULATE_BLOB_CACHE,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -830,6 +834,23 @@ void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_BLOB_FILE_STARTING_LEVEL + " must be >= 0.");
+    }
+  }
+
+  int prepopulate_blob_cache;
+  if (ParseIntOption(option_map_, ARG_PREPOPULATE_BLOB_CACHE,
+                     prepopulate_blob_cache, exec_state_)) {
+    switch (prepopulate_blob_cache) {
+      case 0:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+        break;
+      case 1:
+        cf_opts->prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+        break;
+      default:
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            ARG_PREPOPULATE_BLOB_CACHE +
+            " must be 0 (disable) or 1 (flush only).");
     }
   }
 
@@ -2025,7 +2046,7 @@ void DBDumperCommand::DoCommand() {
         break;
       case kTableFile:
         DumpSstFile(options_, path_, is_key_hex_, /* show_properties */ true,
-                    decode_blob_index_);
+                    decode_blob_index_, from_, to_);
         break;
       case kDescriptorFile:
         DumpManifestFile(options_, path_, /* verbose_ */ false, is_key_hex_,
@@ -3582,9 +3603,8 @@ void RestoreCommand::DoCommand() {
 namespace {
 
 void DumpSstFile(Options options, std::string filename, bool output_hex,
-                 bool show_properties, bool decode_blob_index) {
-  std::string from_key;
-  std::string to_key;
+                 bool show_properties, bool decode_blob_index,
+                 std::string from_key, std::string to_key) {
   if (filename.length() <= 4 ||
       filename.rfind(".sst") != filename.length() - 4) {
     std::cout << "Invalid sst file name." << std::endl;
@@ -3596,9 +3616,8 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
       2 * 1024 * 1024 /* readahead_size */,
       /* verify_checksum */ false, output_hex, decode_blob_index);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
-                                    false,            // has_from
-                                    from_key, false,  // has_to
-                                    to_key);
+                                    !from_key.empty(), from_key,
+                                    !to_key.empty(), to_key);
   if (!st.ok()) {
     std::cerr << "Error in reading SST file " << filename << st.ToString()
               << std::endl;

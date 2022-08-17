@@ -125,7 +125,7 @@ EOF
 
 # To check for DB forward compatibility with loading options (old version
 # reading data from new), as well as backward compatibility
-declare -a db_forward_with_options_refs=("6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb")
+declare -a db_forward_with_options_refs=("6.6.fb" "6.7.fb" "6.8.fb" "6.9.fb" "6.10.fb" "6.11.fb" "6.12.fb" "6.13.fb" "6.14.fb" "6.15.fb" "6.16.fb" "6.17.fb" "6.18.fb" "6.19.fb" "6.20.fb" "6.21.fb" "6.22.fb" "6.23.fb" "6.24.fb" "6.25.fb" "6.26.fb" "6.27.fb" "6.28.fb" "6.29.fb" "7.0.fb" "7.1.fb" "7.2.fb" "7.3.fb" "7.4.fb" "7.5.fb")
 # To check for DB forward compatibility without loading options (in addition
 # to the "with loading options" set), as well as backward compatibility
 declare -a db_forward_no_options_refs=() # N/A at the moment
@@ -174,7 +174,7 @@ done
 generate_db()
 {
     set +e
-    $script_copy_dir/generate_random_db.sh $1 $2
+    bash "$script_copy_dir"/generate_random_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error loading data from $2 to $1 ====
         exit 1
@@ -185,7 +185,7 @@ generate_db()
 compare_db()
 {
     set +e
-    $script_copy_dir/verify_random_db.sh $1 $2 $3 $4 $5
+    bash "$script_copy_dir"/verify_random_db.sh "$1" "$2" "$3" "$4" "$5"
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
         exit 1
@@ -196,7 +196,7 @@ compare_db()
 write_external_sst()
 {
     set +e
-    $script_copy_dir/write_external_sst.sh $1 $2 $3
+    bash "$script_copy_dir"/write_external_sst.sh "$1" "$2" "$3"
     if [ $? -ne 0 ]; then
         echo ==== Error writing external SST file using data from $1 to $3 ====
         exit 1
@@ -207,7 +207,7 @@ write_external_sst()
 ingest_external_sst()
 {
     set +e
-    $script_copy_dir/ingest_external_sst.sh $1 $2
+    bash "$script_copy_dir"/ingest_external_sst.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error ingesting external SST in $2 to DB at $1 ====
         exit 1
@@ -218,7 +218,7 @@ ingest_external_sst()
 backup_db()
 {
     set +e
-    $script_copy_dir/backup_db.sh $1 $2
+    bash "$script_copy_dir"/backup_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error backing up DB $1 to $2 ====
         exit 1
@@ -229,7 +229,7 @@ backup_db()
 restore_db()
 {
     set +e
-    $script_copy_dir/restore_db.sh $1 $2
+    bash "$script_copy_dir"/restore_db.sh "$1" "$2"
     if [ $? -ne 0 ]; then
         echo ==== Error restoring from $1 to $2 ====
         exit 1

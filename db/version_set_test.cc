@@ -50,8 +50,7 @@ class GenerateLevelFilesBriefTest : public testing::Test {
         largest_seq, /* marked_for_compact */ false, Temperature::kUnknown,
         kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
         kUnknownFileCreationTime, kUnknownFileChecksum,
-        kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-        kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     files_.push_back(f);
   }
 
@@ -159,8 +158,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         /* largest_seq */ 0, /* marked_for_compact */ false,
         Temperature::kUnknown, oldest_blob_file_number,
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     f->compensated_file_size = file_size;
     vstorage_.AddFile(level, f);
   }
@@ -376,73 +374,80 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_1) {
   ASSERT_EQ(2, vstorage_.base_level());
   // level multiplier should be 3.5
   ASSERT_EQ(vstorage_.level_multiplier(), 5.0);
-  // Level size should be around 30,000, 105,000, 367,500
   ASSERT_EQ(40000U, vstorage_.MaxBytesForLevel(2));
   ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
   ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
+
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  // Only L0 hits compaction.
+  ASSERT_EQ(vstorage_.CompactionScoreLevel(0), 0);
 }
 
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_2) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.max_bytes_for_level_base = 10000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
 
   Add(0, 11U, "1", "2", 10000U);
   Add(0, 12U, "1", "2", 10000U);
   Add(0, 13U, "1", "2", 10000U);
 
+  // Level size should be around 10,000, 10,290, 51,450, 257,250
   Add(5, 4U, "1", "2", 1286250U);
-  Add(4, 5U, "1", "2", 200000U);
-  Add(3, 6U, "1", "2", 40000U);
-  Add(2, 7U, "1", "2", 8000U);
+  Add(4, 5U, "1", "2", 258000U);  // unadjusted score 1.003
+  Add(3, 6U, "1", "2", 53000U);   // unadjusted score 1.03
+  Add(2, 7U, "1", "2", 20000U);   // unadjusted score 1.94
 
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(0, logger_->log_count);
-  ASSERT_EQ(2, vstorage_.base_level());
-  // level multiplier should be 3.5
-  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
-  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
-  // Level size should be around 30,000, 105,000, 367,500
-  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
-  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
-  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+  ASSERT_EQ(1, vstorage_.base_level());
+  ASSERT_EQ(10000U, vstorage_.MaxBytesForLevel(1));
+  ASSERT_EQ(10290U, vstorage_.MaxBytesForLevel(2));
+  ASSERT_EQ(51450U, vstorage_.MaxBytesForLevel(3));
+  ASSERT_EQ(257250U, vstorage_.MaxBytesForLevel(4));
+
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  // Although L2 and l3 have higher unadjusted compaction score, considering
+  // a relatively large L0 being compacted down soon, L4 is picked up for
+  // compaction.
+  // L0 is still picked up for oversizing.
+  ASSERT_EQ(0, vstorage_.CompactionScoreLevel(0));
+  ASSERT_EQ(4, vstorage_.CompactionScoreLevel(1));
 }
 
 TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicWithLargeL0_3) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
-  mutable_cf_options_.max_bytes_for_level_base = 10000;
+  mutable_cf_options_.max_bytes_for_level_base = 20000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 5;
 
-  Add(0, 11U, "1", "2", 5000U);
-  Add(0, 12U, "1", "2", 5000U);
-  Add(0, 13U, "1", "2", 5000U);
-  Add(0, 14U, "1", "2", 5000U);
-  Add(0, 15U, "1", "2", 5000U);
-  Add(0, 16U, "1", "2", 5000U);
+  Add(0, 11U, "1", "2", 2500U);
+  Add(0, 12U, "1", "2", 2500U);
+  Add(0, 13U, "1", "2", 2500U);
+  Add(0, 14U, "1", "2", 2500U);
 
+  // Level size should be around 20,000, 53000, 258000
   Add(5, 4U, "1", "2", 1286250U);
-  Add(4, 5U, "1", "2", 200000U);
-  Add(3, 6U, "1", "2", 40000U);
-  Add(2, 7U, "1", "2", 8000U);
+  Add(4, 5U, "1", "2", 260000U);  // Unadjusted score 1.01, adjusted about 4.3
+  Add(3, 6U, "1", "2", 85000U);   // Unadjusted score 1.42, adjusted about 11.6
+  Add(2, 7U, "1", "2", 30000);    // Unadjusted score 1.5, adjusted about 10.0
 
   UpdateVersionStorageInfo();
 
   ASSERT_EQ(0, logger_->log_count);
   ASSERT_EQ(2, vstorage_.base_level());
-  // level multiplier should be 3.5
-  ASSERT_LT(vstorage_.level_multiplier(), 3.6);
-  ASSERT_GT(vstorage_.level_multiplier(), 3.4);
-  // Level size should be around 30,000, 105,000, 367,500
-  ASSERT_EQ(30000U, vstorage_.MaxBytesForLevel(2));
-  ASSERT_LT(vstorage_.MaxBytesForLevel(3), 110000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 100000U);
-  ASSERT_LT(vstorage_.MaxBytesForLevel(4), 370000U);
-  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 360000U);
+  ASSERT_EQ(20000U, vstorage_.MaxBytesForLevel(2));
+
+  vstorage_.ComputeCompactionScore(ioptions_, mutable_cf_options_);
+  // Although L2 has higher unadjusted compaction score, considering
+  // a relatively large L0 being compacted down soon, L3 is picked up for
+  // compaction.
+
+  ASSERT_EQ(3, vstorage_.CompactionScoreLevel(0));
+  ASSERT_EQ(2, vstorage_.CompactionScoreLevel(1));
+  ASSERT_EQ(4, vstorage_.CompactionScoreLevel(2));
 }
 
 TEST_F(VersionStorageInfoTest, EstimateLiveDataSize) {
@@ -1971,6 +1976,7 @@ TEST_F(VersionSetTest, WalCreateAfterClose) {
 
 TEST_F(VersionSetTest, AddWalWithSmallerSize) {
   NewDB();
+  assert(versions_);
 
   constexpr WalNumber kLogNumber = 10;
   constexpr uint64_t kSizeInBytes = 111;
@@ -1983,6 +1989,9 @@ TEST_F(VersionSetTest, AddWalWithSmallerSize) {
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
   }
+  // Copy for future comparison.
+  const std::map<WalNumber, WalMetadata> wals1 =
+      versions_->GetWalSet().GetWals();
 
   {
     // Add the same WAL with smaller synced size.
@@ -1991,13 +2000,11 @@ TEST_F(VersionSetTest, AddWalWithSmallerSize) {
     edit.AddWal(kLogNumber, wal);
 
     Status s = LogAndApplyToDefaultCF(edit);
-    ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(
-        s.ToString().find(
-            "WAL 10 must not have smaller synced size than previous one") !=
-        std::string::npos)
-        << s.ToString();
+    ASSERT_OK(s);
   }
+  const std::map<WalNumber, WalMetadata> wals2 =
+      versions_->GetWalSet().GetWals();
+  ASSERT_EQ(wals1, wals2);
 }
 
 TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
@@ -3219,16 +3226,15 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
       ASSERT_OK(builder->Finish());
-      fwriter->Flush();
+      ASSERT_OK(fwriter->Flush());
       uint64_t file_size = 0;
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
-      file_metas->emplace_back(
-          file_num, /*file_path_id=*/0, file_size, ikey, ikey, 0, 0, false,
-          Temperature::kUnknown, 0, 0, 0, kUnknownFileChecksum,
-          kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-          kDisableUserTimestamp, kNullUniqueId64x2);
+      file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
+                               ikey, 0, 0, false, Temperature::kUnknown, 0, 0,
+                               0, kUnknownFileChecksum,
+                               kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     }
   }
 
@@ -3283,8 +3289,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestFarBehindSst) {
     FileMetaData meta = FileMetaData(
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3339,8 +3344,7 @@ TEST_F(VersionSetTestMissingFiles, ManifestAheadofSst) {
     FileMetaData meta = FileMetaData(
         file_num, /*file_path_id=*/0, /*file_size=*/12, smallest_ikey,
         largest_ikey, 0, 0, false, Temperature::kUnknown, 0, 0, 0,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName,
-        kDisableUserTimestamp, kDisableUserTimestamp, kNullUniqueId64x2);
+        kUnknownFileChecksum, kUnknownFileChecksumFuncName, kNullUniqueId64x2);
     added_files.emplace_back(0, meta);
   }
   WriteFileAdditionAndDeletionToManifest(
@@ -3522,9 +3526,15 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   // file metadata above. This results in 1 *
   // CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>::GetDummyEntrySize()
   // cache reservation for file metadata.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
+        "ChargeFileMetadataTestWithParam::"
+        "PreVerifyingCacheReservationRelease"}});
+  SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
-
+  TEST_SYNC_POINT(
+      "ChargeFileMetadataTestWithParam::PreVerifyingCacheReservationRelease");
   if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
               1 * CacheReservationManagerImpl<
@@ -3532,6 +3542,7 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   } else {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(), 0);
   }
+  SyncPoint::GetInstance()->DisableProcessing();
 
   // Destroying the db will delete the remaining 1 new file metadata
   // This results in no cache reservation for file metadata.

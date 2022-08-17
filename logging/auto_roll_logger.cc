@@ -94,6 +94,18 @@ void AutoRollLogger::RollLogFile() {
       dbname_, now, db_absolute_path_, db_log_dir_);
     now++;
   } while (fs_->FileExists(old_fname, io_options_, &io_context_).ok());
+  // Wait for logger_ reference count to turn to 1 as it might be pinned by
+  // Flush. Pinned Logger can't be closed till Flush is completed on that
+  // Logger.
+  while (logger_.use_count() > 1) {
+  }
+  // Close the existing logger first to release the existing handle
+  // before renaming the file using the file system. If this call
+  // fails there is nothing much we can do and we will continue with the
+  // rename and hence ignoring the result status.
+  if (logger_) {
+    logger_->Close().PermitUncheckedError();
+  }
   Status s = fs_->RenameFile(log_fname_, old_fname, io_options_, &io_context_);
   if (!s.ok()) {
     // What should we do on error?
@@ -278,11 +290,21 @@ Status CreateLoggerFromOptions(const std::string& dbname,
       InfoLogFileName(dbname, db_absolute_path, options.db_log_dir);
 
   const auto& clock = env->GetSystemClock();
-  // In case it does not exist
+  // In case it does not exist.
   s = env->CreateDirIfMissing(dbname);
   if (!s.ok()) {
-    return s;
+    if (options.db_log_dir.empty()) {
+      return s;
+    } else {
+      // Ignore the error returned during creation of dbname because dbname and
+      // db_log_dir can be on different filesystems in which case dbname will
+      // not exist and error should be ignored. db_log_dir creation will handle
+      // the error in case there is any error in the creation of dbname on same
+      // filesystem.
+      s = Status::OK();
+    }
   }
+  assert(s.ok());
 
   if (!options.db_log_dir.empty()) {
     s = env->CreateDirIfMissing(options.db_log_dir);

@@ -895,12 +895,14 @@ TEST_F(DBWritableFileWriterTest, IOErrorNotification) {
   fwf->CheckCounters(1, 0);
   ASSERT_EQ(listener->NotifyErrorCount(), 1);
 
+  file_writer->reset_seen_error();
   fwf->SetIOError(true);
   ASSERT_NOK(file_writer->Flush());
   fwf->CheckCounters(1, 1);
   ASSERT_EQ(listener->NotifyErrorCount(), 2);
 
   /* No error generation */
+  file_writer->reset_seen_error();
   fwf->SetIOError(false);
   ASSERT_OK(file_writer->Append(std::string(2 * kMb, 'b')));
   ASSERT_EQ(listener->NotifyErrorCount(), 2);

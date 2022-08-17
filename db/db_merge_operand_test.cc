@@ -397,6 +397,48 @@ TEST_F(DBMergeOperandTest, BlobDBGetMergeOperandsBasic) {
   ASSERT_EQ(values[3], "ed");
 }
 
+TEST_F(DBMergeOperandTest, GetMergeOperandsLargeResultOptimization) {
+  // These constants are chosen to trigger the large result optimization
+  // (pinning a bundle of `DBImpl` resources).
+  const int kNumOperands = 1024;
+  const int kOperandLen = 1024;
+
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  std::vector<std::string> expected_merge_operands;
+  expected_merge_operands.reserve(kNumOperands);
+  for (int i = 0; i < kNumOperands; ++i) {
+    expected_merge_operands.emplace_back(rnd.RandomString(kOperandLen));
+    ASSERT_OK(Merge("key", expected_merge_operands.back()));
+  }
+
+  std::vector<PinnableSlice> merge_operands(kNumOperands);
+  GetMergeOperandsOptions merge_operands_info;
+  merge_operands_info.expected_max_number_of_operands = kNumOperands;
+  int num_merge_operands = 0;
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "key", merge_operands.data(),
+                                  &merge_operands_info, &num_merge_operands));
+  ASSERT_EQ(num_merge_operands, kNumOperands);
+
+  // Ensures the large result optimization was used.
+  for (int i = 0; i < kNumOperands; ++i) {
+    ASSERT_TRUE(merge_operands[i].IsPinned());
+  }
+
+  // Add a Flush() to change the `SuperVersion` to challenge the resource
+  // pinning.
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < kNumOperands; ++i) {
+    ASSERT_EQ(expected_merge_operands[i], merge_operands[i]);
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

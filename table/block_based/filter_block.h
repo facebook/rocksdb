@@ -112,16 +112,18 @@ class FilterBlockReader {
   virtual bool KeyMayMatch(const Slice& key, const bool no_io,
                            const Slice* const const_ikey_ptr,
                            GetContext* get_context,
-                           BlockCacheLookupContext* lookup_context) = 0;
+                           BlockCacheLookupContext* lookup_context,
+                           Env::IOPriority rate_limiter_priority) = 0;
 
   virtual void KeysMayMatch(MultiGetRange* range, const bool no_io,
-                            BlockCacheLookupContext* lookup_context) {
+                            BlockCacheLookupContext* lookup_context,
+                            Env::IOPriority rate_limiter_priority) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey_without_ts = iter->ukey_without_ts;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
       if (!KeyMayMatch(ukey_without_ts, no_io, &ikey, get_context,
-                       lookup_context)) {
+                       lookup_context, rate_limiter_priority)) {
         range->SkipKey(iter);
       }
     }
@@ -133,19 +135,22 @@ class FilterBlockReader {
   virtual bool PrefixMayMatch(const Slice& prefix, const bool no_io,
                               const Slice* const const_ikey_ptr,
                               GetContext* get_context,
-                              BlockCacheLookupContext* lookup_context) = 0;
+                              BlockCacheLookupContext* lookup_context,
+                              Env::IOPriority rate_limiter_priority) = 0;
 
   virtual void PrefixesMayMatch(MultiGetRange* range,
                                 const SliceTransform* prefix_extractor,
                                 const bool no_io,
-                                BlockCacheLookupContext* lookup_context) {
+                                BlockCacheLookupContext* lookup_context,
+                                Env::IOPriority rate_limiter_priority) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
       const Slice ukey_without_ts = iter->ukey_without_ts;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
       if (prefix_extractor->InDomain(ukey_without_ts) &&
           !PrefixMayMatch(prefix_extractor->Transform(ukey_without_ts), no_io,
-                          &ikey, get_context, lookup_context)) {
+                          &ikey, get_context, lookup_context,
+                          rate_limiter_priority)) {
         range->SkipKey(iter);
       }
     }
@@ -170,7 +175,8 @@ class FilterBlockReader {
                              const Slice* const const_ikey_ptr,
                              bool* filter_checked, bool need_upper_bound_check,
                              bool no_io,
-                             BlockCacheLookupContext* lookup_context) = 0;
+                             BlockCacheLookupContext* lookup_context,
+                             Env::IOPriority rate_limiter_priority) = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

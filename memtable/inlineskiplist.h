@@ -608,7 +608,7 @@ InlineSkipList<Comparator>::FindRandomEntry() const {
   }
   // There is a special case where x could still be the head_
   // (note that the head_ contains no key).
-  return x == head_ ? head_->Next(0) : x;
+  return x == head_ && head_ != nullptr ? head_->Next(0) : x;
 }
 
 template <class Comparator>

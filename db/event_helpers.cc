@@ -97,7 +97,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
             << "file_number" << fd.GetNumber() << "file_size"
             << fd.GetFileSize() << "file_checksum"
             << Slice(file_checksum).ToString(true) << "file_checksum_func_name"
-            << file_checksum_func_name;
+            << file_checksum_func_name << "smallest_seqno" << fd.smallest_seqno
+            << "largest_seqno" << fd.largest_seqno;
 
     // table_properties
     {
@@ -148,7 +149,19 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.fast_compression_estimated_data_size
               << "db_id" << table_properties.db_id << "db_session_id"
               << table_properties.db_session_id << "orig_file_number"
-              << table_properties.orig_file_number;
+              << table_properties.orig_file_number << "seqno_to_time_mapping";
+
+      if (table_properties.seqno_to_time_mapping.empty()) {
+        jwriter << "N/A";
+      } else {
+        SeqnoToTimeMapping tmp;
+        Status status = tmp.Add(table_properties.seqno_to_time_mapping);
+        if (status.ok()) {
+          jwriter << tmp.ToHumanString();
+        } else {
+          jwriter << "Invalid";
+        }
+      }
 
       // user collected properties
       for (const auto& prop : table_properties.readable_properties) {

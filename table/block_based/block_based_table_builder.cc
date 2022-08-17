@@ -541,7 +541,6 @@ struct BlockBasedTableBuilder::Rep {
     // These are only needed for populating table properties
     props.column_family_id = tbo.column_family_id;
     props.column_family_name = tbo.column_family_name;
-    props.creation_time = tbo.creation_time;
     props.oldest_key_time = tbo.oldest_key_time;
     props.file_creation_time = tbo.file_creation_time;
     props.orig_file_number = tbo.cur_file_num;
@@ -896,12 +895,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
       "BlockBasedTableBuilder::BlockBasedTableBuilder:PreSetupBaseCacheKey",
       const_cast<TableProperties*>(&rep_->props));
 
-  // Extremely large files use atypical cache key encoding, and we don't
-  // know ahead of time how big the file will be. But assuming it's less
-  // than 4TB, we will correctly predict the cache keys.
-  BlockBasedTable::SetupBaseCacheKey(
-      &rep_->props, tbo.db_session_id, tbo.cur_file_num,
-      BlockBasedTable::kMaxFileSizeStandardEncoding, &rep_->base_cache_key);
+  BlockBasedTable::SetupBaseCacheKey(&rep_->props, tbo.db_session_id,
+                                     tbo.cur_file_num, &rep_->base_cache_key);
 
   if (rep_->IsParallelCompressionEnabled()) {
     StartParallelCompression();
@@ -944,7 +939,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
           Status s =
               r->compression_dict_buffer_cache_res_mgr->UpdateCacheReservation(
                   r->data_begin_offset);
-          exceeds_global_block_cache_limit = s.IsIncomplete();
+          exceeds_global_block_cache_limit = s.IsMemoryLimit();
         }
 
         if (exceeds_buffer_limit || exceeds_global_block_cache_limit) {
@@ -2083,6 +2078,12 @@ const char* BlockBasedTableBuilder::GetFileChecksumFuncName() const {
   } else {
     return kUnknownFileChecksumFuncName;
   }
+}
+void BlockBasedTableBuilder::SetSeqnoTimeTableProperties(
+    const std::string& encoded_seqno_to_time_mapping,
+    uint64_t oldest_ancestor_time) {
+  rep_->props.seqno_to_time_mapping = encoded_seqno_to_time_mapping;
+  rep_->props.creation_time = oldest_ancestor_time;
 }
 
 const std::string BlockBasedTable::kObsoleteFilterBlockPrefix = "filter.";

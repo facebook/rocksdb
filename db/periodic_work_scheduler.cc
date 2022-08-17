@@ -11,6 +11,11 @@
 #ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 
+const std::string PeriodicWorkTaskNames::kDumpStats = "dump_st";
+const std::string PeriodicWorkTaskNames::kPersistStats = "pst_st";
+const std::string PeriodicWorkTaskNames::kFlushInfoLog = "flush_info_log";
+const std::string PeriodicWorkTaskNames::kRecordSeqnoTime = "record_seq_time";
+
 PeriodicWorkScheduler::PeriodicWorkScheduler(
     const std::shared_ptr<SystemClock>& clock) {
   timer = std::unique_ptr<Timer>(new Timer(clock.get()));
@@ -24,7 +29,8 @@ Status PeriodicWorkScheduler::Register(DBImpl* dbi,
   timer->Start();
   if (stats_dump_period_sec > 0) {
     bool succeeded = timer->Add(
-        [dbi]() { dbi->DumpStats(); }, GetTaskName(dbi, "dump_st"),
+        [dbi]() { dbi->DumpStats(); },
+        GetTaskName(dbi, PeriodicWorkTaskNames::kDumpStats),
         initial_delay.fetch_add(1) %
             static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond,
         static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond);
@@ -34,7 +40,8 @@ Status PeriodicWorkScheduler::Register(DBImpl* dbi,
   }
   if (stats_persist_period_sec > 0) {
     bool succeeded = timer->Add(
-        [dbi]() { dbi->PersistStats(); }, GetTaskName(dbi, "pst_st"),
+        [dbi]() { dbi->PersistStats(); },
+        GetTaskName(dbi, PeriodicWorkTaskNames::kPersistStats),
         initial_delay.fetch_add(1) %
             static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond,
         static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond);
@@ -42,22 +49,48 @@ Status PeriodicWorkScheduler::Register(DBImpl* dbi,
       return Status::Aborted("Unable to add periodic task PersistStats");
     }
   }
-  bool succeeded = timer->Add(
-      [dbi]() { dbi->FlushInfoLog(); }, GetTaskName(dbi, "flush_info_log"),
-      initial_delay.fetch_add(1) % kDefaultFlushInfoLogPeriodSec *
-          kMicrosInSecond,
-      kDefaultFlushInfoLogPeriodSec * kMicrosInSecond);
+  bool succeeded =
+      timer->Add([dbi]() { dbi->FlushInfoLog(); },
+                 GetTaskName(dbi, PeriodicWorkTaskNames::kFlushInfoLog),
+                 initial_delay.fetch_add(1) % kDefaultFlushInfoLogPeriodSec *
+                     kMicrosInSecond,
+                 kDefaultFlushInfoLogPeriodSec * kMicrosInSecond);
   if (!succeeded) {
-    return Status::Aborted("Unable to add periodic task PersistStats");
+    return Status::Aborted("Unable to add periodic task FlushInfoLog");
   }
   return Status::OK();
 }
 
+Status PeriodicWorkScheduler::RegisterRecordSeqnoTimeWorker(
+    DBImpl* dbi, uint64_t record_cadence_sec) {
+  MutexLock l(&timer_mu_);
+  timer->Start();
+  static std::atomic_uint64_t initial_delay(0);
+  bool succeeded = timer->Add(
+      [dbi]() { dbi->RecordSeqnoToTimeMapping(); },
+      GetTaskName(dbi, PeriodicWorkTaskNames::kRecordSeqnoTime),
+      initial_delay.fetch_add(1) % record_cadence_sec * kMicrosInSecond,
+      record_cadence_sec * kMicrosInSecond);
+  if (!succeeded) {
+    return Status::NotSupported(
+        "Updating seqno to time worker cadence is not supported yet");
+  }
+  return Status::OK();
+}
+
+void PeriodicWorkScheduler::UnregisterRecordSeqnoTimeWorker(DBImpl* dbi) {
+  MutexLock l(&timer_mu_);
+  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kRecordSeqnoTime));
+  if (!timer->HasPendingTask()) {
+    timer->Shutdown();
+  }
+}
+
 void PeriodicWorkScheduler::Unregister(DBImpl* dbi) {
   MutexLock l(&timer_mu_);
-  timer->Cancel(GetTaskName(dbi, "dump_st"));
-  timer->Cancel(GetTaskName(dbi, "pst_st"));
-  timer->Cancel(GetTaskName(dbi, "flush_info_log"));
+  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kDumpStats));
+  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kPersistStats));
+  timer->Cancel(GetTaskName(dbi, PeriodicWorkTaskNames::kFlushInfoLog));
   if (!timer->HasPendingTask()) {
     timer->Shutdown();
   }
@@ -71,8 +104,8 @@ PeriodicWorkScheduler* PeriodicWorkScheduler::Default() {
   return &scheduler;
 }
 
-std::string PeriodicWorkScheduler::GetTaskName(DBImpl* dbi,
-                                               const std::string& func_name) {
+std::string PeriodicWorkScheduler::GetTaskName(
+    const DBImpl* dbi, const std::string& func_name) const {
   std::string db_session_id;
   // TODO: Should this error be ignored?
   dbi->GetDbSessionId(db_session_id).PermitUncheckedError();
@@ -115,6 +148,14 @@ size_t PeriodicWorkTestScheduler::TEST_GetValidTaskNum() const {
     return timer->TEST_GetPendingTaskNum();
   }
   return 0;
+}
+
+bool PeriodicWorkTestScheduler::TEST_HasValidTask(
+    const DBImpl* dbi, const std::string& func_name) const {
+  if (timer == nullptr) {
+    return false;
+  }
+  return timer->TEST_HasVaildTask(GetTaskName(dbi, func_name));
 }
 
 PeriodicWorkTestScheduler::PeriodicWorkTestScheduler(

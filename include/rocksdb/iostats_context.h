@@ -76,6 +76,13 @@ struct IOStatsContext {
   uint64_t cpu_read_nanos;
 
   FileIOByTemperature file_io_stats_by_temperature;
+
+  // It is not consistent that whether iostats follows PerfLevel.Timer counters
+  // follows it but BackupEngine relies on counter metrics to always be there.
+  // Here we create a backdoor option to disable some counters, so that some
+  // existing stats are not polluted by file operations, such as logging, by
+  // turning this off.
+  bool disable_iostats = false;
 };
 
 // If RocksDB is compiled with -DNIOSTATS_CONTEXT, then a pointer to a global,

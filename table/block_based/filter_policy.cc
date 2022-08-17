@@ -662,7 +662,7 @@ class Standard128RibbonBitsBuilder : public XXPH3FilterBitsBuilder {
           bytes_banding, &banding_res_handle);
     }
 
-    if (status_banding_cache_res.IsIncomplete()) {
+    if (status_banding_cache_res.IsMemoryLimit()) {
       ROCKS_LOG_WARN(info_log_,
                      "Cache charging for Ribbon filter banding failed due "
                      "to cache full");

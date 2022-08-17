@@ -212,11 +212,16 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       const Slice val = iter->value();
       PinnableSlice blob_value;
       const Slice* val_ptr;
-      if ((kTypeValue == ikey.type || kTypeBlobIndex == ikey.type) &&
+      if ((kTypeValue == ikey.type || kTypeBlobIndex == ikey.type ||
+           kTypeWideColumnEntity == ikey.type) &&
           (range_del_agg == nullptr ||
            !range_del_agg->ShouldDelete(
                ikey, RangeDelPositioningMode::kForwardTraversal))) {
-        if (ikey.type == kTypeBlobIndex) {
+        if (ikey.type == kTypeWideColumnEntity) {
+          // TODO: support wide-column entities
+          return Status::NotSupported(
+              "Merge currently not supported for wide-column entities");
+        } else if (ikey.type == kTypeBlobIndex) {
           BlobIndex blob_index;
 
           s = blob_index.DecodeFrom(val);
