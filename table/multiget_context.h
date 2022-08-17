@@ -199,7 +199,8 @@ class MultiGetContext {
           : range_(range), ctx_(range->ctx_), index_(idx) {
         while (index_ < range_->end_ &&
                (Mask{1} << index_) &
-                   (range_->ctx_->value_mask_ | range_->skip_mask_))
+                   (range_->ctx_->value_mask_ | range_->skip_mask_ |
+                    range_->invalid_mask_))
           index_++;
       }
 
@@ -209,7 +210,8 @@ class MultiGetContext {
       Iterator& operator++() {
         while (++index_ < range_->end_ &&
                (Mask{1} << index_) &
-                   (range_->ctx_->value_mask_ | range_->skip_mask_))
+                   (range_->ctx_->value_mask_ | range_->skip_mask_ |
+                    range_->invalid_mask_))
           ;
         return *this;
       }
@@ -250,6 +252,7 @@ class MultiGetContext {
       start_ = first.index_;
       end_ = last.index_;
       skip_mask_ = mget_range.skip_mask_;
+      invalid_mask_ = mget_range.invalid_mask_;
       assert(start_ < 64);
       assert(end_ < 64);
     }
@@ -305,16 +308,65 @@ class MultiGetContext {
       }
     }
 
+    // The += operator expands the number of keys in this range. The expansion
+    // is always to the right, i.e start of the additional range >= end of
+    // current range. There should be no overlap. Any skipped keys in rhs are
+    // marked as invalid in the invalid_mask_.
+    Range& operator+=(const Range& rhs) {
+      assert(rhs.start_ >= end_);
+      // Check for non-overlapping ranges and adjust invalid_mask_ accordingly
+      if (end_ < rhs.start_) {
+        invalid_mask_ |= RangeMask(end_, rhs.start_);
+        skip_mask_ |= RangeMask(end_, rhs.start_);
+      }
+      start_ = std::min<size_t>(start_, rhs.start_);
+      end_ = std::max<size_t>(end_, rhs.end_);
+      skip_mask_ |= rhs.skip_mask_ & RangeMask(rhs.start_, rhs.end_);
+      invalid_mask_ |= (rhs.invalid_mask_ | rhs.skip_mask_) &
+                       RangeMask(rhs.start_, rhs.end_);
+      assert(start_ < 64);
+      assert(end_ < 64);
+      return *this;
+    }
+
+    // The -= operator removes keys from this range. The removed keys should
+    // come from a range completely overlapping the current range. The removed
+    // keys are marked invalid in the invalid_mask_.
+    Range& operator-=(const Range& rhs) {
+      assert(start_ <= rhs.start_ && end_ >= rhs.end_);
+      skip_mask_ |= (~rhs.skip_mask_ | rhs.invalid_mask_) &
+                    RangeMask(rhs.start_, rhs.end_);
+      invalid_mask_ |= (~rhs.skip_mask_ | rhs.invalid_mask_) &
+                       RangeMask(rhs.start_, rhs.end_);
+      return *this;
+    }
+
+    // Return a complement of the current range
+    Range operator~() {
+      Range res = *this;
+      res.skip_mask_ = ~skip_mask_ & RangeMask(start_, end_);
+      return res;
+    }
+
    private:
     friend MultiGetContext;
     MultiGetContext* ctx_;
     size_t start_;
     size_t end_;
     Mask skip_mask_;
+    Mask invalid_mask_;
 
     Range(MultiGetContext* ctx, size_t num_keys)
-        : ctx_(ctx), start_(0), end_(num_keys), skip_mask_(0) {
+        : ctx_(ctx),
+          start_(0),
+          end_(num_keys),
+          skip_mask_(0),
+          invalid_mask_(0) {
       assert(num_keys < 64);
+    }
+
+    static Mask RangeMask(size_t start, size_t end) {
+      return (((Mask{1} << (end - start)) - 1) << start);
     }
 
     Mask RemainingMask() const {

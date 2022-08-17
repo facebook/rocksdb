@@ -2013,12 +2013,10 @@ TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSize) {
 }
 
 TEST_P(DBMultiGetTestWithParam, MultiGetBatchedValueSizeMultiLevelMerge) {
-#ifndef USE_COROUTINES
   if (std::get<1>(GetParam())) {
-    ROCKSDB_GTEST_SKIP("This test requires coroutine support");
+    ROCKSDB_GTEST_SKIP("This test needs to be fixed for async IO");
     return;
   }
-#endif  // USE_COROUTINES
   // Skip for unbatched MultiGet
   if (!std::get<0>(GetParam())) {
     ROCKSDB_GTEST_BYPASS("This test is only for batched MultiGet");
@@ -2233,10 +2231,10 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL0) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // No async IO in this case since we don't do parallel lookup in L0
-  ASSERT_EQ(multiget_io_batch_size.count, 0);
-  ASSERT_EQ(multiget_io_batch_size.max, 0);
-  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 0);
+  // With async IO, lookups will happen in parallel for each key
+  ASSERT_EQ(multiget_io_batch_size.count, 1);
+  ASSERT_EQ(multiget_io_batch_size.max, 3);
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
 }
 
 TEST_F(DBMultiGetAsyncIOTest, GetFromL1) {
@@ -2348,10 +2346,10 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
 
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
-  // There is only one MultiGet key in the bottommost level - 56. Thus
-  // the bottommost level will not use async IO.
+  // There are 2 keys in L1 in twp separate files, and 1 in L2. With
+  // async IO, all three lookups will happen in parallel
   ASSERT_EQ(multiget_io_batch_size.count, 1);
-  ASSERT_EQ(multiget_io_batch_size.max, 2);
+  ASSERT_EQ(multiget_io_batch_size.max, 3);
 }
 
 TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeOverlapL0L1) {
