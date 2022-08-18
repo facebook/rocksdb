@@ -49,7 +49,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
       PinnableWideColumns result;
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                first_key, result));
-      ASSERT_EQ(result.columns, first_columns);
+      ASSERT_EQ(result.columns(), first_columns);
     }
 
     {
@@ -63,7 +63,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
       PinnableWideColumns result;
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                second_key, result));
-      ASSERT_EQ(result.columns, second_columns);
+      ASSERT_EQ(result.columns(), second_columns);
     }
 
     {
@@ -79,7 +79,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
                                third_key, result));
 
       const WideColumns expected_columns{{kDefaultWideColumnName, third_value}};
-      ASSERT_EQ(result.columns, expected_columns);
+      ASSERT_EQ(result.columns(), expected_columns);
     }
 
     {

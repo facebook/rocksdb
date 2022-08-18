@@ -295,24 +295,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 pinnable_val_->PinSelf(value_to_use);
               }
             } else if (columns_ != nullptr) {
-              if (LIKELY(value_pinner != nullptr)) {
-                columns_->value.PinSlice(value, value_pinner);
-              } else {
-                columns_->value.PinSelf(value);
-              }
-
               if (type == kTypeWideColumnEntity) {
-                Slice value_copy = columns_->value;
-
-                if (!WideColumnSerialization::Deserialize(value_copy,
-                                                          columns_->columns)
-                         .ok()) {
+                if (!columns_->SetWideColumnValue(value, value_pinner).ok()) {
                   state_ = kCorrupt;
                   return false;
                 }
               } else {
-                columns_->columns =
-                    WideColumns{{kDefaultWideColumnName, columns_->value}};
+                columns_->SetPlainValue(value, value_pinner);
               }
             }
           } else {

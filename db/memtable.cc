@@ -972,15 +972,11 @@ static bool SaveValue(void* arg, const char* entry) {
             }
           }
         } else if (s->columns) {
-          s->columns->value.PinSelf(v);
-
           if (type != kTypeWideColumnEntity) {
             assert(type == kTypeValue || type == kTypeBlobIndex);
-            s->columns->columns =
-                WideColumns{{kDefaultWideColumnName, s->columns->value}};
+            s->columns->SetPlainValue(v);
           } else {
-            *(s->status) =
-                WideColumnSerialization::Deserialize(v, s->columns->columns);
+            *(s->status) = s->columns->SetWideColumnValue(v);
           }
         }
 
