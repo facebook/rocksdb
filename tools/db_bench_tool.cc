@@ -1218,6 +1218,20 @@ DEFINE_string(backup_dir, "",
 DEFINE_string(restore_dir, "",
               "If not empty string, use the given dir for restore.");
 
+DEFINE_uint64(
+    initial_auto_readahead_size,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().initial_auto_readahead_size,
+    "RocksDB does auto-readahead for iterators on noticing more than two reads "
+    "for a table file if user doesn't provide readahead_size. The readahead "
+    "size starts at initial_auto_readahead_size");
+
+DEFINE_uint64(
+    max_auto_readahead_size,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().max_auto_readahead_size,
+    "Rocksdb implicit readahead starts at "
+    "BlockBasedTableOptions.initial_auto_readahead_size and doubles on every "
+    "additional read upto max_auto_readahead_size");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -4349,6 +4363,10 @@ class Benchmark {
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
       block_based_options.whole_key_filtering = FLAGS_whole_key_filtering;
+      block_based_options.max_auto_readahead_size =
+          FLAGS_max_auto_readahead_size;
+      block_based_options.initial_auto_readahead_size =
+          FLAGS_initial_auto_readahead_size;
       BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
           block_based_options.prepopulate_block_cache;
       switch (FLAGS_prepopulate_block_cache) {
