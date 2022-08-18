@@ -15,7 +15,7 @@ class Comparator;
 class Logger;
 class MergeContext;
 class MergeOperator;
-struct PinnableWideColumns;
+class PinnableWideColumns;
 class PinnedIteratorsManager;
 class Statistics;
 class SystemClock;
