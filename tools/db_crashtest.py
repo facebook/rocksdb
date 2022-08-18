@@ -182,6 +182,7 @@ default_params = {
     "secondary_cache_uri":  lambda: random.choice(
         ["", "compressed_secondary_cache://capacity=8388608"]),
     "allow_data_in_errors": True,
+    "verify_iterator_with_expected_state_one_in": 10  # this locks a range of keys
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -420,6 +421,7 @@ multiops_txn_default_params = {
     # Re-enable once we have a compaction for MultiOpsTxnStressTest
     "enable_compaction_filter": 0,
     "create_timestamped_snapshot_one_in": 50,
+    "verify_iterator_with_expected_state_one_in": 0  # not supported in this test yet
 }
 
 multiops_wc_txn_params = {
