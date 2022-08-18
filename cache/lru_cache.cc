@@ -641,38 +641,37 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   {
     DMutexLock l(mutex_);
     last_reference = e->Unref();
-    if (last_reference) {
-      if (e->InCache() && !e->IsStandalone()) {
-        // The item is still in cache, and nobody else holds a reference to it.
-        if (usage_ > capacity_ || erase_if_last_ref) {
-          // The LRU list must be empty since the cache is full.
-          assert(lru_.next == &lru_ || erase_if_last_ref);
-          // Take this opportunity and remove the item.
-          table_.Remove(e->key(), e->hash);
-          e->SetInCache(false);
-        } else {
-          // Put the item back on the LRU list, and don't free it.
-          LRU_Insert(e);
-          last_reference = false;
-        }
+
+    if (last_reference && e->InCache() && !e->IsStandalone()) {
+      // The item is still in cache, and nobody else holds a reference to it.
+      if (usage_ > capacity_ || erase_if_last_ref) {
+        // The LRU list must be empty since the cache is full.
+        assert(lru_.next == &lru_ || erase_if_last_ref);
+        // Take this opportunity and remove the item.
+        table_.Remove(e->key(), e->hash);
+        e->SetInCache(false);
+      } else {
+        // Put the item back on the LRU list, and don't free it.
+        LRU_Insert(e);
+        last_reference = false;
       }
+    }
       // If it was the last reference, and the entry is either not secondary
       // cache compatible (i.e a dummy entry for accounting), or is secondary
       // cache compatible and has a non-null value, then decrement the cache
       // usage. If value is null in the latter case, that means the lookup
       // failed and we didn't charge the cache.
       // A standalone handle doesn't charge usage_.
-      if ((!e->IsSecondaryCacheCompatible() || e->value) &&
-          !e->IsStandalone()) {
-        assert(usage_ >= e->total_charge);
-        usage_ -= e->total_charge;
-      }
+    if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value) &&
+        !e->IsStandalone()) {
+      assert(usage_ >= e->total_charge);
+      usage_ -= e->total_charge;
+    }
 
       // If the entry is a standalone one, decrease standalone pool usage.
-      if (e->IsStandalone() && !e->InCache()) {
-        assert(standalone_pool_usage_ >= e->total_charge);
-        standalone_pool_usage_ -= e->total_charge;
-      }
+    if (last_reference && e->IsStandalone() && !e->InCache()) {
+      assert(standalone_pool_usage_ >= e->total_charge);
+      standalone_pool_usage_ -= e->total_charge;
     }
   }
 
