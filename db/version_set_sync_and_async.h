@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 // Lookup a batch of keys in a single SST file
 DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
 (const ReadOptions& read_options, MultiGetRange file_range, int hit_file_level,
- bool skip_filters, FdWithKeyRange* f,
+ bool skip_filters, bool skip_range_deletions, FdWithKeyRange* f,
  std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
  Cache::Handle* table_handle, uint64_t& num_filter_read,
  uint64_t& num_index_read, uint64_t& num_sst_read) {
@@ -27,7 +27,7 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
       read_options, *internal_comparator(), *f->file_metadata, &file_range,
       mutable_cf_options_.prefix_extractor,
       cfd_->internal_stats()->GetFileReadHist(hit_file_level), skip_filters,
-      hit_file_level, table_handle);
+      skip_range_deletions, hit_file_level, table_handle);
   // TODO: examine the behavior for corrupted key
   if (timer_enabled) {
     PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
