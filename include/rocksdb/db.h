@@ -571,7 +571,7 @@ class DB {
   virtual Status GetEntity(const ReadOptions& /* options */,
                            ColumnFamilyHandle* /* column_family */,
                            const Slice& /* key */,
-                           PinnableWideColumns& /* columns */) {
+                           PinnableWideColumns* /* columns */) {
     return Status::NotSupported("GetEntity not supported");
   }
 

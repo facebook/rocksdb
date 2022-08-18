@@ -241,7 +241,7 @@ class DBImpl : public DB {
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableWideColumns& columns) override;
+                   PinnableWideColumns* columns) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,

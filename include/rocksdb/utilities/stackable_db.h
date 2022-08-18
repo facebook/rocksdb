@@ -102,7 +102,7 @@ class StackableDB : public DB {
   using DB::GetEntity;
   Status GetEntity(const ReadOptions& options,
                    ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableWideColumns& columns) override {
+                   PinnableWideColumns* columns) override {
     return db_->GetEntity(options, column_family, key, columns);
   }
 
