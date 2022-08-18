@@ -2219,7 +2219,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
             static_cast<int>(fp.GetHitFileLevel()), fp.IsHitFileLastInLevel());
         // Call MultiGetFromSST for looking up a single file
         s = MultiGetFromSST(read_options, fp.CurrentFileRange(),
-                            fp.GetHitFileLevel(), skip_filters, f, blob_ctxs,
+                            fp.GetHitFileLevel(), skip_filters,
+                            /*skip_range_deletions=*/false, f, blob_ctxs,
                             /*table_handle=*/nullptr, num_filter_read,
                             num_index_read, num_sst_read);
         if (fp.GetHitFileLevel() == 0) {
@@ -2237,12 +2238,14 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         Cache::Handle* table_handle = nullptr;
         bool skip_filters = IsFilterSkipped(
             static_cast<int>(fp.GetHitFileLevel()), fp.IsHitFileLastInLevel());
+        bool skip_range_deletions = false;
         if (!skip_filters) {
           Status status = table_cache_->MultiGetFilter(
               read_options, *internal_comparator(), *f->file_metadata,
               mutable_cf_options_.prefix_extractor,
               cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
               fp.GetHitFileLevel(), &file_range, &table_handle);
+          skip_range_deletions = true;
           if (status.ok()) {
             skip_filters = true;
           } else if (!status.IsNotSupported()) {
@@ -2256,9 +2259,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
         if (!file_range.empty()) {
           mget_tasks.emplace_back(MultiGetFromSSTCoroutine(
-              read_options, file_range, fp.GetHitFileLevel(), skip_filters, f,
-              blob_ctxs, table_handle, num_filter_read, num_index_read,
-              num_sst_read));
+              read_options, file_range, fp.GetHitFileLevel(), skip_filters,
+              skip_range_deletions, f, blob_ctxs, table_handle, num_filter_read,
+              num_index_read, num_sst_read));
         }
         if (fp.KeyMaySpanNextFile()) {
           break;

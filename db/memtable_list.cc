@@ -351,6 +351,14 @@ bool MemTableList::IsFlushPending() const {
   return false;
 }
 
+bool MemTableList::IsFlushPendingOrRunning() const {
+  if (current_->memlist_.size() - num_flush_not_started_ > 0) {
+    // Flush is already running on at least one memtable
+    return true;
+  }
+  return IsFlushPending();
+}
+
 // Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
                                         autovector<MemTable*>* ret,
