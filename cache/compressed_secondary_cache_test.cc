@@ -407,11 +407,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
-    // This lookup should fail, since k1 demotion would have failed
+    // This lookup should fail, since k1 demotion would have failed.
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_fail_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_EQ(handle, nullptr);
-    // Since k1 didn't get promoted, k2 should still be in cache
+    // Since k1 was not promoted, k2 should still be in cache.
     handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_fail_,
                            test_item_creator, Cache::Priority::LOW, true);
     ASSERT_NE(handle, nullptr);
