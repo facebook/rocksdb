@@ -3,8 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "db/wide/wide_column_serialization.h"
 #include "rocksdb/wide_columns.h"
+
+#include "db/wide/wide_column_serialization.h"
 
 namespace ROCKSDB_NAMESPACE {
 
