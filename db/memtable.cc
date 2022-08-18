@@ -973,7 +973,6 @@ static bool SaveValue(void* arg, const char* entry) {
           }
         } else if (s->columns) {
           if (type != kTypeWideColumnEntity) {
-            assert(type == kTypeValue || type == kTypeBlobIndex);
             s->columns->SetPlainValue(v);
           } else {
             *(s->status) = s->columns->SetWideColumnValue(v);
