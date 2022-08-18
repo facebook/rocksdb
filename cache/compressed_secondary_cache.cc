@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <memory>
 
 #include "memory/memory_allocator.h"
@@ -250,7 +251,7 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     // Invalid standalone_pool_ratio.
     return nullptr;
   }
-
+  std::cout << "standalone_pool_ratio " << standalone_pool_ratio << std::endl;
   return std::make_shared<CompressedSecondaryCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       low_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
