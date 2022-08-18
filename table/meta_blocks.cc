@@ -425,8 +425,8 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   }
 
   if (!block_handle.IsNull()) {
-    s = ReadTablePropertiesHelper(ReadOptions(), block_handle, file, prefetch_buffer,
-                                  footer, ioptions, properties,
+    s = ReadTablePropertiesHelper(ReadOptions(), block_handle, file,
+                                  prefetch_buffer, footer, ioptions, properties,
                                   memory_allocator);
   } else {
     s = Status::NotFound();
@@ -489,8 +489,8 @@ Status ReadMetaIndexBlockInFile(RandomAccessFileReader* file,
   }
 
   auto metaindex_handle = footer.metaindex_handle();
-  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(), metaindex_handle,
-                      metaindex_contents, ioptions,
+  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
+                      metaindex_handle, metaindex_contents, ioptions,
                       false /* do decompression */, false /*maybe_compressed*/,
                       BlockType::kMetaIndex, UncompressionDict::GetEmptyDict(),
                       PersistentCacheOptions::kEmpty, memory_allocator)
@@ -542,8 +542,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file,
     return status;
   }
 
-  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(), block_handle, contents,
-                      ioptions, false /* decompress */,
+  return BlockFetcher(file, prefetch_buffer, footer, ReadOptions(),
+                      block_handle, contents, ioptions, false /* decompress */,
                       false /*maybe_compressed*/, block_type,
                       UncompressionDict::GetEmptyDict(),
                       PersistentCacheOptions::kEmpty, memory_allocator)

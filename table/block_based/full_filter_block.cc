@@ -174,11 +174,11 @@ bool FullFilterBlockReader::PrefixMayMatch(
 bool FullFilterBlockReader::MayMatch(
     const Slice& entry, bool no_io, GetContext* get_context,
     BlockCacheLookupContext* lookup_context,
-    Env::IOPriority rate_limiter_priority) const {
+    const ReadOptions& read_options) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
   const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
-                                        &filter_block, read_options_);
+                                        &filter_block, read_options);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;

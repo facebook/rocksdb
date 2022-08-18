@@ -641,8 +641,8 @@ Status BlockBasedTable::Open(
       new BlockBasedTable(rep, block_cache_tracer));
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
-  s = new_table->ReadMetaIndexBlock(read_options, prefetch_buffer.get(), &metaindex,
-                                    &metaindex_iter);
+  s = new_table->ReadMetaIndexBlock(read_options, prefetch_buffer.get(),
+                                    &metaindex, &metaindex_iter);
   if (!s.ok()) {
     return s;
   }
@@ -756,8 +756,8 @@ Status BlockBasedTable::Open(
     return s;
   }
   s = new_table->PrefetchIndexAndFilterBlocks(
-      read_options, prefetch_buffer.get(), metaindex_iter.get(), new_table.get(),
-      prefetch_all, table_options, level, file_size,
+      read_options, prefetch_buffer.get(), metaindex_iter.get(),
+      new_table.get(), prefetch_all, table_options, level, file_size,
       max_file_size_for_l0_meta_pin, &lookup_context);
 
   if (s.ok()) {

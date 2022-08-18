@@ -36,8 +36,7 @@ Status BlockBasedTable::IndexReaderCommon::ReadIndexBlock(
 
 Status BlockBasedTable::IndexReaderCommon::GetOrReadIndexBlock(
     bool no_io, Env::IOPriority rate_limiter_priority, GetContext* get_context,
-    BlockCacheLookupContext* lookup_context,
-    CachableEntry<Block>* index_block,
+    BlockCacheLookupContext* lookup_context, CachableEntry<Block>* index_block,
     const ReadOptions& ro) const {
   assert(index_block != nullptr);
 
