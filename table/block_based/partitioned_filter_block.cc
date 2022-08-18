@@ -185,7 +185,8 @@ Slice PartitionedFilterBlockBuilder::Finish(
 }
 
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
-    const BlockBasedTable* t, CachableEntry<Block>&& filter_block, const ReadOptions& ro)
+    const BlockBasedTable* t, CachableEntry<Block>&& filter_block,
+    const ReadOptions& ro)
     : FilterBlockReaderCommon(t, std::move(filter_block)), read_options_(ro) {}
 
 std::unique_ptr<FilterBlockReader> PartitionedFilterBlockReader::Create(
@@ -352,9 +353,8 @@ bool PartitionedFilterBlockReader::MayMatch(
     return true;
   }
 
-  FullFilterBlockReader filter_partition(table(),
-                                         std::move(filter_partition_block),
-                                         read_options_);
+  FullFilterBlockReader filter_partition(
+      table(), std::move(filter_partition_block), read_options_);
   return (filter_partition.*filter_function)(slice, no_io, const_ikey_ptr,
                                              get_context, lookup_context,
                                              rate_limiter_priority);
@@ -429,9 +429,8 @@ void PartitionedFilterBlockReader::MayMatchPartition(
     return;  // Any/all may match
   }
 
-  FullFilterBlockReader filter_partition(table(),
-                                         std::move(filter_partition_block),
-                                         read_options_);
+  FullFilterBlockReader filter_partition(
+      table(), std::move(filter_partition_block), read_options_);
   (filter_partition.*filter_function)(range, prefix_extractor, no_io,
                                       lookup_context, rate_limiter_priority);
 }
@@ -462,8 +461,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                                   &lookup_context, &filter_block,
                                   BlockType::kFilterPartitionIndex,
-                                  ro.rate_limiter_priority,
-                                  read_options_);
+                                  ro.rate_limiter_priority, read_options_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep->ioptions.logger,
                     "Error retrieving top-level filter block while trying to "

@@ -35,7 +35,8 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
  public:
   MyPartitionedFilterBlockReader(BlockBasedTable* t,
                                  CachableEntry<Block>&& filter_block)
-      : PartitionedFilterBlockReader(t, std::move(filter_block), rocksdb::ReadOptions()) {
+      : PartitionedFilterBlockReader(t, std::move(filter_block),
+                                     rocksdb::ReadOptions()) {
     for (const auto& pair : blooms) {
       const uint64_t offset = pair.first;
       const std::string& bloom = pair.second;

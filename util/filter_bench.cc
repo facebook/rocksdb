@@ -471,8 +471,8 @@ void FilterBench::Go() {
                                     BlockContents(info.filter_)),
           nullptr /* cache */, nullptr /* cache_handle */,
           true /* own_value */);
-      info.full_block_reader_.reset(
-          new FullFilterBlockReader(table_.get(), std::move(block), rocksdb::ReadOptions()));
+      info.full_block_reader_.reset(new FullFilterBlockReader(
+          table_.get(), std::move(block), rocksdb::ReadOptions()));
     }
     total_size += info.filter_.size();
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE

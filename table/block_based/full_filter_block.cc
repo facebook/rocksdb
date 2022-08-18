@@ -120,11 +120,8 @@ Slice FullFilterBlockBuilder::Finish(
 
 FullFilterBlockReader::FullFilterBlockReader(
     const BlockBasedTable* t,
-    CachableEntry<ParsedFullFilterBlock>&& filter_block,
-    const ReadOptions& ro)
-    : FilterBlockReaderCommon(t, std::move(filter_block)),
-      read_options_(ro) {
-}
+    CachableEntry<ParsedFullFilterBlock>&& filter_block, const ReadOptions& ro)
+    : FilterBlockReaderCommon(t, std::move(filter_block)), read_options_(ro) {}
 
 bool FullFilterBlockReader::KeyMayMatch(const Slice& key, const bool no_io,
                                         const Slice* const /*const_ikey_ptr*/,
@@ -180,9 +177,9 @@ bool FullFilterBlockReader::MayMatch(
     Env::IOPriority rate_limiter_priority) const {
   CachableEntry<ParsedFullFilterBlock> filter_block;
 
-  const Status s =
-      GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block,
-                           BlockType::kFilter, rate_limiter_priority, read_options_);
+  const Status s = GetOrReadFilterBlock(no_io, get_context, lookup_context,
+                                        &filter_block, BlockType::kFilter,
+                                        rate_limiter_priority, read_options_);
   if (!s.ok()) {
     IGNORE_STATUS_IF_ERROR(s);
     return true;

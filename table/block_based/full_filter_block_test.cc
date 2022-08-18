@@ -113,7 +113,8 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
+  FullFilterBlockReader reader(table_.get(), std::move(block),
+                               rocksdb::ReadOptions());
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
@@ -135,7 +136,8 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
+  FullFilterBlockReader reader(table_.get(), std::move(block),
+                               rocksdb::ReadOptions());
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
@@ -191,7 +193,8 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
+  FullFilterBlockReader reader(table_.get(), std::move(block),
+                               rocksdb::ReadOptions());
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
@@ -292,7 +295,8 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
                                 BlockContents(slice)),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
-  FullFilterBlockReader reader(table_.get(), std::move(block), rocksdb::ReadOptions());
+  FullFilterBlockReader reader(table_.get(), std::move(block),
+                               rocksdb::ReadOptions());
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
   ASSERT_TRUE(reader.KeyMayMatch("foo",
                                  /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
