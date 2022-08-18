@@ -2082,8 +2082,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     size_t size = 0;
     if (s.ok()) {
       if (get_impl_options.get_value) {
-        if (get_impl_options.value) {  // FIXME
+        if (get_impl_options.value) {
           size = get_impl_options.value->size();
+        } else if (get_impl_options.columns) {
+          size = get_impl_options.columns->serialized_size();
         }
       } else {
         // Return all merge operands for get_impl_options.key

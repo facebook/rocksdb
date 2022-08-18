@@ -81,6 +81,7 @@ extern const Slice kDefaultWideColumnName;
 class PinnableWideColumns {
  public:
   const WideColumns& columns() const { return columns_; }
+  size_t serialized_size() const { return value_.size(); }
 
   void SetPlainValue(const Slice& value);
   void SetPlainValue(const Slice& value, Cleanable* cleanable);
