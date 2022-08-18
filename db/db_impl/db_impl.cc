@@ -1830,6 +1830,13 @@ Status DBImpl::GetEntity(const ReadOptions& read_options,
         "Cannot call this method without a column family handle");
   }
 
+  if (!columns) {
+    return Status::InvalidArgument(
+        "Cannot call this method without a PinnableWideColumns object");
+  }
+
+  columns->Reset();
+
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.columns = columns;
