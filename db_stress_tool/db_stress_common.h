@@ -312,6 +312,8 @@ DECLARE_bool(allow_data_in_errors);
 DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
 DECLARE_int64(preclude_last_level_data_seconds);
 
+DECLARE_int32(verify_iterator_with_expected_state_one_in);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;

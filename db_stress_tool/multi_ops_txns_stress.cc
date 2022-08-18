@@ -410,6 +410,14 @@ Status MultiOpsTxnsStressTest::TestIterate(
   return RangeScanTxn(thread, read_opts, c);
 }
 
+Status MultiOpsTxnsStressTest::TestIterate(
+    ThreadState* /*thread*/, const ReadOptions& /*read_opts*/,
+    const std::vector<int>& /*rand_column_families*/,
+    const std::vector<int64_t>& /*rand_keys*/,
+    std::unique_ptr<MutexLock>& /*lock*/) {
+  return Status::NotSupported();
+}
+
 // Not intended for use.
 Status MultiOpsTxnsStressTest::TestPut(ThreadState* /*thread*/,
                                        WriteOptions& /*write_opts*/,

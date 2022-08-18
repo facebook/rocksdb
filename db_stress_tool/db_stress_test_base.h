@@ -152,6 +152,15 @@ class StressTest {
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
 
+  // Verifies iterator against expected state.
+  // Given a key K, this creates an iterator which scans the range
+  // [K, K + FLAGS_num_iterations) forward and backward.
+  // Then does a random sequence of Next/Prev operations.
+  virtual Status TestIterate(ThreadState* thread, const ReadOptions& read_opts,
+                             const std::vector<int>& rand_column_families,
+                             const std::vector<int64_t>& rand_keys,
+                             std::unique_ptr<MutexLock>& lock);
+
   // Enum used by VerifyIterator() to identify the mode to validate.
   enum LastIterateOp {
     kLastOpSeek,

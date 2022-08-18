@@ -1027,4 +1027,10 @@ DEFINE_bool(allow_data_in_errors,
             ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
             "If true, allow logging data, e.g. key, value in LOG files.");
 
+DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
+             "If non-zero, when TestIterate() is to be called, there is a "
+             "1/verify_iterator_with_expected_state_one_in "
+             "chance that the iterator is verified against the expected state "
+             "file, instead of comparing keys between two iterators.");
+
 #endif  // GFLAGS
