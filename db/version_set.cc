@@ -2482,7 +2482,6 @@ Status Version::ProcessBatch(
     }
   }
   while (f) {
-    FilePickerMultiGet& fp = *batch;
     MultiGetRange file_range = fp.CurrentFileRange();
     Cache::Handle* table_handle = nullptr;
     bool skip_filters = IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
@@ -2630,8 +2629,8 @@ Status Version::MultiGetAsync(
           break;
         }
 
-        for (size_t idx : waiting) {
-          FilePickerMultiGet& fp = batches.at(idx);
+        for (size_t wait_idx : waiting) {
+          FilePickerMultiGet& fp = batches.at(wait_idx);
           // 1. If fp.GetHitFile() is non-null, then there could be more
           // overlap in this level. So skip preparing next level.
           // 2. If fp.GetRange() is empty, then this batch is completed
