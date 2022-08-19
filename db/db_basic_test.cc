@@ -2407,6 +2407,36 @@ TEST_F(DBMultiGetAsyncIOTest, GetFromL2WithRangeDelInL1) {
   // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
   ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 2);
 }
+
+TEST_F(DBMultiGetAsyncIOTest, GetFromL1AndL2WithRangeDelInL1) {
+  std::vector<std::string> key_strs;
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values;
+  std::vector<Status> statuses;
+
+  // 139 and 163 are in L2, but overlap with a range deletes in L1
+  key_strs.push_back(Key(139));
+  key_strs.push_back(Key(144));
+  key_strs.push_back(Key(163));
+  keys.push_back(key_strs[0]);
+  keys.push_back(key_strs[1]);
+  keys.push_back(key_strs[2]);
+  values.resize(keys.size());
+  statuses.resize(keys.size());
+
+  ReadOptions ro;
+  ro.async_io = true;
+  dbfull()->MultiGet(ro, dbfull()->DefaultColumnFamily(), keys.size(),
+                     keys.data(), values.data(), statuses.data());
+  ASSERT_EQ(values.size(), keys.size());
+  ASSERT_EQ(statuses[0], Status::NotFound());
+  ASSERT_EQ(statuses[1], Status::OK());
+  ASSERT_EQ(values[1], "val_l1_" + std::to_string(144));
+  ASSERT_EQ(statuses[2], Status::NotFound());
+
+  // Bloom filters in L0/L1 will avoid the coroutine calls in those levels
+  ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
+}
 #endif  // USE_COROUTINES
 
 TEST_F(DBBasicTest, MultiGetStats) {

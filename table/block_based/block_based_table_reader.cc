@@ -1251,12 +1251,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Statistics* statistics = rep_->ioptions.statistics.get();
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
-  CacheCreateCallback<TBlocklike> callback(read_amp_bytes_per_bit, statistics,
-                                           using_zstd, filter_policy);
-  // avoid dynamic memory allocation by using the reference (std::ref) of the
-  // callback. Otherwise, binding a functor to std::function will allocate extra
-  // memory from heap.
-  Cache::CreateCallback create_cb(std::ref(callback));
+  Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1286,11 +1282,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents contents;
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
-    CacheCreateCallback<BlockContents> special_callback(
+    Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
         read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
-    // avoid dynamic memory allocation by using the reference (std::ref) of the
-    // callback. Make sure the callback is only used within this code block.
-    Cache::CreateCallback create_cb_special(std::ref(special_callback));
     block_cache_compressed_handle = block_cache_compressed->Lookup(
         cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),

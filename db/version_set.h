@@ -836,7 +836,8 @@ class Version {
   // REQUIRES: lock is not held
   // REQUIRES: pinned_iters_mgr != nullptr
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
-           std::string* timestamp, Status* status, MergeContext* merge_context,
+           PinnableWideColumns* columns, std::string* timestamp, Status* status,
+           MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            PinnedIteratorsManager* pinned_iters_mgr,
            bool* value_found = nullptr, bool* key_exists = nullptr,
@@ -990,7 +991,8 @@ class Version {
   DECLARE_SYNC_AND_ASYNC(
       /* ret_type */ Status, /* func_name */ MultiGetFromSST,
       const ReadOptions& read_options, MultiGetRange file_range,
-      int hit_file_level, bool skip_filters, FdWithKeyRange* f,
+      int hit_file_level, bool skip_filters, bool skip_range_deletions,
+      FdWithKeyRange* f,
       std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
       Cache::Handle* table_handle, uint64_t& num_filter_read,
       uint64_t& num_index_read, uint64_t& num_sst_read);

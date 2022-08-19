@@ -21,42 +21,24 @@ template <typename T, CacheEntryRole R>
 Cache::CacheItemHelper* GetCacheItemHelperForRole();
 
 template <typename TBlocklike>
-class CacheCreateCallback {
- public:
-  CacheCreateCallback() = delete;
-  CacheCreateCallback(const CacheCreateCallback&) = delete;
-  CacheCreateCallback(CacheCreateCallback&&) = delete;
-  CacheCreateCallback& operator=(const CacheCreateCallback&) = delete;
-  CacheCreateCallback& operator=(CacheCreateCallback&&) = delete;
-
-  explicit CacheCreateCallback(size_t read_amp_bytes_per_bit,
-                               Statistics* statistics, bool using_zstd,
-                               const FilterPolicy* filter_policy)
-      : read_amp_bytes_per_bit_(read_amp_bytes_per_bit),
-        statistics_(statistics),
-        using_zstd_(using_zstd),
-        filter_policy_(filter_policy) {}
-
-  Status operator()(const void* buf, size_t size, void** out_obj,
-                    size_t* charge) {
+Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
+                                        Statistics* statistics, bool using_zstd,
+                                        const FilterPolicy* filter_policy) {
+  return [read_amp_bytes_per_bit, statistics, using_zstd, filter_policy](
+             const void* buf, size_t size, void** out_obj,
+             size_t* charge) -> Status {
     assert(buf != nullptr);
     std::unique_ptr<char[]> buf_data(new char[size]());
     memcpy(buf_data.get(), buf, size);
     BlockContents bc = BlockContents(std::move(buf_data), size);
     TBlocklike* ucd_ptr = BlocklikeTraits<TBlocklike>::Create(
-        std::move(bc), read_amp_bytes_per_bit_, statistics_, using_zstd_,
-        filter_policy_);
+        std::move(bc), read_amp_bytes_per_bit, statistics, using_zstd,
+        filter_policy);
     *out_obj = reinterpret_cast<void*>(ucd_ptr);
     *charge = size;
     return Status::OK();
-  }
-
- private:
-  const size_t read_amp_bytes_per_bit_;
-  Statistics* statistics_;
-  const bool using_zstd_;
-  const FilterPolicy* filter_policy_;
-};
+  };
+}
 
 template <>
 class BlocklikeTraits<BlockContents> {
