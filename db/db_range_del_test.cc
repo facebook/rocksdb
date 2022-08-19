@@ -1766,13 +1766,15 @@ void VerifyIteratorReachesEnd(Iterator* iter) {
 }
 
 TEST_F(DBRangeDelTest, IteratorReseek) {
-  // Range tombstone triggers reseek in merging iterator.
-  // Test set up:
+  // Range tombstone triggers reseek (seeking to a range tombstone end key) in
+  // merging iterator. Test set up:
   //    one memtable: range tombstone [0, 1)
   //    one immutable memtable: range tombstone [1, 2)
   //    one L0 file with range tombstone [2, 3)
   //    one L1 file with range tombstone [3, 4)
-  // Seek(a) should trigger cascading reseeks at all levels
+  // Seek(0) should trigger cascading reseeks at all levels below memtable.
+  // Seek(1) should trigger cascading reseeks at all levels below immutable
+  // memtable. SeekToFirst and SeekToLast trigger no reseek.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -1827,13 +1829,15 @@ TEST_F(DBRangeDelTest, IteratorReseek) {
 }
 
 TEST_F(DBRangeDelTest, ReseekDuringNextAndPrev) {
-  // Range tombstone triggers reseek during Next() in merging iterator.
+  // Range tombstone triggers reseek during Next()/Prev() in merging iterator.
   // Test set up:
   //    memtable has: [0, 1) [2, 3)
   //    L0 has: 2
   //    L1 has: 1, 2, 3
-  // Seek(0) will reseek 1 for all L0 and L1.
-  // Then Next() will try to reseek 3 for L0 and L1.
+  // Seek(0) will reseek to 1 for L0 and L1. Seek(1) will not trigger any
+  // reseek. Then Next() determines 2 is covered by [2, 3), it will try to
+  // reseek to 3 for L0 and L1. Similar story for Prev() and SeekForPrev() is
+  // tested.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -1895,9 +1899,9 @@ TEST_F(DBRangeDelTest, ReseekDuringNextAndPrev) {
   // Reseeked L0 and L1
   ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 2);
   iter_test_forward();
+  get_perf_context()->Reset();
   iter->Seek(Key(1));
-  // Reseeked L0 and L1
-  ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 2);
+  ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 0);
   iter_test_forward();
 
   get_perf_context()->Reset();
@@ -1905,9 +1909,9 @@ TEST_F(DBRangeDelTest, ReseekDuringNextAndPrev) {
   // Reseeked L0 and L1
   ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 2);
   iter_test_forward();
+  get_perf_context()->Reset();
   iter->SeekForPrev(Key(1));
-  // Reseeked L0 and L1
-  ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 2);
+  ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 0);
   iter_test_forward();
 
   get_perf_context()->Reset();
@@ -1927,8 +1931,9 @@ TEST_F(DBRangeDelTest, TombstoneFromCurrentLevel) {
   //    memtable has: [0, 1)
   //    L0 has: [2, 3), 2
   //    L1 has: 1, 2, 3
-  // Seek(0) will reseek at 1 for L0 and L1.
-  // Then Next() reseek at 3
+  // Seek(0) will reseek to 1 for L0 and L1.
+  // Then Next() will reseek to 3 for L1 since 2 in L0 is covered by [2, 3) in
+  // L0.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -1972,10 +1977,10 @@ TEST_F(DBRangeDelTest, TombstoneFromCurrentLevel) {
 TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   // Verify that a range tombstone across file boundary covers keys from older
   // levels. Test set up:
-  //    L1_0: 1, 3, [2, 6)   L1_1: 5, 7, [2, 6) (this is from compaction with
-  //    L1_0) L2 has: 4
-  // Seek(1) and Next() should move the L1 level iterator to
-  // L1_1. Check if 4 is returned after Next().
+  //    L1_0: 1, 3, [2, 6)   L1_1: 5, 7, [2, 6) ([2, 6) is from compaction with
+  //    L1_0) L2 has: 5
+  // Seek(1) and then Next() should move the L1 level iterator to
+  // L1_1. Check if 5 is returned after Next().
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -1986,7 +1991,7 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
 
   Random rnd(301);
   // L2
-  ASSERT_OK(db_->Put(WriteOptions(), Key(4), rnd.RandomString(1 << 10)));
+  ASSERT_OK(db_->Put(WriteOptions(), Key(5), rnd.RandomString(1 << 10)));
   ASSERT_OK(db_->Flush(FlushOptions()));
   MoveFilesToLevel(2);
   ASSERT_EQ(1, NumTableFilesAtLevel(2));
@@ -2017,7 +2022,7 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
   iter->Next();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key().ToString(), Key(7));
-  // 1 reseek into L2 when key 4 in L2 is covered by [2, 6) from L1
+  // 1 reseek into L2 when key 5 in L2 is covered by [2, 6) from L1
   ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 1);
 
   delete iter;
@@ -2027,10 +2032,12 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
 
 TEST_F(DBRangeDelTest, NonOverlappingTombstonAtBoundary) {
   // Verify that a range tombstone across file boundary covers keys from older
-  // levels. Test set up:
+  // levels.
+  // Test set up:
   //    L1_0: 1, 3, [4, 7)         L1_1: 6, 8, [4, 7)
   //    L2: 5
-  // [4, 7) from L1_0 should cover 5 is sentinel works
+  // Note that [4, 7) is at end of L1_0 and not overlapping with any point key
+  // in L1_0. [4, 7) from L1_0 should cover 5 is sentinel works
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2069,7 +2076,7 @@ TEST_F(DBRangeDelTest, NonOverlappingTombstonAtBoundary) {
   iter->Next();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key().ToString(), Key(8));
-  // 1 reseek into L1
+  // 1 reseek into L1 since 5 from L2 is covered by [4, 7) from L1
   ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 1);
   for (auto& k : {4, 5, 6}) {
     get_perf_context()->Reset();
@@ -2084,7 +2091,7 @@ TEST_F(DBRangeDelTest, NonOverlappingTombstonAtBoundary) {
 
 TEST_F(DBRangeDelTest, OlderLevelHasNewerData) {
   // L1_0: 1, 3, [2, 7)   L1_1: 5, 6 at a newer sequence number than [2, 7)
-  // Compact L1_1 to L2. Seek(3) should not skip 6.
+  // Compact L1_1 to L2. Seek(3) should not skip 5 or 6.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2162,8 +2169,6 @@ TEST_F(DBRangeDelTest, LevelBoundaryDefinedByTombstone) {
 
   get_perf_context()->Reset();
   iter->SeekForPrev(Key(5));
-  // This is not reseeked in SeekForPrevImpl, but could be optimized to.
-  //  ASSERT_EQ(get_perf_context()->internal_range_del_reseek_count, 1);
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key(), Key(2));
   db_->ReleaseSnapshot(snapshot);
@@ -2173,8 +2178,9 @@ TEST_F(DBRangeDelTest, LevelBoundaryDefinedByTombstone) {
 TEST_F(DBRangeDelTest, TombstoneOnlyFile) {
   // L1_0: 1, 2, L1_1: [3, 5)
   // L2: 3
-  // Seek(2) then Next() which advance L1 iterator into L1_1.
+  // Seek(2) then Next() should advance L1 iterator into L1_1.
   // If sentinel works with tombstone only file, it should cover the key in L2.
+  // Similar story for SeekForPrev(4).
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2219,7 +2225,7 @@ TEST_F(DBRangeDelTest, TombstoneOnlyFile) {
 }
 
 void VerifyIteratorKey(InternalIterator* iter,
-                       std::vector<std::string> expected_keys,
+                       const std::vector<std::string>& expected_keys,
                        bool forward = true) {
   for (auto& key : expected_keys) {
     ASSERT_TRUE(iter->Valid());
@@ -2235,7 +2241,8 @@ void VerifyIteratorKey(InternalIterator* iter,
 TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   // L1 [3, 5)
   // L2 has: 3, 4
-  // Any kind of iterator seek should skip 4.
+  // Any kind of iterator seek should skip 3 and 4 in L2.
+  // L1 level iterator should produce sentinel key.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2285,6 +2292,7 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   }
   delete iter;
 
+  // Check L1 LevelIterator behavior
   ColumnFamilyData* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd();
@@ -2302,6 +2310,7 @@ TEST_F(DBRangeDelTest, TombstoneOnlyLevel) {
   IterKey target;
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
   level_iter->Seek(target.GetInternalKey());
+  // sentinel key (file boundary as a fake key)
   VerifyIteratorKey(level_iter, {Key(5)});
   VerifyIteratorReachesEnd(level_iter);
 
@@ -2390,9 +2399,10 @@ TEST_F(DBRangeDelTest, TombstoneSentinelDirectionChange) {
   // L1: 7
   // L2: [4, 6)
   // L3: 4
-  // Seek(5) will have 6 sentinel at top.
+  // Seek(5) will have sentinel key 6 at the top of minHeap in merging iterator.
   //  then do a prev, how would sentinel work?
-  // Redo the test after Put(5) into L1 so that there is a visible key.
+  // Redo the test after Put(5) into L1 so that there is a visible key in range
+  // [4, 6).
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2443,8 +2453,7 @@ TEST_F(DBRangeDelTest, TombstoneSentinelDirectionChange) {
 TEST_F(DBRangeDelTest, LeftSentinelKeyTest) {
   // L1_0: 0, 1    L1_1: [2, 3), 5
   // L2: 2
-  // SeekForPrev(4) then Next() should give 1 due to sentinel key keeping
-  // [2, 3) alive.
+  // SeekForPrev(4) should give 1 due to sentinel key keeping [2, 3) alive.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2488,7 +2497,7 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTest) {
 }
 
 TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
-  // L1_0: 1, 2 and newer than L1_1,    L1_1: [2, 4), 5
+  // L1_0: 1, 2 newer than L1_1,    L1_1: [2, 4), 5
   // L2: 3
   // SeekForPrev(4) then Prev() should give 2 and then 1.
   Options options = CurrentOptions();
@@ -2516,6 +2525,7 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
   Random rnd(301);
   ASSERT_OK(db_->Put(WriteOptions(), Key(1), rnd.RandomString(4 << 10)));
   ASSERT_OK(db_->Put(WriteOptions(), Key(2), rnd.RandomString(4 << 10)));
+  // Used to verify sequence number of iterator key later.
   auto seq = dbfull()->TEST_GetLastVisibleSequence();
   ASSERT_OK(db_->Flush(FlushOptions()));
   MoveFilesToLevel(1);
@@ -2553,7 +2563,7 @@ TEST_F(DBRangeDelTest, LeftSentinelKeyTestWithNewerKey) {
 TEST_F(DBRangeDelTest, SentinelKeyCommonCaseTest) {
   // L1 has 3 files
   // L1_0: 1, 2     L1_1: [3, 4) 5, 6, [7, 8)     L1_2: 9
-  // Check iterator operations on LevelIterator and DB Iter
+  // Check iterator operations on LevelIterator.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
@@ -2601,6 +2611,7 @@ TEST_F(DBRangeDelTest, SentinelKeyCommonCaseTest) {
   IterKey target;
   target.SetInternalKey(k, kMaxSequenceNumber, kValueTypeForSeek);
   level_iter->Seek(target.GetInternalKey());
+  // The last Key(9) is a sentinel key.
   VerifyIteratorKey(level_iter, {Key(8), Key(9), Key(9)});
   ASSERT_TRUE(!level_iter->Valid() && level_iter->status().ok());
 
@@ -2641,6 +2652,10 @@ TEST_F(DBRangeDelTest, PrefixSentinelKey) {
   // L2: 'aaac', 'aaae'
   // Prefix extracts first 3 chars
   // Seek('aaab') should give 'aaae' as first key.
+  // This is to test a previous bug where prefix seek sees there is no prefix in
+  // the SST file, and will just set file iter to null in LevelIterator and may
+  // just skip to the next SST file. But in this case, we should keep the file's
+  // tombstone alive.
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.disable_auto_compactions = true;
