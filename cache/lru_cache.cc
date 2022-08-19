@@ -656,19 +656,19 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
         last_reference = false;
       }
     }
-      // If it was the last reference, and the entry is either not secondary
-      // cache compatible (i.e a dummy entry for accounting), or is secondary
-      // cache compatible and has a non-null value, then decrement the cache
-      // usage. If value is null in the latter case, that means the lookup
-      // failed and we didn't charge the cache.
-      // A standalone handle doesn't charge usage_.
+    // If it was the last reference, and the entry is either not secondary
+    // cache compatible (i.e a dummy entry for accounting), or is secondary
+    // cache compatible and has a non-null value, then decrement the cache
+    // usage. If value is null in the latter case, that means the lookup
+    // failed and we didn't charge the cache.
+    // A standalone handle doesn't charge usage_.
     if (last_reference && (!e->IsSecondaryCacheCompatible() || e->value) &&
         !e->IsStandalone()) {
       assert(usage_ >= e->total_charge);
       usage_ -= e->total_charge;
     }
 
-      // If the entry is a standalone one, decrease standalone pool usage.
+    // If the entry is a standalone one, decrease standalone pool usage.
     if (last_reference && e->IsStandalone() && !e->InCache()) {
       assert(standalone_pool_usage_ >= e->total_charge);
       standalone_pool_usage_ -= e->total_charge;
