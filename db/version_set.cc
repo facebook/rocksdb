@@ -2253,7 +2253,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   std::unordered_map<uint64_t, BlobReadContexts> blob_ctxs;
   MultiGetRange keys_with_blobs_range(*range, range->begin(), range->end());
 #if USE_COROUTINES
-  if (read_options.async_io && read_options.async_multiget_multilevel &&
+  if (read_options.async_io && read_options.optimize_multiget_for_io &&
       using_coroutines()) {
     s = MultiGetAsync(read_options, range, &blob_ctxs);
   } else

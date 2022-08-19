@@ -1694,8 +1694,8 @@ struct ReadOptions {
   // parallel if the keys in the MultiGet batch are in different levels. It
   // comes at the expense of slightly higher CPU overhead.
   //
-  // Default: true
-  bool async_multiget_multilevel;
+  // Default: false
+  bool optimize_multiget_for_io;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
