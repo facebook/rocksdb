@@ -97,7 +97,7 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
     }
   } else {
     std::unique_ptr<SecondaryCacheResultHandle> hdl =
-        base_->Lookup(key, create_cb, wait,erase_handle, is_in_sec_cache);
+        base_->Lookup(key, create_cb, wait, erase_handle, is_in_sec_cache);
     if (wait && ctx->rand.OneIn(prob_)) {
       hdl.reset();
     }
