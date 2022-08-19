@@ -10,6 +10,59 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+void FaultInjectionSecondaryCache::ResultHandle::UpdateHandleValue(
+    FaultInjectionSecondaryCache::ResultHandle* handle) {
+  ErrorContext* ctx = handle->cache_->GetErrorContext();
+  if (!ctx->rand.OneIn(handle->cache_->prob_)) {
+    handle->value_ = handle->base_->Value();
+    handle->size_ = handle->base_->Size();
+  }
+  handle->base_.reset();
+}
+
+bool FaultInjectionSecondaryCache::ResultHandle::IsReady() {
+  bool ready = true;
+  if (base_) {
+    ready = base_->IsReady();
+    if (ready) {
+      UpdateHandleValue(this);
+    }
+  }
+  return ready;
+}
+
+void FaultInjectionSecondaryCache::ResultHandle::Wait() {
+  base_->Wait();
+  UpdateHandleValue(this);
+}
+
+void* FaultInjectionSecondaryCache::ResultHandle::Value() { return value_; }
+
+size_t FaultInjectionSecondaryCache::ResultHandle::Size() { return size_; }
+
+void FaultInjectionSecondaryCache::ResultHandle::WaitAll(
+    FaultInjectionSecondaryCache* cache,
+    std::vector<SecondaryCacheResultHandle*> handles) {
+  std::vector<SecondaryCacheResultHandle*> base_handles;
+  for (SecondaryCacheResultHandle* hdl : handles) {
+    FaultInjectionSecondaryCache::ResultHandle* handle =
+        static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
+    if (!handle->base_) {
+      continue;
+    }
+    base_handles.emplace_back(handle->base_.get());
+  }
+
+  cache->base_->WaitAll(base_handles);
+  for (SecondaryCacheResultHandle* hdl : handles) {
+    FaultInjectionSecondaryCache::ResultHandle* handle =
+        static_cast<FaultInjectionSecondaryCache::ResultHandle*>(hdl);
+    if (handle->base_) {
+      UpdateHandleValue(handle);
+    }
+  }
+}
+
 FaultInjectionSecondaryCache::ErrorContext*
 FaultInjectionSecondaryCache::GetErrorContext() {
   ErrorContext* ctx = static_cast<ErrorContext*>(thread_local_error_->Get());
@@ -50,6 +103,7 @@ FaultInjectionSecondaryCache::Lookup(const Slice& key,
     }
     return std::unique_ptr<FaultInjectionSecondaryCache::ResultHandle>(
         new FaultInjectionSecondaryCache::ResultHandle(this, std::move(hdl)));
+  }
 }
 
 void FaultInjectionSecondaryCache::Erase(const Slice& key) {
