@@ -205,6 +205,11 @@ class MultiGetContext {
       }
 
       Iterator(const Iterator&) = default;
+
+      Iterator(const Iterator& other, const Range* range)
+          : range_(range), ctx_(other.ctx_), index_(other.index_) {
+        assert(range->ctx_ == other.ctx_);
+      }
       Iterator& operator=(const Iterator&) = default;
 
       Iterator& operator++() {
@@ -249,8 +254,15 @@ class MultiGetContext {
           const Iterator& first,
           const Iterator& last) {
       ctx_ = mget_range.ctx_;
-      start_ = first.index_;
-      end_ = last.index_;
+      if (first == last) {
+        // This means create an empty range based on mget_range. So just
+        // set start_ and and_ to the same value
+        start_ = mget_range.start_;
+        end_ = start_;
+      } else {
+        start_ = first.index_;
+        end_ = last.index_;
+      }
       skip_mask_ = mget_range.skip_mask_;
       invalid_mask_ = mget_range.invalid_mask_;
       assert(start_ < 64);
