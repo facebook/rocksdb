@@ -13,6 +13,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+#include <iostream>
 
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
@@ -858,7 +859,8 @@ KeyHandle MemTable::FormatEntry(
   //
   //  for del range entry in del range table
   //  value_size  : varint32 of value.size() + 8 * tombstone_seqs.size() +
-  //  varint32 of tombstone_seqs.size() value bytes :
+  //  varint32 of tombstone_seqs.size()
+  //  value bytes :
   //  char[varint32(tombstone_seqs.size())] + char[value.size()] + char[8 *
   //  tombstone_seqs.size()]
   uint32_t key_size = static_cast<uint32_t>(key.size());
@@ -895,7 +897,8 @@ KeyHandle MemTable::FormatEntry(
       p += 8;
     }
   }
-  UpdateEntryChecksum(kv_prot_info, key, entry, type, s, p);
+  UpdateEntryChecksum(kv_prot_info, key, entry, type, s,
+                      buf + *encoded_len - moptions_.protection_bytes_per_key);
   return handle;
 }
 
