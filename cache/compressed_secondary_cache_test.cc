@@ -282,20 +282,17 @@ class CompressedSecondaryCacheTest : public testing::Test {
                            stats.get());
     ASSERT_EQ(handle, nullptr);
 
-    std::cout << "Lookup k1 0" << std::endl;
     // This Lookup should just insert a dummy handle in the primary cache
     // and the k1 is still in the secondary cache.
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
-    std::cout << "Lookup k1 1" << std::endl << std::endl;
     ASSERT_NE(handle, nullptr);
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);
     ASSERT_EQ(memcmp(val1_1->Buf(), str1_clone.data(), str1_clone.size()), 0);
     cache->Release(handle);
 
-    std::cout << "Lookup k1 2" << std::endl;
     // This Lookup should erase k1 from the secondary cache and insert
     // it into primary cache; then k3 is demoted. k2 is evicted.
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
@@ -303,7 +300,6 @@ class CompressedSecondaryCacheTest : public testing::Test {
                            stats.get());
     ASSERT_NE(handle, nullptr);
     cache->Release(handle);
-    std::cout << "Lookup k1 3" << std::endl << std::endl;
 
     handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
