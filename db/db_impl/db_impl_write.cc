@@ -134,9 +134,11 @@ void DBImpl::MultiBatchWriteCommit(CommitRequest* request) {
 }
 
 Status DBImpl::MultiBatchWrite(const WriteOptions& options,
-                               std::vector<WriteBatch*>&& updates) {
+                               std::vector<WriteBatch*>&& updates,
+                               uint64_t* seq) {
   if (immutable_db_options_.enable_multi_batch_write) {
-    return MultiBatchWriteImpl(options, std::move(updates), nullptr, nullptr);
+    return MultiBatchWriteImpl(options, std::move(updates), nullptr, nullptr, 0,
+                               seq);
   } else {
     return Status::NotSupported();
   }

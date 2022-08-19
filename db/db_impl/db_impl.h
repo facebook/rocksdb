@@ -182,7 +182,8 @@ class DBImpl : public DB {
 
   using DB::MultiBatchWrite;
   virtual Status MultiBatchWrite(const WriteOptions& options,
-                                 std::vector<WriteBatch*>&& updates) override;
+                                 std::vector<WriteBatch*>&& updates,
+                                 uint64_t* seq) override;
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
