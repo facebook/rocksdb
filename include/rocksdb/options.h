@@ -1686,6 +1686,17 @@ struct ReadOptions {
   // Default: false
   bool async_io;
 
+  // Experimental
+  //
+  // If async_io is set, then this flag controls whether we read SST files
+  // in multiple levels asynchronously. Enabling this flag can help reduce
+  // MultiGet latency by maximizing the number of SST files read in
+  // parallel if the keys in the MultiGet batch are in different levels. It
+  // comes at the expense of slightly higher CPU overhead.
+  //
+  // Default: false
+  bool optimize_multiget_for_io;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

@@ -1177,6 +1177,10 @@ DEFINE_bool(async_io, false,
             "When set true, RocksDB does asynchronous reads for internal auto "
             "readahead prefetching.");
 
+DEFINE_bool(optimize_multiget_for_io, true,
+            "When set true, RocksDB does asynchronous reads for SST files in "
+            "multiple levels for MultiGet.");
+
 DEFINE_bool(charge_compression_dictionary_building_buffer, false,
             "Setting for "
             "CacheEntryRoleOptions::charged of "
@@ -3364,6 +3368,7 @@ class Benchmark {
       read_options_.readahead_size = FLAGS_readahead_size;
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
       read_options_.async_io = FLAGS_async_io;
+      read_options_.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
