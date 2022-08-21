@@ -30,12 +30,9 @@ LRUHandleTable::LRUHandleTable(int max_upper_hash_bits)
       max_length_bits_(max_upper_hash_bits) {}
 
 LRUHandleTable::~LRUHandleTable() {
-  std::cout << "~LRUHandleTable()" << std::endl;
   ApplyToEntriesRange(
       [](LRUHandle* h) {
-        std::cout << "To call Free(): " << h->key().ToString() << std::endl;
         if (!h->HasRefs()) {
-          std::cout << "Free(): " << h->key().ToString() << std::endl;
           h->Free();
         }
       },
@@ -163,8 +160,6 @@ void LRUCacheShard::EraseUnRefEntries() {
   }
 
   for (auto entry : last_reference_list) {
-    std::cout << "To call Free() In EraseUnRefEntries(): "
-              << entry->key().ToString() << std::endl;
     entry->Free();
   }
 }
@@ -355,13 +350,9 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsInSecondaryCache()) {
-      std::cout << "To call insert into sec_cache In SetCapacity(): "
-                << entry->key().ToString() << std::endl;
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
-    std::cout << "To call Free() into SetCapacity(): "
-              << entry->key().ToString() << std::endl;
     entry->Free();
   }
 }
@@ -403,14 +394,10 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       LRUHandle* old = table_.Insert(e);
       usage_ += e->total_charge;
       if (old != nullptr) {
-        std::cout << "InsertItem old!=nullptr" << old->key().ToString()
-                  << std::endl;
         s = Status::OkOverwritten();
         assert(old->InCache());
         old->SetInCache(false);
         if (!old->HasRefs()) {
-          std::cout << "InsertItem !old->HasRefs() " << old->key().ToString()
-                    << std::endl;
           // old is on LRU because it's in cache and its reference count is 0.
           LRU_Remove(old);
           assert(usage_ >= old->total_charge);
@@ -435,13 +422,9 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsInSecondaryCache()) {
-      std::cout << "To call insert into sec_cache In InsertItem(): "
-                << entry->key().ToString() << std::endl;
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
-    std::cout << "To call Free() In InsertItem(): " << entry->key().ToString()
-              << std::endl;
     entry->Free();
   }
 
@@ -456,14 +439,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   e->value = secondary_handle->Value();
   e->CalcTotalCharge(secondary_handle->Size(), metadata_charge_policy_);
   delete secondary_handle;
-
-  std::cout << "Promote start " << std::endl;
-  std::cout << "standalone_pool_capacity_ " << standalone_pool_capacity_
-            << std::endl;
-  std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
-  std::cout << "usage_ " << usage_ << std::endl;
-  std::cout << "lru_usage_ 1 " << TEST_GetLRUSize() << std::endl;
-  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
 
   if (e->value) {
     // Insert a dummy handle and return a standalone handle to caller
@@ -513,13 +488,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
     e->SetInCache(false);
     e->SetIsStandalone(false);
   }
-  std::cout << "Promote end " << std::endl;
-  std::cout << "standalone_pool_capacity_ " << standalone_pool_capacity_
-            << std::endl;
-  std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
-  std::cout << "usage_ " << usage_ << std::endl;
-  std::cout << "lru_usage_ 1 " << TEST_GetLRUSize() << std::endl;
-  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
 }
 
 Cache::Handle* LRUCacheShard::Lookup(
