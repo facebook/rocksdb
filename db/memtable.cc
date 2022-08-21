@@ -567,7 +567,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
   // construct fragmented tombstone list if necessary
   if (!(*cache)->initialized.load(std::memory_order_acquire)) {
     (*cache)->reader_mutex.lock();
-    if (not(*cache)->tombstones) {
+    if (!(*cache)->tombstones) {
       auto* unfragmented_iter =
           new MemTableIterator(*this, read_options, nullptr /* arena */,
                                true /* use_range_del_table */);
