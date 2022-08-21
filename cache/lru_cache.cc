@@ -30,9 +30,12 @@ LRUHandleTable::LRUHandleTable(int max_upper_hash_bits)
       max_length_bits_(max_upper_hash_bits) {}
 
 LRUHandleTable::~LRUHandleTable() {
+  std::cout << "~LRUHandleTable()" << std::endl;
   ApplyToEntriesRange(
       [](LRUHandle* h) {
+        std::cout << "To call Free(): " << h->key().ToString() << std::endl;
         if (!h->HasRefs()) {
+          std::cout << "Free(): " << h->key().ToString() << std::endl;
           h->Free();
         }
       },
@@ -160,6 +163,8 @@ void LRUCacheShard::EraseUnRefEntries() {
   }
 
   for (auto entry : last_reference_list) {
+    std::cout << "To call Free() In EraseUnRefEntries(): "
+              << entry->key().ToString() << std::endl;
     entry->Free();
   }
 }
@@ -350,9 +355,13 @@ void LRUCacheShard::SetCapacity(size_t capacity) {
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsInSecondaryCache()) {
+      std::cout << "To call insert into sec_cache In SetCapacity(): "
+                << entry->key().ToString() << std::endl;
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
+    std::cout << "To call Free() into SetCapacity(): "
+              << entry->key().ToString() << std::endl;
     entry->Free();
   }
 }
@@ -422,9 +431,13 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
   for (auto entry : last_reference_list) {
     if (secondary_cache_ && entry->IsSecondaryCacheCompatible() &&
         !entry->IsInSecondaryCache()) {
+      std::cout << "To call insert into sec_cache In InsertItem(): "
+                << entry->key().ToString() << std::endl;
       secondary_cache_->Insert(entry->key(), entry->value, entry->info_.helper)
           .PermitUncheckedError();
     }
+    std::cout << "To call Free() In InsertItem(): " << entry->key().ToString()
+              << std::endl;
     entry->Free();
   }
 
@@ -445,6 +458,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
             << std::endl;
   std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
   std::cout << "usage_ " << usage_ << std::endl;
+  std::cout << "lru_usage_ 1 " << TEST_GetLRUSize() << std::endl;
+  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
 
   if (e->value) {
     // Insert a dummy handle and return a standalone handle to caller
@@ -457,12 +472,17 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       e->SetInCache(false);
       standalone_pool_usage_ += e->total_charge;
 
-      // Insert a dummy handle into the primary cache.
+      // Insert a dummy handle into the primary cache. This dummy handle is not
+      // IsSecondaryCacheCompatible().
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
+      // Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
+      //        nullptr /*deleter*/, e->info_.helper /*helper*/, nullptr
+      //        /*handle*/, priority);
+
       Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
-             nullptr /*deleter*/, e->info_.helper, nullptr /*handle*/,
-             priority);
+             e->info_.helper->del_cb /*deleter*/, nullptr /*helper*/,
+             nullptr /*handle*/, priority);
     } else {
       std::cout << "Promote e " << std::endl;
       // This call could fail if the cache is over capacity and
@@ -494,6 +514,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
             << std::endl;
   std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
   std::cout << "usage_ " << usage_ << std::endl;
+  std::cout << "lru_usage_ 1 " << TEST_GetLRUSize() << std::endl;
+  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
 }
 
 Cache::Handle* LRUCacheShard::Lookup(
@@ -501,6 +523,8 @@ Cache::Handle* LRUCacheShard::Lookup(
     const ShardedCache::CacheItemHelper* helper,
     const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
     bool wait, Statistics* stats) {
+  std::cout << "LRUCacheShard::Lookup START key " << key.ToString()
+            << std::endl;
   LRUHandle* e = nullptr;
   bool erase_handle_in_sec_cache{false};
   {
@@ -525,7 +549,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       }
     }
   }
-  std::cout << "key " << key.ToString() << std::endl;
+  std::cout << "LRUCacheShard::Lookup key " << key.ToString() << std::endl;
   std::cout << "use_compressed_secondary_cache_ "
             << use_compressed_secondary_cache_ << std::endl;
   // If handle table lookup failed or the handle is a dummy one, allocate
@@ -579,6 +603,8 @@ Cache::Handle* LRUCacheShard::Lookup(
         if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed.
           e->Unref();
+          std::cout << "To call Free() In Lookup(): " << e->key().ToString()
+                    << std::endl;
           e->Free();
           e = nullptr;
         } else {
@@ -598,6 +624,9 @@ Cache::Handle* LRUCacheShard::Lookup(
       e = nullptr;
     }
   }
+
+  std::cout << "LRUCacheShard::Lookup END value e " << (e == nullptr)
+            << std::endl;
   return reinterpret_cast<Cache::Handle*>(e);
 }
 
@@ -634,28 +663,36 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
             << std::endl;
   std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
   std::cout << "capacity_ " << capacity_ << std::endl;
-  std::cout << "usage_ " << usage_ << std::endl;
+  std::cout << "usage_ " << usage_ << std::endl << std::endl;
+  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
 
   LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
   bool last_reference = false;
   {
     DMutexLock l(mutex_);
     last_reference = e->Unref();
-
+    std::cout << "last_reference A: " << last_reference << std::endl
+              << std::endl;
     if (last_reference && e->InCache() && !e->IsStandalone()) {
       // The item is still in cache, and nobody else holds a reference to it.
       if (usage_ > capacity_ || erase_if_last_ref) {
+        std::cout << "Remove from table_ " << std::endl;
         // The LRU list must be empty since the cache is full.
         assert(lru_.next == &lru_ || erase_if_last_ref);
         // Take this opportunity and remove the item.
         table_.Remove(e->key(), e->hash);
         e->SetInCache(false);
       } else {
+        std::cout << "Add back to LRU " << std::endl;
         // Put the item back on the LRU list, and don't free it.
         LRU_Insert(e);
         last_reference = false;
       }
     }
+
+    std::cout << "last_reference B: " << last_reference << std::endl
+              << std::endl;
+    std::cout << "e->value " << e->value << std::endl << std::endl;
     // If it was the last reference, and the entry is either not secondary
     // cache compatible (i.e a dummy entry for accounting), or is secondary
     // cache compatible and has a non-null value, then decrement the cache
@@ -677,6 +714,8 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 
   // Free the entry here outside of mutex for performance reasons.
   if (last_reference) {
+    std::cout << "To call Free() In Release(): " << e->key().ToString()
+              << std::endl;
     e->Free();
   }
 
@@ -686,6 +725,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
   std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
   std::cout << "capacity_ " << capacity_ << std::endl;
   std::cout << "usage_ " << usage_ << std::endl;
+  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
   return last_reference;
 }
 
