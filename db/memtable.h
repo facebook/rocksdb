@@ -536,14 +536,12 @@ class MemTable {
                                     size_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
-  // needs to be atomic load/stored
-  // makes sure there is a single writer
+  // makes sure there is a single range tombstone writer to invalidate cache
   std::mutex range_del_mutex_;
-  // TODO: this cache needs to be in threadLocal/CoreLocal shared ptr, or put into SuperVersion
   CoreLocalArray<
       std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>>>
       cached_range_tombstone_;
-  std::shared_ptr<FragmentedRangeTombstoneListCache> cached_range_tombstone_list_;
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
