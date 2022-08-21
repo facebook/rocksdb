@@ -39,6 +39,9 @@ CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
 std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
     bool erase_handle, bool& is_in_sec_cache) {
+  std::cout << std::endl
+            << "CompressedSecondaryCache::Lookup " << key.ToString()
+            << std::endl;
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
@@ -86,14 +89,21 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     cache_->Release(lru_handle, /* erase_if_last_ref */ true);
   } else {
     is_in_sec_cache = true;
+    cache_->Release(lru_handle, /* erase_if_last_ref */ false);
   }
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
-
+  std::cout << std::endl
+            << "CompressedSecondaryCache::Lookup End " << key.ToString()
+            << std::endl;
   return handle;
 }
 
 Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
                                         const Cache::CacheItemHelper* helper) {
+  std::cout << std::endl
+            << "CompressedSecondaryCache::Insert " << key.ToString()
+            << std::endl;
+
   if (value == nullptr) {
     return Status::Aborted();
   }
@@ -131,6 +141,9 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
   size_t charge{0};
   CacheValueChunk* value_chunks_head =
       SplitValueIntoChunks(val, cache_options_.compression_type, charge);
+  std::cout << std::endl
+            << "CompressedSecondaryCache::Insert End " << key.ToString()
+            << std::endl;
   return cache_->Insert(key, value_chunks_head, charge, DeletionCallback);
 }
 

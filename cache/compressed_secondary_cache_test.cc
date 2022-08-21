@@ -249,23 +249,31 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
     Random rnd(301);
 
+    std::cout << "Before Insert k1 " << std::endl;
     std::string str1 = rnd.RandomString(1001);
     std::string str1_clone{str1};
     TestItem* item1 = new TestItem(str1.data(), str1.length());
     ASSERT_OK(cache->Insert("k1", item1, &CompressedSecondaryCacheTest::helper_,
                             str1.length()));
+    std::cout << "After Insert k1 " << std::endl << std::endl;
 
+    std::cout << "Before Insert k2 " << std::endl;
     std::string str2 = rnd.RandomString(1012);
     TestItem* item2 = new TestItem(str2.data(), str2.length());
     // After Insert, cache contains k2 and secondary cache contains k1.
     ASSERT_OK(cache->Insert("k2", item2, &CompressedSecondaryCacheTest::helper_,
                             str2.length()));
+    std::cout << "After Insert k2 " << std::endl << std::endl;
 
+    std::cout << "Before Insert k3 " << std::endl;
     std::string str3 = rnd.RandomString(1024);
     TestItem* item3 = new TestItem(str3.data(), str3.length());
     // After Insert, cache contains k3 and secondary cache contains k1 and k2.
     ASSERT_OK(cache->Insert("k3", item3, &CompressedSecondaryCacheTest::helper_,
                             str3.length()));
+    std::cout << "After Insert k3 " << std::endl << std::endl;
+
+    std::cout << "Before Lookup k3 " << std::endl;
     Cache::Handle* handle;
     handle = cache->Lookup("k3", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
@@ -274,14 +282,21 @@ class CompressedSecondaryCacheTest : public testing::Test {
     TestItem* val3 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val3, nullptr);
     ASSERT_EQ(memcmp(val3->Buf(), item3->Buf(), item3->Size()), 0);
-    cache->Release(handle);
+    std::cout << "After Lookup k3 " << std::endl << std::endl;
 
+    std::cout << "Before Release k3 " << std::endl;
+    cache->Release(handle);
+    std::cout << "After Release k3 " << std::endl << std::endl;
+
+    std::cout << "Before Lookup k0 " << std::endl;
     // Lookup an non-existent key.
     handle = cache->Lookup("k0", &CompressedSecondaryCacheTest::helper_,
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
     ASSERT_EQ(handle, nullptr);
+    std::cout << "After Lookup k0 " << std::endl << std::endl;
 
+    std::cout << "Before Lookup k1 " << std::endl;
     // This Lookup should just insert a dummy handle in the primary cache
     // and the k1 is still in the secondary cache.
     handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
@@ -291,23 +306,28 @@ class CompressedSecondaryCacheTest : public testing::Test {
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);
     ASSERT_EQ(memcmp(val1_1->Buf(), str1_clone.data(), str1_clone.size()), 0);
-    cache->Release(handle);
+    std::cout << "After Lookup k1 " << std::endl << std::endl;
 
-    // This Lookup should erase k1 from the secondary cache and insert
-    // it into primary cache; then k3 is demoted. k2 is evicted.
-    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true,
-                           stats.get());
-    ASSERT_NE(handle, nullptr);
+    std::cout << "Before Release k1 " << std::endl;
     cache->Release(handle);
+    std::cout << "After Lookup k1 " << std::endl << std::endl;
+    // // This Lookup should erase k1 from the secondary cache and insert
+    // // it into primary cache; then k3 is demoted. k2 is evicted.
+    // handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+    //                        test_item_creator, Cache::Priority::LOW, true,
+    //                        stats.get());
+    // ASSERT_NE(handle, nullptr);
+    // cache->Release(handle);
 
-    handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
-                           test_item_creator, Cache::Priority::LOW, true,
-                           stats.get());
-    ASSERT_NE(handle, nullptr);
-    cache->Release(handle);
+    // handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
+    //                        test_item_creator, Cache::Priority::LOW, true,
+    //                        stats.get());
+    // ASSERT_NE(handle, nullptr);
+    // cache->Release(handle);
 
+    std::cout << "Before cache.reset " << std::endl;
     cache.reset();
+    std::cout << "Before secondary_cache.reset " << std::endl;
     secondary_cache.reset();
   }
 

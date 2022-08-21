@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <iostream>
 #include <memory>
 #include <string>
 
@@ -221,6 +222,7 @@ struct LRUHandle {
   }
 
   void Free() {
+    std::cout << "Free " << key().ToString() << std::endl;
     assert(refs == 0);
 #ifdef __SANITIZE_THREAD__
     // Here we can safely assert they are the same without a data race reported
