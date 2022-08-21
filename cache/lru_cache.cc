@@ -403,10 +403,14 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       LRUHandle* old = table_.Insert(e);
       usage_ += e->total_charge;
       if (old != nullptr) {
+        std::cout << "InsertItem old!=nullptr" << old->key().ToString()
+                  << std::endl;
         s = Status::OkOverwritten();
         assert(old->InCache());
         old->SetInCache(false);
         if (!old->HasRefs()) {
+          std::cout << "InsertItem !old->HasRefs() " << old->key().ToString()
+                    << std::endl;
           // old is on LRU because it's in cache and its reference count is 0.
           LRU_Remove(old);
           assert(usage_ >= old->total_charge);
@@ -564,6 +568,10 @@ Cache::Handle* LRUCacheShard::Lookup(
     // accounting purposes, which we won't demote to the secondary cache
     // anyway.
     assert(create_cb && helper->del_cb);
+    // Release the dummy handle.
+    if (e) {
+      Release(reinterpret_cast<Cache::Handle*>(e), true /*erase_if_last_ref*/);
+    }
     bool is_in_sec_cache{false};
     std::unique_ptr<SecondaryCacheResultHandle> secondary_handle =
         secondary_cache_->Lookup(key, create_cb, wait,
@@ -668,6 +676,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 
   LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
   bool last_reference = false;
+  std::cout << "last_reference 0: " << last_reference << std::endl << std::endl;
   {
     DMutexLock l(mutex_);
     last_reference = e->Unref();

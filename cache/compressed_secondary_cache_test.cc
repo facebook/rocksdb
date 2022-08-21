@@ -311,13 +311,13 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::cout << "Before Release k1 " << std::endl;
     cache->Release(handle);
     std::cout << "After Lookup k1 " << std::endl << std::endl;
-    // // This Lookup should erase k1 from the secondary cache and insert
-    // // it into primary cache; then k3 is demoted. k2 is evicted.
-    // handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
-    //                        test_item_creator, Cache::Priority::LOW, true,
-    //                        stats.get());
-    // ASSERT_NE(handle, nullptr);
-    // cache->Release(handle);
+    // This Lookup should erase k1 from the secondary cache and insert
+    // it into primary cache; then k3 is demoted. k2 is evicted.
+    handle = cache->Lookup("k1", &CompressedSecondaryCacheTest::helper_,
+                           test_item_creator, Cache::Priority::LOW, true,
+                           stats.get());
+    ASSERT_NE(handle, nullptr);
+    cache->Release(handle);
 
     // handle = cache->Lookup("k2", &CompressedSecondaryCacheTest::helper_,
     //                        test_item_creator, Cache::Priority::LOW, true,
