@@ -12,7 +12,6 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 
 #include "cache/compressed_secondary_cache.h"
 #include "monitoring/perf_context_imp.h"
@@ -446,7 +445,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
     // handle, and the standalone pool has enough space for e.
     if (use_compressed_secondary_cache_ && e->IsStandalone() &&
         e->total_charge + standalone_pool_usage_ <= standalone_pool_capacity_) {
-      std::cout << "Promote dummy " << std::endl;
       // Update the properties for the standalone handle.
       e->SetInCache(false);
       standalone_pool_usage_ += e->total_charge;
@@ -459,7 +457,6 @@ void LRUCacheShard::Promote(LRUHandle* e) {
              nullptr /*deleter*/, nullptr /*helper*/, nullptr /*handle*/,
              priority);
     } else {
-      std::cout << "Promote e " << std::endl;
       // This call could fail if the cache is over capacity and
       // strict_capacity_limit_ is true. In such a case, we don't want
       // InsertItem() to free the handle, since the item is already in memory
@@ -491,8 +488,6 @@ Cache::Handle* LRUCacheShard::Lookup(
     const ShardedCache::CacheItemHelper* helper,
     const ShardedCache::CreateCallback& create_cb, Cache::Priority priority,
     bool wait, Statistics* stats) {
-  std::cout << "LRUCacheShard::Lookup START key " << key.ToString()
-            << std::endl;
   LRUHandle* e = nullptr;
   bool erase_handle_in_sec_cache{false};
   {
@@ -517,9 +512,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       }
     }
   }
-  std::cout << "LRUCacheShard::Lookup key " << key.ToString() << std::endl;
-  std::cout << "use_compressed_secondary_cache_ "
-            << use_compressed_secondary_cache_ << std::endl;
+
   // If handle table lookup failed or the handle is a dummy one, allocate
   // a handle outside the mutex if we're going to lookup in the secondary cache.
   // Only support synchronous for now.
@@ -562,21 +555,12 @@ Cache::Handle* LRUCacheShard::Lookup(
       if (use_compressed_secondary_cache_ && !erase_handle_in_sec_cache) {
         e->SetIsStandalone(true);
       }
-      std::cout << "erase_handle_in_sec_cache " << erase_handle_in_sec_cache
-                << std::endl;
-      std::cout << "standalone_pool_capacity_ " << standalone_pool_capacity_
-                << std::endl;
-      std::cout << "standalone_pool_usage_ " << standalone_pool_usage_
-                << std::endl;
-      std::cout << "e->IsStandalone() " << e->IsStandalone() << std::endl;
 
       if (wait) {
         Promote(e);
         if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed.
           e->Unref();
-          std::cout << "To call Free() In Lookup(): " << e->key().ToString()
-                    << std::endl;
           e->Free();
           e = nullptr;
         } else {
@@ -597,8 +581,6 @@ Cache::Handle* LRUCacheShard::Lookup(
     }
   }
 
-  std::cout << "LRUCacheShard::Lookup END value e " << (e == nullptr)
-            << std::endl;
   return reinterpret_cast<Cache::Handle*>(e);
 }
 
@@ -630,42 +612,26 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
     return false;
   }
 
-  std::cout << "Release start " << std::endl;
-  std::cout << "standalone_pool_capacity_ " << standalone_pool_capacity_
-            << std::endl;
-  std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
-  std::cout << "capacity_ " << capacity_ << std::endl;
-  std::cout << "usage_ " << usage_ << std::endl << std::endl;
-  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
-
   LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
   bool last_reference = false;
-  std::cout << "last_reference 0: " << last_reference << std::endl << std::endl;
   {
     DMutexLock l(mutex_);
     last_reference = e->Unref();
-    std::cout << "last_reference A: " << last_reference << std::endl
-              << std::endl;
     if (last_reference && e->InCache() && !e->IsStandalone()) {
       // The item is still in cache, and nobody else holds a reference to it.
       if (usage_ > capacity_ || erase_if_last_ref) {
-        std::cout << "Remove from table_ " << std::endl;
         // The LRU list must be empty since the cache is full.
         assert(lru_.next == &lru_ || erase_if_last_ref);
         // Take this opportunity and remove the item.
         table_.Remove(e->key(), e->hash);
         e->SetInCache(false);
       } else {
-        std::cout << "Add back to LRU " << std::endl;
         // Put the item back on the LRU list, and don't free it.
         LRU_Insert(e);
         last_reference = false;
       }
     }
 
-    std::cout << "last_reference B: " << last_reference << std::endl
-              << std::endl;
-    std::cout << "e->value " << e->value << std::endl << std::endl;
     // If it was the last reference, and the entry is either not secondary
     // cache compatible (i.e a dummy entry for accounting), or is secondary
     // cache compatible and has a non-null value, then decrement the cache
@@ -687,18 +653,9 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
 
   // Free the entry here outside of mutex for performance reasons.
   if (last_reference) {
-    std::cout << "To call Free() In Release(): " << e->key().ToString()
-              << std::endl;
     e->Free();
   }
 
-  std::cout << "Release end " << std::endl;
-  std::cout << "standalone_pool_capacity_ " << standalone_pool_capacity_
-            << std::endl;
-  std::cout << "standalone_pool_usage_ " << standalone_pool_usage_ << std::endl;
-  std::cout << "capacity_ " << capacity_ << std::endl;
-  std::cout << "usage_ " << usage_ << std::endl;
-  std::cout << "lru_usage_ " << lru_usage_ << std::endl << std::endl;
   return last_reference;
 }
 
