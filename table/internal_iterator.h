@@ -186,11 +186,11 @@ class InternalIteratorBase : public Cleanable {
   // Default implementation is no-op and its implemented by iterators.
   virtual void SetReadaheadState(ReadaheadFileInfo* /*readahead_file_info*/) {}
 
-  // When used under merging iterator, LevelIterator treats some file boundary
-  // as key to prevent it from moving to next SST file before range tombstones
-  // in the current SST file are no longer needed. This method makes it cheap to
-  // check sentinel key. This should only be used by MergingIterator and
-  // LevelIterator for now.
+  // When used under merging iterator, LevelIterator treats file boundaries
+  // as sentinel keys to prevent it from moving to next SST file before range
+  // tombstones in the current SST file are no longer needed. This method makes
+  // it cheap to check if the current key is a sentinel key. This should only be
+  // used by MergingIterator and LevelIterator for now.
   virtual bool IsDeleteRangeSentinelKey() const { return false; }
 
  protected:

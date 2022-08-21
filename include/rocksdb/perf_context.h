@@ -124,7 +124,7 @@ struct PerfContext {
   // How many values were fed into merge operator by iterators.
   //
   uint64_t internal_merge_count;
-  // Number of times we reseeked inside a table iterator, specifically to skip
+  // Number of times we reseeked inside a merging iterator, specifically to skip
   // after or before a range of keys covered by a range deletion in a newer LSM
   // component.
   uint64_t internal_range_del_reseek_count;

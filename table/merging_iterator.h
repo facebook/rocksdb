@@ -30,7 +30,7 @@ using InternalIterator = InternalIteratorBase<Slice>;
 // The result does no duplicate suppression.  I.e., if a particular
 // key is present in K child iterators, it will be yielded K times.
 //
-//  REQUIRES: n >= 0
+// REQUIRES: n >= 0
 extern InternalIterator* NewMergingIterator(
     const InternalKeyComparator* comparator, InternalIterator** children, int n,
     Arena* arena = nullptr, bool prefix_seek_mode = false);
@@ -52,10 +52,10 @@ class MergeIteratorBuilder {
   // Add a range tombstone iterator to underlying merge iterator.
   // See MergingIterator::AddRangeTombstoneIterator() for more detail.
   //
-  // If range_del_iter_ptr_ is not nullptr, *range_del_iter_ptr_ will point
-  // to where the merging iterator stores iter when Finish() is called.
-  // This is used by level iterator to update range tombstones when switching
-  // to a different SST file.
+  // If `iter_ptr` is not nullptr, *iter_ptr will be set to where the merging
+  // iterator stores `iter` when MergeIteratorBuilder::Finish() is called. This
+  // is used by level iterator to update range tombstone iters when switching to
+  // a different SST file.
   void AddRangeTombstoneIterator(
       TruncatedRangeDelIterator* iter,
       TruncatedRangeDelIterator*** iter_ptr = nullptr);
@@ -77,7 +77,7 @@ class MergeIteratorBuilder {
   bool use_merging_iter;
   Arena* arena;
   // Used to set LevelIterator.range_tombstone_iter_.
-  // See AddRangeTombstoneIterator() for more detail.
+  // See AddRangeTombstoneIterator() implementation for more detail.
   std::vector<std::pair<size_t, TruncatedRangeDelIterator***>>
       range_del_iter_ptrs_;
 };

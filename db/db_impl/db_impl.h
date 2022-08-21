@@ -739,14 +739,10 @@ class DBImpl : public DB {
   // the value and so will require PrepareValue() to be called before value();
   // allow_unprepared_value = false is convenient when this optimization is not
   // useful, e.g. when reading the whole column family.
-  // If read_options.ignore_range_deletions is false, then:
-  //   If range_del_agg is not nullptr, range tombstones from each sorted runs
-  //   are added to range_del_agg. Keys covered by range tombstones are
-  //   outputted by this iterator. Otherwise, range_del_agg is nullptr, range
-  //   tombstones are processed internally and output keys of this iterator are
-  //   not covered by any range tombstone.
-  // If read_options.ignore_range_deletions is true, no range tombstone will be
-  // added to range_del_agg nor will range tombstones be handled internally.
+  //
+  // read_options.ignore_range_deletions determines whether range tombstones are
+  // processed in the returned interator internally, i.e., whether range
+  // tombstone covered keys are in this iterator's output.
   // @param read_options Must outlive the returned iterator.
   InternalIterator* NewInternalIterator(
       const ReadOptions& read_options, Arena* arena, SequenceNumber sequence,

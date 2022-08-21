@@ -64,9 +64,10 @@ class TableCache {
   // by the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
   // If !options.ignore_range_deletions, and range_del_iter is non-nullptr,
-  // then range_del_iter is set to a range tombstone iterator
-  // for the specified file number. The upper/lower bounds for the
-  // TruncatedRangeDelIterator are set to the file's boundary.
+  // then range_del_iter is set to a TruncatedRangeDelIterator for range
+  // tombstones in the SST file corresponding to the specified file number. The
+  // upper/lower bounds for the TruncatedRangeDelIterator are set to the SST
+  // file's boundary.
   // @param options Must outlive the returned iterator.
   // @param range_del_agg If non-nullptr, adds range deletions to the
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator

@@ -968,7 +968,6 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  read_options.ignore_range_deletions = true;
   ScopedArenaIterator iter;
   if (cf == 0) {
     iter.set(dbfull()->NewInternalIterator(read_options, &arena,
@@ -1431,7 +1430,6 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
   ReadOptions read_options;
-  read_options.ignore_range_deletions = true;
   ScopedArenaIterator iter;
   if (cf != 0) {
     iter.set(dbfull()->NewInternalIterator(read_options, &arena,
@@ -1643,7 +1641,6 @@ void DBTestBase::VerifyDBInternal(
   Arena arena;
   InternalKeyComparator icmp(last_options_.comparator);
   ReadOptions read_options;
-  read_options.ignore_range_deletions = true;
   auto iter =
       dbfull()->NewInternalIterator(read_options, &arena, kMaxSequenceNumber);
   iter->SeekToFirst();

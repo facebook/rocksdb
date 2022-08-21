@@ -2027,7 +2027,6 @@ TEST_F(DBRangeDelTest, TombstoneAcrossFileBoundary) {
 
   delete iter;
   db_->ReleaseSnapshot(snapshot);
-  ;
 }
 
 TEST_F(DBRangeDelTest, NonOverlappingTombstonAtBoundary) {

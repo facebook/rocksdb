@@ -329,7 +329,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    read_options.ignore_range_deletions = true;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
@@ -422,7 +421,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   {
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    read_options.ignore_range_deletions = true;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
         read_options, &arena, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
@@ -700,7 +698,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     Arena arena;
     InternalKeyComparator icmp(options.comparator);
     ReadOptions read_options;
-    read_options.ignore_range_deletions = true;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(read_options, &arena,
                                                            kMaxSequenceNumber));
     iter->SeekToFirst();

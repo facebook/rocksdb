@@ -287,6 +287,7 @@ InternalIterator* TableCache::NewIterator(
       auto new_range_del_iter =
           table_reader->NewRangeTombstoneIterator(options);
       if (new_range_del_iter == nullptr || new_range_del_iter->empty()) {
+        delete new_range_del_iter;
         *range_del_iter = nullptr;
       } else {
         *range_del_iter = new TruncatedRangeDelIterator(

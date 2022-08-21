@@ -1812,7 +1812,8 @@ InternalIterator* DBImpl::NewInternalIterator(
       merge_iter_builder.AddRangeTombstoneIterator(
           new TruncatedRangeDelIterator(
               std::unique_ptr<FragmentedRangeTombstoneIterator>(range_del_iter),
-              &cfd->ioptions()->internal_comparator, nullptr, nullptr));
+              &cfd->ioptions()->internal_comparator, nullptr /* smallest */,
+              nullptr /* largest */));
     }
   }
   // Collect all needed child iterators for immutable memtables
