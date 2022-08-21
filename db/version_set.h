@@ -46,6 +46,10 @@
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "env/file_system_tracer.h"
+#if USE_COROUTINES
+#include "folly/experimental/coro/BlockingWait.h"
+#include "folly/experimental/coro/Collect.h"
+#endif
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -54,6 +58,7 @@
 #include "table/get_context.h"
 #include "table/multiget_context.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "util/autovector.h"
 #include "util/coro_utils.h"
 #include "util/hash_containers.h"
 
@@ -76,6 +81,7 @@ class ColumnFamilySet;
 class MergeIteratorBuilder;
 class SystemClock;
 class ManifestTailer;
+class FilePickerMultiGet;
 
 // VersionEdit is always supposed to be valid and it is used to point at
 // entries in Manifest. Ideally it should not be used as a container to
@@ -996,6 +1002,28 @@ class Version {
       std::unordered_map<uint64_t, BlobReadContexts>& blob_ctxs,
       Cache::Handle* table_handle, uint64_t& num_filter_read,
       uint64_t& num_index_read, uint64_t& num_sst_read);
+
+#ifdef USE_COROUTINES
+  // MultiGet using async IO to read data blocks from SST files in parallel
+  // within and across levels
+  Status MultiGetAsync(
+      const ReadOptions& options, MultiGetRange* range,
+      std::unordered_map<uint64_t, BlobReadContexts>* blob_ctxs);
+
+  // A helper function to lookup a batch of keys in a single level. It will
+  // queue coroutine tasks to mget_tasks. It may also split the input batch
+  // by creating a new batch with keys definitely not in this level and
+  // enqueuing it to to_process.
+  Status ProcessBatch(const ReadOptions& read_options,
+                      FilePickerMultiGet* batch,
+                      std::vector<folly::coro::Task<Status>>& mget_tasks,
+                      std::unordered_map<uint64_t, BlobReadContexts>* blob_ctxs,
+                      autovector<FilePickerMultiGet, 4>& batches,
+                      std::deque<size_t>& waiting,
+                      std::deque<size_t>& to_process,
+                      unsigned int& num_tasks_queued, uint64_t& num_filter_read,
+                      uint64_t& num_index_read, uint64_t& num_sst_read);
+#endif
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
