@@ -455,13 +455,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       // IsSecondaryCacheCompatible().
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      // Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
-      //        nullptr /*deleter*/, e->info_.helper /*helper*/, nullptr
-      //        /*handle*/, priority);
-
       Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
-             e->info_.helper->del_cb /*deleter*/, nullptr /*helper*/,
-             nullptr /*handle*/, priority);
+             nullptr /*deleter*/, nullptr /*helper*/, nullptr /*handle*/,
+             priority);
     } else {
       std::cout << "Promote e " << std::endl;
       // This call could fail if the cache is over capacity and
