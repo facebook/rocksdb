@@ -1207,7 +1207,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // secondary cache, it will be erased from the secondary cache.
       bool is_in_sec_cache = false;
       auto sec_handle0 = secondary_cache->Lookup(
-          key0, create_cb, true, true /*advise_erase*/, is_in_sec_cache);
+          key0, &BlobContents::CreateCallback, true, /*erase_handle=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
@@ -1231,7 +1231,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
       bool is_in_sec_cache = false;
       auto sec_handle1 = secondary_cache->Lookup(
-          key1, create_cb, true, true /*advise_erase*/, is_in_sec_cache);
+          key1, &BlobContents::CreateCallback, true, /*erase_handle=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
