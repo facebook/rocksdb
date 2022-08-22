@@ -2791,6 +2791,129 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_F(DBFlushTest, DisableFlushWhenExceedDBWriteBufferSize) {
+    // case1 : write buffer full
+    Options options;
+    options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
+    options.env = env_;
+    options.db_write_buffer_size = 100;
+    options.write_buffer_size = 10 << 20;
+    Reopen(options);
+
+    auto versions = dbfull()->GetVersionSet();
+    auto mem_id = versions->GetColumnFamilySet()->GetDefault()->mem()->GetID();
+
+    // The db_write_buffer_size is so small that each Put will trigger write
+    // buffer full handling
+    ASSERT_OK(Put("k1", "v1"));
+    ASSERT_OK(Put("k2", "v2"));
+    PinnableSlice value;
+    ASSERT_OK(Get("k1", &value));
+    EXPECT_EQ(value.ToString(), "v1");
+    ASSERT_OK(Get("k2", &value));
+    EXPECT_EQ(value.ToString(), "v2");
+
+    EXPECT_EQ(mem_id,
+              versions->GetColumnFamilySet()->GetDefault()->mem()->GetID());
+    ASSERT_OK(db_->TurnOnFlush());
+    // This write will trigger `HandleWriteBufferManagerFlush`
+    ASSERT_OK(Put("k3", "v3"));
+    EXPECT_NE(mem_id,
+              versions->GetColumnFamilySet()->GetDefault()->mem()->GetID());
+    Close();
+}
+
+TEST_F(DBFlushTest, DisableFlushWhenSwitchWAL) {
+  // case2 : SwitchWAL
+  Options options;
+  options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
+  options.env = env_;
+  options.db_write_buffer_size = 0;
+  options.write_buffer_size = 10 << 20;
+  options.max_total_wal_size = 1;
+  Reopen(options);
+  // switchWAL will only be triggered with more than 1 CF
+  CreateColumnFamilies({"cf1"}, options);
+
+  auto versions = dbfull()->GetVersionSet();
+  auto default_cf = versions->GetColumnFamilySet()
+                ->GetDefault();
+  auto mem_table_id = default_cf->mem()->GetID();
+
+  // This write will cause log size to exceed limit
+  EXPECT_OK(Put("k1", "v1"));
+
+  // This write will trigger SwitchWAL, but it will fail since flush disabled
+  EXPECT_NOK(Put("k2", "v2"));
+
+  EXPECT_EQ(mem_table_id, default_cf->mem()->GetID());
+
+  // verify that put k2 fails
+  PinnableSlice value;
+  EXPECT_NOK(Get("k2", &value));
+
+  ASSERT_OK(db_->TurnOnFlush());
+
+  // this write will trigger SwitchWAL
+  EXPECT_OK(Put("k2", "v2"));
+
+  EXPECT_NE(mem_table_id, default_cf->mem()->GetID());
+
+  Close();
+}
+
+TEST_F(DBFlushTest, DisableFlushWhenManualFlush) {
+  // case3 : manual flush
+  Options options;
+  options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
+  options.env = env_;
+  Reopen(options);
+  ASSERT_OK(Put("k1", "v1"));
+  EXPECT_NOK(Flush({}));
+
+  ASSERT_OK(db_->TurnOnFlush());
+
+  EXPECT_OK(Flush({}));
+  Close();
+}
+
+TEST_F(DBFlushTest, DisableFlushWhenExceedWriteBufferSize) {
+  // case4 : single memtable size limit
+  Options options;
+  options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
+  options.env = env_;
+  // minimum write buffer size we can set is 65536
+  options.write_buffer_size = 65536;
+  Reopen(options);
+  auto versions = dbfull()->GetVersionSet();
+  auto default_cf = versions->GetColumnFamilySet()
+                ->GetDefault();
+
+  // make sure our write_buffer_size setting is not sanitized
+  EXPECT_EQ(default_cf->GetLatestCFOptions().write_buffer_size, 65536);
+  auto mem_table_id = default_cf->mem()->GetID();
+  // generate enough keys to exceed write buffer size limit
+  for (int i = 0; i < 2000; i++) {
+    ASSERT_OK(Put("k" + std::to_string(i), "v" + std::to_string(i)));
+  }
+  // memtable is not switched
+  EXPECT_EQ(mem_table_id, default_cf->mem()->GetID());
+
+  // Turn on flush
+  ASSERT_OK(db_->TurnOnFlush());
+
+  // this write should update the flush state and schedule work in flush scheduler
+  ASSERT_OK(Put("new_k1", "new_v1"));
+
+  // this should will cause the flush to be scheduled
+  ASSERT_OK(Put("new_k2", "new_v2"));
+
+  // verify that memtable is switched
+  EXPECT_NE(mem_table_id, default_cf->mem()->GetID());
+
+  Close();
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 

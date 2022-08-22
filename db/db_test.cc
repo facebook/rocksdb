@@ -3247,6 +3247,9 @@ class ModelDB : public DB {
   Status GetManifestUpdateSequence(uint64_t* /*out*/) override {
     return Status::NotSupported("Not supported in Model DB");
   }
+  Status TurnOnFlush() override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
 
  private:
   class ModelIter : public Iterator {

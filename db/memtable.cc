@@ -63,7 +63,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       statistics(ioptions.stats),
       merge_operator(ioptions.merge_operator.get()),
       info_log(ioptions.logger),
-      allow_data_in_errors(ioptions.allow_data_in_errors) {}
+      allow_data_in_errors(ioptions.allow_data_in_errors),
+      flush_switch(ioptions.flush_switch) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableOptions& ioptions,
@@ -213,6 +214,9 @@ bool MemTable::ShouldFlushNow() {
 void MemTable::UpdateFlushState() {
   auto state = flush_state_.load(std::memory_order_relaxed);
   if (state == FLUSH_NOT_REQUESTED && ShouldFlushNow()) {
+    if (!moptions_.flush_switch->IsFlushOn()) {
+      return ;
+    }
     // ignore CAS failure, because that means somebody else requested
     // a flush
     flush_state_.compare_exchange_strong(state, FLUSH_REQUESTED,

@@ -1281,6 +1281,10 @@ Status DBImpl::GetManifestUpdateSequence(uint64_t* out) {
   return Status::OK();
 }
 
+Status DBImpl::TurnOnFlush() {
+  return immutable_db_options_.flush_switch->TurnOn();
+}
+
 Status DBImpl::SetOptions(
     ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {

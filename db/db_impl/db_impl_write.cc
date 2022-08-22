@@ -1095,7 +1095,8 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     status = SwitchWAL(write_context);
   }
 
-  if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
+  if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush() &&
+               immutable_db_options_.flush_switch->IsFlushOn())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
     // thread is writing to another DB with the same write buffer, they may also
@@ -1478,6 +1479,9 @@ void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
 Status DBImpl::SwitchWAL(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
+  if (!immutable_db_options_.flush_switch->IsFlushOn()) {
+    return Status::Incomplete("flush disabled while switch wal");
+  }
   Status status;
 
   if (alive_log_files_.begin()->getting_flushed) {
@@ -1580,6 +1584,7 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
 Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
+  assert(immutable_db_options_.flush_switch->IsFlushOn());
   Status status;
 
   // Before a new memtable is added in SwitchMemtable(),
@@ -1878,6 +1883,7 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
 }
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
+  assert(immutable_db_options_.flush_switch->IsFlushOn());
   autovector<ColumnFamilyData*> cfds;
   if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);

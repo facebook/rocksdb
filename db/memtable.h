@@ -58,6 +58,7 @@ struct ImmutableMemTableOptions {
   MergeOperator* merge_operator;
   Logger* info_log;
   bool allow_data_in_errors;
+  std::shared_ptr<FlushSwitch> flush_switch;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
