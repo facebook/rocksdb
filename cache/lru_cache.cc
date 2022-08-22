@@ -440,9 +440,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   delete secondary_handle;
 
   if (e->value) {
+    bool insert_dummy_handle{false};
     {
       DMutexLock l(mutex_);
-      bool insert_dummy_handle{false};
       // Insert a dummy handle and return a standalone handle to caller
       // when secondary_cache_ is CompressedSecondaryCache, e is a standalone
       // handle, and the standalone pool has enough space for e.
