@@ -440,31 +440,40 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   delete secondary_handle;
 
   if (e->value) {
-    DMutexLock l(mutex_);
-    // Insert a dummy handle and return a standalone handle to caller
-    // when secondary_cache_ is CompressedSecondaryCache, e is a standalone
-    // handle, and the standalone pool has enough space for e.
-    if (use_compressed_secondary_cache_ && e->IsStandalone() &&
-        e->total_charge + standalone_pool_usage_ <= standalone_pool_capacity_) {
+    {
+      DMutexLock l(mutex_);
+      bool insert_dummy_handle{false};
+      // Insert a dummy handle and return a standalone handle to caller
+      // when secondary_cache_ is CompressedSecondaryCache, e is a standalone
+      // handle, and the standalone pool has enough space for e.
+      if (use_compressed_secondary_cache_ && e->IsStandalone() &&
+          e->total_charge + standalone_pool_usage_ <=
+              standalone_pool_capacity_) {
         // Update the properties for the standalone handle.
         e->SetInCache(false);
         standalone_pool_usage_ += e->total_charge;
+        insert_dummy_handle = true;
 
-        // Insert a dummy handle into the primary cache. This dummy handle is
-        // not IsSecondaryCacheCompatible().
-        Cache::Priority priority =
-            e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-        Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
-               nullptr /*deleter*/, nullptr /*helper*/, nullptr /*handle*/,
-               priority);
+      } else {
+        // This call could fail if the cache is over capacity and
+        // strict_capacity_limit_ is true. In such a case, we don't want
+        // InsertItem() to free the handle, since the item is already in memory
+        // and the caller will most likely just read from disk if we erase it
+        // here.
+        e->SetInCache(true);
+        e->SetIsStandalone(false);
+      }
+    }
+
+    if (insert_dummy_handle) {
+      // Insert a dummy handle into the primary cache. This dummy handle is
+      // not IsSecondaryCacheCompatible().
+      Cache::Priority priority =
+          e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
+      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
+             nullptr /*deleter*/, nullptr /*helper*/, nullptr /*handle*/,
+             priority);
     } else {
-      // This call could fail if the cache is over capacity and
-      // strict_capacity_limit_ is true. In such a case, we don't want
-      // InsertItem() to free the handle, since the item is already in memory
-      // and the caller will most likely just read from disk if we erase it
-      // here.
-      e->SetInCache(true);
-      e->SetIsStandalone(false);
       Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
       Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
       if (!s.ok()) {
@@ -473,6 +482,7 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         assert(!e->InCache());
       }
     }
+
   } else {
     // Since the secondary cache lookup failed, mark the item as not in cache
     // Don't charge the cache as its only metadata that'll shortly be released
