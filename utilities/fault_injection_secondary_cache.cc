@@ -87,7 +87,8 @@ Status FaultInjectionSecondaryCache::Insert(
 std::unique_ptr<SecondaryCacheResultHandle>
 FaultInjectionSecondaryCache::Lookup(const Slice& key,
                                      const Cache::CreateCallback& create_cb,
-                                     bool wait, bool erase_handle, bool& is_in_sec_cache) {
+                                     bool wait, bool erase_handle,
+                                     bool& is_in_sec_cache) {
   ErrorContext* ctx = GetErrorContext();
   if (base_is_compressed_sec_cache_) {
     if (ctx->rand.OneIn(prob_)) {
