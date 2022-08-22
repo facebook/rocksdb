@@ -1532,7 +1532,8 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
     auto& wal = *it;
     assert(wal.IsSyncing());
 
-    if (logs_.size() > 1) {
+    if (logs_.size() > 1 &&
+        wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize()) {
       if (immutable_db_options_.track_and_verify_wals_in_manifest &&
           wal.GetPreSyncSize() > 0) {
         synced_wals->AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
@@ -1544,8 +1545,6 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
       ++it;
     }
   }
-  assert(logs_.empty() || logs_[0].number > up_to ||
-         (logs_.size() == 1 && !logs_[0].IsSyncing()));
   log_sync_cv_.SignalAll();
 }
 
