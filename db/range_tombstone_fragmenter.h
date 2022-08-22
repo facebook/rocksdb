@@ -20,11 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 struct FragmentedRangeTombstoneList;
 
 struct FragmentedRangeTombstoneListCache {
-  // ensure only the first reader needs to initialize l
-  std::mutex reader_mutex;
   std::unique_ptr<FragmentedRangeTombstoneList> tombstones = nullptr;
-  // readers will first check this bool to avoid
-  std::atomic<bool> initialized = false;
 };
 
 struct FragmentedRangeTombstoneList {

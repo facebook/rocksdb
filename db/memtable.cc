@@ -549,39 +549,25 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
 }
 
 FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
-    const ReadOptions& read_options, SequenceNumber read_seq,
-    bool immutable_memtable) {
-  if (immutable_memtable) {
-    // Note that caller should already have verified that
-    // !is_range_del_table_empty_
-    assert(IsFragmentedRangeTombstonesConstructed());
-    return new FragmentedRangeTombstoneIterator(
-        fragmented_range_tombstone_list_.get(), comparator_.comparator,
-        read_seq);
-  }
-
-  // takes current cache
-  std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>> cache =
-      std::atomic_load_explicit(cached_range_tombstone_.Access(),
-                                std::memory_order_relaxed);
-  // construct fragmented tombstone list if necessary
-  if (!(*cache)->initialized.load(std::memory_order_acquire)) {
-    (*cache)->reader_mutex.lock();
-    if (!(*cache)->tombstones) {
-      auto* unfragmented_iter =
-          new MemTableIterator(*this, read_options, nullptr /* arena */,
-                               true /* use_range_del_table */);
-      (*cache)->tombstones = std::make_unique<FragmentedRangeTombstoneList>(
-          FragmentedRangeTombstoneList(
-              std::unique_ptr<InternalIterator>(unfragmented_iter),
-              comparator_.comparator));
-      (*cache)->initialized.store(true, std::memory_order_release);
-    }
-    (*cache)->reader_mutex.unlock();
-  }
-
-  return new FragmentedRangeTombstoneIterator(cache, comparator_.comparator,
+    const ReadOptions& /*read_options*/, SequenceNumber read_seq,
+    bool /* immutable_memtable */) {
+  return new FragmentedRangeTombstoneIterator((*(*cached_range_tombstone_.Access()))->tombstones.get(), comparator_.comparator,
                                               read_seq);
+//  if (immutable_memtable) {
+//    // Note that caller should already have verified that
+//    // !is_range_del_table_empty_
+//    assert(IsFragmentedRangeTombstonesConstructed());
+//    return new FragmentedRangeTombstoneIterator(
+//        fragmented_range_tombstone_list_.get(), comparator_.comparator,
+//        read_seq);
+//  }
+//
+//  // takes current cache
+//  std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>> cache =
+//      std::atomic_load_explicit(cached_range_tombstone_.Access(),
+//                                std::memory_order_relaxed);
+//  return new FragmentedRangeTombstoneIterator(cache, comparator_.comparator,
+//                                              read_seq);
 }
 
 void MemTable::ConstructFragmentedRangeTombstones() {
@@ -831,11 +817,21 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
   }
   if (type == kTypeRangeDeletion) {
-    auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
-    auto size = cached_range_tombstone_.Size();
     if (allow_concurrent) {
+      // The locking should happen before creating new FragmentedRangeTombstoneList
+      // to prevent race that sets cached_range_tombstone_ to an older version
+      // of FragmentedRangeTombstoneList.
       range_del_mutex_.lock();
     }
+    auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
+    auto* unfragmented_iter =
+        new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
+                             true /* use_range_del_table */);
+    new_cache->tombstones = std::make_unique<FragmentedRangeTombstoneList>(
+        FragmentedRangeTombstoneList(
+            std::unique_ptr<InternalIterator>(unfragmented_iter),
+            comparator_.comparator));
+    auto size = cached_range_tombstone_.Size();
     for (size_t i = 0; i < size; ++i) {
       auto cache = cached_range_tombstone_.AccessAtCore(i);
       // It is okay for some reader to load old cache during invalidation as
