@@ -470,8 +470,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       // not IsSecondaryCacheCompatible().
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
-             nullptr /*deleter*/, nullptr /*helper*/, nullptr /*handle*/,
+      Insert(e->key(), e->hash, /*value=*/nullptr, /*charge=*/0,
+             /*deleter=*/nullptr, /*helper=*/nullptr, /*handle=*/nullptr,
              priority);
     } else {
       Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
