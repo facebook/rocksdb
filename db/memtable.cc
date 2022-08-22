@@ -833,7 +833,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   if (type == kTypeRangeDeletion) {
     auto new_cache = std::make_shared<FragmentedRangeTombstoneListCache>();
     auto size = cached_range_tombstone_.Size();
-    range_del_mutex_.lock();
+    if (allow_concurrent) {
+      range_del_mutex_.lock();
+    }
     for (size_t i = 0; i < size; ++i) {
       auto cache = cached_range_tombstone_.AccessAtCore(i);
       // It is okay for some reader to load old cache during invalidation as
@@ -847,7 +849,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
               new_cache),
           std::memory_order_relaxed);
     }
-    range_del_mutex_.unlock();
+    if (allow_concurrent) {
+      range_del_mutex_.unlock();
+    }
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
