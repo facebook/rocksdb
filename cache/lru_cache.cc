@@ -440,25 +440,23 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   delete secondary_handle;
 
   if (e->value) {
+    DMutexLock l(mutex_);
     // Insert a dummy handle and return a standalone handle to caller
     // when secondary_cache_ is CompressedSecondaryCache, e is a standalone
     // handle, and the standalone pool has enough space for e.
     if (use_compressed_secondary_cache_ && e->IsStandalone() &&
         e->total_charge + standalone_pool_usage_ <= standalone_pool_capacity_) {
-      {
-        DMutexLock l(mutex_);
         // Update the properties for the standalone handle.
         e->SetInCache(false);
         standalone_pool_usage_ += e->total_charge;
-      }
 
-      // Insert a dummy handle into the primary cache. This dummy handle is not
-      // IsSecondaryCacheCompatible().
-      Cache::Priority priority =
-          e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
-             nullptr /*deleter*/, nullptr /*helper*/, nullptr /*handle*/,
-             priority);
+        // Insert a dummy handle into the primary cache. This dummy handle is
+        // not IsSecondaryCacheCompatible().
+        Cache::Priority priority =
+            e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
+        Insert(e->key(), e->hash, nullptr /*value*/, 0 /*charge*/,
+               nullptr /*deleter*/, nullptr /*helper*/, nullptr /*handle*/,
+               priority);
     } else {
       // This call could fail if the cache is over capacity and
       // strict_capacity_limit_ is true. In such a case, we don't want
