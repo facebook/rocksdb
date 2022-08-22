@@ -241,7 +241,7 @@ std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     CacheMetadataChargePolicy metadata_charge_policy,
     CompressionType compression_type, uint32_t compress_format_version,
     double standalone_pool_ratio) {
-  if (capacity <= 0) {
+  if (capacity < 0) {
     // Invalid capacity.
     return nullptr;
   }
