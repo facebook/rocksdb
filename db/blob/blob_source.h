@@ -7,7 +7,6 @@
 
 #include <cinttypes>
 
-#include "blob_contents.h"
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "db/blob/blob_file_cache.h"
@@ -23,6 +22,7 @@ struct ImmutableOptions;
 class Status;
 class FilePrefetchBuffer;
 class Slice;
+class BlobContents;
 
 // BlobSource is a class that provides universal access to blobs, regardless of
 // whether they are in the blob cache, secondary cache, or (remote) storage.
