@@ -445,9 +445,12 @@ void LRUCacheShard::Promote(LRUHandle* e) {
     // handle, and the standalone pool has enough space for e.
     if (use_compressed_secondary_cache_ && e->IsStandalone() &&
         e->total_charge + standalone_pool_usage_ <= standalone_pool_capacity_) {
-      // Update the properties for the standalone handle.
-      e->SetInCache(false);
-      standalone_pool_usage_ += e->total_charge;
+      {
+        DMutexLock l(mutex_);
+        // Update the properties for the standalone handle.
+        e->SetInCache(false);
+        standalone_pool_usage_ += e->total_charge;
+      }
 
       // Insert a dummy handle into the primary cache. This dummy handle is not
       // IsSecondaryCacheCompatible().
