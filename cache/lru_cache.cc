@@ -472,7 +472,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
       Insert(e->key(), e->hash, /*value=*/nullptr, /*charge=*/0,
              /*deleter=*/nullptr, /*helper=*/nullptr, /*handle=*/nullptr,
-             priority);
+             priority)
+          .PermitUncheckedError();
+
     } else {
       Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
       Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
