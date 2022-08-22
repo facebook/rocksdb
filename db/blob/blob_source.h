@@ -7,6 +7,7 @@
 
 #include <cinttypes>
 
+#include "blob_contents.h"
 #include "cache/cache_helpers.h"
 #include "cache/cache_key.h"
 #include "db/blob/blob_file_cache.h"
@@ -106,15 +107,15 @@ class BlobSource {
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* blob) const;
+                          CacheHandleGuard<BlobContents>* blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* cached_blob,
+                          CacheHandleGuard<BlobContents>* cached_blob,
                           PinnableSlice* blob) const;
 
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
 
-  Status InsertEntryIntoCache(const Slice& key, std::string* value,
+  Status InsertEntryIntoCache(const Slice& key, BlobContents* value,
                               size_t charge, Cache::Handle** cache_handle,
                               Cache::Priority priority) const;
 
