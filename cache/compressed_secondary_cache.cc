@@ -27,10 +27,10 @@ CompressedSecondaryCache::CompressedSecondaryCache(
                      use_adaptive_mutex, metadata_charge_policy,
                      compression_type, compress_format_version,
                      standalone_pool_ratio) {
-  cache_ = NewLRUCache(capacity * (1 - standalone_pool_ratio), num_shard_bits,
-                       strict_capacity_limit, high_pri_pool_ratio,
-                       memory_allocator, use_adaptive_mutex,
-                       metadata_charge_policy, low_pri_pool_ratio);
+  cache_ = NewLRUCache(
+      (size_t)(capacity * (1 - standalone_pool_ratio)), num_shard_bits,
+      strict_capacity_limit, high_pri_pool_ratio, memory_allocator,
+      use_adaptive_mutex, metadata_charge_policy, low_pri_pool_ratio);
 }
 
 CompressedSecondaryCache::~CompressedSecondaryCache() { cache_.reset(); }
