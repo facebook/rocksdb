@@ -1,0 +1,66 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#pragma once
+
+#include <memory>
+
+#include "memory/memory_allocator.h"
+#include "port/malloc.h"
+#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
+
+namespace ROCKSDB_NAMESPACE {
+
+class BlobContents {
+ public:
+  static std::unique_ptr<BlobContents> Create(CacheAllocationPtr&& allocation,
+                                              size_t size) {
+    return std::unique_ptr<BlobContents>(
+        new BlobContents(std::move(allocation), size));
+  }
+
+  BlobContents(const BlobContents&) = delete;
+  BlobContents& operator=(const BlobContents&) = delete;
+
+  const Slice& data() const { return data_; }
+
+  size_t ApproximateMemoryUsage() const;
+
+ private:
+  BlobContents(CacheAllocationPtr&& allocation, size_t size)
+      : allocation_(std::move(allocation)), data_(allocation_.get(), size) {}
+
+  CacheAllocationPtr allocation_;
+  Slice data_;
+};
+
+inline size_t BlobContents::ApproximateMemoryUsage() const {
+  size_t usage = 0;
+
+  if (allocation_) {
+    MemoryAllocator* const allocator = allocation_.get_deleter().allocator;
+
+    if (allocator) {
+      usage += allocator->UsableSize(allocation_.get(), data_.size());
+    } else {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      usage += malloc_usable_size(allocation_.get());
+#else
+      usage += data_.size();
+#endif
+    }
+  }
+
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size(const_cast<BlobContents*>(this));
+#else
+  usage += sizeof(*this);
+#endif
+
+  return usage;
+}
+
+}  // namespace ROCKSDB_NAMESPACE
