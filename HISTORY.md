@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Performance Improvements
+* For range deletion, `FragmentedRangeTombstoneList` is now constructed once in each `DeleteRange()` for both mutable and immutable memtables. This improves speed of querying range tombstones from memtables.
 
 ## 7.6.0 (08/19/2022)
 ### New Features
