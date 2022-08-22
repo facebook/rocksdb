@@ -208,11 +208,10 @@ class MemTable {
   // while the returned iterator is live.
   // @param immutable_memtable Whether this memtable is an immutable memtable.
   // This information is not stored in memtable itself, so it needs to be
-  // specified by the caller. This flag is used internally to decide whether a
-  // cached fragmented range tombstone list can be returned. This cached version
-  // is constructed when a memtable becomes immutable. Setting the flag to false
-  // will always yield correct result, but may incur performance penalty as it
-  // always creates a new fragmented range tombstone list.
+  // specified by the caller. This flag is used internally speed up
+  // the construction of FragmentedRangeTombstoneIterator. Setting the flag to
+  // false will always yield correct result, but may incur small performance
+  // penalty.
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options, SequenceNumber read_seq,
       bool immutable_memtable);
@@ -519,12 +518,6 @@ class MemTable {
                                     size_t protection_bytes_per_key,
                                     bool allow_data_in_errors = false);
 
-  // makes sure there is a single range tombstone writer to invalidate cache
-  std::mutex range_del_mutex_;
-  CoreLocalArray<
-      std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>>>
-      cached_range_tombstone_;
-
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -635,6 +628,17 @@ class MemTable {
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,
                            SequenceNumber s, char* checksum_ptr);
+
+  // ensure the order of cache refresh when there are multiple concurrent
+  // writers
+  std::mutex range_del_mutex_;
+  // Cache for fragmented tombstone list. Used in
+  // NewRangeTombstoneIteratorInternal(). Each range deletion will refresh the
+  // cache, by constructing range tombstone list in the write path. Each reader
+  // will atomically load its core-local shared_ptr and reference it to avoid
+  // performance regression with multiple readers.
+  CoreLocalArray<std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneList>>>
+      cached_range_tombstone_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);
