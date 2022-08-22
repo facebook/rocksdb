@@ -162,7 +162,6 @@ bool MemTableListVersion::GetFromList(
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
-    assert(memtable->IsFragmentedRangeTombstonesConstructed());
     SequenceNumber current_seq = kMaxSequenceNumber;
 
     bool done =
@@ -201,7 +200,6 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
                                 ? read_opts.snapshot->GetSequenceNumber()
                                 : kMaxSequenceNumber;
   for (auto& m : memlist_) {
-    assert(m->IsFragmentedRangeTombstonesConstructed());
     std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
         m->NewRangeTombstoneIterator(read_opts, read_seq,
                                      true /* immutable_memtable */));

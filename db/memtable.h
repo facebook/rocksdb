@@ -514,23 +514,6 @@ class MemTable {
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
-  void ConstructFragmentedRangeTombstones();
-
-  // Returns whether a fragmented range tombstone list is already constructed
-  // for this memtable. It should be constructed right before a memtable is
-  // added to an immutable memtable list. Note that if a memtable does not have
-  // any range tombstone, then no range tombstone list will ever be constructed.
-  // @param allow_empty Specifies whether a memtable with no range tombstone is
-  // considered to have its fragmented range tombstone list constructed.
-  bool IsFragmentedRangeTombstonesConstructed(bool allow_empty = true) const {
-    if (allow_empty) {
-      return fragmented_range_tombstone_list_.get() != nullptr ||
-             is_range_del_table_empty_;
-    } else {
-      return fragmented_range_tombstone_list_.get() != nullptr;
-    }
-  }
-
   // Returns Corruption status if verification fails.
   static Status VerifyEntryChecksum(const char* entry,
                                     size_t protection_bytes_per_key,
@@ -648,12 +631,6 @@ class MemTable {
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq,
       bool immutable_memtable);
-
-  // The fragmented range tombstones of this memtable.
-  // This is constructed when this memtable becomes immutable
-  // if !is_range_del_table_empty_.
-  std::unique_ptr<FragmentedRangeTombstoneList>
-      fragmented_range_tombstone_list_;
 
   void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                            const Slice& key, const Slice& value, ValueType type,

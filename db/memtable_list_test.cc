@@ -293,9 +293,6 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(1, mem->num_deletes());
 
   // Add memtable to list
-  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
-  // in MemTableListVersion::GetFromList work.
-  mem->ConstructFragmentedRangeTombstones();
   list.Add(mem, &to_delete);
 
   SequenceNumber saved_seq = seq;
@@ -312,9 +309,6 @@ TEST_F(MemTableListTest, GetTest) {
                       nullptr /* kv_prot_info */));
 
   // Add second memtable to list
-  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
-  // in MemTableListVersion::GetFromList work.
-  mem2->ConstructFragmentedRangeTombstones();
   list.Add(mem2, &to_delete);
 
   // Fetch keys via MemTableList
@@ -415,9 +409,6 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_EQ(value, "value2.2");
 
   // Add memtable to list
-  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
-  // in MemTableListVersion::GetFromList work.
-  mem->ConstructFragmentedRangeTombstones();
   list.Add(mem, &to_delete);
   ASSERT_EQ(0, to_delete.size());
 
@@ -495,9 +486,6 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
                       nullptr /* kv_prot_info */));
 
   // Add second memtable to list
-  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
-  // in MemTableListVersion::GetFromList work.
-  mem2->ConstructFragmentedRangeTombstones();
   list.Add(mem2, &to_delete);
   ASSERT_EQ(0, to_delete.size());
 
@@ -519,9 +507,6 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   MemTable* mem3 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb3,
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem3->Ref();
-  // This is to make assert(memtable->IsFragmentedRangeTombstonesConstructed())
-  // in MemTableListVersion::GetFromList work.
-  mem3->ConstructFragmentedRangeTombstones();
   list.Add(mem3, &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_EQ(1, list.NumFlushed());

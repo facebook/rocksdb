@@ -586,8 +586,6 @@ Status FlushJob::MemPurge() {
       // as in need of being flushed.
       if (new_mem->ApproximateMemoryUsage() < maxSize &&
           !(new_mem->ShouldFlushNow())) {
-        // Construct fragmented memtable range tombstones without mutex
-        new_mem->ConstructFragmentedRangeTombstones();
         db_mutex_->Lock();
         uint64_t new_mem_id = mems_[0]->GetID();
 

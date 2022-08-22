@@ -261,7 +261,6 @@ Status DBImplSecondary::RecoverLogFiles(
             MemTable* new_mem =
                 cfd->ConstructNewMemtable(mutable_cf_options, seq_of_batch);
             cfd->mem()->SetNextLogNumber(log_number);
-            cfd->mem()->ConstructFragmentedRangeTombstones();
             cfd->imm()->Add(cfd->mem(), &job_context->memtables_to_free);
             new_mem->Ref();
             cfd->SetMemtable(new_mem);
