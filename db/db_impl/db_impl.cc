@@ -1532,15 +1532,22 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
     auto& wal = *it;
     assert(wal.IsSyncing());
 
-    if (logs_.size() > 1 &&
-        wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize()) {
+    if (wal.number < logs_.back().number) {
+      // Inactive WAL
       if (immutable_db_options_.track_and_verify_wals_in_manifest &&
           wal.GetPreSyncSize() > 0) {
         synced_wals->AddWal(wal.number, WalMetadata(wal.GetPreSyncSize()));
       }
-      logs_to_free_.push_back(wal.ReleaseWriter());
-      it = logs_.erase(it);
+      if (wal.GetPreSyncSize() == wal.writer->file()->GetFlushedSize()) {
+        // Fully synced
+        logs_to_free_.push_back(wal.ReleaseWriter());
+        it = logs_.erase(it);
+      } else {
+        wal.FinishSync();
+        ++it;
+      }
     } else {
+      // Active WAL
       wal.FinishSync();
       ++it;
     }
