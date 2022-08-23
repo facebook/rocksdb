@@ -55,10 +55,18 @@ Status BlobSource::GetBlobFromCache(
   cache_handle = GetEntryFromCache(cache_key);
   if (cache_handle != nullptr) {
     *blob = CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
+
+    PERF_COUNTER_ADD(blob_cache_hit_count, 1);
+    RecordTick(statistics_, BLOB_DB_CACHE_HIT);
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
+               blob->GetValue()->data().size());
+
     return Status::OK();
   }
 
   assert(blob->IsEmpty());
+
+  RecordTick(statistics_, BLOB_DB_CACHE_MISS);
 
   return Status::NotFound("Blob not found in cache");
 }
@@ -92,6 +100,12 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
     assert(cache_handle != nullptr);
     *cached_blob =
         CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
+
+    RecordTick(statistics_, BLOB_DB_CACHE_ADD);
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE, blob->size());
+
+  } else {
+    RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
   }
 
   return s;
@@ -121,14 +135,6 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
     cache_handle = blob_cache_->Lookup(key, statistics_);
   }
 
-  if (cache_handle != nullptr) {
-    PERF_COUNTER_ADD(blob_cache_hit_count, 1);
-    RecordTick(statistics_, BLOB_DB_CACHE_HIT);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
-               blob_cache_->GetUsage(cache_handle));
-  } else {
-    RecordTick(statistics_, BLOB_DB_CACHE_MISS);
-  }
   return cache_handle;
 }
 
@@ -144,15 +150,6 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
   } else {
     s = blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<BlobContents>,
                             cache_handle, priority);
-  }
-
-  if (s.ok()) {
-    assert(*cache_handle != nullptr);
-    RecordTick(statistics_, BLOB_DB_CACHE_ADD);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
-               blob_cache_->GetUsage(*cache_handle));
-  } else {
-    RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
   }
 
   return s;
