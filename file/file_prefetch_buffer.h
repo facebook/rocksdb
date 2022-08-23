@@ -31,7 +31,23 @@ class RandomAccessFileReader;
 
 struct BufferInfo {
   AlignedBuffer buffer_;
+
   uint64_t offset_ = 0;
+
+  // Below parameters are used in case of async read flow.
+  // Length requested for in ReadAsync.
+  size_t async_req_len = 0;
+
+  // async_read_in_progress can be used as mutex. Callback can update the buffer
+  // and its size but async_read_in_progress is only set by main thread.
+  bool async_read_in_progress = false;
+
+  // io_handle is allocated and used by underlying file system in case of
+  // asynchronous reads.
+  void* io_handle = nullptr;
+
+  // pos represents the index of this buffer in vector of BufferInfo.
+  uint32_t pos = 0;
 };
 
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
@@ -53,9 +69,6 @@ class FilePrefetchBuffer {
   //   it. Used for adaptable readahead of the file footer/metadata.
   // implicit_auto_readahead : Readahead is enabled implicitly by rocksdb after
   //   doing sequential scans for two times.
-  // async_io : When async_io is enabled, if it's implicit_auto_readahead, it
-  //   prefetches data asynchronously in second buffer while curr_ is being
-  //   consumed.
   //
   // Automatic readhead is enabled for a file if readahead_size
   // and max_readahead_size are passed in.
@@ -69,6 +82,7 @@ class FilePrefetchBuffer {
                      FileSystem* fs = nullptr, SystemClock* clock = nullptr,
                      Statistics* stats = nullptr)
       : curr_(0),
+        poll_index_(curr_ ^ 1),
         readahead_size_(readahead_size),
         initial_auto_readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
@@ -80,9 +94,7 @@ class FilePrefetchBuffer {
         prev_len_(0),
         num_file_reads_for_auto_readahead_(num_file_reads_for_auto_readahead),
         num_file_reads_(num_file_reads),
-        io_handle_(nullptr),
         del_fn_(nullptr),
-        async_read_in_progress_(false),
         async_request_submitted_(false),
         fs_(fs),
         clock_(clock),
@@ -93,13 +105,20 @@ class FilePrefetchBuffer {
     // while curr_ is being consumed. If data is overlapping in two buffers,
     // data is copied to third buffer to return continuous buffer.
     bufs_.resize(3);
+    for (uint32_t i = 0; i < 2; i++) {
+      bufs_[i].pos = i;
+    }
   }
 
   ~FilePrefetchBuffer() {
     // Abort any pending async read request before destroying the class object.
-    if (async_read_in_progress_ && fs_ != nullptr) {
+    if (fs_ != nullptr) {
       std::vector<void*> handles;
-      handles.emplace_back(io_handle_);
+      for (uint32_t i = 0; i < 2; i++) {
+        if (bufs_[i].async_read_in_progress && bufs_[i].io_handle != nullptr) {
+          handles.emplace_back(bufs_[i].io_handle);
+        }
+      }
       StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
       Status s = fs_->AbortIO(handles);
       assert(s.ok());
@@ -142,12 +161,17 @@ class FilePrefetchBuffer {
         }
       }
     }
+
+    for (uint32_t i = 0; i < 2; i++) {
+      // Release io_handle.
+      if (bufs_[i].io_handle != nullptr && del_fn_ != nullptr) {
+        del_fn_(bufs_[i].io_handle);
+        bufs_[i].io_handle = nullptr;
+      }
+    }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
 
-    // Release io_handle_.
-    if (io_handle_ != nullptr && del_fn_ != nullptr) {
-      del_fn_(io_handle_);
-      io_handle_ = nullptr;
+    if (del_fn_ != nullptr) {
       del_fn_ = nullptr;
     }
   }
@@ -236,7 +260,8 @@ class FilePrefetchBuffer {
     //   - block is sequential with the previous read and,
     //   - num_file_reads_ + 1 (including this read) >
     //   num_file_reads_for_auto_readahead_
-    if (implicit_auto_readahead_ && readahead_size_ > 0) {
+    if (implicit_auto_readahead_ && readahead_size_ > 0 &&
+        !bufs_[curr_].async_read_in_progress) {
       if ((offset + size >
            bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) &&
           IsBlockSequential(offset) &&
@@ -258,6 +283,8 @@ class FilePrefetchBuffer {
   void CalculateOffsetAndLen(size_t alignment, uint64_t offset,
                              size_t roundup_len, size_t index, bool refit_tail,
                              uint64_t& chunk_len);
+
+  void UpdateBuffersIfNeeded(uint64_t offset);
 
   // It calls Poll API if any there is any pending asynchronous request. It then
   // checks if data is in any buffer. It clears the outdated data and swaps the
@@ -319,11 +346,15 @@ class FilePrefetchBuffer {
   // curr_ represents the index for bufs_ indicating which buffer is being
   // consumed currently.
   uint32_t curr_;
+  // poll_index_ represents which buffer index to poll to get async results.
+  uint32_t poll_index_;
+
   size_t readahead_size_;
   size_t initial_auto_readahead_size_;
   // FilePrefetchBuffer object won't be created from Iterator flow if
   // max_readahead_size_ = 0.
   size_t max_readahead_size_;
+
   // The minimum `offset` ever passed to TryReadFromCache().
   size_t min_offset_read_;
   // if false, TryReadFromCache() always return false, and we only take stats
@@ -343,15 +374,10 @@ class FilePrefetchBuffer {
   uint64_t num_file_reads_for_auto_readahead_;
   uint64_t num_file_reads_;
 
-  // io_handle_ is allocated and used by underlying file system in case of
-  // asynchronous reads.
-  void* io_handle_;
   IOHandleDeleter del_fn_;
-  bool async_read_in_progress_;
-
   // If async_request_submitted_ is set then it indicates RocksDB called
-  // PrefetchAsync to submit request. It needs to TryReadFromCacheAsync to poll
-  // the submitted request without checking if data is sequential and
+  // PrefetchAsync to submit request. It needs to call TryReadFromCacheAsync to
+  // poll the submitted request without checking if data is sequential and
   // num_file_reads_.
   bool async_request_submitted_;
 
