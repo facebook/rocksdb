@@ -777,7 +777,6 @@ class TestSecondaryCache : public SecondaryCache {
         cache_->Release(handle);
       }
     }
-    last_create_cb_ = create_cb;
     return secondary_handle;
   }
 
@@ -806,10 +805,6 @@ class TestSecondaryCache : public SecondaryCache {
     } else {
       EXPECT_EQ(ckey_prefix_, current_prefix.ToString());
     }
-  }
-
-  Status CreateCallback(const void* buf, size_t size, void** out_obj, size_t* charge) {
-    return last_create_cb_(buf, size, out_obj, charge);
   }
 
  private:
@@ -856,9 +851,6 @@ class TestSecondaryCache : public SecondaryCache {
   bool inject_failure_;
   std::string ckey_prefix_;
   ResultMap result_map_;
-
-  // only used for test
-  Cache::CreateCallback last_create_cb_;
 };
 
 class DBSecondaryCacheTest : public DBTestBase {
@@ -994,11 +986,6 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   PerfContext perf_ctx = *get_perf_context();
   ASSERT_EQ(perf_ctx.secondary_cache_hit_count, secondary_cache->num_lookups());
 
-  char buff[256];
-  size_t size = 256;
-  void *output;
-  size_t output_size;
-  ASSERT_OK(secondary_cache->CreateCallback(buff, size, &output, &output_size));
   cache.reset();
   secondary_cache.reset();
 }
