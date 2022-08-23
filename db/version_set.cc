@@ -1182,52 +1182,32 @@ class LevelIterator final : public InternalIterator {
 
   // Whether next/prev key is a sentinel key.
   bool to_return_sentinel_ = false;
-  // Whether the to-be-returned sentinel is set due to prefix seek reaching file
-  // boundary
-  bool prefix_sentinel_ = false;
   // The sentinel key to be returned
   Slice sentinel_;
   // Sets flags for if we should return the sentinel key next.
   // The condition for returning sentinel is reaching the end of current
   // file_iter_: !Valid() && status.().ok().
-  void TrySetDeleteRangeSentinel(const Slice& boundary_key,
-                                 bool try_prefix_sentinel = false);
-  void ClearSentinel() {
-    to_return_sentinel_ = false;
-    prefix_sentinel_ = false;
-  }
-  std::string seek_prefix_;
+  void TrySetDeleteRangeSentinel(const Slice& boundary_key);
+  void ClearSentinel() { to_return_sentinel_ = false; }
+
+  // Set in Seek() when a prefix seek reaches end of the current file,
+  // and the next file has a different prefix. SkipEmptyFileForward()
+  // will not move to next file when this flag is set.
+  bool prefix_exhausted_ = false;
 };
 
-void LevelIterator::TrySetDeleteRangeSentinel(const Slice& boundary_key,
-                                              bool try_prefix_sentinel) {
+void LevelIterator::TrySetDeleteRangeSentinel(const Slice& boundary_key) {
   assert(range_tombstone_iter_);
   if (file_iter_.iter() != nullptr && !file_iter_.Valid() &&
       file_iter_.status().ok()) {
     to_return_sentinel_ = true;
     sentinel_ = boundary_key;
-    if (try_prefix_sentinel && prefix_extractor_ != nullptr &&
-        !read_options_.total_order_seek) {
-      prefix_sentinel_ = true;
-    }
   }
 }
 
 void LevelIterator::Seek(const Slice& target) {
+  prefix_exhausted_ = false;
   ClearSentinel();
-  seek_prefix_.clear();
-  // Remember the target prefix, it is used in Next()/NextAndGetResult()
-  // to determine if the prefix is passed.
-  if (range_tombstone_iter_ && prefix_extractor_ != nullptr &&
-      !read_options_.total_order_seek && !read_options_.auto_prefix_mode) {
-    size_t ts_sz = user_comparator_.timestamp_size();
-    Slice target_user_key_without_ts =
-        ExtractUserKeyAndStripTimestamp(target, ts_sz);
-    if (prefix_extractor_->InDomain(target_user_key_without_ts)) {
-      auto p = prefix_extractor_->Transform(target_user_key_without_ts);
-      seek_prefix_.assign(p.data(), p.size());
-    }
-  }
   // Check whether the seek key fall under the same file
   bool need_to_reseek = true;
   if (file_iter_.iter() != nullptr && file_index_ < flevel_->num_files) {
@@ -1256,48 +1236,67 @@ void LevelIterator::Seek(const Slice& target) {
     if (file_iter_.status() == Status::TryAgain()) {
       return;
     }
+    if (!file_iter_.Valid() && file_iter_.status().ok() &&
+        prefix_extractor_ != nullptr && !read_options_.total_order_seek &&
+        !read_options_.auto_prefix_mode &&
+        file_index_ < flevel_->num_files - 1) {
+      size_t ts_sz = user_comparator_.timestamp_size();
+      Slice target_user_key_without_ts =
+          ExtractUserKeyAndStripTimestamp(target, ts_sz);
+      Slice next_file_first_user_key_without_ts =
+          ExtractUserKeyAndStripTimestamp(file_smallest_key(file_index_ + 1),
+                                          ts_sz);
+      if (prefix_extractor_->InDomain(target_user_key_without_ts) &&
+          (!prefix_extractor_->InDomain(next_file_first_user_key_without_ts) ||
+           user_comparator_.CompareWithoutTimestamp(
+               prefix_extractor_->Transform(target_user_key_without_ts), false,
+               prefix_extractor_->Transform(
+                   next_file_first_user_key_without_ts),
+               false) != 0)) {
+        // SkipEmptyFileForward() will not advance to next file when this flag
+        // is set for reason detailed below.
+        //
+        // The file we initially positioned to has no keys under the target
+        // prefix, and the next file's smallest key has a different prefix than
+        // target. When doing prefix iterator seek, when keys for one prefix
+        // have been exhausted, it can jump to any key that is larger. Here we
+        // are enforcing a stricter contract than that, in order to make it
+        // easier for higher layers (merging and DB iterator) to reason the
+        // correctness:
+        // 1. Within the prefix, the result should be accurate.
+        // 2. If keys for the prefix is exhausted, it is either positioned to
+        // the next key after the prefix, or make the iterator invalid.
+        // A side benefit will be that it invalidates the iterator earlier so
+        // that the upper level merging iterator can merge fewer child
+        // iterators.
+        //
+        // The flag is cleared in Seek*() calls. There is no need to clear the
+        // flag in Prev() since Prev() should not be called if
+        // range_tombstone_iter_ is nullptr (file_iters_ is not valid), and if
+        // range_tombstone_iter_ is not nullptr, the upper layer (merging
+        // iterator) will not call Prev() before calling
+        // NextAndGetResult()/Seek*() (mostly because of
+        // MergingIterator::FindNextVisibleEntry()). Calls to NextAndGetResult()
+        // will skip the sentinel key and makes level iterator invalid. This
+        // flag should not be cleared at the beginning of
+        // Next/NextAndGetResult() since the sentinel key prevents the
+        // SkipEmptyFileForward() in this Seek() call from considering moving to
+        // the next file. So prefix_exhausted_ is used in SkipEmptyFileForward()
+        // called in Next/NextAndGetResult().
+        prefix_exhausted_ = true;
+      }
+    }
 
     if (range_tombstone_iter_) {
-      TrySetDeleteRangeSentinel(file_largest_key(file_index_),
-                                true /* try_prefix_sentinel */);
+      TrySetDeleteRangeSentinel(file_largest_key(file_index_));
     }
   }
-
-  if (SkipEmptyFileForward() && prefix_extractor_ != nullptr &&
-      !read_options_.total_order_seek && !read_options_.auto_prefix_mode &&
-      file_iter_.iter() != nullptr && file_iter_.Valid()) {
-    // We've skipped the file we initially positioned to. In the prefix
-    // seek case, it is likely that the file is skipped because of
-    // prefix bloom or hash, where more keys are skipped. We then check
-    // the current key and invalidate the iterator if the prefix is
-    // already passed.
-    // When doing prefix iterator seek, when keys for one prefix have
-    // been exhausted, it can jump to any key that is larger. Here we are
-    // enforcing a stricter contract than that, in order to make it easier for
-    // higher layers (merging and DB iterator) to reason the correctness:
-    // 1. Within the prefix, the result should be accurate.
-    // 2. If keys for the prefix is exhausted, it is either positioned to the
-    //    next key after the prefix, or make the iterator invalid.
-    // A side benefit will be that it invalidates the iterator earlier so that
-    // the upper level merging iterator can merge fewer child iterators.
-    size_t ts_sz = user_comparator_.timestamp_size();
-    Slice target_user_key_without_ts =
-        ExtractUserKeyAndStripTimestamp(target, ts_sz);
-    Slice file_user_key_without_ts =
-        ExtractUserKeyAndStripTimestamp(file_iter_.key(), ts_sz);
-    if (prefix_extractor_->InDomain(target_user_key_without_ts) &&
-        (!prefix_extractor_->InDomain(file_user_key_without_ts) ||
-         user_comparator_.CompareWithoutTimestamp(
-             prefix_extractor_->Transform(target_user_key_without_ts), false,
-             prefix_extractor_->Transform(file_user_key_without_ts),
-             false) != 0)) {
-      SetFileIterator(nullptr);
-    }
-  }
+  SkipEmptyFileForward();
   CheckMayBeOutOfLowerBound();
 }
 
 void LevelIterator::SeekForPrev(const Slice& target) {
+  prefix_exhausted_ = false;
   ClearSentinel();
   size_t new_file_index = FindFile(icomparator_, *flevel_, target);
   // Seek beyond this level's smallest key
@@ -1324,8 +1323,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
       // larger than target. This is correct in that there is no need to keep
       // the range tombstones in this file alive as they only cover keys
       // starting from the file's lower boundary, which is after `target`.
-      TrySetDeleteRangeSentinel(file_smallest_key(file_index_),
-                                true /* try_prefix_sentinel */);
+      TrySetDeleteRangeSentinel(file_smallest_key(file_index_));
     }
     SkipEmptyFileBackward();
   }
@@ -1333,6 +1331,7 @@ void LevelIterator::SeekForPrev(const Slice& target) {
 }
 
 void LevelIterator::SeekToFirst() {
+  prefix_exhausted_ = false;
   ClearSentinel();
   InitFileIterator(0);
   if (file_iter_.iter() != nullptr) {
@@ -1348,6 +1347,7 @@ void LevelIterator::SeekToFirst() {
 }
 
 void LevelIterator::SeekToLast() {
+  prefix_exhausted_ = false;
   ClearSentinel();
   InitFileIterator(flevel_->num_files - 1);
   if (file_iter_.iter() != nullptr) {
@@ -1378,37 +1378,14 @@ bool LevelIterator::NextAndGetResult(IterateResult* result) {
   assert(Valid());
   // file_iter_ is at EOF already when to_return_sentinel_
   bool is_valid = !to_return_sentinel_ && file_iter_.NextAndGetResult(result);
-  bool prefix_sentinel = false;
   if (!is_valid) {
     if (to_return_sentinel_) {
-      prefix_sentinel = prefix_sentinel_;
       ClearSentinel();
     } else if (range_tombstone_iter_) {
       TrySetDeleteRangeSentinel(file_largest_key(file_index_));
     }
     is_next_read_sequential_ = true;
-    // SkipEmptyFileForward() should be called regardless of whether there is
-    // prefix
-    if (SkipEmptyFileForward() && prefix_sentinel) {
-      // Previous SST file was potentially seeked to the end of file
-      // (SkipEmptyFileForward() returns true). We check the first key in the
-      // new file to see if it is at another prefix. By prefix_sentinel we have
-      // prefix_extractor != nullptr and !read_options_.total_order_seek, by
-      // file_iter_.Valid() we have file_iter_.iter() != nullptr.
-      if (!read_options_.auto_prefix_mode && file_iter_.Valid() &&
-          !seek_prefix_.empty()) {
-        size_t ts_sz = user_comparator_.timestamp_size();
-        Slice file_user_key_without_ts =
-            ExtractUserKeyAndStripTimestamp(file_iter_.key(), ts_sz);
-        if (!prefix_extractor_->InDomain(file_user_key_without_ts) ||
-            user_comparator_.CompareWithoutTimestamp(
-                seek_prefix_, false,
-                prefix_extractor_->Transform(file_user_key_without_ts),
-                false) != 0) {
-          SetFileIterator(nullptr);
-        }
-      }
-    }
+    SkipEmptyFileForward();
     is_next_read_sequential_ = false;
     is_valid = Valid();
     if (is_valid) {
@@ -1454,13 +1431,9 @@ bool LevelIterator::SkipEmptyFileForward() {
                IterBoundCheck::kOutOfBound))) {
     seen_empty_file = true;
     // Move to next file
-    if (file_index_ >= flevel_->num_files - 1) {
-      // Already at the last file
-      SetFileIterator(nullptr);
-      ClearRangeTombstoneIter();
-      break;
-    }
-    if (KeyReachedUpperBound(file_smallest_key(file_index_ + 1))) {
+    if (file_index_ >= flevel_->num_files - 1 ||
+        KeyReachedUpperBound(file_smallest_key(file_index_ + 1)) ||
+        prefix_exhausted_) {
       SetFileIterator(nullptr);
       ClearRangeTombstoneIter();
       break;
