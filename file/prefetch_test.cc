@@ -957,6 +957,7 @@ TEST_P(PrefetchTest, DBIterLevelReadAhead) {
     }
 
     ASSERT_OK(options.statistics->Reset());
+
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
     int num_keys = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
