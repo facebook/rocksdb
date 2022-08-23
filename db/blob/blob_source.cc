@@ -431,7 +431,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 }
 
 bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
-                                  uint64_t offset) const {
+                                  uint64_t offset, size_t* charge) const {
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   const Slice key = cache_key.AsSlice();
 
@@ -439,6 +439,16 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   const Status s = GetBlobFromCache(key, &blob_handle);
 
   if (s.ok() && blob_handle.GetValue() != nullptr) {
+    if (charge) {
+      const Cache* const cache = blob_handle.GetCache();
+      assert(cache);
+
+      Cache::Handle* const handle = blob_handle.GetCacheHandle();
+      assert(handle);
+
+      *charge = cache->GetUsage(handle);
+    }
+
     return true;
   }
 

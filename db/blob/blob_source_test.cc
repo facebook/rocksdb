@@ -1412,7 +1412,12 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
-      blob_bytes += blob_sizes[i];
+
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
+
+      blob_bytes += charge;
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
@@ -1425,6 +1430,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     size_t blob_bytes = options_.blob_cache->GetUsage();
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
+
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[i]);
       // We didn't call options_.blob_cache->Erase() here, this is because
       // the cache wrapper's Erase() method must be called to update the
@@ -1437,7 +1446,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       }
-      blob_bytes -= blob_sizes[i];
+      blob_bytes -= charge;
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
