@@ -641,6 +641,26 @@ struct BlockBasedTableOptions {
   //
   // Default: 8 KB (8 * 1024).
   size_t initial_auto_readahead_size = 8 * 1024;
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size and reads are
+  // sequential.
+  // num_file_reads_for_auto_readahead indicates after how many
+  // sequential reads internal auto prefetching should be start.
+  //
+  // For example, if value is 2 then after reading 2 sequential data blocks on
+  // third data block prefetching will start.
+  // If set 0, it will start prefetching from the first read.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{num_file_reads_for_auto_readahead=0;}"}}));
+  //
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 2
+  uint64_t num_file_reads_for_auto_readahead = 2;
 };
 
 // Table Properties that are specific to block-based table properties.
