@@ -6900,6 +6900,19 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     std::unique_ptr<char[]> ts_guard;
+    std::unique_ptr<const char[]> begin_key_guard;
+    Slice begin_key = AllocateKey(&begin_key_guard);
+    std::unique_ptr<const char[]> end_key_guard;
+    Slice end_key = AllocateKey(&end_key_guard);
+    uint64_t num_range_deletions = 0;
+    std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
+    std::vector<Slice> expanded_keys;
+    if (FLAGS_expand_range_tombstones) {
+      expanded_key_guards.resize(range_tombstone_width_);
+      for (auto& expanded_key_guard : expanded_key_guards) {
+        expanded_keys.emplace_back(AllocateKey(&expanded_key_guard));
+      }
+    }
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
@@ -6962,6 +6975,45 @@ class Benchmark {
             key.size() + val.size(), Env::IO_HIGH,
             nullptr /* stats */, RateLimiter::OpType::kWrite);
       }
+
+      if (writes_per_range_tombstone_ > 0 &&
+          written > writes_before_delete_range_ &&
+          (written - writes_before_delete_range_) /
+                  writes_per_range_tombstone_ <=
+              max_num_range_tombstones_ &&
+          (written - writes_before_delete_range_) %
+                  writes_per_range_tombstone_ ==
+              0) {
+        num_range_deletions++;
+        int64_t begin_num = thread->rand.Next() % FLAGS_num;
+        if (FLAGS_expand_range_tombstones) {
+          for (int64_t offset = 0; offset < range_tombstone_width_; ++offset) {
+            GenerateKeyFromInt(begin_num + offset, FLAGS_num,
+                               &expanded_keys[offset]);
+            if (!db->Delete(write_options_, expanded_keys[offset]).ok()) {
+              fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+              exit(1);
+            }
+          }
+        } else {
+          GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);
+          GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
+                             &end_key);
+          if (!db->DeleteRange(write_options_, db->DefaultColumnFamily(),
+                               begin_key, end_key)
+                   .ok()) {
+            fprintf(stderr, "deleterange error: %s\n", s.ToString().c_str());
+            exit(1);
+          }
+        }
+        thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
+        // TODO: DeleteRange is not included in calculcation of bytes/rate
+        // limiter request
+      }
+    }
+    if (num_range_deletions > 0) {
+      std::cout << "Number of range deletions: " << num_range_deletions
+                << std::endl;
     }
     thread->stats.AddBytes(bytes);
   }
