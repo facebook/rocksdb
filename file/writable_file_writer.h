@@ -157,7 +157,7 @@ class WritableFileWriter {
   // concurrently with other function. One of the concurrent call
   // could set seen_error_, and the other one would hit assertion
   // in debug mode.
-  std::atomic<bool> sync_without_flush_called_;
+  std::atomic<bool> sync_without_flush_called_ = false;
 #endif  // NDEBUG
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
