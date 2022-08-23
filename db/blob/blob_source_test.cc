@@ -13,6 +13,7 @@
 
 #include "cache/charged_cache.h"
 #include "cache/compressed_secondary_cache.h"
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
@@ -1098,8 +1099,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   Random rnd(301);
 
   std::vector<std::string> key_strs{"key0", "key1"};
-  std::vector<std::string> blob_strs{rnd.RandomString(1010),
-                                     rnd.RandomString(1020)};
+  std::vector<std::string> blob_strs{rnd.RandomString(512),
+                                     rnd.RandomString(768)};
 
   std::vector<Slice> keys{key_strs[0], key_strs[1]};
   std::vector<Slice> blobs{blob_strs[0], blob_strs[1]};
@@ -1139,10 +1140,15 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
                                         void** out_obj,
                                         size_t* charge) -> Status {
-    std::string* blob = new std::string();
-    blob->assign(static_cast<const char*>(buf), size);
-    *out_obj = blob;
-    *charge = size;
+    CacheAllocationPtr allocation(new char[size]);  // FIXME
+    memcpy(allocation.get(), buf, size);
+    std::unique_ptr<BlobContents> obj =
+        BlobContents::Create(std::move(allocation), size);
+    BlobContents* const contents = obj.release();
+
+    *out_obj = contents;
+    *charge = contents->ApproximateMemoryUsage();
+
     return Status::OK();
   };
 
@@ -1192,8 +1198,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
-      auto value = static_cast<std::string*>(sec_handle0->Value());
-      ASSERT_EQ(*value, blobs[0]);
+      auto value = static_cast<BlobContents*>(sec_handle0->Value());
+      ASSERT_EQ(value->data(), blobs[0]);
       delete value;
 
       // key0 doesn't exist in the blob cache
@@ -1232,8 +1238,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       const Slice key0 = cache_key0.AsSlice();
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
-      auto value = static_cast<std::string*>(blob_cache->Value(handle0));
-      ASSERT_EQ(*value, blobs[0]);
+      auto value = static_cast<BlobContents*>(blob_cache->Value(handle0));
+      ASSERT_EQ(value->data(), blobs[0]);
       blob_cache->Release(handle0);
 
       // key1 is not in the primary cache, and it should be demoted to the
@@ -1259,8 +1265,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key1 should be in the primary cache.
       handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
-      value = static_cast<std::string*>(blob_cache->Value(handle1));
-      ASSERT_EQ(*value, blobs[1]);
+      value = static_cast<BlobContents*>(blob_cache->Value(handle1));
+      ASSERT_EQ(value->data(), blobs[1]);
       blob_cache->Release(handle1);
     }
   }
