@@ -1074,6 +1074,7 @@ class NonBatchedOpsStressTest : public StressTest {
     while (true) {
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
+          thread->shared->SetVerificationFailure();
           fprintf(stderr, "TestIterate against expected state error: %s\n",
                   iter->status().ToString().c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
@@ -1108,6 +1109,7 @@ class NonBatchedOpsStressTest : public StressTest {
     while (true) {
       if (!iter->Valid()) {
         if (!iter->status().ok()) {
+          thread->shared->SetVerificationFailure();
           fprintf(stderr, "TestIterate against expected state error: %s\n",
                   iter->status().ToString().c_str());
           fprintf(stderr, "Column family: %s, op_logs: %s\n",
@@ -1206,6 +1208,7 @@ class NonBatchedOpsStressTest : public StressTest {
       }
     }
     if (!iter->status().ok()) {
+      thread->shared->SetVerificationFailure();
       fprintf(stderr, "TestIterate against expected state error: %s\n",
               iter->status().ToString().c_str());
       fprintf(stderr, "Column family: %s, op_logs: %s\n",
