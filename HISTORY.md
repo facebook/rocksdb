@@ -1,7 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Behavior Change
+<<<<<<< HEAD
 * Updated `TestGet()` in `no_batched_op_stress` (default stress test) to check the result of Get() operations against expected state.
+* `db_stress` can now optionally verify iterator correctness against expected state with option `verify_iterator_with_expected_state_one_in`.
 
 ## 7.6.0 (08/19/2022)
 ### New Features
