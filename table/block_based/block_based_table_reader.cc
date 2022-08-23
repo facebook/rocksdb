@@ -379,13 +379,22 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
   }
 }
 
+template <typename TBlocklike>
 Cache::Handle* BlockBasedTable::GetEntryFromCache(
     const CacheTier& cache_tier, Cache* block_cache, const Slice& key,
     BlockType block_type, const bool wait, GetContext* get_context,
     const Cache::CacheItemHelper* cache_helper,
-    const Cache::CreateCallback& create_cb, Cache::Priority priority) const {
+    Cache::Priority priority) const {
   Cache::Handle* cache_handle = nullptr;
   if (cache_tier == CacheTier::kNonVolatileBlockTier) {
+    // only create callback when needed
+    const size_t read_amp_bytes_per_bit =
+        block_type == BlockType::kData
+            ? rep_->table_options.read_amp_bytes_per_bit
+            : 0;
+    Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
+        read_amp_bytes_per_bit, rep_->ioptions.statistics.get(),
+        rep_->blocks_definitely_zstd_compressed, rep_->filter_policy);
     cache_handle = block_cache->Lookup(key, cache_helper, create_cb, priority,
                                        wait, rep_->ioptions.statistics.get());
   } else {
@@ -1251,18 +1260,15 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Statistics* statistics = rep_->ioptions.statistics.get();
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
-  Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
-      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
     assert(!cache_key.empty());
     Cache::Handle* cache_handle = nullptr;
-    cache_handle = GetEntryFromCache(
+    cache_handle = GetEntryFromCache<TBlocklike>(
         rep_->ioptions.lowest_used_cache_tier, block_cache, cache_key,
         block_type, wait, get_context,
-        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), create_cb,
-        priority);
+        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), priority);
     if (cache_handle != nullptr) {
       block->SetCachedValue(
           reinterpret_cast<TBlocklike*>(block_cache->Value(cache_handle)),
