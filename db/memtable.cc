@@ -836,6 +836,7 @@ struct Saver {
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
   std::string* value;
+  PinnableWideColumns* columns;
   SequenceNumber seq;
   std::string* timestamp;
   const MergeOperator* merge_operator;
@@ -866,6 +867,7 @@ static bool SaveValue(void* arg, const char* entry) {
   TEST_SYNC_POINT_CALLBACK("Memtable::SaveValue:Begin:entry", &entry);
   Saver* s = reinterpret_cast<Saver*>(arg);
   assert(s != nullptr);
+  assert(!s->value || !s->columns);
 
   if (s->protection_bytes_per_key > 0) {
     *(s->status) = MemTable::VerifyEntryChecksum(
@@ -957,7 +959,7 @@ static bool SaveValue(void* arg, const char* entry) {
           // raw merge operands to the user
           merge_context->PushOperand(
               v, s->inplace_update_support == false /* operand_pinned */);
-        } else if (s->value != nullptr) {
+        } else if (s->value) {
           if (type != kTypeWideColumnEntity) {
             assert(type == kTypeValue || type == kTypeBlobIndex);
             s->value->assign(v.data(), v.size());
@@ -969,7 +971,14 @@ static bool SaveValue(void* arg, const char* entry) {
               s->value->assign(value.data(), value.size());
             }
           }
+        } else if (s->columns) {
+          if (type != kTypeWideColumnEntity) {
+            s->columns->SetPlainValue(v);
+          } else {
+            *(s->status) = s->columns->SetWideColumnValue(v);
+          }
         }
+
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
@@ -1051,8 +1060,8 @@ static bool SaveValue(void* arg, const char* entry) {
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value,
-                   std::string* timestamp, Status* s,
-                   MergeContext* merge_context,
+                   PinnableWideColumns* columns, std::string* timestamp,
+                   Status* s, MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    bool immutable_memtable, ReadCallback* callback,
@@ -1105,8 +1114,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
-                 is_blob_index, value, timestamp, s, merge_context, seq,
-                 &found_final_value, &merge_in_progress);
+                 is_blob_index, value, columns, timestamp, s, merge_context,
+                 seq, &found_final_value, &merge_in_progress);
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -1122,6 +1131,7 @@ void MemTable::GetFromTable(const LookupKey& key,
                             SequenceNumber max_covering_tombstone_seq,
                             bool do_merge, ReadCallback* callback,
                             bool* is_blob_index, std::string* value,
+                            PinnableWideColumns* columns,
                             std::string* timestamp, Status* s,
                             MergeContext* merge_context, SequenceNumber* seq,
                             bool* found_final_value, bool* merge_in_progress) {
@@ -1131,6 +1141,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.merge_in_progress = merge_in_progress;
   saver.key = &key;
   saver.value = value;
+  saver.columns = columns;
   saver.timestamp = timestamp;
   saver.seq = kMaxSequenceNumber;
   saver.mem = this;
@@ -1207,8 +1218,9 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
                  callback, &iter->is_blob_index, iter->value->GetSelf(),
-                 iter->timestamp, iter->s, &(iter->merge_context), &dummy_seq,
-                 &found_final_value, &merge_in_progress);
+                 /*columns=*/nullptr, iter->timestamp, iter->s,
+                 &(iter->merge_context), &dummy_seq, &found_final_value,
+                 &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
       *(iter->s) = Status::MergeInProgress();

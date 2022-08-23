@@ -22,10 +22,20 @@ class DBWideBasicTest : public DBTestBase {
 TEST_F(DBWideBasicTest, PutEntity) {
   Options options = GetDefaultOptions();
 
+  // Write a couple of wide-column entities and a plain old key-value, then read
+  // them back.
   constexpr char first_key[] = "first";
-  constexpr char second_key[] = "second";
-
   constexpr char first_value_of_default_column[] = "hello";
+  WideColumns first_columns{
+      {kDefaultWideColumnName, first_value_of_default_column},
+      {"attr_name1", "foo"},
+      {"attr_name2", "bar"}};
+
+  constexpr char second_key[] = "second";
+  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
+
+  constexpr char third_key[] = "third";
+  constexpr char third_value[] = "baz";
 
   auto verify = [&]() {
     {
@@ -36,6 +46,13 @@ TEST_F(DBWideBasicTest, PutEntity) {
     }
 
     {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               first_key, &result));
+      ASSERT_EQ(result.columns(), first_columns);
+    }
+
+    {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), second_key,
                          &result));
@@ -43,9 +60,32 @@ TEST_F(DBWideBasicTest, PutEntity) {
     }
 
     {
-      constexpr size_t num_keys = 2;
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               second_key, &result));
+      ASSERT_EQ(result.columns(), second_columns);
+    }
 
-      std::array<Slice, num_keys> keys{{first_key, second_key}};
+    {
+      PinnableSlice result;
+      ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), third_key,
+                         &result));
+      ASSERT_EQ(result, third_value);
+    }
+
+    {
+      PinnableWideColumns result;
+      ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
+                               third_key, &result));
+
+      const WideColumns expected_columns{{kDefaultWideColumnName, third_value}};
+      ASSERT_EQ(result.columns(), expected_columns);
+    }
+
+    {
+      constexpr size_t num_keys = 3;
+
+      std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
       std::array<PinnableSlice, num_keys> values;
       std::array<Status, num_keys> statuses;
 
@@ -57,6 +97,9 @@ TEST_F(DBWideBasicTest, PutEntity) {
 
       ASSERT_OK(statuses[1]);
       ASSERT_TRUE(values[1].empty());
+
+      ASSERT_OK(statuses[2]);
+      ASSERT_EQ(values[2], third_value);
     }
 
     {
@@ -75,10 +118,22 @@ TEST_F(DBWideBasicTest, PutEntity) {
       ASSERT_TRUE(iter->value().empty());
 
       iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), third_key);
+      ASSERT_EQ(iter->value(), third_value);
+
+      iter->Next();
       ASSERT_FALSE(iter->Valid());
       ASSERT_OK(iter->status());
 
       iter->SeekToLast();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_OK(iter->status());
+      ASSERT_EQ(iter->key(), third_key);
+      ASSERT_EQ(iter->value(), third_value);
+
+      iter->Prev();
       ASSERT_TRUE(iter->Valid());
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), second_key);
@@ -96,22 +151,19 @@ TEST_F(DBWideBasicTest, PutEntity) {
     }
   };
 
-  // Use the DB::PutEntity API
-  WideColumns first_columns{
-      {kDefaultWideColumnName, first_value_of_default_column},
-      {"attr_name1", "foo"},
-      {"attr_name2", "bar"}};
-
+  // Use the DB::PutEntity API to write the first entity
   ASSERT_OK(db_->PutEntity(WriteOptions(), db_->DefaultColumnFamily(),
                            first_key, first_columns));
 
-  // Use WriteBatch
-  WideColumns second_columns{{"attr_one", "two"}, {"attr_three", "four"}};
-
+  // Use WriteBatch to write the second entity
   WriteBatch batch;
   ASSERT_OK(
       batch.PutEntity(db_->DefaultColumnFamily(), second_key, second_columns));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  // Use Put to write the plain key-value
+  ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), third_key,
+                     third_value));
 
   // Try reading from memtable
   verify();

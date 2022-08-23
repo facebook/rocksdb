@@ -15,6 +15,7 @@ class Comparator;
 class Logger;
 class MergeContext;
 class MergeOperator;
+class PinnableWideColumns;
 class PinnedIteratorsManager;
 class Statistics;
 class SystemClock;
@@ -101,7 +102,8 @@ class GetContext {
   // merge_context and they are never merged. The value pointer is untouched.
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, PinnableSlice* value, bool* value_found,
+             const Slice& user_key, PinnableSlice* value,
+             PinnableWideColumns* columns, bool* value_found,
              MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
@@ -111,8 +113,8 @@ class GetContext {
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
-             std::string* timestamp, bool* value_found,
-             MergeContext* merge_context, bool do_merge,
+             PinnableWideColumns* columns, std::string* timestamp,
+             bool* value_found, MergeContext* merge_context, bool do_merge,
              SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
@@ -186,6 +188,7 @@ class GetContext {
   GetState state_;
   Slice user_key_;
   PinnableSlice* pinnable_val_;
+  PinnableWideColumns* columns_;
   std::string* timestamp_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;

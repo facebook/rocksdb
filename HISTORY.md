@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior Change
+* DBOptions::verify_sst_unique_id_in_manifest is now an on-by-default feature that verifies SST file identity whenever they are opened by a DB, rather than only at DB::Open time.
+
+## 7.6.0 (08/19/2022)
 ### New Features
 * Added `prepopulate_blob_cache` to ColumnFamilyOptions. If enabled, prepopulate warm/hot blobs which are already in memory into blob cache at the time of flush. On a flush, the blob that is in memory (in memtables) get flushed to the device. If using Direct IO, additional IO is incurred to read this blob back into memory again, which is avoided by enabling this option. This further helps if the workload exhibits high temporal locality, where most of the reads go to recently written data. This also helps in case of the remote file system since it involves network traffic and higher latencies.
 * Support using secondary cache with the blob cache. When creating a blob cache, the user can set a secondary blob cache by configuring `secondary_cache` in LRUCacheOptions.
@@ -14,6 +18,7 @@
 * Removed Customizable support for RateLimiter and removed its CreateFromString() and Type() functions.
 * `CompactRangeOptions::exclusive_manual_compaction` is now false by default. This ensures RocksDB does not introduce artificial parallelism limitations by default.
 * Tiered Storage: change `bottommost_temperture` to `last_level_temperture`. The old option name is kept only for migration, please use the new option. The behavior is changed to apply temperature for the `last_level` SST files only.
+* Added a new experimental ReadOption flag called optimize_multiget_for_io, which when set attempts to reduce MultiGet latency by spawning coroutines for keys in multiple levels.
 
 ### Bug Fixes
 * Fix a bug starting in 7.4.0 in which some fsync operations might be skipped in a DB after any DropColumnFamily on that DB, until it is re-opened. This can lead to data loss on power loss. (For custom FileSystem implementations, this could lead to `FSDirectory::Fsync` or `FSDirectory::Close` after the first `FSDirectory::Close`; Also, valgrind could report call to `close()` with `fd=-1`.)
@@ -27,6 +32,7 @@
 * Fixed a bug where blobs read by iterators would be inserted into the cache even with the `fill_cache` read option set to false.
 * Fixed the segfault caused by `AllocateData()` in `CompressedSecondaryCache::SplitValueIntoChunks()` and `MergeChunksIntoValueTest`.
 * Fixed a bug in BlobDB where a mix of inlined and blob values could result in an incorrect value being passed to the compaction filter (see #10391).
+* Fixed a memory leak bug in stress tests caused by `FaultInjectionSecondaryCache`.
 
 ### Behavior Change
 * Added checksum handshake during the copying of decompressed WAL fragment. This together with #9875, #10037, #10212, #10114 and #10319 provides end-to-end integrity protection for write batch during recovery.
@@ -35,13 +41,14 @@
 * Remove [min|max]_timestamp from VersionEdit for now since they are not tracked in MANIFEST anyway but consume two empty std::string (up to 64 bytes) for each file. Should they be added back in the future, we should store them more compactly.
 * Improve universal tiered storage compaction picker to avoid extra major compaction triggered by size amplification. If `preclude_last_level_data_seconds` is enabled, the size amplification is calculated within non last_level data only which skip the last level and use the penultimate level as the size base.
 * If an error is hit when writing to a file (append, sync, etc), RocksDB is more strict with not issuing more operations to it, except closing the file, with exceptions of some WAL file operations in error recovery path.
+* A `WriteBufferManager` constructed with `allow_stall == false` will no longer trigger write stall implicitly by thrashing until memtable count limit is reached. Instead, a column family can continue accumulating writes while that CF is flushing, which means memory may increase. Users who prefer stalling writes must now explicitly set `allow_stall == true`.
+* Add `CompressedSecondaryCache` into the stress tests.
 * Block cache keys have changed, which will cause any persistent caches to miss between versions.
-* DBOptions::verify_sst_unique_id_in_manifest is now an on-by-default feature that verifies SST file identity whenever they are opened by a DB, rather than only at DB::Open time.
 
 ### Performance Improvements
 * Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.
-* Improve read performance by avoiding dynamic memory allocation.
 * When using iterators with the integrated BlobDB implementation, blob cache handles are now released immediately when the iterator's position changes.
+* MultiGet can now do more IO in parallel by reading data blocks from SST files in multiple levels, if the optimize_multiget_for_io ReadOption flag is set.
 
 ## 7.5.0 (07/15/2022)
 ### New Features
