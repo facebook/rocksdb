@@ -1137,10 +1137,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   auto blob_cache = options_.blob_cache;
   auto secondary_cache = lru_cache_opts_.secondary_cache;
 
-  Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
-                                        void** out_obj,
-                                        size_t* charge) -> Status {
-    CacheAllocationPtr allocation(new char[size]);  // FIXME
+  Cache::CreateCallback create_cb =
+      [allocator = blob_cache->memory_allocator()](const void* buf, size_t size,
+                                                   void** out_obj,
+                                                   size_t* charge) -> Status {
+    CacheAllocationPtr allocation = AllocateBlock(size, allocator);
     memcpy(allocation.get(), buf, size);
     std::unique_ptr<BlobContents> obj =
         BlobContents::Create(std::move(allocation), size);

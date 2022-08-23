@@ -83,15 +83,13 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
 
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take
-  // unique ownership of them. Therefore, we copy the blob into a string
-  // directly, and insert that into the cache.
-  CacheAllocationPtr allocation(new char[blob->size()]);  // FIXME
+  // unique ownership of them.
+  CacheAllocationPtr allocation =
+      AllocateBlock(blob->size(), blob_cache_->memory_allocator());
   memcpy(allocation.get(), blob->data(), blob->size());
   std::unique_ptr<BlobContents> buf =
       BlobContents::Create(std::move(allocation), blob->size());
 
-  // TODO: support custom allocators and provide a better estimated memory
-  // usage using malloc_usable_size.
   Cache::Handle* cache_handle = nullptr;
   s = InsertEntryIntoCache(cache_key, buf.get(), buf->ApproximateMemoryUsage(),
                            &cache_handle, priority);
@@ -115,10 +113,11 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
-                                          void** out_obj,
-                                          size_t* charge) -> Status {
-      CacheAllocationPtr allocation(new char[size]);  // FIXME
+    Cache::CreateCallback create_cb =
+        [allocator = blob_cache_->memory_allocator()](
+            const void* buf, size_t size, void** out_obj,
+            size_t* charge) -> Status {
+      CacheAllocationPtr allocation = AllocateBlock(size, allocator);
       memcpy(allocation.get(), buf, size);
       std::unique_ptr<BlobContents> obj =
           BlobContents::Create(std::move(allocation), size);
