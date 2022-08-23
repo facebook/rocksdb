@@ -1522,7 +1522,7 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   {
     read_options.fill_cache = true;
 
-    // Since we resized each blob to be kSizeDummyEntry / (num_blobs/ 2), we
+    // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
     // should observe cache eviction for the second half blobs.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
@@ -1530,13 +1530,17 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
-      blob_bytes += blob_sizes[i];
-      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
-      if (i >= kNumBlobs / 2) {
-        ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), kSizeDummyEntry);
-      } else {
-        ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
+
+      if (i < kNumBlobs / 2 - 1) {
+        size_t charge = 0;
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(
+            kBlobFileNumber, blob_file_size_, blob_offsets[i], &charge));
+
+        blob_bytes += charge;
       }
+
+      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
+      ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
     }
