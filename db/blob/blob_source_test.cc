@@ -1040,12 +1040,12 @@ class BlobSecondaryCacheTest : public DBTestBase {
 
     // Set a small cache capacity to evict entries from the cache, and to test
     // that secondary cache is used properly.
-    lru_cache_ops_.capacity = 1024;
-    lru_cache_ops_.num_shard_bits = 0;
-    lru_cache_ops_.strict_capacity_limit = true;
-    lru_cache_ops_.metadata_charge_policy = kDontChargeCacheMetadata;
-    lru_cache_ops_.high_pri_pool_ratio = 0.2;
-    lru_cache_ops_.low_pri_pool_ratio = 0.2;
+    lru_cache_opts_.capacity = 1024;
+    lru_cache_opts_.num_shard_bits = 0;
+    lru_cache_opts_.strict_capacity_limit = true;
+    lru_cache_opts_.metadata_charge_policy = kDontChargeCacheMetadata;
+    lru_cache_opts_.high_pri_pool_ratio = 0.2;
+    lru_cache_opts_.low_pri_pool_ratio = 0.2;
 
     secondary_cache_opts_.capacity = 8 << 20;  // 8 MB
     secondary_cache_opts_.num_shard_bits = 0;
@@ -1060,7 +1060,7 @@ class BlobSecondaryCacheTest : public DBTestBase {
 
   Options options_;
 
-  LRUCacheOptions lru_cache_ops_;
+  LRUCacheOptions lru_cache_opts_;
   CompressedSecondaryCacheOptions secondary_cache_opts_;
 
   std::string db_id_;
@@ -1073,9 +1073,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   }
 
   secondary_cache_opts_.compression_type = kSnappyCompression;
-  lru_cache_ops_.secondary_cache =
+  lru_cache_opts_.secondary_cache =
       NewCompressedSecondaryCache(secondary_cache_opts_);
-  options_.blob_cache = NewLRUCache(lru_cache_ops_);
+  options_.blob_cache = NewLRUCache(lru_cache_opts_);
 
   options_.cf_paths.emplace_back(
       test::PerThreadDBPath(
@@ -1134,7 +1134,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   read_options.verify_checksums = true;
 
   auto blob_cache = options_.blob_cache;
-  auto secondary_cache = lru_cache_ops_.secondary_cache;
+  auto secondary_cache = lru_cache_opts_.secondary_cache;
 
   Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
                                         void** out_obj,
