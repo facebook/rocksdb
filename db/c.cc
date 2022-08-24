@@ -1054,6 +1054,18 @@ void rocksdb_drop_column_family(
   SaveError(errptr, db->rep->DropColumnFamily(handle->rep));
 }
 
+uint32_t rocksdb_column_family_handle_get_id(
+    rocksdb_column_family_handle_t* handle) {
+  return handle->rep->GetID();
+}
+
+char* rocksdb_column_family_handle_get_name(
+    rocksdb_column_family_handle_t* handle, size_t* name_len) {
+  auto name = handle->rep->GetName();
+  *name_len = name.size();
+  return CopyString(name);
+}
+
 void rocksdb_column_family_handle_destroy(rocksdb_column_family_handle_t* handle) {
   delete handle->rep;
   delete handle;
