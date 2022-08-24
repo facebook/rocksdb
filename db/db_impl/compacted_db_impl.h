@@ -127,6 +127,17 @@ class CompactedDBImpl : public DBImpl {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 
+  // FIXME: some missing overrides for more "write" functions
+  // Share with DBImplReadOnly?
+
+ protected:
+#ifndef ROCKSDB_LITE
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+#endif  // !ROCKSDB_LITE
+
  private:
   friend class DB;
   inline size_t FindFile(const Slice& key);

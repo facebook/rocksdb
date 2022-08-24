@@ -141,6 +141,17 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  // FIXME: some missing overrides for more "write" functions
+  // Share with CompactedDBImpl?
+
+ protected:
+#ifndef ROCKSDB_LITE
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+#endif  // !ROCKSDB_LITE
+
  private:
   // A "helper" function for DB::OpenForReadOnly without column families
   // to reduce unnecessary I/O
