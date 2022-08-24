@@ -2,6 +2,7 @@
 ## Unreleased
 ### Behavior Change
 * DBOptions::verify_sst_unique_id_in_manifest is now an on-by-default feature that verifies SST file identity whenever they are opened by a DB, rather than only at DB::Open time.
+* Updated `TestGet()` in `no_batched_op_stress` (default stress test) to check the result of Get() operations against expected state.
 
 ## 7.6.0 (08/19/2022)
 ### New Features

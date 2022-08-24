@@ -43,6 +43,8 @@ extern thread_local IOStatsContext iostats_context;
       PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
   iostats_step_timer_##metric.Start();
 
+#define IOSTATS_SET_DISABLE(disable) (iostats_context.disable_iostats = disable)
+
 #else  // !NIOSTATS_CONTEXT
 
 #define IOSTATS_ADD(metric, value)
@@ -52,6 +54,7 @@ extern thread_local IOStatsContext iostats_context;
 #define IOSTATS_SET_THREAD_POOL_ID(value)
 #define IOSTATS_THREAD_POOL_ID()
 #define IOSTATS(metric) 0
+#define IOSTATS_SET_DISABLE(disable)
 
 #define IOSTATS_TIMER_GUARD(metric)
 #define IOSTATS_CPU_TIMER_GUARD(metric, clock) static_cast<void>(clock)
