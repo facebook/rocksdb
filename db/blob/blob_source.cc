@@ -101,22 +101,9 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
-                                          void** out_obj,
-                                          size_t* charge) -> Status {
-      CacheAllocationPtr allocation(new char[size]);  // FIXME
-      memcpy(allocation.get(), buf, size);
-      std::unique_ptr<BlobContents> obj =
-          BlobContents::Create(std::move(allocation), size);
-      BlobContents* const contents = obj.release();
-
-      *out_obj = contents;
-      *charge = contents->size();
-      return Status::OK();
-    };
-    cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
-                                       Cache::Priority::BOTTOM,
-                                       true /* wait_for_cache */, statistics_);
+    cache_handle = blob_cache_->Lookup(
+        key, GetCacheItemHelper(), &BlobContents::CreateCallback,
+        Cache::Priority::BOTTOM, true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);
   }

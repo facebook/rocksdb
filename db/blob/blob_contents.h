@@ -10,6 +10,7 @@
 #include "memory/memory_allocator.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,6 +28,20 @@ class BlobContents {
 
   const Slice& data() const { return data_; }
   size_t size() const { return data_.size(); }
+
+  static Status CreateCallback(const void* buf, size_t size, void** out_obj,
+                               size_t* charge) {
+    CacheAllocationPtr allocation(new char[size]);  // FIXME
+    memcpy(allocation.get(), buf, size);
+
+    std::unique_ptr<BlobContents> obj = Create(std::move(allocation), size);
+    BlobContents* const contents = obj.release();
+
+    *out_obj = contents;
+    *charge = contents->size();
+
+    return Status::OK();
+  };
 
  private:
   BlobContents(CacheAllocationPtr&& allocation, size_t size)
