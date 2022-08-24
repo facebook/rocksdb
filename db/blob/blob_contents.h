@@ -13,7 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// A class representing a single value read from a blob file.
+// A class representing a single uncompressed value read from a blob file.
 class BlobContents {
  public:
   static std::unique_ptr<BlobContents> Create(CacheAllocationPtr&& allocation,
