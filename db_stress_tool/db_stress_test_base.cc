@@ -922,7 +922,8 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
-        if (thread->rand.OneInOpt(
+        if (!FLAGS_skip_verifydb &&
+            thread->rand.OneInOpt(
                 FLAGS_verify_iterator_with_expected_state_one_in)) {
           TestIterateAgainstExpected(thread, read_opts, rand_column_families,
                                      rand_keys, lock);
