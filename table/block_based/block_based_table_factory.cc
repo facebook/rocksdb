@@ -306,6 +306,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions, metadata_block_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"max_index_size",
+         {offsetof(struct BlockBasedTableOptions, max_index_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
+        {"max_top_level_index_raw_key_size",
+         {offsetof(struct BlockBasedTableOptions,
+                   max_top_level_index_raw_key_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"partition_filters",
          {offsetof(struct BlockBasedTableOptions, partition_filters),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -853,6 +862,13 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  metadata_block_size: %" PRIu64 "\n",
            table_options_.metadata_block_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  max_index_size: %" PRIu64 "\n",
+           table_options_.max_index_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  max_top_level_index_raw_key_size: %" PRIu64 "\n",
+           table_options_.max_top_level_index_raw_key_size);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  partition_filters: %d\n",
            table_options_.partition_filters);

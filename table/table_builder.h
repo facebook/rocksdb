@@ -213,6 +213,9 @@ class TableBuilder {
   // be further compacted.
   virtual bool NeedCompact() const { return false; }
 
+  // Returns true if based on options builder is requesting a split
+  virtual bool NeedSplit() const { return false; }
+
   // Returns table properties
   virtual TableProperties GetTableProperties() const = 0;
 

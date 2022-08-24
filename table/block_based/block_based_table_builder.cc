@@ -909,6 +909,13 @@ BlockBasedTableBuilder::~BlockBasedTableBuilder() {
   delete rep_;
 }
 
+bool BlockBasedTableBuilder::NeedSplit() const {
+  Rep* r = rep_;
+  assert(rep_->state != Rep::State::kClosed);
+  if (!ok() || r->reason != TableFileCreationReason::kCompaction) return false;
+  return r->index_builder->NeedSplit();
+}
+
 void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(rep_->state != Rep::State::kClosed);

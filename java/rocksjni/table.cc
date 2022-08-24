@@ -45,7 +45,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBJIJI)J
+ * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBJIJIJJ)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv *, jobject, jboolean jcache_index_and_filter_blocks,
@@ -65,7 +65,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean jenable_index_compression, jboolean jblock_align,
     jbyte jindex_shortening, jlong jblock_cache_size,
     jint jblock_cache_num_shard_bits, jlong jblock_cache_compressed_size,
-    jint jblock_cache_compressed_num_shard_bits) {
+    jint jblock_cache_compressed_num_shard_bits, jlong max_index_size,
+    jlong max_top_level_index_raw_key_size) {
   ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
   options.cache_index_and_filter_blocks =
       static_cast<bool>(jcache_index_and_filter_blocks);
@@ -152,6 +153,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.index_shortening =
       ROCKSDB_NAMESPACE::IndexShorteningModeJni::toCppIndexShorteningMode(
           jindex_shortening);
+  options.max_index_size = static_cast<uint64_t>(max_index_size);
+  options.max_top_level_index_raw_key_size =
+      static_cast<uint64_t>(max_top_level_index_raw_key_size);
 
   return GET_CPLUSPLUS_POINTER(
       ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(options));

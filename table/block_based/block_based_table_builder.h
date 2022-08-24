@@ -91,6 +91,8 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   bool NeedCompact() const override;
 
+  bool NeedSplit() const override;
+
   // Get table properties
   TableProperties GetTableProperties() const override;
 

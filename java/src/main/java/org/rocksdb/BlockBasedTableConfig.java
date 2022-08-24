@@ -42,6 +42,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     enableIndexCompression = true;
     blockAlign = false;
     indexShortening = IndexShorteningMode.kShortenSeparators;
+    maxIndexSize = Long.MAX_VALUE;
+    maxTopLevelIndexRawKeySize = Long.MAX_VALUE;
 
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
@@ -955,6 +957,54 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return this;
   }
 
+  /**
+   * Hint compaction job to limit index size per SST
+   *
+   * @return max index size in bytes
+   */
+  public long maxIndexSize() {
+    return maxIndexSize;
+  }
+
+  /**
+   * Hint compaction job to limit index size per SST
+   * Default: Long.MAX_VALUE
+   *
+   * @param maxIndexSize max index size in bytes
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setMaxIndexSize(long maxIndexSize) {
+    this.maxIndexSize = maxIndexSize;
+    return this;
+  }
+
+  /**
+   * Hint compaction job to limit top level index size per SST
+   * It is not exactly size of top level index, but raw size
+   * of all keys in the top level index
+   * It is supported only for kBinarySearch and kTwoLevelIndexSearch
+   *
+   * @return max top level index size in bytes
+   */
+  public long maxTopLevelIndexRawKeySize() {
+    return maxTopLevelIndexRawKeySize;
+  }
+
+  /**
+   * Hint compaction job to limit top level index size per SST
+   * It is not exactly size of top level index, but raw size
+   * of all keys in the top level index
+   * It is supported only for kTwoLevelIndexSearch
+   * Default: Long.MAX_VALUE
+   *
+   * @param maxTopLevelIndexRawKeySize max top level index size in bytes
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setMaxTopLevelIndexRawKeySize(long maxTopLevelIndexRawKeySize) {
+    this.maxTopLevelIndexRawKeySize = maxTopLevelIndexRawKeySize;
+    return this;
+  }
+
   @Override protected long newTableFactoryHandle() {
     final long filterPolicyHandle;
     if (filterPolicy != null) {
@@ -993,7 +1043,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
         verifyCompression, readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
         indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits,
-        blockCacheCompressedSize, blockCacheCompressedNumShardBits);
+        blockCacheCompressedSize, blockCacheCompressedNumShardBits, maxIndexSize,
+        maxTopLevelIndexRawKeySize);
   }
 
   private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
@@ -1009,11 +1060,10 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final long filterPolicyHandle, final boolean wholeKeyFiltering,
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
       final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
-
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
-
       @Deprecated final long blockCacheCompressedSize,
-      @Deprecated final int blockCacheCompressedNumShardBits);
+      @Deprecated final int blockCacheCompressedNumShardBits, final long maxIndexSize,
+      final long maxTopLevelIndexRawKeySize);
 
   //TODO(AR) flushBlockPolicyFactory
   private boolean cacheIndexAndFilterBlocks;
@@ -1044,6 +1094,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean enableIndexCompression;
   private boolean blockAlign;
   private IndexShorteningMode indexShortening;
+  private long maxIndexSize;
+  private long maxTopLevelIndexRawKeySize;
 
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;

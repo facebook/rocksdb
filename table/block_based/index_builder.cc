@@ -36,7 +36,8 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
       result = new ShortenedIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
-          table_opt.index_shortening, /* include_first_key */ false);
+          table_opt.index_shortening, /* include_first_key */ false,
+          table_opt.max_index_size);
       break;
     }
     case BlockBasedTableOptions::kHashSearch: {
@@ -58,7 +59,8 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
       result = new ShortenedIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
-          table_opt.index_shortening, /* include_first_key */ true);
+          table_opt.index_shortening, /* include_first_key */ true,
+          table_opt.max_index_size);
       break;
     }
     default: {
@@ -131,7 +133,9 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
       // sub_index_builders could not safely exclude seq from the keys, then it
       // wil be enforced on all sub_index_builders on ::Finish.
       seperator_is_key_plus_seq_(false),
-      use_value_delta_encoding_(use_value_delta_encoding) {}
+      use_value_delta_encoding_(use_value_delta_encoding),
+      current_index_size_(0),
+      current_top_level_index_raw_key_size_(0) {}
 
 PartitionedIndexBuilder::~PartitionedIndexBuilder() {
   delete sub_index_builder_;
@@ -142,7 +146,7 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
   sub_index_builder_ = new ShortenedIndexBuilder(
       comparator_, table_opt_.index_block_restart_interval,
       table_opt_.format_version, use_value_delta_encoding_,
-      table_opt_.index_shortening, /* include_first_key */ false);
+      table_opt_.index_shortening, /* include_first_key */ false, ULLONG_MAX);
 
   // Set sub_index_builder_->seperator_is_key_plus_seq_ to true if
   // seperator_is_key_plus_seq_ is true (internal-key mode) (set to false by
@@ -191,6 +195,9 @@ void PartitionedIndexBuilder::AddIndexEntry(
     entries_.push_back(
         {sub_index_last_key_,
          std::unique_ptr<ShortenedIndexBuilder>(sub_index_builder_)});
+    current_top_level_index_raw_key_size_ += sub_index_last_key_.size();
+    current_index_size_ +=
+        sub_index_builder_->index_block_builder_.CurrentSizeEstimate();
     sub_index_builder_ = nullptr;
     cut_filter_block = true;
   } else {
@@ -206,6 +213,9 @@ void PartitionedIndexBuilder::AddIndexEntry(
             {sub_index_last_key_,
              std::unique_ptr<ShortenedIndexBuilder>(sub_index_builder_)});
         cut_filter_block = true;
+        current_index_size_ +=
+            sub_index_builder_->index_block_builder_.CurrentSizeEstimate();
+        current_top_level_index_raw_key_size_ += sub_index_last_key_.size();
         sub_index_builder_ = nullptr;
       }
     }
@@ -279,4 +289,11 @@ Status PartitionedIndexBuilder::Finish(
 }
 
 size_t PartitionedIndexBuilder::NumPartitions() const { return partition_cnt_; }
+
+bool PartitionedIndexBuilder::NeedSplit() const {
+  return current_index_size_ > table_opt_.max_index_size ||
+         current_top_level_index_raw_key_size_ >
+             table_opt_.max_top_level_index_raw_key_size;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

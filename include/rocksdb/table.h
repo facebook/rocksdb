@@ -278,6 +278,16 @@ struct BlockBasedTableOptions {
   // compression is enabled.  This parameter can be changed dynamically.
   uint64_t block_size = 4 * 1024;
 
+  // Hint compaction job to limit index size per SST.
+  // It is supported only for kBinarySearch and kTwoLevelIndexSearch
+  uint64_t max_index_size = ULLONG_MAX;
+
+  // Hint compaction job to limit top level index size per SST
+  // It is not exactly size of top level index, but raw size
+  // of all keys in the top level index
+  // It is supported only for kTwoLevelIndexSearch
+  uint64_t max_top_level_index_raw_key_size = ULLONG_MAX;
+
   // This is used to close a block before it reaches the configured
   // 'block_size'. If the percentage of free space in the current block is less
   // than this specified number and adding a new record to the block will

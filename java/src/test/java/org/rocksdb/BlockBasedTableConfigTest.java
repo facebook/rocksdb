@@ -9,6 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Random;
 import org.junit.ClassRule;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -413,5 +415,89 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setBlockCacheCompressedNumShardBits(4);
     assertThat(blockBasedTableConfig.blockCacheCompressedNumShardBits()).
         isEqualTo(4);
+  }
+
+  @Test
+  public void maxIndexSize() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setMaxIndexSize(1024 * 1024);
+    assertThat(blockBasedTableConfig.maxIndexSize()).isEqualTo(1024 * 1024);
+  }
+
+  @Test
+  public void maxTopLevelIndexRawKeySize() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setMaxTopLevelIndexRawKeySize(2 * 1024 * 1024L);
+    assertThat(blockBasedTableConfig.maxTopLevelIndexRawKeySize()).isEqualTo(2 * 1024 * 1024L);
+  }
+
+  @Test
+  public void maxIndexSizeUse() throws RocksDBException {
+    BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
+    blockConfig.setMaxIndexSize(8192);
+    blockConfig.setFormatVersion(5);
+    blockConfig.setIndexType(IndexType.kBinarySearch);
+    String absolutePath = dbFolder.getRoot().getAbsolutePath();
+    try (final Options opt =
+             new Options().setCreateIfMissing(true).setTableFormatConfig(blockConfig);
+         final RocksDB db = RocksDB.open(opt, absolutePath);
+         FlushOptions flush = new FlushOptions()) {
+      // writing very long keys
+      byte[] key = new byte[16384];
+      for (int i = 0; i < 3; i++) {
+        key[16383] = (byte) i;
+        db.put(key, new byte[0]);
+      }
+      db.flush(flush);
+      db.compactRange();
+
+      // Here we have one file as real compaction job did not happen. Let's overwrite to cause
+      // recompaction.
+
+      for (int i = 0; i < 3; i++) {
+        key[16383] = (byte) i;
+        db.put(key, new byte[0]);
+      }
+      db.flush(flush);
+      db.compactRange();
+
+      List<LiveFileMetaData> metadata = db.getLiveFilesMetaData();
+      assertThat(metadata.size()).isEqualTo(2);
+    }
+  }
+
+  @Test
+  public void maxTopLevelIndexRawKeySizeUse() throws RocksDBException {
+    BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
+    blockConfig.setMaxTopLevelIndexRawKeySize(8192);
+    blockConfig.setFormatVersion(5);
+    blockConfig.setIndexType(IndexType.kTwoLevelIndexSearch);
+    String absolutePath = dbFolder.getRoot().getAbsolutePath();
+    try (final Options opt =
+             new Options().setCreateIfMissing(true).setTableFormatConfig(blockConfig);
+         final RocksDB db = RocksDB.open(opt, absolutePath);
+         FlushOptions flush = new FlushOptions()) {
+      // writing very long keys
+      byte[] key = new byte[16384];
+      for (int i = 0; i < 4; i++) {
+        key[16383] = (byte) i;
+        db.put(key, new byte[0]);
+      }
+      db.flush(flush);
+      db.compactRange();
+
+      // Here we have one file as real compaction job did not happen. Let's overwrite to cause
+      // recompaction.
+
+      for (int i = 0; i < 4; i++) {
+        key[16383] = (byte) i;
+        db.put(key, new byte[0]);
+      }
+      db.flush(flush);
+      db.compactRange();
+
+      List<LiveFileMetaData> metadata = db.getLiveFilesMetaData();
+      assertThat(metadata.size()).isEqualTo(2);
+    }
   }
 }
