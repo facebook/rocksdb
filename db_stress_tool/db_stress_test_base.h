@@ -152,6 +152,14 @@ class StressTest {
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
 
+  virtual Status TestIterateAgainstExpected(
+      ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+    return Status::NotSupported();
+  }
+
   // Enum used by VerifyIterator() to identify the mode to validate.
   enum LastIterateOp {
     kLastOpSeek,

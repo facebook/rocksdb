@@ -288,6 +288,7 @@ simple_default_params = {
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": False,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
+    "verify_iterator_with_expected_state_one_in": 5  # this locks a range of keys
 }
 
 blackbox_simple_default_params = {
