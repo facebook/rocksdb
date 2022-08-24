@@ -39,14 +39,12 @@
 * If an error is hit when writing to a file (append, sync, etc), RocksDB is more strict with not issuing more operations to it, except closing the file, with exceptions of some WAL file operations in error recovery path.
 * A `WriteBufferManager` constructed with `allow_stall == false` will no longer trigger write stall implicitly by thrashing until memtable count limit is reached. Instead, a column family can continue accumulating writes while that CF is flushing, which means memory may increase. Users who prefer stalling writes must now explicitly set `allow_stall == true`.
 * Add `CompressedSecondaryCache` into the stress tests.
+* Block cache keys have changed, which will cause any persistent caches to miss between versions.
 
 ### Performance Improvements
 * Instead of constructing `FragmentedRangeTombstoneList` during every read operation, it is now constructed once and stored in immutable memtables. This improves speed of querying range tombstones from immutable memtables.
 * When using iterators with the integrated BlobDB implementation, blob cache handles are now released immediately when the iterator's position changes.
 * MultiGet can now do more IO in parallel by reading data blocks from SST files in multiple levels, if the optimize_multiget_for_io ReadOption flag is set.
-
-## Behavior Change
-* Block cache keys have changed, which will cause any persistent caches to miss between versions.
 
 ## 7.5.0 (07/15/2022)
 ### New Features
