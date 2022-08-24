@@ -18,10 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 class BlobContents {
  public:
   static std::unique_ptr<BlobContents> Create(CacheAllocationPtr&& allocation,
-                                              size_t size) {
-    return std::unique_ptr<BlobContents>(
-        new BlobContents(std::move(allocation), size));
-  }
+                                              size_t size);
 
   BlobContents(const BlobContents&) = delete;
   BlobContents& operator=(const BlobContents&) = delete;
@@ -30,18 +27,7 @@ class BlobContents {
   size_t size() const { return data_.size(); }
 
   static Status CreateCallback(const void* buf, size_t size, void** out_obj,
-                               size_t* charge) {
-    CacheAllocationPtr allocation(new char[size]);  // FIXME
-    memcpy(allocation.get(), buf, size);
-
-    std::unique_ptr<BlobContents> obj = Create(std::move(allocation), size);
-    BlobContents* const contents = obj.release();
-
-    *out_obj = contents;
-    *charge = contents->size();
-
-    return Status::OK();
-  };
+                               size_t* charge);
 
  private:
   BlobContents(CacheAllocationPtr&& allocation, size_t size)
@@ -49,6 +35,26 @@ class BlobContents {
 
   CacheAllocationPtr allocation_;
   Slice data_;
+};
+
+inline std::unique_ptr<BlobContents> BlobContents::Create(
+    CacheAllocationPtr&& allocation, size_t size) {
+  return std::unique_ptr<BlobContents>(
+      new BlobContents(std::move(allocation), size));
+}
+
+inline Status BlobContents::CreateCallback(const void* buf, size_t size,
+                                           void** out_obj, size_t* charge) {
+  CacheAllocationPtr allocation(new char[size]);  // FIXME
+  memcpy(allocation.get(), buf, size);
+
+  std::unique_ptr<BlobContents> obj = Create(std::move(allocation), size);
+  BlobContents* const contents = obj.release();
+
+  *out_obj = contents;
+  *charge = contents->size();
+
+  return Status::OK();
 };
 
 }  // namespace ROCKSDB_NAMESPACE
