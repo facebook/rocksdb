@@ -45,7 +45,7 @@ inline std::unique_ptr<BlobContents> BlobContents::Create(
 
 inline Status BlobContents::CreateCallback(const void* buf, size_t size,
                                            void** out_obj, size_t* charge) {
-  CacheAllocationPtr allocation(new char[size]);  // FIXME
+  CacheAllocationPtr allocation(new char[size]);
   memcpy(allocation.get(), buf, size);
 
   std::unique_ptr<BlobContents> obj = Create(std::move(allocation), size);

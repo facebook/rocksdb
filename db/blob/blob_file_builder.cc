@@ -409,9 +409,8 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
     // Objects to be put into the cache have to be heap-allocated and
     // self-contained, i.e. own their contents. The Cache has to be able to
-    // take unique ownership of them. Therefore, we copy the blob into a
-    // string directly, and insert that into the cache.
-    CacheAllocationPtr allocation(new char[blob.size()]);  // FIXME
+    // take unique ownership of them.
+    CacheAllocationPtr allocation(new char[blob.size()]);
     memcpy(allocation.get(), blob.data(), blob.size());
     std::unique_ptr<BlobContents> buf =
         BlobContents::Create(std::move(allocation), blob.size());
@@ -423,7 +422,7 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
                            nullptr /* cache_handle */, priority);
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
-      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->data().size());
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->size());
       buf.release();
     } else {
       RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);

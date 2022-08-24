@@ -75,9 +75,8 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
 
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take
-  // unique ownership of them. Therefore, we copy the blob into a string
-  // directly, and insert that into the cache.
-  CacheAllocationPtr allocation(new char[blob->size()]);  // FIXME
+  // unique ownership of them.
+  CacheAllocationPtr allocation(new char[blob->size()]);
   memcpy(allocation.get(), blob->data(), blob->size());
   std::unique_ptr<BlobContents> buf =
       BlobContents::Create(std::move(allocation), blob->size());
@@ -438,14 +437,14 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
 // Callbacks for secondary blob cache
 size_t BlobSource::SizeCallback(void* obj) {
   assert(obj != nullptr);
-  return static_cast<const BlobContents*>(obj)->data().size();
+  return static_cast<const BlobContents*>(obj)->size();
 }
 
 Status BlobSource::SaveToCallback(void* from_obj, size_t from_offset,
                                   size_t length, void* out) {
   assert(from_obj != nullptr);
   const BlobContents* buf = static_cast<const BlobContents*>(from_obj);
-  assert(buf->data().size() >= from_offset + length);
+  assert(buf->size() >= from_offset + length);
   memcpy(out, buf->data().data() + from_offset, length);
   return Status::OK();
 }
