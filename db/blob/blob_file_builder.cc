@@ -418,7 +418,7 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
     // TODO: support custom allocators and provide a better estimated memory
     // usage using malloc_usable_size.
     s = blob_cache->Insert(key, buf.get(), buf->size(),
-                           &DeleteCacheEntry<BlobContents>,
+                           &BlobContents::DeleteCallback,
                            nullptr /* cache_handle */, priority);
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
