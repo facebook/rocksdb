@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior Change
+* Updated `TestGet()` in `no_batched_op_stress` (default stress test) to check the result of Get() operations against expected state.
 
 ## 7.6.0 (08/19/2022)
 ### New Features
