@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fixed a hang when an operation such as `GetLiveFiles` or `CreateNewBackup` is asked to trigger and wait for memtable flush on a read-only DB. Such indirect requests for memtable flush are now ignored on a read-only DB.
+
 ### Behavior Change
 * Updated `TestGet()` in `no_batched_op_stress` (default stress test) to check the result of Get() operations against expected state.
 
