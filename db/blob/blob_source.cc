@@ -101,7 +101,7 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
     cache_handle = blob_cache_->Lookup(
-        key, GetCacheItemHelper(), &BlobContents::CreateCallback,
+        key, BlobContents::GetCacheItemHelper(), &BlobContents::CreateCallback,
         Cache::Priority::BOTTOM, true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);
@@ -125,10 +125,10 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
   Status s;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    s = blob_cache_->Insert(key, value, GetCacheItemHelper(), charge,
-                            cache_handle, priority);
+    s = blob_cache_->Insert(key, value, BlobContents::GetCacheItemHelper(),
+                            charge, cache_handle, priority);
   } else {
-    s = blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<BlobContents>,
+    s = blob_cache_->Insert(key, value, charge, &BlobContents::DeleteCallback,
                             cache_handle, priority);
   }
 
@@ -432,27 +432,6 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   }
 
   return false;
-}
-
-// Callbacks for secondary blob cache
-size_t BlobSource::SizeCallback(void* obj) {
-  assert(obj != nullptr);
-  return static_cast<const BlobContents*>(obj)->size();
-}
-
-Status BlobSource::SaveToCallback(void* from_obj, size_t from_offset,
-                                  size_t length, void* out) {
-  assert(from_obj != nullptr);
-  const BlobContents* buf = static_cast<const BlobContents*>(from_obj);
-  assert(buf->size() >= from_offset + length);
-  memcpy(out, buf->data().data() + from_offset, length);
-  return Status::OK();
-}
-
-Cache::CacheItemHelper* BlobSource::GetCacheItemHelper() {
-  static Cache::CacheItemHelper cache_helper(SizeCallback, SaveToCallback,
-                                             &DeleteCacheEntry<BlobContents>);
-  return &cache_helper;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

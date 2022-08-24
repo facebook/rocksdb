@@ -5,9 +5,12 @@
 
 #pragma once
 
+#include <cassert>
 #include <memory>
 
+#include "cache/cache_helpers.h"
 #include "memory/memory_allocator.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -26,6 +29,16 @@ class BlobContents {
   const Slice& data() const { return data_; }
   size_t size() const { return data_.size(); }
 
+  // Callbacks for secondary cache
+  static size_t SizeCallback(void* obj);
+
+  static Status SaveToCallback(void* from_obj, size_t from_offset,
+                               size_t length, void* out);
+
+  static void DeleteCallback(const Slice& key, void* value);
+
+  static Cache::CacheItemHelper* GetCacheItemHelper();
+
   static Status CreateCallback(const void* buf, size_t size, void** out_obj,
                                size_t* charge);
 
@@ -41,6 +54,35 @@ inline std::unique_ptr<BlobContents> BlobContents::Create(
     CacheAllocationPtr&& allocation, size_t size) {
   return std::unique_ptr<BlobContents>(
       new BlobContents(std::move(allocation), size));
+}
+
+inline size_t BlobContents::SizeCallback(void* obj) {
+  assert(obj);
+
+  return static_cast<const BlobContents*>(obj)->size();
+}
+
+inline Status BlobContents::SaveToCallback(void* from_obj, size_t from_offset,
+                                           size_t length, void* out) {
+  assert(from_obj);
+
+  const BlobContents* buf = static_cast<const BlobContents*>(from_obj);
+  assert(buf->size() >= from_offset + length);
+
+  memcpy(out, buf->data().data() + from_offset, length);
+
+  return Status::OK();
+}
+
+inline void BlobContents::DeleteCallback(const Slice& key, void* value) {
+  DeleteCacheEntry<BlobContents>(key, value);
+}
+
+inline Cache::CacheItemHelper* BlobContents::GetCacheItemHelper() {
+  static Cache::CacheItemHelper cache_helper(&SizeCallback, &SaveToCallback,
+                                             &DeleteCallback);
+
+  return &cache_helper;
 }
 
 inline Status BlobContents::CreateCallback(const void* buf, size_t size,
