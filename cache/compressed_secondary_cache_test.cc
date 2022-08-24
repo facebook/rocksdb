@@ -772,17 +772,17 @@ TEST_F(CompressedSecondaryCacheTest,
   IntegrationFullCapacityTest(true);
 }
 
-TEST_F(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
-  SplitValueIntoChunksTest();
-}
+// TEST_F(CompressedSecondaryCacheTest, SplitValueIntoChunksTest) {
+//   SplitValueIntoChunksTest();
+// }
 
-TEST_F(CompressedSecondaryCacheTest, MergeChunksIntoValueTest) {
-  MergeChunksIntoValueTest();
-}
+// TEST_F(CompressedSecondaryCacheTest, MergeChunksIntoValueTest) {
+//   MergeChunksIntoValueTest();
+// }
 
-TEST_F(CompressedSecondaryCacheTest, SplictValueAndMergeChunksTest) {
-  SplictValueAndMergeChunksTest();
-}
+// TEST_F(CompressedSecondaryCacheTest, SplictValueAndMergeChunksTest) {
+//   SplictValueAndMergeChunksTest();
+// }
 
 }  // namespace ROCKSDB_NAMESPACE
 
