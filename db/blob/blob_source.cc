@@ -10,6 +10,7 @@
 
 #include "cache/cache_reservation_manager.h"
 #include "cache/charged_cache.h"
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
 #include "monitoring/statistics.h"
@@ -43,8 +44,8 @@ BlobSource::BlobSource(const ImmutableOptions* immutable_options,
 
 BlobSource::~BlobSource() = default;
 
-Status BlobSource::GetBlobFromCache(const Slice& cache_key,
-                                    CacheHandleGuard<std::string>* blob) const {
+Status BlobSource::GetBlobFromCache(
+    const Slice& cache_key, CacheHandleGuard<BlobContents>* blob) const {
   assert(blob);
   assert(blob->IsEmpty());
   assert(blob_cache_);
@@ -53,7 +54,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key,
   Cache::Handle* cache_handle = nullptr;
   cache_handle = GetEntryFromCache(cache_key);
   if (cache_handle != nullptr) {
-    *blob = CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);
+    *blob = CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
     return Status::OK();
   }
 
@@ -63,7 +64,7 @@ Status BlobSource::GetBlobFromCache(const Slice& cache_key,
 }
 
 Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
-                                    CacheHandleGuard<std::string>* cached_blob,
+                                    CacheHandleGuard<BlobContents>* cached_blob,
                                     PinnableSlice* blob) const {
   assert(blob);
   assert(!cache_key.empty());
@@ -74,10 +75,11 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
 
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take
-  // unique ownership of them. Therefore, we copy the blob into a string
-  // directly, and insert that into the cache.
-  std::unique_ptr<std::string> buf = std::make_unique<std::string>();
-  buf->assign(blob->data(), blob->size());
+  // unique ownership of them.
+  CacheAllocationPtr allocation(new char[blob->size()]);
+  memcpy(allocation.get(), blob->data(), blob->size());
+  std::unique_ptr<BlobContents> buf =
+      BlobContents::Create(std::move(allocation), blob->size());
 
   // TODO: support custom allocators and provide a better estimated memory
   // usage using malloc_usable_size.
@@ -88,7 +90,7 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
     buf.release();
     assert(cache_handle != nullptr);
     *cached_blob =
-        CacheHandleGuard<std::string>(blob_cache_.get(), cache_handle);
+        CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
   }
 
   return s;
@@ -98,18 +100,9 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
-                                          void** out_obj,
-                                          size_t* charge) -> Status {
-      std::string* blob = new std::string();
-      blob->assign(static_cast<const char*>(buf), size);
-      *out_obj = blob;
-      *charge = size;
-      return Status::OK();
-    };
-    cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
-                                       Cache::Priority::BOTTOM,
-                                       true /* wait_for_cache */, statistics_);
+    cache_handle = blob_cache_->Lookup(
+        key, BlobContents::GetCacheItemHelper(), &BlobContents::CreateCallback,
+        Cache::Priority::BOTTOM, true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);
   }
@@ -125,17 +118,17 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   return cache_handle;
 }
 
-Status BlobSource::InsertEntryIntoCache(const Slice& key, std::string* value,
+Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
                                         size_t charge,
                                         Cache::Handle** cache_handle,
                                         Cache::Priority priority) const {
   Status s;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    s = blob_cache_->Insert(key, value, GetCacheItemHelper(), charge,
-                            cache_handle, priority);
+    s = blob_cache_->Insert(key, value, BlobContents::GetCacheItemHelper(),
+                            charge, cache_handle, priority);
   } else {
-    s = blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<std::string>,
+    s = blob_cache_->Insert(key, value, charge, &BlobContents::DeleteCallback,
                             cache_handle, priority);
   }
 
@@ -164,7 +157,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
 
-  CacheHandleGuard<std::string> blob_handle;
+  CacheHandleGuard<BlobContents> blob_handle;
 
   // First, try to get the blob from the cache
   //
@@ -180,7 +173,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
         // the target PinnableSlice. This has the potential to save a lot of
         // CPU, especially with large blob values.
         value->PinSlice(
-            *blob_handle.GetValue(),
+            blob_handle.GetValue()->data(),
             [](void* arg1, void* arg2) {
               Cache* const cache = static_cast<Cache*>(arg1);
               Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
@@ -310,7 +303,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     for (size_t i = 0; i < num_blobs; ++i) {
       auto& req = blob_reqs[i];
 
-      CacheHandleGuard<std::string> blob_handle;
+      CacheHandleGuard<BlobContents> blob_handle;
       const CacheKey cache_key = base_cache_key.WithOffset(req.offset);
       const Slice key = cache_key.AsSlice();
 
@@ -327,7 +320,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
           // to the target PinnableSlice. This has the potential to save a lot
           // of CPU, especially with large blob values.
           req.result->PinSlice(
-              *blob_handle.GetValue(),
+              blob_handle.GetValue()->data(),
               [](void* arg1, void* arg2) {
                 Cache* const cache = static_cast<Cache*>(arg1);
                 Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
@@ -407,7 +400,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
       // the blob(s) to the cache.
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
         if (_blob_reqs[i]->status->ok()) {
-          CacheHandleGuard<std::string> blob_handle;
+          CacheHandleGuard<BlobContents> blob_handle;
           const CacheKey cache_key =
               base_cache_key.WithOffset(_blob_reqs[i]->offset);
           const Slice key = cache_key.AsSlice();
@@ -431,7 +424,7 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   const CacheKey cache_key = GetCacheKey(file_number, file_size, offset);
   const Slice key = cache_key.AsSlice();
 
-  CacheHandleGuard<std::string> blob_handle;
+  CacheHandleGuard<BlobContents> blob_handle;
   const Status s = GetBlobFromCache(key, &blob_handle);
 
   if (s.ok() && blob_handle.GetValue() != nullptr) {
@@ -439,27 +432,6 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   }
 
   return false;
-}
-
-// Callbacks for secondary blob cache
-size_t BlobSource::SizeCallback(void* obj) {
-  assert(obj != nullptr);
-  return static_cast<const std::string*>(obj)->size();
-}
-
-Status BlobSource::SaveToCallback(void* from_obj, size_t from_offset,
-                                  size_t length, void* out) {
-  assert(from_obj != nullptr);
-  const std::string* buf = static_cast<const std::string*>(from_obj);
-  assert(buf->size() >= from_offset + length);
-  memcpy(out, buf->data() + from_offset, length);
-  return Status::OK();
-}
-
-Cache::CacheItemHelper* BlobSource::GetCacheItemHelper() {
-  static Cache::CacheItemHelper cache_helper(SizeCallback, SaveToCallback,
-                                             &DeleteCacheEntry<std::string>);
-  return &cache_helper;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

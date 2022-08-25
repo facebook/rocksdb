@@ -7,6 +7,7 @@
 
 #include <cassert>
 
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_completion_callback.h"
 #include "db/blob/blob_index.h"
@@ -408,15 +409,16 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
 
     // Objects to be put into the cache have to be heap-allocated and
     // self-contained, i.e. own their contents. The Cache has to be able to
-    // take unique ownership of them. Therefore, we copy the blob into a
-    // string directly, and insert that into the cache.
-    std::unique_ptr<std::string> buf = std::make_unique<std::string>();
-    buf->assign(blob.data(), blob.size());
+    // take unique ownership of them.
+    CacheAllocationPtr allocation(new char[blob.size()]);
+    memcpy(allocation.get(), blob.data(), blob.size());
+    std::unique_ptr<BlobContents> buf =
+        BlobContents::Create(std::move(allocation), blob.size());
 
     // TODO: support custom allocators and provide a better estimated memory
     // usage using malloc_usable_size.
     s = blob_cache->Insert(key, buf.get(), buf->size(),
-                           &DeleteCacheEntry<std::string>,
+                           &BlobContents::DeleteCallback,
                            nullptr /* cache_handle */, priority);
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);

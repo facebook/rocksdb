@@ -22,6 +22,7 @@ struct ImmutableOptions;
 class Status;
 class FilePrefetchBuffer;
 class Slice;
+class BlobContents;
 
 // BlobSource is a class that provides universal access to blobs, regardless of
 // whether they are in the blob cache, secondary cache, or (remote) storage.
@@ -106,15 +107,15 @@ class BlobSource {
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* blob) const;
+                          CacheHandleGuard<BlobContents>* blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* cached_blob,
+                          CacheHandleGuard<BlobContents>* cached_blob,
                           PinnableSlice* blob) const;
 
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
 
-  Status InsertEntryIntoCache(const Slice& key, std::string* value,
+  Status InsertEntryIntoCache(const Slice& key, BlobContents* value,
                               size_t charge, Cache::Handle** cache_handle,
                               Cache::Priority priority) const;
 
@@ -123,14 +124,6 @@ class BlobSource {
     OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
     return base_cache_key.WithOffset(offset);
   }
-
-  // Callbacks for secondary blob cache
-  static size_t SizeCallback(void* obj);
-
-  static Status SaveToCallback(void* from_obj, size_t from_offset,
-                               size_t length, void* out);
-
-  static Cache::CacheItemHelper* GetCacheItemHelper();
 
   const std::string& db_id_;
   const std::string& db_session_id_;
