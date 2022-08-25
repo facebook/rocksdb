@@ -441,13 +441,13 @@ public interface AdvancedColumnFamilyOptionsInterface<
   boolean optimizeFiltersForHits();
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-   * change (Flush, Compaction, AddFile). These checks are disabled in release
-   * mode, use this option to enable them in release mode as well.
+   * By default, RocksDB runs consistency checks on the LSM every time the LSM
+   * changes (Flush, Compaction, AddFile). Use this option if you need to
+   * disable them.
    *
-   * Default: false
+   * Default: true
    *
-   * @param forceConsistencyChecks true to force consistency checks
+   * @param forceConsistencyChecks false to disable consistency checks
    *
    * @return the reference to the current options.
    */
@@ -455,9 +455,8 @@ public interface AdvancedColumnFamilyOptionsInterface<
       boolean forceConsistencyChecks);
 
   /**
-   * In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-   * change (Flush, Compaction, AddFile). These checks are disabled in release
-   * mode.
+   * By default, RocksDB runs consistency checks on the LSM every time the LSM
+   * changes (Flush, Compaction, AddFile).
    *
    * @return true if consistency checks are enforced
    */
