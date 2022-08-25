@@ -41,17 +41,15 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(const Comparator* ucmp,
-                       const MergeOperator* merge_operator, Logger* logger,
-                       Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pinnable_val,
-                       std::string* timestamp, bool* value_found,
-                       MergeContext* merge_context, bool do_merge,
-                       SequenceNumber* _max_covering_tombstone_seq,
-                       SystemClock* clock, SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr,
-                       ReadCallback* callback, bool* is_blob_index,
-                       uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, PinnableWideColumns* columns,
+    std::string* timestamp, bool* value_found, MergeContext* merge_context,
+    bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
+    SystemClock* clock, SequenceNumber* seq,
+    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
+    bool* is_blob_index, uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -59,6 +57,7 @@ GetContext::GetContext(const Comparator* ucmp,
       state_(init_state),
       user_key_(user_key),
       pinnable_val_(pinnable_val),
+      columns_(columns),
       timestamp_(timestamp),
       value_found_(value_found),
       merge_context_(merge_context),
@@ -78,18 +77,22 @@ GetContext::GetContext(const Comparator* ucmp,
   sample_ = should_sample_file_read();
 }
 
-GetContext::GetContext(
-    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
-    Statistics* statistics, GetState init_state, const Slice& user_key,
-    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
-    bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
-    SystemClock* clock, SequenceNumber* seq,
-    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
-    bool* is_blob_index, uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
+GetContext::GetContext(const Comparator* ucmp,
+                       const MergeOperator* merge_operator, Logger* logger,
+                       Statistics* statistics, GetState init_state,
+                       const Slice& user_key, PinnableSlice* pinnable_val,
+                       PinnableWideColumns* columns, bool* value_found,
+                       MergeContext* merge_context, bool do_merge,
+                       SequenceNumber* _max_covering_tombstone_seq,
+                       SystemClock* clock, SequenceNumber* seq,
+                       PinnedIteratorsManager* _pinned_iters_mgr,
+                       ReadCallback* callback, bool* is_blob_index,
+                       uint64_t tracing_get_id, BlobFetcher* blob_fetcher)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
-                 pinnable_val, nullptr, value_found, merge_context, do_merge,
-                 _max_covering_tombstone_seq, clock, seq, _pinned_iters_mgr,
-                 callback, is_blob_index, tracing_get_id, blob_fetcher) {}
+                 pinnable_val, columns, /*timestamp=*/nullptr, value_found,
+                 merge_context, do_merge, _max_covering_tombstone_seq, clock,
+                 seq, _pinned_iters_mgr, callback, is_blob_index,
+                 tracing_get_id, blob_fetcher) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -290,6 +293,15 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                                          this);
                 // Otherwise copy the value
                 pinnable_val_->PinSelf(value_to_use);
+              }
+            } else if (columns_ != nullptr) {
+              if (type == kTypeWideColumnEntity) {
+                if (!columns_->SetWideColumnValue(value, value_pinner).ok()) {
+                  state_ = kCorrupt;
+                  return false;
+                }
+              } else {
+                columns_->SetPlainValue(value, value_pinner);
               }
             }
           } else {

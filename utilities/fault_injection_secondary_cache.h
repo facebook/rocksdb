@@ -22,6 +22,9 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
         seed_(seed),
         prob_(prob),
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {
+    if (std::strcmp(base_->Name(), "CompressedSecondaryCache") == 0) {
+      base_is_compressed_sec_cache_ = true;
+    }
   }
 
   virtual ~FaultInjectionSecondaryCache() override {}
@@ -35,13 +38,13 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait,
       bool& is_in_sec_cache) override;
 
-  void Erase(const Slice& /*key*/) override;
+  void Erase(const Slice& key) override;
 
   void WaitAll(std::vector<SecondaryCacheResultHandle*> handles) override;
 
-  std::string GetPrintableOptions() const override { return ""; }
-
-  void EnableErrorInjection(uint64_t prob);
+  std::string GetPrintableOptions() const override {
+    return base_->GetPrintableOptions();
+  }
 
  private:
   class ResultHandle : public SecondaryCacheResultHandle {
@@ -80,6 +83,7 @@ class FaultInjectionSecondaryCache : public SecondaryCache {
   const std::shared_ptr<SecondaryCache> base_;
   uint32_t seed_;
   int prob_;
+  bool base_is_compressed_sec_cache_{false};
 
   struct ErrorContext {
     Random rand;

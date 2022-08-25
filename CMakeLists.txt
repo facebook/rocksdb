@@ -684,6 +684,7 @@ set(SOURCES
         db/wal_edit.cc
         db/wal_manager.cc
         db/wide/wide_column_serialization.cc
+        db/wide/wide_columns.cc
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc
@@ -1007,7 +1008,6 @@ endif()
 set(ROCKSDB_PLUGIN_EXTERNS "")
 set(ROCKSDB_PLUGIN_BUILTINS "")
 message(STATUS "ROCKSDB PLUGINS TO BUILD ${ROCKSDB_PLUGINS}")
-list(APPEND PLUGINS ${ROCKSDB_PLUGINS})
 foreach(PLUGIN IN LISTS PLUGINS)
   set(PLUGIN_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/plugin/${PLUGIN}/")
   message("including rocksb plugin ${PLUGIN_ROOT}")
@@ -1510,7 +1510,7 @@ if(WITH_BENCHMARK_TOOLS)
 endif()
 
 option(WITH_TRACE_TOOLS "build with trace tools" ON)
-if(WITH_TRACE_TOOLS) 
+if(WITH_TRACE_TOOLS)
   add_executable(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}
     tools/block_cache_analyzer/block_cache_trace_analyzer_tool.cc)
   target_link_libraries(block_cache_trace_analyzer_tool${ARTIFACT_SUFFIX}

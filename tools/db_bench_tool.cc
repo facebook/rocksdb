@@ -570,6 +570,9 @@ DEFINE_double(cache_high_pri_pool_ratio, 0.0,
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
 
+DEFINE_double(cache_low_pri_pool_ratio, 0.0,
+              "Ratio of block cache reserve for low pri blocks.");
+
 DEFINE_string(cache_type, "lru_cache", "Type of block cache.");
 
 DEFINE_bool(use_compressed_secondary_cache, false,
@@ -588,6 +591,9 @@ DEFINE_double(compressed_secondary_cache_high_pri_pool_ratio, 0.0,
               "Ratio of block cache reserve for high pri blocks. "
               "If > 0.0, we also enable "
               "cache_index_and_filter_blocks_with_high_priority.");
+
+DEFINE_double(compressed_secondary_cache_low_pri_pool_ratio, 0.0,
+              "Ratio of block cache reserve for low pri blocks.");
 
 DEFINE_string(compressed_secondary_cache_compression_type, "lz4",
               "The compression algorithm to use for large "
@@ -1171,6 +1177,10 @@ DEFINE_bool(async_io, false,
             "When set true, RocksDB does asynchronous reads for internal auto "
             "readahead prefetching.");
 
+DEFINE_bool(optimize_multiget_for_io, true,
+            "When set true, RocksDB does asynchronous reads for SST files in "
+            "multiple levels for MultiGet.");
+
 DEFINE_bool(charge_compression_dictionary_building_buffer, false,
             "Setting for "
             "CacheEntryRoleOptions::charged of "
@@ -1211,6 +1221,20 @@ DEFINE_string(backup_dir, "",
 
 DEFINE_string(restore_dir, "",
               "If not empty string, use the given dir for restore.");
+
+DEFINE_uint64(
+    initial_auto_readahead_size,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().initial_auto_readahead_size,
+    "RocksDB does auto-readahead for iterators on noticing more than two reads "
+    "for a table file if user doesn't provide readahead_size. The readahead "
+    "size starts at initial_auto_readahead_size");
+
+DEFINE_uint64(
+    max_auto_readahead_size,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().max_auto_readahead_size,
+    "Rocksdb implicit readahead starts at "
+    "BlockBasedTableOptions.initial_auto_readahead_size and doubles on every "
+    "additional read upto max_auto_readahead_size");
 
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
@@ -1694,6 +1718,13 @@ static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((__unused__
 DEFINE_uint32(write_batch_protection_bytes_per_key, 0,
               "Size of per-key-value checksum in each write batch. Currently "
               "only value 0 and 8 are supported.");
+
+DEFINE_uint32(
+    memtable_protection_bytes_per_key, 0,
+    "Enable memtable per key-value checksum protection. "
+    "Each entry in memtable will be suffixed by a per key-value checksum. "
+    "This options determines the size of such checksums. "
+    "Supported values: 0, 1, 2, 4, 8.");
 
 DEFINE_bool(build_info, false,
             "Print the build info via GetRocksBuildInfoAsString");
@@ -3015,11 +3046,12 @@ class Benchmark {
 #ifdef MEMKIND
           FLAGS_use_cache_memkind_kmem_allocator
               ? std::make_shared<MemkindKmemAllocator>()
-              : nullptr
+              : nullptr,
 #else
-          nullptr
+          nullptr,
 #endif
-      );
+          kDefaultToAdaptiveMutex, kDefaultCacheMetadataChargePolicy,
+          FLAGS_cache_low_pri_pool_ratio);
       if (FLAGS_use_cache_memkind_kmem_allocator) {
 #ifndef MEMKIND
         fprintf(stderr, "Memkind library is not linked with the binary.");
@@ -3048,6 +3080,8 @@ class Benchmark {
             FLAGS_compressed_secondary_cache_numshardbits;
         secondary_cache_opts.high_pri_pool_ratio =
             FLAGS_compressed_secondary_cache_high_pri_pool_ratio;
+        secondary_cache_opts.low_pri_pool_ratio =
+            FLAGS_compressed_secondary_cache_low_pri_pool_ratio;
         secondary_cache_opts.compression_type =
             FLAGS_compressed_secondary_cache_compression_type_e;
         secondary_cache_opts.compress_format_version =
@@ -3334,6 +3368,7 @@ class Benchmark {
       read_options_.readahead_size = FLAGS_readahead_size;
       read_options_.adaptive_readahead = FLAGS_adaptive_readahead;
       read_options_.async_io = FLAGS_async_io;
+      read_options_.optimize_multiget_for_io = FLAGS_optimize_multiget_for_io;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
       void (Benchmark::*post_process_method)() = nullptr;
@@ -4289,6 +4324,12 @@ class Benchmark {
         block_based_options.cache_index_and_filter_blocks_with_high_priority =
             true;
       }
+      if (FLAGS_cache_high_pri_pool_ratio + FLAGS_cache_low_pri_pool_ratio >
+          1.0) {
+        fprintf(stderr,
+                "Sum of high_pri_pool_ratio and low_pri_pool_ratio "
+                "cannot exceed 1.0.\n");
+      }
       block_based_options.block_cache = cache_;
       block_based_options.cache_usage_options.options_overrides.insert(
           {CacheEntryRole::kCompressionDictionaryBuildingBuffer,
@@ -4327,6 +4368,10 @@ class Benchmark {
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
       block_based_options.whole_key_filtering = FLAGS_whole_key_filtering;
+      block_based_options.max_auto_readahead_size =
+          FLAGS_max_auto_readahead_size;
+      block_based_options.initial_auto_readahead_size =
+          FLAGS_initial_auto_readahead_size;
       BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
           block_based_options.prepopulate_block_cache;
       switch (FLAGS_prepopulate_block_cache) {
@@ -4586,6 +4631,8 @@ class Benchmark {
       exit(1);
     }
 #endif  // ROCKSDB_LITE
+    options.memtable_protection_bytes_per_key =
+        FLAGS_memtable_protection_bytes_per_key;
   }
 
   void InitializeOptionsGeneral(Options* opts) {
@@ -6853,6 +6900,19 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     std::unique_ptr<char[]> ts_guard;
+    std::unique_ptr<const char[]> begin_key_guard;
+    Slice begin_key = AllocateKey(&begin_key_guard);
+    std::unique_ptr<const char[]> end_key_guard;
+    Slice end_key = AllocateKey(&end_key_guard);
+    uint64_t num_range_deletions = 0;
+    std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
+    std::vector<Slice> expanded_keys;
+    if (FLAGS_expand_range_tombstones) {
+      expanded_key_guards.resize(range_tombstone_width_);
+      for (auto& expanded_key_guard : expanded_key_guards) {
+        expanded_keys.emplace_back(AllocateKey(&expanded_key_guard));
+      }
+    }
     if (user_timestamp_size_ > 0) {
       ts_guard.reset(new char[user_timestamp_size_]);
     }
@@ -6915,6 +6975,45 @@ class Benchmark {
             key.size() + val.size(), Env::IO_HIGH,
             nullptr /* stats */, RateLimiter::OpType::kWrite);
       }
+
+      if (writes_per_range_tombstone_ > 0 &&
+          written > writes_before_delete_range_ &&
+          (written - writes_before_delete_range_) /
+                  writes_per_range_tombstone_ <=
+              max_num_range_tombstones_ &&
+          (written - writes_before_delete_range_) %
+                  writes_per_range_tombstone_ ==
+              0) {
+        num_range_deletions++;
+        int64_t begin_num = thread->rand.Next() % FLAGS_num;
+        if (FLAGS_expand_range_tombstones) {
+          for (int64_t offset = 0; offset < range_tombstone_width_; ++offset) {
+            GenerateKeyFromInt(begin_num + offset, FLAGS_num,
+                               &expanded_keys[offset]);
+            if (!db->Delete(write_options_, expanded_keys[offset]).ok()) {
+              fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+              exit(1);
+            }
+          }
+        } else {
+          GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);
+          GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
+                             &end_key);
+          if (!db->DeleteRange(write_options_, db->DefaultColumnFamily(),
+                               begin_key, end_key)
+                   .ok()) {
+            fprintf(stderr, "deleterange error: %s\n", s.ToString().c_str());
+            exit(1);
+          }
+        }
+        thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
+        // TODO: DeleteRange is not included in calculcation of bytes/rate
+        // limiter request
+      }
+    }
+    if (num_range_deletions > 0) {
+      std::cout << "Number of range deletions: " << num_range_deletions
+                << std::endl;
     }
     thread->stats.AddBytes(bytes);
   }

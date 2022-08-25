@@ -922,7 +922,9 @@ DEFINE_bool(sync_fault_injection, false,
 
 DEFINE_bool(best_efforts_recovery, false,
             "If true, use best efforts recovery.");
-DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
+DEFINE_bool(skip_verifydb, false,
+            "If true, skip VerifyDb() calls and Get()/Iterator verifications"
+            "against expected state.");
 
 DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
@@ -940,6 +942,12 @@ DEFINE_uint64(batch_protection_bytes_per_key, 0,
               "If nonzero, enables integrity protection in `WriteBatch` at the "
               "specified number of bytes per key. Currently the only supported "
               "nonzero value is eight.");
+
+DEFINE_uint32(
+    memtable_protection_bytes_per_key, 0,
+    "If nonzero, enables integrity protection in memtable entries at the "
+    "specified number of bytes per key. Currently the supported "
+    "nonzero values are 1, 2, 4 and 8.");
 
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
@@ -1020,5 +1028,11 @@ DEFINE_int32(
 DEFINE_bool(allow_data_in_errors,
             ROCKSDB_NAMESPACE::Options().allow_data_in_errors,
             "If true, allow logging data, e.g. key, value in LOG files.");
+
+DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
+             "If non-zero, when TestIterate() is to be called, there is a "
+             "1/verify_iterator_with_expected_state_one_in "
+             "chance that the iterator is verified against the expected state "
+             "file, instead of comparing keys between two iterators.");
 
 #endif  // GFLAGS

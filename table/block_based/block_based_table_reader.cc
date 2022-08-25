@@ -521,7 +521,6 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
                                         const std::string& cur_db_session_id,
                                         uint64_t cur_file_number,
-                                        uint64_t file_size,
                                         OffsetableCacheKey* out_base_cache_key,
                                         bool* out_is_stable) {
   // Use a stable cache key if sufficient data is in table properties
@@ -565,8 +564,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
   // from offsets. See GetCacheKey.
-  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
-                                           /*max_offset*/ file_size >> 2);
+  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num);
 }
 
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
@@ -717,7 +715,7 @@ Status BlockBasedTable::Open(
 
   // With properties loaded, we can set up portable/stable cache keys
   SetupBaseCacheKey(rep->table_properties.get(), cur_db_session_id,
-                    cur_file_num, file_size, &rep->base_cache_key);
+                    cur_file_num, &rep->base_cache_key);
 
   rep->persistent_cache_options =
       PersistentCacheOptions(rep->table_options.persistent_cache,
@@ -1253,12 +1251,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Statistics* statistics = rep_->ioptions.statistics.get();
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
   const FilterPolicy* filter_policy = rep_->filter_policy;
-  CacheCreateCallback<TBlocklike> callback(read_amp_bytes_per_bit, statistics,
-                                           using_zstd, filter_policy);
-  // avoid dynamic memory allocation by using the reference (std::ref) of the
-  // callback. Otherwise, binding a functor to std::function will allocate extra
-  // memory from heap.
-  Cache::CreateCallback create_cb(std::ref(callback));
+  Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1288,11 +1282,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents contents;
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
-    CacheCreateCallback<BlockContents> special_callback(
+    Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
         read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
-    // avoid dynamic memory allocation by using the reference (std::ref) of the
-    // callback. Make sure the callback is only used within this code block.
-    Cache::CreateCallback create_cb_special(std::ref(special_callback));
     block_cache_compressed_handle = block_cache_compressed->Lookup(
         cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),

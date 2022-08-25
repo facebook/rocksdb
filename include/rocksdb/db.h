@@ -567,6 +567,14 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value, timestamp);
   }
 
+  // UNDER CONSTRUCTION -- DO NOT USE
+  virtual Status GetEntity(const ReadOptions& /* options */,
+                           ColumnFamilyHandle* /* column_family */,
+                           const Slice& /* key */,
+                           PinnableWideColumns* /* columns */) {
+    return Status::NotSupported("GetEntity not supported");
+  }
+
   // Populates the `merge_operands` array with all the merge operands in the DB
   // for `key`. The `merge_operands` array will be populated in the order of
   // insertion. The number of entries populated in `merge_operands` will be

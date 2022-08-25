@@ -70,7 +70,7 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   assert(blob_cache_);
 
   Status s;
-  const Cache::Priority priority = Cache::Priority::LOW;
+  const Cache::Priority priority = Cache::Priority::BOTTOM;
 
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take
@@ -108,7 +108,7 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
       return Status::OK();
     };
     cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
-                                       Cache::Priority::LOW,
+                                       Cache::Priority::BOTTOM,
                                        true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);
@@ -286,7 +286,7 @@ void BlobSource::MultiGetBlob(const ReadOptions& read_options,
 
 void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
                                          uint64_t file_number,
-                                         uint64_t file_size,
+                                         uint64_t /*file_size*/,
                                          autovector<BlobReadRequest>& blob_reqs,
                                          uint64_t* bytes_read) {
   const size_t num_blobs = blob_reqs.size();
@@ -303,8 +303,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   Mask cache_hit_mask = 0;
 
   uint64_t total_bytes = 0;
-  const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
-                                          file_size);
+  const OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
 
   if (blob_cache_) {
     size_t cached_blob_count = 0;
