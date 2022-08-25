@@ -55,7 +55,7 @@ Status BlobContents::CreateCallback(const void* buf, size_t size,
   BlobContents* const contents = obj.release();
 
   *out_obj = contents;
-  *charge = contents->size();
+  *charge = contents->ApproximateMemoryUsage();
 
   return Status::OK();
 }
