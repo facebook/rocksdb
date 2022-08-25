@@ -94,6 +94,11 @@ Status PeriodicTaskScheduler::Unregister(PeriodicTaskType task_type) {
   return Status::OK();
 }
 
+Timer* PeriodicTaskScheduler::Default() {
+  static Timer timer(SystemClock::Default().get());
+  return &timer;
+}
+
 #ifndef NDEBUG
 void PeriodicTaskScheduler::TEST_OverrideTimer(SystemClock* clock) {
   static Timer test_timer(clock);

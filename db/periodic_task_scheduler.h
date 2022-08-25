@@ -59,7 +59,7 @@ class PeriodicTaskScheduler {
   void TEST_OverrideTimer(SystemClock* clock);
 
   // Call Timer TEST_WaitForRun() which wait until Timer starting waiting.
-  void TEST_WaitForRun(std::function<void()> callback) const {
+  void TEST_WaitForRun(const std::function<void()> callback) const {
     if (timer_ != nullptr) {
       timer_->TEST_WaitForRun(callback);
     }
@@ -82,10 +82,7 @@ class PeriodicTaskScheduler {
 
  private:
   // default global Timer instance
-  Timer* Default() {
-    static Timer timer(SystemClock::Default().get());
-    return &timer;
-  }
+  static Timer* Default();
 
   // Internal structure to store task information
   struct TaskInfo {
