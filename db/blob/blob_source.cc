@@ -83,8 +83,8 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take
   // unique ownership of them.
-  CacheAllocationPtr allocation =
-      AllocateBlock(blob->size(), blob_cache_->memory_allocator());
+  // TODO: support custom allocators
+  CacheAllocationPtr allocation(new char[blob->size()]);
   memcpy(allocation.get(), blob->data(), blob->size());
   std::unique_ptr<BlobContents> buf =
       BlobContents::Create(std::move(allocation), blob->size());
