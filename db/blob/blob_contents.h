@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "memory/memory_allocator.h"
-#include "port/malloc.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "rocksdb/slice.h"
@@ -54,31 +53,5 @@ class BlobContents {
   CacheAllocationPtr allocation_;
   Slice data_;
 };
-
-inline size_t BlobContents::ApproximateMemoryUsage() const {
-  size_t usage = 0;
-
-  if (allocation_) {
-    MemoryAllocator* const allocator = allocation_.get_deleter().allocator;
-
-    if (allocator) {
-      usage += allocator->UsableSize(allocation_.get(), data_.size());
-    } else {
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-      usage += malloc_usable_size(allocation_.get());
-#else
-      usage += data_.size();
-#endif
-    }
-  }
-
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-  usage += malloc_usable_size(const_cast<BlobContents*>(this));
-#else
-  usage += sizeof(*this);
-#endif
-
-  return usage;
-}
 
 }  // namespace ROCKSDB_NAMESPACE
