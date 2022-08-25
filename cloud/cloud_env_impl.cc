@@ -921,8 +921,25 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
   return RemapFilenameWithCloudManifest(logical_path, cloud_manifest_.get());
 }
 
-Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
+Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname,
+                                          const std::string& cookie) {
   Status s;
+  auto shouldDelete = [&cookie, this](const std::string fname) -> bool {
+    if (IsCloudManifestFile(fname)) { 
+      auto fname_cookie = GetCookie(fname);
+      if (fname_cookie != cookie) {
+        return true;
+      }
+    } else {
+      auto noepoch = RemoveEpoch(fname);
+      if ((IsSstFile(noepoch) || IsManifestFile(noepoch)) &&
+          (RemapFilename(noepoch) != fname)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   if (HasDestBucket()) {
     std::vector<std::string> pathnames;
     s = GetStorageProvider()->ListCloudObjects(GetDestBucketName(),
@@ -932,33 +949,28 @@ Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
     }
 
     for (auto& fname : pathnames) {
-      auto noepoch = RemoveEpoch(fname);
-      if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
-        if (RemapFilename(noepoch) != fname) {
-          // Ignore returned status on purpose.
-          Log(InfoLogLevel::INFO_LEVEL, info_log_,
-              "DeleteInvisibleFiles deleting %s from destination bucket",
-              fname.c_str());
-          DeleteCloudFileFromDest(fname);
-        }
+      if (shouldDelete(fname)) {
+        // Ignore returned status on purpose.
+        Log(InfoLogLevel::INFO_LEVEL, info_log_,
+            "DeleteInvisibleFiles deleting %s from destination bucket",
+            fname.c_str());
+        DeleteCloudFileFromDest(fname);
       }
     }
   }
   std::vector<std::string> children;
   s = GetBaseEnv()->GetChildren(dbname, &children);
+  TEST_SYNC_POINT_CALLBACK("CloudEnvImpl::DeleteInvisibleFiles:AfterListLocalFiles", &s);
   if (!s.ok()) {
     return s;
   }
   for (auto& fname : children) {
-    auto noepoch = RemoveEpoch(fname);
-    if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
-      if (RemapFilename(RemoveEpoch(fname)) != fname) {
+    if (shouldDelete(fname)) {
         // Ignore returned status on purpose.
         Log(InfoLogLevel::INFO_LEVEL, info_log_,
             "DeleteInvisibleFiles deleting file %s from local dir",
             fname.c_str());
         GetBaseEnv()->DeleteFile(dbname + "/" + fname);
-      }
     }
   }
   return s;
@@ -1509,6 +1521,21 @@ Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
     // from the cloud
     st = LoadLocalCloudManifest(local_dbname);
   }
+
+  // Do the cleanup, but don't fail if the cleanup fails.
+  // We only cleanup files which don't belong to cookie_on_open. Also, we do it
+  // before rolling the epoch, so that newly generated CM/M files won't be
+  // cleaned up.
+  if (st.ok() && !read_only) {
+    st = DeleteInvisibleFiles(local_dbname, cloud_env_options.cookie_on_open);
+    if (!st.ok()) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "Failed to delete invisible files: %s", st.ToString().c_str());
+        // Ignore the fail
+      st = Status::OK();
+    }
+  }
+
   if (st.ok() && cloud_env_options.roll_cloud_manifest_on_open) {
     // Rolls the new epoch in CLOUDMANIFEST (only for existing databases)
     st = RollNewEpoch(local_dbname);
@@ -1545,16 +1572,6 @@ Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
     }
   }
 
-  // Do the cleanup, but don't fail if the cleanup fails.
-  if (!read_only) {
-    st = DeleteInvisibleFiles(local_dbname);
-    if (!st.ok()) {
-      Log(InfoLogLevel::INFO_LEVEL, info_log_,
-          "Failed to delete invisible files: %s", st.ToString().c_str());
-        // Ignore the fail
-      st = Status::OK();
-    }
-  }
   return st;
 }
 

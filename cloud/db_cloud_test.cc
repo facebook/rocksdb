@@ -1184,7 +1184,9 @@ TEST_F(CloudTest, TwoDBsOneBucket) {
 // -- it runs two databases on exact same S3 bucket. The work on CLOUDMANIFEST
 // enables us to run in that configuration for extended amount of time (1 hour
 // by default) without any issues -- the last CLOUDMANIFEST writer wins.
-TEST_F(CloudTest, TwoConcurrentWriters) {
+// This test only applies when cookie is empty. So whenever db is reopened, it
+// always fetches the latest CM/M files from s3
+TEST_F(CloudTest, TwoConcurrentWritersCookieEmpty) {
   cloud_env_options_.resync_on_open = true;
   auto firstDB = dbname_;
   auto secondDB = dbname_ + "-1";
@@ -2111,6 +2113,7 @@ TEST_F(CloudTest, CMSwitchCrashInMiddleTest) {
 
   CloseDB();
   SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(CloudTest, RollNewEpochTest) {
@@ -2214,6 +2217,308 @@ TEST_F(CloudTest, NewCookieOnOpenTest) {
   OpenDB();
   ASSERT_OK(db_->Get({}, "k2", &value));
   EXPECT_EQ(value, "v2");
+  CloseDB();
+}
+
+// When opening db with cookie_on_open, files(including CM/M files) belonging to
+// cookie_on_open won't be deleted, all the other files which don't belong to
+// cookie_on_open will be deleted.
+TEST_F(CloudTest, FileDeletionTest) {
+  std::string cookie1 = "", cookie2 = "-1-1";
+  cloud_env_options_.keep_local_sst_files = true;
+
+  // opening with cookie1
+  OpenDB();
+  ASSERT_OK(db_->Put({}, "k1", "v1"));
+  ASSERT_OK(db_->Flush({}));
+  std::vector<std::string> cookie1_sst_files;
+  std::string cookie1_manifest_file;
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &cookie1_sst_files,
+                                    &cookie1_manifest_file));
+  ASSERT_EQ(cookie1_sst_files.size(), 1);
+  CloseDB();
+
+  // MANIFEST file path of cookie1
+  auto cookie1_manifest_filepath = dbname_ + pathsep + cookie1_manifest_file;
+  // CLOUDMANIFEST file path of cookie1
+  auto cookie1_cm_filepath =
+      MakeCloudManifestFile(dbname_, cloud_env_options_.cookie_on_open);
+  // sst file path of cookie1
+  auto cookie1_sst_filepath = dbname_ + pathsep + cookie1_sst_files[0];
+
+  // opening with cookie1 and switch to cookie2
+  cloud_env_options_.cookie_on_open = cookie1;
+  cloud_env_options_.new_cookie_on_open = cookie2;
+  OpenDB();
+  ASSERT_OK(db_->Put({}, "k2", "v2"));
+  ASSERT_OK(db_->Flush({}));
+  // CM/M/sst files of cookie1 won't be deleted
+  for (auto path :
+       {cookie1_cm_filepath, cookie1_manifest_filepath, cookie1_sst_filepath}) {
+    EXPECT_OK(aenv_->GetBaseEnv()->FileExists(path));
+    EXPECT_OK(aenv_->GetStorageProvider()->ExistsCloudObject(
+        aenv_->GetSrcBucketName(), path));
+  }
+
+  std::vector<std::string> cookie2_sst_files;
+  std::string cookie2_manifest_file;
+  ASSERT_OK(aenv_->FindAllLiveFiles(dbname_, &cookie2_sst_files,
+                                    &cookie2_manifest_file));
+  ASSERT_EQ(cookie2_sst_files.size(), 2);
+  CloseDB();
+
+  // MANIFEST file path of cookie2
+  auto cookie2_manifest_filepath = dbname_ + pathsep + cookie2_manifest_file;
+  // CLOUDMANIFEST file path of cookie2
+  auto cookie2_cm_filepath =
+      MakeCloudManifestFile(dbname_, cloud_env_options_.new_cookie_on_open);
+  // find sst file path of cookie2
+  auto cookie2_sst_filepath = dbname_ + pathsep + cookie2_sst_files[0];
+  if (cookie2_sst_filepath == cookie1_sst_filepath) {
+    cookie2_sst_filepath = dbname_ + pathsep + cookie2_sst_files[1];
+  }
+
+  // Now we reopen db with cookie1 to force deleting all files generated in
+  // cookie2
+
+  // number of file deletion jobs is executed
+  int num_job_executed = 0;
+
+  // Syncpoint callback so that we can check when the files are actually
+  // deleted(which is async)
+  SyncPoint::GetInstance()->SetCallBack(
+      "LocalCloudScheduler::ScheduleJob:AfterEraseJob", [&](void* /*arg*/) {
+        num_job_executed += 1;
+        if (num_job_executed == 3) {
+          // CM/M/SST files of cookie2 are deleted in s3
+          for (auto path : {cookie2_manifest_filepath, cookie2_cm_filepath,
+                            cookie2_sst_filepath}) {
+            EXPECT_NOK(aenv_->GetStorageProvider()->ExistsCloudObject(
+                aenv_->GetSrcBucketName(), path));
+          }
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // reopen db with cookie1 will force all files generated in cookie2 to be
+  // deleted
+  cloud_env_options_.cookie_on_open = cookie1;
+  cloud_env_options_.new_cookie_on_open = cookie1;
+  OpenDB();
+  // local obsolete CM/M/SST files will be deleted immediately
+  // files in cloud will be deleted later (checked in the callback)
+  for (auto path :
+       {cookie2_cm_filepath, cookie2_manifest_filepath, cookie2_sst_filepath}) {
+    EXPECT_NOK(aenv_->GetBaseEnv()->FileExists(path));
+  }
+  CloseDB();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// verify that two writers with different cookies can write concurrently
+TEST_F(CloudTest, TwoConcurrentWritersCookieNotEmpty) {
+  auto firstDB = dbname_;
+  auto secondDB = dbname_ + "-1";
+
+  DBCloud *db1, *db2;
+  CloudEnv *aenv1, *aenv2;
+
+  auto openDB1 = [&] {
+    dbname_ = firstDB;
+    cloud_env_options_.cookie_on_open = "1";
+    cloud_env_options_.new_cookie_on_open = "2";
+    OpenDB();
+    db1 = db_;
+    db_ = nullptr;
+    aenv1 = aenv_.release();
+  };
+  auto openDB1NoCookieSwitch = [&](const std::string& cookie) {
+    dbname_ = firstDB;
+    // when reopening DB1, we should set cookie_on_open = 2 to make sure
+    // we are opening with the right CM/M files
+    cloud_env_options_.cookie_on_open = cookie;
+    cloud_env_options_.new_cookie_on_open = cookie;
+    OpenDB();
+    db1 = db_;
+    db_ = nullptr;
+    aenv1 = aenv_.release();
+  };
+  auto openDB2 = [&] {
+    dbname_ = secondDB;
+    cloud_env_options_.cookie_on_open = "2";
+    cloud_env_options_.new_cookie_on_open = "3";
+    OpenDB();
+    db2 = db_;
+    db_ = nullptr;
+    aenv2 = aenv_.release();
+  };
+  auto openDB2NoCookieSwitch = [&](const std::string& cookie) {
+    dbname_ = secondDB;
+    // when reopening DB1, we should set cookie_on_open = 3 to make sure
+    // we are opening with the right CM/M files
+    cloud_env_options_.cookie_on_open = cookie;
+    cloud_env_options_.new_cookie_on_open = cookie;
+    OpenDB();
+    db2 = db_;
+    db_ = nullptr;
+    aenv2 = aenv_.release();
+  };
+  auto closeDB1 = [&] {
+    db_ = db1;
+    aenv_.reset(aenv1);
+    CloseDB();
+  };
+  auto closeDB2 = [&] {
+    db_ = db2;
+    aenv_.reset(aenv2);
+    CloseDB();
+  };
+
+  openDB1();
+  db1->Put({}, "k1", "v1");
+  db1->Flush({});
+  closeDB1();
+
+  // cleanup memtable of db1 to make sure k1/v1 indeed exists in sst files
+  DestroyDir(firstDB);
+  openDB1NoCookieSwitch("2" /* cookie */);
+
+  // opening DB2 and running concurrently
+  openDB2();
+
+  db1->Put({}, "k2", "v2");
+  db1->Flush({});
+
+  db2->Put({}, "k3", "v3");
+  db2->Flush({});
+
+  std::string v;
+  ASSERT_OK(db1->Get({}, "k1", &v));
+  EXPECT_EQ(v, "v1");
+  ASSERT_OK(db2->Get({}, "k1", &v));
+  EXPECT_EQ(v, "v1");
+
+  ASSERT_OK(db1->Get({}, "k2", &v));
+  EXPECT_EQ(v, "v2");
+  // k2 is written in db1 after db2 is opened, so it's not visible by db2
+  EXPECT_NOK(db2->Get({}, "k2", &v));
+
+  // k3 is written in db2 after db1 is opened, so it's not visible by db1
+  EXPECT_NOK(db1->Get({}, "k3", &v));
+  ASSERT_OK(db2->Get({}, "k3", &v));
+  EXPECT_EQ(v, "v3");
+
+  closeDB1();
+  closeDB2();
+
+  // cleanup local state to make sure writes indeed exist in sst files
+  DestroyDir(firstDB);
+  DestroyDir(secondDB);
+
+  // We can't reopen db with cookie=2 anymore, since that will remove all the
+  // files for cookie=3. This is guaranteed since whenever we reopen db, we
+  // always get the latest cookie from metadata store.
+  openDB2NoCookieSwitch("3" /* cookie */);
+
+  ASSERT_OK(db2->Get({}, "k1", &v));
+  EXPECT_EQ(v, "v1");
+  EXPECT_NOK(db2->Get({}, "k2", &v));
+  ASSERT_OK(db2->Get({}, "k3", &v));
+  EXPECT_EQ(v, "v3");
+  closeDB2();
+}
+
+// if file deletion fails, db should still be reopend
+TEST_F(CloudTest, FileDeletionFailureIgnoredTest) {
+  std::string manifest_file_path;
+  OpenDB();
+  auto epoch = GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch();
+  manifest_file_path = ManifestFileWithEpoch(dbname_, epoch);
+  ASSERT_OK(db_->Put({}, "k1", "v1"));
+  ASSERT_OK(db_->Flush({}));
+  CloseDB();
+
+  // bump the manifest epoch so that next time opening it, manifest file will be deleted
+  OpenDB();
+  CloseDB();
+
+  // return error during file deletion
+  SyncPoint::GetInstance()->SetCallBack(
+      "CloudEnvImpl::DeleteInvisibleFiles:AfterListLocalFiles", [](void* arg) {
+        auto st = reinterpret_cast<Status*>(arg);
+        *st =
+            Status::Aborted("Manual abortion to simulate file listing failure");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenDB();
+  std::string v;
+  ASSERT_OK(db_->Get({}, "k1", &v));
+  EXPECT_EQ(v, "v1");
+  // Due to the Aborted error we generated, the manifest file which should have
+  // been deleted still exists.
+  EXPECT_OK(aenv_->GetBaseEnv()->FileExists(manifest_file_path));
+  CloseDB();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // reopen the db should delete the obsolete manifest file after we cleanup syncpoint
+  OpenDB();
+  EXPECT_NOK(aenv_->GetBaseEnv()->FileExists(manifest_file_path));
+  CloseDB();
+}
+
+// verify that as long as CloudEnv is destructed, the file delection jobs
+// waiting in the queue will be canceled
+TEST_F(CloudTest, FileDeletionJobsCanceledWhenCloudEnvDestructed) {
+  std::string manifest_file_path;
+  OpenDB();
+  auto epoch = GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch();
+  manifest_file_path = ManifestFileWithEpoch(dbname_, epoch);
+  CloseDB();
+
+  // bump epoch of manifest file so next open will delete previous manifest file
+  OpenDB();
+  CloseDB();
+
+  // Setup syncpoint dependency to prevent cloud scheduler from executing file
+  // deletion job in the queue until CloudEnv is destructed
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"CloudTest::FileDeletionJobsCanceledWhenCloudEnvDestructed:"
+        "AfterCloudEnvDestruction",
+        "CloudSchedulerImpl::DoWork:BeforeGetJob"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+  OpenDB();
+  CloseDB();
+
+  // delete CloudEnv will cancel all file deletion jobs in the queue
+  aenv_.reset();
+
+  // jobs won't be executed until after this point. But the file deletion job
+  // in the queue should have already been canceled
+  TEST_SYNC_POINT(
+      "CloudTest::FileDeletionJobsCanceledWhenCloudEnvDestructed:"
+      "AfterCloudEnvDestruction");
+
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // recreate cloud env to check s3 file existence
+  CreateCloudEnv();
+
+  // wait for a while so that the rest uncanceled jobs are indeed executed by
+  // cloud scheduler.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  // the old manifest file is still there!
+  EXPECT_OK(aenv_->GetStorageProvider()->ExistsCloudObject(
+      aenv_->GetSrcBucketName(), manifest_file_path));
+
+  // reopen db to delete the old manifest file
+  OpenDB();
+  EXPECT_NOK(aenv_->GetStorageProvider()->ExistsCloudObject(
+      aenv_->GetSrcBucketName(), manifest_file_path));
   CloseDB();
 }
 

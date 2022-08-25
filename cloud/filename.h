@@ -103,6 +103,18 @@ inline std::string RemoveEpoch(const std::string& path) {
   return path;
 }
 
+// Get the cookie suffix from cloud manifest file path
+inline std::string GetCookie(const std::string& cloud_manifest_file_path) {
+  auto cloud_manifest_fname = basename(cloud_manifest_file_path);
+  auto firstDash = cloud_manifest_fname.find('-');
+  if (firstDash == std::string::npos) {
+    // no cookie suffix in cloud manifest file path
+    return "";
+  }
+
+  return cloud_manifest_fname.substr(firstDash+1);
+}
+
 // pathaname seperator
 const std::string pathsep = "/";
 
@@ -169,6 +181,14 @@ inline bool IsIdentityFile(const std::string& pathname) {
 // A log file has ".log" suffix
 inline bool IsLogFile(const std::string& pathname) {
   return IsWalFile(pathname);
+}
+
+inline bool IsCloudManifestFile(const std::string& pathname) {
+  std::string fname = basename(pathname);
+  if (fname.find("CLOUDMANIFEST") == 0) {
+    return true;
+  }
+  return false;
 }
 
 enum class RocksDBFileType {

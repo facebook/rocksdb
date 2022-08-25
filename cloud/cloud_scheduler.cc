@@ -296,6 +296,9 @@ bool CloudSchedulerImpl::CancelJob(long id) {
 
 void CloudSchedulerImpl::DoWork() {
   while (true) {
+    // This sync point has to be put before locking mutex_, otherwise
+    // CancelJob won't be able to acquire mutex when called
+    TEST_SYNC_POINT("CloudSchedulerImpl::DoWork:BeforeGetJob");
     std::unique_lock<std::mutex> lk(mutex_);
     if (shutting_down_) {
       break;
