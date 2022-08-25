@@ -46,7 +46,8 @@ class Config:
                           'USE_O_DIRECT',
                           'STATS_INTERVAL_SECONDS',
                           'SUBCOMPACTIONS',
-                          'COMPACTION_STYLE']
+                          'COMPACTION_STYLE',
+                          'CI_TESTS_ONLY']
 
 
 def read_version(config):

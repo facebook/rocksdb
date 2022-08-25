@@ -361,7 +361,7 @@ class NonBatchedOpsStressTest : public StressTest {
       // found case
       thread->stats.AddGets(1, 1);
       // we only have the latest expected state
-      if (!read_opts_copy.timestamp &&
+      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp &&
           thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
               SharedState::DELETION_SENTINEL) {
         thread->shared->SetVerificationFailure();
@@ -373,7 +373,7 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
-      if (!read_opts_copy.timestamp) {
+      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp) {
         auto expected =
             thread->shared->Get(rand_column_families[0], rand_keys[0]);
         if (expected != SharedState::DELETION_SENTINEL &&
@@ -999,6 +999,226 @@ class NonBatchedOpsStressTest : public StressTest {
     }
   }
 #endif  // ROCKSDB_LITE
+
+  // Given a key K, this creates an iterator which scans the range
+  // [K, K + FLAGS_num_iterations) forward and backward.
+  // Then does a random sequence of Next/Prev operations.
+  Status TestIterateAgainstExpected(
+      ThreadState* thread, const ReadOptions& read_opts,
+      const std::vector<int>& rand_column_families,
+      const std::vector<int64_t>& rand_keys,
+      std::unique_ptr<MutexLock>& lock) override {
+    // Lock the whole range over which we might iterate to ensure it doesn't
+    // change under us.
+    std::vector<std::unique_ptr<MutexLock>> range_locks;
+    int64_t lb = rand_keys[0];
+    int rand_column_family = rand_column_families[0];
+    auto shared = thread->shared;
+    int64_t max_key = shared->GetMaxKey();
+    if (static_cast<uint64_t>(lb) > max_key - FLAGS_num_iterations) {
+      lock.reset();
+      lb = thread->rand.Next() % (max_key - FLAGS_num_iterations + 1);
+      range_locks.emplace_back(
+          new MutexLock(shared->GetMutexForKey(rand_column_family, lb)));
+    } else {
+      range_locks.emplace_back(std::move(lock));
+    }
+    for (int j = 1; j < static_cast<int>(FLAGS_num_iterations); ++j) {
+      if (((lb + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
+        range_locks.emplace_back(
+            new MutexLock(shared->GetMutexForKey(rand_column_family, lb + j)));
+      }
+    }
+    int64_t ub = lb + FLAGS_num_iterations;
+    // Locks acquired for [lb, ub)
+    ReadOptions readoptscopy(read_opts);
+    readoptscopy.total_order_seek = true;
+    auto cfh = column_families_[rand_column_family];
+    std::string op_logs;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(readoptscopy, cfh));
+
+    auto check_no_key_in_range = [&](int64_t start, int64_t end) {
+      for (auto j = std::max(start, lb); j < std::min(end, ub); ++j) {
+        auto expected_value =
+            shared->Get(rand_column_family, static_cast<int64_t>(j));
+        if (expected_value != shared->DELETION_SENTINEL &&
+            expected_value != shared->UNKNOWN_SENTINEL) {
+          // Fail fast to preserve the DB state.
+          thread->shared->SetVerificationFailure();
+          if (iter->Valid()) {
+            fprintf(stderr,
+                    "Expected state has key %s, iterator is at key %s\n",
+                    Slice(Key(j)).ToString(true).c_str(),
+                    iter->key().ToString(true).c_str());
+          } else {
+            fprintf(stderr, "Expected state has key %s, iterator is invalid\n",
+                    Slice(Key(j)).ToString(true).c_str());
+          }
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          thread->stats.AddErrors(1);
+          return false;
+        }
+      }
+      return true;
+    };
+
+    // Forward and backward scan to ensure we cover the entire range [lb, ub).
+    // The random sequence Next and Prev test below tends to be very short
+    // ranged.
+    int64_t last_key = lb - 1;
+    std::string key_str = Key(lb);
+    iter->Seek(Slice(key_str));
+    op_logs += "S " + Slice(key_str).ToString(true) + " ";
+    uint64_t curr;
+    while (true) {
+      if (!iter->Valid()) {
+        if (!iter->status().ok()) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr, "TestIterate against expected state error: %s\n",
+                  iter->status().ToString().c_str());
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          thread->stats.AddErrors(1);
+          return iter->status();
+        }
+        if (!check_no_key_in_range(last_key + 1, static_cast<int64_t>(ub))) {
+          // error reported in check_no_key_in_range()
+          return Status::OK();
+        }
+        break;
+      }
+      // iter is valid, the range (last_key, current key) was skipped
+      GetIntVal(iter->key().ToString(), &curr);
+      if (!check_no_key_in_range(last_key + 1, static_cast<int64_t>(curr))) {
+        return Status::OK();
+      }
+      last_key = static_cast<int64_t>(curr);
+      if (last_key >= ub - 1) {
+        break;
+      }
+      iter->Next();
+      op_logs += "N";
+    }
+
+    // backward scan
+    key_str = Key(ub - 1);
+    iter->SeekForPrev(Slice(key_str));
+    op_logs += " SFP " + Slice(key_str).ToString(true) + " ";
+    last_key = ub;
+    while (true) {
+      if (!iter->Valid()) {
+        if (!iter->status().ok()) {
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr, "TestIterate against expected state error: %s\n",
+                  iter->status().ToString().c_str());
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          thread->stats.AddErrors(1);
+          return iter->status();
+        }
+        if (!check_no_key_in_range(lb, last_key)) {
+          return Status::OK();
+        }
+        break;
+      }
+      // the range (current key, last key) was skipped
+      GetIntVal(iter->key().ToString(), &curr);
+      if (!check_no_key_in_range(static_cast<int64_t>(curr + 1), last_key)) {
+        return Status::OK();
+      }
+      last_key = static_cast<int64_t>(curr);
+      if (last_key <= lb) {
+        break;
+      }
+      iter->Prev();
+      op_logs += "P";
+    }
+
+    // start from middle of [lb, ub) otherwise it is easy to iterate out of
+    // locked range
+    int64_t mid = lb + static_cast<int64_t>(FLAGS_num_iterations / 2);
+    key_str = Key(mid);
+    Slice key = key_str;
+    if (thread->rand.OneIn(2)) {
+      iter->Seek(key);
+      op_logs += " S " + key.ToString(true) + " ";
+      if (!iter->Valid() && iter->status().ok()) {
+        if (!check_no_key_in_range(mid, ub)) {
+          return Status::OK();
+        }
+      }
+    } else {
+      iter->SeekForPrev(key);
+      op_logs += " SFP " + key.ToString(true) + " ";
+      if (!iter->Valid() && iter->status().ok()) {
+        // iterator says nothing <= mid
+        if (!check_no_key_in_range(lb, mid + 1)) {
+          return Status::OK();
+        }
+      }
+    }
+
+    for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
+      GetIntVal(iter->key().ToString(), &curr);
+      if (curr < static_cast<uint64_t>(lb)) {
+        iter->Next();
+        op_logs += "N";
+      } else if (curr >= static_cast<uint64_t>(ub)) {
+        iter->Prev();
+        op_logs += "P";
+      } else {
+        uint32_t expected_value =
+            shared->Get(rand_column_family, static_cast<int64_t>(curr));
+        if (expected_value == shared->DELETION_SENTINEL) {
+          // Fail fast to preserve the DB state.
+          thread->shared->SetVerificationFailure();
+          fprintf(stderr, "Iterator has key %s, but expected state does not.\n",
+                  iter->key().ToString(true).c_str());
+          fprintf(stderr, "Column family: %s, op_logs: %s\n",
+                  cfh->GetName().c_str(), op_logs.c_str());
+          thread->stats.AddErrors(1);
+          break;
+        }
+        if (thread->rand.OneIn(2)) {
+          iter->Next();
+          op_logs += "N";
+          if (!iter->Valid()) {
+            break;
+          }
+          uint64_t next;
+          GetIntVal(iter->key().ToString(), &next);
+          if (!check_no_key_in_range(static_cast<int64_t>(curr + 1),
+                                     static_cast<int64_t>(next))) {
+            return Status::OK();
+          }
+        } else {
+          iter->Prev();
+          op_logs += "P";
+          if (!iter->Valid()) {
+            break;
+          }
+          uint64_t prev;
+          GetIntVal(iter->key().ToString(), &prev);
+          if (!check_no_key_in_range(static_cast<int64_t>(prev + 1),
+                                     static_cast<int64_t>(curr))) {
+            return Status::OK();
+          }
+        }
+      }
+    }
+    if (!iter->status().ok()) {
+      thread->shared->SetVerificationFailure();
+      fprintf(stderr, "TestIterate against expected state error: %s\n",
+              iter->status().ToString().c_str());
+      fprintf(stderr, "Column family: %s, op_logs: %s\n",
+              cfh->GetName().c_str(), op_logs.c_str());
+      thread->stats.AddErrors(1);
+      return iter->status();
+    }
+    thread->stats.AddIterations(1);
+    return Status::OK();
+  }
 
   bool VerifyOrSyncValue(int cf, int64_t key, const ReadOptions& /*opts*/,
                          SharedState* shared, const std::string& value_from_db,

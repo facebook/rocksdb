@@ -499,6 +499,51 @@ TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
   Close();
 }
 
+TEST_P(DBWriteTest, InactiveWalFullySyncedBeforeUntracked) {
+  // Repro bug where a WAL is appended and switched after
+  // `FlushWAL(true /* sync */)`'s sync finishes and before it untracks fully
+  // synced inactive logs. Previously such a WAL would be wrongly untracked
+  // so the final append would never be synced.
+  Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_env.get();
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "val1"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWAL:BeforeMarkLogsSynced:1", [this](void* /* arg */) {
+        ASSERT_OK(Put("key2", "val2"));
+        ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->FlushWAL(true /* sync */));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("key3", "val3"));
+
+  ASSERT_OK(db_->FlushWAL(true /* sync */));
+
+  Close();
+
+  // Simulate full loss of unsynced data. This should drop nothing since we did
+  // `FlushWAL(true /* sync */)` before `Close()`.
+  fault_env->DropUnsyncedFileData();
+
+  Reopen(options);
+
+  ASSERT_EQ("val1", Get("key1"));
+  ASSERT_EQ("val2", Get("key2"));
+  ASSERT_EQ("val3", Get("key3"));
+
+  // Need to close before `fault_env` goes out of scope.
+  Close();
+}
+
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
       new FaultInjectionTestEnv(env_));

@@ -1,7 +1,13 @@
 # Rocksdb Change Log
 ## Unreleased
-### Behavior Change
-* Updated `TestGet()` in `no_batched_op_stress` (default stress test) to check the result of Get() operations against expected state.
+### Bug Fixes
+* Fixed bug where `FlushWAL(true /* sync */)` (used by `GetLiveFilesStorageInfo()`, which is used by checkpoint and backup) could cause parallel writes at the tail of a WAL file to never be synced.
+
+### Public API changes
+* Add `rocksdb_column_family_handle_get_id`, `rocksdb_column_family_handle_get_name` to get name, id of column family in C API
+
+### Java API Changes
+* Add CompactionPriority.RoundRobin.
 
 ## 7.6.0 (08/19/2022)
 ### New Features

@@ -20,6 +20,7 @@ class BlobContents {
  public:
   static std::unique_ptr<BlobContents> Create(CacheAllocationPtr&& allocation,
                                               size_t size);
+
   BlobContents(const BlobContents&) = delete;
   BlobContents& operator=(const BlobContents&) = delete;
 
