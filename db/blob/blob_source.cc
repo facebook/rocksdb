@@ -83,8 +83,8 @@ Status BlobSource::PutBlobIntoCache(const Slice& cache_key,
   // Objects to be put into the cache have to be heap-allocated and
   // self-contained, i.e. own their contents. The Cache has to be able to take
   // unique ownership of them.
-  // TODO: support custom allocators
-  CacheAllocationPtr allocation(new char[blob->size()]);
+  CacheAllocationPtr allocation =
+      AllocateBlock(blob->size(), blob_cache_->memory_allocator());
   memcpy(allocation.get(), blob->data(), blob->size());
   std::unique_ptr<BlobContents> buf =
       BlobContents::Create(std::move(allocation), blob->size());
@@ -112,9 +112,17 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    cache_handle = blob_cache_->Lookup(
-        key, BlobContents::GetCacheItemHelper(), &BlobContents::CreateCallback,
-        Cache::Priority::BOTTOM, true /* wait_for_cache */, statistics_);
+    Cache::CreateCallback create_cb =
+        [allocator = blob_cache_->memory_allocator()](
+            const void* buf, size_t size, void** out_obj,
+            size_t* charge) -> Status {
+      return BlobContents::CreateCallback(AllocateBlock(size, allocator), buf,
+                                          size, out_obj, charge);
+    };
+
+    cache_handle = blob_cache_->Lookup(key, BlobContents::GetCacheItemHelper(),
+                                       create_cb, Cache::Priority::BOTTOM,
+                                       true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);
   }
