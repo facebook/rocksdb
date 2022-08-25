@@ -125,14 +125,6 @@ class BlobSource {
     return base_cache_key.WithOffset(offset);
   }
 
-  // Callbacks for secondary blob cache
-  static size_t SizeCallback(void* obj);
-
-  static Status SaveToCallback(void* from_obj, size_t from_offset,
-                               size_t length, void* out);
-
-  static Cache::CacheItemHelper* GetCacheItemHelper();
-
   const std::string& db_id_;
   const std::string& db_session_id_;
 

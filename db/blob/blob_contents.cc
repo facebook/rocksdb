@@ -1,0 +1,63 @@
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#include "db/blob/blob_contents.h"
+
+#include <cassert>
+
+#include "cache/cache_helpers.h"
+
+namespace ROCKSDB_NAMESPACE {
+
+std::unique_ptr<BlobContents> BlobContents::Create(
+    CacheAllocationPtr&& allocation, size_t size) {
+  return std::unique_ptr<BlobContents>(
+      new BlobContents(std::move(allocation), size));
+}
+
+size_t BlobContents::SizeCallback(void* obj) {
+  assert(obj);
+
+  return static_cast<const BlobContents*>(obj)->size();
+}
+
+Status BlobContents::SaveToCallback(void* from_obj, size_t from_offset,
+                                    size_t length, void* out) {
+  assert(from_obj);
+
+  const BlobContents* buf = static_cast<const BlobContents*>(from_obj);
+  assert(buf->size() >= from_offset + length);
+
+  memcpy(out, buf->data().data() + from_offset, length);
+
+  return Status::OK();
+}
+
+void BlobContents::DeleteCallback(const Slice& key, void* value) {
+  DeleteCacheEntry<BlobContents>(key, value);
+}
+
+Cache::CacheItemHelper* BlobContents::GetCacheItemHelper() {
+  static Cache::CacheItemHelper cache_helper(&SizeCallback, &SaveToCallback,
+                                             &DeleteCallback);
+
+  return &cache_helper;
+}
+
+Status BlobContents::CreateCallback(const void* buf, size_t size,
+                                    void** out_obj, size_t* charge) {
+  CacheAllocationPtr allocation(new char[size]);
+  memcpy(allocation.get(), buf, size);
+
+  std::unique_ptr<BlobContents> obj = Create(std::move(allocation), size);
+  BlobContents* const contents = obj.release();
+
+  *out_obj = contents;
+  *charge = contents->size();
+
+  return Status::OK();
+}
+
+}  // namespace ROCKSDB_NAMESPACE

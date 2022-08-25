@@ -417,7 +417,7 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
         BlobContents::Create(std::move(allocation), blob.size());
 
     s = blob_cache->Insert(key, buf.get(), buf->ApproximateMemoryUsage(),
-                           &DeleteCacheEntry<BlobContents>,
+                           &BlobContents::DeleteCallback,
                            nullptr /* cache_handle */, priority);
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);

@@ -1137,22 +1137,6 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   auto blob_cache = options_.blob_cache;
   auto secondary_cache = lru_cache_opts_.secondary_cache;
 
-  Cache::CreateCallback create_cb =
-      [allocator = blob_cache->memory_allocator()](const void* buf, size_t size,
-                                                   void** out_obj,
-                                                   size_t* charge) -> Status {
-    CacheAllocationPtr allocation = AllocateBlock(size, allocator);
-    memcpy(allocation.get(), buf, size);
-    std::unique_ptr<BlobContents> obj =
-        BlobContents::Create(std::move(allocation), size);
-    BlobContents* const contents = obj.release();
-
-    *out_obj = contents;
-    *charge = contents->ApproximateMemoryUsage();
-
-    return Status::OK();
-  };
-
   {
     // GetBlob
     std::vector<PinnableSlice> values(keys.size());
@@ -1194,12 +1178,13 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key0 should be in the secondary cache. After looking up key0 in the
       // secondary cache, it will be erased from the secondary cache.
       bool is_in_sec_cache = false;
-      auto sec_handle0 =
-          secondary_cache->Lookup(key0, create_cb, true, is_in_sec_cache);
+      auto sec_handle0 = secondary_cache->Lookup(
+          key0, &BlobContents::CreateCallback, true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
       auto value = static_cast<BlobContents*>(sec_handle0->Value());
+      ASSERT_NE(value, nullptr);
       ASSERT_EQ(value->data(), blobs[0]);
       delete value;
 
@@ -1217,8 +1202,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle1);
 
       bool is_in_sec_cache = false;
-      auto sec_handle1 =
-          secondary_cache->Lookup(key1, create_cb, true, is_in_sec_cache);
+      auto sec_handle1 = secondary_cache->Lookup(
+          key1, &BlobContents::CreateCallback, true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
@@ -1240,6 +1225,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
       auto value = static_cast<BlobContents*>(blob_cache->Value(handle0));
+      ASSERT_NE(value, nullptr);
       ASSERT_EQ(value->data(), blobs[0]);
       blob_cache->Release(handle0);
 
@@ -1267,6 +1253,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
       value = static_cast<BlobContents*>(blob_cache->Value(handle1));
+      ASSERT_NE(value, nullptr);
       ASSERT_EQ(value->data(), blobs[1]);
       blob_cache->Release(handle1);
     }

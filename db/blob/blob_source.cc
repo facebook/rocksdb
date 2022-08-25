@@ -59,7 +59,7 @@ Status BlobSource::GetBlobFromCache(
     PERF_COUNTER_ADD(blob_cache_hit_count, 1);
     RecordTick(statistics_, BLOB_DB_CACHE_HIT);
     RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
-               blob->GetValue()->data().size());
+               blob->GetValue()->size());
 
     return Status::OK();
   }
@@ -113,23 +113,9 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   Cache::Handle* cache_handle = nullptr;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb =
-        [allocator = blob_cache_->memory_allocator()](
-            const void* buf, size_t size, void** out_obj,
-            size_t* charge) -> Status {
-      CacheAllocationPtr allocation = AllocateBlock(size, allocator);
-      memcpy(allocation.get(), buf, size);
-      std::unique_ptr<BlobContents> obj =
-          BlobContents::Create(std::move(allocation), size);
-      BlobContents* const contents = obj.release();
-
-      *out_obj = contents;
-      *charge = contents->ApproximateMemoryUsage();
-      return Status::OK();
-    };
-    cache_handle = blob_cache_->Lookup(key, GetCacheItemHelper(), create_cb,
-                                       Cache::Priority::BOTTOM,
-                                       true /* wait_for_cache */, statistics_);
+    cache_handle = blob_cache_->Lookup(
+        key, BlobContents::GetCacheItemHelper(), &BlobContents::CreateCallback,
+        Cache::Priority::BOTTOM, true /* wait_for_cache */, statistics_);
   } else {
     cache_handle = blob_cache_->Lookup(key, statistics_);
   }
@@ -144,10 +130,10 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
   Status s;
 
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    s = blob_cache_->Insert(key, value, GetCacheItemHelper(), charge,
-                            cache_handle, priority);
+    s = blob_cache_->Insert(key, value, BlobContents::GetCacheItemHelper(),
+                            charge, cache_handle, priority);
   } else {
-    s = blob_cache_->Insert(key, value, charge, &DeleteCacheEntry<BlobContents>,
+    s = blob_cache_->Insert(key, value, charge, &BlobContents::DeleteCallback,
                             cache_handle, priority);
   }
 
@@ -452,27 +438,6 @@ bool BlobSource::TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
   }
 
   return false;
-}
-
-// Callbacks for secondary blob cache
-size_t BlobSource::SizeCallback(void* obj) {
-  assert(obj != nullptr);
-  return static_cast<const BlobContents*>(obj)->data().size();
-}
-
-Status BlobSource::SaveToCallback(void* from_obj, size_t from_offset,
-                                  size_t length, void* out) {
-  assert(from_obj != nullptr);
-  const BlobContents* buf = static_cast<const BlobContents*>(from_obj);
-  assert(buf->data().size() >= from_offset + length);
-  memcpy(out, buf->data().data() + from_offset, length);
-  return Status::OK();
-}
-
-Cache::CacheItemHelper* BlobSource::GetCacheItemHelper() {
-  static Cache::CacheItemHelper cache_helper(SizeCallback, SaveToCallback,
-                                             &DeleteCacheEntry<BlobContents>);
-  return &cache_helper;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
