@@ -1543,10 +1543,12 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
         logs_to_free_.push_back(wal.ReleaseWriter());
         it = logs_.erase(it);
       } else {
+        assert(wal.GetPreSyncSize() < wal.writer->file()->GetFlushedSize());
         wal.FinishSync();
         ++it;
       }
     } else {
+      assert(wal.number == logs_.back().number);
       // Active WAL
       wal.FinishSync();
       ++it;
