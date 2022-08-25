@@ -421,7 +421,7 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
                            nullptr /* cache_handle */, priority);
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
-      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->data().size());
+      RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->size());
       buf.release();
     } else {
       RecordTick(statistics, BLOB_DB_CACHE_ADD_FAILURES);

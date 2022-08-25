@@ -46,6 +46,7 @@ class BlobContents {
 
   static Status CreateCallback(const void* buf, size_t size, void** out_obj,
                                size_t* charge);
+
  private:
   BlobContents(CacheAllocationPtr&& allocation, size_t size)
       : allocation_(std::move(allocation)), data_(allocation_.get(), size) {}

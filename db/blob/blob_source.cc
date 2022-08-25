@@ -58,8 +58,7 @@ Status BlobSource::GetBlobFromCache(
 
     PERF_COUNTER_ADD(blob_cache_hit_count, 1);
     RecordTick(statistics_, BLOB_DB_CACHE_HIT);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ,
-               blob->GetValue()->size());
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_READ, blob->GetValue()->size());
 
     return Status::OK();
   }
