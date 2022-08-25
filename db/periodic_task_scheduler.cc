@@ -29,6 +29,13 @@ static const std::map<PeriodicTaskType, uint64_t> kDefaultPeriodSeconds = {
     {PeriodicTaskType::kRecordSeqnoTime, kInvalidPeriodSec},
 };
 
+static const std::map<PeriodicTaskType, std::string> kPeriodicTaskTypeNames = {
+    {PeriodicTaskType::kDumpStats, "dump_st"},
+    {PeriodicTaskType::kPersistStats, "pst_st"},
+    {PeriodicTaskType::kFlushInfoLog, "flush_info_log"},
+    {PeriodicTaskType::kRecordSeqnoTime, "record_seq_time"},
+};
+
 Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
                                        const PeriodicTaskFunc& fn) {
   return Register(task_type, fn, kDefaultPeriodSeconds.at(task_type));
@@ -55,7 +62,9 @@ Status PeriodicTaskScheduler::Register(PeriodicTaskType task_type,
   }
 
   timer_->Start();
-  std::string unique_id = env_.GenerateUniqueId();
+  // put task type name as prefix, for easy debug
+  std::string unique_id =
+      kPeriodicTaskTypeNames.at(task_type) + std::to_string(id_++);
 
   bool succeeded = timer_->Add(
       fn, unique_id,

@@ -36,9 +36,8 @@ enum class PeriodicTaskType : uint8_t {
 // flushing cannot be disabled.
 class PeriodicTaskScheduler {
  public:
-  explicit PeriodicTaskScheduler(Env& env) : env_(env) {}
+  explicit PeriodicTaskScheduler() = default;
 
-  PeriodicTaskScheduler() = delete;
   PeriodicTaskScheduler(const PeriodicTaskScheduler&) = delete;
   PeriodicTaskScheduler(PeriodicTaskScheduler&&) = delete;
   PeriodicTaskScheduler& operator=(const PeriodicTaskScheduler&) = delete;
@@ -99,11 +98,12 @@ class PeriodicTaskScheduler {
   // Internal tasks map
   std::map<PeriodicTaskType, TaskInfo> tasks_map_;
 
-  // Global timer pointer
+  // Global timer pointer, which doesn't support synchronous add/cancel tasks
+  // so having a global `timer_mutex` for add/cancel task.
   Timer* timer_ = Default();
 
-  // Env, used for generate unique id
-  Env& env_;
+  // Global task id, protected by the global `timer_mutex`
+  inline static uint64_t id_;
 
   static constexpr uint64_t kMicrosInSecond = 1000U * 1000U;
 };
