@@ -44,7 +44,8 @@ struct HeapItem {
   IteratorWrapper iter;
   size_t level = 0;
   std::string pinned_key;
-  // Will be overwritten, initialize here so compiler does not complain.
+  // Will be overwritten before use, initialize here so compiler does not
+  // complain.
   Type type = ITERATOR;
 
   explicit HeapItem(size_t _level, InternalIteratorBase<Slice>* _iter)
@@ -52,7 +53,7 @@ struct HeapItem {
     iter.Set(_iter);
   }
 
-  void SetTombstoneEndKey(ParsedInternalKey&& pik) {
+  void SetTombstoneKey(ParsedInternalKey&& pik) {
     pinned_key.clear();
     // Range tombstone end key is exclusive. If a point internal key has the
     // same user key and sequence number as the start or end key of a range
@@ -170,12 +171,9 @@ class MergingIterator : public InternalIterator {
   // iterators so that no further allocation is needed for HeapItem.
   void Finish() {
     if (!range_tombstone_iters_.empty()) {
-      pinned_heap_item_.resize(range_tombstone_iters_.size() * 2);
+      pinned_heap_item_.resize(range_tombstone_iters_.size());
       for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
-        pinned_heap_item_[2 * i].type = HeapItem::DELETE_RANGE_START;
-        pinned_heap_item_[2 * i].level = i;
-        pinned_heap_item_[2 * i + 1].type = HeapItem::DELETE_RANGE_END;
-        pinned_heap_item_[2 * i + 1].level = i;
+        pinned_heap_item_[i].level = i;
       }
     }
   }
@@ -195,30 +193,44 @@ class MergingIterator : public InternalIterator {
 
   Status status() const override { return status_; }
 
-  // Add current range tombstone from range_tombstone_iters_[level] into min
-  // heap.
-  void InsertRangeTombstoneToMinHeap(size_t level) {
+  // Add range_tombstone_iters_[level] into min heap.
+  // Updates active_ if the end key of a range tombstone is inserted.
+  // @param start_key specifies which end point of the range tombstone to add.
+  void InsertRangeTombstoneToMinHeap(size_t level, bool start_key = true) {
     assert(!range_tombstone_iters_.empty() &&
            range_tombstone_iters_[level]->Valid());
-    pinned_heap_item_[level * 2].SetTombstoneEndKey(
-        range_tombstone_iters_[level]->start_key());
-    pinned_heap_item_[level * 2 + 1].SetTombstoneEndKey(
-        range_tombstone_iters_[level]->end_key());
-    minHeap_.push(&pinned_heap_item_[level * 2]);
-    minHeap_.push(&pinned_heap_item_[level * 2 + 1]);
+    if (start_key) {
+      pinned_heap_item_[level].SetTombstoneKey(
+          range_tombstone_iters_[level]->start_key());
+      pinned_heap_item_[level].type = HeapItem::DELETE_RANGE_START;
+      assert(active_.count(level) == 0);
+    } else {
+      pinned_heap_item_[level].SetTombstoneKey(
+          range_tombstone_iters_[level]->end_key());
+      pinned_heap_item_[level].type = HeapItem::DELETE_RANGE_END;
+      active_.insert(level);
+    }
+    minHeap_.push(&pinned_heap_item_[level]);
   }
 
-  // Add current range tombstone from range_tombstone_iters_[level] into max
-  // heap.
-  void InsertRangeTombstoneToMaxHeap(size_t level) {
+  // Add range_tombstone_iters_[level] into max heap.
+  // Updates active_ if the start key of a range tombstone is inserted.
+  // @param end_key specifies which end point of the range tombstone to add.
+  void InsertRangeTombstoneToMaxHeap(size_t level, bool end_key = true) {
     assert(!range_tombstone_iters_.empty() &&
            range_tombstone_iters_[level]->Valid());
-    pinned_heap_item_[level * 2].SetTombstoneEndKey(
-        range_tombstone_iters_[level]->start_key());
-    pinned_heap_item_[level * 2 + 1].SetTombstoneEndKey(
-        range_tombstone_iters_[level]->end_key());
-    maxHeap_->push(&pinned_heap_item_[level * 2]);
-    maxHeap_->push(&pinned_heap_item_[level * 2 + 1]);
+    if (end_key) {
+      pinned_heap_item_[level].SetTombstoneKey(
+          range_tombstone_iters_[level]->end_key());
+      pinned_heap_item_[level].type = HeapItem::DELETE_RANGE_END;
+      assert(active_.count(level) == 0);
+    } else {
+      pinned_heap_item_[level].SetTombstoneKey(
+          range_tombstone_iters_[level]->start_key());
+      pinned_heap_item_[level].type = HeapItem::DELETE_RANGE_START;
+      active_.insert(level);
+    }
+    maxHeap_->push(&pinned_heap_item_[level]);
   }
 
   // Remove HeapItems from top of minHeap_ that are of type DELETE_RANGE_START
@@ -228,8 +240,10 @@ class MergingIterator : public InternalIterator {
   void PopDeleteRangeStart() {
     while (!minHeap_.empty() &&
            minHeap_.top()->type == HeapItem::DELETE_RANGE_START) {
-      active_.insert(minHeap_.top()->level);
+      auto level = minHeap_.top()->level;
       minHeap_.pop();
+      // insert end key of this range tombstone and updates active_
+      InsertRangeTombstoneToMinHeap(level, false /* start_key */);
     }
   }
 
@@ -240,8 +254,10 @@ class MergingIterator : public InternalIterator {
   void PopDeleteRangeEnd() {
     while (!maxHeap_->empty() &&
            maxHeap_->top()->type == HeapItem::DELETE_RANGE_END) {
-      active_.insert(maxHeap_->top()->level);
+      auto level = maxHeap_->top()->level;
       maxHeap_->pop();
+      // insert start key of this range tombstone and updates active_
+      InsertRangeTombstoneToMaxHeap(level, false /* end_key */);
     }
   }
 
@@ -262,7 +278,7 @@ class MergingIterator : public InternalIterator {
         }
       }
     }
-    FindNextVisibleEntry();
+    FindNextVisibleKey();
     direction_ = kForward;
     current_ = CurrentForward();
   }
@@ -285,7 +301,7 @@ class MergingIterator : public InternalIterator {
         }
       }
     }
-    FindPrevVisibleEntry();
+    FindPrevVisibleKey();
     direction_ = kReverse;
     current_ = CurrentReverse();
   }
@@ -305,7 +321,7 @@ class MergingIterator : public InternalIterator {
   // L. So for all levels > L, we can pretend the target key is `end`. This
   // optimization is applied at each level and hence the name "cascading seek".
   // After a round of (cascading) seeks, the top of the heap is checked to see
-  // if it is covered by a range tombstone (see FindNextVisibleEntry() for more
+  // if it is covered by a range tombstone (see FindNextVisibleKey() for more
   // detail), and advanced if so. The process is repeated until a
   // non-range-deleted key is at the top of the heap, or heap becomes empty.
   //
@@ -313,22 +329,23 @@ class MergingIterator : public InternalIterator {
   // top of the heap is covered by some range tombstone efficient, we treat each
   // range deletion [start, end) as two point keys and insert them into the same
   // min/maxHeap_ where point iterators are. The set `active_` tracks the levels
-  // that have active range tombstones. If level L is in `active_`, then the
-  // point key at top of the heap is within internal key range of the range
-  // tombstone that range_tombstone_iters_[L] currently points to. For
-  // correctness reasoning, one invariant that Seek() guarantees is as follows.
-  // After Seek(), suppose `k` is the current key of level L's point iterator.
-  // Then for each range tombstone iterators at level <= L, it is at or before
-  // the first range tombstone with end key > `k`. This ensures that when level
-  // L's point iterator reaches top of the heap, `active_` is calculated
-  // correctly (it contains the covering range tombstone's level if there is
-  // one), since no range tombstone iterators are skipped beyond that point
-  // iterator's current key during Seek().
+  // that have active range tombstones. If level L is in `active_`, and the
+  // point key at top of the heap is from level >= L, then the point key is
+  // within the internal key range of the range tombstone that
+  // range_tombstone_iters_[L] currently points to. For correctness reasoning,
+  // one invariant that Seek() guarantees is as follows. After Seek(), suppose
+  // `k` is the current key of level L's point iterator. Then for each range
+  // tombstone iterator at level <= L, it is at or before the first range
+  // tombstone with end key > `k`. This ensures that when level L's point
+  // iterator reaches top of the heap, `active_` is calculated correctly (it
+  // contains the covering range tombstone's level if there is one), since no
+  // range tombstone iterator was skipped beyond that point iterator's current
+  // key during Seek().
   void Seek(const Slice& target) override {
     assert(range_tombstone_iters_.empty() ||
            range_tombstone_iters_.size() == children_.size());
     SeekImpl(target);
-    FindNextVisibleEntry();
+    FindNextVisibleKey();
 
     direction_ = kForward;
     {
@@ -341,7 +358,7 @@ class MergingIterator : public InternalIterator {
     assert(range_tombstone_iters_.empty() ||
            range_tombstone_iters_.size() == children_.size());
     SeekForPrevImpl(target);
-    FindPrevVisibleEntry();
+    FindPrevVisibleKey();
 
     direction_ = kReverse;
     {
@@ -352,7 +369,6 @@ class MergingIterator : public InternalIterator {
 
   void Next() override {
     assert(Valid());
-
     // Ensure that all children are positioned after key().
     // If we are moving in the forward direction, it is already
     // true for all of the non-current children since current_ is
@@ -366,7 +382,6 @@ class MergingIterator : public InternalIterator {
     // For the heap modifications below to be correct, current_ must be the
     // current top of the heap.
     assert(current_ == CurrentForward());
-
     // as the current points to the current record. move the iterator forward.
     current_->Next();
     if (current_->Valid()) {
@@ -380,7 +395,7 @@ class MergingIterator : public InternalIterator {
       considerStatus(current_->status());
       minHeap_.pop();
     }
-    FindNextVisibleEntry();
+    FindNextVisibleKey();
     current_ = CurrentForward();
   }
 
@@ -422,7 +437,7 @@ class MergingIterator : public InternalIterator {
       considerStatus(current_->status());
       maxHeap_->pop();
     }
-    FindPrevVisibleEntry();
+    FindPrevVisibleKey();
     current_ = CurrentReverse();
   }
 
@@ -483,7 +498,7 @@ class MergingIterator : public InternalIterator {
  private:
   friend class MergeIteratorBuilder;
   // Clears heaps for both directions, used when changing direction or seeking
-  void ClearHeaps();
+  void ClearHeaps(bool clear_active = true);
   // Ensures that maxHeap_ is initialized when starting to go in the reverse
   // direction
   void InitMaxHeap();
@@ -492,8 +507,8 @@ class MergingIterator : public InternalIterator {
   // not covered by any range tombstone or that there is no more keys (heap is
   // empty). After this call, if Valid(), current_ points to the next key that
   // is not covered by any range tombstone.
-  void FindNextVisibleEntry();
-  void FindPrevVisibleEntry();
+  void FindNextVisibleKey();
+  void FindPrevVisibleKey();
 
   void SeekImpl(const Slice& target, size_t starting_level = 0,
                 bool range_tombstone_reseek = false);
@@ -513,10 +528,10 @@ class MergingIterator : public InternalIterator {
   // HeapItem for all child point iterators.
   std::vector<HeapItem> children_;
   // HeapItem for range tombstone start and end keys. Each range tombstone
-  // iterator will have at most 1 start key and 1 end key HeapItem in a heap
-  // at the same time, so this vector will be of size 2 * children_.size();
-  // pinned_heap_item_[2*i] and pinned_heap_item_[2*i+1] corresponds to the
-  // start key and end key HeapItem for range_tombstone_iters_[i].
+  // iterator will have at most one side (start key or end key) in a heap
+  // at the same time, so this vector will be of size children_.size();
+  // pinned_heap_item_[i] corresponds to the start key and end key HeapItem
+  // for range_tombstone_iters_[i].
   std::vector<HeapItem> pinned_heap_item_;
   // range_tombstone_iters_[i] contains range tombstones in the sorted run that
   // corresponds to children_[i]. range_tombstone_iters_.empty() means not
@@ -583,7 +598,42 @@ class MergingIterator : public InternalIterator {
 // is used only for recoding relevant perf_context.
 void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
                                bool range_tombstone_reseek) {
-  ClearHeaps();
+  // active range tombstones before `starting_level` remain active
+  ClearHeaps(false /* clear_active */);
+  ParsedInternalKey pik;
+  if (!range_tombstone_iters_.empty()) {
+    // pik is only used in InsertRangeTombstoneToMinHeap().
+    ParseInternalKey(target, &pik, false).PermitUncheckedError();
+  }
+
+  // TODO: perhaps we could save some upheap cost by add all child iters first
+  //  and then do a single heapify.
+  for (size_t level = 0; level < starting_level; ++level) {
+    PERF_TIMER_GUARD(seek_min_heap_time);
+    AddToMinHeapOrCheckStatus(&children_[level]);
+  }
+  if (!range_tombstone_iters_.empty()) {
+    // Add range tombstones from levels < starting_level. We can insert from
+    // pinned_heap_item_ for the following reasons:
+    // - pinned_heap_item_[level] is in minHeap_ iff
+    // range_tombstone_iters[level]->Valid().
+    // - If `level` is in active_, then range_tombstone_iters_[level]->Valid()
+    // and pinned_heap_item_[level] is of type RANGE_DELETION_END.
+    for (size_t level = 0; level < starting_level; ++level) {
+      if (range_tombstone_iters_[level] &&
+          range_tombstone_iters_[level]->Valid()) {
+        assert(static_cast<bool>(active_.count(level)) ==
+               (pinned_heap_item_[level].type == HeapItem::DELETE_RANGE_END));
+        minHeap_.push(&pinned_heap_item_[level]);
+      } else {
+        assert(!active_.count(level));
+      }
+    }
+    // levels >= starting_level will be reseeked below, so clearing their active
+    // state here.
+    active_.erase(active_.lower_bound(starting_level), active_.end());
+  }
+
   status_ = Status::OK();
   IterKey current_search_key;
   current_search_key.SetInternalKey(target, false /* copy */);
@@ -591,7 +641,6 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
   // we need to remember them for async requests.
   // (level, target) pairs
   autovector<std::pair<size_t, std::string>> prefetched_target;
-
   for (auto level = starting_level; level < children_.size(); ++level) {
     {
       PERF_TIMER_GUARD(seek_child_seek_time);
@@ -614,7 +663,17 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
       if (range_tombstone_iter) {
         range_tombstone_iter->Seek(current_search_key.GetUserKey());
         if (range_tombstone_iter->Valid()) {
-          InsertRangeTombstoneToMinHeap(level);
+          // insert the range tombstone end that is closer to and >=
+          // current_search_key. Strictly speaking, since the Seek() call above
+          // is on user key, it is possible that range_tombstone_iter->end_key()
+          // < current_search_key. This can happen when range_tombstone_iter is
+          // truncated and range_tombstone_iter.largest_ has the same user key
+          // as current_search_key.GetUserKey() but with a larger sequence
+          // number than current_search_key. Correctness is not affected as this
+          // tombstone end key will be popped during FindNextVisibleKey().
+          InsertRangeTombstoneToMinHeap(
+              level, comparator_->Compare(range_tombstone_iter->start_key(),
+                                          pik) > 0 /* start_key */);
           // current_search_key < end_key guaranteed by the Seek() and Valid()
           // calls above. Only interested in user key coverage since older
           // sorted runs must have smaller sequence numbers than this range
@@ -654,12 +713,6 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
       AddToMinHeapOrCheckStatus(&children_[level]);
     }
   }
-  // TODO: perhaps we could save some upheap cost by add all child iters first
-  //  and then do a single heapify.
-  for (size_t level = 0; level < starting_level; ++level) {
-    PERF_TIMER_GUARD(seek_min_heap_time);
-    AddToMinHeapOrCheckStatus(&children_[level]);
-  }
 
   if (range_tombstone_iters_.empty()) {
     for (auto& child : children_) {
@@ -682,12 +735,6 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
       }
       PERF_COUNTER_ADD(number_async_seek, 1);
     }
-    for (size_t level = 0; level < starting_level; ++level) {
-      if (range_tombstone_iters_[level] &&
-          range_tombstone_iters_[level]->Valid()) {
-        InsertRangeTombstoneToMinHeap(level);
-      }
-    }
   }
 }
 
@@ -697,7 +744,7 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
 // boundary sentinel key, or the current key is an end point of a range
 // tombstone. Advance the iterator at heap top if needed. Heap order is restored
 // and `active_` is updated accordingly.
-// See FindNextVisibleEntry() for more detail on internal implementation
+// See FindNextVisibleKey() for more detail on internal implementation
 // of advancing child iters.
 //
 // REQUIRES:
@@ -723,7 +770,7 @@ bool MergingIterator::IsNextDeleted() {
   if (current->iter.IsDeleteRangeSentinelKey()) {
     // If the file boundary is defined by a range deletion, the range
     // tombstone's end key must come before this sentinel key (see op_type in
-    // SetTombstoneEndKey()).
+    // SetTombstoneKey()).
     assert(ExtractValueType(current->iter.key()) != kTypeRangeDeletion ||
            active_.count(current->level) == 0);
     // LevelIterator enters a new SST file
@@ -793,7 +840,7 @@ bool MergingIterator::IsNextDeleted() {
       // minHeap_.
     }
   }
-  // we can reach here only if active is empty
+  // we can reach here only if active_ is empty
   assert(active_.empty());
   assert(minHeap_.top()->type == HeapItem::ITERATOR);
   return false /* current key not deleted */;
@@ -802,8 +849,33 @@ bool MergingIterator::IsNextDeleted() {
 void MergingIterator::SeekForPrevImpl(const Slice& target,
                                       size_t starting_level,
                                       bool range_tombstone_reseek) {
-  ClearHeaps();
+  // active range tombstones before `starting_level` remain active
+  ClearHeaps(false /* clear_active */);
   InitMaxHeap();
+  ParsedInternalKey pik;
+  if (!range_tombstone_iters_.empty()) {
+    ParseInternalKey(target, &pik, false).PermitUncheckedError();
+  }
+  for (size_t level = 0; level < starting_level; ++level) {
+    PERF_TIMER_GUARD(seek_max_heap_time);
+    AddToMaxHeapOrCheckStatus(&children_[level]);
+  }
+  if (!range_tombstone_iters_.empty()) {
+    // Add range tombstones before starting_level.
+    for (size_t level = 0; level < starting_level; ++level) {
+      if (range_tombstone_iters_[level] &&
+          range_tombstone_iters_[level]->Valid()) {
+        assert(static_cast<bool>(active_.count(level)) ==
+               (pinned_heap_item_[level].type == HeapItem::DELETE_RANGE_START));
+        maxHeap_->push(&pinned_heap_item_[level]);
+      } else {
+        assert(!active_.count(level));
+      }
+    }
+    // levels >= starting_level will be reseeked below,
+    active_.erase(active_.lower_bound(starting_level), active_.end());
+  }
+
   status_ = Status::OK();
   IterKey current_search_key;
   current_search_key.SetInternalKey(target, false /* copy */);
@@ -811,7 +883,6 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
   // we need to remember them for async requests.
   // (level, target) pairs
   autovector<std::pair<size_t, std::string>> prefetched_target;
-
   for (auto level = starting_level; level < children_.size(); ++level) {
     {
       PERF_TIMER_GUARD(seek_child_seek_time);
@@ -834,7 +905,9 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
       if (range_tombstone_iter) {
         range_tombstone_iter->SeekForPrev(current_search_key.GetUserKey());
         if (range_tombstone_iter->Valid()) {
-          InsertRangeTombstoneToMaxHeap(level);
+          InsertRangeTombstoneToMaxHeap(
+              level, comparator_->Compare(range_tombstone_iter->end_key(),
+                                          pik) <= 0 /* end_key */);
           // start key <= current_search_key guaranteed by the Seek() call above
           // Only interested in user key coverage since older sorted runs must
           // have smaller sequence numbers than this tombstone.
@@ -864,10 +937,6 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
       AddToMaxHeapOrCheckStatus(&children_[level]);
     }
   }
-  for (size_t level = 0; level < starting_level; ++level) {
-    PERF_TIMER_GUARD(seek_max_heap_time);
-    AddToMaxHeapOrCheckStatus(&children_[level]);
-  }
 
   if (range_tombstone_iters_.empty()) {
     for (auto& child : children_) {
@@ -889,13 +958,6 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
         AddToMaxHeapOrCheckStatus(&children_[prefetch.first]);
       }
       PERF_COUNTER_ADD(number_async_seek, 1);
-    }
-    for (size_t level = 0; level < starting_level; ++level) {
-      PERF_TIMER_GUARD(seek_max_heap_time);
-      if (range_tombstone_iters_[level] &&
-          range_tombstone_iters_[level]->Valid()) {
-        InsertRangeTombstoneToMaxHeap(level);
-      }
     }
   }
 }
@@ -923,7 +985,7 @@ bool MergingIterator::IsPrevDeleted() {
   }
   if (current->iter.IsDeleteRangeSentinelKey()) {
     // Different from IsNextDeleted(): range tombstone start key is before file
-    // boundary due to op_type set in SetTombstoneEndKey().
+    // boundary due to op_type set in SetTombstoneKey().
     assert(ExtractValueType(current->iter.key()) != kTypeRangeDeletion ||
            active_.count(current->level));
     // LevelIterator enters a new SST file
@@ -1015,7 +1077,7 @@ void MergingIterator::AddToMaxHeapOrCheckStatus(HeapItem* child) {
 // We advance current_ after the this function call as it does not require
 // Seek().
 // Advance all range tombstones iters, including the one corresponding to
-// current_, to the first tombstone with end_key > current_.key() (user key).
+// current_, to the first tombstone with end_key > current_.key().
 // TODO: potentially do cascading seek here too
 void MergingIterator::SwitchToForward() {
   ClearHeaps();
@@ -1053,21 +1115,37 @@ void MergingIterator::SwitchToForward() {
   // Previous direction is backward, so range tombstone iter may point to a
   // tombstone before current_. If there is no such tombstone, then the range
   // tombstone iter is !Valid(). Need to reseek here to make it valid again.
-  Slice target_user_key = ExtractUserKey(target);
-  for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
-    if (range_tombstone_iters_[i]) {
-      range_tombstone_iters_[i]->Seek(target_user_key);
-      if (range_tombstone_iters_[i]->Valid()) {
-        InsertRangeTombstoneToMinHeap(i);
+  if (!range_tombstone_iters_.empty()) {
+    ParsedInternalKey pik;
+    ParseInternalKey(target, &pik, false /* log_err_key */)
+        .PermitUncheckedError();
+    for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
+      auto iter = range_tombstone_iters_[i];
+      if (iter) {
+        iter->Seek(pik.user_key);
+        // The while loop is needed as the Seek() call above is only for user
+        // key. We could have a range tombstone with end_key covering user_key,
+        // but still is smaller than target. This happens when the range
+        // tombstone is truncated at iter.largest_.
+        while (iter->Valid() &&
+               comparator_->Compare(iter->end_key(), pik) <= 0) {
+          iter->Next();
+        }
+        if (range_tombstone_iters_[i]->Valid()) {
+          InsertRangeTombstoneToMinHeap(
+              i, comparator_->Compare(range_tombstone_iters_[i]->start_key(),
+                                      pik) > 0 /* start_key */);
+        }
       }
     }
   }
 
-  PopDeleteRangeStart();
   direction_ = kForward;
   assert(current_ == CurrentForward());
 }
 
+// Advance all range tombstones iters, including the one corresponding to
+// current_, to the first tombstone with start_key <= current_.key().
 void MergingIterator::SwitchToBackward() {
   ClearHeaps();
   InitMaxHeap();
@@ -1088,28 +1166,29 @@ void MergingIterator::SwitchToBackward() {
   ParseInternalKey(target, &pik, false /* log_err_key */)
       .PermitUncheckedError();
   for (size_t i = 0; i < range_tombstone_iters_.size(); ++i) {
-    if (range_tombstone_iters_[i]) {
-      range_tombstone_iters_[i]->SeekForPrev(pik.user_key);
-      if (range_tombstone_iters_[i]->Valid()) {
-        // Since the SeekForPrev() call above is only for user key,
-        // we may end up with some range tombstone with start key having the
-        // same user key at current_, but with a smaller sequence number. This
-        // makes current_ not at maxHeap_ top for the CurrentReverse() call
-        // below. If there is a range tombstone start key with the same user
-        // key and the same sequence number as current_, it will be fine as in
-        // InsertRangeTombstoneToMaxHeap() we change op_type to be the smallest.
-        if (comparator_->Compare(pik, range_tombstone_iters_[i]->start_key()) <
-            0) {
-          range_tombstone_iters_[i]->Prev();
-          if (!range_tombstone_iters_[i]->Valid()) {
-            continue;
-          }
-        }
-        InsertRangeTombstoneToMaxHeap(i);
+    auto iter = range_tombstone_iters_[i];
+    if (iter) {
+      iter->SeekForPrev(pik.user_key);
+      // Since the SeekForPrev() call above is only for user key,
+      // we may end up with some range tombstone with start key having the
+      // same user key at current_, but with a smaller sequence number. This
+      // makes current_ not at maxHeap_ top for the CurrentReverse() call
+      // below. If there is a range tombstone start key with the same user
+      // key and the same sequence number as current_.key(), it will be fine as
+      // in InsertRangeTombstoneToMaxHeap() we change op_type to be the smallest
+      // op_type.
+      while (iter->Valid() &&
+             comparator_->Compare(iter->start_key(), pik) > 0) {
+        iter->Prev();
+      }
+      if (iter->Valid()) {
+        InsertRangeTombstoneToMaxHeap(
+            i, comparator_->Compare(range_tombstone_iters_[i]->end_key(),
+                                    pik) <= 0 /* end_key */);
       }
     }
   }
-  PopDeleteRangeEnd();
+
   direction_ = kReverse;
   if (!prefix_seek_mode_) {
     // Note that we don't do assert(current_ == CurrentReverse()) here
@@ -1119,15 +1198,16 @@ void MergingIterator::SwitchToBackward() {
     current_ = CurrentReverse();
   }
   assert(current_ == CurrentReverse());
-  assert(!current_ || maxHeap_->top()->type == HeapItem::ITERATOR);
 }
 
-void MergingIterator::ClearHeaps() {
+void MergingIterator::ClearHeaps(bool clear_active) {
   minHeap_.clear();
   if (maxHeap_) {
     maxHeap_->clear();
   }
-  active_.clear();
+  if (clear_active) {
+    active_.clear();
+  }
 }
 
 void MergingIterator::InitMaxHeap() {
@@ -1142,7 +1222,7 @@ void MergingIterator::InitMaxHeap() {
 // tombstone from a newer sorted run. If the covering tombstone is from current
 // key's level, then the current child iterator is simply advanced to its next
 // key without reseeking.
-inline void MergingIterator::FindNextVisibleEntry() {
+inline void MergingIterator::FindNextVisibleKey() {
   // When active_ is empty, we know heap top cannot be a range tombstone end
   // key. It cannot be a range tombstone start key per PopDeleteRangeStart().
   PopDeleteRangeStart();
@@ -1153,7 +1233,7 @@ inline void MergingIterator::FindNextVisibleEntry() {
   }
 }
 
-inline void MergingIterator::FindPrevVisibleEntry() {
+inline void MergingIterator::FindPrevVisibleKey() {
   PopDeleteRangeEnd();
   while (!maxHeap_->empty() &&
          (!active_.empty() || maxHeap_->top()->IsDeleteRangeSentinelKey()) &&
