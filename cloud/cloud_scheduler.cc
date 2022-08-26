@@ -118,6 +118,8 @@ class LocalCloudScheduler : public CloudScheduler,
       }
       TEST_SYNC_POINT_CALLBACK(
           "LocalCloudScheduler::ScheduleJob:AfterEraseJob", &job_erased);
+      // make sure `job_erased` is not unused variable when compiling in release mode
+      (void)job_erased;
     };
     jobs_[local_id] = scheduler_->ScheduleJob(when, job, arg);
     return local_id;
