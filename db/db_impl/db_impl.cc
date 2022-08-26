@@ -45,7 +45,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
@@ -217,7 +217,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       refitting_level_(false),
       opened_successfully_(false),
 #ifndef ROCKSDB_LITE
-      periodic_work_scheduler_(nullptr),
+      periodic_task_scheduler_(),
 #endif  // ROCKSDB_LITE
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
@@ -259,6 +259,18 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   table_cache_ = NewLRUCache(co);
   SetDbSessionId();
   assert(!db_session_id_.empty());
+
+#ifndef ROCKSDB_LITE
+  periodic_task_functions_.emplace(PeriodicTaskType::kDumpStats,
+                                   [this]() { this->DumpStats(); });
+  periodic_task_functions_.emplace(PeriodicTaskType::kPersistStats,
+                                   [this]() { this->PersistStats(); });
+  periodic_task_functions_.emplace(PeriodicTaskType::kFlushInfoLog,
+                                   [this]() { this->FlushInfoLog(); });
+  periodic_task_functions_.emplace(
+      PeriodicTaskType::kRecordSeqnoTime,
+      [this]() { this->RecordSeqnoToTimeMapping(); });
+#endif  // ROCKSDB_LITE
 
   versions_.reset(new VersionSet(dbname_, &immutable_db_options_, file_options_,
                                  table_cache_.get(), write_buffer_manager_,
@@ -480,9 +492,15 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
                  "Shutdown: canceling all background work");
 
 #ifndef ROCKSDB_LITE
-  if (periodic_work_scheduler_ != nullptr) {
-    periodic_work_scheduler_->Unregister(this);
-    periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
+  for (uint8_t task_type = 0;
+       task_type < static_cast<uint8_t>(PeriodicTaskType::kMax); task_type++) {
+    Status s = periodic_task_scheduler_.Unregister(
+        static_cast<PeriodicTaskType>(task_type));
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to unregister periodic task %d, status: %s",
+                     task_type, s.ToString().c_str());
+    }
   }
 #endif  // !ROCKSDB_LITE
 
@@ -767,30 +785,50 @@ void DBImpl::PrintStatistics() {
   }
 }
 
-Status DBImpl::StartPeriodicWorkScheduler() {
+Status DBImpl::StartPeriodicTaskScheduler() {
 #ifndef ROCKSDB_LITE
 
 #ifndef NDEBUG
   // It only used by test to disable scheduler
   bool disable_scheduler = false;
   TEST_SYNC_POINT_CALLBACK(
-      "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
+      "DBImpl::StartPeriodicTaskScheduler:DisableScheduler",
       &disable_scheduler);
   if (disable_scheduler) {
     return Status::OK();
   }
-#endif  // !NDEBUG
 
   {
     InstrumentedMutexLock l(&mutex_);
-    periodic_work_scheduler_ = PeriodicWorkScheduler::Default();
-    TEST_SYNC_POINT_CALLBACK("DBImpl::StartPeriodicWorkScheduler:Init",
-                             &periodic_work_scheduler_);
+    TEST_SYNC_POINT_CALLBACK("DBImpl::StartPeriodicTaskScheduler:Init",
+                             &periodic_task_scheduler_);
   }
 
-  return periodic_work_scheduler_->Register(
-      this, mutable_db_options_.stats_dump_period_sec,
-      mutable_db_options_.stats_persist_period_sec);
+#endif  // !NDEBUG
+  if (mutable_db_options_.stats_dump_period_sec > 0) {
+    Status s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kDumpStats,
+        periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
+        mutable_db_options_.stats_dump_period_sec);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  if (mutable_db_options_.stats_persist_period_sec > 0) {
+    Status s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kPersistStats,
+        periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
+        mutable_db_options_.stats_persist_period_sec);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  Status s = periodic_task_scheduler_.Register(
+      PeriodicTaskType::kFlushInfoLog,
+      periodic_task_functions_.at(PeriodicTaskType::kFlushInfoLog));
+
+  return s;
 #else
   return Status::OK();
 #endif  // !ROCKSDB_LITE
@@ -798,9 +836,6 @@ Status DBImpl::StartPeriodicWorkScheduler() {
 
 Status DBImpl::RegisterRecordSeqnoTimeWorker() {
 #ifndef ROCKSDB_LITE
-  if (!periodic_work_scheduler_) {
-    return Status::OK();
-  }
   uint64_t min_time_duration = std::numeric_limits<uint64_t>::max();
   uint64_t max_time_duration = std::numeric_limits<uint64_t>::min();
   {
@@ -828,26 +863,13 @@ Status DBImpl::RegisterRecordSeqnoTimeWorker() {
   }
 
   Status s;
-  if (seqno_time_cadence != record_seqno_time_cadence_) {
-    if (seqno_time_cadence == 0) {
-      periodic_work_scheduler_->UnregisterRecordSeqnoTimeWorker(this);
-    } else {
-      s = periodic_work_scheduler_->RegisterRecordSeqnoTimeWorker(
-          this, seqno_time_cadence);
-    }
-
-    if (s.ok()) {
-      record_seqno_time_cadence_ = seqno_time_cadence;
-    }
-
-    if (s.IsNotSupported()) {
-      // TODO: Fix the timer cannot cancel and re-add the same task
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "Updating seqno to time worker cadence is not supported yet, to make "
-          "the change effective, please reopen the DB instance.");
-      s = Status::OK();
-    }
+  if (seqno_time_cadence == 0) {
+    s = periodic_task_scheduler_.Unregister(PeriodicTaskType::kRecordSeqnoTime);
+  } else {
+    s = periodic_task_scheduler_.Register(
+        PeriodicTaskType::kRecordSeqnoTime,
+        periodic_task_functions_.at(PeriodicTaskType::kRecordSeqnoTime),
+        seqno_time_cadence);
   }
 
   return s;
@@ -1087,6 +1109,10 @@ void DBImpl::DumpStats() {
   PrintStatistics();
 }
 
+// Periodically flush info log out of application buffer at a low frequency.
+// This improves debuggability in case of RocksDB hanging since it ensures the
+// log messages leading up to the hang will eventually become visible in the
+// log.
 void DBImpl::FlushInfoLog() {
   if (shutdown_initiated_) {
     return;
@@ -1279,22 +1305,36 @@ Status DBImpl::SetDBOptions(
         MaybeScheduleFlushOrCompaction();
       }
 
-      if (new_options.stats_dump_period_sec !=
-              mutable_db_options_.stats_dump_period_sec ||
-          new_options.stats_persist_period_sec !=
-              mutable_db_options_.stats_persist_period_sec) {
-        mutex_.Unlock();
-        periodic_work_scheduler_->Unregister(this);
-        s = periodic_work_scheduler_->Register(
-            this, new_options.stats_dump_period_sec,
-            new_options.stats_persist_period_sec);
-        mutex_.Lock();
+      mutex_.Unlock();
+      if (new_options.stats_dump_period_sec == 0) {
+        s = periodic_task_scheduler_.Unregister(PeriodicTaskType::kDumpStats);
+      } else {
+        s = periodic_task_scheduler_.Register(
+            PeriodicTaskType::kDumpStats,
+            periodic_task_functions_.at(PeriodicTaskType::kDumpStats),
+            new_options.stats_dump_period_sec);
       }
       if (new_options.max_total_wal_size !=
           mutable_db_options_.max_total_wal_size) {
         max_total_wal_size_.store(new_options.max_total_wal_size,
                                   std::memory_order_release);
       }
+      if (s.ok()) {
+        if (new_options.stats_persist_period_sec == 0) {
+          s = periodic_task_scheduler_.Unregister(
+              PeriodicTaskType::kPersistStats);
+        } else {
+          s = periodic_task_scheduler_.Register(
+              PeriodicTaskType::kPersistStats,
+              periodic_task_functions_.at(PeriodicTaskType::kPersistStats),
+              new_options.stats_persist_period_sec);
+        }
+      }
+      mutex_.Lock();
+      if (!s.ok()) {
+        return s;
+      }
+
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
@@ -3043,12 +3083,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   }  // InstrumentedMutexLock l(&mutex_)
 
   if (cf_options.preclude_last_level_data_seconds > 0) {
-    // TODO(zjay): Fix the timer issue and re-enable this.
-    ROCKS_LOG_ERROR(
-        immutable_db_options_.info_log,
-        "Creating column family with `preclude_last_level_data_seconds` needs "
-        "to restart DB to take effect");
-    //    s = RegisterRecordSeqnoTimeWorker();
+    s = RegisterRecordSeqnoTimeWorker();
   }
   sv_context.Clean();
   // this is outside the mutex

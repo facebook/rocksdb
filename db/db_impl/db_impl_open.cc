@@ -11,7 +11,7 @@
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
@@ -2105,7 +2105,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    "DB::Open() failed: %s", s.ToString().c_str());
   }
   if (s.ok()) {
-    s = impl->StartPeriodicWorkScheduler();
+    s = impl->StartPeriodicTaskScheduler();
   }
 
   if (s.ok()) {
