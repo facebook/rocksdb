@@ -32,6 +32,8 @@ class BlobContents {
   const Slice& data() const { return data_; }
   size_t size() const { return data_.size(); }
 
+  size_t ApproximateMemoryUsage() const;
+
   // Callbacks for secondary cache
   static size_t SizeCallback(void* obj);
 
