@@ -1517,7 +1517,10 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
     read_options.fill_cache = true;
 
     // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
-    // should observe cache eviction for the second half blobs.
+    // can't fit all the blobs in the cache at the same time, which means we
+    // should observe cache evictions once we reach the cache's capacity.
+    // Due to the overhead of the cache and the BlobContents objects, as well as
+    // jemalloc bin sizes, this happens after inserting seven blobs.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
