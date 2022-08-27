@@ -619,7 +619,11 @@ TEST_MAIN_SOURCES_C = \
 
 MICROBENCH_SOURCES =                                          \
   microbench/ribbon_bench.cc                                  \
-  microbench/db_basic_bench.cc                                  \
+  microbench/db_basic_bench.cc                                \
+  microbench/reader_bench.cc                                  \
+
+MICROBENCH_LIB_SOURCES =                                      \
+  microbench/bench_util.cc                                    \
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

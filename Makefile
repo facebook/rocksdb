@@ -575,6 +575,7 @@ CACHE_BENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(CACHE_BENCH_LIB_SOURCES
 TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
+MICROBENCH_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(MICROBENCH_LIB_SOURCES))
 
 # Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
 ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
@@ -1912,7 +1913,10 @@ clipping_iterator_test: $(OBJ_DIR)/db/compaction/clipping_iterator_test.o $(TEST
 ribbon_bench: $(OBJ_DIR)/microbench/ribbon_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(LIBRARY)
+db_basic_bench: $(OBJ_DIR)/microbench/db_basic_bench.o $(MICROBENCH_OBJECTS) $(LIBRARY)
+	$(AM_LINK)
+
+reader_bench: $(OBJ_DIR)/microbench/reader_bench.o $(MICROBENCH_OBJECTS) $(LIBRARY)
 	$(AM_LINK)
 
 cache_reservation_manager_test: $(OBJ_DIR)/cache/cache_reservation_manager_test.o $(TEST_LIBRARY) $(LIBRARY)

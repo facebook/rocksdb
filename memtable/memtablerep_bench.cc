@@ -552,7 +552,6 @@ class ReadWriteBenchmark : public Benchmark {
     }
   }
 };
-
 }  // namespace ROCKSDB_NAMESPACE
 
 void PrintWarnings() {
