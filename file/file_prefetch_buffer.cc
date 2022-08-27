@@ -401,6 +401,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
     // Length > 0: More data needs to be consumed so it will continue async and
     // sync prefetching and copy the remaining data to third buffer in the end.
     if (length == 0) {
+      curr_ = curr_ ^ 1;
       return s;
     }
   }
@@ -543,9 +544,8 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   // of reads not sequential and PrefetchAsync can be called for any block and
   // RocksDB will call TryReadFromCacheAsync after PrefetchAsync to Poll for
   // requested bytes.
-  if (!bufs_[curr_].async_read_in_progress &&
-      bufs_[curr_].buffer_.CurrentSize() > 0 && offset < bufs_[curr_].offset_ &&
-      prev_len_ != 0) {
+  if (!async_request_submitted_ && prev_len_ != 0 &&
+      offset < bufs_[curr_].offset_) {
     return false;
   }
 
