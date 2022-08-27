@@ -317,13 +317,16 @@ class BlockBasedTable : public TableReader {
   void UpdateCacheMissMetrics(BlockType block_type,
                               GetContext* get_context) const;
 
+  template <typename TBlocklike>
   Cache::Handle* GetEntryFromCache(const CacheTier& cache_tier,
                                    Cache* block_cache, const Slice& key,
                                    BlockType block_type, const bool wait,
                                    GetContext* get_context,
                                    const Cache::CacheItemHelper* cache_helper,
-                                   const Cache::CreateCallback& create_cb,
                                    Cache::Priority priority) const;
+
+  template <typename TBlocklike>
+  Cache::CreateCallback GetCreateCallback(BlockType block_type) const;
 
   template <typename TBlocklike>
   Status InsertEntryToCache(const CacheTier& cache_tier, Cache* block_cache,

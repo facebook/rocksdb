@@ -379,13 +379,15 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(
   }
 }
 
+template <typename TBlocklike>
 Cache::Handle* BlockBasedTable::GetEntryFromCache(
     const CacheTier& cache_tier, Cache* block_cache, const Slice& key,
     BlockType block_type, const bool wait, GetContext* get_context,
     const Cache::CacheItemHelper* cache_helper,
-    const Cache::CreateCallback& create_cb, Cache::Priority priority) const {
+    Cache::Priority priority) const {
   Cache::Handle* cache_handle = nullptr;
   if (cache_tier == CacheTier::kNonVolatileBlockTier) {
+    Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(block_type);
     cache_handle = block_cache->Lookup(key, cache_helper, create_cb, priority,
                                        wait, rep_->ioptions.statistics.get());
   } else {
@@ -1249,20 +1251,15 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
   Statistics* statistics = rep_->ioptions.statistics.get();
-  bool using_zstd = rep_->blocks_definitely_zstd_compressed;
-  const FilterPolicy* filter_policy = rep_->filter_policy;
-  Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
-      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
     assert(!cache_key.empty());
     Cache::Handle* cache_handle = nullptr;
-    cache_handle = GetEntryFromCache(
+    cache_handle = GetEntryFromCache<TBlocklike>(
         rep_->ioptions.lowest_used_cache_tier, block_cache, cache_key,
         block_type, wait, get_context,
-        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), create_cb,
-        priority);
+        BlocklikeTraits<TBlocklike>::GetCacheItemHelper(block_type), priority);
     if (cache_handle != nullptr) {
       block->SetCachedValue(
           reinterpret_cast<TBlocklike*>(block_cache->Value(cache_handle)),
@@ -1282,8 +1279,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents contents;
   if (rep_->ioptions.lowest_used_cache_tier ==
       CacheTier::kNonVolatileBlockTier) {
-    Cache::CreateCallback create_cb_special = GetCreateCallback<BlockContents>(
-        read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
+    Cache::CreateCallback create_cb_special =
+        GetCreateCallback<BlockContents>(block_type);
     block_cache_compressed_handle = block_cache_compressed->Lookup(
         cache_key,
         BlocklikeTraits<BlockContents>::GetCacheItemHelper(block_type),
@@ -3051,6 +3048,36 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
 
   out_stream << "  ASCII  " << res_key << ": " << res_value << "\n";
   out_stream << "  ------\n";
+}
+
+template <typename TBlocklike>
+Cache::CreateCallback BlockBasedTable::GetCreateCallback(
+    BlockType block_type) const {
+  // limit the number of captured variables of the lambda to 2, so for the most
+  // of the compilers, it won't dynamically allocate extra memory from heap
+  // (which could be relatively expensive for the read path).
+  // Note: don't just capture the reference to an obj on stack, as the callback
+  //  may out live the object on stack, as the user lib may copy the callback in
+  //  lookup().
+  // For long-term, if it does need to capture more variables, maybe only do
+  // that for secondary cache?
+  return [this, block_type](const void* buf, size_t size, void** out_obj,
+                            size_t* charge) -> Status {
+    assert(buf != nullptr);
+    std::unique_ptr<char[]> buf_data(new char[size]());
+    memcpy(buf_data.get(), buf, size);
+    BlockContents bc = BlockContents(std::move(buf_data), size);
+    const size_t read_amp_bytes_per_bit =
+        block_type == BlockType::kData
+            ? rep_->table_options.read_amp_bytes_per_bit
+            : 0;
+    TBlocklike* ucd_ptr = BlocklikeTraits<TBlocklike>::Create(
+        std::move(bc), read_amp_bytes_per_bit, rep_->ioptions.statistics.get(),
+        rep_->blocks_definitely_zstd_compressed, rep_->filter_policy);
+    *out_obj = reinterpret_cast<void*>(ucd_ptr);
+    *charge = size;
+    return Status::OK();
+  };
 }
 
 }  // namespace ROCKSDB_NAMESPACE
