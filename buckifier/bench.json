@@ -368,6 +368,7 @@
           {
             "est_runtime": 271.397936
           }
+        ]
       },
       "ribbon_bench": {
         "FilterBuild/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1048576": [

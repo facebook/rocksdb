@@ -11,7 +11,6 @@
 #include "bench_util.h"
 
 #include "port/port_posix.h"
-#include "rocksdb/db.h"
 #include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
