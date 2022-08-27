@@ -197,6 +197,10 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
         + ["test_util/testutil.cc"])
+    # rocksdb_bench_lib
+    TARGETS.add_rocksdb_library(
+        "rocksdb_bench_lib",
+        src_mk.get("MICROBENCH_LIB_SOURCES", []))
     # db_stress binary
     TARGETS.add_binary("db_stress",
                        ["db_stress_tool/db_stress.cc"],
@@ -207,7 +211,7 @@ def generate_targets(repo_path, deps_map):
         TARGETS.add_binary(
             name,
             [src],
-            [],
+            [":rocksdb_bench_lib"],
             extra_bench_libs=True
             )
     print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
