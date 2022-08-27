@@ -74,4 +74,4 @@ KeyGenerator::KeyGenerator(uint64_t max_key, size_t key_size) {
   is_sequential_ = true;
 }
 
-}  // ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

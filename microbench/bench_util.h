@@ -72,4 +72,4 @@ class KeyGenerator {
   void static Encode(char* buf, uint32_t value);
 };
 
-} // namespace ROCKSDB_NAMESPACE
+}  // namespace ROCKSDB_NAMESPACE

@@ -196,7 +196,8 @@ static void RandomAccessFileReaderRead(benchmark::State& state) {
   // clean up
   for (int i = 0; i < kFileNum; i++) {
     std::string fname = fname_base + std::to_string(i);
-    env->DeleteFile(fname).PermitUncheckedError();  // ignore return, okay to fail cleanup
+    env->DeleteFile(fname)
+        .PermitUncheckedError();  // ignore return, okay to fail cleanup
   }
 }
 
@@ -283,7 +284,6 @@ static void DataBlockSeek(benchmark::State& state) {
 }
 
 BENCHMARK(DataBlockSeek)->Iterations(1000000);
-
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -368,16 +368,6 @@
           {
             "est_runtime": 271.397936
           }
-        ],
-        "DataBlockSeek/iterations:1000000": [
-          "real_time",
-          "cpu_time",
-          "seek_ns",
-          "threads",
-          {
-            "est_runtime": 16.815497
-          }
-        ]
       },
       "ribbon_bench": {
         "FilterBuild/filter_impl:0/bits_per_key:10/key_len_avg:10/entry_num:1048576": [
@@ -493,14 +483,6 @@
           "threads",
           {
             "est_runtime": 270.221479
-          }
-        ],
-        "RandomAccessFileReaderRead/enable_statistics:1/iterations:1000000": [
-          "real_time",
-          "cpu_time",
-          "threads",
-          {
-            "est_runtime": 5.370559
           }
         ]
       },
@@ -847,14 +829,6 @@
           "threads",
           {
             "est_runtime": 360.424861
-          }
-        ],
-        "RandomAccessFileReaderRead/enable_statistics:0/iterations:1000000": [
-          "real_time",
-          "cpu_time",
-          "threads",
-          {
-            "est_runtime": 2.984478
           }
         ]
       },
