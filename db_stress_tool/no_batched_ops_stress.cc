@@ -361,7 +361,12 @@ class NonBatchedOpsStressTest : public StressTest {
       // found case
       thread->stats.AddGets(1, 1);
       // we only have the latest expected state
-      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp &&
+      // FLAGS_destroy_db_initially is needed since there are tests
+      // that do not write to expected state (see comments for
+      // flag test_batches_snapshots) and/or uses keys that cannot be
+      // parsed by GetIntVal() (see TestPut() in BatchedOpsStressTest).
+      if (FLAGS_destroy_db_initially && !FLAGS_skip_verifydb &&
+          !read_opts_copy.timestamp &&
           thread->shared->Get(rand_column_families[0], rand_keys[0]) ==
               SharedState::DELETION_SENTINEL) {
         thread->shared->SetVerificationFailure();
@@ -373,7 +378,8 @@ class NonBatchedOpsStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       // not found case
       thread->stats.AddGets(1, 0);
-      if (!FLAGS_skip_verifydb && !read_opts_copy.timestamp) {
+      if (FLAGS_destroy_db_initially && !FLAGS_skip_verifydb &&
+          !read_opts_copy.timestamp) {
         auto expected =
             thread->shared->Get(rand_column_families[0], rand_keys[0]);
         if (expected != SharedState::DELETION_SENTINEL &&

@@ -922,7 +922,11 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
-        if (!FLAGS_skip_verifydb &&
+        // FLAGS_destroy_db_initially is needed since there are tests
+        // that do not write to expected state (see comments for
+        // flag test_batches_snapshots) and/or uses keys that cannot be
+        // parsed by GetIntVal() (see TestPut() in BatchedOpsStressTest).
+        if (FLAGS_destroy_db_initially && !FLAGS_skip_verifydb &&
             thread->rand.OneInOpt(
                 FLAGS_verify_iterator_with_expected_state_one_in)) {
           TestIterateAgainstExpected(thread, read_opts, rand_column_families,
