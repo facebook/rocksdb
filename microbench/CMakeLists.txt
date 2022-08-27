@@ -1,7 +1,7 @@
 find_package(benchmark REQUIRED)
 find_package(Threads REQUIRED)
 
-file(GLOB_RECURSE ALL_BENCH_CPP *.cc)
+file(GLOB_RECURSE ALL_BENCH_CPP *bench.cc)
 foreach(ONE_BENCH_CPP ${ALL_BENCH_CPP})
   get_filename_component(TARGET_NAME ${ONE_BENCH_CPP} NAME_WE)
   add_executable(${TARGET_NAME} ${ONE_BENCH_CPP} bench_util.cc bench_util.h)
