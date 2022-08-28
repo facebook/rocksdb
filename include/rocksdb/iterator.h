@@ -111,6 +111,10 @@ class Iterator : public Cleanable {
   // iterator will be invalidated after the call. Not supported if
   // ReadOptions.snapshot is given when creating the iterator.
   virtual Status Refresh() {
+    return Refresh(nullptr);
+  }
+
+  virtual Status Refresh(const class Snapshot*) {
     return Status::NotSupported("Refresh() is not supported");
   }
 
