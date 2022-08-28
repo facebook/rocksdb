@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/arena_wrapped_db_iter.h"
+
 #include "db/snapshot_impl.h"
 #include "memory/arena.h"
 #include "rocksdb/env.h"
@@ -61,9 +62,7 @@ void ArenaWrappedDBIter::Init(
   }
 }
 
-Status ArenaWrappedDBIter::Refresh() {
-  return Refresh(nullptr);
-}
+Status ArenaWrappedDBIter::Refresh() { return Refresh(nullptr); }
 
 Status ArenaWrappedDBIter::Refresh(const Snapshot* snap) {
   if (cfd_ == nullptr || db_impl_ == nullptr || !allow_refresh_) {
