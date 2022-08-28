@@ -105,6 +105,10 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
       }
       return 0;
     }
+
+    bool CanKeysWithDifferentByteContentsBeEqual() const override {
+      return false;
+    }
   };
 
   std::string Timestamp(uint64_t low, uint64_t high);

@@ -686,6 +686,28 @@ Status BlockBasedTableFactory::ValidateOptions(
         "max_successive_merges larger than 0 is currently inconsistent with "
         "unordered_write");
   }
+  if (cf_opts.comparator->CanKeysWithDifferentByteContentsBeEqual()) {
+    // More checks for incompatible hashing (see also
+    // ColumnFamilyData::ValidateOptions)
+    if (table_options_.index_type == BlockBasedTableOptions::kHashSearch) {
+      return Status::InvalidArgument(
+          "Hash index not compatible with comparator where different byte "
+          "contents can be equal");
+    }
+    if (table_options_.data_block_index_type ==
+        BlockBasedTableOptions::kDataBlockBinaryAndHash) {
+      return Status::InvalidArgument(
+          "Data block hash index not compatible with comparator where "
+          "different byte contents can be equal");
+    }
+    if (table_options_.filter_policy) {
+      // TODO: re-add support for custom filtering that doesn't require this
+      // assumption
+      return Status::InvalidArgument(
+          "Filter policy is not compatible with comparator where different "
+          "byte contents can be equal");
+    }
+  }
   const auto& options_overrides =
       table_options_.cache_usage_options.options_overrides;
   for (auto options_overrides_iter = options_overrides.cbegin();

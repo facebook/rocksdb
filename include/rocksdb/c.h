@@ -1773,7 +1773,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_comparator_t* rocksdb_comparator_create(
     void* state, void (*destructor)(void*),
     int (*compare)(void*, const char* a, size_t alen, const char* b,
                    size_t blen),
-    const char* (*name)(void*));
+    const char* name,
+    unsigned char can_keys_with_different_byte_contents_be_equal);
 extern ROCKSDB_LIBRARY_API void rocksdb_comparator_destroy(
     rocksdb_comparator_t*);
 
@@ -1787,7 +1788,9 @@ rocksdb_comparator_with_ts_create(
     int (*compare_without_ts)(void*, const char* a, size_t alen,
                               unsigned char a_has_ts, const char* b,
                               size_t blen, unsigned char b_has_ts),
-    const char* (*name)(void*), size_t timestamp_size);
+    const char* name,
+    unsigned char can_keys_with_different_byte_contents_be_equal,
+    size_t timestamp_size);
 
 /* Filter policy */
 

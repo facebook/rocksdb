@@ -195,6 +195,7 @@ class DoubleComparator : public Comparator {
   void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
+// Hash order first, then lexicographic order when hashes match
 class HashComparator : public Comparator {
  public:
   HashComparator() {}
@@ -216,6 +217,10 @@ class HashComparator : public Comparator {
                              const Slice& /*limit*/) const override {}
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 
 class TwoStrComparator : public Comparator {
@@ -248,6 +253,10 @@ class TwoStrComparator : public Comparator {
                              const Slice& /*limit*/) const override {}
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 }  // namespace
 

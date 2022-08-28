@@ -15,20 +15,24 @@
 namespace ROCKSDB_NAMESPACE {
 
 class NativeComparatorWrapperTestStringComparator : public Comparator {
-  const char* Name() const {
+  const char* Name() const override {
     return "NativeComparatorWrapperTestStringComparator";
   }
 
-  int Compare(const Slice& a, const Slice& b) const {
+  int Compare(const Slice& a, const Slice& b) const override {
     return a.ToString().compare(b.ToString());
   }
 
   void FindShortestSeparator(std::string* /*start*/,
-                             const Slice& /*limit*/) const {
+                             const Slice& /*limit*/) const override {
     return;
   }
 
-  void FindShortSuccessor(std::string* /*key*/) const { return; }
+  void FindShortSuccessor(std::string* /*key*/) const override { return; }
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 }  // namespace ROCKSDB_NAMESPACE
 

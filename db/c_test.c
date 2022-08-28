@@ -225,11 +225,6 @@ static int CmpCompare(void* arg, const char* a, size_t alen,
   return r;
 }
 
-static const char* CmpName(void* arg) {
-  (void)arg;
-  return "foo";
-}
-
 // Custom compaction filter
 static void CFilterDestroy(void* arg) { (void)arg; }
 static const char* CFilterName(void* arg) {
@@ -675,7 +670,8 @@ int main(int argc, char** argv) {
            ((int) geteuid()));
 
   StartPhase("create_objects");
-  cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
+  cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, "foo",
+                                  /*can_keys_...=*/0);
   dbpath = rocksdb_dbpath_create(dbpathname, 1024 * 1024);
   env = rocksdb_create_default_env();
 

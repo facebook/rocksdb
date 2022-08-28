@@ -117,6 +117,10 @@ class Uint64ComparatorImpl : public Comparator {
   }
 
   void FindShortSuccessor(std::string* /*key*/) const override { return; }
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 }  // namespace
 

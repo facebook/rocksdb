@@ -3139,6 +3139,10 @@ class BackwardBytewiseComparator : public Comparator {
                              const Slice& /*limit*/) const override {}
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 
 const BackwardBytewiseComparator kBackwardBytewiseComparator{};
@@ -3363,6 +3367,10 @@ class WeirdComparator : public Comparator {
                              const Slice& /*limit*/) const override {}
 
   void FindShortSuccessor(std::string* /*key*/) const override {}
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 const WeirdComparator kWeirdComparator{};
 

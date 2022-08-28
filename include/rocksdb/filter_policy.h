@@ -34,6 +34,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class Comparator;
 class Slice;
 struct BlockBasedTableOptions;
 struct ConfigOptions;

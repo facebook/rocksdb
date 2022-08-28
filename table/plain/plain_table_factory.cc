@@ -123,6 +123,26 @@ std::string PlainTableFactory::GetPrintableOptions() const {
   return ret;
 }
 
+Status PlainTableFactory::ValidateOptions(
+    const DBOptions& db_opts, const ColumnFamilyOptions& cf_opts) const {
+  if (cf_opts.comparator->CanKeysWithDifferentByteContentsBeEqual()) {
+    // More checks for incompatible hashing (see also
+    // ColumnFamilyData::ValidateOptions)
+    if (cf_opts.prefix_extractor) {
+      return Status::InvalidArgument(
+          "Plain table with prefix extractor is not compatible with comparator "
+          "where different byte contents can be equal");
+    }
+    if (table_options_.bloom_bits_per_key > 0) {
+      return Status::InvalidArgument(
+          "Plain table bloom filter is not compatible with comparator where "
+          "different byte contents can be equal");
+    }
+  }
+
+  return TableFactory::ValidateOptions(db_opts, cf_opts);
+}
+
 Status GetPlainTableOptionsFromString(const PlainTableOptions& table_options,
                                       const std::string& opts_str,
                                       PlainTableOptions* new_table_options) {

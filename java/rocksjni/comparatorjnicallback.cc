@@ -536,6 +536,13 @@ void ComparatorJniCallback::FindShortSuccessor(
   releaseJniEnv(attached_thread);
 }
 
+bool ComparatorJniCallback::CanKeysWithDifferentByteContentsBeEqual() const {
+  // TODO: expose this function on the Java side to get the same checking
+  // for incompatibility with hashing features. At the moment, this simply
+  // returns false to trust the compatibility of features used from Java.
+  return false;
+}
+
 inline void ComparatorJniCallback::MaybeLockForReuse(
     const std::unique_ptr<port::Mutex>& mutex, const bool cond) const {
   // no need to lock if using thread_local
