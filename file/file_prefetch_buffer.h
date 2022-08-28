@@ -260,10 +260,11 @@ class FilePrefetchBuffer {
     //   - block is sequential with the previous read and,
     //   - num_file_reads_ + 1 (including this read) >
     //   num_file_reads_for_auto_readahead_
-    if (implicit_auto_readahead_ && readahead_size_ > 0 &&
-        !bufs_[curr_].async_read_in_progress) {
-      if ((offset + size >
-           bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) &&
+    size_t curr_size = bufs_[curr_].async_read_in_progress
+                           ? bufs_[curr_].async_req_len
+                           : bufs_[curr_].buffer_.CurrentSize();
+    if (implicit_auto_readahead_ && readahead_size_ > 0) {
+      if ((offset + size > bufs_[curr_].offset_ + curr_size) &&
           IsBlockSequential(offset) &&
           (num_file_reads_ + 1 > num_file_reads_for_auto_readahead_)) {
         readahead_size_ =
@@ -283,6 +284,8 @@ class FilePrefetchBuffer {
   void CalculateOffsetAndLen(size_t alignment, uint64_t offset,
                              size_t roundup_len, size_t index, bool refit_tail,
                              uint64_t& chunk_len);
+
+  void AbortIOIfNeeded(uint64_t offset);
 
   void UpdateBuffersIfNeeded(uint64_t offset);
 
