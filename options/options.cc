@@ -675,11 +675,11 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
 
 //
 static const bool g_cache_sst_file_iter = []() -> bool {
-    const char* env = getenv("CACHE_SST_FILE_ITER");
-    if (env)
-      return atoi(env) != 0;
-    else
-      return false; // default
+  const char* env = getenv("CACHE_SST_FILE_ITER");
+  if (env)
+    return atoi(env) != 0;
+  else
+    return false;  // default
 }();
 
 ReadOptions::ReadOptions()

@@ -982,8 +982,7 @@ class LevelIterator final : public InternalIterator {
     if (file_iter_cache_) {
       for (size_t i = 0, n = flevel_->num_files; i < n; i++) {
         auto iter = file_iter_cache_[i];
-        if (UNLIKELY(nullptr != iter))
-          delete iter;
+        if (UNLIKELY(nullptr != iter)) delete iter;
       }
       delete file_iter_cache_;
     } else {
@@ -1087,12 +1086,12 @@ class LevelIterator final : public InternalIterator {
     }
     if (!iter) {
       iter = table_cache_->NewIterator(
-        read_options_, file_options_, icomparator_, *file_meta.file_metadata,
-        range_del_agg_, prefix_extractor_,
-        nullptr /* don't need reference to table */, file_read_hist_, caller_,
-        /*arena=*/nullptr, skip_filters_, level_,
-        /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
-        largest_compaction_key, allow_unprepared_value_);
+          read_options_, file_options_, icomparator_, *file_meta.file_metadata,
+          range_del_agg_, prefix_extractor_,
+          nullptr /* don't need reference to table */, file_read_hist_, caller_,
+          /*arena=*/nullptr, skip_filters_, level_,
+          /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
+          largest_compaction_key, allow_unprepared_value_);
       if (pinned_iters_mgr_) {
         iter->SetPinnedItersMgr(pinned_iters_mgr_);
       }
@@ -1328,7 +1327,7 @@ void LevelIterator::SetFileIterator(InternalIterator* iter) {
   }
 
   if (file_iter_cache_) {
-    return; // don't PinIterator or delete old_iter
+    return;  // don't PinIterator or delete old_iter
   }
 
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
