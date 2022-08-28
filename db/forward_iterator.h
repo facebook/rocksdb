@@ -105,10 +105,6 @@ class ForwardIterator : public InternalIterator {
   void UpdateCurrent();
   bool NeedToSeekImmutable(const Slice& internal_key);
   void DeleteCurrentIter();
-  uint32_t FindFileInRange(
-    const std::vector<FileMetaData*>& files, const Slice& internal_key,
-    uint32_t left, uint32_t right);
-
   bool IsOverUpperBound(const Slice& internal_key) const;
 
   // Set PinnedIteratorsManager for all children Iterators, this function should

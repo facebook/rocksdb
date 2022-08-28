@@ -3989,6 +3989,12 @@ uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
   return TotalFileSize(files_[level]);
 }
 
+int VersionStorageInfo::FindFileInRange(int level, const Slice& key,
+                                        uint32_t left, uint32_t right) const {
+  return ROCKSDB_NAMESPACE::FindFileInRange(*internal_comparator_,
+            level_files_brief_[level], key, left, right);
+}
+
 const char* VersionStorageInfo::LevelSummary(
     LevelSummaryStorage* scratch) const {
   int len = 0;
