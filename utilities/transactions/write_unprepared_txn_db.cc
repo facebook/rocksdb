@@ -401,7 +401,7 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& _read_options,
   }
   // TODO(lth): Refactor so that this logic is shared with WritePrepared.
   constexpr bool expose_blob_index = false;
-  constexpr bool allow_refresh = false;
+  constexpr bool allow_refresh = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;

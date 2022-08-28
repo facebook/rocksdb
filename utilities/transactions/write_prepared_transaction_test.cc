@@ -3488,7 +3488,7 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
 TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
   Iterator* iter = db->NewIterator(ReadOptions());
   ASSERT_OK(iter->status());
-  ASSERT_TRUE(iter->Refresh().IsNotSupported());
+  ASSERT_OK(iter->Refresh());
   delete iter;
 }
 

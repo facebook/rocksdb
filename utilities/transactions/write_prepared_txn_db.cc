@@ -390,7 +390,7 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& _read_options,
     read_options.io_activity = Env::IOActivity::kDBIterator;
   }
   constexpr bool expose_blob_index = false;
-  constexpr bool allow_refresh = false;
+  constexpr bool allow_refresh = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;
