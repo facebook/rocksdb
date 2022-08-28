@@ -161,7 +161,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
   // are not inserted into the primary cache. They are returned to the
   // caller directly and a dummy handle is inserted into the primary cache
   // instead, so we need to charge its memory usage in secondary cache.
-  double standalone_pool_ratio = 0.3;
+  double standalone_pool_ratio = 0.2;
 
   CompressedSecondaryCacheOptions() {}
   CompressedSecondaryCacheOptions(
@@ -173,7 +173,7 @@ struct CompressedSecondaryCacheOptions : LRUCacheOptions {
           kDefaultCacheMetadataChargePolicy,
       CompressionType _compression_type = CompressionType::kLZ4Compression,
       uint32_t _compress_format_version = 2,
-      double _standalone_pool_ratio = 0.3)
+      double _standalone_pool_ratio = 0.2)
       : LRUCacheOptions(_capacity, _num_shard_bits, _strict_capacity_limit,
                         _high_pri_pool_ratio, std::move(_memory_allocator),
                         _use_adaptive_mutex, _metadata_charge_policy,
@@ -194,7 +194,7 @@ extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy,
     CompressionType compression_type = CompressionType::kLZ4Compression,
-    uint32_t compress_format_version = 2, double _standalone_pool_ratio = 0.3);
+    uint32_t compress_format_version = 2, double _standalone_pool_ratio = 0.2);
 
 extern std::shared_ptr<SecondaryCache> NewCompressedSecondaryCache(
     const CompressedSecondaryCacheOptions& opts);
