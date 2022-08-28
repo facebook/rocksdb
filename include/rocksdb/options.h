@@ -1520,6 +1520,8 @@ struct ReadOptions {
   // Default: kReadAllTier
   ReadTier read_tier;
 
+  bool cache_sst_file_iter;
+
   // If true, all data read from underlying storage will be
   // verified against corresponding checksums.
   // Default: true

@@ -971,9 +971,25 @@ class LevelIterator final : public InternalIterator {
         is_next_read_sequential_(false) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
+    if (read_options.cache_sst_file_iter) {
+      file_iter_cache_ = new InternalIterator*[flevel->num_files]();
+    } else {
+      file_iter_cache_ = nullptr;
+    }
   }
 
-  ~LevelIterator() override { delete file_iter_.Set(nullptr); }
+  ~LevelIterator() override {
+    if (file_iter_cache_) {
+      for (size_t i = 0, n = flevel_->num_files; i < n; i++) {
+        auto iter = file_iter_cache_[i];
+        if (UNLIKELY(nullptr != iter))
+          delete iter;
+      }
+      delete file_iter_cache_;
+    } else {
+      delete file_iter_.Set(nullptr);
+    }
+  }
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice& target) override;
@@ -1065,13 +1081,26 @@ class LevelIterator final : public InternalIterator {
       largest_compaction_key = (*compaction_boundaries_)[file_index_].largest;
     }
     CheckMayBeOutOfLowerBound();
-    return table_cache_->NewIterator(
+    InternalIterator* iter = nullptr;
+    if (file_iter_cache_) {
+      iter = file_iter_cache_[file_index_];
+    }
+    if (!iter) {
+      iter = table_cache_->NewIterator(
         read_options_, file_options_, icomparator_, *file_meta.file_metadata,
         range_del_agg_, prefix_extractor_,
         nullptr /* don't need reference to table */, file_read_hist_, caller_,
         /*arena=*/nullptr, skip_filters_, level_,
         /*max_file_size_for_l0_meta_pin=*/0, smallest_compaction_key,
         largest_compaction_key, allow_unprepared_value_);
+      if (pinned_iters_mgr_) {
+        iter->SetPinnedItersMgr(pinned_iters_mgr_);
+      }
+      if (file_iter_cache_) {
+        file_iter_cache_[file_index_] = iter;
+      }
+    }
+    return iter;
   }
 
   // Check if current file being fully within iterate_lower_bound.
@@ -1111,6 +1140,7 @@ class LevelIterator final : public InternalIterator {
   RangeDelAggregator* range_del_agg_;
   IteratorWrapper file_iter_;  // May be nullptr
   PinnedIteratorsManager* pinned_iters_mgr_;
+  InternalIterator** file_iter_cache_;
 
   // To be propagated to RangeDelAggregator in order to safely truncate range
   // tombstones.
@@ -1290,15 +1320,15 @@ void LevelIterator::SkipEmptyFileBackward() {
 }
 
 void LevelIterator::SetFileIterator(InternalIterator* iter) {
-  if (pinned_iters_mgr_ && iter) {
-    iter->SetPinnedItersMgr(pinned_iters_mgr_);
-  }
-
   InternalIterator* old_iter = file_iter_.Set(iter);
 
   // Update the read pattern for PrefetchBuffer.
   if (is_next_read_sequential_) {
     file_iter_.UpdateReadaheadState(old_iter);
+  }
+
+  if (file_iter_cache_) {
+    return; // don't PinIterator or delete old_iter
   }
 
   if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {

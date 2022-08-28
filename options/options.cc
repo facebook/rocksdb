@@ -673,6 +673,15 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
 
 #endif  // !ROCKSDB_LITE
 
+//
+static const bool g_cache_sst_file_iter = []() -> bool {
+    const char* env = getenv("CACHE_SST_FILE_ITER");
+    if (env)
+      return atoi(env) != 0;
+    else
+      return false; // default
+}();
+
 ReadOptions::ReadOptions()
     : snapshot(nullptr),
       iterate_lower_bound(nullptr),
@@ -680,6 +689,7 @@ ReadOptions::ReadOptions()
       readahead_size(0),
       max_skippable_internal_keys(0),
       read_tier(kReadAllTier),
+      cache_sst_file_iter(g_cache_sst_file_iter),
       verify_checksums(true),
       fill_cache(true),
       tailing(false),
@@ -706,6 +716,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       readahead_size(0),
       max_skippable_internal_keys(0),
       read_tier(kReadAllTier),
+      cache_sst_file_iter(g_cache_sst_file_iter),
       verify_checksums(cksum),
       fill_cache(cache),
       tailing(false),
