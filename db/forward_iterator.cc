@@ -464,8 +464,8 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
       uint32_t f_idx = 0;
       if (!seek_to_first) {
-        f_idx = vstorage->FindFileInRange(level, internal_key, 0,
-                                static_cast<uint32_t>(level_files.size()));
+        f_idx = vstorage->FindFileInRange(
+            level, internal_key, 0, static_cast<uint32_t>(level_files.size()));
       }
 
       // Seek
