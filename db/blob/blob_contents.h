@@ -40,8 +40,6 @@ class BlobContents {
   static Status SaveToCallback(void* from_obj, size_t from_offset,
                                size_t length, void* out);
 
-  static void DeleteCallback(const Slice& key, void* value);
-
   static Cache::CacheItemHelper* GetCacheItemHelper();
 
   static Status CreateCallback(const void* buf, size_t size, void** out_obj,
