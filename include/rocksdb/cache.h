@@ -600,7 +600,10 @@ enum class CacheEntryRole {
   kBlockBasedTableReader,
   // FileMetadata's charge to account for its memory usage
   kFileMetadata,
-  // Blob cache's charge to account for its memory usage
+  // Blob value (when using the same cache as block cache and blob cache)
+  kBlobValue,
+  // Blob cache's charge to account for its memory usage (when using a
+  // separate block cache and blob cache)
   kBlobCache,
   // Default bucket, for miscellaneous cache entries. Do not use for
   // entries that could potentially add up to large usage.

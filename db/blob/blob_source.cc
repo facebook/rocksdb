@@ -128,11 +128,15 @@ Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
                                         Cache::Priority priority) const {
   Status s;
 
+  Cache::CacheItemHelper* const cache_item_helper =
+      BlobContents::GetCacheItemHelper();
+  assert(cache_item_helper);
+
   if (lowest_used_cache_tier_ == CacheTier::kNonVolatileBlockTier) {
-    s = blob_cache_->Insert(key, value, BlobContents::GetCacheItemHelper(),
-                            charge, cache_handle, priority);
+    s = blob_cache_->Insert(key, value, cache_item_helper, charge, cache_handle,
+                            priority);
   } else {
-    s = blob_cache_->Insert(key, value, charge, &BlobContents::DeleteCallback,
+    s = blob_cache_->Insert(key, value, charge, cache_item_helper->del_cb,
                             cache_handle, priority);
   }
 

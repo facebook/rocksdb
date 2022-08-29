@@ -7,6 +7,7 @@
 
 #include <cassert>
 
+#include "cache/cache_entry_roles.h"
 #include "cache/cache_helpers.h"
 #include "port/malloc.h"
 
@@ -62,13 +63,10 @@ Status BlobContents::SaveToCallback(void* from_obj, size_t from_offset,
   return Status::OK();
 }
 
-void BlobContents::DeleteCallback(const Slice& key, void* value) {
-  DeleteCacheEntry<BlobContents>(key, value);
-}
-
 Cache::CacheItemHelper* BlobContents::GetCacheItemHelper() {
-  static Cache::CacheItemHelper cache_helper(&SizeCallback, &SaveToCallback,
-                                             &DeleteCallback);
+  static Cache::CacheItemHelper cache_helper(
+      &SizeCallback, &SaveToCallback,
+      GetCacheEntryDeleterForRole<BlobContents, CacheEntryRole::kBlobValue>());
 
   return &cache_helper;
 }
