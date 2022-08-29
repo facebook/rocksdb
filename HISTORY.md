@@ -2,12 +2,15 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed a hang when an operation such as `GetLiveFiles` or `CreateNewBackup` is asked to trigger and wait for memtable flush on a read-only DB. Such indirect requests for memtable flush are now ignored on a read-only DB.
-
-### Behavior Change
-* Updated `TestGet()` in `no_batched_op_stress` (default stress test) to check the result of Get() operations against expected state.
+* Fixed bug where `FlushWAL(true /* sync */)` (used by `GetLiveFilesStorageInfo()`, which is used by checkpoint and backup) could cause parallel writes at the tail of a WAL file to never be synced.
+* Fix periodic_task unable to re-register the same task type, which may cause `SetOptions()` fail to update periodical_task time like: `stats_dump_period_sec`, `stats_persist_period_sec`.
 
 ### Public API changes
 * Add `rocksdb_column_family_handle_get_id`, `rocksdb_column_family_handle_get_name` to get name, id of column family in C API
+
+### Java API Changes
+* Add CompactionPriority.RoundRobin.
+* Revert to using the default metadata charge policy when creating an LRU cache via the Java API.
 
 ## 7.6.0 (08/19/2022)
 ### New Features

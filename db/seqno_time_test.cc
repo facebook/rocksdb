@@ -5,7 +5,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
-#include "db/periodic_work_scheduler.h"
+#include "db/periodic_task_scheduler.h"
 #include "db/seqno_to_time_mapping.h"
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
@@ -29,11 +29,10 @@ class SeqnoTimeTest : public DBTestBase {
   void SetUp() override {
     mock_clock_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::StartPeriodicWorkScheduler:Init", [&](void* arg) {
-          auto* periodic_work_scheduler_ptr =
-              reinterpret_cast<PeriodicWorkScheduler**>(arg);
-          *periodic_work_scheduler_ptr =
-              PeriodicWorkTestScheduler::Default(mock_clock_);
+        "DBImpl::StartPeriodicTaskScheduler:Init", [&](void* arg) {
+          auto periodic_task_scheduler_ptr =
+              reinterpret_cast<PeriodicTaskScheduler*>(arg);
+          periodic_task_scheduler_ptr->TEST_OverrideTimer(mock_clock_.get());
         });
   }
 
@@ -80,7 +79,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicWorkerRun(
+  dbfull()->TEST_WaitForPeridicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec)); });
 
   int sst_num = 0;
@@ -88,7 +87,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   for (; sst_num < kNumTrigger; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun([&] {
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -110,7 +109,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   for (; sst_num < kNumTrigger * 2; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun([&] {
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -124,7 +123,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   for (; sst_num < kNumTrigger * 3; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun([&] {
+      dbfull()->TEST_WaitForPeridicTaskRun([&] {
         mock_clock_->MockSleepForSeconds(static_cast<int>(kKeyPerSec));
       });
     }
@@ -142,36 +141,31 @@ TEST_F(SeqnoTimeTest, TemperatureBasicUniversal) {
   // the first a few key should be cold
   AssertKetTemperature(20, Temperature::kCold);
 
-  // Wait some time, each time after compaction, the cold data size is
-  // increasing and hot data size is decreasing
   for (int i = 0; i < 30; i++) {
-    dbfull()->TEST_WaitForPeridicWorkerRun([&] {
+    dbfull()->TEST_WaitForPeridicTaskRun([&] {
       mock_clock_->MockSleepForSeconds(static_cast<int>(20 * kKeyPerSec));
     });
     ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-    uint64_t pre_hot = hot_data_size;
-    uint64_t pre_cold = cold_data_size;
-    hot_data_size = GetSstSizeHelper(Temperature::kUnknown);
-    cold_data_size = GetSstSizeHelper(Temperature::kCold);
-    ASSERT_LT(hot_data_size, pre_hot);
-    ASSERT_GT(cold_data_size, pre_cold);
 
     // the hot/cold data cut off range should be between i * 20 + 200 -> 250
     AssertKetTemperature(i * 20 + 250, Temperature::kUnknown);
     AssertKetTemperature(i * 20 + 200, Temperature::kCold);
   }
 
-  // Wait again, all data should be cold after that
+  ASSERT_LT(GetSstSizeHelper(Temperature::kUnknown), hot_data_size);
+  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), cold_data_size);
+
+  // Wait again, the most of the data should be cold after that
+  // but it may not be all cold, because if there's no new data write to SST,
+  // the compaction will not get the new seqno->time sampling to decide the last
+  // a few data's time.
   for (int i = 0; i < 5; i++) {
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1000)); });
     ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   }
 
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-
-  // any random data should be cold
+  // any random data close to the end should be cold
   AssertKetTemperature(1000, Temperature::kCold);
 
   // close explicitly, because the env is local variable which will be released
@@ -197,7 +191,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
 
   // pass some time first, otherwise the first a few keys write time are going
   // to be zero, and internally zero has special meaning: kUnknownSeqnoTime
-  dbfull()->TEST_WaitForPeridicWorkerRun(
+  dbfull()->TEST_WaitForPeridicTaskRun(
       [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
 
   int sst_num = 0;
@@ -205,7 +199,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   for (; sst_num < 4; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun(
+      dbfull()->TEST_WaitForPeridicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
     }
     ASSERT_OK(Flush());
@@ -227,7 +221,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   for (; sst_num < 14; sst_num++) {
     for (int i = 0; i < kNumKeys; i++) {
       ASSERT_OK(Put(Key(sst_num * (kNumKeys - 1) + i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun(
+      dbfull()->TEST_WaitForPeridicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
     }
     ASSERT_OK(Flush());
@@ -248,7 +242,7 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
   // Wait some time, with each wait, the cold data is increasing and hot data is
   // decreasing
   for (int i = 0; i < 30; i++) {
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(200)); });
     ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
     uint64_t pre_hot = hot_data_size;
@@ -263,17 +257,16 @@ TEST_F(SeqnoTimeTest, TemperatureBasicLevel) {
     AssertKetTemperature(i * 20 + 400, Temperature::kCold);
   }
 
-  // Wait again, all data should be cold after that
+  // Wait again, the most of the data should be cold after that
+  // hot data might not be empty, because if we don't write new data, there's
+  // no seqno->time sampling available to the compaction
   for (int i = 0; i < 5; i++) {
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1000)); });
     ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   }
 
-  ASSERT_EQ(GetSstSizeHelper(Temperature::kUnknown), 0);
-  ASSERT_GT(GetSstSizeHelper(Temperature::kCold), 0);
-
-  // any random data should be cold
+  // any random data close to the end should be cold
   AssertKetTemperature(1000, Temperature::kCold);
 
   Close();
@@ -291,7 +284,7 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   // Write a key every 10 seconds
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
   }
   ASSERT_OK(Flush());
@@ -322,7 +315,7 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   // Write a key every 1 seconds
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i + 190), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(1)); });
   }
   seq_end = dbfull()->GetLatestSequenceNumber();
@@ -358,7 +351,7 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   // Write a key every 200 seconds
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i + 380), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(200)); });
   }
   seq_end = dbfull()->GetLatestSequenceNumber();
@@ -400,7 +393,7 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   // Write a key every 100 seconds
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i + 570), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
   seq_end = dbfull()->GetLatestSequenceNumber();
@@ -464,9 +457,7 @@ TEST_F(SeqnoTimeTest, BasicSeqnoToTimeMapping) {
   ASSERT_OK(db_->Close());
 }
 
-// TODO(zjay): Disabled, until New CF bug with preclude_last_level_data_seconds
-//  is fixed
-TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
+TEST_F(SeqnoTimeTest, MultiCFs) {
   Options options = CurrentOptions();
   options.preclude_last_level_data_seconds = 0;
   options.env = mock_env_.get();
@@ -474,14 +465,14 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   options.stats_persist_period_sec = 0;
   ReopenWithColumnFamilies({"default"}, options);
 
-  auto scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
-  ASSERT_FALSE(scheduler->TEST_HasValidTask(
-      dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
+  const PeriodicTaskScheduler& scheduler =
+      dbfull()->TEST_GetPeriodicTaskScheduler();
+  ASSERT_FALSE(scheduler.TEST_HasTask(PeriodicTaskType::kRecordSeqnoTime));
 
   // Write some data and increase the current time
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
   ASSERT_OK(Flush());
@@ -496,26 +487,20 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   Options options_1 = options;
   options_1.preclude_last_level_data_seconds = 10000;  // 10k
   CreateColumnFamilies({"one"}, options_1);
-  ASSERT_TRUE(scheduler->TEST_HasValidTask(
-      dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
+  ASSERT_TRUE(scheduler.TEST_HasTask(PeriodicTaskType::kRecordSeqnoTime));
 
   // Write some data to the default CF (without preclude_last_level feature)
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(Put(Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
   ASSERT_OK(Flush());
 
-  // in memory mapping won't increase because CFs with preclude_last_level
-  // feature doesn't have memtable
-  auto queue = dbfull()->TEST_GetSeqnoToTimeMapping().TEST_GetInternalMapping();
-  ASSERT_LT(queue.size(), 5);
-
   // Write some data to the CF one
   for (int i = 0; i < 20; i++) {
     ASSERT_OK(Put(1, Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
   }
   ASSERT_OK(Flush(1));
@@ -539,7 +524,7 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   // Add more data to CF "two" to fill the in memory mapping
   for (int i = 0; i < 2000; i++) {
     ASSERT_OK(Put(2, Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
   seqs = dbfull()->TEST_GetSeqnoToTimeMapping().TEST_GetInternalMapping();
@@ -563,11 +548,10 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   // enabled have flushed, the in-memory seqno->time mapping should be cleared
   for (int i = 0; i < 10; i++) {
     ASSERT_OK(Put(0, Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
   seqs = dbfull()->TEST_GetSeqnoToTimeMapping().TEST_GetInternalMapping();
-  ASSERT_LE(seqs.size(), 5);
   ASSERT_OK(Flush(0));
 
   // trigger compaction for CF "two" and make sure the compaction output has
@@ -575,7 +559,7 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   for (int j = 0; j < 3; j++) {
     for (int i = 0; i < 200; i++) {
       ASSERT_OK(Put(2, Key(i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun(
+      dbfull()->TEST_WaitForPeridicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
     }
     ASSERT_OK(Flush(2));
@@ -595,7 +579,7 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   for (int j = 0; j < 2; j++) {
     for (int i = 0; i < 200; i++) {
       ASSERT_OK(Put(0, Key(i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun(
+      dbfull()->TEST_WaitForPeridicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
     }
     ASSERT_OK(Flush(0));
@@ -610,7 +594,7 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
   // Write some data to CF "two", but don't flush to accumulate
   for (int i = 0; i < 1000; i++) {
     ASSERT_OK(Put(2, Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
   ASSERT_GE(
@@ -630,8 +614,7 @@ TEST_F(SeqnoTimeTest, DISABLED_MultiCFs) {
       0);
 
   // And the timer worker is stopped
-  ASSERT_FALSE(scheduler->TEST_HasValidTask(
-      dbfull(), PeriodicWorkTaskNames::kRecordSeqnoTime));
+  ASSERT_FALSE(scheduler.TEST_HasTask(PeriodicTaskType::kRecordSeqnoTime));
   Close();
 }
 
@@ -655,7 +638,7 @@ TEST_F(SeqnoTimeTest, MultiInstancesBasic) {
   WriteOptions wo;
   for (int i = 0; i < 200; i++) {
     ASSERT_OK(dbi->Put(wo, Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(100)); });
   }
   SeqnoToTimeMapping seqno_to_time_mapping = dbi->TEST_GetSeqnoToTimeMapping();
@@ -678,7 +661,7 @@ TEST_F(SeqnoTimeTest, SeqnoToTimeMappingUniversal) {
   for (int j = 0; j < 3; j++) {
     for (int i = 0; i < 100; i++) {
       ASSERT_OK(Put(Key(i), "value"));
-      dbfull()->TEST_WaitForPeridicWorkerRun(
+      dbfull()->TEST_WaitForPeridicTaskRun(
           [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
     }
     ASSERT_OK(Flush());
@@ -700,7 +683,7 @@ TEST_F(SeqnoTimeTest, SeqnoToTimeMappingUniversal) {
   // Trigger a compaction
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(Put(Key(i), "value"));
-    dbfull()->TEST_WaitForPeridicWorkerRun(
+    dbfull()->TEST_WaitForPeridicTaskRun(
         [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(10)); });
   }
   ASSERT_OK(Flush());

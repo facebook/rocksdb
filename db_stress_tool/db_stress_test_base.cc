@@ -922,12 +922,19 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
-        int num_seeks = static_cast<int>(
-            std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
-                     FLAGS_ops_per_thread - i - 1));
-        rand_keys = GenerateNKeys(thread, num_seeks, i);
-        i += num_seeks - 1;
-        TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        if (!FLAGS_skip_verifydb &&
+            thread->rand.OneInOpt(
+                FLAGS_verify_iterator_with_expected_state_one_in)) {
+          TestIterateAgainstExpected(thread, read_opts, rand_column_families,
+                                     rand_keys, lock);
+        } else {
+          int num_seeks = static_cast<int>(
+              std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
+                       FLAGS_ops_per_thread - i - 1));
+          rand_keys = GenerateNKeys(thread, num_seeks, i);
+          i += num_seeks - 1;
+          TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        }
       } else {
         assert(iterate_bound <= prob_op);
         TestCustomOperations(thread, rand_column_families);

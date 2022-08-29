@@ -32,6 +32,7 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/periodic_task_scheduler.h"
 #include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
@@ -75,10 +76,6 @@ class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
-class PeriodicWorkScheduler;
-#ifndef NDEBUG
-class PeriodicWorkTestScheduler;
-#endif  // !NDEBUG
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -1147,7 +1144,7 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForPeridicWorkerRun(std::function<void()> callback) const;
+  void TEST_WaitForPeridicTaskRun(std::function<void()> callback) const;
   SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
@@ -1162,7 +1159,7 @@ class DBImpl : public DB {
   }
 
 #ifndef ROCKSDB_LITE
-  PeriodicWorkTestScheduler* TEST_GetPeriodicWorkScheduler() const;
+  const PeriodicTaskScheduler& TEST_GetPeriodicTaskScheduler() const;
 #endif  // !ROCKSDB_LITE
 
 #endif  // NDEBUG
@@ -2069,7 +2066,7 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
 
   // Schedule background tasks
-  Status StartPeriodicWorkScheduler();
+  Status StartPeriodicTaskScheduler();
 
   Status RegisterRecordSeqnoTimeWorker();
 
@@ -2611,14 +2608,11 @@ class DBImpl : public DB {
 
 #ifndef ROCKSDB_LITE
   // Scheduler to run DumpStats(), PersistStats(), and FlushInfoLog().
-  // Currently, it always use a global instance from
-  // PeriodicWorkScheduler::Default(). Only in unittest, it can be overrided by
-  // PeriodicWorkTestScheduler.
-  PeriodicWorkScheduler* periodic_work_scheduler_;
+  // Currently, internally it has a global timer instance for running the tasks.
+  PeriodicTaskScheduler periodic_task_scheduler_;
 
-  // Current cadence of the periodic worker for recording sequence number to
-  // time.
-  uint64_t record_seqno_time_cadence_ = 0;
+  // It contains the implementations for each periodic task.
+  std::map<PeriodicTaskType, const PeriodicTaskFunc> periodic_task_functions_;
 #endif
 
   // When set, we use a separate queue for writes that don't write to memtable.

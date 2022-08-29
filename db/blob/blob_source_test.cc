@@ -13,6 +13,7 @@
 
 #include "cache/charged_cache.h"
 #include "cache/compressed_secondary_cache.h"
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_log_format.h"
@@ -1098,8 +1099,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   Random rnd(301);
 
   std::vector<std::string> key_strs{"key0", "key1"};
-  std::vector<std::string> blob_strs{rnd.RandomString(1010),
-                                     rnd.RandomString(1020)};
+  std::vector<std::string> blob_strs{rnd.RandomString(512),
+                                     rnd.RandomString(768)};
 
   std::vector<Slice> keys{key_strs[0], key_strs[1]};
   std::vector<Slice> blobs{blob_strs[0], blob_strs[1]};
@@ -1135,16 +1136,6 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
   auto blob_cache = options_.blob_cache;
   auto secondary_cache = lru_cache_opts_.secondary_cache;
-
-  Cache::CreateCallback create_cb = [&](const void* buf, size_t size,
-                                        void** out_obj,
-                                        size_t* charge) -> Status {
-    std::string* blob = new std::string();
-    blob->assign(static_cast<const char*>(buf), size);
-    *out_obj = blob;
-    *charge = size;
-    return Status::OK();
-  };
 
   {
     // GetBlob
@@ -1187,13 +1178,14 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key0 should be in the secondary cache. After looking up key0 in the
       // secondary cache, it will be erased from the secondary cache.
       bool is_in_sec_cache = false;
-      auto sec_handle0 =
-          secondary_cache->Lookup(key0, create_cb, true, is_in_sec_cache);
+      auto sec_handle0 = secondary_cache->Lookup(
+          key0, &BlobContents::CreateCallback, true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
-      auto value = static_cast<std::string*>(sec_handle0->Value());
-      ASSERT_EQ(*value, blobs[0]);
+      auto value = static_cast<BlobContents*>(sec_handle0->Value());
+      ASSERT_NE(value, nullptr);
+      ASSERT_EQ(value->data(), blobs[0]);
       delete value;
 
       // key0 doesn't exist in the blob cache
@@ -1210,8 +1202,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle1);
 
       bool is_in_sec_cache = false;
-      auto sec_handle1 =
-          secondary_cache->Lookup(key1, create_cb, true, is_in_sec_cache);
+      auto sec_handle1 = secondary_cache->Lookup(
+          key1, &BlobContents::CreateCallback, true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
@@ -1232,8 +1224,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       const Slice key0 = cache_key0.AsSlice();
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_NE(handle0, nullptr);
-      auto value = static_cast<std::string*>(blob_cache->Value(handle0));
-      ASSERT_EQ(*value, blobs[0]);
+      auto value = static_cast<BlobContents*>(blob_cache->Value(handle0));
+      ASSERT_NE(value, nullptr);
+      ASSERT_EQ(value->data(), blobs[0]);
       blob_cache->Release(handle0);
 
       // key1 is not in the primary cache, and it should be demoted to the
@@ -1259,8 +1252,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key1 should be in the primary cache.
       handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
-      value = static_cast<std::string*>(blob_cache->Value(handle1));
-      ASSERT_EQ(*value, blobs[1]);
+      value = static_cast<BlobContents*>(blob_cache->Value(handle1));
+      ASSERT_NE(value, nullptr);
+      ASSERT_EQ(value->data(), blobs[1]);
       blob_cache->Release(handle1);
     }
   }
@@ -1412,7 +1406,12 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
-      blob_bytes += blob_sizes[i];
+
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
+
+      blob_bytes += charge;
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
@@ -1425,6 +1424,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     size_t blob_bytes = options_.blob_cache->GetUsage();
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
+
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[i]);
       // We didn't call options_.blob_cache->Erase() here, this is because
       // the cache wrapper's Erase() method must be called to update the
@@ -1437,7 +1440,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       }
-      blob_bytes -= blob_sizes[i];
+      blob_bytes -= charge;
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
@@ -1513,21 +1516,28 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   {
     read_options.fill_cache = true;
 
-    // Since we resized each blob to be kSizeDummyEntry / (num_blobs/ 2), we
-    // should observe cache eviction for the second half blobs.
+    // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
+    // can't fit all the blobs in the cache at the same time, which means we
+    // should observe cache evictions once we reach the cache's capacity.
+    // Due to the overhead of the cache and the BlobContents objects, as well as
+    // jemalloc bin sizes, this happens after inserting seven blobs.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
-      blob_bytes += blob_sizes[i];
-      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
-      if (i >= kNumBlobs / 2) {
-        ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), kSizeDummyEntry);
-      } else {
-        ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
+
+      if (i < kNumBlobs / 2 - 1) {
+        size_t charge = 0;
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(
+            kBlobFileNumber, blob_file_size_, blob_offsets[i], &charge));
+
+        blob_bytes += charge;
       }
+
+      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
+      ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
     }
