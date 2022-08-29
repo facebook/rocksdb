@@ -563,9 +563,9 @@ Status WriteCommittedTxn::PrepareInternal() {
   SequenceNumber* const KIgnoreSeqUsed = nullptr;
   const size_t kNoBatchCount = 0;
   s = dbimpl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                          kNoWriteCallback, &log_number_, kRefNoLog,
-                          kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
-                          &mark_log_callback);
+                         kNoWriteCallback, &log_number_, kRefNoLog,
+                         kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
+                         &mark_log_callback);
   return s;
 }
 
@@ -699,10 +699,10 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
     }
   }
   auto s = dbimpl_->WriteImpl(write_options_, wb,
-                               /*callback*/ nullptr, /*log_used*/ nullptr,
-                               /*log_ref*/ 0, /*disable_memtable*/ false,
-                               &seq_used, /*batch_cnt=*/0,
-                               /*pre_release_callback=*/nullptr, post_mem_cb);
+                              /*callback*/ nullptr, /*log_used*/ nullptr,
+                              /*log_ref*/ 0, /*disable_memtable*/ false,
+                              &seq_used, /*batch_cnt=*/0,
+                              /*pre_release_callback=*/nullptr, post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -713,8 +713,8 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
 Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   uint64_t seq_used = kMaxSequenceNumber;
   auto s = dbimpl_->WriteImpl(write_options_, batch, /*callback*/ nullptr,
-                               /*log_used*/ nullptr, /*log_ref*/ 0,
-                               /*disable_memtable*/ false, &seq_used);
+                              /*log_used*/ nullptr, /*log_ref*/ 0,
+                              /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -786,10 +786,10 @@ Status WriteCommittedTxn::CommitInternal() {
     }
   }
   s = dbimpl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
-                          /*log_used*/ nullptr, /*log_ref*/ log_number_,
-                          /*disable_memtable*/ false, &seq_used,
-                          /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
-                          post_mem_cb);
+                         /*log_used*/ nullptr, /*log_ref*/ log_number_,
+                         /*disable_memtable*/ false, &seq_used,
+                         /*batch_cnt=*/0, /*pre_release_callback=*/nullptr,
+                         post_mem_cb);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
