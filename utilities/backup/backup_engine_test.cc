@@ -2984,9 +2984,12 @@ TEST_F(BackupEngineTest, ReadOnlyBackupEngine) {
   DestroyDBWithoutCheck(dbname_, options_);
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  // Also test read-only DB with CreateNewBackup and flush=true (no flush)
+  CloseAndReopenDB(/*read_only*/ true);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), /*flush*/ true));
+  CloseAndReopenDB(/*read_only*/ false);
   FillDB(db_.get(), 100, 200);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), /*flush*/ true));
   CloseDBAndBackupEngine();
   DestroyDBWithoutCheck(dbname_, options_);
 
