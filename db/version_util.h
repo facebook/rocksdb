@@ -31,12 +31,13 @@ class OfflineManifestWriter {
     return versions_.Recover(column_families);
   }
 
-  Status LogAndApply(ColumnFamilyData* cfd, VersionEdit* edit) {
+  Status LogAndApply(ColumnFamilyData* cfd, VersionEdit* edit,
+                     FSDirectory* dir_contains_current_file) {
     // Use `mutex` to imitate a locked DB mutex when calling `LogAndApply()`.
     InstrumentedMutex mutex;
     mutex.Lock();
     Status s = versions_.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                     edit, &mutex, nullptr /* db_directory */,
+                                     edit, &mutex, dir_contains_current_file,
                                      false /* new_descriptor_log */);
     mutex.Unlock();
     return s;

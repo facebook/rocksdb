@@ -1099,13 +1099,14 @@ class VersionSet {
 
   Status LogAndApplyToDefaultColumnFamily(
       VersionEdit* edit, InstrumentedMutex* mu,
-      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
+      FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
     const MutableCFOptions* cf_options =
         default_cf->GetLatestMutableCFOptions();
-    return LogAndApply(default_cf, *cf_options, edit, mu, db_directory,
-                       new_descriptor_log, column_family_options);
+    return LogAndApply(default_cf, *cf_options, edit, mu,
+                       dir_contains_current_file, new_descriptor_log,
+                       column_family_options);
   }
 
   // Apply *edit to the current version to form a new descriptor that
@@ -1117,7 +1118,7 @@ class VersionSet {
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options, VersionEdit* edit,
-      InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
+      InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr) {
     autovector<ColumnFamilyData*> cfds;
@@ -1129,7 +1130,8 @@ class VersionSet {
     edit_list.emplace_back(edit);
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options);
+                       dir_contains_current_file, new_descriptor_log,
+                       column_family_options);
   }
   // The batch version. If edit_list.size() > 1, caller must ensure that
   // no edit in the list column family add or drop
@@ -1137,7 +1139,7 @@ class VersionSet {
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
-      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
+      FSDirectory* dir_contains_current_file, bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr,
       const std::function<void(const Status&)>& manifest_wcb = {}) {
     autovector<ColumnFamilyData*> cfds;
@@ -1147,8 +1149,8 @@ class VersionSet {
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options,
-                       {manifest_wcb});
+                       dir_contains_current_file, new_descriptor_log,
+                       column_family_options, {manifest_wcb});
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -1158,7 +1160,7 @@ class VersionSet {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<autovector<VersionEdit*>>& edit_lists,
-      InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
+      InstrumentedMutex* mu, FSDirectory* dir_contains_current_file,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* new_cf_options = nullptr,
       const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
@@ -1574,7 +1576,8 @@ class VersionSet {
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
-                               InstrumentedMutex* mu, FSDirectory* db_directory,
+                               InstrumentedMutex* mu,
+                               FSDirectory* dir_contains_current_file,
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options);
 
@@ -1636,7 +1639,7 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<ColumnFamilyData*>& /*cfds*/,
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
-      InstrumentedMutex* /*mu*/, FSDirectory* /*db_directory*/,
+      InstrumentedMutex* /*mu*/, FSDirectory* /*dir_contains_current_file*/,
       bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
       const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/)
       override {
