@@ -20,6 +20,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "util/aligned_buffer.h"
+#include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -98,17 +99,47 @@ class FilePrefetchBuffer {
     if (async_read_in_progress_ && fs_ != nullptr) {
       std::vector<void*> handles;
       handles.emplace_back(io_handle_);
+      StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
       Status s = fs_->AbortIO(handles);
       assert(s.ok());
     }
 
     // Prefetch buffer bytes discarded.
     uint64_t bytes_discarded = 0;
-    if (bufs_[curr_].buffer_.CurrentSize() != 0) {
-      bytes_discarded = bufs_[curr_].buffer_.CurrentSize();
-    }
-    if (bufs_[curr_ ^ 1].buffer_.CurrentSize() != 0) {
-      bytes_discarded += bufs_[curr_ ^ 1].buffer_.CurrentSize();
+    // Iterated over 2 buffers.
+    for (int i = 0; i < 2; i++) {
+      int first = i;
+      int second = i ^ 1;
+
+      if (bufs_[first].buffer_.CurrentSize() > 0) {
+        // If last block was read completely from first and some bytes in
+        // first buffer are still unconsumed.
+        if (prev_offset_ >= bufs_[first].offset_ &&
+            prev_offset_ + prev_len_ <
+                bufs_[first].offset_ + bufs_[first].buffer_.CurrentSize()) {
+          bytes_discarded += bufs_[first].buffer_.CurrentSize() -
+                             (prev_offset_ + prev_len_ - bufs_[first].offset_);
+        }
+        // If data was in second buffer and some/whole block bytes were read
+        // from second buffer.
+        else if (prev_offset_ < bufs_[first].offset_ &&
+                 bufs_[second].buffer_.CurrentSize() > 0) {
+          // If last block read was completely from different buffer, this
+          // buffer is unconsumed.
+          if (prev_offset_ + prev_len_ <= bufs_[first].offset_) {
+            bytes_discarded += bufs_[first].buffer_.CurrentSize();
+          }
+          // If last block read overlaps with this buffer and some data is
+          // still unconsumed and previous buffer (second) is not cleared.
+          else if (prev_offset_ + prev_len_ > bufs_[first].offset_ &&
+                   bufs_[first].offset_ + bufs_[first].buffer_.CurrentSize() ==
+                       bufs_[second].offset_) {
+            bytes_discarded += bufs_[first].buffer_.CurrentSize() -
+                               (/*bytes read from this buffer=*/prev_len_ -
+                                (bufs_[first].offset_ - prev_offset_));
+          }
+        }
+      }
     }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
 

@@ -7,7 +7,9 @@
 
 #include <cassert>
 
+#include "cache/cache_entry_roles.h"
 #include "cache/cache_helpers.h"
+#include "port/malloc.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -15,6 +17,32 @@ std::unique_ptr<BlobContents> BlobContents::Create(
     CacheAllocationPtr&& allocation, size_t size) {
   return std::unique_ptr<BlobContents>(
       new BlobContents(std::move(allocation), size));
+}
+
+size_t BlobContents::ApproximateMemoryUsage() const {
+  size_t usage = 0;
+
+  if (allocation_) {
+    MemoryAllocator* const allocator = allocation_.get_deleter().allocator;
+
+    if (allocator) {
+      usage += allocator->UsableSize(allocation_.get(), data_.size());
+    } else {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      usage += malloc_usable_size(allocation_.get());
+#else
+      usage += data_.size();
+#endif
+    }
+  }
+
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  usage += malloc_usable_size(const_cast<BlobContents*>(this));
+#else
+  usage += sizeof(*this);
+#endif
+
+  return usage;
 }
 
 size_t BlobContents::SizeCallback(void* obj) {
@@ -35,13 +63,10 @@ Status BlobContents::SaveToCallback(void* from_obj, size_t from_offset,
   return Status::OK();
 }
 
-void BlobContents::DeleteCallback(const Slice& key, void* value) {
-  DeleteCacheEntry<BlobContents>(key, value);
-}
-
 Cache::CacheItemHelper* BlobContents::GetCacheItemHelper() {
-  static Cache::CacheItemHelper cache_helper(&SizeCallback, &SaveToCallback,
-                                             &DeleteCallback);
+  static Cache::CacheItemHelper cache_helper(
+      &SizeCallback, &SaveToCallback,
+      GetCacheEntryDeleterForRole<BlobContents, CacheEntryRole::kBlobValue>());
 
   return &cache_helper;
 }
@@ -55,7 +80,7 @@ Status BlobContents::CreateCallback(const void* buf, size_t size,
   BlobContents* const contents = obj.release();
 
   *out_obj = contents;
-  *charge = contents->size();
+  *charge = contents->ApproximateMemoryUsage();
 
   return Status::OK();
 }

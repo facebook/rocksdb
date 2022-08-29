@@ -1099,8 +1099,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   Random rnd(301);
 
   std::vector<std::string> key_strs{"key0", "key1"};
-  std::vector<std::string> blob_strs{rnd.RandomString(1010),
-                                     rnd.RandomString(1020)};
+  std::vector<std::string> blob_strs{rnd.RandomString(512),
+                                     rnd.RandomString(768)};
 
   std::vector<Slice> keys{key_strs[0], key_strs[1]};
   std::vector<Slice> blobs{blob_strs[0], blob_strs[1]};
@@ -1406,7 +1406,12 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
-      blob_bytes += blob_sizes[i];
+
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
+
+      blob_bytes += charge;
       ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
@@ -1419,6 +1424,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
     size_t blob_bytes = options_.blob_cache->GetUsage();
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
+      size_t charge = 0;
+      ASSERT_TRUE(blob_source.TEST_BlobInCache(kBlobFileNumber, blob_file_size_,
+                                               blob_offsets[i], &charge));
+
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[i]);
       // We didn't call options_.blob_cache->Erase() here, this is because
       // the cache wrapper's Erase() method must be called to update the
@@ -1431,7 +1440,7 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
       }
-      blob_bytes -= blob_sizes[i];
+      blob_bytes -= charge;
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
@@ -1507,21 +1516,28 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   {
     read_options.fill_cache = true;
 
-    // Since we resized each blob to be kSizeDummyEntry / (num_blobs/ 2), we
-    // should observe cache eviction for the second half blobs.
+    // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
+    // can't fit all the blobs in the cache at the same time, which means we
+    // should observe cache evictions once we reach the cache's capacity.
+    // Due to the overhead of the cache and the BlobContents objects, as well as
+    // jemalloc bin sizes, this happens after inserting seven blobs.
     uint64_t blob_bytes = 0;
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
-      blob_bytes += blob_sizes[i];
-      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
-      if (i >= kNumBlobs / 2) {
-        ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), kSizeDummyEntry);
-      } else {
-        ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
+
+      if (i < kNumBlobs / 2 - 1) {
+        size_t charge = 0;
+        ASSERT_TRUE(blob_source.TEST_BlobInCache(
+            kBlobFileNumber, blob_file_size_, blob_offsets[i], &charge));
+
+        blob_bytes += charge;
       }
+
+      ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
+      ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(), blob_bytes);
       ASSERT_EQ(cache_res_mgr->GetTotalMemoryUsed(),
                 options_.blob_cache->GetUsage());
     }

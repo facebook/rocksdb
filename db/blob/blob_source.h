@@ -103,7 +103,7 @@ class BlobSource {
   inline Cache* GetBlobCache() const { return blob_cache_.get(); }
 
   bool TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
-                        uint64_t offset) const;
+                        uint64_t offset, size_t* charge = nullptr) const;
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,

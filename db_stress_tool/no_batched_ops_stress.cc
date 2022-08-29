@@ -1032,7 +1032,24 @@ class NonBatchedOpsStressTest : public StressTest {
     int64_t ub = lb + FLAGS_num_iterations;
     // Locks acquired for [lb, ub)
     ReadOptions readoptscopy(read_opts);
+    std::string read_ts_str;
+    Slice read_ts;
+    if (FLAGS_user_timestamp_size > 0) {
+      read_ts_str = GetNowNanos();
+      read_ts = read_ts_str;
+      readoptscopy.timestamp = &read_ts;
+    }
     readoptscopy.total_order_seek = true;
+    std::string max_key_str;
+    Slice max_key_slice;
+    if (!FLAGS_destroy_db_initially) {
+      max_key_str = Key(max_key);
+      max_key_slice = max_key_str;
+      // to restrict iterator from reading keys written in batched_op_stress
+      // that do not have expected state updated and may not be parseable by
+      // GetIntVal().
+      readoptscopy.iterate_upper_bound = &max_key_slice;
+    }
     auto cfh = column_families_[rand_column_family];
     std::string op_logs;
     std::unique_ptr<Iterator> iter(db_->NewIterator(readoptscopy, cfh));
@@ -1247,22 +1264,27 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       char value[kValueMaxLen];
       if (value_base == SharedState::DELETION_SENTINEL) {
-        VerificationAbort(shared, "Unexpected value found", cf, key);
+        VerificationAbort(shared, "Unexpected value found", cf, key,
+                          value_from_db, "");
         return false;
       }
       size_t sz = GenerateValue(value_base, value, sizeof(value));
       if (value_from_db.length() != sz) {
-        VerificationAbort(shared, "Length of value read is not equal", cf, key);
+        VerificationAbort(shared, "Length of value read is not equal", cf, key,
+                          value_from_db, Slice(value, sz));
         return false;
       }
       if (memcmp(value_from_db.data(), value, sz) != 0) {
-        VerificationAbort(shared, "Contents of value read don't match", cf,
-                          key);
+        VerificationAbort(shared, "Contents of value read don't match", cf, key,
+                          value_from_db, Slice(value, sz));
         return false;
       }
     } else {
       if (value_base != SharedState::DELETION_SENTINEL) {
-        VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key);
+        char value[kValueMaxLen];
+        size_t sz = GenerateValue(value_base, value, sizeof(value));
+        VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key,
+                          "", Slice(value, sz));
         return false;
       }
     }
