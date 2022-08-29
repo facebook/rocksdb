@@ -12,6 +12,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -618,6 +619,8 @@ class MemTable {
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
 
+  std::mutex range_del_table_lock_;
+
 #ifndef ROCKSDB_LITE
   // Flush job info of the current memtable.
   std::unique_ptr<FlushJobInfo> flush_job_info_;
@@ -642,6 +645,22 @@ class MemTable {
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
       const ReadOptions& read_options, SequenceNumber read_seq,
       bool immutable_memtable);
+  KeyHandle FormatEntry(SequenceNumber s, ValueType type,
+                        const Slice& key, /* user key */
+                        const Slice& value, std::unique_ptr<MemTableRep>& table,
+                        char** out_buf, uint32_t* encoded_len,
+                        const std::vector<SequenceNumber>& tombstone_seqs,
+                        Slice* key_slice = nullptr,
+                        const ProtectionInfoKVOS64* kv_prot_info = nullptr);
+  bool InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
+                 SequenceNumber s, ValueType type,
+                 const Slice& key, /* user key */
+                 const Slice& value, uint32_t encoded_len,
+                 uint32_t* inserted_entries, uint32_t* inserted_len,
+                 std::function<bool(MemTableRep*, KeyHandle)> insert,
+                 bool allow_concurrent);
+  std::optional<SequenceNumber> MaxCoveringTombstoneSeqnum(
+      const ReadOptions& read_options, const LookupKey& key);
 
   // The fragmented range tombstones of this memtable.
   // This is constructed when this memtable becomes immutable

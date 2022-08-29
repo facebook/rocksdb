@@ -13,6 +13,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+#include <iostream>
 
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
@@ -565,7 +566,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
   auto fragmented_tombstone_list =
       std::make_shared<FragmentedRangeTombstoneList>(
           std::unique_ptr<InternalIterator>(unfragmented_iter),
-          comparator_.comparator);
+          comparator_.comparator, false, std::vector<SequenceNumber>(), true);
 
   auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
       fragmented_tombstone_list, comparator_.comparator, read_seq);
@@ -583,7 +584,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
     fragmented_range_tombstone_list_ =
         std::make_unique<FragmentedRangeTombstoneList>(
             std::unique_ptr<InternalIterator>(unfragmented_iter),
-            comparator_.comparator);
+            comparator_.comparator, false, std::vector<SequenceNumber>(), true);
   }
 }
 
@@ -652,6 +653,255 @@ Status MemTable::VerifyEncodedEntry(Slice encoded,
       .GetStatus();
 }
 
+bool MemTable::InsertKey(std::unique_ptr<MemTableRep>& table, KeyHandle handle,
+                         SequenceNumber s, ValueType type,
+                         const Slice& user_key, /* user key */
+                         const Slice& value, uint32_t encoded_len,
+                         uint32_t* inserted_entries, uint32_t* inserted_len,
+                         std::function<bool(MemTableRep*, KeyHandle)> insert,
+                         bool allow_concurrent) {
+  if (type != kTypeRangeDeletion) {
+    *inserted_entries = 1;
+    *inserted_len = encoded_len;
+    return insert(table.get(), handle);
+  }
+
+  Slice key = user_key;
+
+  if (allow_concurrent) {
+    range_del_table_lock_.lock();
+  }
+  std::unique_ptr<MemTableIterator> iter(
+      new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
+                           true /* use_range_del_table */));
+  if (iter == nullptr) {
+    if (allow_concurrent) range_del_table_lock_.unlock();
+    return false;
+  }
+
+  ParsedInternalKey inkey(key, 0, kTypeRangeDeletion);
+  std::string key_with_seq;
+  AppendInternalKey(&key_with_seq, inkey);
+  iter->SeekForPrev(Slice(key_with_seq.data(), key_with_seq.size()));
+  if (iter->Valid()) {
+    ParsedInternalKey maxkey(ExtractUserKey(iter->key()), kMaxSequenceNumber,
+                             kTypeRangeDeletion);
+    std::string k;
+    AppendInternalKey(&k, maxkey);
+    iter->Seek(Slice(k.data(), k.size()));
+  } else {
+    iter->Seek(Slice(key_with_seq.data(), key_with_seq.size()));
+  }
+
+  auto const& user_comparator = comparator_.comparator.user_comparator();
+  Slice last_key;
+  // start, end, tombstone seqnum
+  std::vector<std::tuple<Slice, Slice, std::vector<SequenceNumber>>> to_insert;
+  // when we insert key@fragment_seq:value@tomstone_seqs, we ensure
+  // key@fragment_seq includes all the information in [key, value), so later
+  // insert only have to consider the entry key@fragment_seq and skip to later
+  // entry after [value, +inf)
+  bool done = false;
+  for (; iter->Valid(); iter->Next()) {
+    const Slice& ikey = iter->key();
+    Slice tombstone_start_key = ExtractUserKey(ikey);
+    if (!last_key.empty() &&
+        user_comparator->Compare(tombstone_start_key, last_key) <= 0) {
+      continue;
+    }
+    Slice tombstone_end_key = iter->value();
+    if (user_comparator->Compare(tombstone_start_key, value) >= 0) {
+      break;
+    }
+    std::vector<SequenceNumber> tombstone_seqs;
+    FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key,
+                                                            &tombstone_seqs);
+    last_key = tombstone_end_key;
+    int start_compare = user_comparator->Compare(key, tombstone_start_key);
+    int end_compare = user_comparator->Compare(value, tombstone_end_key);
+    if (start_compare > 0) {
+      if (end_compare < 0) {
+        // why we insert in decreasing start key order ? see this example:
+        // memtable has: [a, f)@2
+        // current range delete: [c, d)@3
+        // to_insert: [a, c)@2, [c, d)@[3, 2], [d, f)@2
+        // current read: key e at snapshot 2.
+        // The expected max covering tombstone seq is 2 from [a, f)@2.
+        // If max covering seqno is computed after [c, d)@[3, 2] is inserted but
+        // before [d, f)@2 then we might find there is no covering range
+        // tombstone
+        to_insert.emplace_back(
+            value, tombstone_end_key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
+        to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(
+            tombstone_start_key, key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
+        done = true;
+        break;
+      } else if (end_compare == 0) {
+        to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(
+            tombstone_start_key, key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
+        done = true;
+        break;
+      } else if (user_comparator->Compare(key, tombstone_end_key) < 0) {
+        to_insert.emplace_back(key, tombstone_end_key,
+                               std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(
+            tombstone_start_key, key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
+        key = tombstone_end_key;
+      } else {
+        break;
+      }
+    } else if (start_compare < 0) {
+      if (end_compare > 0) {
+        to_insert.emplace_back(tombstone_start_key, tombstone_end_key,
+                               std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(key, tombstone_start_key,
+                               std::vector<SequenceNumber>({s}));
+        key = tombstone_end_key;
+      } else if (user_comparator->Compare(value, tombstone_start_key) > 0) {
+        if (end_compare < 0) {
+          to_insert.emplace_back(
+              value, tombstone_end_key,
+              std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                          tombstone_seqs.end()));
+        }
+        to_insert.emplace_back(tombstone_start_key, value,
+                               std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        to_insert.emplace_back(key, tombstone_start_key,
+                               std::vector<SequenceNumber>({s}));
+        done = true;
+        break;
+      } else {
+        break;
+      }
+    } else {
+      if (end_compare < 0) {
+        to_insert.emplace_back(
+            value, tombstone_end_key,
+            std::vector<SequenceNumber>(tombstone_seqs.begin(),
+                                        tombstone_seqs.end()));
+        to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        done = true;
+        break;
+      } else if (end_compare > 0) {
+        to_insert.emplace_back(key, tombstone_end_key,
+                               std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        key = tombstone_end_key;
+      } else {
+        to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
+        auto& back = std::get<2>(to_insert.back());
+        back.insert(back.end(), tombstone_seqs.begin(), tombstone_seqs.end());
+        done = true;
+        break;
+      }
+    }
+  }
+
+  if (!done) {
+    to_insert.emplace_back(key, value, std::vector<SequenceNumber>({s}));
+  }
+  uint32_t entries = 0;
+  uint32_t len = 0;
+  for (auto& i : to_insert) {
+    char* buf = nullptr;
+    uint32_t elen;
+    KeyHandle h =
+        FormatEntry(s, kTypeRangeDeletion, std::get<0>(i), std::get<1>(i),
+                    table, &buf, &elen, std::get<2>(i));
+    if (insert(table.get(), h)) {
+      entries++;
+      len += elen;
+    } else {
+      if (allow_concurrent) range_del_table_lock_.unlock();
+      return false;
+    }
+  }
+  *inserted_entries = entries;
+  *inserted_len = len;
+  if (allow_concurrent) range_del_table_lock_.unlock();
+  return true;
+}
+
+KeyHandle MemTable::FormatEntry(
+    SequenceNumber s, ValueType type, const Slice& key, /* user key */
+    const Slice& value, std::unique_ptr<MemTableRep>& table, char** out_buf,
+    uint32_t* encoded_len, const std::vector<SequenceNumber>& tombstone_seqs,
+    Slice* key_slice, const ProtectionInfoKVOS64* kv_prot_info) {
+  // Format of an entry is concatenation of:
+  //  key_size     : varint32 of internal_key.size()
+  //  key bytes    : char[internal_key.size()]
+  //  value_size   : varint32 of value.size()
+  //  value bytes  : char[value.size()]
+  //  checksum     : char[moptions_.protection_bytes_per_key]
+  //
+  //  for del range entry in del range table
+  //  value_size  : varint32 of value.size() + 8 * tombstone_seqs.size() +
+  //  varint32 of tombstone_seqs.size()
+  //  value bytes :
+  //  char[varint32(tombstone_seqs.size())] + char[value.size()] + char[8 *
+  //  tombstone_seqs.size()]
+  uint32_t key_size = static_cast<uint32_t>(key.size());
+  uint32_t val_size = static_cast<uint32_t>(
+      tombstone_seqs.empty() ? value.size()
+                             : value.size() + 8 * tombstone_seqs.size() +
+                                   VarintLength(tombstone_seqs.size()));
+  uint32_t internal_key_size = key_size + 8;
+  *encoded_len = VarintLength(internal_key_size) + internal_key_size +
+                 VarintLength(val_size) + val_size +
+                 moptions_.protection_bytes_per_key;
+  KeyHandle handle = table->Allocate(*encoded_len, out_buf);
+  char* buf = *out_buf;
+
+  char* p = EncodeVarint32(buf, internal_key_size);
+  memcpy(p, key.data(), key_size);
+  if (key_slice) {
+    *key_slice = Slice(p, key_size);
+  }
+  p += key_size;
+  uint64_t packed = PackSequenceAndType(s, type);
+  EncodeFixed64(p, packed);
+  p += 8;
+  p = EncodeVarint32(p, val_size);
+  Slice entry(p, val_size);
+  if (tombstone_seqs.empty()) {
+    memcpy(p, value.data(), value.size());
+  } else {
+    p = EncodeVarint32(p, static_cast<uint32_t>(tombstone_seqs.size()));
+    memcpy(p, value.data(), value.size());
+    p += value.size();
+    for (auto& i : tombstone_seqs) {
+      EncodeFixed64(p, i);
+      p += 8;
+    }
+  }
+  UpdateEntryChecksum(kv_prot_info, key, entry, type, s,
+                      buf + *encoded_len - moptions_.protection_bytes_per_key);
+  return handle;
+}
+
 void MemTable::UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
                                    const Slice& key, const Slice& value,
                                    ValueType type, SequenceNumber s,
@@ -691,37 +941,13 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
                      const ProtectionInfoKVOS64* kv_prot_info,
                      bool allow_concurrent,
                      MemTablePostProcessInfo* post_process_info, void** hint) {
-  // Format of an entry is concatenation of:
-  //  key_size     : varint32 of internal_key.size()
-  //  key bytes    : char[internal_key.size()]
-  //  value_size   : varint32 of value.size()
-  //  value bytes  : char[value.size()]
-  //  checksum     : char[moptions_.protection_bytes_per_key]
-  uint32_t key_size = static_cast<uint32_t>(key.size());
-  uint32_t val_size = static_cast<uint32_t>(value.size());
-  uint32_t internal_key_size = key_size + 8;
-  const uint32_t encoded_len = VarintLength(internal_key_size) +
-                               internal_key_size + VarintLength(val_size) +
-                               val_size + moptions_.protection_bytes_per_key;
-  char* buf = nullptr;
   std::unique_ptr<MemTableRep>& table =
       type == kTypeRangeDeletion ? range_del_table_ : table_;
-  KeyHandle handle = table->Allocate(encoded_len, &buf);
-
-  char* p = EncodeVarint32(buf, internal_key_size);
-  memcpy(p, key.data(), key_size);
-  Slice key_slice(p, key_size);
-  p += key_size;
-  uint64_t packed = PackSequenceAndType(s, type);
-  EncodeFixed64(p, packed);
-  p += 8;
-  p = EncodeVarint32(p, val_size);
-  memcpy(p, value.data(), val_size);
-  assert((unsigned)(p + val_size - buf + moptions_.protection_bytes_per_key) ==
-         (unsigned)encoded_len);
-
-  UpdateEntryChecksum(kv_prot_info, key, value, type, s,
-                      buf + encoded_len - moptions_.protection_bytes_per_key);
+  char* buf = nullptr;
+  uint32_t encoded_len;
+  Slice key_slice;
+  KeyHandle handle = FormatEntry(s, type, key, value, table, &buf, &encoded_len,
+                                 {}, &key_slice, kv_prot_info);
   Slice encoded(buf, encoded_len - moptions_.protection_bytes_per_key);
   if (kv_prot_info != nullptr) {
     TEST_SYNC_POINT_CALLBACK("MemTable::Add:Encoded", &encoded);
@@ -733,18 +959,26 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
 
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
-
+  uint32_t inserted_entries;
+  uint32_t inserted_len;
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
+      bool res = InsertKey(
+          table, handle, s, type, key, value, encoded_len, &inserted_entries,
+          &inserted_len,
+          std::bind(&MemTableRep::InsertKeyWithHint, std::placeholders::_1,
+                    std::placeholders::_2, &insert_hints_[prefix]),
+          false);
       if (UNLIKELY(!res)) {
         return Status::TryAgain("key+seq exists");
       }
     } else {
-      bool res = table->InsertKey(handle);
+      bool res = InsertKey(table, handle, s, type, key, value, encoded_len,
+                           &inserted_entries, &inserted_len,
+                           &MemTableRep::InsertKey, false);
       if (UNLIKELY(!res)) {
         return Status::TryAgain("key+seq exists");
       }
@@ -752,9 +986,10 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
 
     // this is a bit ugly, but is the way to avoid locked instructions
     // when incrementing an atomic
-    num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
-                       std::memory_order_relaxed);
-    data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
+    num_entries_.store(
+        num_entries_.load(std::memory_order_relaxed) + inserted_entries,
+        std::memory_order_relaxed);
+    data_size_.store(data_size_.load(std::memory_order_relaxed) + inserted_len,
                      std::memory_order_relaxed);
     if (type == kTypeDeletion) {
       num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
@@ -783,16 +1018,24 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    bool res = (hint == nullptr)
-                   ? table->InsertKeyConcurrently(handle)
-                   : table->InsertKeyWithHintConcurrently(handle, hint);
+    bool res =
+        (hint == nullptr)
+            ? InsertKey(table, handle, s, type, key, value, encoded_len,
+                        &inserted_entries, &inserted_len,
+                        &MemTableRep::InsertKeyConcurrently, true)
+            : InsertKey(
+                  table, handle, s, type, key, value, encoded_len,
+                  &inserted_entries, &inserted_len,
+                  std::bind(&MemTableRep::InsertKeyWithHintConcurrently,
+                            std::placeholders::_1, std::placeholders::_2, hint),
+                  true);
     if (UNLIKELY(!res)) {
       return Status::TryAgain("key+seq exists");
     }
 
     assert(post_process_info != nullptr);
-    post_process_info->num_entries++;
-    post_process_info->data_size += encoded_len;
+    post_process_info->num_entries += inserted_entries;
+    post_process_info->data_size += inserted_len;
     if (type == kTypeDeletion) {
       post_process_info->num_deletes++;
     }
@@ -825,6 +1068,54 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
 
   TEST_SYNC_POINT_CALLBACK("MemTable::Add:BeforeReturn:Encoded", &encoded);
   return Status::OK();
+}
+
+std::optional<SequenceNumber> MemTable::MaxCoveringTombstoneSeqnum(
+    const ReadOptions& read_options, const LookupKey& key) {
+  if (read_options.ignore_range_deletions ||
+      is_range_del_table_empty_.load(std::memory_order_relaxed)) {
+    return std::nullopt;
+  }
+  std::unique_ptr<MemTableIterator> iter(
+      new MemTableIterator(*this, read_options, nullptr /* arena */,
+                           true /* use_range_del_table */));
+  if (iter == nullptr) {
+    return std::nullopt;
+  }
+
+  Slice user_key = key.user_key();
+  ParsedInternalKey seek_internal_key(user_key, 0, kTypeRangeDeletion);
+  std::string seek_key;
+  AppendInternalKey(&seek_key, seek_internal_key);
+  iter->SeekForPrev(Slice(seek_key.data(), seek_key.size()));
+  if (!iter->Valid()) {
+    return std::nullopt;
+  }
+  Slice tombstone_end_key = iter->value();
+  FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key,
+                                                          nullptr);
+  if (comparator_.comparator.user_comparator()->Compare(
+          user_key, tombstone_end_key) >= 0) {
+    return std::nullopt;
+  }
+
+  ParsedInternalKey k(ExtractUserKey(iter->key()), kMaxSequenceNumber,
+                      kTypeRangeDeletion);
+  std::string s;
+  AppendInternalKey(&s, k);
+  iter->Seek(Slice(s.data(), s.size()));
+
+  tombstone_end_key = iter->value();
+  std::vector<SequenceNumber> tombstone_seqs;
+  FragmentedRangeTombstoneList::DecodeRangeTombstoneValue(&tombstone_end_key,
+                                                          &tombstone_seqs);
+  SequenceNumber read_seq = GetInternalKeySeqno(key.internal_key());
+  auto lower = std::lower_bound(tombstone_seqs.begin(), tombstone_seqs.end(),
+                                read_seq, std::greater<SequenceNumber>());
+  if (lower != tombstone_seqs.end()) {
+    return *lower;
+  }
+  return std::nullopt;
 }
 
 // Callback from MemTable::Get()
@@ -1073,14 +1364,22 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
-  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-      NewRangeTombstoneIterator(read_opts,
-                                GetInternalKeySeqno(key.internal_key()),
-                                immutable_memtable));
-  if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+  if (immutable_memtable) {
+    std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+        NewRangeTombstoneIterator(read_opts,
+                                  GetInternalKeySeqno(key.internal_key()),
+                                  immutable_memtable));
+    if (range_del_iter != nullptr) {
+      *max_covering_tombstone_seq =
+          std::max(*max_covering_tombstone_seq,
+                   range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    }
+  } else {
+    auto max_seq = MaxCoveringTombstoneSeqnum(read_opts, key);
+    if (max_seq) {
+      *max_covering_tombstone_seq =
+          std::max(*max_covering_tombstone_seq, *max_seq);
+    }
   }
 
   bool found_final_value = false;
@@ -1207,13 +1506,21 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     bool found_final_value{false};
     bool merge_in_progress = iter->s->IsMergeInProgress();
     if (!no_range_del) {
-      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          NewRangeTombstoneIteratorInternal(
-              read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
-              immutable_memtable));
-      iter->max_covering_tombstone_seq = std::max(
-          iter->max_covering_tombstone_seq,
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+      if (immutable_memtable) {
+        std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+            NewRangeTombstoneIteratorInternal(
+                read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
+                immutable_memtable));
+        iter->max_covering_tombstone_seq = std::max(
+            iter->max_covering_tombstone_seq,
+            range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+      } else {
+        auto max_seq = MaxCoveringTombstoneSeqnum(read_options, *(iter->lkey));
+        if (max_seq) {
+          iter->max_covering_tombstone_seq =
+              std::max(iter->max_covering_tombstone_seq, *max_seq);
+        }
+      }
     }
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
