@@ -11,6 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: Share common structure with DBImplSecondary and DBImplReadOnly
 class CompactedDBImpl : public DBImpl {
  public:
   CompactedDBImpl(const DBOptions& options, const std::string& dbname);

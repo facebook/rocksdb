@@ -13,6 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: Share common structure with CompactedDBImpl and DBImplSecondary
 class DBImplReadOnly : public DBImpl {
  public:
   DBImplReadOnly(const DBOptions& options, const std::string& dbname);
@@ -142,7 +143,6 @@ class DBImplReadOnly : public DBImpl {
   }
 
   // FIXME: some missing overrides for more "write" functions
-  // Share with CompactedDBImpl?
 
  protected:
 #ifndef ROCKSDB_LITE
