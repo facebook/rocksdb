@@ -9,6 +9,7 @@
 
 ### Java API Changes
 * Add CompactionPriority.RoundRobin.
+* Revert to using the default metadata charge policy when creating an LRU cache via the Java API.
 
 ## 7.6.0 (08/19/2022)
 ### New Features
