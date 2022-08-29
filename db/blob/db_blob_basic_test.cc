@@ -1703,15 +1703,11 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
 #endif  // !ROCKSDB_LITE
 
 TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
-  if (!Snappy_Supported()) {
-    return;
-  }
-
   CompressedSecondaryCacheOptions secondary_cache_opts;
   secondary_cache_opts.capacity = 1 << 20;
   secondary_cache_opts.num_shard_bits = 0;
   secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
-  secondary_cache_opts.compression_type = kSnappyCompression;
+  secondary_cache_opts.compression_type = kNoCompression;
 
   LRUCacheOptions primary_cache_opts;
   primary_cache_opts.capacity = 1024;
@@ -1729,34 +1725,41 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
 
   DestroyAndReopen(options);
 
+  // Note: only one of the two blobs fit in the primary cache at any given time.
   constexpr char first_key[] = "foo";
+  constexpr size_t first_blob_size = 512;
+  const std::string first_blob(first_blob_size, 'a');
+
   constexpr char second_key[] = "bar";
-  constexpr size_t blob_size = 768;
-  const std::string blob(blob_size, 'a');
+  constexpr size_t second_blob_size = 768;
+  const std::string second_blob(second_blob_size, 'b');
 
-  ASSERT_OK(Put(first_key, blob));
+  // First blob gets inserted into primary cache during flush
+  ASSERT_OK(Put(first_key, first_blob));
   ASSERT_OK(Flush());
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
 
-  ASSERT_OK(Put(second_key, blob));
+  // Second blob gets inserted into primary cache during flush, first blob gets
+  // evicted to secondary cache
+  ASSERT_OK(Put(second_key, second_blob));
   ASSERT_OK(Flush());
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
 
-  ASSERT_EQ(Get(first_key), blob);
+  // First blob gets promoted back to primary cache b/c of lookup, second blob
+  // gets evicted to secondary cache
+  ASSERT_EQ(Get(first_key), first_blob);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            1);
 
-  ASSERT_EQ(Get(second_key), blob);
+  // Second blob gets promoted back to primary cache b/c of lookup, first blob
+  // gets evicted to secondary cache
+  ASSERT_EQ(Get(second_key), second_blob);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
-
-  ASSERT_EQ(Get(first_key), blob);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
-
-  ASSERT_EQ(Get(second_key), blob);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
-  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            1);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
