@@ -1264,22 +1264,27 @@ class NonBatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       char value[kValueMaxLen];
       if (value_base == SharedState::DELETION_SENTINEL) {
-        VerificationAbort(shared, "Unexpected value found", cf, key);
+        VerificationAbort(shared, "Unexpected value found", cf, key,
+                          value_from_db, "");
         return false;
       }
       size_t sz = GenerateValue(value_base, value, sizeof(value));
       if (value_from_db.length() != sz) {
-        VerificationAbort(shared, "Length of value read is not equal", cf, key);
+        VerificationAbort(shared, "Length of value read is not equal", cf, key,
+                          value_from_db, Slice(value, sz));
         return false;
       }
       if (memcmp(value_from_db.data(), value, sz) != 0) {
-        VerificationAbort(shared, "Contents of value read don't match", cf,
-                          key);
+        VerificationAbort(shared, "Contents of value read don't match", cf, key,
+                          value_from_db, Slice(value, sz));
         return false;
       }
     } else {
       if (value_base != SharedState::DELETION_SENTINEL) {
-        VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key);
+        char value[kValueMaxLen];
+        size_t sz = GenerateValue(value_base, value, sizeof(value));
+        VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key,
+                          "", Slice(value, sz));
         return false;
       }
     }
