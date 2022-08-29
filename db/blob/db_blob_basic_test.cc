@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 
+#include "cache/compressed_secondary_cache.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
@@ -1700,6 +1701,63 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
   EXPECT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  CompressedSecondaryCacheOptions secondary_cache_opts;
+  secondary_cache_opts.capacity = 1 << 20;
+  secondary_cache_opts.num_shard_bits = 0;
+  secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  secondary_cache_opts.compression_type = kSnappyCompression;
+
+  LRUCacheOptions primary_cache_opts;
+  primary_cache_opts.capacity = 1024;
+  primary_cache_opts.num_shard_bits = 0;
+  primary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  primary_cache_opts.secondary_cache =
+      NewCompressedSecondaryCache(secondary_cache_opts);
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.enable_blob_files = true;
+  options.blob_cache = NewLRUCache(primary_cache_opts);
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+
+  DestroyAndReopen(options);
+
+  constexpr char first_key[] = "foo";
+  constexpr char second_key[] = "bar";
+  constexpr size_t blob_size = 768;
+  const std::string blob(blob_size, 'a');
+
+  ASSERT_OK(Put(first_key, blob));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  ASSERT_OK(Put(second_key, blob));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  ASSERT_EQ(Get(first_key), blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+
+  ASSERT_EQ(Get(second_key), blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+
+  ASSERT_EQ(Get(first_key), blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+
+  ASSERT_EQ(Get(second_key), blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 
