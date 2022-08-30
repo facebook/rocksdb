@@ -499,6 +499,8 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
+    if (dest_params.get("sync_fault_injection") == 1):
+        dest_params["use_txn"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
