@@ -827,7 +827,6 @@ set(SOURCES
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
-        util/stderr_logger.cc
         util/string_util.cc
         util/thread_local.cc
         util/threadpool_imp.cc
