@@ -1534,8 +1534,8 @@ Status DBImpl::SyncWAL() {
 Status DBImpl::ApplyWALToManifest(VersionEdit* synced_wals) {
   // not empty, write to MANIFEST.
   mutex_.AssertHeld();
-  Status status =
-      versions_->LogAndApplyToDefaultColumnFamily(synced_wals, &mutex_);
+  Status status = versions_->LogAndApplyToDefaultColumnFamily(
+      synced_wals, &mutex_, directories_.GetDbDir());
   if (!status.ok() && versions_->io_status().IsIOError()) {
     status = error_handler_.SetBGError(versions_->io_status(),
                                        BackgroundErrorReason::kManifestWrite);
@@ -3149,7 +3149,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       WriteThread::Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
-                                 &mutex_);
+                                 &mutex_, directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);
     }
     if (s.ok()) {

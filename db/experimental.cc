@@ -122,7 +122,11 @@ Status UpdateManifestForFilesState(
     }
 
     if (s.ok() && edit.NumEntries() > 0) {
-      s = w.LogAndApply(cfd, &edit);
+      std::unique_ptr<FSDirectory> db_dir;
+      s = fs->NewDirectory(db_name, IOOptions(), &db_dir, nullptr);
+      if (s.ok()) {
+        s = w.LogAndApply(cfd, &edit, db_dir.get());
+      }
       if (s.ok()) {
         ++cfs_updated;
       }
