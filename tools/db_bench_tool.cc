@@ -4464,13 +4464,19 @@ class Benchmark {
             fprintf(stderr, "Unknown prepopulate blob cache mode\n");
             exit(1);
         }
+
         fprintf(stdout,
-                "Integrated BlobDB: blob cache enabled, block and blob caches "
-                "shared: %d, blob cache size %" PRIu64
-                ", blob cache num shard bits: %d, hot/warm blobs prepopulated: "
-                "%d\n",
-                FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
-                FLAGS_blob_cache_numshardbits, FLAGS_prepopulate_blob_cache);
+                "Integrated BlobDB: blob cache enabled"
+                ", block and blob caches shared: %d",
+                FLAGS_use_shared_block_and_blob_cache);
+        if (!FLAGS_use_shared_block_and_blob_cache) {
+          fprintf(stdout,
+                  ", blob cache size %" PRIu64
+                  ", blob cache num shard bits: %d",
+                  FLAGS_blob_cache_size, FLAGS_blob_cache_numshardbits);
+        }
+        fprintf(stdout, ", blob cache prepopulated: %d\n",
+                FLAGS_prepopulate_blob_cache);
       } else {
         fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
       }
