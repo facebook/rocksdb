@@ -57,14 +57,15 @@ struct HeapItem {
     pinned_key.clear();
     // Range tombstone end key is exclusive. If a point internal key has the
     // same user key and sequence number as the start or end key of a range
-    // tombstone, the order will be start < end key < internal key.
-    //
-    // Note: The op_type change of end key may not be necessary, but kept so
-    // that keys are non-decreasing in the case of a range tombstone and a user
-    // key straddles two SST files: note that we decrement end key's sequence
-    // number by 1 in TruncatedRangeDelIterator, which might make it the same
-    // sequence number as the smallest key in the next SST file.
-    ParsedInternalKey p(pik.user_key, pik.sequence, kValueTypeForSeek);
+    // tombstone, the order will be start < end key < internal key with the
+    // following op_type change. This is helpful to ensure keys popped from
+    // heap are in expected order since range tombstone start/end keys will
+    // be distinct from point internal keys. Strictly speaking, this is only
+    // needed for tombstone end points that are truncated in
+    // TruncatedRangeDelIterator since untruncated tombstone end points always
+    // have kMaxSequenceNumber and kTypeRangeDeletion (see
+    // TruncatedRangeDelIterator::start_key()/end_key()).
+    ParsedInternalKey p(pik.user_key, pik.sequence, kTypeMaxValid);
     AppendInternalKey(&pinned_key, p);
   }
 
