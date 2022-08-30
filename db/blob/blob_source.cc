@@ -167,20 +167,15 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     if (s.ok() && blob_handle.GetValue()) {
       {
         value->Reset();
+
+        constexpr Cleanable* cleanable = nullptr;
+        value->PinSlice(blob_handle.GetValue()->data(), cleanable);
+
         // To avoid copying the cached blob into the buffer provided by the
         // application, we can simply transfer ownership of the cache handle to
         // the target PinnableSlice. This has the potential to save a lot of
         // CPU, especially with large blob values.
-        value->PinSlice(
-            blob_handle.GetValue()->data(),
-            [](void* arg1, void* arg2) {
-              Cache* const cache = static_cast<Cache*>(arg1);
-              Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
-              cache->Release(handle);
-            },
-            blob_handle.GetCache(), blob_handle.GetCacheHandle());
-        // Make the CacheHandleGuard relinquish ownership of the handle.
-        blob_handle.TransferTo(nullptr);
+        blob_handle.TransferTo(value);
       }
 
       // For consistency, the size of on-disk (possibly compressed) blob record
@@ -314,20 +309,15 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
         {
           req.result->Reset();
+
+          constexpr Cleanable* cleanable = nullptr;
+          req.result->PinSlice(blob_handle.GetValue()->data(), cleanable);
+
           // To avoid copying the cached blob into the buffer provided by the
           // application, we can simply transfer ownership of the cache handle
           // to the target PinnableSlice. This has the potential to save a lot
           // of CPU, especially with large blob values.
-          req.result->PinSlice(
-              blob_handle.GetValue()->data(),
-              [](void* arg1, void* arg2) {
-                Cache* const cache = static_cast<Cache*>(arg1);
-                Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
-                cache->Release(handle);
-              },
-              blob_handle.GetCache(), blob_handle.GetCacheHandle());
-          // Make the CacheHandleGuard relinquish ownership of the handle.
-          blob_handle.TransferTo(nullptr);
+          blob_handle.TransferTo(req.result);
         }
 
         // Update the counter for the number of valid blobs read from the cache.
