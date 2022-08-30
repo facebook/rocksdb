@@ -236,6 +236,17 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
+
+    value->Reset();
+
+    constexpr Cleanable* cleanable = nullptr;
+    value->PinSlice(blob_handle.GetValue()->data(), cleanable);
+
+    // To avoid copying the cached blob into the buffer provided by the
+    // application, we can simply transfer ownership of the cache handle to
+    // the target PinnableSlice. This has the potential to save a lot of
+    // CPU, especially with large blob values.
+    blob_handle.TransferTo(value);
   }
 
   assert(s.ok());
@@ -383,15 +394,27 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put
       // the blob(s) to the cache.
-      for (size_t i = 0; i < _blob_reqs.size(); ++i) {
-        if (_blob_reqs[i]->status->ok()) {
+      for (BlobReadRequest* req : _blob_reqs) {
+        assert(req);
+
+        if (req->status->ok()) {
           CacheHandleGuard<BlobContents> blob_handle;
-          const CacheKey cache_key =
-              base_cache_key.WithOffset(_blob_reqs[i]->offset);
+          const CacheKey cache_key = base_cache_key.WithOffset(req->offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(key, &blob_handle, _blob_reqs[i]->result);
+          s = PutBlobIntoCache(key, &blob_handle, req->result);
           if (!s.ok()) {
-            *_blob_reqs[i]->status = s;
+            *req->status = s;
+          } else {
+            req->result->Reset();
+
+            constexpr Cleanable* cleanable = nullptr;
+            req->result->PinSlice(blob_handle.GetValue()->data(), cleanable);
+
+            // To avoid copying the cached blob into the buffer provided by the
+            // application, we can simply transfer ownership of the cache handle
+            // to the target PinnableSlice. This has the potential to save a lot
+            // of CPU, especially with large blob values.
+            blob_handle.TransferTo(req->result);
           }
         }
       }

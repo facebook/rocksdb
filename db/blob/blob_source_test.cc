@@ -1153,6 +1153,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[0]));
 
+    // Release cache handle
+    values[0].Reset();
+
     // key0 should be demoted to the secondary cache, and key1 should be filled
     // to the primary cache from the blob file.
     ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
@@ -1162,6 +1165,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     ASSERT_EQ(values[1], blobs[1]);
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[1]));
+
+    // Release cache handle
+    values[1].Reset();
 
     OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
 
@@ -1218,6 +1224,9 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
           blob_sizes[0], kNoCompression, nullptr /* prefetch_buffer */,
           &values[0], nullptr /* bytes_read */));
       ASSERT_EQ(values[0], blobs[0]);
+
+      // Release cache handle
+      values[0].Reset();
 
       // key0 should be in the primary cache.
       CacheKey cache_key0 = base_cache_key.WithOffset(blob_offsets[0]);
@@ -1379,10 +1388,10 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
 
-  std::vector<PinnableSlice> values(keys_.size());
-
   {
     read_options.fill_cache = false;
+
+    std::vector<PinnableSlice> values(keys_.size());
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
@@ -1396,6 +1405,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
 
   {
     read_options.fill_cache = true;
+
+    std::vector<PinnableSlice> values(keys_.size());
 
     // num_blobs is 16, so the total blob cache usage is less than a single
     // dummy entry. Therefore, cache reservation manager only reserves one dummy
@@ -1434,8 +1445,8 @@ TEST_F(BlobSourceCacheReservationTest, SimpleCacheReservation) {
       // cache usage after erasing the cache entry.
       blob_source.GetBlobCache()->Erase(cache_key.AsSlice());
       if (i == kNumBlobs - 1) {
-        // The last blob is not in the cache. cache_res_mgr should not reserve
-        // any space for it.
+        // All the blobs got removed from the cache. cache_res_mgr should not
+        // reserve any space for them.
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), 0);
       } else {
         ASSERT_EQ(cache_res_mgr->GetTotalReservedCacheSize(), kSizeDummyEntry);
@@ -1498,10 +1509,10 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   ReadOptions read_options;
   read_options.verify_checksums = true;
 
-  std::vector<PinnableSlice> values(keys_.size());
-
   {
     read_options.fill_cache = false;
+
+    std::vector<PinnableSlice> values(keys_.size());
 
     for (size_t i = 0; i < kNumBlobs; ++i) {
       ASSERT_OK(blob_source.GetBlob(
@@ -1516,6 +1527,8 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
   {
     read_options.fill_cache = true;
 
+    std::vector<PinnableSlice> values(keys_.size());
+
     // Since we resized each blob to be kSizeDummyEntry / (num_blobs / 2), we
     // can't fit all the blobs in the cache at the same time, which means we
     // should observe cache evictions once we reach the cache's capacity.
@@ -1527,6 +1540,9 @@ TEST_F(BlobSourceCacheReservationTest, IncreaseCacheReservationOnFullCache) {
           read_options, keys_[i], kBlobFileNumber, blob_offsets[i],
           blob_file_size_, blob_sizes[i], kNoCompression,
           nullptr /* prefetch_buffer */, &values[i], nullptr /* bytes_read */));
+
+      // Release cache handle
+      values[i].Reset();
 
       if (i < kNumBlobs / 2 - 1) {
         size_t charge = 0;
