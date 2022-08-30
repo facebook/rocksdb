@@ -18,9 +18,9 @@ namespace ROCKSDB_NAMESPACE {
 // A helper class useful for DBImpl::Get()
 class LookupKey {
  public:
-  // Initialize *this for looking up user_key at a snapshot with
+  // Initialize *this for looking up user_key_with_ts at a snapshot with
   // the specified sequence number.
-  LookupKey(const Slice& _user_key, SequenceNumber sequence,
+  LookupKey(const Slice& _user_key_without_ts, SequenceNumber sequence,
             const Slice* ts = nullptr);
 
   ~LookupKey();
@@ -36,7 +36,7 @@ class LookupKey {
   }
 
   // Return the user key
-  Slice user_key() const {
+  Slice user_key_with_ts() const {
     return Slice(kstart_, static_cast<size_t>(end_ - kstart_ - 8));
   }
 

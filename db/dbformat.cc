@@ -54,15 +54,16 @@ EntryType GetEntryType(ValueType value_type) {
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
-  result->append(key.user_key.data(), key.user_key.size());
+  result->append(key.user_key_with_ts.data(), key.user_key_with_ts.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
 
 void AppendInternalKeyWithDifferentTimestamp(std::string* result,
                                              const ParsedInternalKey& key,
                                              const Slice& ts) {
-  assert(key.user_key.size() >= ts.size());
-  result->append(key.user_key.data(), key.user_key.size() - ts.size());
+  assert(key.user_key_with_ts.size() >= ts.size());
+  result->append(key.user_key_with_ts.data(),
+                 key.user_key_with_ts.size() - ts.size());
   result->append(ts.data(), ts.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
@@ -91,7 +92,7 @@ void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   std::string result = "'";
   if (log_err_key) {
-    result += user_key.ToString(hex);
+    result += user_key_with_ts.ToString(hex);
   } else {
     result += "<redacted>";
   }
@@ -122,7 +123,7 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
-  int r = user_comparator_.Compare(a.user_key, b.user_key);
+  int r = user_comparator_.Compare(a.user_key_with_ts, b.user_key_with_ts);
   if (r == 0) {
     if (a.sequence > b.sequence) {
       r = -1;
@@ -137,9 +138,9 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
   return r;
 }
 
-LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,
+LookupKey::LookupKey(const Slice& _user_key_without_ts, SequenceNumber s,
                      const Slice* ts) {
-  size_t usize = _user_key.size();
+  size_t usize = _user_key_without_ts.size();
   size_t ts_sz = (nullptr == ts) ? 0 : ts->size();
   size_t needed = usize + ts_sz + 13;  // A conservative estimate
   char* dst;
@@ -152,7 +153,7 @@ LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s,
   // NOTE: We don't support users keys of more than 2GB :)
   dst = EncodeVarint32(dst, static_cast<uint32_t>(usize + ts_sz + 8));
   kstart_ = dst;
-  memcpy(dst, _user_key.data(), usize);
+  memcpy(dst, _user_key_without_ts.data(), usize);
   dst += usize;
   if (nullptr != ts) {
     memcpy(dst, ts->data(), ts_sz);

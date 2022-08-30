@@ -81,9 +81,10 @@ class GetContext {
   GetContextStats get_context_stats_;
 
   // Constructor
-  // @param value Holds the value corresponding to user_key. If its nullptr
-  //              then return all merge operands corresponding to user_key
-  //              via merge_context
+  // @param value Holds the value corresponding to user_key_with_ts. If its
+  // nullptr
+  //              then return all merge operands corresponding to
+  //              user_key_with_ts via merge_context
   // @param value_found If non-nullptr, set to false if key may be present
   //                    but we can't be certain because we cannot do IO
   // @param max_covering_tombstone_seq Pointer to highest sequence number of
@@ -96,10 +97,11 @@ class GetContext {
   //                 for visibility of a key
   // @param is_blob_index If non-nullptr, will be used to indicate if a found
   //                      key is of type blob index
-  // @param do_merge True if value associated with user_key has to be returned
-  // and false if all the merge operands associated with user_key has to be
-  // returned. Id do_merge=false then all the merge operands are stored in
-  // merge_context and they are never merged. The value pointer is untouched.
+  // @param do_merge True if value associated with user_key_with_ts has to be
+  // returned and false if all the merge operands associated with
+  // user_key_with_ts has to be returned. Id do_merge=false then all the merge
+  // operands are stored in merge_context and they are never merged. The value
+  // pointer is untouched.
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value,
@@ -216,7 +218,7 @@ class GetContext {
 // Call this to replay a log and bring the get_context up to date. The replay
 // log must have been created by another GetContext object, whose replay log
 // must have been set by calling GetContext::SetReplayLog().
-void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+void replayGetContextLog(const Slice& replay_log, const Slice& user_key_with_ts,
                          GetContext* get_context,
                          Cleanable* value_pinner = nullptr);
 

@@ -225,7 +225,7 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
 }
 
 // Advance to the first entry with a key <= target
-void VectorRep::Iterator::SeekForPrev(const Slice& /*user_key*/,
+void VectorRep::Iterator::SeekForPrev(const Slice& /*user_key_with_ts*/,
                                       const char* /*memtable_key*/) {
   assert(false);
 }
@@ -261,7 +261,7 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
   VectorRep::Iterator iter(vector_rep, immutable_ ? bucket_ : bucket, compare_);
   rwlock_.ReadUnlock();
 
-  for (iter.Seek(k.user_key(), k.memtable_key().data());
+  for (iter.Seek(k.user_key_with_ts(), k.memtable_key().data());
        iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
   }
 }

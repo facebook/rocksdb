@@ -1205,8 +1205,8 @@ TEST_F(DBRangeDelTest, UnorderedTombstones) {
   std::vector<std::vector<FileMetaData>> files;
   dbfull()->TEST_GetFilesMetaData(cf, &files);
   ASSERT_EQ(1, files[0].size());
-  ASSERT_EQ("a", files[0][0].smallest.user_key());
-  ASSERT_EQ("c", files[0][0].largest.user_key());
+  ASSERT_EQ("a", files[0][0].smallest.user_key_with_ts());
+  ASSERT_EQ("c", files[0][0].largest.user_key_with_ts());
 
   std::string v;
   auto s = db_->Get(ReadOptions(), "a", &v);

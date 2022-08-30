@@ -1063,9 +1063,9 @@ void CheckColumnFamilyMeta(
       ASSERT_EQ(file_meta_from_cf.largest_seqno,
                 file_meta_from_files.fd.largest_seqno);
       ASSERT_EQ(file_meta_from_cf.smallestkey,
-                file_meta_from_files.smallest.user_key().ToString());
+                file_meta_from_files.smallest.user_key_with_ts().ToString());
       ASSERT_EQ(file_meta_from_cf.largestkey,
-                file_meta_from_files.largest.user_key().ToString());
+                file_meta_from_files.largest.user_key_with_ts().ToString());
       ASSERT_EQ(file_meta_from_cf.oldest_blob_file_number,
                 file_meta_from_files.oldest_blob_file_number);
       ASSERT_EQ(file_meta_from_cf.oldest_ancester_time,
@@ -1120,8 +1120,10 @@ void CheckLiveFilesMeta(
     ASSERT_EQ(meta.size, expected_meta.fd.file_size);
     ASSERT_EQ(meta.smallest_seqno, expected_meta.fd.smallest_seqno);
     ASSERT_EQ(meta.largest_seqno, expected_meta.fd.largest_seqno);
-    ASSERT_EQ(meta.smallestkey, expected_meta.smallest.user_key().ToString());
-    ASSERT_EQ(meta.largestkey, expected_meta.largest.user_key().ToString());
+    ASSERT_EQ(meta.smallestkey,
+              expected_meta.smallest.user_key_with_ts().ToString());
+    ASSERT_EQ(meta.largestkey,
+              expected_meta.largest.user_key_with_ts().ToString());
     ASSERT_EQ(meta.oldest_blob_file_number,
               expected_meta.oldest_blob_file_number);
 

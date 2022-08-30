@@ -69,13 +69,13 @@ void print_help(bool to_stderr) {
     --decode_blob_index
       Decode blob indexes and print them in a human-readable format during scans.
 
-    --from=<user_key>
+    --from=<user_key_with_ts>
       Key to start reading from when executing check|scan
 
-    --to=<user_key>
+    --to=<user_key_with_ts>
       Key to stop reading at when executing check|scan
 
-    --prefix=<user_key>
+    --prefix=<user_key_with_ts>
       Returns all keys with this prefix when executing check|scan
       Cannot be used in conjunction with --from
 

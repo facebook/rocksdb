@@ -110,7 +110,7 @@ class CuckooTableBuilder: public TableBuilder {
   uint64_t key_size_;
   uint64_t value_size_;
   // A list of fixed-size key-value pairs concatenating into a string.
-  // Use GetKey(), GetUserKey(), and GetValue() to retrieve a specific
+  // Use GetKey(), GetUserKeyWithTs(), and GetValue() to retrieve a specific
   // key / value given an index
   std::string kvs_;
   std::string deleted_keys_;

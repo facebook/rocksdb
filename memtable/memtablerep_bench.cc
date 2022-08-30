@@ -302,7 +302,7 @@ class ReadBenchmarkThread : public BenchmarkThread {
     if ((callback_args->comparator)
             ->user_comparator()
             ->Equal(Slice(key_ptr, key_length - 8),
-                    callback_args->key->user_key())) {
+                    callback_args->key->user_key_with_ts())) {
       callback_args->found = true;
     }
     return false;

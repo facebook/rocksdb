@@ -117,7 +117,7 @@ class ForwardRangeDelIterator {
 
   void AddNewIter(TruncatedRangeDelIterator* iter,
                   const ParsedInternalKey& parsed) {
-    iter->Seek(parsed.user_key);
+    iter->Seek(parsed.user_key_with_ts);
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }
@@ -194,7 +194,7 @@ class ReverseRangeDelIterator {
 
   void AddNewIter(TruncatedRangeDelIterator* iter,
                   const ParsedInternalKey& parsed) {
-    iter->SeekForPrev(parsed.user_key);
+    iter->SeekForPrev(parsed.user_key_with_ts);
     PushIter(iter, parsed);
     assert(active_iters_.size() == active_seqnums_.size());
   }

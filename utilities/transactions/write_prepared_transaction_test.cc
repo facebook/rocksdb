@@ -2652,7 +2652,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseSnapshotDuringCompaction2) {
   int count_value = 0;
   auto callback = [&](void* arg) {
     auto* ikey = reinterpret_cast<ParsedInternalKey*>(arg);
-    if (ikey->user_key == "key1") {
+    if (ikey->user_key_with_ts == "key1") {
       count_value++;
       if (count_value == 2) {
         // Processing v1.
@@ -3102,7 +3102,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing) {
         const auto* const ikey =
             reinterpret_cast<const ParsedInternalKey*>(arg);
         assert(ikey);
-        if (ikey->user_key == "b") {
+        if (ikey->user_key_with_ts == "b") {
           assert(ikey->type == kTypeValue);
           db->ReleaseSnapshot(snapshot);
 
@@ -3176,7 +3176,7 @@ TEST_P(WritePreparedTransactionTest, ReleaseEarliestSnapshotAfterSeqZeroing2) {
         const auto* const ikey =
             reinterpret_cast<const ParsedInternalKey*>(arg);
         assert(ikey);
-        if (ikey->user_key == "b") {
+        if (ikey->user_key_with_ts == "b") {
           assert(ikey->type == kTypeValue);
           db->ReleaseSnapshot(snapshot);
 

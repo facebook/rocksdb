@@ -109,29 +109,29 @@ void FileIndexer::UpdateIndex(Arena* arena, const size_t num_levels,
     CalculateLB(
         upper_files, lower_files, &index_level,
         [this](const FileMetaData* a, const FileMetaData* b) -> int {
-          return ucmp_->CompareWithoutTimestamp(a->smallest.user_key(),
-                                                b->largest.user_key());
+          return ucmp_->CompareWithoutTimestamp(a->smallest.user_key_with_ts(),
+                                                b->largest.user_key_with_ts());
         },
         [](IndexUnit* index, int32_t f_idx) { index->smallest_lb = f_idx; });
     CalculateLB(
         upper_files, lower_files, &index_level,
         [this](const FileMetaData* a, const FileMetaData* b) -> int {
-          return ucmp_->CompareWithoutTimestamp(a->largest.user_key(),
-                                                b->largest.user_key());
+          return ucmp_->CompareWithoutTimestamp(a->largest.user_key_with_ts(),
+                                                b->largest.user_key_with_ts());
         },
         [](IndexUnit* index, int32_t f_idx) { index->largest_lb = f_idx; });
     CalculateRB(
         upper_files, lower_files, &index_level,
         [this](const FileMetaData* a, const FileMetaData* b) -> int {
-          return ucmp_->CompareWithoutTimestamp(a->smallest.user_key(),
-                                                b->smallest.user_key());
+          return ucmp_->CompareWithoutTimestamp(a->smallest.user_key_with_ts(),
+                                                b->smallest.user_key_with_ts());
         },
         [](IndexUnit* index, int32_t f_idx) { index->smallest_rb = f_idx; });
     CalculateRB(
         upper_files, lower_files, &index_level,
         [this](const FileMetaData* a, const FileMetaData* b) -> int {
-          return ucmp_->CompareWithoutTimestamp(a->largest.user_key(),
-                                                b->smallest.user_key());
+          return ucmp_->CompareWithoutTimestamp(a->largest.user_key_with_ts(),
+                                                b->smallest.user_key_with_ts());
         },
         [](IndexUnit* index, int32_t f_idx) { index->largest_rb = f_idx; });
   }

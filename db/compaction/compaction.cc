@@ -25,7 +25,8 @@ const uint64_t kRangeTombstoneSentinel =
 
 int sstableKeyCompare(const Comparator* user_cmp, const InternalKey& a,
                       const InternalKey& b) {
-  auto c = user_cmp->CompareWithoutTimestamp(a.user_key(), b.user_key());
+  auto c = user_cmp->CompareWithoutTimestamp(a.user_key_with_ts(),
+                                             b.user_key_with_ts());
   if (c != 0) {
     return c;
   }
@@ -87,12 +88,12 @@ void Compaction::GetBoundaryKeys(
     if (inputs[i].level == 0) {
       // we need to consider all files on level 0
       for (const auto* f : inputs[i].files) {
-        const Slice& start_user_key = f->smallest.user_key();
+        const Slice& start_user_key = f->smallest.user_key_with_ts();
         if (!initialized ||
             ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
           *smallest_user_key = start_user_key;
         }
-        const Slice& end_user_key = f->largest.user_key();
+        const Slice& end_user_key = f->largest.user_key_with_ts();
         if (!initialized ||
             ucmp->Compare(end_user_key, *largest_user_key) > 0) {
           *largest_user_key = end_user_key;
@@ -101,12 +102,14 @@ void Compaction::GetBoundaryKeys(
       }
     } else {
       // we only need to consider the first and last file
-      const Slice& start_user_key = inputs[i].files[0]->smallest.user_key();
+      const Slice& start_user_key =
+          inputs[i].files[0]->smallest.user_key_with_ts();
       if (!initialized ||
           ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
         *smallest_user_key = start_user_key;
       }
-      const Slice& end_user_key = inputs[i].files.back()->largest.user_key();
+      const Slice& end_user_key =
+          inputs[i].files.back()->largest.user_key_with_ts();
       if (!initialized || ucmp->Compare(end_user_key, *largest_user_key) > 0) {
         *largest_user_key = end_user_key;
       }
@@ -433,8 +436,8 @@ bool Compaction::IsTrivialMove() const {
     }
 
     if (partitioner.get() != nullptr) {
-      if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
-                                         file->largest.user_key())) {
+      if (!partitioner->CanDoTrivialMove(file->smallest.user_key_with_ts(),
+                                         file->largest.user_key_with_ts())) {
         return false;
       }
     }
@@ -472,15 +475,15 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
           input_vstorage_->LevelFiles(lvl);
       for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
         auto* f = files[level_ptrs->at(lvl)];
-        if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
+        if (user_cmp->Compare(user_key, f->largest.user_key_with_ts()) <= 0) {
           // We've advanced far enough
           // In the presence of user-defined timestamp, we may need to handle
-          // the case in which f->smallest.user_key() (including ts) has the
-          // same user key, but the ts part is smaller. If so,
-          // Compare(user_key, f->smallest.user_key()) returns -1.
-          // That's why we need CompareWithoutTimestamp().
-          if (user_cmp->CompareWithoutTimestamp(user_key,
-                                                f->smallest.user_key()) >= 0) {
+          // the case in which f->smallest.user_key_with_ts() (including ts) has
+          // the same user key, but the ts part is smaller. If so,
+          // Compare(user_key_with_ts, f->smallest.user_key_with_ts()) returns
+          // -1. That's why we need CompareWithoutTimestamp().
+          if (user_cmp->CompareWithoutTimestamp(
+                  user_key, f->smallest.user_key_with_ts()) >= 0) {
             // Key falls in this file's range, so it may
             // exist beyond output level
             return false;

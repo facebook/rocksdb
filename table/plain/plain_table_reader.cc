@@ -239,7 +239,7 @@ Status PlainTableReader::PopulateIndexRecordList(
 
     key_prefix_slice = GetPrefix(key);
     if (enable_bloom_) {
-      bloom_.AddHash(GetSliceHash(key.user_key));
+      bloom_.AddHash(GetSliceHash(key.user_key_with_ts));
     } else {
       if (is_first_record || prev_key_prefix_slice != key_prefix_slice) {
         if (!is_first_record) {

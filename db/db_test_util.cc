@@ -992,7 +992,7 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
           Status::OK()) {
         result += "CORRUPTED";
       } else {
-        if (!last_options_.comparator->Equal(ikey.user_key, user_key)) {
+        if (!last_options_.comparator->Equal(ikey.user_key_with_ts, user_key)) {
           break;
         }
         if (!first) {
@@ -1656,7 +1656,7 @@ void DBTestBase::VerifyDBInternal(
     ASSERT_TRUE(iter->Valid());
     ParsedInternalKey ikey;
     ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
-    ASSERT_EQ(p.first, ikey.user_key);
+    ASSERT_EQ(p.first, ikey.user_key_with_ts);
     ASSERT_EQ(p.second, iter->value());
     iter->Next();
   };

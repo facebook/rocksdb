@@ -132,9 +132,10 @@ class MultiGetContext {
       sorted_keys_[iter] = (*sorted_keys)[begin + iter];
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[iter])
           LookupKey(*sorted_keys_[iter]->key, snapshot, read_opts.timestamp);
-      sorted_keys_[iter]->ukey_with_ts = sorted_keys_[iter]->lkey->user_key();
+      sorted_keys_[iter]->ukey_with_ts =
+          sorted_keys_[iter]->lkey->user_key_with_ts();
       sorted_keys_[iter]->ukey_without_ts = StripTimestampFromUserKey(
-          sorted_keys_[iter]->lkey->user_key(),
+          sorted_keys_[iter]->lkey->user_key_with_ts(),
           read_opts.timestamp == nullptr ? 0 : read_opts.timestamp->size());
       sorted_keys_[iter]->ikey = sorted_keys_[iter]->lkey->internal_key();
       sorted_keys_[iter]->timestamp = (*sorted_keys)[begin + iter]->timestamp;

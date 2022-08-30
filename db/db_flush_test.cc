@@ -2011,8 +2011,8 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   const auto& blob_file = blob_files.front();
   assert(blob_file);
 
-  ASSERT_EQ(table_file->smallest.user_key(), "key1");
-  ASSERT_EQ(table_file->largest.user_key(), "key2");
+  ASSERT_EQ(table_file->smallest.user_key_with_ts(), "key1");
+  ASSERT_EQ(table_file->largest.user_key_with_ts(), "key2");
   ASSERT_EQ(table_file->fd.smallest_seqno, 1);
   ASSERT_EQ(table_file->fd.largest_seqno, 2);
   ASSERT_EQ(table_file->oldest_blob_file_number,

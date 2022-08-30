@@ -1848,7 +1848,7 @@ void InternalDumpCommand::DoCommand() {
   for (auto& key_version : key_versions) {
     ValueType value_type = static_cast<ValueType>(key_version.type);
     InternalKey ikey(key_version.user_key, key_version.sequence, value_type);
-    if (has_to_ && ikey.user_key() == to_) {
+    if (has_to_ && ikey.user_key_with_ts() == to_) {
       // GetAllKeyVersions() includes keys with user key `to_`, but idump has
       // traditionally excluded such keys.
       break;

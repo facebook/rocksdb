@@ -1175,7 +1175,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 
     if (status.ok()) {
       if (memtable_iter->Valid() &&
-          ucmp->Compare(seek_result.user_key, ranges[i].limit) <= 0) {
+          ucmp->Compare(seek_result.user_key_with_ts, ranges[i].limit) <= 0) {
         *overlap = true;
       } else if (range_del_agg.IsRangeOverlapped(ranges[i].start,
                                                  ranges[i].limit)) {

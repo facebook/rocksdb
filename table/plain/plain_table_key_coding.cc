@@ -114,7 +114,8 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
 
     Slice prefix =
         prefix_extractor_->Transform(Slice(key.data(), user_key_size));
-    if (key_count_for_prefix_ == 0 || prefix != pre_prefix_.GetUserKey() ||
+    if (key_count_for_prefix_ == 0 ||
+        prefix != pre_prefix_.GetUserKeyWithTs() ||
         key_count_for_prefix_ % index_sparseness_ == 0) {
       key_count_for_prefix_ = 1;
       pre_prefix_.SetUserKey(prefix);
@@ -128,13 +129,13 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
       key_count_for_prefix_++;
       if (key_count_for_prefix_ == 2) {
         // For second key within a prefix, need to encode prefix length
-        size_bytes_pos +=
-            EncodeSize(kPrefixFromPreviousKey,
-                       static_cast<uint32_t>(pre_prefix_.GetUserKey().size()),
-                       size_bytes + size_bytes_pos);
+        size_bytes_pos += EncodeSize(
+            kPrefixFromPreviousKey,
+            static_cast<uint32_t>(pre_prefix_.GetUserKeyWithTs().size()),
+            size_bytes + size_bytes_pos);
       }
       uint32_t prefix_len =
-          static_cast<uint32_t>(pre_prefix_.GetUserKey().size());
+          static_cast<uint32_t>(pre_prefix_.GetUserKeyWithTs().size());
       size_bytes_pos += EncodeSize(kKeySuffix, user_key_size - prefix_len,
                                    size_bytes + size_bytes_pos);
       IOStatus io_s = file->Append(Slice(size_bytes, size_bytes_pos));
@@ -272,7 +273,7 @@ Status PlainTableKeyDecoder::ReadInternalKey(
   }
   if (tmp_slice[user_key_size] == PlainTableFactory::kValueTypeSeqId0) {
     // Special encoding for the row with seqID=0
-    parsed_key->user_key = Slice(tmp_slice.data(), user_key_size);
+    parsed_key->user_key_with_ts = Slice(tmp_slice.data(), user_key_size);
     parsed_key->sequence = 0;
     parsed_key->type = kTypeValue;
     *bytes_read += user_key_size + 1;
@@ -327,7 +328,7 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(uint32_t start_offset,
   }
   if (!file_reader_.file_info()->is_mmap_mode) {
     cur_key_.SetInternalKey(*parsed_key);
-    parsed_key->user_key =
+    parsed_key->user_key_with_ts =
         Slice(cur_key_.GetInternalKey().data(), user_key_size);
     if (internal_key != nullptr) {
       *internal_key = cur_key_.GetInternalKey();
@@ -382,9 +383,9 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           // users, because after reading value for the key, the key might
           // be invalid.
           cur_key_.SetInternalKey(*parsed_key);
-          saved_user_key_ = cur_key_.GetUserKey();
+          saved_user_key_ = cur_key_.GetUserKeyWithTs();
           if (!file_reader_.file_info()->is_mmap_mode) {
-            parsed_key->user_key =
+            parsed_key->user_key_with_ts =
                 Slice(cur_key_.GetInternalKey().data(), size);
           }
           if (internal_key != nullptr) {
@@ -394,7 +395,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           if (internal_key != nullptr) {
             *internal_key = decoded_internal_key;
           }
-          saved_user_key_ = parsed_key->user_key;
+          saved_user_key_ = parsed_key->user_key_with_ts;
         }
         break;
       }
@@ -434,15 +435,15 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
               Slice(saved_user_key_.data(), prefix_len_).ToString();
           cur_key_.Reserve(prefix_len_ + size);
           cur_key_.SetInternalKey(tmp, *parsed_key);
-          parsed_key->user_key =
+          parsed_key->user_key_with_ts =
               Slice(cur_key_.GetInternalKey().data(), prefix_len_ + size);
-          saved_user_key_ = cur_key_.GetUserKey();
+          saved_user_key_ = cur_key_.GetUserKeyWithTs();
         } else {
           cur_key_.Reserve(prefix_len_ + size);
           cur_key_.SetInternalKey(Slice(saved_user_key_.data(), prefix_len_),
                                   *parsed_key);
         }
-        parsed_key->user_key = cur_key_.GetUserKey();
+        parsed_key->user_key_with_ts = cur_key_.GetUserKeyWithTs();
         if (internal_key != nullptr) {
           *internal_key = cur_key_.GetInternalKey();
         }

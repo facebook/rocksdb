@@ -66,7 +66,7 @@ void DBBasicTestWithTimestampBase::CheckIterEntry(
   ukey_and_ts.append(expected_ts.data(), expected_ts.size());
   ParsedInternalKey parsed_ikey;
   ASSERT_OK(ParseInternalKey(it->key(), &parsed_ikey, true /* log_err_key */));
-  ASSERT_EQ(ukey_and_ts, parsed_ikey.user_key);
+  ASSERT_EQ(ukey_and_ts, parsed_ikey.user_key_with_ts);
   ASSERT_EQ(expected_val_type, parsed_ikey.type);
   ASSERT_EQ(expected_seq, parsed_ikey.sequence);
   if (expected_val_type == kTypeValue) {
@@ -87,7 +87,7 @@ void DBBasicTestWithTimestampBase::CheckIterEntry(
   ParsedInternalKey parsed_ikey;
   ASSERT_OK(ParseInternalKey(it->key(), &parsed_ikey, true /* log_err_key */));
   ASSERT_EQ(expected_val_type, parsed_ikey.type);
-  ASSERT_EQ(Slice(ukey_and_ts), parsed_ikey.user_key);
+  ASSERT_EQ(Slice(ukey_and_ts), parsed_ikey.user_key_with_ts);
   if (expected_val_type == kTypeValue) {
     ASSERT_EQ(expected_value, it->value());
   }

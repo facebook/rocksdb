@@ -1125,7 +1125,7 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+  Status AddUserKey(const Slice& /*user_key_with_ts*/, const Slice& /*value*/,
                     EntryType /*type*/, SequenceNumber /*seq*/,
                     uint64_t /*file_size*/) override {
     ++count_;
@@ -1168,7 +1168,7 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "CountingDeleteTabPropCollector"; }
 
-  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+  Status AddUserKey(const Slice& /*user_key_with_ts*/, const Slice& /*value*/,
                     EntryType type, SequenceNumber /*seq*/,
                     uint64_t /*file_size*/) override {
     if (type == kEntryDelete) {
@@ -1219,7 +1219,7 @@ class BlockCountingTablePropertiesCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+  Status AddUserKey(const Slice& /*user_key_with_ts*/, const Slice& /*value*/,
                     EntryType /*type*/, SequenceNumber /*seq*/,
                     uint64_t /*file_size*/) override {
     return Status::OK();

@@ -102,10 +102,12 @@ constexpr uint64_t kNumInternalBytes = 8;
 // Defined in dbformat.cc
 extern const std::string kDisableUserTimestamp;
 
-// The data structure that represents an internal key in the way that user_key,
-// sequence number and type are stored in separated forms.
+// The data structure that represents an internal key in the way that
+// user_key_with_ts, sequence number and type are stored in separated forms.
 struct ParsedInternalKey {
-  Slice user_key;
+  // If user-defined timestamp is disabled, user_key_with_ts will have a
+  // zero-length ts component.
+  Slice user_key_with_ts;
   SequenceNumber sequence;
   ValueType type;
 
@@ -114,26 +116,28 @@ struct ParsedInternalKey {
         type(kTypeDeletion)  // Make code analyzer happy
   {}                         // Intentionally left uninitialized (for speed)
   // u contains timestamp if user timestamp feature is enabled.
-  ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
-      : user_key(u), sequence(seq), type(t) {}
+  ParsedInternalKey(const Slice& ukey_with_ts, const SequenceNumber& seq,
+                    ValueType t)
+      : user_key_with_ts(ukey_with_ts), sequence(seq), type(t) {}
   std::string DebugString(bool log_err_key, bool hex) const;
 
   void clear() {
-    user_key.clear();
+    user_key_with_ts.clear();
     sequence = 0;
     type = kTypeDeletion;
   }
 
   void SetTimestamp(const Slice& ts) {
-    assert(ts.size() <= user_key.size());
-    const char* addr = user_key.data() + user_key.size() - ts.size();
+    assert(ts.size() <= user_key_with_ts.size());
+    const char* addr =
+        user_key_with_ts.data() + user_key_with_ts.size() - ts.size();
     memcpy(const_cast<char*>(addr), ts.data(), ts.size());
   }
 };
 
 // Return the length of the encoding of "key".
 inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
-  return key.user_key.size() + kNumInternalBytes;
+  return key.user_key_with_ts.size() + kNumInternalBytes;
 }
 
 // Pack a sequence number and a ValueType into a uint64_t
@@ -286,28 +290,29 @@ class InternalKey {
 
  public:
   InternalKey() {}  // Leave rep_ as empty to indicate it is invalid
-  InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
-    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
+  InternalKey(const Slice& _user_key_with_ts, SequenceNumber s, ValueType t) {
+    AppendInternalKey(&rep_, ParsedInternalKey(_user_key_with_ts, s, t));
   }
 
   // sets the internal key to be bigger or equal to all internal keys with this
   // user key
-  void SetMaxPossibleForUserKey(const Slice& _user_key) {
-    AppendInternalKey(
-        &rep_, ParsedInternalKey(_user_key, 0, static_cast<ValueType>(0)));
+  void SetMaxPossibleForUserKey(const Slice& _user_key_with_ts) {
+    AppendInternalKey(&rep_, ParsedInternalKey(_user_key_with_ts, 0,
+                                               static_cast<ValueType>(0)));
   }
 
   // sets the internal key to be smaller or equal to all internal keys with this
   // user key
-  void SetMinPossibleForUserKey(const Slice& _user_key) {
-    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, kMaxSequenceNumber,
-                                               kValueTypeForSeek));
+  void SetMinPossibleForUserKey(const Slice& _user_key_with_ts) {
+    AppendInternalKey(&rep_,
+                      ParsedInternalKey(_user_key_with_ts, kMaxSequenceNumber,
+                                        kValueTypeForSeek));
   }
 
   bool Valid() const {
     ParsedInternalKey parsed;
-    return (ParseInternalKey(Slice(rep_), &parsed, false /* log_err_key */)
-                .ok());  // TODO
+    return (
+        ParseInternalKey(Slice(rep_), &parsed, false /* log_err_key */).ok());
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }
@@ -316,11 +321,11 @@ class InternalKey {
     return rep_;
   }
 
-  Slice user_key() const { return ExtractUserKey(rep_); }
+  Slice user_key_with_ts() const { return ExtractUserKey(rep_); }
   size_t size() const { return rep_.size(); }
 
-  void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {
-    SetFrom(ParsedInternalKey(_user_key, s, t));
+  void Set(const Slice& _user_key_with_ts, SequenceNumber s, ValueType t) {
+    SetFrom(ParsedInternalKey(_user_key_with_ts, s, t));
   }
 
   void SetFrom(const ParsedInternalKey& p) {
@@ -362,7 +367,7 @@ inline Status ParseInternalKey(const Slice& internal_key,
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
-  result->user_key = Slice(internal_key.data(), n - kNumInternalBytes);
+  result->user_key_with_ts = Slice(internal_key.data(), n - kNumInternalBytes);
 
   if (IsExtendedValueType(result->type)) {
     return Status::OK();
@@ -423,7 +428,7 @@ class IterKey {
     return Slice(key_, key_size_);
   }
 
-  Slice GetUserKey() const {
+  Slice GetUserKeyWithTs() const {
     if (IsUserKey()) {
       return Slice(key_, key_size_);
     } else {
@@ -488,7 +493,7 @@ class IterKey {
     size_t key_n = key.size();
     assert(key_n >= kNumInternalBytes);
     SetInternalKey(key);
-    ikey->user_key = Slice(key_, key_n - kNumInternalBytes);
+    ikey->user_key_with_ts = Slice(key_, key_n - kNumInternalBytes);
     return Slice(key_, key_n);
   }
 
@@ -517,19 +522,19 @@ class IterKey {
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
-  // user_key does not have timestamp.
-  void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
+  // user_key_with_ts does not have timestamp.
+  void SetInternalKey(const Slice& key_prefix, const Slice& user_key_without_ts,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
                       const Slice* ts = nullptr) {
     size_t psize = key_prefix.size();
-    size_t usize = user_key.size();
+    size_t usize = user_key_without_ts.size();
     size_t ts_sz = (ts != nullptr ? ts->size() : 0);
     EnlargeBufferIfNeeded(psize + usize + sizeof(uint64_t) + ts_sz);
     if (psize > 0) {
       memcpy(buf_, key_prefix.data(), psize);
     }
-    memcpy(buf_ + psize, user_key.data(), usize);
+    memcpy(buf_ + psize, user_key_without_ts.data(), usize);
     if (ts) {
       memcpy(buf_ + psize + usize, ts->data(), ts_sz);
     }
@@ -541,10 +546,10 @@ class IterKey {
     is_user_key_ = false;
   }
 
-  void SetInternalKey(const Slice& user_key, SequenceNumber s,
+  void SetInternalKey(const Slice& user_key_without_ts, SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
                       const Slice* ts = nullptr) {
-    SetInternalKey(Slice(), user_key, s, value_type, ts);
+    SetInternalKey(Slice(), user_key_without_ts, s, value_type, ts);
   }
 
   void Reserve(size_t size) {
@@ -558,7 +563,7 @@ class IterKey {
 
   void SetInternalKey(const Slice& key_prefix,
                       const ParsedInternalKey& parsed_key_suffix) {
-    SetInternalKey(key_prefix, parsed_key_suffix.user_key,
+    SetInternalKey(key_prefix, parsed_key_suffix.user_key_with_ts,
                    parsed_key_suffix.sequence, parsed_key_suffix.type);
   }
 
@@ -681,7 +686,7 @@ struct RangeTombstone {
       : start_key_(sk), end_key_(ek), seq_(sn) {}
 
   RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
-    start_key_ = parsed_key.user_key;
+    start_key_ = parsed_key.user_key_with_ts;
     seq_ = parsed_key.sequence;
     end_key_ = value;
   }

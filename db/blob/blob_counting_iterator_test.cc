@@ -303,7 +303,7 @@ TEST(BlobCountingIteratorTest, CountBlobs) {
 
 TEST(BlobCountingIteratorTest, CorruptBlobIndex) {
   const std::vector<std::string> keys{
-      test::KeyStr("user_key", 1, kTypeBlobIndex)};
+      test::KeyStr("user_key_with_ts", 1, kTypeBlobIndex)};
   const std::vector<std::string> values{"i_am_not_a_blob_index"};
 
   assert(keys.size() == values.size());

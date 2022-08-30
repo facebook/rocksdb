@@ -172,9 +172,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       }
       break;
     } else if (first_key) {
-      assert(user_comparator_->Equal(ikey.user_key, orig_ikey.user_key));
+      assert(user_comparator_->Equal(ikey.user_key_with_ts,
+                                     orig_ikey.user_key_with_ts));
       first_key = false;
-    } else if (!user_comparator_->Equal(ikey.user_key, orig_ikey.user_key)) {
+    } else if (!user_comparator_->Equal(ikey.user_key_with_ts,
+                                        orig_ikey.user_key_with_ts)) {
       // hit a different user key, stop right here
       hit_the_next_user_key = true;
       break;
@@ -238,7 +240,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
           assert(blob_fetcher);
 
-          s = blob_fetcher->FetchBlob(ikey.user_key, blob_index,
+          s = blob_fetcher->FetchBlob(ikey.user_key_with_ts, blob_index,
                                       prefetch_buffer, &blob_value,
                                       &bytes_read);
           if (!s.ok()) {
@@ -258,7 +260,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         val_ptr = nullptr;
       }
       std::string merge_result;
-      s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
+      s = TimedFullMerge(user_merge_operator_, ikey.user_key_with_ts, val_ptr,
                          merge_context_.GetOperands(), &merge_result, logger_,
                          stats_, clock_);
 
@@ -297,7 +299,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       CompactionFilter::Decision filter =
           ikey.sequence <= latest_snapshot_
               ? CompactionFilter::Decision::kKeep
-              : FilterMerge(orig_ikey.user_key, value_slice);
+              : FilterMerge(orig_ikey.user_key_with_ts, value_slice);
       if (filter != CompactionFilter::Decision::kRemoveAndSkipUntil &&
           range_del_agg != nullptr &&
           range_del_agg->ShouldDelete(
@@ -369,9 +371,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(merge_context_.GetNumOperands() >= 1);
     assert(merge_context_.GetNumOperands() == keys_.size());
     std::string merge_result;
-    s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
-                       merge_context_.GetOperands(), &merge_result, logger_,
-                       stats_, clock_);
+    s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key_with_ts,
+                       nullptr, merge_context_.GetOperands(), &merge_result,
+                       logger_, stats_, clock_);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of
@@ -397,7 +399,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         StopWatchNano timer(clock_, stats_ != nullptr);
         PERF_TIMER_GUARD(merge_operator_time_nanos);
         merge_success = user_merge_operator_->PartialMergeMulti(
-            orig_ikey.user_key,
+            orig_ikey.user_key_with_ts,
             std::deque<Slice>(merge_context_.GetOperands().begin(),
                               merge_context_.GetOperands().end()),
             &merge_result, logger_);

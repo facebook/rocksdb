@@ -307,7 +307,8 @@ class CompactionIterator {
     if (!timestamp_size_) {
       return;
     }
-    Slice ts = ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
+    Slice ts =
+        ExtractTimestampFromUserKey(ikey_.user_key_with_ts, timestamp_size_);
     curr_ts_.assign(ts.data(), ts.size());
     if (full_history_ts_low_) {
       cmp_with_history_ts_low_ =
@@ -405,8 +406,8 @@ class CompactionIterator {
   // iterator output (or current key in the underlying iterator during
   // NextFromInput()).
   ParsedInternalKey ikey_;
-  // Stores whether ikey_.user_key is valid. If set to false, the user key is
-  // not compared against the current key in the underlying iterator.
+  // Stores whether ikey_.user_key_with_ts is valid. If set to false, the user
+  // key is not compared against the current key in the underlying iterator.
   bool has_current_user_key_ = false;
   // If false, the iterator holds a copy of the current compaction iterator
   // output (or current key in the underlying iterator during NextFromInput()).

@@ -130,8 +130,8 @@ DEFINE_SYNC_AND_ASYNC(Status, Version::MultiGetFromSST)
         file_range.MarkKeyDone(iter);
         continue;
       case GetContext::kCorrupt:
-        *status =
-            Status::Corruption("corrupted key for ", iter->lkey->user_key());
+        *status = Status::Corruption("corrupted key for ",
+                                     iter->lkey->user_key_with_ts());
         file_range.MarkKeyDone(iter);
         continue;
       case GetContext::kUnexpectedBlobIndex:

@@ -92,7 +92,7 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
     auto it = cur_end_keys.begin();
     bool reached_next_start_key = false;
     for (; it != cur_end_keys.end() && !reached_next_start_key; ++it) {
-      Slice cur_end_key = it->user_key;
+      Slice cur_end_key = it->user_key_with_ts;
       if (icmp.user_comparator()->Compare(cur_start_key, cur_end_key) == 0) {
         // Empty tombstone.
         continue;
@@ -205,7 +205,7 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
   }
   if (!cur_end_keys.empty()) {
     ParsedInternalKey last_end_key = *std::prev(cur_end_keys.end());
-    flush_current_tombstones(last_end_key.user_key);
+    flush_current_tombstones(last_end_key.user_key_with_ts);
   }
 
   if (!no_tombstones) {

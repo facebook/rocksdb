@@ -269,8 +269,9 @@ TEST_F(FlushJobTest, NonEmpty) {
   db_options_.statistics->histogramData(FLUSH_TIME, &hist);
   ASSERT_GT(hist.average, 0.0);
 
-  ASSERT_EQ(std::to_string(0), file_meta.smallest.user_key().ToString());
-  ASSERT_EQ("9999a", file_meta.largest.user_key().ToString());
+  ASSERT_EQ(std::to_string(0),
+            file_meta.smallest.user_key_with_ts().ToString());
+  ASSERT_EQ("9999a", file_meta.largest.user_key_with_ts().ToString());
   ASSERT_EQ(1, file_meta.fd.smallest_seqno);
   ASSERT_EQ(10006, file_meta.fd.largest_seqno);
   ASSERT_EQ(17, file_meta.oldest_blob_file_number);
@@ -331,8 +332,9 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   db_options_.statistics->histogramData(FLUSH_TIME, &hist);
   ASSERT_GT(hist.average, 0.0);
 
-  ASSERT_EQ(std::to_string(0), file_meta.smallest.user_key().ToString());
-  ASSERT_EQ("99", file_meta.largest.user_key().ToString());
+  ASSERT_EQ(std::to_string(0),
+            file_meta.smallest.user_key_with_ts().ToString());
+  ASSERT_EQ("99", file_meta.largest.user_key_with_ts().ToString());
   ASSERT_EQ(0, file_meta.fd.smallest_seqno);
   ASSERT_EQ(SequenceNumber(num_mems_to_flush * num_keys_per_table - 1),
             file_meta.fd.largest_seqno);
@@ -445,8 +447,9 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
   ASSERT_GT(hist.average, 0.0);
   k = 0;
   for (const auto& file_meta : file_metas) {
-    ASSERT_EQ(std::to_string(0), file_meta.smallest.user_key().ToString());
-    ASSERT_EQ("999", file_meta.largest.user_key()
+    ASSERT_EQ(std::to_string(0),
+              file_meta.smallest.user_key_with_ts().ToString());
+    ASSERT_EQ("999", file_meta.largest.user_key_with_ts()
                          .ToString());  // max key by bytewise comparator
     ASSERT_EQ(smallest_seqs[k], file_meta.fd.smallest_seqno);
     ASSERT_EQ(largest_seqs[k], file_meta.fd.largest_seqno);

@@ -5,7 +5,7 @@ author: maysamyabandeh
 category: blog
 ---
 
-The data blocks in RocksDB consist of a sequence of key/values pairs sorted by key, where the pairs are grouped into _restart intervals_ specified by `block_restart_interval`. Up to RocksDB version 5.14, where the latest and default value of `BlockBasedTableOptions::format_version` is 2, the format of index and data blocks are the same: index blocks use the same key format of <`user_key`,`seq`> and encode pointers to data blocks, <`offset`,`size`>, to a byte string and use them as values. The only difference is that the index blocks use `index_block_restart_interval` for the size of _restart intervals_. `format_version=`3,4 offer more optimized, backward-compatible, yet forward-incompatible format for index blocks. 
+The data blocks in RocksDB consist of a sequence of key/values pairs sorted by key, where the pairs are grouped into _restart intervals_ specified by `block_restart_interval`. Up to RocksDB version 5.14, where the latest and default value of `BlockBasedTableOptions::format_version` is 2, the format of index and data blocks are the same: index blocks use the same key format of <`user_key_with_ts`,`seq`> and encode pointers to data blocks, <`offset`,`size`>, to a byte string and use them as values. The only difference is that the index blocks use `index_block_restart_interval` for the size of _restart intervals_. `format_version=`3,4 offer more optimized, backward-compatible, yet forward-incompatible format for index blocks. 
 
 ### Pros
 

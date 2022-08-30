@@ -194,7 +194,7 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
     CHECK_TRUE(it->Valid());
     ParsedInternalKey ikey;
     CHECK_OK(ParseInternalKey(it->key(), &ikey, /*log_err_key=*/true));
-    CHECK_EQ(ikey.user_key.ToString(), op.key());
+    CHECK_EQ(ikey.user_key_with_ts.ToString(), op.key());
     CHECK_EQ(ikey.sequence, 0);
     CHECK_EQ(ikey.type, ToValueType(op.type()));
     if (op.type() != OpType::DELETE) {

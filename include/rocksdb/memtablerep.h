@@ -180,13 +180,13 @@ class MemTableRep {
   virtual void MarkFlushed() {}
 
   // Look up key from the mem table, since the first key in the mem table whose
-  // user_key matches the one given k, call the function callback_func(), with
-  // callback_args directly forwarded as the first parameter, and the mem table
-  // key as the second parameter. If the return value is false, then terminates.
-  // Otherwise, go through the next key.
+  // user_key_with_ts matches the one given k, call the function
+  // callback_func(), with callback_args directly forwarded as the first
+  // parameter, and the mem table key as the second parameter. If the return
+  // value is false, then terminates. Otherwise, go through the next key.
   //
   // It's safe for Get() to terminate after having finished all the potential
-  // key for the k.user_key(), or not.
+  // key for the k.user_key_with_ts(), or not.
   //
   // Default:
   // Get() function with a default value of dynamically construct an iterator,

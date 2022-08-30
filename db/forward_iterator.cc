@@ -430,7 +430,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         // If the target key passes over the largest key, we are sure Next()
         // won't go over this file.
         if (user_comparator_->Compare(target_user_key,
-                                      l0[i]->largest.user_key()) > 0) {
+                                      l0[i]->largest.user_key_with_ts()) > 0) {
           if (read_options_.iterate_upper_bound != nullptr) {
             has_iter_trimmed_for_upper_bound_ = true;
             DeleteIterator(l0_iters_[i]);
@@ -530,7 +530,7 @@ void ForwardIterator::Next() {
     if (is_prev_set_ && prefix_extractor_) {
       // advance prev_key_ to current_ only if they share the same prefix
       update_prev_key =
-          prefix_extractor_->Transform(prev_key_.GetUserKey())
+          prefix_extractor_->Transform(prev_key_.GetUserKeyWithTs())
               .compare(prefix_extractor_->Transform(current_->key())) == 0;
     } else {
       update_prev_key = true;
@@ -684,7 +684,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   for (const auto* l0 : l0_files) {
     if ((read_options_.iterate_upper_bound != nullptr) &&
         cfd_->internal_comparator().user_comparator()->Compare(
-            l0->smallest.user_key(), *read_options_.iterate_upper_bound) > 0) {
+            l0->smallest.user_key_with_ts(),
+            *read_options_.iterate_upper_bound) > 0) {
       // No need to set has_iter_trimmed_for_upper_bound_: this ForwardIterator
       // will never be interested in files with smallest key above
       // iterate_upper_bound, since iterate_upper_bound can't be changed.
@@ -815,9 +816,9 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage,
     const auto& level_files = vstorage->LevelFiles(level);
     if ((level_files.empty()) ||
         ((read_options_.iterate_upper_bound != nullptr) &&
-         (user_comparator_->Compare(*read_options_.iterate_upper_bound,
-                                    level_files[0]->smallest.user_key()) <
-          0))) {
+         (user_comparator_->Compare(
+              *read_options_.iterate_upper_bound,
+              level_files[0]->smallest.user_key_with_ts()) < 0))) {
       level_iters_.push_back(nullptr);
       if (!level_files.empty()) {
         has_iter_trimmed_for_upper_bound_ = true;

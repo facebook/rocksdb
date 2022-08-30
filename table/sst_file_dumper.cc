@@ -467,12 +467,13 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     }
 
     // the key returned is not prefixed with out 'from' key
-    if (use_from_as_prefix && !ikey.user_key.starts_with(from_key)) {
+    if (use_from_as_prefix && !ikey.user_key_with_ts.starts_with(from_key)) {
       break;
     }
 
     // If end marker was specified, we stop before it
-    if (has_to && BytewiseComparator()->Compare(ikey.user_key, to_key) >= 0) {
+    if (has_to &&
+        BytewiseComparator()->Compare(ikey.user_key_with_ts, to_key) >= 0) {
       break;
     }
 

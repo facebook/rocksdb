@@ -317,16 +317,18 @@ void MetaBlockIter::SeekImpl(const Slice& target) {
 // 1) there is no key in this block falling into the range:
 //    ["seek_user_key @ type | seqno", "seek_user_key @ kTypeDeletion | 0"],
 //    inclusive; AND
-// 2) the last key of this block has a greater user_key from seek_user_key
+// 2) the last key of this block has a greater user_key_with_ts from
+// seek_user_key
 //
 // If the return value is TRUE, iter location has two possibilies:
 // 1) If iter is valid, it is set to a location as if set by BinarySeek. In
-//    this case, it points to the first key with a larger user_key or a matching
-//    user_key with a seqno no greater than the seeking seqno.
-// 2) If the iter is invalid, it means that either all the user_key is less
-//    than the seek_user_key, or the block ends with a matching user_key but
-//    with a smaller [ type | seqno ] (i.e. a larger seqno, or the same seqno
-//    but larger type).
+//    this case, it points to the first key with a larger user_key_with_ts or a
+//    matching user_key_with_ts with a seqno no greater than the seeking seqno.
+// 2) If the iter is invalid, it means that either all the user_key_with_ts is
+// less
+//    than the seek_user_key, or the block ends with a matching user_key_with_ts
+//    but with a smaller [ type | seqno ] (i.e. a larger seqno, or the same
+//    seqno but larger type).
 bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   Slice target_user_key = ExtractUserKey(target);
   uint32_t map_offset = restarts_ + num_restarts_ * sizeof(uint32_t);
@@ -340,7 +342,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   }
 
   if (entry == kNoEntry) {
-    // Even if we cannot find the user_key in this block, the result may
+    // Even if we cannot find the user_key_with_ts in this block, the result may
     // exist in the next block. Consider this example:
     //
     // Block N:    [aab@100, ... , app@120]
@@ -348,8 +350,8 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // Block N+1:  [axy@10, ...   ]
     //
     // If seek_key = axy@60, the search will starts from Block N.
-    // Even if the user_key is not found in the hash map, the caller still
-    // have to continue searching the next block.
+    // Even if the user_key_with_ts is not found in the hash map, the caller
+    // still have to continue searching the next block.
     //
     // In this case, we pretend the key is the the last restart interval.
     // The while-loop below will search the last restart interval for the
@@ -385,10 +387,11 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
 
   if (current_ == restarts_) {
     // Search reaches to the end of the block. There are three possibilites:
-    // 1) there is only one user_key match in the block (otherwise collsion).
-    //    the matching user_key resides in the last restart interval, and it
-    //    is the last key of the restart interval and of the block as well.
-    //    ParseNextKey() skiped it as its [ type | seqno ] is smaller.
+    // 1) there is only one user_key_with_ts match in the block (otherwise
+    // collsion).
+    //    the matching user_key_with_ts resides in the last restart interval,
+    //    and it is the last key of the restart interval and of the block as
+    //    well. ParseNextKey() skiped it as its [ type | seqno ] is smaller.
     //
     // 2) The seek_key is not found in the HashIndex Lookup(), i.e. kNoEntry,
     //    AND all existing user_keys in the restart interval are smaller than
@@ -402,7 +405,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     return true;
   }
 
-  if (icmp_->user_comparator()->Compare(raw_key_.GetUserKey(),
+  if (icmp_->user_comparator()->Compare(raw_key_.GetUserKeyWithTs(),
                                         target_user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     return false;

@@ -151,10 +151,11 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   // Store key hash
   if (store_index_in_file_) {
     if (moptions_.prefix_extractor == nullptr) {
-      keys_or_prefixes_hashes_.push_back(GetSliceHash(internal_key.user_key));
+      keys_or_prefixes_hashes_.push_back(
+          GetSliceHash(internal_key.user_key_with_ts));
     } else {
       Slice prefix =
-          moptions_.prefix_extractor->Transform(internal_key.user_key);
+          moptions_.prefix_extractor->Transform(internal_key.user_key_with_ts);
       keys_or_prefixes_hashes_.push_back(GetSliceHash(prefix));
     }
   }
