@@ -321,6 +321,7 @@ void CompactionJob::AcquireSubcompactionResources(
               ->write_controller()
               ->NeedSpeedupCompaction())
           .max_compactions;
+  db_mutex_->Lock();
   // Apply min function first since We need to compute the extra subcompaction
   // against compaction limits. And then try to reserve threads for extra
   // subcompactions. The actual number of reserved threads could be less than
@@ -329,7 +330,6 @@ void CompactionJob::AcquireSubcompactionResources(
       std::max(max_db_compactions - *bg_compaction_scheduled_ -
                    *bg_bottom_compaction_scheduled_,
                0);
-  db_mutex_->Lock();
   // Reservation only supports backgrdoun threads of which the priority is
   // between BOTTOM and HIGH. Need to degrade the priority to HIGH if the
   // origin thread_pri_ is higher than that. Similar to ReleaseThreads().
@@ -380,6 +380,7 @@ void CompactionJob::ReleaseSubcompactionResources() {
   if (extra_num_subcompaction_threads_reserved_ == 0) {
     return;
   }
+  db_mutex_->Lock();
   // The number of reserved threads becomes larger than 0 only if the
   // compaction prioity is round robin and there is no sufficient
   // sub-compactions available
@@ -391,6 +392,7 @@ void CompactionJob::ReleaseSubcompactionResources() {
              1 + extra_num_subcompaction_threads_reserved_ ||
          *bg_compaction_scheduled_ >=
              1 + extra_num_subcompaction_threads_reserved_);
+  db_mutex_->Unlock();
   ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
 }
 
