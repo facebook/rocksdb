@@ -165,18 +165,16 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_handle);
     if (s.ok() && blob_handle.GetValue()) {
-      {
-        value->Reset();
+      value->Reset();
 
-        constexpr Cleanable* cleanable = nullptr;
-        value->PinSlice(blob_handle.GetValue()->data(), cleanable);
+      constexpr Cleanable* cleanable = nullptr;
+      value->PinSlice(blob_handle.GetValue()->data(), cleanable);
 
-        // To avoid copying the cached blob into the buffer provided by the
-        // application, we can simply transfer ownership of the cache handle to
-        // the target PinnableSlice. This has the potential to save a lot of
-        // CPU, especially with large blob values.
-        blob_handle.TransferTo(value);
-      }
+      // To avoid copying the cached blob into the buffer provided by the
+      // application, we can simply transfer ownership of the cache handle to
+      // the target PinnableSlice. This has the potential to save a lot of
+      // CPU, especially with large blob values.
+      blob_handle.TransferTo(value);
 
       // For consistency, the size of on-disk (possibly compressed) blob record
       // is assigned to bytes_read.
@@ -307,18 +305,16 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
         assert(req.status);
         *req.status = s;
 
-        {
-          req.result->Reset();
+        req.result->Reset();
 
-          constexpr Cleanable* cleanable = nullptr;
-          req.result->PinSlice(blob_handle.GetValue()->data(), cleanable);
+        constexpr Cleanable* cleanable = nullptr;
+        req.result->PinSlice(blob_handle.GetValue()->data(), cleanable);
 
-          // To avoid copying the cached blob into the buffer provided by the
-          // application, we can simply transfer ownership of the cache handle
-          // to the target PinnableSlice. This has the potential to save a lot
-          // of CPU, especially with large blob values.
-          blob_handle.TransferTo(req.result);
-        }
+        // To avoid copying the cached blob into the buffer provided by the
+        // application, we can simply transfer ownership of the cache handle
+        // to the target PinnableSlice. This has the potential to save a lot
+        // of CPU, especially with large blob values.
+        blob_handle.TransferTo(req.result);
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
