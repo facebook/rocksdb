@@ -82,12 +82,6 @@ bool TruncatedRangeDelIterator::Valid() const {
           icmp_->Compare(iter_->parsed_start_key(), *largest_) < 0);
 }
 
-void TruncatedRangeDelIterator::Next() { iter_->TopNext(); }
-
-void TruncatedRangeDelIterator::Prev() { iter_->TopPrev(); }
-
-void TruncatedRangeDelIterator::InternalNext() { iter_->Next(); }
-
 // NOTE: target is a user key
 void TruncatedRangeDelIterator::Seek(const Slice& target) {
   if (largest_ != nullptr &&
@@ -149,9 +143,8 @@ TruncatedRangeDelIterator::SplitBySnapshot(
   std::for_each(
       split_untruncated_iters.begin(), split_untruncated_iters.end(),
       [&](FragmentedIterPair& iter_pair) {
-        std::unique_ptr<TruncatedRangeDelIterator> truncated_iter(
-            new TruncatedRangeDelIterator(std::move(iter_pair.second), icmp_,
-                                          smallest_ikey_, largest_ikey_));
+        auto truncated_iter = std::make_unique<TruncatedRangeDelIterator>(
+            std::move(iter_pair.second), icmp_, smallest_ikey_, largest_ikey_);
         split_truncated_iters.emplace(iter_pair.first,
                                       std::move(truncated_iter));
       });
@@ -322,9 +315,8 @@ void ReadRangeDelAggregator::AddTombstones(
   if (input_iter == nullptr || input_iter->empty()) {
     return;
   }
-  rep_.AddTombstones(
-      std::unique_ptr<TruncatedRangeDelIterator>(new TruncatedRangeDelIterator(
-          std::move(input_iter), icmp_, smallest, largest)));
+  rep_.AddTombstones(std::make_unique<TruncatedRangeDelIterator>(
+      std::move(input_iter), icmp_, smallest, largest));
 }
 
 bool ReadRangeDelAggregator::ShouldDeleteImpl(const ParsedInternalKey& parsed,
@@ -471,19 +463,16 @@ CompactionRangeDelAggregator::NewIterator(const Slice* lower_bound,
                                           const Slice* upper_bound,
                                           bool upper_bound_inclusive) {
   InvalidateRangeDelMapPositions();
-  std::unique_ptr<TruncatedRangeDelMergingIter> merging_iter(
-      new TruncatedRangeDelMergingIter(icmp_, lower_bound, upper_bound,
-                                       upper_bound_inclusive, parent_iters_));
+  auto merging_iter = std::make_unique<TruncatedRangeDelMergingIter>(
+      icmp_, lower_bound, upper_bound, upper_bound_inclusive, parent_iters_);
 
   auto fragmented_tombstone_list =
       std::make_shared<FragmentedRangeTombstoneList>(
           std::move(merging_iter), *icmp_, true /* for_compaction */,
           *snapshots_);
 
-  return std::unique_ptr<FragmentedRangeTombstoneIterator>(
-      new FragmentedRangeTombstoneIterator(
-          fragmented_tombstone_list, *icmp_,
-          kMaxSequenceNumber /* upper_bound */));
+  return std::make_unique<FragmentedRangeTombstoneIterator>(
+      fragmented_tombstone_list, *icmp_, kMaxSequenceNumber /* upper_bound */);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
