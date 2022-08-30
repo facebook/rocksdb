@@ -159,6 +159,16 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
 
 EntryType GetEntryType(ValueType value_type);
 
+inline void SetInternalKey(std::string* result, Slice ukey, uint64_t seqvt) {
+  result->assign(ukey.data(), ukey.size());
+  PutFixed64(result, seqvt);
+}
+inline void SetInternalKey(std::string* result, Slice ukey,
+                           SequenceNumber seq, ValueType vt) {
+  result->assign(ukey.data(), ukey.size());
+  PutFixed64(result, PackSequenceAndType(seq, vt));
+}
+
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
                               const ParsedInternalKey& key);
