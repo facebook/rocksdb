@@ -1,8 +1,4 @@
 # Rocksdb Change Log
-## 7.6.1 (08/29/2022)
-### Bug Fixes
-* Fix a bug where `port/sys_time.h` cannot be imported for some build when it is included in `stderr_logger.h`.
-
 ## 7.6.0 (08/19/2022)
 ### New Features
 * Added `prepopulate_blob_cache` to ColumnFamilyOptions. If enabled, prepopulate warm/hot blobs which are already in memory into blob cache at the time of flush. On a flush, the blob that is in memory (in memtables) get flushed to the device. If using Direct IO, additional IO is incurred to read this blob back into memory again, which is avoided by enabling this option. This further helps if the workload exhibits high temporal locality, where most of the reads go to recently written data. This also helps in case of the remote file system since it involves network traffic and higher latencies.
