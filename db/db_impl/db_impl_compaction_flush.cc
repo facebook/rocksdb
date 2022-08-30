@@ -988,7 +988,7 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   }
 
   Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                    &edit, &mutex_);
+                                    &edit, &mutex_, directories_.GetDbDir());
   if (!s.ok()) {
     return s;
   }
