@@ -92,42 +92,56 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_EQ(handle0, nullptr);
 
     Random rnd(301);
-    // Insert and Lookup the first item.
+    // Insert and Lookup the item k1 for the first time.
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
+    // A dummy handle is inserted if the item is inserted for the first time.
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
 
-    std::unique_ptr<SecondaryCacheResultHandle> handle1 = sec_cache->Lookup(
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
+        "k1", test_item_creator, true, /*erase_handle=*/false, is_in_sec_cache);
+    ASSERT_EQ(handle1_1, nullptr);
+
+    // Insert and Lookup the item k1 for the second time.
+    ASSERT_OK(sec_cache->Insert("k1", &item1,
+                                &CompressedSecondaryCacheTest::helper_));
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_2 = sec_cache->Lookup(
         "k1", test_item_creator, true, /*erase_handle=*/true, is_in_sec_cache);
-    ASSERT_NE(handle1, nullptr);
+    ASSERT_NE(handle1_2, nullptr);
     ASSERT_FALSE(is_in_sec_cache);
 
     std::unique_ptr<TestItem> val1 =
-        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1->Value()));
+        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1_2->Value()));
     ASSERT_NE(val1, nullptr);
     ASSERT_EQ(memcmp(val1->Buf(), item1.Buf(), item1.Size()), 0);
 
-    // Lookup the first item again.
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
+    // Lookup the item k1 again.
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_3 = sec_cache->Lookup(
         "k1", test_item_creator, true, /*erase_handle=*/true, is_in_sec_cache);
-    ASSERT_EQ(handle1_1, nullptr);
+    ASSERT_EQ(handle1_3, nullptr);
 
-    // Insert and Lookup the second item.
+    // Insert and Lookup the item k2.
     std::string str2(rnd.RandomString(1000));
     TestItem item2(str2.data(), str2.length());
     ASSERT_OK(sec_cache->Insert("k2", &item2,
                                 &CompressedSecondaryCacheTest::helper_));
-    std::unique_ptr<SecondaryCacheResultHandle> handle2 = sec_cache->Lookup(
-        "k2", test_item_creator, true, /*erase_handle=*/true, is_in_sec_cache);
-    ASSERT_NE(handle2, nullptr);
+    std::unique_ptr<SecondaryCacheResultHandle> handle2_1 = sec_cache->Lookup(
+        "k2", test_item_creator, true, /*erase_handle=*/false, is_in_sec_cache);
+    ASSERT_EQ(handle2_1, nullptr);
+
+    ASSERT_OK(sec_cache->Insert("k2", &item2,
+                                &CompressedSecondaryCacheTest::helper_));
+    std::unique_ptr<SecondaryCacheResultHandle> handle2_2 = sec_cache->Lookup(
+        "k2", test_item_creator, true, /*erase_handle=*/false, is_in_sec_cache);
+    ASSERT_EQ(handle2_1, nullptr);
     std::unique_ptr<TestItem> val2 =
-        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));
+        std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2_2->Value()));
     ASSERT_NE(val2, nullptr);
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
-    std::vector<SecondaryCacheResultHandle*> handles = {handle1.get(),
-                                                        handle2.get()};
+    std::vector<SecondaryCacheResultHandle*> handles = {handle1_2.get(),
+                                                        handle2_2.get()};
     sec_cache->WaitAll(handles);
 
     sec_cache.reset();
@@ -186,21 +200,29 @@ class CompressedSecondaryCacheTest : public testing::Test {
     Random rnd(301);
     std::string str1(rnd.RandomString(1000));
     TestItem item1(str1.data(), str1.length());
+    // Insert a dummy handle.
+    ASSERT_OK(sec_cache->Insert("k1", &item1,
+                                &CompressedSecondaryCacheTest::helper_));
+    // Insert k1.
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
 
     // Insert and Lookup the second item.
     std::string str2(rnd.RandomString(200));
     TestItem item2(str2.data(), str2.length());
-    // k1 is evicted.
+    // Insert a dummy handle, k1 is not evicted.
     ASSERT_OK(sec_cache->Insert("k2", &item2,
                                 &CompressedSecondaryCacheTest::helper_));
     bool is_in_sec_cache{false};
-    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
-        "k1", test_item_creator, true, /*erase_handle=*/true, is_in_sec_cache);
-    ASSERT_EQ(handle1_1, nullptr);
+    std::unique_ptr<SecondaryCacheResultHandle> handle1 = sec_cache->Lookup(
+        "k1", test_item_creator, true, /*erase_handle=*/false, is_in_sec_cache);
+    ASSERT_EQ(handle1, nullptr);
+
+    // Insert k2 and k1 is evicted.
+    ASSERT_OK(sec_cache->Insert("k2", &item2,
+                                &CompressedSecondaryCacheTest::helper_));
     std::unique_ptr<SecondaryCacheResultHandle> handle2 = sec_cache->Lookup(
-        "k2", test_item_creator, true, /*erase_handle=*/true, is_in_sec_cache);
+        "k2", test_item_creator, true, /*erase_handle=*/false, is_in_sec_cache);
     ASSERT_NE(handle2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2->Value()));

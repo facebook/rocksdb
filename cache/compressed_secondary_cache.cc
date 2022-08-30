@@ -70,22 +70,22 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
                                   cache_options_.memory_allocator.get());
 
     if (!uncompressed) {
-      cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+      cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
       return nullptr;
     }
     s = create_cb(uncompressed.get(), uncompressed_size, &value, &charge);
   }
 
   if (!s.ok()) {
-    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
     return nullptr;
   }
 
   if (erase_handle) {
-    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
   } else {
     is_in_sec_cache = true;
-    cache_->Release(lru_handle, /* erase_if_last_ref */ false);
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   }
   handle.reset(new CompressedSecondaryCacheResultHandle(value, charge));
   return handle;
@@ -97,14 +97,20 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
     return Status::Aborted();
   }
 
-  // Insert a dummy handle if the handle is evicted for the first time.
-  Cache::Handle* lru_handle = cache_->Lookup(key);
-  if (lru_handle == nullptr) {
-    return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0,
-                          DeletionCallback);
-  } else {
-    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
-  }
+  // Cache::Handle* lru_handle = cache_->Lookup(key);
+  // if (lru_handle == nullptr) {
+  //   // Insert a dummy handle if the handle is evicted for the first time.
+  //   return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0,
+  //                         DeletionCallback);
+  // } else {
+  //   cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  //   // if (cache_->Value(lru_handle) == nullptr) {
+  //   //   // Release the dummy handle.
+  //   //   cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
+  //   // } else {
+  //   //   cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  //   // }
+  // }
 
   size_t size = (*helper->size_cb)(value);
   CacheAllocationPtr ptr =
