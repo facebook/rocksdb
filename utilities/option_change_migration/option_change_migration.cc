@@ -5,8 +5,6 @@
 
 #include "rocksdb/utilities/option_change_migration.h"
 
-#include <bits/stdint-uintn.h>
-
 #ifndef ROCKSDB_LITE
 #include "rocksdb/db.h"
 
