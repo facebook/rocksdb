@@ -3598,6 +3598,8 @@ class Benchmark {
         }
         fresh_db = true;
         method = &Benchmark::TimeSeries;
+      } else if (name == "block_cache_stats") {
+        PrintStats(DB::Properties::kBlockCacheEntryStats.c_str());
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
       } else if (name == "resetstats") {

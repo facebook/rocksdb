@@ -520,11 +520,11 @@ class ClockCacheTest : public testing::Test {
     }
   }
 
-  void NewShard(size_t capacity) {
+  void NewShard(size_t capacity, bool strict_capacity_limit = true) {
     DeleteShard();
     shard_ = reinterpret_cast<ClockCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(ClockCacheShard)));
-    new (shard_) ClockCacheShard(capacity, 1, true /*strict_capacity_limit*/,
+    new (shard_) ClockCacheShard(capacity, 1, strict_capacity_limit,
                                  kDontChargeCacheMetadata);
   }
 
@@ -538,18 +538,22 @@ class ClockCacheTest : public testing::Test {
     return Insert(std::string(kCacheKeySize, key), priority);
   }
 
-  Status Insert(char key, size_t len) { return Insert(std::string(len, key)); }
+  Status InsertWithLen(char key, size_t len) {
+    return Insert(std::string(len, key));
+  }
 
-  bool Lookup(const std::string& key) {
+  bool Lookup(const std::string& key, bool useful = true) {
     auto handle = shard_->Lookup(key, 0 /*hash*/);
     if (handle) {
-      shard_->Release(handle);
+      shard_->Release(handle, useful, /*erase_if_last_ref=*/false);
       return true;
     }
     return false;
   }
 
-  bool Lookup(char key) { return Lookup(std::string(kCacheKeySize, key)); }
+  bool Lookup(char key, bool useful = true) {
+    return Lookup(std::string(kCacheKeySize, key), useful);
+  }
 
   void Erase(const std::string& key) { shard_->Erase(key, 0 /*hash*/); }
 
@@ -589,33 +593,84 @@ class ClockCacheTest : public testing::Test {
 
 TEST_F(ClockCacheTest, Validate) {
   NewShard(3);
-  EXPECT_OK(Insert('a', 16));
-  EXPECT_NOK(Insert('b', 15));
-  EXPECT_OK(Insert('b', 16));
-  EXPECT_NOK(Insert('c', 17));
-  EXPECT_NOK(Insert('d', 1000));
-  EXPECT_NOK(Insert('e', 11));
-  EXPECT_NOK(Insert('f', 0));
+  EXPECT_OK(InsertWithLen('a', 16));
+  EXPECT_NOK(InsertWithLen('b', 15));
+  EXPECT_OK(InsertWithLen('b', 16));
+  EXPECT_NOK(InsertWithLen('c', 17));
+  EXPECT_NOK(InsertWithLen('d', 1000));
+  EXPECT_NOK(InsertWithLen('e', 11));
+  EXPECT_NOK(InsertWithLen('f', 0));
 }
 
-TEST_F(ClockCacheTest, ClockPriorityTest) {
-  ClockHandle handle;
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
-  handle.SetClockPriority(ClockHandle::ClockPriority::HIGH);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::HIGH);
-  handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
-  handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::LOW);
-  handle.SetClockPriority(ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
-  handle.SetClockPriority(ClockHandle::ClockPriority::NONE);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
-  handle.SetClockPriority(ClockHandle::ClockPriority::MEDIUM);
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::MEDIUM);
-  handle.DecreaseClockPriority();
-  handle.DecreaseClockPriority();
-  EXPECT_EQ(handle.GetClockPriority(), ClockHandle::ClockPriority::NONE);
+TEST_F(ClockCacheTest, ClockEvictionTest) {
+  for (bool strict_capacity_limit : {false, true}) {  // TODO: parameterize test
+    NewShard(6, strict_capacity_limit);
+    EXPECT_OK(Insert('a', Cache::Priority::BOTTOM));
+    EXPECT_OK(Insert('b', Cache::Priority::LOW));
+    EXPECT_OK(Insert('c', Cache::Priority::HIGH));
+    EXPECT_OK(Insert('d', Cache::Priority::BOTTOM));
+    EXPECT_OK(Insert('e', Cache::Priority::LOW));
+    EXPECT_OK(Insert('f', Cache::Priority::HIGH));
+
+    EXPECT_TRUE(Lookup('a', /*use*/ false));
+    EXPECT_TRUE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_TRUE(Lookup('d', /*use*/ false));
+    EXPECT_TRUE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+
+    // Ensure bottom are evicted first, even if new entries are low
+    EXPECT_OK(Insert('g', Cache::Priority::LOW));
+    EXPECT_OK(Insert('h', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('a', /*use*/ false));
+    EXPECT_TRUE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('d', /*use*/ false));
+    EXPECT_TRUE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+    // Mark g & h useful
+    EXPECT_TRUE(Lookup('g', /*use*/ true));
+    EXPECT_TRUE(Lookup('h', /*use*/ true));
+
+    // Then old LOW entries
+    EXPECT_OK(Insert('i', Cache::Priority::LOW));
+    EXPECT_OK(Insert('j', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('b', /*use*/ false));
+    EXPECT_TRUE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('e', /*use*/ false));
+    EXPECT_TRUE(Lookup('f', /*use*/ false));
+    // Mark g & h useful once again
+    EXPECT_TRUE(Lookup('g', /*use*/ true));
+    EXPECT_TRUE(Lookup('h', /*use*/ true));
+    EXPECT_TRUE(Lookup('i', /*use*/ false));
+    EXPECT_TRUE(Lookup('j', /*use*/ false));
+
+    // Then old HIGH entries
+    EXPECT_OK(Insert('k', Cache::Priority::LOW));
+    EXPECT_OK(Insert('l', Cache::Priority::LOW));
+
+    EXPECT_FALSE(Lookup('c', /*use*/ false));
+    EXPECT_FALSE(Lookup('f', /*use*/ false));
+    EXPECT_TRUE(Lookup('g', /*use*/ false));
+    EXPECT_TRUE(Lookup('h', /*use*/ false));
+    EXPECT_TRUE(Lookup('i', /*use*/ false));
+    EXPECT_TRUE(Lookup('j', /*use*/ false));
+    EXPECT_TRUE(Lookup('k', /*use*/ false));
+    EXPECT_TRUE(Lookup('l', /*use*/ false));
+
+    // Then the (roughly) least recently useful
+    EXPECT_OK(Insert('m', Cache::Priority::LOW));
+    EXPECT_OK(Insert('n', Cache::Priority::LOW));
+
+    EXPECT_TRUE(Lookup('g', /*use*/ false));
+    EXPECT_TRUE(Lookup('h', /*use*/ false));
+    EXPECT_FALSE(Lookup('i', /*use*/ false));
+    EXPECT_FALSE(Lookup('j', /*use*/ false));
+    EXPECT_TRUE(Lookup('k', /*use*/ false));
+    EXPECT_TRUE(Lookup('l', /*use*/ false));
+  }
 }
 
 TEST_F(ClockCacheTest, CalcHashBitsTest) {

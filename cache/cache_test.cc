@@ -407,16 +407,30 @@ TEST_P(CacheTest, HitAndMiss) {
   ASSERT_EQ(-1,  Lookup(300));
 
   Insert(100, 102);
-  ASSERT_EQ(102, Lookup(100));
+  if (GetParam() == kClock) {
+    // ClockCache usually doesn't overwrite on Insert
+    ASSERT_EQ(101, Lookup(100));
+  } else {
+    ASSERT_EQ(102, Lookup(100));
+  }
   ASSERT_EQ(201, Lookup(200));
   ASSERT_EQ(-1,  Lookup(300));
 
   ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
-  ASSERT_EQ(101, deleted_values_[0]);
+  if (GetParam() == kClock) {
+    ASSERT_EQ(102, deleted_values_[0]);
+  } else {
+    ASSERT_EQ(101, deleted_values_[0]);
+  }
 }
 
 TEST_P(CacheTest, InsertSameKey) {
+  if (GetParam() == kClock) {
+    ROCKSDB_GTEST_BYPASS(
+        "ClockCache doesn't guarantee Insert overwrite same key.");
+    return;
+  }
   Insert(1, 1);
   Insert(1, 2);
   ASSERT_EQ(2, Lookup(1));
@@ -442,6 +456,11 @@ TEST_P(CacheTest, Erase) {
 }
 
 TEST_P(CacheTest, EntriesArePinned) {
+  if (GetParam() == kClock) {
+    ROCKSDB_GTEST_BYPASS(
+        "ClockCache doesn't guarantee Insert overwrite same key.");
+    return;
+  }
   Insert(100, 101);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(101, DecodeValue(cache_->Value(h1)));
