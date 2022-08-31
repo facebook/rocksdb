@@ -2261,7 +2261,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL0) {
     ASSERT_EQ(multiget_io_batch_size.max, 3);
     ASSERT_EQ(statistics()->getTickerCount(MULTIGET_COROUTINE_COUNT), 3);
   } else {
-    ASSERT_EQ(multiget_io_batch_size.count, 0);
+    // Without Async IO, MultiGet will call MultiRead 3 times, once for each
+    // L0 file
+    ASSERT_EQ(multiget_io_batch_size.count, 3);
   }
 }
 
@@ -2378,8 +2380,9 @@ TEST_P(DBMultiGetAsyncIOTest, GetFromL1AndL2) {
   statistics()->histogramData(MULTIGET_IO_BATCH_SIZE, &multiget_io_batch_size);
 
   // There are 2 keys in L1 in twp separate files, and 1 in L2. With
-  // async IO, all three lookups will happen in parallel
-  ASSERT_EQ(multiget_io_batch_size.count, 1);
+  // optimize_multiget_for_io, all three lookups will happen in parallel.
+  // Otherwise, the L2 lookup will happen after L1.
+  ASSERT_EQ(multiget_io_batch_size.count, GetParam() ? 1 : 2);
   ASSERT_EQ(multiget_io_batch_size.max, GetParam() ? 3 : 2);
 }
 
