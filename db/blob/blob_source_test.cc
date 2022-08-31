@@ -1203,19 +1203,19 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
 
-      // key0 should be in the secondary cache. After looking up key0 in the
-      // secondary cache, it will be erased from the secondary cache.
+      // key0's dummy item should be in the secondary cache.
       bool is_in_sec_cache = false;
       auto sec_handle0 =
           secondary_cache->Lookup(key0, &BlobContents::CreateCallback, true,
                                   /*erase_handle=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
-      ASSERT_NE(sec_handle0, nullptr);
-      ASSERT_TRUE(sec_handle0->IsReady());
-      auto value = static_cast<BlobContents*>(sec_handle0->Value());
-      ASSERT_NE(value, nullptr);
-      ASSERT_EQ(value->data(), blobs[0]);
-      delete value;
+      ASSERT_EQ(sec_handle0, nullptr);
+      // TODO Update the test.
+      // ASSERT_TRUE(sec_handle0->IsReady());
+      // auto value = static_cast<BlobContents*>(sec_handle0->Value());
+      // ASSERT_NE(value, nullptr);
+      // ASSERT_EQ(value->data(), blobs[0]);
+      // delete value;
 
       // key0 doesn't exist in the blob cache
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,

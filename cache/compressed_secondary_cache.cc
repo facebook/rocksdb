@@ -41,7 +41,12 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
-  if (lru_handle == nullptr || cache_->Value(lru_handle) == nullptr) {
+  if (lru_handle == nullptr) {
+    return nullptr;
+  }
+
+  if (cache_->Value(lru_handle) == nullptr) {
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
     return nullptr;
   }
 
@@ -83,6 +88,9 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
   if (erase_handle) {
     cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
+    // Insert a dummy handle.
+    cache_->Insert(key, /*value=*/nullptr, /*charge=*/0, DeletionCallback)
+        .PermitUncheckedError();
   } else {
     is_in_sec_cache = true;
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
@@ -97,20 +105,14 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
     return Status::Aborted();
   }
 
-  // Cache::Handle* lru_handle = cache_->Lookup(key);
-  // if (lru_handle == nullptr) {
-  //   // Insert a dummy handle if the handle is evicted for the first time.
-  //   return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0,
-  //                         DeletionCallback);
-  // } else {
-  //   cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
-  //   // if (cache_->Value(lru_handle) == nullptr) {
-  //   //   // Release the dummy handle.
-  //   //   cache_->Release(lru_handle, /*erase_if_last_ref=*/true);
-  //   // } else {
-  //   //   cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
-  //   // }
-  // }
+  Cache::Handle* lru_handle = cache_->Lookup(key);
+  if (lru_handle == nullptr) {
+    // Insert a dummy handle if the handle is evicted for the first time.
+    return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0,
+                          DeletionCallback);
+  } else {
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+  }
 
   size_t size = (*helper->size_cb)(value);
   CacheAllocationPtr ptr =
