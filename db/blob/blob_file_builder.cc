@@ -420,9 +420,17 @@ Status BlobFileBuilder::PutBlobIntoCacheIfNeeded(const Slice& blob,
         BlobContents::GetCacheItemHelper();
     assert(cache_item_helper);
 
-    s = blob_cache->Insert(key, buf.get(), buf->ApproximateMemoryUsage(),
-                           cache_item_helper->del_cb,
-                           nullptr /* cache_handle */, priority);
+    if (immutable_options_->lowest_used_cache_tier ==
+        CacheTier::kNonVolatileBlockTier) {
+      s = blob_cache->Insert(key, buf.get(), cache_item_helper,
+                             buf->ApproximateMemoryUsage(),
+                             nullptr /* cache_handle */, priority);
+    } else {
+      s = blob_cache->Insert(key, buf.get(), buf->ApproximateMemoryUsage(),
+                             cache_item_helper->del_cb,
+                             nullptr /* cache_handle */, priority);
+    }
+
     if (s.ok()) {
       RecordTick(statistics, BLOB_DB_CACHE_ADD);
       RecordTick(statistics, BLOB_DB_CACHE_BYTES_WRITE, buf->size());
