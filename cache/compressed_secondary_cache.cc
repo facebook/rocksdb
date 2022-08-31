@@ -45,6 +45,11 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     return nullptr;
   }
 
+  if (cache_->Value(lru_handle) == nullptr) {
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
+    return nullptr;
+  }
+
   CacheAllocationPtr* ptr =
       reinterpret_cast<CacheAllocationPtr*>(cache_->Value(lru_handle));
 
@@ -79,6 +84,9 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 
   if (erase_handle) {
     cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+    // Insert a dummy handle.
+    cache_->Insert(key, /*value=*/nullptr, /*charge=*/0, DeletionCallback)
+        .PermitUncheckedError();
   } else {
     is_in_sec_cache = true;
     cache_->Release(lru_handle, /* erase_if_last_ref */ false);
@@ -99,7 +107,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
     return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0,
                           DeletionCallback);
   } else {
-    cache_->Release(lru_handle, /* erase_if_last_ref */ true);
+    cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   }
 
   size_t size = (*helper->size_cb)(value);
