@@ -485,6 +485,10 @@ def finalize_and_sanitize(src_params):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
         dest_params["ingest_external_file_one_in"] = 0
+    # Correctness testing with unsync data loss is not currently compatible
+    # with transactions
+    if (dest_params.get("use_txn") == 1):
+        dest_params["sync_fault_injection"] = 0
     if (dest_params.get("disable_wal") == 1 or
         dest_params.get("sync_fault_injection") == 1):
         # File ingestion does not guarantee prefix-recoverability when unsynced
@@ -499,8 +503,6 @@ def finalize_and_sanitize(src_params):
         # files, which would be problematic when unsynced data can be lost in
         # crash recoveries.
         dest_params["enable_compaction_filter"] = 0
-    if (dest_params.get("sync_fault_injection") == 1):
-        dest_params["use_txn"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
