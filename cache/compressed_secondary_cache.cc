@@ -41,7 +41,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
   std::unique_ptr<SecondaryCacheResultHandle> handle;
   is_in_sec_cache = false;
   Cache::Handle* lru_handle = cache_->Lookup(key);
-  if (lru_handle == nullptr || cache_->Value(lru_handle) == nullptr) {
+  if (lru_handle == nullptr) {
     return nullptr;
   }
 
