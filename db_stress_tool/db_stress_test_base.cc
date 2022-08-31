@@ -2658,8 +2658,7 @@ void StressTest::Open(SharedState* shared) {
 #endif
     }
     if (!s.ok()) {
-      fprintf(stderr, "Error in opening the DB [%s]\n",
-              s.ToString().c_str());
+      fprintf(stderr, "Error in opening the DB [%s]\n", s.ToString().c_str());
       fflush(stderr);
     }
     assert(s.ok());
