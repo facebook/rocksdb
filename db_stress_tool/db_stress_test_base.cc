@@ -2657,6 +2657,10 @@ void StressTest::Open(SharedState* shared) {
       assert(trans.size() == 0);
 #endif
     }
+    if (!s.ok()) {
+      fprintf(stderr, "Error in opening the DB [%s]\n", s.ToString().c_str());
+      fflush(stderr);
+    }
     assert(s.ok());
     assert(column_families_.size() ==
            static_cast<size_t>(FLAGS_column_families));
