@@ -373,7 +373,6 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - upgrade-cmake
       - setup-folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)
       - post-steps
