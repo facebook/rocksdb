@@ -593,6 +593,7 @@ jobs:
       - run:
           name: "Test RocksDBJava"
           command: make V=1 J=16 -j16 jtest
+          no_output_timeout: 20m
       - post-steps
 
   build-macos-java-static:
@@ -617,6 +618,7 @@ jobs:
       - run:
           name: "Build RocksDBJava x86 and ARM Static Libraries"
           command: make V=1 J=16 -j16 rocksdbjavastaticosx
+          no_output_timeout: 20m
       - post-steps
 
   build-macos-java-static-universal:
@@ -641,6 +643,7 @@ jobs:
       - run:
           name: "Build RocksDBJava Universal Binary Static Library"
           command: make V=1 J=16 -j16 rocksdbjavastaticosx_ub
+          no_output_timeout: 20m
       - post-steps
 
   build-examples:
