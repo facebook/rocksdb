@@ -933,15 +933,16 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     // identify the first and the last compaction input files
     // in the current level.
     for (size_t f = 0; f < current_files.size(); ++f) {
-      if (input_files->find(TableFileNameToNumber(current_files[f].name)) !=
-          input_files->end()) {
-        first_included = std::min(first_included, static_cast<int>(f));
-        last_included = std::max(last_included, static_cast<int>(f));
-        if (is_first == false) {
-          smallestkey = current_files[f].smallestkey;
-          largestkey = current_files[f].largestkey;
-          is_first = true;
-        }
+      const uint64_t file_number = TableFileNameToNumber(current_files[f].name);
+      if (input_files->find(file_number) == input_files->end()) {
+        continue;
+      }
+      first_included = std::min(first_included, static_cast<int>(f));
+      last_included = std::max(last_included, static_cast<int>(f));
+      if (is_first == false) {
+        smallestkey = current_files[f].smallestkey;
+        largestkey = current_files[f].largestkey;
+        is_first = true;
       }
     }
     if (last_included == kNotFound) {
@@ -949,7 +950,7 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     }
 
     if (l != 0) {
-      // expend the compaction input of the current level if it
+      // expand the compaction input of the current level if it
       // has overlapping key-range with other non-compaction input
       // files in the same level.
       while (first_included > 0) {
