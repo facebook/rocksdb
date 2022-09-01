@@ -6660,8 +6660,8 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
   const auto& blob_file = blob_files.front();
   ASSERT_NE(blob_file, nullptr);
 
-  ASSERT_EQ(table_file->smallest.user_key(), first_key);
-  ASSERT_EQ(table_file->largest.user_key(), second_key);
+  ASSERT_EQ(table_file->smallest.user_key_with_ts(), first_key);
+  ASSERT_EQ(table_file->largest.user_key_with_ts(), second_key);
   ASSERT_EQ(table_file->oldest_blob_file_number,
             blob_file->GetBlobFileNumber());
 

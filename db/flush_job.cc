@@ -503,7 +503,7 @@ Status FlushJob::MemPurge() {
       // Should we update "OldestKeyTime" ???? -> timestamp appear
       // to still be an "experimental" feature.
       s = new_mem->Add(
-          ikey.sequence, ikey.type, ikey.user_key, value,
+          ikey.sequence, ikey.type, ikey.user_key_with_ts, value,
           nullptr,   // KV protection info set as nullptr since it
                      // should only be useful for the first add to
                      // the original memtable.
@@ -715,7 +715,7 @@ bool FlushJob::MemPurgeDecider(double threshold) {
       // Count entry bytes as payload.
       payload += entry_size;
 
-      LookupKey lkey(res.user_key, kMaxSequenceNumber);
+      LookupKey lkey(res.user_key_with_ts, kMaxSequenceNumber);
 
       // Paranoia: zero out these values just in case.
       max_covering_tombstone_seq = 0;

@@ -175,7 +175,8 @@ Status CompactionOutputs::AddRangeDels(
     // For subsequent output tables, only include range tombstones from min
     // key onwards since the previous file was extended to contain range
     // tombstones falling before min key.
-    smallest_user_key = meta.smallest.user_key().ToString(false /*hex*/);
+    smallest_user_key =
+        meta.smallest.user_key_with_ts().ToString(false /*hex*/);
     lower_bound_guard = Slice(smallest_user_key);
     lower_bound = &lower_bound_guard;
   } else {
@@ -203,7 +204,7 @@ Status CompactionOutputs::AddRangeDels(
   bool has_overlapping_endpoints;
   if (upper_bound != nullptr && meta.largest.size() > 0) {
     has_overlapping_endpoints =
-        ucmp->Compare(meta.largest.user_key(), *upper_bound) == 0;
+        ucmp->Compare(meta.largest.user_key_with_ts(), *upper_bound) == 0;
   } else {
     has_overlapping_endpoints = false;
   }
@@ -256,7 +257,8 @@ Status CompactionOutputs::AddRangeDels(
     builder_->Add(kv.first.Encode(), kv.second);
     InternalKey smallest_candidate = std::move(kv.first);
     if (lower_bound != nullptr &&
-        ucmp->Compare(smallest_candidate.user_key(), *lower_bound) <= 0) {
+        ucmp->Compare(smallest_candidate.user_key_with_ts(), *lower_bound) <=
+            0) {
       // Pretend the smallest key has the same user key as lower_bound
       // (the max key in the previous table or subcompaction) in order for
       // files to appear key-space partitioned.
@@ -282,7 +284,8 @@ Status CompactionOutputs::AddRangeDels(
     }
     InternalKey largest_candidate = tombstone.SerializeEndKey();
     if (upper_bound != nullptr &&
-        ucmp->Compare(*upper_bound, largest_candidate.user_key()) <= 0) {
+        ucmp->Compare(*upper_bound, largest_candidate.user_key_with_ts()) <=
+            0) {
       // Pretend the largest key has the same user key as upper_bound (the
       // min key in the following table or subcompaction) in order for files
       // to appear key-space partitioned.
@@ -292,7 +295,7 @@ Status CompactionOutputs::AddRangeDels(
       // OK because the read path's file-picking code only considers the
       // user key portion.
       //
-      // Note Seek() also creates InternalKey with (user_key,
+      // Note Seek() also creates InternalKey with (user_key_with_ts,
       // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
       // kTypeRangeDeletion (0xF), so the range tombstone comes before the
       // Seek() key in InternalKey's ordering. So Seek() will look in the

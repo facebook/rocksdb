@@ -895,7 +895,7 @@ static bool SaveValue(void* arg, const char* entry) {
       s->mem->GetInternalKeyComparator().user_comparator();
   size_t ts_sz = user_comparator->timestamp_size();
   if (user_comparator->EqualWithoutTimestamp(user_key_slice,
-                                             s->key->user_key())) {
+                                             s->key->user_key_with_ts())) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
@@ -936,7 +936,7 @@ static bool SaveValue(void* arg, const char* entry) {
         FALLTHROUGH_INTENDED;
       case kTypeValue: {
         if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadLock();
+          s->mem->GetLock(s->key->user_key_with_ts())->ReadLock();
         }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
@@ -944,7 +944,7 @@ static bool SaveValue(void* arg, const char* entry) {
           if (s->do_merge) {
             if (s->value != nullptr) {
               *(s->status) = MergeHelper::TimedFullMerge(
-                  merge_operator, s->key->user_key(), &v,
+                  merge_operator, s->key->user_key_with_ts(), &v,
                   merge_context->GetOperands(), s->value, s->logger,
                   s->statistics, s->clock, nullptr /* result_operand */, true);
             }
@@ -980,7 +980,7 @@ static bool SaveValue(void* arg, const char* entry) {
         }
 
         if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->ReadUnlock();
+          s->mem->GetLock(s->key->user_key_with_ts())->ReadUnlock();
         }
         *(s->found_final_value) = true;
         if (s->is_blob_index != nullptr) {
@@ -1000,7 +1000,7 @@ static bool SaveValue(void* arg, const char* entry) {
         if (*(s->merge_in_progress)) {
           if (s->value != nullptr) {
             *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), nullptr,
+                merge_operator, s->key->user_key_with_ts(), nullptr,
                 merge_context->GetOperands(), s->value, s->logger,
                 s->statistics, s->clock, nullptr /* result_operand */, true);
           }
@@ -1032,7 +1032,7 @@ static bool SaveValue(void* arg, const char* entry) {
         if (s->do_merge && merge_operator->ShouldMerge(
                                merge_context->GetOperandsDirectionBackward())) {
           *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
+              merge_operator, s->key->user_key_with_ts(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
               s->clock, nullptr /* result_operand */, true);
           *(s->found_final_value) = true;
@@ -1078,16 +1078,17 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                                 GetInternalKeySeqno(key.internal_key()),
                                 immutable_memtable));
   if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    *max_covering_tombstone_seq = std::max(
+        *max_covering_tombstone_seq,
+        range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key_with_ts()));
   }
 
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz);
+  Slice user_key_without_ts =
+      StripTimestampFromUserKey(key.user_key_with_ts(), ts_sz);
   bool bloom_checked = false;
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
@@ -1211,9 +1212,10 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           NewRangeTombstoneIteratorInternal(
               read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
               immutable_memtable));
-      iter->max_covering_tombstone_seq = std::max(
-          iter->max_covering_tombstone_seq,
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+      iter->max_covering_tombstone_seq =
+          std::max(iter->max_covering_tombstone_seq,
+                   range_del_iter->MaxCoveringTombstoneSeqnum(
+                       iter->lkey->user_key_with_ts()));
     }
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
@@ -1264,7 +1266,7 @@ Status MemTable::Update(SequenceNumber seq, ValueType value_type,
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Equal(
-            Slice(key_ptr, key_length - 8), lkey.user_key())) {
+            Slice(key_ptr, key_length - 8), lkey.user_key_with_ts())) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
@@ -1280,7 +1282,7 @@ Status MemTable::Update(SequenceNumber seq, ValueType value_type,
         if (new_size <= prev_size) {
           char* p =
               EncodeVarint32(const_cast<char*>(key_ptr) + key_length, new_size);
-          WriteLock wl(GetLock(lkey.user_key()));
+          WriteLock wl(GetLock(lkey.user_key_with_ts()));
           memcpy(p, value.data(), value.size());
           assert((unsigned)((p + value.size()) - entry) ==
                  (unsigned)(VarintLength(key_length) + key_length +
@@ -1327,7 +1329,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Equal(
-            Slice(key_ptr, key_length - 8), lkey.user_key())) {
+            Slice(key_ptr, key_length - 8), lkey.user_key_with_ts())) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
@@ -1341,7 +1343,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
         uint32_t new_prev_size = prev_size;
 
         std::string str_value;
-        WriteLock wl(GetLock(lkey.user_key()));
+        WriteLock wl(GetLock(lkey.user_key_with_ts()));
         auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
                                                  delta, &str_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
@@ -1418,7 +1420,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
     uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (!comparator_.comparator.user_comparator()->Equal(
-            Slice(iter_key_ptr, key_length - 8), key.user_key())) {
+            Slice(iter_key_ptr, key_length - 8), key.user_key_with_ts())) {
       break;
     }
 

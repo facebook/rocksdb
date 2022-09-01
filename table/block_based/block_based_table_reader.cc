@@ -2922,7 +2922,7 @@ Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
       user_key = key;
     } else {
       ikey.DecodeFrom(key);
-      user_key = ikey.user_key();
+      user_key = ikey.user_key_with_ts();
     }
 
     out_stream << "  HEX    " << user_key.ToString(true) << ": "
@@ -3025,10 +3025,10 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
   InternalKey ikey;
   ikey.DecodeFrom(key);
 
-  out_stream << "  HEX    " << ikey.user_key().ToString(true) << ": "
+  out_stream << "  HEX    " << ikey.user_key_with_ts().ToString(true) << ": "
              << value.ToString(true) << "\n";
 
-  std::string str_key = ikey.user_key().ToString();
+  std::string str_key = ikey.user_key_with_ts().ToString();
   std::string str_value = value.ToString();
   std::string res_key(""), res_value("");
   char cspace = ' ';

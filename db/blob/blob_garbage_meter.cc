@@ -91,8 +91,8 @@ Status BlobGarbageMeter::Parse(const Slice& key, const Slice& value,
 
   *blob_file_number = blob_index.file_number();
   *bytes =
-      blob_index.size() +
-      BlobLogRecord::CalculateAdjustmentForRecordHeader(ikey.user_key.size());
+      blob_index.size() + BlobLogRecord::CalculateAdjustmentForRecordHeader(
+                              ikey.user_key_with_ts.size());
 
   return Status::OK();
 }

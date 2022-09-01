@@ -324,14 +324,16 @@ class CompactionJobTestBase : public testing::Test {
       smallest_seqno = std::min(smallest_seqno, key.sequence);
       largest_seqno = std::max(largest_seqno, key.sequence);
 
-      if (first_key ||
-          cfd_->user_comparator()->Compare(key.user_key, smallest) < 0) {
-        smallest.assign(key.user_key.data(), key.user_key.size());
+      if (first_key || cfd_->user_comparator()->Compare(key.user_key_with_ts,
+                                                        smallest) < 0) {
+        smallest.assign(key.user_key_with_ts.data(),
+                        key.user_key_with_ts.size());
         smallest_key.DecodeFrom(skey);
       }
       if (first_key ||
-          cfd_->user_comparator()->Compare(key.user_key, largest) > 0) {
-        largest.assign(key.user_key.data(), key.user_key.size());
+          cfd_->user_comparator()->Compare(key.user_key_with_ts, largest) > 0) {
+        largest.assign(key.user_key_with_ts.data(),
+                       key.user_key_with_ts.size());
         largest_key.DecodeFrom(skey);
       }
 

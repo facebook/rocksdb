@@ -114,11 +114,14 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   if (!has_seen_first_key_) {
     is_last_level_file_ = ikey.sequence == 0;
     has_seen_first_key_ = true;
-    smallest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
-    largest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
-    key_size_ = is_last_level_file_ ? ikey.user_key.size() : key.size();
+    smallest_user_key_.assign(ikey.user_key_with_ts.data(),
+                              ikey.user_key_with_ts.size());
+    largest_user_key_.assign(ikey.user_key_with_ts.data(),
+                             ikey.user_key_with_ts.size());
+    key_size_ = is_last_level_file_ ? ikey.user_key_with_ts.size() : key.size();
   }
-  if (key_size_ != (is_last_level_file_ ? ikey.user_key.size() : key.size())) {
+  if (key_size_ !=
+      (is_last_level_file_ ? ikey.user_key_with_ts.size() : key.size())) {
     status_ = Status::NotSupported("all keys have to be the same size");
     return;
   }
@@ -134,7 +137,7 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     }
 
     if (is_last_level_file_) {
-      kvs_.append(ikey.user_key.data(), ikey.user_key.size());
+      kvs_.append(ikey.user_key_with_ts.data(), ikey.user_key_with_ts.size());
     } else {
       kvs_.append(key.data(), key.size());
     }
@@ -142,7 +145,8 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     ++num_values_;
   } else {
     if (is_last_level_file_) {
-      deleted_keys_.append(ikey.user_key.data(), ikey.user_key.size());
+      deleted_keys_.append(ikey.user_key_with_ts.data(),
+                           ikey.user_key_with_ts.size());
     } else {
       deleted_keys_.append(key.data(), key.size());
     }
@@ -154,10 +158,12 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   // maintaining smallest and largest keys inserted so far in bytewise order
   // and use them to find a key outside this range in Finish() operation.
   // Note that this strategy is independent of user comparator used here.
-  if (ikey.user_key.compare(smallest_user_key_) < 0) {
-    smallest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
-  } else if (ikey.user_key.compare(largest_user_key_) > 0) {
-    largest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
+  if (ikey.user_key_with_ts.compare(smallest_user_key_) < 0) {
+    smallest_user_key_.assign(ikey.user_key_with_ts.data(),
+                              ikey.user_key_with_ts.size());
+  } else if (ikey.user_key_with_ts.compare(largest_user_key_) > 0) {
+    largest_user_key_.assign(ikey.user_key_with_ts.data(),
+                             ikey.user_key_with_ts.size());
   }
   if (!use_module_hash_) {
     if (hash_table_size_ < num_entries_ / max_hash_table_ratio_) {

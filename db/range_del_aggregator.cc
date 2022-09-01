@@ -90,9 +90,9 @@ void TruncatedRangeDelIterator::Seek(const Slice& target) {
     iter_->Invalidate();
     return;
   }
-  if (smallest_ != nullptr &&
-      icmp_->user_comparator()->Compare(target, smallest_->user_key) < 0) {
-    iter_->Seek(smallest_->user_key);
+  if (smallest_ != nullptr && icmp_->user_comparator()->Compare(
+                                  target, smallest_->user_key_with_ts) < 0) {
+    iter_->Seek(smallest_->user_key_with_ts);
     return;
   }
   iter_->Seek(target);
@@ -106,9 +106,9 @@ void TruncatedRangeDelIterator::SeekForPrev(const Slice& target) {
     iter_->Invalidate();
     return;
   }
-  if (largest_ != nullptr &&
-      icmp_->user_comparator()->Compare(largest_->user_key, target) < 0) {
-    iter_->SeekForPrev(largest_->user_key);
+  if (largest_ != nullptr && icmp_->user_comparator()->Compare(
+                                 largest_->user_key_with_ts, target) < 0) {
+    iter_->SeekForPrev(largest_->user_key_with_ts);
     return;
   }
   iter_->SeekForPrev(target);
@@ -116,7 +116,7 @@ void TruncatedRangeDelIterator::SeekForPrev(const Slice& target) {
 
 void TruncatedRangeDelIterator::SeekToFirst() {
   if (smallest_ != nullptr) {
-    iter_->Seek(smallest_->user_key);
+    iter_->Seek(smallest_->user_key_with_ts);
     return;
   }
   iter_->SeekToTopFirst();
@@ -124,7 +124,7 @@ void TruncatedRangeDelIterator::SeekToFirst() {
 
 void TruncatedRangeDelIterator::SeekToLast() {
   if (largest_ != nullptr) {
-    iter_->SeekForPrev(largest_->user_key);
+    iter_->SeekForPrev(largest_->user_key_with_ts);
     return;
   }
   iter_->SeekToTopLast();
@@ -419,7 +419,7 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
 
   Slice key() const override {
     auto* top = heap_.top();
-    cur_start_key_.Set(top->start_key().user_key, top->seq(),
+    cur_start_key_.Set(top->start_key().user_key_with_ts, top->seq(),
                        kTypeRangeDeletion);
     return cur_start_key_.Encode();
   }
@@ -427,7 +427,7 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
   Slice value() const override {
     auto* top = heap_.top();
     assert(top->end_key().sequence == kMaxSequenceNumber);
-    return top->end_key().user_key;
+    return top->end_key().user_key_with_ts;
   }
 
   // Unused InternalIterator methods
@@ -441,8 +441,8 @@ class TruncatedRangeDelMergingIter : public InternalIterator {
     if (upper_bound_ == nullptr) {
       return true;
     }
-    int cmp = icmp_->user_comparator()->Compare(iter->start_key().user_key,
-                                                *upper_bound_);
+    int cmp = icmp_->user_comparator()->Compare(
+        iter->start_key().user_key_with_ts, *upper_bound_);
     return upper_bound_inclusive_ ? cmp <= 0 : cmp < 0;
   }
 

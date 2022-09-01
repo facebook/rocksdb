@@ -151,7 +151,7 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
   int level() const override { return 0; }
 
   bool KeyNotExistsBeyondOutputLevel(
-      const Slice& /*user_key*/,
+      const Slice& /*user_key_with_ts*/,
       std::vector<size_t>* /*level_ptrs*/) const override {
     return is_bottommost_level || key_not_exists_beyond_output_level;
   }

@@ -183,7 +183,7 @@ class PlainTableReader: public TableReader {
   }
 
   Slice GetPrefix(const ParsedInternalKey& target) const {
-    return GetPrefixFromUserKey(target.user_key);
+    return GetPrefixFromUserKey(target.user_key_with_ts);
   }
 
   Slice GetPrefixFromUserKey(const Slice& user_key) const {

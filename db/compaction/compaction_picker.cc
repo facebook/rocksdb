@@ -327,15 +327,15 @@ bool CompactionPicker::FilesRangeOverlapWithCompaction(
   if (penultimate_level != Compaction::kInvalidLevel) {
     InternalKey penultimate_smallest, penultimate_largest;
     GetRange(inputs, &penultimate_smallest, &penultimate_largest, level);
-    if (RangeOverlapWithCompaction(penultimate_smallest.user_key(),
-                                   penultimate_largest.user_key(),
+    if (RangeOverlapWithCompaction(penultimate_smallest.user_key_with_ts(),
+                                   penultimate_largest.user_key_with_ts(),
                                    penultimate_level)) {
       return true;
     }
   }
 
-  return RangeOverlapWithCompaction(smallest.user_key(), largest.user_key(),
-                                    level);
+  return RangeOverlapWithCompaction(smallest.user_key_with_ts(),
+                                    largest.user_key_with_ts(), level);
 }
 
 // Returns true if any one of specified files are being compacted

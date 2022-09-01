@@ -340,8 +340,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                                                SuperVersion* super_version) {
   autovector<Range> ranges;
   for (const IngestedFileInfo& file_to_ingest : files_to_ingest_) {
-    ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
-                        file_to_ingest.largest_internal_key.user_key());
+    ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key_with_ts(),
+                        file_to_ingest.largest_internal_key.user_key_with_ts());
   }
   Status status = cfd_->RangesOverlapWithMemtables(
       ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
@@ -778,8 +778,9 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = sv->current->OverlapWithLevelIterator(
-          ro, env_options_, file_to_ingest->smallest_internal_key.user_key(),
-          file_to_ingest->largest_internal_key.user_key(), lvl,
+          ro, env_options_,
+          file_to_ingest->smallest_internal_key.user_key_with_ts(),
+          file_to_ingest->largest_internal_key.user_key_with_ts(), lvl,
           &overlap_with_level);
       if (!status.ok()) {
         return status;
@@ -965,8 +966,9 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 
   auto* vstorage = cfd_->current()->storage_info();
   Slice file_smallest_user_key(
-      file_to_ingest->smallest_internal_key.user_key());
-  Slice file_largest_user_key(file_to_ingest->largest_internal_key.user_key());
+      file_to_ingest->smallest_internal_key.user_key_with_ts());
+  Slice file_largest_user_key(
+      file_to_ingest->largest_internal_key.user_key_with_ts());
 
   if (vstorage->OverlapInLevel(level, &file_smallest_user_key,
                                &file_largest_user_key)) {

@@ -287,7 +287,7 @@ size_t HashSkipListRep::ApproximateMemoryUsage() {
 
 void HashSkipListRep::Get(const LookupKey& k, void* callback_args,
                           bool (*callback_func)(void* arg, const char* entry)) {
-  auto transformed = transform_->Transform(k.user_key());
+  auto transformed = transform_->Transform(k.user_key_with_ts());
   auto bucket = GetBucket(transformed);
   if (bucket != nullptr) {
     Bucket::Iterator iter(bucket);

@@ -663,8 +663,8 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
       }
       if (i < static_cast<int>(level_files.size()) - 1 &&
           compaction_picker_->icmp()->user_comparator()->Compare(
-              next_file->largest.user_key(),
-              level_files[i + 1]->smallest.user_key()) == 0) {
+              next_file->largest.user_key_with_ts(),
+              level_files[i + 1]->smallest.user_key_with_ts()) == 0) {
         // Not a clean up after adding the next file. Skip.
         break;
       }

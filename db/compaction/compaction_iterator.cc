@@ -166,7 +166,7 @@ void CompactionIterator::Next() {
       // Keep current_key_ in sync.
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
-      ikey_.user_key = current_key_.GetUserKey();
+      ikey_.user_key_with_ts = current_key_.GetUserKeyWithTs();
       validity_info_.SetValid(ValidContext::kMerge1);
     } else {
       // We consumed all pinned merge operands, release pinned iterators
@@ -217,7 +217,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   Slice& filter_key =
       (ikey_.type == kTypeValue ||
        !compaction_filter_->IsStackedBlobDbInternalCompactionFilter())
-          ? ikey_.user_key
+          ? ikey_.user_key_with_ts
           : key_;
   {
     StopWatchNano timer(clock_, report_detailed_time_);
@@ -258,7 +258,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
 
         assert(blob_fetcher_);
 
-        s = blob_fetcher_->FetchBlob(ikey_.user_key, blob_index,
+        s = blob_fetcher_->FetchBlob(ikey_.user_key_with_ts, blob_index,
                                      prefetch_buffer, &blob_value_,
                                      &bytes_read);
         if (!s.ok()) {
@@ -292,8 +292,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 
   if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
-      cmp_->Compare(*compaction_filter_skip_until_.rep(), ikey_.user_key) <=
-          0) {
+      cmp_->Compare(*compaction_filter_skip_until_.rep(),
+                    ikey_.user_key_with_ts) <= 0) {
     // Can't skip to a key smaller than the current one.
     // Keep the key as per FilterV2 documentation.
     filter = CompactionFilter::Decision::kKeep;
@@ -406,20 +406,21 @@ void CompactionIterator::NextFromInput() {
     bool user_key_equal_without_ts = false;
     int cmp_ts = 0;
     if (has_current_user_key_) {
-      user_key_equal_without_ts =
-          cmp_->EqualWithoutTimestamp(ikey_.user_key, current_user_key_);
+      user_key_equal_without_ts = cmp_->EqualWithoutTimestamp(
+          ikey_.user_key_with_ts, current_user_key_);
       // if timestamp_size_ > 0, then curr_ts_ has been initialized by a
       // previous key.
-      cmp_ts = timestamp_size_ ? cmp_->CompareTimestamp(
-                                     ExtractTimestampFromUserKey(
-                                         ikey_.user_key, timestamp_size_),
-                                     curr_ts_)
-                               : 0;
+      cmp_ts = timestamp_size_
+                   ? cmp_->CompareTimestamp(
+                         ExtractTimestampFromUserKey(ikey_.user_key_with_ts,
+                                                     timestamp_size_),
+                         curr_ts_)
+                   : 0;
     }
 
     // Check whether the user key changed. After this if statement current_key_
     // is a copy of the current input key (maybe converted to a delete by the
-    // compaction filter). ikey_.user_key is pointing to the copy.
+    // compaction filter). ikey_.user_key_with_ts is pointing to the copy.
     if (!has_current_user_key_ || !user_key_equal_without_ts || cmp_ts != 0) {
       // First occurrence of this user key
       // Copy key for output
@@ -455,7 +456,7 @@ void CompactionIterator::NextFromInput() {
         current_user_key_snapshot_ = 0;
         has_current_user_key_ = true;
       }
-      current_user_key_ = ikey_.user_key;
+      current_user_key_ = ikey_.user_key_with_ts;
 
       has_outputted_key_ = false;
 
@@ -477,7 +478,7 @@ void CompactionIterator::NextFromInput() {
       // if we have versions on both sides of a snapshot
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
-      ikey_.user_key = current_key_.GetUserKey();
+      ikey_.user_key_with_ts = current_key_.GetUserKeyWithTs();
 
       // Note that newer version of a key is ordered before older versions. If a
       // newer version of a key is committed, so as the older version. No need
@@ -615,7 +616,8 @@ void CompactionIterator::NextFromInput() {
       if (input_.Valid() &&
           ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
               .ok() &&
-          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+          cmp_->EqualWithoutTimestamp(ikey_.user_key_with_ts,
+                                      next_ikey.user_key_with_ts)) {
 #ifndef NDEBUG
         const Compaction* c =
             compaction_ ? compaction_->real_compaction() : nullptr;
@@ -735,7 +737,7 @@ void CompactionIterator::NextFromInput() {
         has_current_user_key_ = false;
         if (compaction_ != nullptr &&
             DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-            compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
+            compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key_with_ts,
                                                        &level_ptrs_) &&
             is_timestamp_eligible_for_gc) {
           // Key doesn't exist outside of this range.
@@ -786,8 +788,8 @@ void CompactionIterator::NextFromInput() {
                 (ikey_.type == kTypeDeletionWithTimestamp &&
                  cmp_with_history_ts_low_ < 0)) &&
                DefinitelyInSnapshot(ikey_.sequence, earliest_snapshot_) &&
-               compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
-                                                          &level_ptrs_)) {
+               compaction_->KeyNotExistsBeyondOutputLevel(
+                   ikey_.user_key_with_ts, &level_ptrs_)) {
       // TODO(noetzli): This is the only place where we use compaction_
       // (besides the constructor). We should probably get rid of this
       // dependency and find a way to do similar filtering during flushes.
@@ -824,7 +826,7 @@ void CompactionIterator::NextFromInput() {
       // We can skip outputting the key iff there are no subsequent puts for this
       // key
       assert(!compaction_ || compaction_->KeyNotExistsBeyondOutputLevel(
-                                 ikey_.user_key, &level_ptrs_));
+                                 ikey_.user_key_with_ts, &level_ptrs_));
       ParsedInternalKey next_ikey;
       AdvanceInputIter();
 #ifndef NDEBUG
@@ -844,7 +846,8 @@ void CompactionIterator::NextFromInput() {
              input_.Valid() &&
              (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
-             cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
+             cmp_->EqualWithoutTimestamp(ikey_.user_key_with_ts,
+                                         next_ikey.user_key_with_ts) &&
              (prev_snapshot == 0 ||
               DefinitelyNotInSnapshot(next_ikey.sequence, prev_snapshot))) {
         AdvanceInputIter();
@@ -854,7 +857,8 @@ void CompactionIterator::NextFromInput() {
       if (input_.Valid() &&
           (ParseInternalKey(input_.key(), &next_ikey, allow_data_in_errors_)
                .ok()) &&
-          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
+          cmp_->EqualWithoutTimestamp(ikey_.user_key_with_ts,
+                                      next_ikey.user_key_with_ts)) {
         validity_info_.SetValid(ValidContext::kKeepDel);
         at_next_ = true;
       }
@@ -898,7 +902,7 @@ void CompactionIterator::NextFromInput() {
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
         key_ = current_key_.GetInternalKey();
-        ikey_.user_key = current_key_.GetUserKey();
+        ikey_.user_key_with_ts = current_key_.GetUserKeyWithTs();
         validity_info_.SetValid(ValidContext::kMerge2);
       } else {
         // all merge operands were filtered out. reset the user key, since the
@@ -1081,7 +1085,7 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 void CompactionIterator::DecideOutputLevel() {
 #ifndef NDEBUG
   // Could be overridden by unittest
-  PerKeyPlacementContext context(level_, ikey_.user_key, value_,
+  PerKeyPlacementContext context(level_, ikey_.user_key_with_ts, value_,
                                  ikey_.sequence);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator::PrepareOutput.context",
                            &context);
@@ -1103,7 +1107,7 @@ void CompactionIterator::DecideOutputLevel() {
     // not from this compaction.
     // TODO: add statistic for declined output_to_penultimate_level
     bool safe_to_penultimate_level =
-        compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key);
+        compaction_->WithinPenultimateLevelOutputRange(ikey_.user_key_with_ts);
     if (!safe_to_penultimate_level) {
       output_to_penultimate_level_ = false;
       // It could happen when disable/enable `last_level_temperature` while

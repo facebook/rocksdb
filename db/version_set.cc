@@ -124,8 +124,8 @@ Status OverlapWithIterator(const Comparator* ucmp,
                                 false /* log_err_key */);  // TODO
     if (!s.ok()) return s;
 
-    if (ucmp->CompareWithoutTimestamp(seek_result.user_key, largest_user_key) <=
-        0) {
+    if (ucmp->CompareWithoutTimestamp(seek_result.user_key_with_ts,
+                                      largest_user_key) <= 0) {
       *overlap = true;
     }
   }
@@ -294,7 +294,7 @@ class FilePicker {
       }
 
       // Some files may overlap each other. We find
-      // all files that overlap user_key and process them in order from
+      // all files that overlap user_key_with_ts and process them in order from
       // newest to oldest. In the context of merge-operator, this can occur at
       // any level. Otherwise, it only occurs at Level-0 (since Put/Deletes
       // are always compacted into a single entry).
@@ -748,7 +748,7 @@ class FilePickerMultiGet {
       }
 
       // Some files may overlap each other. We find
-      // all files that overlap user_key and process them in order from
+      // all files that overlap user_key_with_ts and process them in order from
       // newest to oldest. In the context of merge-operator, this can occur at
       // any level. Otherwise, it only occurs at Level-0 (since Put/Deletes
       // are always compacted into a single entry).
@@ -883,7 +883,8 @@ void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
 
 static bool AfterFile(const Comparator* ucmp,
                       const Slice* user_key, const FdWithKeyRange* f) {
-  // nullptr user_key occurs before all keys and is therefore never after *f
+  // nullptr user_key_with_ts occurs before all keys and is therefore never
+  // after *f
   return (user_key != nullptr &&
           ucmp->CompareWithoutTimestamp(*user_key,
                                         ExtractUserKey(f->largest_key)) > 0);
@@ -891,7 +892,8 @@ static bool AfterFile(const Comparator* ucmp,
 
 static bool BeforeFile(const Comparator* ucmp,
                        const Slice* user_key, const FdWithKeyRange* f) {
-  // nullptr user_key occurs after all keys and is therefore never before *f
+  // nullptr user_key_with_ts occurs after all keys and is therefore never
+  // before *f
   return (user_key != nullptr &&
           ucmp->CompareWithoutTimestamp(*user_key,
                                         ExtractUserKey(f->smallest_key)) < 0);
@@ -1476,7 +1478,7 @@ Status Version::GetPropertiesOfTablesInRange(
     const Range* range, std::size_t n, TablePropertiesCollection* props) const {
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
     for (decltype(n) i = 0; i < n; i++) {
-      // Convert user_key into a corresponding internal key.
+      // Convert user_key_with_ts into a corresponding internal key.
       InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
       InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
       std::vector<FileMetaData*> files;
@@ -1570,8 +1572,8 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
       files.emplace_back(
           MakeTableFileName("", file_number), file_number, file_path,
           file->fd.GetFileSize(), file->fd.smallest_seqno,
-          file->fd.largest_seqno, file->smallest.user_key().ToString(),
-          file->largest.user_key().ToString(),
+          file->fd.largest_seqno, file->smallest.user_key_with_ts().ToString(),
+          file->largest.user_key_with_ts().ToString(),
           file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted, file->temperature,
           file->oldest_blob_file_number, file->TryGetOldestAncesterTime(),
@@ -2038,7 +2040,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
                   bool* is_blob, bool do_merge) {
   Slice ikey = k.internal_key();
-  Slice user_key = k.user_key();
+  Slice user_key = k.user_key_with_ts();
 
   assert(status->ok() || status->IsMergeInProgress());
 
@@ -2417,7 +2419,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   for (auto iter = range->begin(); s.ok() && iter != range->end(); ++iter) {
     GetContext& get_context = *iter->get_context;
     Status* status = iter->s;
-    Slice user_key = iter->lkey->user_key();
+    Slice user_key = iter->lkey->user_key_with_ts();
 
     if (db_statistics_ != nullptr) {
       get_context.ReportCounters();
@@ -3795,10 +3797,10 @@ void VersionStorageInfo::GetOverlappingInputs(
 
   Slice user_begin, user_end;
   if (begin != nullptr) {
-    user_begin = begin->user_key();
+    user_begin = begin->user_key_with_ts();
   }
   if (end != nullptr) {
-    user_end = end->user_key();
+    user_end = end->user_key_with_ts();
   }
 
   // index stores the file index need to check.
@@ -6244,16 +6246,16 @@ InternalIterator* VersionSet::MakeInputIterator(
         for (size_t i = 0; i < flevel->num_files; i++) {
           const FileMetaData& fmd = *flevel->files[i].file_metadata;
           if (start.has_value() &&
-              cfd->user_comparator()->Compare(start.value(),
-                                              fmd.largest.user_key()) > 0) {
+              cfd->user_comparator()->Compare(
+                  start.value(), fmd.largest.user_key_with_ts()) > 0) {
             continue;
           }
           // We should be able to filter out the case where the end key
           // equals to the end boundary, since the end key is exclusive.
           // We try to be extra safe here.
           if (end.has_value() &&
-              cfd->user_comparator()->Compare(end.value(),
-                                              fmd.smallest.user_key()) < 0) {
+              cfd->user_comparator()->Compare(
+                  end.value(), fmd.smallest.user_key_with_ts()) < 0) {
             continue;
           }
 
@@ -6340,8 +6342,8 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.file_number = file_number;
         filemetadata.level = level;
         filemetadata.size = file->fd.GetFileSize();
-        filemetadata.smallestkey = file->smallest.user_key().ToString();
-        filemetadata.largestkey = file->largest.user_key().ToString();
+        filemetadata.smallestkey = file->smallest.user_key_with_ts().ToString();
+        filemetadata.largestkey = file->largest.user_key_with_ts().ToString();
         filemetadata.smallest_seqno = file->fd.smallest_seqno;
         filemetadata.largest_seqno = file->fd.largest_seqno;
         filemetadata.num_reads_sampled = file->stats.num_reads_sampled.load(

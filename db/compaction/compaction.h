@@ -191,7 +191,8 @@ class Compaction {
   void AddInputDeletions(VersionEdit* edit);
 
   // Returns true if the available information we have guarantees that
-  // the input "user_key" does not exist in any level beyond "output_level()".
+  // the input "user_key_with_ts" does not exist in any level beyond
+  // "output_level()".
   bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
                                      std::vector<size_t>* level_ptrs) const;
 

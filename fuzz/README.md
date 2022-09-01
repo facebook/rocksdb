@@ -76,20 +76,20 @@ diff --git a/table/sst_file_writer.cc b/table/sst_file_writer.cc
 index ab1ee7c4e..c7da9ffa0 100644
 --- a/table/sst_file_writer.cc
 +++ b/table/sst_file_writer.cc
-@@ -277,6 +277,11 @@ Status SstFileWriter::Add(const Slice& user_key, const Slice& value) {
+@@ -277,6 +277,11 @@ Status SstFileWriter::Add(const Slice& user_key_with_ts, const Slice& value) {
  }
 
- Status SstFileWriter::Put(const Slice& user_key, const Slice& value) {
-+  if (user_key.starts_with("!")) {
+ Status SstFileWriter::Put(const Slice& user_key_with_ts, const Slice& value) {
++  if (user_key_with_ts.starts_with("!")) {
 +    if (value.ends_with("!")) {
 +      return Status::Corruption("bomb");
 +    }
 +  }
-   return rep_->Add(user_key, value, ValueType::kTypeValue);
+   return rep_->Add(user_key_with_ts, value, ValueType::kTypeValue);
  }
 ```
 
-The bug is that for `Put`, if `user_key` starts with `!` and `value` ends with `!`, then corrupt.
+The bug is that for `Put`, if `user_key_with_ts` starts with `!` and `value` ends with `!`, then corrupt.
 
 ### Run fuzz testing to catch the bug
 

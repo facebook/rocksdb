@@ -122,7 +122,7 @@ TEST(BlobGarbageMeterTest, MeasureGarbage) {
 }
 
 TEST(BlobGarbageMeterTest, PlainValue) {
-  constexpr char user_key[] = "user_key";
+  constexpr char user_key[] = "user_key_with_ts";
   constexpr SequenceNumber seq = 123;
 
   const InternalKey key(user_key, seq, kTypeValue);
@@ -152,7 +152,7 @@ TEST(BlobGarbageMeterTest, CorruptInternalKey) {
 }
 
 TEST(BlobGarbageMeterTest, CorruptBlobIndex) {
-  constexpr char user_key[] = "user_key";
+  constexpr char user_key[] = "user_key_with_ts";
   constexpr SequenceNumber seq = 123;
 
   const InternalKey key(user_key, seq, kTypeBlobIndex);
@@ -168,7 +168,7 @@ TEST(BlobGarbageMeterTest, CorruptBlobIndex) {
 }
 
 TEST(BlobGarbageMeterTest, InlinedTTLBlobIndex) {
-  constexpr char user_key[] = "user_key";
+  constexpr char user_key[] = "user_key_with_ts";
   constexpr SequenceNumber seq = 123;
 
   const InternalKey key(user_key, seq, kTypeBlobIndex);

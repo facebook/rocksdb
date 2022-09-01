@@ -234,7 +234,7 @@ int main(int argc, char** argv) {
 
     for (int j = 0; j < FLAGS_should_deletes_per_run; j++) {
       std::string key_string = ROCKSDB_NAMESPACE::Key(first_key + j);
-      parsed_key.user_key = key_string;
+      parsed_key.user_key_with_ts = key_string;
 
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_should_delete(
           clock, true /* auto_start */);

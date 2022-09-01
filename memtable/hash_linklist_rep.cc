@@ -448,7 +448,7 @@ class HashLinkListRep : public MemTableRep {
           } else {
             IterKey encoded_key;
             encoded_key.EncodeLengthPrefixedKey(k);
-            skip_list_iter_->Seek(encoded_key.GetUserKey().data());
+            skip_list_iter_->Seek(encoded_key.GetUserKeyWithTs().data());
           }
         }
       }
@@ -494,9 +494,9 @@ class HashLinkListRep : public MemTableRep {
     }
     void Next() override {}
     void Prev() override {}
-    void Seek(const Slice& /*user_key*/,
+    void Seek(const Slice& /*user_key_with_ts*/,
               const char* /*memtable_key*/) override {}
-    void SeekForPrev(const Slice& /*user_key*/,
+    void SeekForPrev(const Slice& /*user_key_with_ts*/,
                      const char* /*memtable_key*/) override {}
     void SeekToFirst() override {}
     void SeekToLast() override {}
@@ -734,7 +734,7 @@ size_t HashLinkListRep::ApproximateMemoryUsage() {
 
 void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
                           bool (*callback_func)(void* arg, const char* entry)) {
-  auto transformed = transform_->Transform(k.user_key());
+  auto transformed = transform_->Transform(k.user_key_with_ts());
   Pointer& bucket = GetBucket(transformed);
 
   if (IsEmptyBucket(bucket)) {

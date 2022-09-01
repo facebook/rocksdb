@@ -75,7 +75,7 @@ static std::string PrintContents(WriteBatch* b,
       switch (ikey.type) {
         case kTypeValue:
           state.append("Put(");
-          state.append(ikey.user_key.ToString());
+          state.append(ikey.user_key_with_ts.ToString());
           state.append(", ");
           state.append(iter->value().ToString());
           state.append(")");
@@ -84,21 +84,21 @@ static std::string PrintContents(WriteBatch* b,
           break;
         case kTypeDeletion:
           state.append("Delete(");
-          state.append(ikey.user_key.ToString());
+          state.append(ikey.user_key_with_ts.ToString());
           state.append(")");
           count++;
           delete_count++;
           break;
         case kTypeSingleDeletion:
           state.append("SingleDelete(");
-          state.append(ikey.user_key.ToString());
+          state.append(ikey.user_key_with_ts.ToString());
           state.append(")");
           count++;
           single_delete_count++;
           break;
         case kTypeRangeDeletion:
           state.append("DeleteRange(");
-          state.append(ikey.user_key.ToString());
+          state.append(ikey.user_key_with_ts.ToString());
           state.append(", ");
           state.append(iter->value().ToString());
           state.append(")");
@@ -107,7 +107,7 @@ static std::string PrintContents(WriteBatch* b,
           break;
         case kTypeMerge:
           state.append("Merge(");
-          state.append(ikey.user_key.ToString());
+          state.append(ikey.user_key_with_ts.ToString());
           state.append(", ");
           state.append(iter->value().ToString());
           state.append(")");

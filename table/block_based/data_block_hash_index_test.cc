@@ -422,9 +422,9 @@ TEST(DataBlockHashIndex, BlockTestSingleKey) {
   }
 
   // Search in block for the existing ukey, but with lower seqno
-  // in this case, hash can find the only occurrence of the user_key, but
-  // ParseNextDataKey() will skip it as it does not have a older seqno.
-  // In this case, GetForSeek() is effective to locate the user_key, and
+  // in this case, hash can find the only occurrence of the user_key_with_ts,
+  // but ParseNextDataKey() will skip it as it does not have a older seqno. In
+  // this case, GetForSeek() is effective to locate the user_key_with_ts, and
   // iter->Valid() == false indicates that we've reached to the end of
   // the block and the caller should continue searching the next block.
   {
@@ -488,8 +488,8 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   }
 
   // random seek non-existent user keys
-  // In this case A), the user_key cannot be found in HashIndex. The key may
-  // exist in the next block. So the iter is set invalidated to tell the
+  // In this case A), the user_key_with_ts cannot be found in HashIndex. The key
+  // may exist in the next block. So the iter is set invalidated to tell the
   // caller to search the next block. This test case belongs to this case A).
   //
   // Note that for non-existent keys, there is possibility of false positive,
@@ -501,7 +501,8 @@ TEST(DataBlockHashIndex, BlockTestLarge) {
   // C) linear seek the restart interval and not found, the iter stops at the
   //    the end of the block, i.e. restarts_. The key may exist in the next
   //    block.
-  // So these combinations are possible when searching non-existent user_key:
+  // So these combinations are possible when searching non-existent
+  // user_key_with_ts:
   //
   // case#    may_exist  iter->Valid()
   //     A         true          false

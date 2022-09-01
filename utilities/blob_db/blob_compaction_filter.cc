@@ -99,14 +99,14 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     PinnableSlice blob;
     CompressionType compression_type = kNoCompression;
     constexpr bool need_decompress = true;
-    if (!ReadBlobFromOldFile(ikey.user_key, blob_index, &blob, need_decompress,
-                             &compression_type)) {
+    if (!ReadBlobFromOldFile(ikey.user_key_with_ts, blob_index, &blob,
+                             need_decompress, &compression_type)) {
       return Decision::kIOError;
     }
     CompactionFilter::Decision decision = ucf->FilterV2(
-        level, ikey.user_key, kValue, blob, new_value, skip_until);
+        level, ikey.user_key_with_ts, kValue, blob, new_value, skip_until);
     if (decision == Decision::kChangeValue) {
-      return HandleValueChange(ikey.user_key, new_value);
+      return HandleValueChange(ikey.user_key_with_ts, new_value);
     }
     return decision;
   }

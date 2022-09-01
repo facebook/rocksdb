@@ -227,7 +227,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert(matched);
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
-  if (ucmp_->EqualWithoutTimestamp(parsed_key.user_key, user_key_)) {
+  if (ucmp_->EqualWithoutTimestamp(parsed_key.user_key_with_ts, user_key_)) {
     *matched = true;
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
@@ -362,7 +362,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (state_ == kFound) {
           size_t ts_sz = ucmp_->timestamp_size();
           if (ts_sz > 0 && timestamp_ != nullptr) {
-            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+            Slice ts =
+                ExtractTimestampFromUserKey(parsed_key.user_key_with_ts, ts_sz);
             timestamp_->assign(ts.data(), ts.size());
           }
         }
@@ -379,7 +380,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kDeleted;
           size_t ts_sz = ucmp_->timestamp_size();
           if (ts_sz > 0 && timestamp_ != nullptr) {
-            Slice ts = ExtractTimestampFromUserKey(parsed_key.user_key, ts_sz);
+            Slice ts =
+                ExtractTimestampFromUserKey(parsed_key.user_key_with_ts, ts_sz);
             timestamp_->assign(ts.data(), ts.size());
           }
         } else if (kMerge == state_) {
@@ -458,7 +460,7 @@ void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {
   }
 }
 
-void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+void replayGetContextLog(const Slice& replay_log, const Slice& user_key_with_ts,
                          GetContext* get_context, Cleanable* value_pinner) {
 #ifndef ROCKSDB_LITE
   Slice s = replay_log;
@@ -474,12 +476,12 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     // Since SequenceNumber is not stored and unknown, we will use
     // kMaxSequenceNumber.
     get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
+        ParsedInternalKey(user_key_with_ts, kMaxSequenceNumber, type), value,
         &dont_care, value_pinner);
   }
 #else   // ROCKSDB_LITE
   (void)replay_log;
-  (void)user_key;
+  (void)user_key_with_ts;
   (void)get_context;
   (void)value_pinner;
   assert(false);

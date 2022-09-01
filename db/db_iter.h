@@ -154,7 +154,7 @@ class DBIter final : public Iterator {
     if (timestamp_lb_) {
       return saved_key_.GetInternalKey();
     } else {
-      const Slice ukey_and_ts = saved_key_.GetUserKey();
+      const Slice ukey_and_ts = saved_key_.GetUserKeyWithTs();
       return Slice(ukey_and_ts.data(), ukey_and_ts.size() - timestamp_size_);
     }
   }
@@ -190,7 +190,7 @@ class DBIter final : public Iterator {
     if (direction_ == kReverse) {
       return saved_timestamp_;
     }
-    const Slice ukey_and_ts = saved_key_.GetUserKey();
+    const Slice ukey_and_ts = saved_key_.GetUserKeyWithTs();
     assert(timestamp_size_ < ukey_and_ts.size());
     return ExtractTimestampFromUserKey(ukey_and_ts, timestamp_size_);
   }
@@ -351,7 +351,7 @@ class DBIter final : public Iterator {
   // is true and prefix extractor is not null. In Next() or Prev(), current keys
   // will be checked against this prefix, so that the iterator can be
   // invalidated if the keys in this prefix has been exhausted. Set it using
-  // SetUserKey() and use it using GetUserKey().
+  // SetUserKey() and use it using GetUserKeyWithTs().
   IterKey prefix_;
 
   Status status_;

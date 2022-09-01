@@ -386,7 +386,7 @@ bool TableCache::GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
 
   row_cache_key.TrimAppend(prefix_size, user_key.data(), user_key.size());
   if (auto row_handle =
-          ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
+          ioptions_.row_cache->Lookup(row_cache_key.GetUserKeyWithTs())) {
     // Cleanable routine to release the cache entry
     Cleanable value_pinner;
     auto release_cache_entry_func = [](void* cache_to_clean,
@@ -489,7 +489,7 @@ Status TableCache::Get(
     void* row_ptr = new std::string(std::move(*row_cache_entry));
     // If row cache is full, it's OK to continue.
     ioptions_.row_cache
-        ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
+        ->Insert(row_cache_key.GetUserKeyWithTs(), row_ptr, charge,
                  &DeleteEntry<std::string>)
         .PermitUncheckedError();
   }

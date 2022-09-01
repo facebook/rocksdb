@@ -70,7 +70,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
     switch (ikey.type) {
       case ROCKSDB_NAMESPACE::kTypeValue:
         state.append("Put(");
-        state.append(ikey.user_key.ToString());
+        state.append(ikey.user_key_with_ts.ToString());
         state.append(", ");
         state.append(iter->value().ToString());
         state.append(")");
@@ -78,7 +78,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
         break;
       case ROCKSDB_NAMESPACE::kTypeMerge:
         state.append("Merge(");
-        state.append(ikey.user_key.ToString());
+        state.append(ikey.user_key_with_ts.ToString());
         state.append(", ");
         state.append(iter->value().ToString());
         state.append(")");
@@ -86,19 +86,19 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
         break;
       case ROCKSDB_NAMESPACE::kTypeDeletion:
         state.append("Delete(");
-        state.append(ikey.user_key.ToString());
+        state.append(ikey.user_key_with_ts.ToString());
         state.append(")");
         count++;
         break;
       case ROCKSDB_NAMESPACE::kTypeSingleDeletion:
         state.append("SingleDelete(");
-        state.append(ikey.user_key.ToString());
+        state.append(ikey.user_key_with_ts.ToString());
         state.append(")");
         count++;
         break;
       case ROCKSDB_NAMESPACE::kTypeRangeDeletion:
         state.append("DeleteRange(");
-        state.append(ikey.user_key.ToString());
+        state.append(ikey.user_key_with_ts.ToString());
         state.append(", ");
         state.append(iter->value().ToString());
         state.append(")");
@@ -106,7 +106,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
         break;
       case ROCKSDB_NAMESPACE::kTypeLogData:
         state.append("LogData(");
-        state.append(ikey.user_key.ToString());
+        state.append(ikey.user_key_with_ts.ToString());
         state.append(")");
         count++;
         break;

@@ -466,7 +466,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
         Status s = cfd->table_cache()->ApproximateKeyAnchors(
             ReadOptions(), icomp, f->fd, my_anchors);
         if (!s.ok() || my_anchors.empty()) {
-          my_anchors.emplace_back(f->largest.user_key(), f->fd.GetFileSize());
+          my_anchors.emplace_back(f->largest.user_key_with_ts(),
+                                  f->fd.GetFileSize());
         }
         for (auto& ac : my_anchors) {
           // Can be optimize to avoid this loop.
@@ -1468,8 +1469,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     // table properties. Not sure how to resolve it.
     if (meta->smallest.size() > 0 && meta->largest.size() > 0) {
       uint64_t refined_oldest_ancester_time;
-      Slice new_smallest = meta->smallest.user_key();
-      Slice new_largest = meta->largest.user_key();
+      Slice new_smallest = meta->smallest.user_key_with_ts();
+      Slice new_largest = meta->largest.user_key_with_ts();
       if (!new_largest.empty() && !new_smallest.empty()) {
         refined_oldest_ancester_time =
             sub_compact->compaction->MinInputFileOldestAncesterTime(

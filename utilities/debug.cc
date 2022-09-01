@@ -102,11 +102,11 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
     }
 
     if (!end_key.empty() &&
-        icmp.user_comparator()->Compare(ikey.user_key, end_key) > 0) {
+        icmp.user_comparator()->Compare(ikey.user_key_with_ts, end_key) > 0) {
       break;
     }
 
-    key_versions->emplace_back(ikey.user_key.ToString() /* _user_key */,
+    key_versions->emplace_back(ikey.user_key_with_ts.ToString() /* _user_key */,
                                iter->value().ToString() /* _value */,
                                ikey.sequence /* _sequence */,
                                static_cast<int>(ikey.type) /* _type */);

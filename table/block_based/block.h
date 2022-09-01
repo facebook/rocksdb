@@ -417,13 +417,13 @@ class BlockIter : public InternalIteratorBase<TValue> {
     }
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
-      key_ = raw_key_.GetUserKey();
+      key_ = raw_key_.GetUserKeyWithTs();
       key_pinned_ = raw_key_.IsKeyPinned();
     } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
       key_ = raw_key_.GetInternalKey();
       key_pinned_ = raw_key_.IsKeyPinned();
     } else {
-      key_buf_.SetInternalKey(raw_key_.GetUserKey(), global_seqno_,
+      key_buf_.SetInternalKey(raw_key_.GetUserKeyWithTs(), global_seqno_,
                               ExtractValueType(raw_key_.GetInternalKey()));
       key_ = key_buf_.GetInternalKey();
       key_pinned_ = false;
@@ -436,7 +436,8 @@ class BlockIter : public InternalIteratorBase<TValue> {
   int CompareCurrentKey(const Slice& other) {
     if (raw_key_.IsUserKey()) {
       assert(global_seqno_ == kDisableGlobalSequenceNumber);
-      return icmp_->user_comparator()->Compare(raw_key_.GetUserKey(), other);
+      return icmp_->user_comparator()->Compare(raw_key_.GetUserKeyWithTs(),
+                                               other);
     } else if (global_seqno_ == kDisableGlobalSequenceNumber) {
       return icmp_->Compare(raw_key_.GetInternalKey(), other);
     }
@@ -644,7 +645,7 @@ class IndexBlockIter final : public BlockIter<IndexValue> {
 
   Slice user_key() const override {
     assert(Valid());
-    return raw_key_.GetUserKey();
+    return raw_key_.GetUserKeyWithTs();
   }
 
   IndexValue value() const override {

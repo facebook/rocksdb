@@ -554,7 +554,7 @@ class SstFileWriterCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+  Status AddUserKey(const Slice& /*user_key_with_ts*/, const Slice& /*value*/,
                     EntryType /*type*/, SequenceNumber /*seq*/,
                     uint64_t /*file_size*/) override {
     ++count_;

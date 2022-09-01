@@ -96,7 +96,8 @@ class DummyPropertiesCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status Add(const Slice& /*user_key*/, const Slice& /*value*/) override {
+  Status Add(const Slice& /*user_key_with_ts*/,
+             const Slice& /*value*/) override {
     return Status::OK();
   }
 
@@ -281,7 +282,7 @@ class KeyConvertingIterator : public InternalIterator {
       status_ = pik_status;
       return Slice(status_.getState());
     }
-    return parsed_key.user_key;
+    return parsed_key.user_key_with_ts;
   }
 
   Slice value() const override { return iter_->value(); }
@@ -4584,8 +4585,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 0);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
+    ASSERT_EQ(pik.user_key_with_ts, iter->value());
+    ASSERT_EQ(pik.user_key_with_ts.ToString(), std::string(8, current_c));
     current_c++;
   }
   ASSERT_EQ(current_c, 'z' + 1);
@@ -4605,8 +4606,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 10);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
+    ASSERT_EQ(pik.user_key_with_ts, iter->value());
+    ASSERT_EQ(pik.user_key_with_ts.ToString(), std::string(8, current_c));
     current_c++;
   }
   ASSERT_EQ(current_c, 'z' + 1);
@@ -4623,7 +4624,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 10);
-    ASSERT_EQ(pik.user_key.ToString(), k);
+    ASSERT_EQ(pik.user_key_with_ts.ToString(), k);
     ASSERT_EQ(iter->value().ToString(), k);
   }
   delete iter;
@@ -4642,8 +4643,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 3);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
+    ASSERT_EQ(pik.user_key_with_ts, iter->value());
+    ASSERT_EQ(pik.user_key_with_ts.ToString(), std::string(8, current_c));
     current_c++;
   }
   ASSERT_EQ(current_c, 'z' + 1);
@@ -4661,7 +4662,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 3);
-    ASSERT_EQ(pik.user_key.ToString(), k);
+    ASSERT_EQ(pik.user_key_with_ts.ToString(), k);
     ASSERT_EQ(iter->value().ToString(), k);
   }
 

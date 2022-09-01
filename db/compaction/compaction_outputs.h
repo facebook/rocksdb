@@ -129,7 +129,7 @@ class CompactionOutputs {
 
   Slice SmallestUserKey() const {
     if (!outputs_.empty() && outputs_[0].finished) {
-      return outputs_[0].meta.smallest.user_key();
+      return outputs_[0].meta.smallest.user_key_with_ts();
     } else {
       return Slice{nullptr, 0};
     }
@@ -137,7 +137,7 @@ class CompactionOutputs {
 
   Slice LargestUserKey() const {
     if (!outputs_.empty() && outputs_.back().finished) {
-      return outputs_.back().meta.largest.user_key();
+      return outputs_.back().meta.largest.user_key_with_ts();
     } else {
       return Slice{nullptr, 0};
     }

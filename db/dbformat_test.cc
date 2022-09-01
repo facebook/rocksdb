@@ -46,7 +46,7 @@ static void TestKey(const std::string& key,
   ParsedInternalKey decoded("", 0, kTypeValue);
 
   ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
-  ASSERT_EQ(key, decoded.user_key.ToString());
+  ASSERT_EQ(key, decoded.user_key_with_ts.ToString());
   ASSERT_EQ(seq, decoded.sequence);
   ASSERT_EQ(vt, decoded.type);
 
@@ -143,38 +143,46 @@ TEST_F(FormatTest, IterKeyOperation) {
   const char p[] = "abcdefghijklmnopqrstuvwxyz";
   const char q[] = "0123456789";
 
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string(""));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string(""));
 
   k.TrimAppend(0, p, 3);
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string("abc"));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string("abc"));
 
   k.TrimAppend(1, p, 3);
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string("aabc"));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string("aabc"));
 
   k.TrimAppend(0, p, 26);
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string("abcdefghijklmnopqrstuvwxyz"));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string("abcdefghijklmnopqrstuvwxyz"));
 
   k.TrimAppend(26, q, 10);
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string("abcdefghijklmnopqrstuvwxyz0123456789"));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string("abcdefghijklmnopqrstuvwxyz0123456789"));
 
   k.TrimAppend(36, q, 1);
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string("abcdefghijklmnopqrstuvwxyz01234567890"));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string("abcdefghijklmnopqrstuvwxyz01234567890"));
 
   k.TrimAppend(26, q, 1);
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string("abcdefghijklmnopqrstuvwxyz0"));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string("abcdefghijklmnopqrstuvwxyz0"));
 
   // Size going up, memory allocation is triggered
   k.TrimAppend(27, p, 26);
-  ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
-            std::string("abcdefghijklmnopqrstuvwxyz0"
-                        "abcdefghijklmnopqrstuvwxyz"));
+  ASSERT_EQ(
+      std::string(k.GetUserKeyWithTs().data(), k.GetUserKeyWithTs().size()),
+      std::string("abcdefghijklmnopqrstuvwxyz0"
+                  "abcdefghijklmnopqrstuvwxyz"));
 }
 
 TEST_F(FormatTest, UpdateInternalKey) {
@@ -191,7 +199,7 @@ TEST_F(FormatTest, UpdateInternalKey) {
   Slice in(ikey);
   ParsedInternalKey decoded;
   ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
-  ASSERT_EQ(user_key, decoded.user_key.ToString());
+  ASSERT_EQ(user_key, decoded.user_key_with_ts.ToString());
   ASSERT_EQ(new_seq, decoded.sequence);
   ASSERT_EQ(new_val_type, decoded.type);
 }

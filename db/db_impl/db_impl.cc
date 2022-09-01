@@ -4026,7 +4026,7 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
   ColumnFamilyData* cfd = cfh->cfd();
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
-  // Convert user_key into a corresponding internal key.
+  // Convert user_key_with_ts into a corresponding internal key.
   InternalKey k1(range.start, kMaxSequenceNumber, kValueTypeForSeek);
   InternalKey k2(range.limit, kMaxSequenceNumber, kValueTypeForSeek);
   MemTable::MemTableStats memStats =
@@ -4071,7 +4071,7 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
       start = start_with_ts;
       limit = limit_with_ts;
     }
-    // Convert user_key into a corresponding internal key.
+    // Convert user_key_with_ts into a corresponding internal key.
     InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
@@ -4273,8 +4273,8 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
             continue;
           }
           if (!include_end && end != nullptr &&
-              cfd->user_comparator()->Compare(level_file->largest.user_key(),
-                                              *end) == 0) {
+              cfd->user_comparator()->Compare(
+                  level_file->largest.user_key_with_ts(), *end) == 0) {
             continue;
           }
           edit.SetColumnFamily(cfd->GetID());
