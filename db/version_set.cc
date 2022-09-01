@@ -1271,17 +1271,22 @@ void LevelIterator::Seek(const Slice& target) {
         // iterators.
         //
         // The flag is cleared in Seek*() calls. There is no need to clear the
-        // flag in Prev() since Prev() should not be called if
-        // range_tombstone_iter_ is nullptr (file_iters_ is not valid), and if
-        // range_tombstone_iter_ is not nullptr, the upper layer (merging
-        // iterator) will not call Prev() before calling
-        // NextAndGetResult()/Seek*() (mostly because of
-        // MergingIterator::FindNextVisibleEntry()). Calls to NextAndGetResult()
-        // will skip the sentinel key and makes level iterator invalid. This
-        // flag should not be cleared at the beginning of
-        // Next/NextAndGetResult() since the sentinel key prevents the
-        // SkipEmptyFileForward() in this Seek() call from considering moving to
-        // the next file. So prefix_exhausted_ is used in SkipEmptyFileForward()
+        // flag in Prev() since Prev() will not be called when the flag is set
+        // for reasons explained below. If range_tombstone_iter_ is nullptr,
+        // then there is no file boundary sentinel key. Since
+        // !file_iter_.Valid() from the if condition above, this level iterator
+        // is !Valid(), so Prev() will not be called. If range_tombstone_iter_
+        // is not nullptr, there are two cases depending on if this level
+        // iterator reaches top of the heap in merging iterator (the upper
+        // layer).
+        //  If so, merging iterator will see the sentinel key, call
+        //  NextAndGetResult() and the call to NextAndGetResult() will skip the
+        //  sentinel key and makes this level iterator invalid. If not, then it
+        //  could be because the upper layer is done before any method of this
+        //  level iterator is called or another Seek*() call is invoked. Either
+        //  way, Prev() is never called before Seek*().
+        // The flag should not be cleared at the beginning of
+        // Next/NextAndGetResult() since it is used in SkipEmptyFileForward()
         // called in Next/NextAndGetResult().
         prefix_exhausted_ = true;
       }

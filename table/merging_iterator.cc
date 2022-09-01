@@ -334,14 +334,17 @@ class MergingIterator : public InternalIterator {
   // point key at top of the heap is from level >= L, then the point key is
   // within the internal key range of the range tombstone that
   // range_tombstone_iters_[L] currently points to. For correctness reasoning,
-  // one invariant that Seek() guarantees is as follows. After Seek(), suppose
-  // `k` is the current key of level L's point iterator. Then for each range
-  // tombstone iterator at level <= L, it is at or before the first range
-  // tombstone with end key > `k`. This ensures that when level L's point
-  // iterator reaches top of the heap, `active_` is calculated correctly (it
-  // contains the covering range tombstone's level if there is one), since no
-  // range tombstone iterator was skipped beyond that point iterator's current
-  // key during Seek().
+  // one invariant that Seek() (and every other public APIs Seek*(),
+  // Next/Prev()) guarantees is as follows. After Seek(), suppose `k` is the
+  // current key of level L's point iterator. Then for each range tombstone
+  // iterator at level <= L, it is at or before the first range tombstone with
+  // end key > `k`. This ensures that when level L's point iterator reaches top
+  // of the heap, `active_` is calculated correctly (it contains the covering
+  // range tombstone's level if there is one), since no range tombstone iterator
+  // was skipped beyond that point iterator's current key during Seek().
+  // Next()/Prev() maintains a stronger version of this invariant where all
+  // range tombstone iterators from level <= L are *at* the first range
+  // tombstone with end key > `k`.
   void Seek(const Slice& target) override {
     assert(range_tombstone_iters_.empty() ||
            range_tombstone_iters_.size() == children_.size());
@@ -546,8 +549,8 @@ class MergingIterator : public InternalIterator {
   // "active".
   std::set<size_t> active_;
 
-  bool IsNextDeleted();
-  bool IsPrevDeleted();
+  bool SkipNextDeleted();
+  bool SkipPrevDeleted();
 
   // Cached pointer to child iterator with the current key, or nullptr if no
   // child iterators are valid.  This is the top of minHeap_ or maxHeap_
@@ -751,7 +754,7 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
 // REQUIRES:
 // - min heap is currently not empty, and iter is in kForward direction.
 // - minHeap_ top is not DELETE_RANGE_START (so that `active_` is current).
-bool MergingIterator::IsNextDeleted() {
+bool MergingIterator::SkipNextDeleted() {
   // 3 types of keys:
   // - point key
   // - file boundary sentinel keys
@@ -963,11 +966,11 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
   }
 }
 
-// See more in comments above IsNextDeleted().
+// See more in comments above SkipNextDeleted().
 // REQUIRES:
 // - max heap is currently not empty, and iter is in kReverse direction.
 // - maxHeap_ top is not DELETE_RANGE_END (so that `active_` is current).
-bool MergingIterator::IsPrevDeleted() {
+bool MergingIterator::SkipPrevDeleted() {
   // 3 types of keys:
   // - point key
   // - file boundary sentinel keys
@@ -985,8 +988,8 @@ bool MergingIterator::IsPrevDeleted() {
     return true /* current key deleted */;
   }
   if (current->iter.IsDeleteRangeSentinelKey()) {
-    // Different from IsNextDeleted(): range tombstone start key is before file
-    // boundary due to op_type set in SetTombstoneKey().
+    // Different from SkipNextDeleted(): range tombstone start key is before
+    // file boundary due to op_type set in SetTombstoneKey().
     assert(ExtractValueType(current->iter.key()) != kTypeRangeDeletion ||
            active_.count(current->level));
     // LevelIterator enters a new SST file
@@ -1021,7 +1024,8 @@ bool MergingIterator::IsPrevDeleted() {
              0);
       std::string target;
       AppendInternalKey(&target, range_tombstone_iters_[i]->start_key());
-      // This is different from IsNextDeleted() which does reseek at sorted runs
+      // This is different from SkipNextDeleted() which does reseek at sorted
+      // runs
       // >= level (instead of i+1 here). With min heap, if level L is at top of
       // the heap, then levels <L all have internal keys > level L's current
       // internal key, which means levels <L are already at a different user
@@ -1229,7 +1233,7 @@ inline void MergingIterator::FindNextVisibleKey() {
   PopDeleteRangeStart();
   while (!minHeap_.empty() &&
          (!active_.empty() || minHeap_.top()->IsDeleteRangeSentinelKey()) &&
-         IsNextDeleted()) {
+         SkipNextDeleted()) {
     PopDeleteRangeStart();
   }
 }
@@ -1238,7 +1242,7 @@ inline void MergingIterator::FindPrevVisibleKey() {
   PopDeleteRangeEnd();
   while (!maxHeap_->empty() &&
          (!active_.empty() || maxHeap_->top()->IsDeleteRangeSentinelKey()) &&
-         IsPrevDeleted()) {
+         SkipPrevDeleted()) {
     PopDeleteRangeEnd();
   }
 }
