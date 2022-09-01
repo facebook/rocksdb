@@ -321,6 +321,7 @@ void CompactionJob::AcquireSubcompactionResources(
               ->write_controller()
               ->NeedSpeedupCompaction())
           .max_compactions;
+  InstrumentedMutexLock l(db_mutex_);
   // Apply min function first since We need to compute the extra subcompaction
   // against compaction limits. And then try to reserve threads for extra
   // subcompactions. The actual number of reserved threads could be less than
@@ -329,7 +330,6 @@ void CompactionJob::AcquireSubcompactionResources(
       std::max(max_db_compactions - *bg_compaction_scheduled_ -
                    *bg_bottom_compaction_scheduled_,
                0);
-  db_mutex_->Lock();
   // Reservation only supports backgrdoun threads of which the priority is
   // between BOTTOM and HIGH. Need to degrade the priority to HIGH if the
   // origin thread_pri_ is higher than that. Similar to ReleaseThreads().
@@ -346,7 +346,6 @@ void CompactionJob::AcquireSubcompactionResources(
   } else {
     *bg_compaction_scheduled_ += extra_num_subcompaction_threads_reserved_;
   }
-  db_mutex_->Unlock();
 }
 
 void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
@@ -380,17 +379,20 @@ void CompactionJob::ReleaseSubcompactionResources() {
   if (extra_num_subcompaction_threads_reserved_ == 0) {
     return;
   }
-  // The number of reserved threads becomes larger than 0 only if the
-  // compaction prioity is round robin and there is no sufficient
-  // sub-compactions available
+  {
+    InstrumentedMutexLock l(db_mutex_);
+    // The number of reserved threads becomes larger than 0 only if the
+    // compaction prioity is round robin and there is no sufficient
+    // sub-compactions available
 
-  // The scheduled compaction must be no less than 1 + extra number
-  // subcompactions using acquired resources since this compaction job has not
-  // finished yet
-  assert(*bg_bottom_compaction_scheduled_ >=
-             1 + extra_num_subcompaction_threads_reserved_ ||
-         *bg_compaction_scheduled_ >=
-             1 + extra_num_subcompaction_threads_reserved_);
+    // The scheduled compaction must be no less than 1 + extra number
+    // subcompactions using acquired resources since this compaction job has not
+    // finished yet
+    assert(*bg_bottom_compaction_scheduled_ >=
+               1 + extra_num_subcompaction_threads_reserved_ ||
+           *bg_compaction_scheduled_ >=
+               1 + extra_num_subcompaction_threads_reserved_);
+  }
   ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
 }
 

@@ -381,6 +381,7 @@ IOStatus RandomAccessFileReader::MultiRead(
         }
       }
       io_s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
+      RecordInHistogram(stats_, MULTIGET_IO_BATCH_SIZE, num_fs_reqs);
     }
 
 #ifndef ROCKSDB_LITE
