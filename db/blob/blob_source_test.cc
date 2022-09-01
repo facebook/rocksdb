@@ -219,6 +219,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_FALSE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -256,6 +257,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -299,6 +301,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -337,6 +340,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer, &values[i],
                                     &bytes_read));
       ASSERT_EQ(values[i], blobs[i]);
+      ASSERT_TRUE(values[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -383,6 +387,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                &bytes_read)
                       .IsIncomplete());
       ASSERT_TRUE(values[i].empty());
+      ASSERT_FALSE(values[i].IsPinned());
       ASSERT_EQ(bytes_read, 0);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
@@ -424,6 +429,7 @@ TEST_F(BlobSourceTest, GetBlobsFromCache) {
                                &bytes_read)
                       .IsIOError());
       ASSERT_TRUE(values[i].empty());
+      ASSERT_FALSE(values[i].IsPinned());
       ASSERT_EQ(bytes_read, 0);
 
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
@@ -856,6 +862,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       if (i % 2 == 0) {
         ASSERT_OK(statuses_buf[i]);
         ASSERT_EQ(value_buf[i], blobs[i]);
+        ASSERT_TRUE(value_buf[i].IsPinned());
         fs_read_bytes +=
             blob_sizes[i] + keys[i].size() + BlobLogRecord::kHeaderSize;
         ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
@@ -864,6 +871,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
       } else {
         statuses_buf[i].PermitUncheckedError();
         ASSERT_TRUE(value_buf[i].empty());
+        ASSERT_FALSE(value_buf[i].IsPinned());
         ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                   blob_offsets[i]));
       }
@@ -896,6 +904,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
                                     kNoCompression, prefetch_buffer,
                                     &value_buf[i], &bytes_read));
       ASSERT_EQ(value_buf[i], blobs[i]);
+      ASSERT_TRUE(value_buf[i].IsPinned());
       ASSERT_EQ(bytes_read,
                 BlobLogRecord::kHeaderSize + keys[i].size() + blob_sizes[i]);
 
@@ -921,6 +930,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_OK(statuses_buf[i]);
       ASSERT_EQ(value_buf[i], blobs[i]);
+      ASSERT_TRUE(value_buf[i].IsPinned());
       ASSERT_TRUE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                blob_offsets[i]));
       blob_bytes += blob_sizes[i];
@@ -969,6 +979,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIncomplete());
       ASSERT_TRUE(value_buf[i].empty());
+      ASSERT_FALSE(value_buf[i].IsPinned());
       ASSERT_FALSE(blob_source.TEST_BlobInCache(blob_file_number, file_size,
                                                 blob_offsets[i]));
     }
@@ -1012,6 +1023,7 @@ TEST_F(BlobSourceTest, MultiGetBlobsFromCache) {
     for (size_t i = 0; i < num_blobs; ++i) {
       ASSERT_TRUE(statuses_buf[i].IsIOError());
       ASSERT_TRUE(value_buf[i].empty());
+      ASSERT_FALSE(value_buf[i].IsPinned());
       ASSERT_FALSE(blob_source.TEST_BlobInCache(non_existing_file_number,
                                                 file_size, blob_offsets[i]));
     }
