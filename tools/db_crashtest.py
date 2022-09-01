@@ -515,7 +515,7 @@ def finalize_and_sanitize(src_params):
         dest_params["ingest_external_file_one_in"] = 0
     # Correctness testing with unsync data loss is not currently compatible
     # with transactions
-    if dest_params.get("use_txn") == 1:
+    if (dest_params.get("use_txn") == 1 and dest_params.get("txn_write_policy") != 0):
         dest_params["sync_fault_injection"] = 0
     if (
         dest_params.get("disable_wal") == 1
