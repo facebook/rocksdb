@@ -556,8 +556,8 @@ void ClockHandleTable::ConstApplyToEntriesRange(
         func(h);
       }
       // Pretend we never took the reference
-      old_meta = h.meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                                  std::memory_order_release);
+      h.meta.fetch_sub(ClockHandle::kAcquireIncrement,
+                       std::memory_order_release);
       // No net change, so don't need to check for overflow
     }
   }
