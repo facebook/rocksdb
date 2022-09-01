@@ -46,6 +46,8 @@ struct BufferInfo {
   // asynchronous reads.
   void* io_handle = nullptr;
 
+  IOHandleDeleter del_fn = nullptr;
+
   // pos represents the index of this buffer in vector of BufferInfo.
   uint32_t pos = 0;
 };
@@ -82,7 +84,6 @@ class FilePrefetchBuffer {
                      FileSystem* fs = nullptr, SystemClock* clock = nullptr,
                      Statistics* stats = nullptr)
       : curr_(0),
-        poll_index_(curr_ ^ 1),
         readahead_size_(readahead_size),
         initial_auto_readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
@@ -94,7 +95,6 @@ class FilePrefetchBuffer {
         prev_len_(0),
         num_file_reads_for_auto_readahead_(num_file_reads_for_auto_readahead),
         num_file_reads_(num_file_reads),
-        del_fn_(nullptr),
         async_request_submitted_(false),
         fs_(fs),
         clock_(clock),
@@ -164,16 +164,13 @@ class FilePrefetchBuffer {
 
     for (uint32_t i = 0; i < 2; i++) {
       // Release io_handle.
-      if (bufs_[i].io_handle != nullptr && del_fn_ != nullptr) {
-        del_fn_(bufs_[i].io_handle);
+      if (bufs_[i].io_handle != nullptr && bufs_[i].del_fn != nullptr) {
+        bufs_[i].del_fn(bufs_[i].io_handle);
         bufs_[i].io_handle = nullptr;
+        bufs_[i].del_fn = nullptr;
       }
     }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
-
-    if (del_fn_ != nullptr) {
-      del_fn_ = nullptr;
-    }
   }
 
   // Load data into the buffer from a file.
@@ -349,8 +346,6 @@ class FilePrefetchBuffer {
   // curr_ represents the index for bufs_ indicating which buffer is being
   // consumed currently.
   uint32_t curr_;
-  // poll_index_ represents which buffer index to poll to get async results.
-  uint32_t poll_index_;
 
   size_t readahead_size_;
   size_t initial_auto_readahead_size_;
@@ -377,7 +372,6 @@ class FilePrefetchBuffer {
   uint64_t num_file_reads_for_auto_readahead_;
   uint64_t num_file_reads_;
 
-  IOHandleDeleter del_fn_;
   // If async_request_submitted_ is set then it indicates RocksDB called
   // PrefetchAsync to submit request. It needs to call TryReadFromCacheAsync to
   // poll the submitted request without checking if data is sequential and

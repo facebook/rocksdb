@@ -123,9 +123,10 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   bufs_[index].async_req_len = req.len;
 
   assert(chunk_len == 0);
-  Status s = reader->ReadAsync(req, opts, fp, &(bufs_[index].pos),
-                               &(bufs_[index].io_handle), &del_fn_,
-                               /*aligned_buf=*/nullptr);
+  Status s =
+      reader->ReadAsync(req, opts, fp, &(bufs_[index].pos),
+                        &(bufs_[index].io_handle), &(bufs_[index].del_fn),
+                        /*aligned_buf=*/nullptr);
   req.status.PermitUncheckedError();
   if (s.ok()) {
     bufs_[index].async_read_in_progress = true;
@@ -204,24 +205,28 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
 void FilePrefetchBuffer::AbortIOIfNeeded(uint64_t offset) {
   uint32_t second = curr_ ^ 1;
   std::vector<void*> handles;
+  std::vector<uint32_t> buf_pos;
   if (bufs_[curr_].async_read_in_progress &&
       bufs_[curr_].io_handle != nullptr &&
       offset >= bufs_[curr_].offset_ + bufs_[curr_].async_req_len) {
     handles.emplace_back(bufs_[curr_].io_handle);
+    buf_pos.emplace_back(curr_);
   }
   if (bufs_[second].async_read_in_progress &&
       bufs_[second].io_handle != nullptr &&
       offset >= bufs_[second].offset_ + bufs_[second].async_req_len) {
     handles.emplace_back(bufs_[second].io_handle);
+    buf_pos.emplace_back(second);
   }
   Status s = fs_->AbortIO(handles);
   assert(s.ok());
 
-  for (auto& io_handle : handles) {
+  for (auto& pos : buf_pos) {
     // Release io_handle.
-    if (io_handle != nullptr && del_fn_ != nullptr) {
-      del_fn_(io_handle);
-      io_handle = nullptr;
+    if (bufs_[pos].io_handle != nullptr && bufs_[pos].del_fn != nullptr) {
+      bufs_[pos].del_fn(bufs_[pos].io_handle);
+      bufs_[pos].io_handle = nullptr;
+      bufs_[pos].del_fn = nullptr;
     }
   }
 
@@ -268,21 +273,25 @@ void FilePrefetchBuffer::UpdateBuffersIfNeeded(uint64_t offset) {
 }
 
 void FilePrefetchBuffer::PollAndUpdateBuffersIfNeeded(uint64_t offset) {
-  if (bufs_[poll_index_].async_read_in_progress && fs_ != nullptr) {
-    // Wait for prefetch data to complete.
-    // No mutex is needed as async_read_in_progress behaves as mutex and is
-    // updated by main thread only.
-    std::vector<void*> handles;
-    handles.emplace_back(bufs_[poll_index_].io_handle);
-    StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
-    fs_->Poll(handles, 1).PermitUncheckedError();
+  if (bufs_[curr_].async_read_in_progress && fs_ != nullptr) {
+    if (bufs_[curr_].io_handle != nullptr) {
+      // Wait for prefetch data to complete.
+      // No mutex is needed as async_read_in_progress behaves as mutex and is
+      // updated by main thread only.
+      std::vector<void*> handles;
+      handles.emplace_back(bufs_[curr_].io_handle);
+      StopWatch sw(clock_, stats_, POLL_WAIT_MICROS);
+      fs_->Poll(handles, 1).PermitUncheckedError();
+    }
 
     // Reset and Release io_handle after the Poll API as request has been
     // completed.
-    bufs_[poll_index_].async_read_in_progress = false;
-    if (bufs_[poll_index_].io_handle != nullptr && del_fn_ != nullptr) {
-      del_fn_(bufs_[poll_index_].io_handle);
-      bufs_[poll_index_].io_handle = nullptr;
+    bufs_[curr_].async_read_in_progress = false;
+    if (bufs_[curr_].io_handle != nullptr &&
+        bufs_[curr_].del_fn != nullptr) {
+      bufs_[curr_].del_fn(bufs_[curr_].io_handle);
+      bufs_[curr_].io_handle = nullptr;
+      bufs_[curr_].del_fn = nullptr;
     }
   }
   UpdateBuffersIfNeeded(offset);
@@ -376,7 +385,6 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
       if (!s.ok()) {
         return s;
       }
-      poll_index_ = second;
     }
     curr_ = curr_ ^ 1;
   }
@@ -399,7 +407,6 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
   } else {
     PollAndUpdateBuffersIfNeeded(offset);
     second = curr_ ^ 1;
-    poll_index_ = poll_index_ ^ 1;
   }
 
   if (copy_to_third_buffer) {
@@ -486,7 +493,6 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
     uint64_t read_len2 = static_cast<size_t>(roundup_len2 - chunk_len2);
     ReadAsync(opts, reader, read_len2, chunk_len2, rounddown_start2, second)
         .PermitUncheckedError();
-    poll_index_ = second;
   }
 
   if (read_len1 > 0) {
@@ -705,15 +711,22 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     }
     Status s = fs_->AbortIO(handles);
     assert(s.ok());
-    for (auto& io_handle : handles) {
-      // Release io_handle.
-      if (io_handle != nullptr && del_fn_ != nullptr) {
-        del_fn_(io_handle);
-        io_handle = nullptr;
-      }
+
+    // Release io_handle.
+    if (bufs_[curr_].io_handle != nullptr && bufs_[curr_].del_fn != nullptr) {
+      bufs_[curr_].del_fn(bufs_[curr_].io_handle);
+      bufs_[curr_].io_handle = nullptr;
+      bufs_[curr_].del_fn = nullptr;
+      bufs_[curr_].async_read_in_progress = false;
     }
-    bufs_[curr_].async_read_in_progress = false;
-    bufs_[second].async_read_in_progress = false;
+
+      // Release io_handle.
+    if (bufs_[second].io_handle != nullptr && bufs_[second].del_fn != nullptr) {
+      bufs_[second].del_fn(bufs_[second].io_handle);
+      bufs_[second].io_handle = nullptr;
+      bufs_[second].del_fn = nullptr;
+      bufs_[second].async_read_in_progress = false;
+    }
   }
 
   // 2. Clear outdated data.
@@ -817,7 +830,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     if (!s.ok()) {
       return s;
     }
-    poll_index_ = curr_;
     async_request_submitted_ = true;
     prev_len_ = 0;
   }
@@ -826,9 +838,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
                   second);
     if (!s.ok()) {
       return s;
-    }
-    if (!async_request_submitted_) {
-      poll_index_ = second;
     }
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
   }
