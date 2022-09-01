@@ -635,6 +635,7 @@ void StressTest::OperateDb(ThreadState* thread) {
       FLAGS_rate_limit_user_ops ? Env::IO_USER : Env::IO_TOTAL;
   read_opts.async_io = FLAGS_async_io;
   read_opts.adaptive_readahead = FLAGS_adaptive_readahead;
+  read_opts.readahead_size = FLAGS_readahead_size;
   WriteOptions write_opts;
   if (FLAGS_rate_limit_auto_wal_flush) {
     write_opts.rate_limiter_priority = Env::IO_USER;
@@ -2950,6 +2951,11 @@ void InitializeOptionsFromFlags(
   block_based_options.prepopulate_block_cache =
       static_cast<BlockBasedTableOptions::PrepopulateBlockCache>(
           FLAGS_prepopulate_block_cache);
+  block_based_options.initial_auto_readahead_size =
+      FLAGS_initial_auto_readahead_size;
+  block_based_options.max_auto_readahead_size = FLAGS_max_auto_readahead_size;
+  block_based_options.num_file_reads_for_auto_readahead =
+      FLAGS_num_file_reads_for_auto_readahead;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
   options.db_write_buffer_size = FLAGS_db_write_buffer_size;
   options.write_buffer_size = FLAGS_write_buffer_size;
