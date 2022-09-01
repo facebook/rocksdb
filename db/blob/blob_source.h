@@ -113,6 +113,9 @@ class BlobSource {
                           CacheHandleGuard<BlobContents>* cached_blob,
                           PinnableSlice* blob) const;
 
+  static void PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
+                            PinnableSlice* value);
+
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
 
   Status InsertEntryIntoCache(const Slice& key, BlobContents* value,
