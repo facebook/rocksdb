@@ -139,6 +139,7 @@ endif
 GIT_COMMAND ?= git
 ifeq ($(USE_COROUTINES), 1)
 	USE_FOLLY = 1
+	# glog/logging.h requires HAVE_CXX11_ATOMIC
 	OPT += -DUSE_COROUTINES -DHAVE_CXX11_ATOMIC
 	ROCKSDB_CXX_STANDARD = c++2a
 	USE_RTTI = 1
@@ -457,6 +458,18 @@ endif
 
 # This provides a Makefile simulation of a Meta-internal folly integration.
 # It is not validated for general use.
+#
+# USE_FOLLY links the build targets with libfolly.a. The latter could be
+# built using 'make build_folly', or built externally and specified in
+# the CXXFLAGS and EXTRA_LDFLAGS env variables. The build_detect_platform
+# script tries to detect if an external folly dependency has been specified.
+# If not, it exports FOLLY_PATH to the path of the installed Folly and
+# dependency libraries.
+#
+# USE_FOLLY_LITE cherry picks source files from Folly to include in the
+# RocksDB library. Its faster and has fewer dependencies on 3rd party
+# libraries, but with limited functionality. For example, coroutine
+# functionality is not available.
 ifeq ($(USE_FOLLY),1)
 ifeq ($(USE_FOLLY_LITE),1)
 $(error Please specify only one of USE_FOLLY and USE_FOLLY_LITE)
@@ -494,6 +507,7 @@ endif
 endif
 
 ifeq ($(USE_FOLLY_LITE),1)
+	# Path to the Folly source code and include files
 	FOLLY_DIR = ./third-party/folly
 	# AIX: pre-defined system headers are surrounded by an extern "C" block
 	ifeq ($(PLATFORM), OS_AIX)

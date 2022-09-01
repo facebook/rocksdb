@@ -440,7 +440,7 @@ jobs:
       - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
       - setup-folly
       - build-folly
-      - run: (mkdir build && cd build && CC=gcc-10 CXX=g++-10 cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && CC=gcc-10 CXX=g++-10 make V=1 -j20 && ctest -j20)
+      - run: (mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
