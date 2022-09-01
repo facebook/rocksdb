@@ -3433,6 +3433,27 @@ TEST(ColumnFamilyTest, ValidateBlobGCForceThreshold) {
                   .IsInvalidArgument());
 }
 
+TEST(ColumnFamilyTest, ValidateMemtableKVChecksumOption) {
+  DBOptions db_options;
+
+  ColumnFamilyOptions cf_options;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.memtable_protection_bytes_per_key = 5;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+
+  cf_options.memtable_protection_bytes_per_key = 1;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+
+  cf_options.memtable_protection_bytes_per_key = 16;
+  ASSERT_TRUE(ColumnFamilyData::ValidateOptions(db_options, cf_options)
+                  .IsNotSupported());
+
+  cf_options.memtable_protection_bytes_per_key = 0;
+  ASSERT_OK(ColumnFamilyData::ValidateOptions(db_options, cf_options));
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
