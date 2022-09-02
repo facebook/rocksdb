@@ -303,7 +303,8 @@ TEST_F(RangeDelAggregatorTest, TruncatedIterPartiallyCutTombstones) {
       &iter, bytewise_icmp,
       {{"d", InternalValue("d", 7), UncutEndpoint("e"), 10},
        {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"ia", UncutEndpoint("j"), InternalValue("m", 8, kValueTypeForSeek), 4},
+       {"ia", UncutEndpoint("j"), InternalValue("m", 8, kValueTypeForSeek), 4,
+        false /* invalid */},
        {"n", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */},
        {"", InternalValue("d", 7), UncutEndpoint("e"), 10}});
 
@@ -312,7 +313,8 @@ TEST_F(RangeDelAggregatorTest, TruncatedIterPartiallyCutTombstones) {
       {{"d", InternalValue("d", 7), UncutEndpoint("e"), 10},
        {"e", UncutEndpoint("e"), UncutEndpoint("g"), 8},
        {"ia", UncutEndpoint("e"), UncutEndpoint("g"), 8},
-       {"n", UncutEndpoint("j"), InternalValue("m", 8, kValueTypeForSeek), 4},
+       {"n", UncutEndpoint("j"), InternalValue("m", 8, kValueTypeForSeek), 4,
+        false /* invalid */},
        {"", UncutEndpoint(""), UncutEndpoint(""), 0, true /* invalid */}});
 }
 

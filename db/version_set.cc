@@ -1964,7 +1964,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(),
-          *file.file_metadata, /*range_del_aggregator=*/nullptr,
+          *file.file_metadata, /*range_del_agg=*/nullptr,
           mutable_cf_options_.prefix_extractor, nullptr,
           cfd_->internal_stats()->GetFileReadHist(0),
           TableReaderCaller::kUserIterator, arena,
@@ -1995,7 +1995,7 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         mutable_cf_options_.prefix_extractor, should_sample_file_read(),
         cfd_->internal_stats()->GetFileReadHist(level),
         TableReaderCaller::kUserIterator, IsFilterSkipped(level), level,
-        /*range_del_aggregator=*/nullptr, /*compaction_boundaries=*/nullptr,
+        /*range_del_agg=*/nullptr, /*compaction_boundaries=*/nullptr,
         allow_unprepared_value, merge_iter_builder));
   }
 }
