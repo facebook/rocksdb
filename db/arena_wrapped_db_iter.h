@@ -44,15 +44,17 @@ class ArenaWrappedDBIter : public Iterator {
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
   virtual Arena* GetArena() { return &arena_; }
-  virtual ReadRangeDelAggregator* GetRangeDelAggregator() {
-    return db_iter_->GetRangeDelAggregator();
-  }
+
   const ReadOptions& GetReadOptions() { return read_options_; }
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.
   virtual void SetIterUnderDBIter(InternalIterator* iter) {
     db_iter_->SetIter(iter);
+  }
+
+  void SetMemtableRangetombstoneIter(TruncatedRangeDelIterator** iter) {
+    memtable_range_tombstone_iter_ = iter;
   }
 
   bool Valid() const override { return db_iter_->Valid(); }
@@ -104,6 +106,7 @@ class ArenaWrappedDBIter : public Iterator {
   ReadCallback* read_callback_;
   bool expose_blob_index_ = false;
   bool allow_refresh_ = true;
+  TruncatedRangeDelIterator** memtable_range_tombstone_iter_ = nullptr;
 };
 
 // Generate the arena wrapped iterator class.

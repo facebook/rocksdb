@@ -122,6 +122,25 @@ Cache::Handle* BlobSource::GetEntryFromCache(const Slice& key) const {
   return cache_handle;
 }
 
+void BlobSource::PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
+                               PinnableSlice* value) {
+  assert(cached_blob);
+  assert(cached_blob->GetValue());
+  assert(value);
+
+  // To avoid copying the cached blob into the buffer provided by the
+  // application, we can simply transfer ownership of the cache handle to
+  // the target PinnableSlice. This has the potential to save a lot of
+  // CPU, especially with large blob values.
+
+  value->Reset();
+
+  constexpr Cleanable* cleanable = nullptr;
+  value->PinSlice(cached_blob->GetValue()->data(), cleanable);
+
+  cached_blob->TransferTo(value);
+}
+
 Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
                                         size_t charge,
                                         Cache::Handle** cache_handle,
@@ -165,23 +184,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     Slice key = cache_key.AsSlice();
     s = GetBlobFromCache(key, &blob_handle);
     if (s.ok() && blob_handle.GetValue()) {
-      {
-        value->Reset();
-        // To avoid copying the cached blob into the buffer provided by the
-        // application, we can simply transfer ownership of the cache handle to
-        // the target PinnableSlice. This has the potential to save a lot of
-        // CPU, especially with large blob values.
-        value->PinSlice(
-            blob_handle.GetValue()->data(),
-            [](void* arg1, void* arg2) {
-              Cache* const cache = static_cast<Cache*>(arg1);
-              Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
-              cache->Release(handle);
-            },
-            blob_handle.GetCache(), blob_handle.GetCacheHandle());
-        // Make the CacheHandleGuard relinquish ownership of the handle.
-        blob_handle.TransferTo(nullptr);
-      }
+      PinCachedBlob(&blob_handle, value);
 
       // For consistency, the size of on-disk (possibly compressed) blob record
       // is assigned to bytes_read.
@@ -243,6 +246,8 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
+
+    PinCachedBlob(&blob_handle, value);
   }
 
   assert(s.ok());
@@ -312,23 +317,7 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
         assert(req.status);
         *req.status = s;
 
-        {
-          req.result->Reset();
-          // To avoid copying the cached blob into the buffer provided by the
-          // application, we can simply transfer ownership of the cache handle
-          // to the target PinnableSlice. This has the potential to save a lot
-          // of CPU, especially with large blob values.
-          req.result->PinSlice(
-              blob_handle.GetValue()->data(),
-              [](void* arg1, void* arg2) {
-                Cache* const cache = static_cast<Cache*>(arg1);
-                Cache::Handle* const handle = static_cast<Cache::Handle*>(arg2);
-                cache->Release(handle);
-              },
-              blob_handle.GetCache(), blob_handle.GetCacheHandle());
-          // Make the CacheHandleGuard relinquish ownership of the handle.
-          blob_handle.TransferTo(nullptr);
-        }
+        PinCachedBlob(&blob_handle, req.result);
 
         // Update the counter for the number of valid blobs read from the cache.
         ++cached_blob_count;
@@ -397,15 +386,18 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put
       // the blob(s) to the cache.
-      for (size_t i = 0; i < _blob_reqs.size(); ++i) {
-        if (_blob_reqs[i]->status->ok()) {
+      for (BlobReadRequest* req : _blob_reqs) {
+        assert(req);
+
+        if (req->status->ok()) {
           CacheHandleGuard<BlobContents> blob_handle;
-          const CacheKey cache_key =
-              base_cache_key.WithOffset(_blob_reqs[i]->offset);
+          const CacheKey cache_key = base_cache_key.WithOffset(req->offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(key, &blob_handle, _blob_reqs[i]->result);
+          s = PutBlobIntoCache(key, &blob_handle, req->result);
           if (!s.ok()) {
-            *_blob_reqs[i]->status = s;
+            *req->status = s;
+          } else {
+            PinCachedBlob(&blob_handle, req->result);
           }
         }
       }

@@ -78,7 +78,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       is_blob_(false),
       is_wide_(false),
       arena_mode_(arena_mode),
-      range_del_agg_(&ioptions.internal_comparator, s),
       db_impl_(db_impl),
       cfd_(cfd),
       timestamp_ub_(read_options.timestamp),
@@ -394,49 +393,27 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               saved_key_.SetUserKey(
                   ikey_.user_key, !pin_thru_lifetime_ ||
                                       !iter_.iter()->IsKeyPinned() /* copy */);
-              if (range_del_agg_.ShouldDelete(
-                      ikey_, RangeDelPositioningMode::kForwardTraversal)) {
-                // Arrange to skip all upcoming entries for this key since
-                // they are hidden by this deletion.
-                skipping_saved_key = true;
-                num_skipped = 0;
-                reseek_done = false;
-                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              } else {
-                if (ikey_.type == kTypeBlobIndex) {
-                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
-                    return false;
-                  }
-                } else if (ikey_.type == kTypeWideColumnEntity) {
-                  if (!SetWideColumnValueIfNeeded(iter_.value())) {
-                    return false;
-                  }
+              if (ikey_.type == kTypeBlobIndex) {
+                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  return false;
                 }
-
-                valid_ = true;
-                return true;
+              } else if (ikey_.type == kTypeWideColumnEntity) {
+                if (!SetWideColumnValueIfNeeded(iter_.value())) {
+                  return false;
+                }
               }
+              valid_ = true;
+              return true;
             }
             break;
           case kTypeMerge:
             saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_.iter()->IsKeyPinned() /* copy */);
-            if (range_del_agg_.ShouldDelete(
-                    ikey_, RangeDelPositioningMode::kForwardTraversal)) {
-              // Arrange to skip all upcoming entries for this key since
-              // they are hidden by this deletion.
-              skipping_saved_key = true;
-              num_skipped = 0;
-              reseek_done = false;
-              PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-            } else {
-              // By now, we are sure the current ikey is going to yield a
-              // value
-              current_entry_is_merged_ = true;
-              valid_ = true;
-              return MergeValuesNewToOld();  // Go to a different state machine
-            }
+            // By now, we are sure the current ikey is going to yield a value
+            current_entry_is_merged_ = true;
+            valid_ = true;
+            return MergeValuesNewToOld();  // Go to a different state machine
             break;
           default:
             valid_ = false;
@@ -562,9 +539,7 @@ bool DBIter::MergeValuesNewToOld() {
       // hit the next user key, stop right here
       break;
     }
-    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
-               range_del_agg_.ShouldDelete(
-                   ikey, RangeDelPositioningMode::kForwardTraversal)) {
+    if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_.Next();
@@ -913,11 +888,7 @@ bool DBIter::FindValueForCurrentKey() {
       case kTypeValue:
       case kTypeBlobIndex:
       case kTypeWideColumnEntity:
-        if (range_del_agg_.ShouldDelete(
-                ikey, RangeDelPositioningMode::kBackwardTraversal)) {
-          last_key_entry_type = kTypeRangeDeletion;
-          PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-        } else if (iter_.iter()->IsValuePinned()) {
+        if (iter_.iter()->IsValuePinned()) {
           pinned_value_ = iter_.value();
         } else {
           valid_ = false;
@@ -938,21 +909,12 @@ bool DBIter::FindValueForCurrentKey() {
         last_not_merge_type = last_key_entry_type;
         PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         break;
-      case kTypeMerge:
-        if (range_del_agg_.ShouldDelete(
-                ikey, RangeDelPositioningMode::kBackwardTraversal)) {
-          merge_context_.Clear();
-          last_key_entry_type = kTypeRangeDeletion;
-          last_not_merge_type = last_key_entry_type;
-          PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-        } else {
-          assert(merge_operator_ != nullptr);
-          merge_context_.PushOperandBack(
-              iter_.value(),
-              iter_.iter()->IsValuePinned() /* operand_pinned */);
-          PERF_COUNTER_ADD(internal_merge_count, 1);
-        }
-        break;
+      case kTypeMerge: {
+        assert(merge_operator_ != nullptr);
+        merge_context_.PushOperandBack(
+            iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
+        PERF_COUNTER_ADD(internal_merge_count, 1);
+      } break;
       default:
         valid_ = false;
         status_ = Status::Corruption(
@@ -989,8 +951,7 @@ bool DBIter::FindValueForCurrentKey() {
   }
 
   if (timestamp_lb_ != nullptr) {
-    assert(last_key_entry_type == ikey_.type ||
-           last_key_entry_type == kTypeRangeDeletion);
+    assert(last_key_entry_type == ikey_.type);
   }
 
   Status s;
@@ -1005,7 +966,6 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeDeletion:
     case kTypeDeletionWithTimestamp:
     case kTypeSingleDeletion:
-    case kTypeRangeDeletion:
       if (timestamp_lb_ == nullptr) {
         valid_ = false;
       } else {
@@ -1016,8 +976,7 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeMerge:
       current_entry_is_merged_ = true;
       if (last_not_merge_type == kTypeDeletion ||
-          last_not_merge_type == kTypeSingleDeletion ||
-          last_not_merge_type == kTypeRangeDeletion) {
+          last_not_merge_type == kTypeSingleDeletion) {
         s = Merge(nullptr, saved_key_.GetUserKey());
         if (!s.ok()) {
           return false;
@@ -1157,8 +1116,6 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   }
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
-      range_del_agg_.ShouldDelete(
-          ikey, RangeDelPositioningMode::kBackwardTraversal) ||
       kTypeDeletionWithTimestamp == ikey.type) {
     if (timestamp_lb_ == nullptr) {
       valid_ = false;
@@ -1221,9 +1178,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
-    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
-        range_del_agg_.ShouldDelete(
-            ikey, RangeDelPositioningMode::kForwardTraversal)) {
+    if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
       break;
     }
     if (!iter_.PrepareValue()) {
@@ -1498,7 +1453,6 @@ void DBIter::Seek(const Slice& target) {
     SetSavedKeyToSeekTarget(target);
     iter_.Seek(saved_key_.GetInternalKey());
 
-    range_del_agg_.InvalidateRangeDelMapPositions();
     RecordTick(statistics_, NUMBER_DB_SEEK);
   }
   if (!iter_.Valid()) {
@@ -1574,7 +1528,6 @@ void DBIter::SeekForPrev(const Slice& target) {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     SetSavedKeyToSeekForPrevTarget(target);
     iter_.SeekForPrev(saved_key_.GetInternalKey());
-    range_del_agg_.InvalidateRangeDelMapPositions();
     RecordTick(statistics_, NUMBER_DB_SEEK);
   }
   if (!iter_.Valid()) {
@@ -1622,6 +1575,8 @@ void DBIter::SeekToFirst() {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
   status_ = Status::OK();
+  // if iterator is empty, this status_ could be unchecked.
+  status_.PermitUncheckedError();
   direction_ = kForward;
   ReleaseTempPinnedData();
   ResetBlobValue();
@@ -1633,7 +1588,6 @@ void DBIter::SeekToFirst() {
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_.SeekToFirst();
-    range_del_agg_.InvalidateRangeDelMapPositions();
   }
 
   RecordTick(statistics_, NUMBER_DB_SEEK);
@@ -1692,6 +1646,8 @@ void DBIter::SeekToLast() {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
   status_ = Status::OK();
+  // if iterator is empty, this status_ could be unchecked.
+  status_.PermitUncheckedError();
   direction_ = kReverse;
   ReleaseTempPinnedData();
   ResetBlobValue();
@@ -1703,7 +1659,6 @@ void DBIter::SeekToLast() {
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_.SeekToLast();
-    range_del_agg_.InvalidateRangeDelMapPositions();
   }
   PrevInternal(nullptr);
   if (statistics_ != nullptr) {
