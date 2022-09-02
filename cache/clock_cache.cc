@@ -67,7 +67,7 @@ inline void CorrectOverflow(uint64_t old_meta, std::atomic<uint64_t>& meta) {
       kOverflowClearBits | (uint64_t{8} << ClockHandle::kReleaseCounterShift);
 
   if (UNLIKELY(old_meta & kOverflowCheckBits)) {
-    meta.fetch_and(~kOverflowClearBits);
+    meta.fetch_and(~kOverflowClearBits, std::memory_order_relaxed);
   }
 }
 
@@ -81,6 +81,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     occupancy_.fetch_sub(1, std::memory_order_relaxed);
   };
   if (UNLIKELY(old_occupancy >= occupancy_limit_)) {
+    // FIXME: use eviction instead
     revert_occupancy_fn();
     if (handle == nullptr) {
       // Don't insert the entry but still return ok, as if the entry inserted
@@ -110,7 +111,8 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     if (LIKELY(old_usage != capacity)) {
       do {
         new_usage = std::min(capacity, old_usage + total_charge);
-      } while (!usage_.compare_exchange_weak(old_usage, new_usage));
+      } while (!usage_.compare_exchange_weak(old_usage, new_usage,
+                                             std::memory_order_relaxed));
     } else {
       new_usage = old_usage;
     }
@@ -149,7 +151,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     if (old_usage + total_charge <= capacity || total_charge > old_usage) {
       // Good enough for me (might run over with a race)
       usage_.fetch_add(total_charge, std::memory_order_relaxed);
-      assert(usage_.load() < SIZE_MAX / 2);
+      assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
     } else {
       // Try to evict enough space, and maybe some extra
       size_t extra = 0;
@@ -160,12 +162,12 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
       }
       size_t evicted = Evict(total_charge + extra);
       usage_.fetch_add(total_charge - evicted, std::memory_order_relaxed);
-      assert(usage_.load() < SIZE_MAX / 2);
+      assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
     }
   }
   auto revert_usage_fn = [&]() {
     usage_.fetch_sub(total_charge, std::memory_order_relaxed);
-    assert(usage_.load() < SIZE_MAX / 2);
+    assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
   };
 
   if (!use_detached_insert) {
@@ -206,7 +208,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
           uint64_t old_meta =
               h->meta.fetch_or(uint64_t{ClockHandle::kStateOccupiedBit}
                                    << ClockHandle::kStateShift,
-                               std::memory_order_seq_cst);
+                               std::memory_order_acq_rel);
           uint64_t old_state = old_meta >> ClockHandle::kStateShift;
 
           if (old_state == ClockHandle::kStateEmpty) {
@@ -226,11 +228,11 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
 
         // Save the state transition
 #ifndef NDEBUG
-            old_meta = h->meta.exchange(new_meta, std::memory_order_seq_cst);
+            old_meta = h->meta.exchange(new_meta, std::memory_order_release);
             assert(old_meta >> ClockHandle::kStateShift ==
                    ClockHandle::kStateConstruction);
 #else
-            h->meta.store(new_meta, std::memory_order_seq_cst);
+            h->meta.store(new_meta, std::memory_order_release);
 #endif
             return true;
           } else if (old_state != ClockHandle::kStateVisible) {
@@ -243,7 +245,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
           // this is a match.
           old_meta = h->meta.fetch_add(
               ClockHandle::kAcquireIncrement * initial_countdown,
-              std::memory_order_seq_cst);
+              std::memory_order_acq_rel);
           // Like Lookup
           if ((old_meta >> ClockHandle::kStateShift) ==
               ClockHandle::kStateVisible) {
@@ -252,7 +254,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
               // Match. Release in a way that boosts the clock state
               old_meta = h->meta.fetch_add(
                   ClockHandle::kReleaseIncrement * initial_countdown,
-                  std::memory_order_seq_cst);
+                  std::memory_order_acq_rel);
               // Correct for possible (but rare) overflow
               CorrectOverflow(old_meta, h->meta);
               // Insert detached instead (only if return handle needed)
@@ -262,7 +264,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
               // Mismatch. Pretend we never took the reference
               old_meta = h->meta.fetch_sub(
                   ClockHandle::kAcquireIncrement * initial_countdown,
-                  std::memory_order_seq_cst);
+                  std::memory_order_acq_rel);
             }
           } else if (UNLIKELY((old_meta >> ClockHandle::kStateShift) ==
                               ClockHandle::kStateInvisible)) {
@@ -271,7 +273,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
             // entry here. If that happens, we let eviction take care of it.
             old_meta = h->meta.fetch_sub(
                 ClockHandle::kAcquireIncrement * initial_countdown,
-                std::memory_order_seq_cst);
+                std::memory_order_acq_rel);
           } else {
             // For other states, incrementing the acquire counter has no effect
             // so we don't need to undo it.
@@ -280,7 +282,10 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
           return false;
         },
         [&](ClockHandle* /*h*/) { return false; },
-        [&](ClockHandle* h) { h->displacements++; }, probe);
+        [&](ClockHandle* h) {
+          h->displacements.fetch_add(1, std::memory_order_relaxed);
+        },
+        probe);
     if (e == nullptr) {
       // Occupancy check and never abort FindSlot above should prevent this.
       assert(false);
@@ -317,7 +322,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
   uint64_t meta = uint64_t{ClockHandle::kStateInvisible}
                   << ClockHandle::kStateShift;
   meta |= uint64_t{1} << ClockHandle::kAcquireCounterShift;
-  h->meta.store(meta);
+  h->meta.store(meta, std::memory_order_release);
   // Keep track of usage
   detached_usage_.fetch_add(total_charge, std::memory_order_relaxed);
 
@@ -383,7 +388,9 @@ ClockHandle* ClockHandleTable::Lookup(const CacheKeyBytes& key, uint32_t hash) {
         }
         return false;
       },
-      [&](ClockHandle* h) { return h->displacements == 0; },
+      [&](ClockHandle* h) {
+        return h->displacements.load(std::memory_order_relaxed) == 0;
+      },
       [&](ClockHandle* /*h*/) {}, probe);
 
   return e;
@@ -400,13 +407,15 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
   if (useful) {
     // Increment release counter to indicate was used
     old_meta = h->meta.fetch_add(ClockHandle::kReleaseIncrement,
-                                 std::memory_order_acquire);
+                                 std::memory_order_release);
   } else {
     // Decrement acquire counter to pretend it never happened
     old_meta = h->meta.fetch_sub(ClockHandle::kAcquireIncrement,
-                                 std::memory_order_acquire);
+                                 std::memory_order_release);
   }
 
+  assert((old_meta >> ClockHandle::kStateShift) &
+         ClockHandle::kStateSharableBit);
   // No underflow
   assert(((old_meta >> ClockHandle::kAcquireCounterShift) &
           ClockHandle::kCounterMask) !=
@@ -416,7 +425,11 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
   if (erase_if_last_ref || UNLIKELY(old_meta >> ClockHandle::kStateShift ==
                                     ClockHandle::kStateInvisible)) {
     // Update for last fetch_add op
-    old_meta += ClockHandle::kReleaseIncrement;
+    if (useful) {
+      old_meta += ClockHandle::kReleaseIncrement;
+    } else {
+      old_meta -= ClockHandle::kAcquireIncrement;
+    }
     // Take ownership if no refs
     do {
       uint64_t refcount = ((old_meta >> ClockHandle::kAcquireCounterShift) -
@@ -430,7 +443,8 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       }
     } while (!h->meta.compare_exchange_weak(
         old_meta,
-        uint64_t{ClockHandle::kStateConstruction} << ClockHandle::kStateShift));
+        uint64_t{ClockHandle::kStateConstruction} << ClockHandle::kStateShift,
+        std::memory_order_acquire));
     // Took ownership
     // TODO? Delay freeing?
     h->FreeData();
@@ -441,11 +455,17 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       detached_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     } else {
       // Mark slot as empty
+#ifndef NDEBUG
+      old_meta = h->meta.exchange(0, std::memory_order_release);
+      assert(old_meta >> ClockHandle::kStateShift ==
+             ClockHandle::kStateConstruction);
+#else
       h->meta.store(0, std::memory_order_release);
+#endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
     }
     usage_.fetch_sub(total_charge, std::memory_order_relaxed);
-    assert(usage_.load() < SIZE_MAX / 2);
+    assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
     return true;
   } else {
     // Correct for possible (but rare) overflow
@@ -505,9 +525,15 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
                 // TODO? Delay freeing?
                 h->FreeData();
                 usage_.fetch_sub(h->total_charge, std::memory_order_relaxed);
-                assert(usage_.load() < SIZE_MAX / 2);
-                // Mark slot as empty
+                assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
+            // Mark slot as empty
+#ifndef NDEBUG
+                old_meta = h->meta.exchange(0, std::memory_order_release);
+                assert(old_meta >> ClockHandle::kStateShift ==
+                       ClockHandle::kStateConstruction);
+#else
                 h->meta.store(0, std::memory_order_release);
+#endif
                 occupancy_.fetch_sub(1U, std::memory_order_release);
                 break;
               }
@@ -530,7 +556,9 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
         }
         return false;
       },
-      [&](ClockHandle* h) { return h->displacements == 0; },
+      [&](ClockHandle* h) {
+        return h->displacements.load(std::memory_order_relaxed) == 0;
+      },
       [&](ClockHandle* /*h*/) {}, probe);
 }
 
@@ -573,15 +601,22 @@ void ClockHandleTable::EraseUnRefEntries() {
                         ClockHandle::kCounterMask;
     if (old_meta & (uint64_t{ClockHandle::kStateSharableBit}
                     << ClockHandle::kStateShift) &&
-        refcount == 0 &&
-        h.meta.compare_exchange_weak(old_meta,
-                                     uint64_t{ClockHandle::kStateConstruction}
-                                         << ClockHandle::kStateShift)) {
+            refcount == 0 &&
+            h.meta.compare_exchange_strong(
+                old_meta, uint64_t{ClockHandle::kStateConstruction}
+                              << ClockHandle::kStateShift),
+        std::memory_order_acquire) {
       // Took ownership
       h.FreeData();
       usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
       // Mark slot as empty
+#ifndef NDEBUG
+      old_meta = h.meta.exchange(0, std::memory_order_release);
+      assert(old_meta >> ClockHandle::kStateShift ==
+             ClockHandle::kStateConstruction);
+#else
       h.meta.store(0, std::memory_order_release);
+#endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
     }
   }
@@ -634,7 +669,7 @@ void ClockHandleTable::Rollback(uint32_t hash, uint32_t probe) {
   uint32_t current = ModTableSize(Remix1(hash));
   uint32_t increment = Remix2(hash) | 1U;
   for (uint32_t i = 0; i < probe; i++) {
-    array_[current].displacements--;
+    array_[current].displacements.fetch_sub(1, std::memory_order_relaxed);
     current = ModTableSize(current + increment);
   }
 }
@@ -700,7 +735,13 @@ size_t ClockHandleTable::Evict(size_t requested_charge) {
         h.FreeData();
         freed_charge += h.total_charge;
         // Mark slot as empty
+#ifndef NDEBUG
+        meta = h.meta.exchange(0, std::memory_order_release);
+        assert(meta >> ClockHandle::kStateShift ==
+               ClockHandle::kStateConstruction);
+#else
         h.meta.store(0, std::memory_order_release);
+#endif
         occupancy_.fetch_sub(1U, std::memory_order_relaxed);
       }
     }
