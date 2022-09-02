@@ -1171,12 +1171,18 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                   blob_offsets[0], file_size, blob_sizes[0],
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   &values[0], nullptr /* bytes_read */));
+    // Release cache handle
+    values[0].Reset();
+
     // key0 should be evicted and key0's dummy item is inserted into secondary
     // cache. key1 should be filled to the primary cache from the blob file.
     ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
                                   blob_offsets[1], file_size, blob_sizes[1],
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   &values[1], nullptr /* bytes_read */));
+
+    // Release cache handle
+    values[1].Reset();
 
     // key0 should be filled to the primary cache from the blob file. key1
     // should be evicted and key1's dummy item is inserted into secondary cache.
