@@ -72,6 +72,14 @@ commands:
           path: /tmp/core_dumps
           when: on_fail
 
+  upgrade-cmake:
+    steps:
+      - run:
+          name: Upgrade cmake
+          command: |
+            sudo apt remove --purge cmake
+            sudo snap install cmake --classic
+
   install-gflags:
     steps:
       - run:
@@ -361,14 +369,14 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
+      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-cmake-with-folly-lite-no-test:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -403,14 +411,14 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
+      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
       - post-steps
 
   build-linux-gcc-7-with-folly-lite-no-test:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -428,15 +436,14 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly-coroutines:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     environment:
       CC: gcc-10
       CXX: g++-10
     steps:
       - pre-steps
-      - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
+      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: (mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
@@ -472,6 +479,7 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
+      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
