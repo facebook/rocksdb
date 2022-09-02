@@ -41,7 +41,7 @@ public enum CompactionPriority {
    * level. The file picking process will cycle through all the files in a
    * round-robin manner.
    */
-  RoundRobin((byte) 0x4);
+  RoundRobin((byte)0x4);
 
 
   private final byte value;
