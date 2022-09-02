@@ -988,6 +988,19 @@ IOStatus BackupEngine::Open(const BackupEngineOptions& options, Env* env,
   return IOStatus::OK();
 }
 
+IOStatus BackupEngine::Open(const BackupEngineOptions& options, Env* env,
+                            std::unique_ptr<BackupEngine>& backup_engine_ptr) {
+  std::unique_ptr<BackupEngineImplThreadSafe> backup_engine(
+      new BackupEngineImplThreadSafe(options, env));
+  auto s = backup_engine->Initialize();
+  if (!s.ok()) {
+    backup_engine_ptr.reset();
+    return s;
+  }
+  backup_engine_ptr = std::move(backup_engine);
+  return IOStatus::OK();
+}
+
 namespace {
 BackupEngineImpl::BackupEngineImpl(const BackupEngineOptions& options,
                                    Env* db_env, bool read_only)

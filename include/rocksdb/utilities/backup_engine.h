@@ -594,6 +594,8 @@ class BackupEngine : public BackupEngineReadOnlyBase,
   // BackupEngines for the same backup directory.
   static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
                        BackupEngine** backup_engine_ptr);
+  static IOStatus Open(const BackupEngineOptions& options, Env* db_env,
+                       std::unique_ptr<BackupEngine>& backup_engine_ptr);
 
   // keep for backward compatibility.
   static IOStatus Open(Env* db_env, const BackupEngineOptions& options,
