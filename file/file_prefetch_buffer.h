@@ -36,20 +36,20 @@ struct BufferInfo {
 
   // Below parameters are used in case of async read flow.
   // Length requested for in ReadAsync.
-  size_t async_req_len = 0;
+  size_t async_req_len_ = 0;
 
   // async_read_in_progress can be used as mutex. Callback can update the buffer
   // and its size but async_read_in_progress is only set by main thread.
-  bool async_read_in_progress = false;
+  bool async_read_in_progress_ = false;
 
   // io_handle is allocated and used by underlying file system in case of
   // asynchronous reads.
-  void* io_handle = nullptr;
+  void* io_handle_ = nullptr;
 
-  IOHandleDeleter del_fn = nullptr;
+  IOHandleDeleter del_fn_ = nullptr;
 
   // pos represents the index of this buffer in vector of BufferInfo.
-  uint32_t pos = 0;
+  uint32_t pos_ = 0;
 };
 
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
@@ -101,12 +101,12 @@ class FilePrefetchBuffer {
         stats_(stats) {
     assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
-    // If async_io_ is enabled, data is asynchronously filled in second buffer
-    // while curr_ is being consumed. If data is overlapping in two buffers,
-    // data is copied to third buffer to return continuous buffer.
+    // If ReadOptions.async_io is enabled, data is asynchronously filled in
+    // second buffer while curr_ is being consumed. If data is overlapping in
+    // two buffers, data is copied to third buffer to return continuous buffer.
     bufs_.resize(3);
     for (uint32_t i = 0; i < 2; i++) {
-      bufs_[i].pos = i;
+      bufs_[i].pos_ = i;
     }
   }
 
@@ -115,8 +115,9 @@ class FilePrefetchBuffer {
     if (fs_ != nullptr) {
       std::vector<void*> handles;
       for (uint32_t i = 0; i < 2; i++) {
-        if (bufs_[i].async_read_in_progress && bufs_[i].io_handle != nullptr) {
-          handles.emplace_back(bufs_[i].io_handle);
+        if (bufs_[i].async_read_in_progress_ &&
+            bufs_[i].io_handle_ != nullptr) {
+          handles.emplace_back(bufs_[i].io_handle_);
         }
       }
       StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
@@ -164,10 +165,10 @@ class FilePrefetchBuffer {
 
     for (uint32_t i = 0; i < 2; i++) {
       // Release io_handle.
-      if (bufs_[i].io_handle != nullptr && bufs_[i].del_fn != nullptr) {
-        bufs_[i].del_fn(bufs_[i].io_handle);
-        bufs_[i].io_handle = nullptr;
-        bufs_[i].del_fn = nullptr;
+      if (bufs_[i].io_handle_ != nullptr && bufs_[i].del_fn_ != nullptr) {
+        bufs_[i].del_fn_(bufs_[i].io_handle_);
+        bufs_[i].io_handle_ = nullptr;
+        bufs_[i].del_fn_ = nullptr;
       }
     }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
@@ -179,9 +180,6 @@ class FilePrefetchBuffer {
   // n                     : the number of bytes to read.
   // rate_limiter_priority : rate limiting priority, or `Env::IO_TOTAL` to
   //                         bypass.
-  // is_async_read         : if the data should be prefetched by calling read
-  //                         asynchronously. It should be set true when called
-  //                         from TryReadFromCache.
   Status Prefetch(const IOOptions& opts, RandomAccessFileReader* reader,
                   uint64_t offset, size_t n,
                   Env::IOPriority rate_limiter_priority);
@@ -257,8 +255,8 @@ class FilePrefetchBuffer {
     //   - block is sequential with the previous read and,
     //   - num_file_reads_ + 1 (including this read) >
     //   num_file_reads_for_auto_readahead_
-    size_t curr_size = bufs_[curr_].async_read_in_progress
-                           ? bufs_[curr_].async_req_len
+    size_t curr_size = bufs_[curr_].async_read_in_progress_
+                           ? bufs_[curr_].async_req_len_
                            : bufs_[curr_].buffer_.CurrentSize();
     if (implicit_auto_readahead_ && readahead_size_ > 0) {
       if ((offset + size > bufs_[curr_].offset_ + curr_size) &&
@@ -302,8 +300,7 @@ class FilePrefetchBuffer {
               uint64_t chunk_len, uint64_t rounddown_start, uint32_t index);
 
   Status ReadAsync(const IOOptions& opts, RandomAccessFileReader* reader,
-                   uint64_t read_len, uint64_t chunk_len,
-                   uint64_t rounddown_start, uint32_t index);
+                   uint64_t read_len, uint64_t rounddown_start, uint32_t index);
 
   // Copy the data from src to third buffer.
   void CopyDataToBuffer(uint32_t src, uint64_t& offset, size_t& length);
