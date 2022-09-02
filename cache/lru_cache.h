@@ -333,8 +333,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, double low_pri_pool_ratio,
-                bool use_compressed_secondary_cache,
-                size_t standalone_pool_capacity, bool use_adaptive_mutex,
+                bool use_compressed_secondary_cache, bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
                 int max_upper_hash_bits,
                 const std::shared_ptr<SecondaryCache>& secondary_cache);
@@ -490,13 +489,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Whether the secondary cache is CompressedSecondaryCache.
   bool use_compressed_secondary_cache_;
-
-  // Standalone pool size, charged in the secondary cache.
-  // It equals to capacity of secondary_cache * standardalone_pool_ratio.
-  size_t standalone_pool_capacity_;
-
-  // Memory size for entries in standalone pool.
-  size_t standalone_pool_usage_;
 
   // ------------^^^^^^^^^^^^^-----------
   // Not frequently modified data members

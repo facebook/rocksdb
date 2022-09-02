@@ -64,7 +64,7 @@ class CompressedSecondaryCache : public SecondaryCache {
       CacheMetadataChargePolicy metadata_charge_policy =
           kDefaultCacheMetadataChargePolicy,
       CompressionType compression_type = CompressionType::kLZ4Compression,
-      uint32_t compress_format_version = 2, double standalone_pool_ratio = 0.2);
+      uint32_t compress_format_version = 2);
   virtual ~CompressedSecondaryCache() override;
 
   const char* Name() const override { return kCompressedSecondaryCacheName; }
@@ -81,11 +81,6 @@ class CompressedSecondaryCache : public SecondaryCache {
   void WaitAll(std::vector<SecondaryCacheResultHandle*> /*handles*/) override {}
 
   std::string GetPrintableOptions() const override;
-
-  size_t GetStandalonePoolCapacity() {
-    return (size_t)(cache_options_.capacity *
-                    cache_options_.standalone_pool_ratio);
-  }
 
  private:
   friend class CompressedSecondaryCacheTest;

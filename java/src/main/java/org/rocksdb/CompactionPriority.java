@@ -33,7 +33,7 @@ public enum CompactionPriority {
    * and its size is the smallest. It in many cases can optimize write
    * amplification.
    */
-  MinOverlappingRatio((byte) 0x3),
+  MinOverlappingRatio((byte)0x3),
 
   /**
    * Keeps a cursor(s) of the successor of the file (key range) was/were
@@ -42,6 +42,7 @@ public enum CompactionPriority {
    * round-robin manner.
    */
   RoundRobin((byte) 0x4);
+
 
   private final byte value;
 

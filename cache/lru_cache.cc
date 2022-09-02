@@ -113,8 +113,8 @@ void LRUHandleTable::Resize() {
 LRUCacheShard::LRUCacheShard(
     size_t capacity, bool strict_capacity_limit, double high_pri_pool_ratio,
     double low_pri_pool_ratio, bool use_compressed_secondary_cache,
-    size_t standalone_pool_capacity, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy, int max_upper_hash_bits,
+    bool use_adaptive_mutex, CacheMetadataChargePolicy metadata_charge_policy,
+    int max_upper_hash_bits,
     const std::shared_ptr<SecondaryCache>& secondary_cache)
     : capacity_(0),
       high_pri_pool_usage_(0),
@@ -125,8 +125,6 @@ LRUCacheShard::LRUCacheShard(
       low_pri_pool_ratio_(low_pri_pool_ratio),
       low_pri_pool_capacity_(0),
       use_compressed_secondary_cache_(use_compressed_secondary_cache),
-      standalone_pool_capacity_(standalone_pool_capacity),
-      standalone_pool_usage_(0),
       table_(max_upper_hash_bits),
       usage_(0),
       lru_usage_(0),
@@ -436,53 +434,51 @@ void LRUCacheShard::Promote(LRUHandle* e) {
   assert(secondary_handle->IsReady());
   e->SetIncomplete(false);
   e->value = secondary_handle->Value();
-  e->CalcTotalCharge(secondary_handle->Size(), metadata_charge_policy_);
+  size_t secondary_handle_size = secondary_handle->Size();
+  e->CalcTotalCharge(secondary_handle_size, metadata_charge_policy_);
   delete secondary_handle;
 
+  // This call could fail if the cache is over capacity and
+  // strict_capacity_limit_ is true. In such a case, we don't want
+  // InsertItem() to free the handle, since the item is already in memory
+  // and the caller will most likely just read from disk if we erase it
+  // here.
   if (e->value) {
     bool insert_dummy_handle{false};
     {
-      DMutexLock l(mutex_);
       // Insert a dummy handle and return a standalone handle to caller
-      // when secondary_cache_ is CompressedSecondaryCache, e is a standalone
-      // handle, and the standalone pool has enough space for e.
-      if (use_compressed_secondary_cache_ && e->IsStandalone() &&
-          e->total_charge + standalone_pool_usage_ <=
-              standalone_pool_capacity_) {
+      // when secondary_cache_ is CompressedSecondaryCache and e is a
+      // standalone handle.
+      if (use_compressed_secondary_cache_ && e->IsStandalone()) {
+        insert_dummy_handle = true;
         // Update the properties for the standalone handle.
         e->SetInCache(false);
-        standalone_pool_usage_ += e->total_charge;
-        insert_dummy_handle = true;
-
       } else {
-        // This call could fail if the cache is over capacity and
-        // strict_capacity_limit_ is true. In such a case, we don't want
-        // InsertItem() to free the handle, since the item is already in memory
-        // and the caller will most likely just read from disk if we erase it
-        // here.
         e->SetInCache(true);
         e->SetIsStandalone(false);
       }
     }
 
+    Status s;
     if (insert_dummy_handle) {
-      // Insert a dummy handle into the primary cache. This dummy handle is
+      // Insert a dummy handle into the primary cache and the charge is the
+      // size of the secondary handle. This dummy handle is
       // not IsSecondaryCacheCompatible().
       Cache::Priority priority =
           e->IsHighPri() ? Cache::Priority::HIGH : Cache::Priority::LOW;
-      Insert(e->key(), e->hash, /*value=*/nullptr, /*charge=*/0,
-             /*deleter=*/nullptr, /*helper=*/nullptr, /*handle=*/nullptr,
-             priority)
-          .PermitUncheckedError();
+      s = Insert(e->key(), e->hash, /*value=*/nullptr, secondary_handle_size,
+                 /*deleter=*/nullptr, /*helper=*/nullptr, /*handle=*/nullptr,
+                 priority);
 
     } else {
       Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(e);
-      Status s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
-      if (!s.ok()) {
-        // Item is in memory, but not accounted against the cache capacity.
-        // When the handle is released, the item should get deleted.
-        assert(!e->InCache());
-      }
+      s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
+    }
+
+    if (!s.ok()) {
+      // Item is in memory, but not accounted against the cache capacity.
+      // When the handle is released, the item should get deleted.
+      assert(!e->InCache());
     }
 
   } else {
@@ -656,12 +652,6 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {
       assert(usage_ >= e->total_charge);
       usage_ -= e->total_charge;
     }
-
-    // If the entry is a standalone one, decrease standalone pool usage.
-    if (last_reference && e->IsStandalone() && !e->InCache()) {
-      assert(standalone_pool_usage_ >= e->total_charge);
-      standalone_pool_usage_ -= e->total_charge;
-    }
   }
 
   // Free the entry here outside of mutex for performance reasons.
@@ -782,22 +772,15 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
       port::cacheline_aligned_alloc(sizeof(LRUCacheShard) * num_shards_));
   size_t per_shard = (capacity + (num_shards_ - 1)) / num_shards_;
   bool use_compressed_secondary_cache{false};
-  size_t standalone_pool_capacity_per_shard{0};
   if (secondary_cache && std::strcmp(secondary_cache->Name(),
                                      kCompressedSecondaryCacheName) == 0) {
     use_compressed_secondary_cache = true;
-    size_t standalone_pool_capacity =
-        static_cast<CompressedSecondaryCache*>(secondary_cache.get())
-            ->GetStandalonePoolCapacity();
-    standalone_pool_capacity_per_shard =
-        (standalone_pool_capacity + (num_shards_ - 1)) / num_shards_;
   }
 
   for (int i = 0; i < num_shards_; i++) {
     new (&shards_[i]) LRUCacheShard(
         per_shard, strict_capacity_limit, high_pri_pool_ratio,
-        low_pri_pool_ratio, use_compressed_secondary_cache,
-        standalone_pool_capacity_per_shard, use_adaptive_mutex,
+        low_pri_pool_ratio, use_compressed_secondary_cache, use_adaptive_mutex,
         metadata_charge_policy,
         /* max_upper_hash_bits */ 32 - num_shard_bits, secondary_cache);
   }
