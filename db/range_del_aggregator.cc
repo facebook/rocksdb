@@ -37,7 +37,6 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
                                          false /* log_err_key */);  // TODO
     pik_status.PermitUncheckedError();
     assert(pik_status.ok());
-
     smallest_ = &parsed_smallest;
   }
   if (largest != nullptr) {
@@ -69,12 +68,16 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       // the truncated end key can cover the largest key in this sstable, reduce
       // its sequence number by 1.
       parsed_largest.sequence -= 1;
+      // This line is not needed for correctness, but it ensures that the
+      // truncated end key is not covering keys from the next SST file.
+      parsed_largest.type = kValueTypeForSeek;
     }
     largest_ = &parsed_largest;
   }
 }
 
 bool TruncatedRangeDelIterator::Valid() const {
+  assert(iter_ != nullptr);
   return iter_->Valid() &&
          (smallest_ == nullptr ||
           icmp_->Compare(*smallest_, iter_->parsed_end_key()) < 0) &&

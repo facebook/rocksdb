@@ -77,22 +77,29 @@ Status ArenaWrappedDBIter::Refresh() {
            allow_refresh_);
 
       InternalIterator* internal_iter = db_impl_->NewInternalIterator(
-          read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator(),
-          latest_seq, /* allow_unprepared_value */ true);
+          read_options_, cfd_, sv, &arena_, latest_seq,
+          /* allow_unprepared_value */ true, /* db_iter */ this);
       SetIterUnderDBIter(internal_iter);
       break;
     } else {
       SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
       // Refresh range-tombstones in MemTable
       if (!read_options_.ignore_range_deletions) {
-        SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
-        ReadRangeDelAggregator* range_del_agg =
-            db_iter_->GetRangeDelAggregator();
-        std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter;
-        range_del_iter.reset(sv->mem->NewRangeTombstoneIterator(
-            read_options_, latest_seq, false /* immutable_memtable */));
-        range_del_agg->AddTombstones(std::move(range_del_iter));
-        cfd_->ReturnThreadLocalSuperVersion(sv);
+        assert(memtable_range_tombstone_iter_ != nullptr);
+        if (memtable_range_tombstone_iter_ != nullptr) {
+          SuperVersion* sv = cfd_->GetThreadLocalSuperVersion(db_impl_);
+          auto t = sv->mem->NewRangeTombstoneIterator(
+              read_options_, latest_seq, false /* immutable_memtable */);
+          delete *memtable_range_tombstone_iter_;
+          if (t == nullptr || t->empty()) {
+            *memtable_range_tombstone_iter_ = nullptr;
+          } else {
+            *memtable_range_tombstone_iter_ = new TruncatedRangeDelIterator(
+                std::unique_ptr<FragmentedRangeTombstoneIterator>(t),
+                &cfd_->internal_comparator(), nullptr, nullptr);
+          }
+          cfd_->ReturnThreadLocalSuperVersion(sv);
+        }
       }
       // Refresh latest sequence number
       db_iter_->set_sequence(latest_seq);

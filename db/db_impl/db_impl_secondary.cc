@@ -493,8 +493,7 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       expose_blob_index, read_options.snapshot ? false : allow_refresh);
   auto internal_iter = NewInternalIterator(
       db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
-      db_iter->GetRangeDelAggregator(), snapshot,
-      /* allow_unprepared_value */ true);
+      snapshot, /* allow_unprepared_value */ true, db_iter);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
