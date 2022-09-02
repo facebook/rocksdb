@@ -190,6 +190,15 @@ ifeq ($(USE_LTO), 1)
 	LDFLAGS += -flto -fuse-linker-plugin
 endif
 
+# `COERCE_CONTEXT_SWITCH=1` will inject random length of sleep and randomly
+# do context-switch at critical points (e.g, before acquring db mutex) in RocksDB.
+# In this way, it coerces as many excution orders as possible in the hope of
+# exposing the problematic excution order
+COERCE_CONTEXT_SWITCH ?= 0
+ifeq ($(COERCE_CONTEXT_SWITCH), 1)
+OPT += -DCOERCE_CONTEXT_SWITCH
+endif
+
 #-----------------------------------------------
 include src.mk
 

@@ -20,23 +20,42 @@ class InstrumentedCondVar;
 class InstrumentedMutex {
  public:
   explicit InstrumentedMutex(bool adaptive = false)
-      : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
+      : mutex_(adaptive),
+        stats_(nullptr),
+        clock_(nullptr),
+        stats_code_(0),
+        bg_cv_(nullptr) {
+#ifndef COERCE_CONTEXT_SWITCH
+    (void)bg_cv_;
+#endif
+  }
 
   explicit InstrumentedMutex(SystemClock* clock, bool adaptive = false)
-      : mutex_(adaptive), stats_(nullptr), clock_(clock), stats_code_(0) {}
+      : mutex_(adaptive),
+        stats_(nullptr),
+        clock_(clock),
+        stats_code_(0),
+        bg_cv_(nullptr) {
+#ifndef COERCE_CONTEXT_SWITCH
+    (void)bg_cv_;
+#endif
+  }
 
   InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
-                    bool adaptive = false)
+                    bool adaptive = false, InstrumentedCondVar* bg_cv = nullptr)
       : mutex_(adaptive),
         stats_(stats),
         clock_(clock),
-        stats_code_(stats_code) {}
+        stats_code_(stats_code),
+        bg_cv_(bg_cv) {
+#ifndef COERCE_CONTEXT_SWITCH
+    (void)bg_cv_;
+#endif
+  }
 
   void Lock();
 
-  void Unlock() {
-    mutex_.Unlock();
-  }
+  void Unlock();
 
   void AssertHeld() {
     mutex_.AssertHeld();
@@ -49,6 +68,7 @@ class InstrumentedMutex {
   Statistics* stats_;
   SystemClock* clock_;
   int stats_code_;
+  InstrumentedCondVar* bg_cv_;
 };
 
 class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex

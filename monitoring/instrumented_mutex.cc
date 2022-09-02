@@ -5,11 +5,12 @@
 
 #include "monitoring/instrumented_mutex.h"
 
+#include <iostream>
+
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
-
 namespace ROCKSDB_NAMESPACE {
 namespace {
 #ifndef NPERF_CONTEXT
@@ -35,7 +36,49 @@ void InstrumentedMutex::LockInternal() {
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_StateDelay(ThreadStatus::STATE_MUTEX_WAIT);
 #endif
+#ifdef COERCE_CONTEXT_SWITCH
+  if (stats_code_ == DB_MUTEX_WAIT_MICROS) {
+    thread_local Random rnd(301);
+    if (rnd.OneIn(2)) {
+      // std::cout << "Sched_yield" << std::endl;
+      if (bg_cv_) {
+        bg_cv_->SignalAll();
+      }
+      sched_yield();
+    }
+    uint32_t sleep_us = rnd.Uniform(11) * 1000;
+    if (bg_cv_) {
+      bg_cv_->SignalAll();
+    }
+    SystemClock::Default()->SleepForMicroseconds(sleep_us);
+    // std::cout << "Sleep: " << sleep_us << std::endl;
+  }
+#endif
   mutex_.Lock();
+}
+
+void InstrumentedMutex::Unlock() {
+  mutex_.Unlock();
+#ifdef COERCE_CONTEXT_SWITCH
+  if (stats_code_ == DB_MUTEX_WAIT_MICROS) {
+    thread_local Random rnd(301);
+    if (rnd.OneIn(2)) {
+      // std::cout << "Sched_yield" << std::endl;
+      if (bg_cv_) {
+        // std::cout << "SignalAll: " << std::endl;
+        bg_cv_->SignalAll();
+      }
+      sched_yield();
+    }
+    uint32_t sleep_us = rnd.Uniform(11) * 1000;
+    if (bg_cv_) {
+      // std::cout << "SignalAll: " << std::endl;
+      bg_cv_->SignalAll();
+    }
+    SystemClock::Default()->SleepForMicroseconds(sleep_us);
+    // std::cout << "Sleep: " << sleep_us << std::endl;
+  }
+#endif
 }
 
 void InstrumentedCondVar::Wait() {
