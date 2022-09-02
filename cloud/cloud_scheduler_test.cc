@@ -206,6 +206,16 @@ TEST(CloudSchedulerRaceTest, SkipJobEraseOnceDestructedTest) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+// Verify that jobs are indeed erased after execution
+TEST_F(CloudSchedulerTest, JobErasedTest) {
+  auto job = [](void *) {};
+  scheduler_->ScheduleJob(std::chrono::milliseconds(0), job, nullptr);
+  // wait until all jobs are finished
+  while (scheduler_->TEST_NumScheduledJobs() > 0) {
+    usleep(10);
+  }
+}
+
 }  //  namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char **argv) {

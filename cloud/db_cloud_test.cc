@@ -7,6 +7,7 @@
 #include "rocksdb/cloud/db_cloud.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cinttypes>
 
@@ -344,6 +345,17 @@ class CloudTest : public testing::Test {
   }
 
  protected:
+  void WaitUntilNoScheduledJobs() {
+    while (true) {
+      auto num = GetCloudEnvImpl()->TEST_NumScheduledJobs();
+      if (num > 0) {
+        usleep(100);
+      } else {
+        return;
+      }
+    }
+  }
+
   std::string test_id_;
   Env* base_env_;
   Options options_;
@@ -2179,6 +2191,67 @@ TEST_F(CloudTest, CookieBackwardsCompatibilityTest) {
   CloseDB();
 }
 
+// Test that once we switch to non empty cookie, we can rollback to
+// empty cookie immediately and files are not deleted mistakenly
+TEST_F(CloudTest, CookieRollbackTest) {
+  cloud_env_options_.resync_on_open = true;
+
+  // Create CLOUDMANFIEST with empty cookie
+  cloud_env_options_.cookie_on_open = "";
+  cloud_env_options_.new_cookie_on_open = "";
+
+  OpenDB();
+  ASSERT_OK(db_->Put({}, "k1", "v1"));
+  ASSERT_OK(db_->Flush({}));
+  CloseDB();
+
+  // Switch to cookie 1
+  cloud_env_options_.cookie_on_open = "";
+  cloud_env_options_.new_cookie_on_open = "1";
+  OpenDB();
+  CloseDB();
+
+  // rollback to empty cookie
+  cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.new_cookie_on_open = "";
+
+  // Setup syncpoint so that file deletion jobs are executed after we open db,
+  // but before we close db. This is to make sure that file deletion job
+  // won't delete files that are created when we open db (e.g., CLOUDMANIFEST
+  // files and MANIFEST files) and we can catch it in test if something is
+  // messed up
+  SyncPoint::GetInstance()->LoadDependency({
+      {// only trigger file deletion job after db open
+       "CloudTest::CookieRollbackTest:AfterOpenDB",
+       "CloudSchedulerImpl::DoWork:BeforeGetJob"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+  OpenDB();
+  TEST_SYNC_POINT("CloudTest::CookieRollbackTest:AfterOpenDB");
+  // File deletion jobs are only triggered after this. Once it's triggered,
+  // the job deletion queue is not empty
+
+  std::string v;
+  ASSERT_OK(db_->Get({}, "k1", &v));
+  EXPECT_EQ(v, "v1");
+
+  // wait until no scheduled jobs for current local cloud env
+  // After waiting, we know for sure that all the deletion jobs scheduled
+  // when opening db are executed
+  WaitUntilNoScheduledJobs();
+  CloseDB();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // reopen with empty cookie
+  cloud_env_options_.cookie_on_open = "";
+  cloud_env_options_.new_cookie_on_open = "";
+  OpenDB();
+  ASSERT_OK(db_->Get({}, "k1", &v));
+  EXPECT_EQ(v, "v1");
+  CloseDB();
+}
+
 TEST_F(CloudTest, NewCookieOnOpenTest) {
   cloud_env_options_.cookie_on_open = "1";
 
@@ -2222,7 +2295,8 @@ TEST_F(CloudTest, NewCookieOnOpenTest) {
 
 // When opening db with cookie_on_open, files(including CM/M files) belonging to
 // cookie_on_open won't be deleted, all the other files which don't belong to
-// cookie_on_open will be deleted.
+// cookie_on_open will be deleted, except CLOUDMANIFEST and
+// CLOUDMANIFEST_new_cookie
 TEST_F(CloudTest, FileDeletionTest) {
   std::string cookie1 = "", cookie2 = "-1-1";
   cloud_env_options_.keep_local_sst_files = true;
@@ -2282,13 +2356,13 @@ TEST_F(CloudTest, FileDeletionTest) {
   // cookie2
 
   // number of file deletion jobs is executed
-  int num_job_executed = 0;
+  std::atomic_int num_job_executed(0);
 
   // Syncpoint callback so that we can check when the files are actually
   // deleted(which is async)
   SyncPoint::GetInstance()->SetCallBack(
       "LocalCloudScheduler::ScheduleJob:AfterEraseJob", [&](void* /*arg*/) {
-        num_job_executed += 1;
+        num_job_executed++;
         if (num_job_executed == 3) {
           // CM/M/SST files of cookie2 are deleted in s3
           for (auto path : {cookie2_manifest_filepath, cookie2_cm_filepath,
@@ -2315,6 +2389,51 @@ TEST_F(CloudTest, FileDeletionTest) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  WaitUntilNoScheduledJobs();
+  // Make sure that these files are indeed deleted
+  EXPECT_TRUE(num_job_executed == 3);
+}
+
+// verify that CM files with empty cookie or new_cookie won't be deleted
+TEST_F(CloudTest, CloudManifestFileDeletionTest) {
+
+  // create CLOUDMANIFEST file in s3
+  cloud_env_options_.cookie_on_open = "";
+  cloud_env_options_.new_cookie_on_open = "";
+  OpenDB();
+  CloseDB();
+
+  // create CLOUDMANIFEST-1 file in s3
+  cloud_env_options_.cookie_on_open = "";
+  cloud_env_options_.new_cookie_on_open = "1";
+  OpenDB();
+  CloseDB();
+
+  // double check that the CM files are indeed created
+  for (auto cookie: {"", "1"}) {
+    EXPECT_OK(GetCloudEnvImpl()->GetStorageProvider()->ExistsCloudObject(
+        GetCloudEnvImpl()->GetDestBucketName(),
+        MakeCloudManifestFile(GetCloudEnvImpl()->GetDestObjectPath(), cookie)));
+  }
+
+  // set large file deletion delay so that files are not deleted immediately
+  GetCloudEnvImpl()->TEST_SetFileDeletionDelay(std::chrono::hours(1));
+
+  // now we reopen the db with empty cookie_on_open and new_cookie_on_open =
+  // "1". Double check that CLOUDMANIFEST-1 is not deleted!
+  OpenDB();
+  EXPECT_EQ(GetCloudEnvImpl()->TEST_NumScheduledJobs(), 0);
+  CloseDB();
+
+
+  // switch to new cookie
+  cloud_env_options_.cookie_on_open = "1";
+  cloud_env_options_.new_cookie_on_open = "2";
+  OpenDB();
+  // double check that CLOUDMANIFEST is never deleted
+  EXPECT_EQ(GetCloudEnvImpl()->TEST_NumScheduledJobs(), 0);
+  CloseDB();
 }
 
 // verify that two writers with different cookies can write concurrently

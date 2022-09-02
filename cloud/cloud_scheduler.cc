@@ -51,11 +51,16 @@ class CloudSchedulerImpl : public CloudScheduler {
   bool CancelJob(long handle) override;
   bool IsScheduled(long handle) override;
 
+  size_t TEST_NumScheduledJobs() const override {
+    std::lock_guard<std::mutex> lk(mutex_);
+    return scheduled_jobs_.size();
+  }
+
  private:
   void DoWork();
   long next_id_;
 
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
   // Notified when the earliest job to be scheduled has changed or
   // currently_running_ has changed.
   std::condition_variable jobs_changed_cv_;
@@ -69,8 +74,9 @@ class CloudSchedulerImpl : public CloudScheduler {
 };
 // Implementation of a CloudScheduler that keeps track of the jobs
 // it scheduled.  Only cleans up those jobs on exit or cancel.
-class LocalCloudScheduler : public CloudScheduler,
-                            std::enable_shared_from_this<LocalCloudScheduler> {
+class LocalCloudScheduler
+    : public CloudScheduler,
+      public std::enable_shared_from_this<LocalCloudScheduler> {
   struct PrivateTag {};
 
  public:
@@ -82,7 +88,7 @@ class LocalCloudScheduler : public CloudScheduler,
       local_id);
   }
 
-  LocalCloudScheduler(PrivateTag,
+  explicit LocalCloudScheduler(PrivateTag,
                       const std::shared_ptr<CloudScheduler>& scheduler,
                       long local_id)
       : scheduler_(scheduler),
@@ -171,8 +177,13 @@ class LocalCloudScheduler : public CloudScheduler,
     return scheduler_->CancelJob(internal_job_id);
   }
 
+  size_t TEST_NumScheduledJobs() const override {
+    std::lock_guard<std::mutex> lk(job_mutex_);
+    return jobs_.size();
+  }
+
  private:
-  std::mutex job_mutex_;
+  mutable std::mutex job_mutex_;
   std::shared_ptr<CloudScheduler> scheduler_;
   long next_local_id_;
   std::unordered_map<long, long> jobs_;

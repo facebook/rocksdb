@@ -218,23 +218,6 @@ class CloudEnvImpl : public CloudEnv {
   // Files both in S3 and in the local directory have this [epoch] suffix.
   std::string RemapFilename(const std::string& logical_path) const override;
 
-  // This will delete all files in dest bucket and locally, which don't belong
-  // to CLOUDMANIFEST-cookie.
-  // - If cookie is empty, only MANIFEST file and sst
-  // files will be deleted.
-  // - If cookie is not empty, CLOUDMANIFEST files with
-  // different cookie will be deleted as well
-  //
-  // MANIFEST file and sst files will be deleted if their epoch is not current
-  // epoch of CLOUDMANIFEST-cookie. For example, if we find 00010.sst-[epochX],
-  // but the real mapping for 00010.sst is [epochY], in this function we will
-  // delete 00010.sst-[epochX].
-
-  // Note that local files are deleted immediately, while cloud files are
-  // deleted with a delay of one hour (just to prevent issues from two RocksDB
-  // databases running on the same bucket for a short time).
-  Status DeleteInvisibleFiles(const std::string& dbname, const std::string& cookie);
-
   EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
     return base_env_->OptimizeForLogRead(env_options);
   }
@@ -318,6 +301,10 @@ class CloudEnvImpl : public CloudEnv {
   // Upload local CLOUDMANIFEST-cookie file only. MANIFEST-current_epoch is not uploaded
   // REQURIES: the file exists locally
   Status UploadLocalCloudManifest(const std::string& local_dbname, const std::string& cookie);
+
+  // Get current number of scheduled jobs in cloud scheduler
+  // Used for test only
+  size_t TEST_NumScheduledJobs() const;
 
  protected:
   Status CheckValidity() const;
@@ -405,6 +392,26 @@ class CloudEnvImpl : public CloudEnv {
   void StopPurger();
 
  private:
+  // This will delete all files in dest bucket and locally, which don't belong
+  // to CLOUDMANIFEST-cookie, except
+  // - CLOUDMANIFEST file will never be deleted from the cloud. Empty cookie is
+  // special value which we will reuse to open db. We don't want to have a job
+  // scheduled to delete it while another DB tries to open db with empty cookie.
+  // - CLOUDMANIFEST-new_cookie file will never be deleted from cloud. We don't
+  // want to have a job scheduled to delete it while we are still using that file.
+  //
+  // MANIFEST file and sst files will be deleted if their epoch is not current
+  // epoch of CLOUDMANIFEST-cookie. For example, if we find 00010.sst-[epochX],
+  // but the real mapping for 00010.sst is [epochY], in this function we will
+  // delete 00010.sst-[epochX].
+  //
+  // Note that local files are deleted immediately, while cloud files are
+  // deleted with a delay of one hour (just to prevent issues from two RocksDB
+  // databases running on the same bucket for a short time).
+  Status DeleteInvisibleFiles(const std::string& dbname,
+                              const std::string& cookie,
+                              const std::string& new_cookie);
+
   void log(InfoLogLevel level, const std::string& fname,
            const std::string& msg);
   // Fetch the cloud manifest based on the cookie

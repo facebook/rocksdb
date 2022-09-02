@@ -1,5 +1,4 @@
 // Copyright (c) 2017 Rockset.
-#include "test_util/sync_point.h"
 #ifndef ROCKSDB_LITE
 
 #include "cloud/cloud_env_impl.h"
@@ -23,6 +22,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "test_util/sync_point.h"
 #include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -922,14 +922,37 @@ std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
 }
 
 Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname,
-                                          const std::string& cookie) {
+                                        const std::string& cookie,
+                                        const std::string& new_cookie) {
   Status s;
-  auto shouldDelete = [&cookie, this](const std::string fname) -> bool {
+  auto shouldDelete = [&cookie, &new_cookie, this](const std::string fname) -> bool {
     if (IsCloudManifestFile(fname)) { 
       auto fname_cookie = GetCookie(fname);
-      if (fname_cookie != cookie) {
+
+      // empty cookie CM file is never deleted
+      // TODO(wei): we can remove this assumption once L/F is fully rolled out
+      if (fname_cookie.empty()) {
+        return false;
+      }
+
+      if (cookie != new_cookie && fname_cookie == new_cookie) {
+        // This means we try to switch to an non-empty cookie which has been
+        // used in the past(since there is some CM file in s3) when opening db.
+        // This is ok, since CLOUDMANIFEST-new_cookie won't be deleted from
+        // cloud, but it's not expected.
+        Log(InfoLogLevel::WARN_LEVEL, info_log_,
+            "Trying to open db with new_cookie: %s which already exists in "
+            "cloud",
+            new_cookie.c_str());
+        // fall through
+      }
+
+      // CLOUDMANIFEST-cookie and CLOUDMANIFEST-new_cookie are not deleted
+      if (fname_cookie != cookie && fname_cookie != new_cookie) {
         return true;
       }
+
+      return false;
     } else {
       auto noepoch = RemoveEpoch(fname);
       if ((IsSstFile(noepoch) || IsManifestFile(noepoch)) &&
@@ -945,6 +968,10 @@ Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname,
     s = GetStorageProvider()->ListCloudObjects(GetDestBucketName(),
                                                GetDestObjectPath(), &pathnames);
     if (!s.ok()) {
+      Log(InfoLogLevel::WARN_LEVEL, info_log_,
+          "Files in cloud are not scheduled to be deleted since listing cloud "
+          "object fails: %s",
+          s.ToString().c_str());
       return s;
     }
 
@@ -962,6 +989,9 @@ Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname,
   s = GetBaseEnv()->GetChildren(dbname, &children);
   TEST_SYNC_POINT_CALLBACK("CloudEnvImpl::DeleteInvisibleFiles:AfterListLocalFiles", &s);
   if (!s.ok()) {
+    Log(InfoLogLevel::WARN_LEVEL, info_log_,
+        "Local files are not deleted since listing local files fails: %s",
+        s.ToString().c_str());
     return s;
   }
   for (auto& fname : children) {
@@ -1527,11 +1557,12 @@ Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
   // before rolling the epoch, so that newly generated CM/M files won't be
   // cleaned up.
   if (st.ok() && !read_only) {
-    st = DeleteInvisibleFiles(local_dbname, cloud_env_options.cookie_on_open);
+    st = DeleteInvisibleFiles(local_dbname, cloud_env_options.cookie_on_open,
+                              cloud_env_options.new_cookie_on_open);
     if (!st.ok()) {
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
           "Failed to delete invisible files: %s", st.ToString().c_str());
-        // Ignore the fail
+      // Ignore the fail
       st = Status::OK();
     }
   }
@@ -1907,6 +1938,11 @@ Status CloudEnvImpl::UploadLocalCloudManifest(const std::string& local_dbname,
 
   return st;
 }
+
+
+size_t CloudEnvImpl::TEST_NumScheduledJobs() const {
+  return scheduler_->TEST_NumScheduledJobs();
+};
 
 Status CloudEnvImpl::ApplyLocalCloudManifestDelta(const std::string& local_dbname,
     const std::string& new_cookie,

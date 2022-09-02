@@ -37,6 +37,11 @@ class CloudScheduler {
   // was canceled, false otherwise.
   virtual bool CancelJob(long handle) = 0;
 
+  // Get number of running jobs
+  // This is used for testing purpose only to make sure jobs are fully executed
+  // before proceeding
+  virtual size_t TEST_NumScheduledJobs() const = 0;
+
   // Returns true if the job represented by handle has not completed,
   // meaning that it is either currently schedule or actively running
   virtual bool IsScheduled(long handle) = 0;
