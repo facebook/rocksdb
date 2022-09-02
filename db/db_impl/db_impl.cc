@@ -4048,6 +4048,9 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   if (!options.include_memtables && !options.include_files) {
     return Status::InvalidArgument("Invalid options");
   }
+  if (UNLIKELY(n <= 0)) {
+    return Status::OK();
+  }
 
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
@@ -4059,7 +4062,17 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
   v = sv->current;
 
-  InternalKey k1, k2;
+  size_t len1 = range[0].start.size_;
+  size_t len2 = range[0].limit.size_;
+  for (int i = 1; i < n; i++) {
+    len1 = std::max(len1, range[i].start.size_);
+    len2 = std::max(len2, range[i].limit.size_);
+  }
+  len1 += ts_sz;
+  len2 += ts_sz;
+  char* k1 = (char*)alloca(len1 + 8);
+  char* k2 = (char*)alloca(len2 + 8);
+
   for (int i = 0; i < n; i++) {
     Slice start = range[i].start;
     Slice limit = range[i].limit;
@@ -4076,17 +4089,19 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
       limit = limit_with_ts;
     }
     // Convert user_key into a corresponding internal key.
-    SetInternalKey(k1.rep(), start, kMaxSequenceNumber, kValueTypeForSeek);
-    SetInternalKey(k2.rep(), limit, kMaxSequenceNumber, kValueTypeForSeek);
+    SetInternalKey(k1, start, kMaxSequenceNumber, kValueTypeForSeek);
+    SetInternalKey(k2, limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
+    Slice ik1(k1, start.size_ + 8);
+    Slice ik2(k2, limit.size_ + 8);
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
-          options, v, k1.Encode(), k2.Encode(), /*start_level=*/0,
+          options, v, ik1, ik2, /*start_level=*/0,
           /*end_level=*/-1, TableReaderCaller::kUserApproximateSize);
     }
     if (options.include_memtables) {
-      sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
-      sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
+      sizes[i] += sv->mem->ApproximateStats(ik1, ik2).size;
+      sizes[i] += sv->imm->ApproximateStats(ik1, ik2).size;
     }
   }
 
