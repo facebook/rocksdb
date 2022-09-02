@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 
+#include "cache/compressed_secondary_cache.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/db_test_util.h"
@@ -135,6 +136,8 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
   block_based_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(block_based_options));
 
+  options.statistics = CreateDBStatistics();
+
   Reopen(options);
 
   int num_blobs = 5;
@@ -165,6 +168,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ++i;
     }
     ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
 
   {
@@ -180,6 +184,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
     iter->SeekToFirst();
     ASSERT_NOK(iter->status());
     ASSERT_FALSE(iter->Valid());
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
   }
 
   {
@@ -198,6 +203,8 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ++i;
     }
     ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD),
+              num_blobs);
   }
 
   {
@@ -217,6 +224,149 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
       ++i;
     }
     ASSERT_EQ(i, num_blobs);
+    ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 0);
+  }
+}
+
+TEST_F(DBBlobBasicTest, IterateBlobsFromCachePinning) {
+  constexpr size_t min_blob_size = 6;
+
+  Options options = GetDefaultOptions();
+
+  LRUCacheOptions cache_options;
+  cache_options.capacity = 2048;
+  cache_options.num_shard_bits = 0;
+  cache_options.metadata_charge_policy = kDontChargeCacheMetadata;
+
+  options.blob_cache = NewLRUCache(cache_options);
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+
+  Reopen(options);
+
+  // Put then iterate over three key-values. The second value is below the size
+  // limit and is thus stored inline; the other two are stored separately as
+  // blobs. We expect to have something pinned in the cache iff we are
+  // positioned on a blob.
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "long_value";
+  static_assert(sizeof(first_value) - 1 >= min_blob_size,
+                "first_value too short to be stored as blob");
+
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "short";
+  static_assert(sizeof(second_value) - 1 < min_blob_size,
+                "second_value too long to be inlined");
+
+  ASSERT_OK(Put(second_key, second_value));
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "other_long_value";
+  static_assert(sizeof(third_value) - 1 >= min_blob_size,
+                "third_value too short to be stored as blob");
+
+  ASSERT_OK(Put(third_key, third_value));
+
+  ASSERT_OK(Flush());
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = true;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToFirst();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+  }
+
+  {
+    ReadOptions read_options;
+    read_options.fill_cache = false;
+    read_options.read_tier = kBlockCacheTier;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), third_key);
+    ASSERT_EQ(iter->value(), third_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), second_key);
+    ASSERT_EQ(iter->value(), second_value);
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(iter->key(), first_key);
+    ASSERT_EQ(iter->value(), first_value);
+    ASSERT_GT(options.blob_cache->GetPinnedUsage(), 0);
+
+    iter->Prev();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(options.blob_cache->GetPinnedUsage(), 0);
   }
 }
 
@@ -1551,6 +1701,66 @@ TEST_F(DBBlobBasicTest, DynamicallyWarmCacheDuringFlush) {
   EXPECT_EQ(0, options.statistics->getTickerCount(BLOB_DB_CACHE_ADD));
 }
 #endif  // !ROCKSDB_LITE
+
+TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
+  CompressedSecondaryCacheOptions secondary_cache_opts;
+  secondary_cache_opts.capacity = 1 << 20;
+  secondary_cache_opts.num_shard_bits = 0;
+  secondary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  secondary_cache_opts.compression_type = kNoCompression;
+
+  LRUCacheOptions primary_cache_opts;
+  primary_cache_opts.capacity = 1024;
+  primary_cache_opts.num_shard_bits = 0;
+  primary_cache_opts.metadata_charge_policy = kDontChargeCacheMetadata;
+  primary_cache_opts.secondary_cache =
+      NewCompressedSecondaryCache(secondary_cache_opts);
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.enable_blob_files = true;
+  options.blob_cache = NewLRUCache(primary_cache_opts);
+  options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+
+  DestroyAndReopen(options);
+
+  // Note: only one of the two blobs fit in the primary cache at any given time.
+  constexpr char first_key[] = "foo";
+  constexpr size_t first_blob_size = 512;
+  const std::string first_blob(first_blob_size, 'a');
+
+  constexpr char second_key[] = "bar";
+  constexpr size_t second_blob_size = 768;
+  const std::string second_blob(second_blob_size, 'b');
+
+  // First blob gets inserted into primary cache during flush
+  ASSERT_OK(Put(first_key, first_blob));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  // Second blob gets inserted into primary cache during flush, first blob gets
+  // evicted to secondary cache
+  ASSERT_OK(Put(second_key, second_blob));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
+
+  // First blob gets promoted back to primary cache b/c of lookup, second blob
+  // gets evicted to secondary cache
+  ASSERT_EQ(Get(first_key), first_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            1);
+
+  // Second blob gets promoted back to primary cache b/c of lookup, first blob
+  // gets evicted to secondary cache
+  ASSERT_EQ(Get(second_key), second_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            1);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

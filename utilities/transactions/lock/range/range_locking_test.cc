@@ -39,7 +39,7 @@ class RangeLockingTest : public ::testing::Test {
     options.create_if_missing = true;
     dbname = test::PerThreadDBPath("range_locking_testdb");
 
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
 
     range_lock_mgr.reset(NewRangeLockManager(nullptr));
     txn_db_options.lock_mgr_handle = range_lock_mgr;
@@ -55,7 +55,7 @@ class RangeLockingTest : public ::testing::Test {
     // seems to be a bug in btrfs that the makes readdir return recently
     // unlink-ed files. By using the default fs we simply ignore errors resulted
     // from attempting to delete such files in DestroyDB.
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
   }
 
   PessimisticTransaction* NewTxn(

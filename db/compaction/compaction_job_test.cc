@@ -372,13 +372,12 @@ class CompactionJobTestBase : public testing::Test {
                  smallest_seqno, largest_seqno, false, Temperature::kUnknown,
                  oldest_blob_file_number, kUnknownOldestAncesterTime,
                  kUnknownFileCreationTime, kUnknownFileChecksum,
-                 kUnknownFileChecksumFuncName, kDisableUserTimestamp,
-                 kDisableUserTimestamp, kNullUniqueId64x2);
+                 kUnknownFileChecksumFuncName, kNullUniqueId64x2);
 
     mutex_.Lock();
     EXPECT_OK(
         versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
+                               mutable_cf_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 

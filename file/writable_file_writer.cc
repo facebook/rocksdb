@@ -16,6 +16,7 @@
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/crc32c.h"
@@ -43,6 +44,10 @@ IOStatus WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
 
 IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
                                     Env::IOPriority op_rate_limiter_priority) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
+
   const char* src = data.data();
   size_t left = data.size();
   IOStatus s;
@@ -85,6 +90,7 @@ IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
     if (buf_.CurrentSize() > 0) {
       s = Flush(op_rate_limiter_priority);
       if (!s.ok()) {
+        set_seen_error();
         return s;
       }
     }
@@ -165,12 +171,17 @@ IOStatus WritableFileWriter::Append(const Slice& data, uint32_t crc32c_checksum,
   if (s.ok()) {
     uint64_t cur_size = filesize_.load(std::memory_order_acquire);
     filesize_.store(cur_size + data.size(), std::memory_order_release);
+  } else {
+    set_seen_error();
   }
   return s;
 }
 
 IOStatus WritableFileWriter::Pad(const size_t pad_bytes,
                                  Env::IOPriority op_rate_limiter_priority) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
   assert(pad_bytes < kDefaultPageSize);
   size_t left = pad_bytes;
   size_t cap = buf_.Capacity() - buf_.CurrentSize();
@@ -186,6 +197,7 @@ IOStatus WritableFileWriter::Pad(const size_t pad_bytes,
     if (left > 0) {
       IOStatus s = Flush(op_rate_limiter_priority);
       if (!s.ok()) {
+        set_seen_error();
         return s;
       }
     }
@@ -203,17 +215,31 @@ IOStatus WritableFileWriter::Pad(const size_t pad_bytes,
 }
 
 IOStatus WritableFileWriter::Close() {
+  if (seen_error()) {
+    IOStatus interim;
+    if (writable_file_.get() != nullptr) {
+      interim = writable_file_->Close(IOOptions(), nullptr);
+      writable_file_.reset();
+    }
+    if (interim.ok()) {
+      return IOStatus::IOError(
+          "File is closed but data not flushed as writer has previous error.");
+    } else {
+      return interim;
+    }
+  }
+
   // Do not quit immediately on failure the file MUST be closed
-  IOStatus s;
 
   // Possible to close it twice now as we MUST close
   // in __dtor, simply flushing is not enough
   // Windows when pre-allocating does not fill with zeros
   // also with unbuffered access we also set the end of data.
   if (writable_file_.get() == nullptr) {
-    return s;
+    return IOStatus::OK();
   }
 
+  IOStatus s;
   s = Flush();  // flush cache to OS
 
   IOStatus interim;
@@ -294,9 +320,13 @@ IOStatus WritableFileWriter::Close() {
   writable_file_.reset();
   TEST_KILL_RANDOM("WritableFileWriter::Close:1");
 
-  if (s.ok() && checksum_generator_ != nullptr && !checksum_finalized_) {
-    checksum_generator_->Finalize();
-    checksum_finalized_ = true;
+  if (s.ok()) {
+    if (checksum_generator_ != nullptr && !checksum_finalized_) {
+      checksum_generator_->Finalize();
+      checksum_finalized_ = true;
+    }
+  } else {
+    set_seen_error();
   }
 
   return s;
@@ -305,6 +335,10 @@ IOStatus WritableFileWriter::Close() {
 // write out the cached data to the OS cache or storage if direct I/O
 // enabled
 IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
+
   IOStatus s;
   TEST_KILL_RANDOM_WITH_WEIGHT("WritableFileWriter::Flush:0", REDUCE_ODDS2);
 
@@ -329,6 +363,7 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
       }
     }
     if (!s.ok()) {
+      set_seen_error();
       return s;
     }
   }
@@ -357,6 +392,7 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
   }
 
   if (!s.ok()) {
+    set_seen_error();
     return s;
   }
 
@@ -383,6 +419,9 @@ IOStatus WritableFileWriter::Flush(Env::IOPriority op_rate_limiter_priority) {
       if (offset_sync_to > 0 &&
           offset_sync_to - last_sync_size_ >= bytes_per_sync_) {
         s = RangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
+        if (!s.ok()) {
+          set_seen_error();
+        }
         last_sync_size_ = offset_sync_to;
       }
     }
@@ -409,14 +448,20 @@ const char* WritableFileWriter::GetFileChecksumFuncName() const {
 }
 
 IOStatus WritableFileWriter::Sync(bool use_fsync) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
+
   IOStatus s = Flush();
   if (!s.ok()) {
+    set_seen_error();
     return s;
   }
   TEST_KILL_RANDOM("WritableFileWriter::Sync:0");
   if (!use_direct_io() && pending_sync_) {
     s = SyncInternal(use_fsync);
     if (!s.ok()) {
+      set_seen_error();
       return s;
     }
   }
@@ -426,6 +471,9 @@ IOStatus WritableFileWriter::Sync(bool use_fsync) {
 }
 
 IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
   if (!writable_file_->IsSyncThreadSafe()) {
     return IOStatus::NotSupported(
         "Can't WritableFileWriter::SyncWithoutFlush() because "
@@ -434,10 +482,17 @@ IOStatus WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
   TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:1");
   IOStatus s = SyncInternal(use_fsync);
   TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:2");
+  if (!s.ok()) {
+#ifndef NDEBUG
+    sync_without_flush_called_ = true;
+#endif  // NDEBUG
+    set_seen_error();
+  }
   return s;
 }
 
 IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
+  // Caller is supposed to check seen_error_
   IOStatus s;
   IOSTATS_TIMER_GUARD(fsync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
@@ -473,10 +528,16 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   }
 #endif
   SetPerfLevel(prev_perf_level);
+
+  // The caller will be responsible to call set_seen_error() if s is not OK.
   return s;
 }
 
 IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
+
   IOSTATS_TIMER_GUARD(range_sync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
 #ifndef ROCKSDB_LITE
@@ -488,6 +549,9 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   IOOptions io_options;
   io_options.rate_limiter_priority = writable_file_->GetIOPriority();
   IOStatus s = writable_file_->RangeSync(offset, nbytes, io_options, nullptr);
+  if (!s.ok()) {
+    set_seen_error();
+  }
 #ifndef ROCKSDB_LITE
   if (ShouldNotifyListeners()) {
     auto finish_ts = std::chrono::steady_clock::now();
@@ -505,6 +569,10 @@ IOStatus WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
 // limiter if available
 IOStatus WritableFileWriter::WriteBuffered(
     const char* data, size_t size, Env::IOPriority op_rate_limiter_priority) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
+
   IOStatus s;
   assert(!use_direct_io());
   const char* src = data;
@@ -576,6 +644,7 @@ IOStatus WritableFileWriter::WriteBuffered(
       }
 #endif
       if (!s.ok()) {
+        set_seen_error();
         return s;
       }
     }
@@ -590,11 +659,18 @@ IOStatus WritableFileWriter::WriteBuffered(
   }
   buf_.Size(0);
   buffered_data_crc32c_checksum_ = 0;
+  if (!s.ok()) {
+    set_seen_error();
+  }
   return s;
 }
 
 IOStatus WritableFileWriter::WriteBufferedWithChecksum(
     const char* data, size_t size, Env::IOPriority op_rate_limiter_priority) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
+
   IOStatus s;
   assert(!use_direct_io());
   assert(perform_data_verification_ && buffered_data_with_checksum_);
@@ -666,6 +742,7 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
       // and let caller determine error handling.
       buf_.Size(0);
       buffered_data_crc32c_checksum_ = 0;
+      set_seen_error();
       return s;
     }
   }
@@ -679,6 +756,9 @@ IOStatus WritableFileWriter::WriteBufferedWithChecksum(
   buffered_data_crc32c_checksum_ = 0;
   uint64_t cur_size = flushed_size_.load(std::memory_order_acquire);
   flushed_size_.store(cur_size + left, std::memory_order_release);
+  if (!s.ok()) {
+    set_seen_error();
+  }
   return s;
 }
 
@@ -712,6 +792,12 @@ void WritableFileWriter::Crc32cHandoffChecksumCalculation(const char* data,
 #ifndef ROCKSDB_LITE
 IOStatus WritableFileWriter::WriteDirect(
     Env::IOPriority op_rate_limiter_priority) {
+  if (seen_error()) {
+    assert(false);
+
+    return IOStatus::IOError("Writer has previous error.");
+  }
+
   assert(use_direct_io());
   IOStatus s;
   const size_t alignment = buf_.Alignment();
@@ -778,6 +864,7 @@ IOStatus WritableFileWriter::WriteDirect(
       }
       if (!s.ok()) {
         buf_.Size(file_advance + leftover_tail);
+        set_seen_error();
         return s;
       }
     }
@@ -801,12 +888,18 @@ IOStatus WritableFileWriter::WriteDirect(
     // is a multiple of whole pages otherwise filesize_ is leftover_tail
     // behind
     next_write_offset_ += file_advance;
+  } else {
+    set_seen_error();
   }
   return s;
 }
 
 IOStatus WritableFileWriter::WriteDirectWithChecksum(
     Env::IOPriority op_rate_limiter_priority) {
+  if (seen_error()) {
+    return AssertFalseAndGetStatusForPrevError();
+  }
+
   assert(use_direct_io());
   assert(perform_data_verification_ && buffered_data_with_checksum_);
   IOStatus s;
@@ -884,6 +977,7 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
       buf_.Size(file_advance + leftover_tail);
       buffered_data_crc32c_checksum_ =
           crc32c::Value(buf_.BufferStart(), buf_.CurrentSize());
+      set_seen_error();
       return s;
     }
   }
@@ -907,6 +1001,8 @@ IOStatus WritableFileWriter::WriteDirectWithChecksum(
     // is a multiple of whole pages otherwise filesize_ is leftover_tail
     // behind
     next_write_offset_ += file_advance;
+  } else {
+    set_seen_error();
   }
   return s;
 }

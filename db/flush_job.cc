@@ -390,7 +390,8 @@ Status FlushJob::MemPurge() {
       range_del_iters;
   for (MemTable* m : mems_) {
     memtables.push_back(m->NewIterator(ro, &arena));
-    auto* range_del_iter = m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+    auto* range_del_iter = m->NewRangeTombstoneIterator(
+        ro, kMaxSequenceNumber, true /* immutable_memtable */);
     if (range_del_iter != nullptr) {
       range_del_iters.emplace_back(range_del_iter);
     }
@@ -585,6 +586,8 @@ Status FlushJob::MemPurge() {
       // as in need of being flushed.
       if (new_mem->ApproximateMemoryUsage() < maxSize &&
           !(new_mem->ShouldFlushNow())) {
+        // Construct fragmented memtable range tombstones without mutex
+        new_mem->ConstructFragmentedRangeTombstones();
         db_mutex_->Lock();
         uint64_t new_mem_id = mems_[0]->GetID();
 
@@ -731,8 +734,9 @@ bool FlushJob::MemPurgeDecider(double threshold) {
           min_seqno_snapshot < kMaxSequenceNumber ? &min_snapshot : nullptr;
 
       // Estimate if the sample entry is valid or not.
-      get_res = mt->Get(lkey, &vget, nullptr, &mget_s, &merge_context,
-                        &max_covering_tombstone_seq, &sqno, ro);
+      get_res = mt->Get(lkey, &vget, /*columns=*/nullptr, /*timestamp=*/nullptr,
+                        &mget_s, &merge_context, &max_covering_tombstone_seq,
+                        &sqno, ro, true /* immutable_memtable */);
       if (!get_res) {
         ROCKS_LOG_WARN(
             db_options_.info_log,
@@ -772,8 +776,9 @@ bool FlushJob::MemPurgeDecider(double threshold) {
         for (auto next_mem_iter = mem_iter + 1;
              next_mem_iter != std::end(mems_); next_mem_iter++) {
           if ((*next_mem_iter)
-                  ->Get(lkey, &vget, nullptr, &mget_s, &merge_context,
-                        &max_covering_tombstone_seq, &sqno, ro)) {
+                  ->Get(lkey, &vget, /*columns=*/nullptr, /*timestamp=*/nullptr,
+                        &mget_s, &merge_context, &max_covering_tombstone_seq,
+                        &sqno, ro, true /* immutable_memtable */)) {
             not_in_next_mems = false;
             break;
           }
@@ -857,8 +862,8 @@ Status FlushJob::WriteLevel0Table() {
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
-      auto* range_del_iter =
-          m->NewRangeTombstoneIterator(ro, kMaxSequenceNumber);
+      auto* range_del_iter = m->NewRangeTombstoneIterator(
+          ro, kMaxSequenceNumber, true /* immutable_memtable */);
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
@@ -1000,8 +1005,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.marked_for_compaction, meta_.temperature,
                    meta_.oldest_blob_file_number, meta_.oldest_ancester_time,
                    meta_.file_creation_time, meta_.file_checksum,
-                   meta_.file_checksum_func_name, meta_.min_timestamp,
-                   meta_.max_timestamp, meta_.unique_id);
+                   meta_.file_checksum_func_name, meta_.unique_id);
 
     edit_->SetBlobFileAdditions(std::move(blob_file_additions));
   }

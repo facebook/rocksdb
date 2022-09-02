@@ -58,6 +58,7 @@ struct ImmutableMemTableOptions {
   MergeOperator* merge_operator;
   Logger* info_log;
   bool allow_data_in_errors;
+  uint32_t protection_bytes_per_key;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -202,8 +203,19 @@ class MemTable {
   //        those allocated in arena.
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
+  // Returns an iterator that yields the range tombstones of the memtable.
+  // The caller must ensure that the underlying MemTable remains live
+  // while the returned iterator is live.
+  // @param immutable_memtable Whether this memtable is an immutable memtable.
+  // This information is not stored in memtable itself, so it needs to be
+  // specified by the caller. This flag is used internally to decide whether a
+  // cached fragmented range tombstone list can be returned. This cached version
+  // is constructed when a memtable becomes immutable. Setting the flag to false
+  // will always yield correct result, but may incur performance penalty as it
+  // always creates a new fragmented range tombstone list.
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIterator(
-      const ReadOptions& read_options, SequenceNumber read_seq);
+      const ReadOptions& read_options, SequenceNumber read_seq,
+      bool immutable_memtable);
 
   Status VerifyEncodedEntry(Slice encoded,
                             const ProtectionInfoKVOS64& kv_prot_info);
@@ -244,35 +256,35 @@ class MemTable {
   // If do_merge = false then any Merge Operands encountered for key are simply
   // stored in merge_context.operands_list and never actually merged to get a
   // final value. The raw Merge Operands are eventually returned to the user.
-  bool Get(const LookupKey& key, std::string* value, Status* s,
+  // @param immutable_memtable Whether this memtable is immutable. Used
+  // internally by NewRangeTombstoneIterator(). See comment above
+  // NewRangeTombstoneIterator() for more detail.
+  bool Get(const LookupKey& key, std::string* value,
+           PinnableWideColumns* columns, std::string* timestamp, Status* s,
            MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true) {
-    return Get(key, value, /*timestamp=*/nullptr, s, merge_context,
-               max_covering_tombstone_seq, seq, read_opts, callback,
-               is_blob_index, do_merge);
-  }
+           const ReadOptions& read_opts, bool immutable_memtable,
+           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
+           bool do_merge = true);
 
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
-           SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
-           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true);
-
-  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
-           Status* s, MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value,
+           PinnableWideColumns* columns, std::string* timestamp, Status* s,
+           MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
-           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob_index = nullptr, bool do_merge = true) {
+           const ReadOptions& read_opts, bool immutable_memtable,
+           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
+           bool do_merge = true) {
     SequenceNumber seq;
-    return Get(key, value, timestamp, s, merge_context,
-               max_covering_tombstone_seq, &seq, read_opts, callback,
-               is_blob_index, do_merge);
+    return Get(key, value, columns, timestamp, s, merge_context,
+               max_covering_tombstone_seq, &seq, read_opts, immutable_memtable,
+               callback, is_blob_index, do_merge);
   }
 
+  // @param immutable_memtable Whether this memtable is immutable. Used
+  // internally by NewRangeTombstoneIterator(). See comment above
+  // NewRangeTombstoneIterator() for more detail.
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                ReadCallback* callback);
+                ReadCallback* callback, bool immutable_memtable);
 
   // If `key` exists in current memtable with type value_type and the existing
   // value is at least as large as the new value, updates it in-place. Otherwise
@@ -502,6 +514,28 @@ class MemTable {
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
+  void ConstructFragmentedRangeTombstones();
+
+  // Returns whether a fragmented range tombstone list is already constructed
+  // for this memtable. It should be constructed right before a memtable is
+  // added to an immutable memtable list. Note that if a memtable does not have
+  // any range tombstone, then no range tombstone list will ever be constructed.
+  // @param allow_empty Specifies whether a memtable with no range tombstone is
+  // considered to have its fragmented range tombstone list constructed.
+  bool IsFragmentedRangeTombstonesConstructed(bool allow_empty = true) const {
+    if (allow_empty) {
+      return fragmented_range_tombstone_list_.get() != nullptr ||
+             is_range_del_table_empty_;
+    } else {
+      return fragmented_range_tombstone_list_.get() != nullptr;
+    }
+  }
+
+  // Returns Corruption status if verification fails.
+  static Status VerifyEntryChecksum(const char* entry,
+                                    size_t protection_bytes_per_key,
+                                    bool allow_data_in_errors = false);
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -597,13 +631,27 @@ class MemTable {
   void GetFromTable(const LookupKey& key,
                     SequenceNumber max_covering_tombstone_seq, bool do_merge,
                     ReadCallback* callback, bool* is_blob_index,
-                    std::string* value, std::string* timestamp, Status* s,
+                    std::string* value, PinnableWideColumns* columns,
+                    std::string* timestamp, Status* s,
                     MergeContext* merge_context, SequenceNumber* seq,
                     bool* found_final_value, bool* merge_in_progress);
 
-  // Always returns non-null and assumes certain pre-checks are done
+  // Always returns non-null and assumes certain pre-checks (e.g.,
+  // is_range_del_table_empty_) are done. This is only valid during the lifetime
+  // of the underlying memtable.
   FragmentedRangeTombstoneIterator* NewRangeTombstoneIteratorInternal(
-      const ReadOptions& read_options, SequenceNumber read_seq);
+      const ReadOptions& read_options, SequenceNumber read_seq,
+      bool immutable_memtable);
+
+  // The fragmented range tombstones of this memtable.
+  // This is constructed when this memtable becomes immutable
+  // if !is_range_del_table_empty_.
+  std::unique_ptr<FragmentedRangeTombstoneList>
+      fragmented_range_tombstone_list_;
+
+  void UpdateEntryChecksum(const ProtectionInfoKVOS64* kv_prot_info,
+                           const Slice& key, const Slice& value, ValueType type,
+                           SequenceNumber s, char* checksum_ptr);
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

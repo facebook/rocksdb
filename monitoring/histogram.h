@@ -140,6 +140,8 @@ class HistogramImpl : public Histogram {
 
   virtual ~HistogramImpl() {}
 
+  inline HistogramStat& TEST_GetStats() { return stats_; }
+
  private:
   HistogramStat stats_;
   std::mutex mutex_;

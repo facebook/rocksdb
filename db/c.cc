@@ -1054,6 +1054,18 @@ void rocksdb_drop_column_family(
   SaveError(errptr, db->rep->DropColumnFamily(handle->rep));
 }
 
+uint32_t rocksdb_column_family_handle_get_id(
+    rocksdb_column_family_handle_t* handle) {
+  return handle->rep->GetID();
+}
+
+char* rocksdb_column_family_handle_get_name(
+    rocksdb_column_family_handle_t* handle, size_t* name_len) {
+  auto name = handle->rep->GetName();
+  *name_len = name.size();
+  return CopyString(name);
+}
+
 void rocksdb_column_family_handle_destroy(rocksdb_column_family_handle_t* handle) {
   delete handle->rep;
   delete handle;
@@ -2606,6 +2618,11 @@ void rocksdb_block_based_options_destroy(
   delete options;
 }
 
+void rocksdb_block_based_options_set_checksum(
+    rocksdb_block_based_table_options_t* opt, char v) {
+  opt->rep.checksum = static_cast<ROCKSDB_NAMESPACE::ChecksumType>(v);
+}
+
 void rocksdb_block_based_options_set_block_size(
     rocksdb_block_based_table_options_t* options, size_t block_size) {
   options->rep.block_size = block_size;
@@ -4099,6 +4116,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->blob_checksum_time;
     case rocksdb_blob_decompress_time:
       return rep->blob_decompress_time;
+    case rocksdb_internal_range_del_reseek_count:
+      return rep->internal_range_del_reseek_count;
     default:
       break;
   }

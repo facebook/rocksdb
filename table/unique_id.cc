@@ -58,22 +58,34 @@ Status DecodeSessionId(const std::string &db_session_id, uint64_t *upper,
 
 Status GetSstInternalUniqueId(const std::string &db_id,
                               const std::string &db_session_id,
-                              uint64_t file_number, UniqueIdPtr out) {
-  if (db_id.empty()) {
-    return Status::NotSupported("Missing db_id");
-  }
-  if (file_number == 0) {
-    return Status::NotSupported("Missing or bad file number");
-  }
-  if (db_session_id.empty()) {
-    return Status::NotSupported("Missing db_session_id");
+                              uint64_t file_number, UniqueIdPtr out,
+                              bool force) {
+  if (!force) {
+    if (db_id.empty()) {
+      return Status::NotSupported("Missing db_id");
+    }
+    if (file_number == 0) {
+      return Status::NotSupported("Missing or bad file number");
+    }
+    if (db_session_id.empty()) {
+      return Status::NotSupported("Missing db_session_id");
+    }
   }
   uint64_t session_upper = 0;  // Assignment to appease clang-analyze
   uint64_t session_lower = 0;  // Assignment to appease clang-analyze
   {
     Status s = DecodeSessionId(db_session_id, &session_upper, &session_lower);
     if (!s.ok()) {
-      return s;
+      if (!force) {
+        return s;
+      } else {
+        // A reasonable fallback in case malformed
+        Hash2x64(db_session_id.data(), db_session_id.size(), &session_upper,
+                 &session_lower);
+        if (session_lower == 0) {
+          session_lower = session_upper | 1;
+        }
+      }
     }
   }
 
@@ -105,20 +117,6 @@ Status GetSstInternalUniqueId(const std::string &db_id,
   }
 
   return Status::OK();
-}
-
-Status GetSstInternalUniqueId(const std::string &db_id,
-                              const std::string &db_session_id,
-                              uint64_t file_number, UniqueId64x2 *out) {
-  UniqueId64x3 tmp{};
-  Status s = GetSstInternalUniqueId(db_id, db_session_id, file_number, &tmp);
-  if (s.ok()) {
-    (*out)[0] = tmp[0];
-    (*out)[1] = tmp[1];
-  } else {
-    *out = {0, 0};
-  }
-  return s;
 }
 
 namespace {

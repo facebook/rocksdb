@@ -31,6 +31,12 @@ class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
   void Open() { DBTestBase::Reopen(GetOptions()); }
 };
 
+class DBWriteTestUnparameterized : public DBTestBase {
+ public:
+  explicit DBWriteTestUnparameterized()
+      : DBTestBase("pipelined_write_test", /*env_do_fsync=*/false) {}
+};
+
 // It is invalid to do sync write while disabling WAL.
 TEST_P(DBWriteTest, SyncAndDisableWAL) {
   WriteOptions write_options;
@@ -318,6 +324,130 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   Close();
 }
 
+TEST_F(DBWriteTestUnparameterized, PipelinedWriteRace) {
+  // This test was written to trigger a race in ExitAsBatchGroupLeader in case
+  // enable_pipelined_write_ was true.
+  // Writers for which ShouldWriteToMemtable() evaluates to false are removed
+  // from the write_group via CompleteFollower/ CompleteLeader. Writers in the
+  // middle of the group are fully unlinked, but if that writers is the
+  // last_writer, then we did not update the predecessor's link_older, i.e.,
+  // this writer was still reachable via newest_writer_.
+  //
+  // But the problem was, that CompleteFollower already wakes up the thread
+  // owning that writer before the writer has been removed. This resulted in a
+  // race - if the leader thread was fast enough, then everything was fine.
+  // However, if the woken up thread finished the current write operation and
+  // then performed yet another write, then a new writer instance was added
+  // to newest_writer_. It is possible that the new writer is located on the
+  // same address on stack, and if this happened, then we had a problem,
+  // because the old code tried to find the last_writer in the list to unlink
+  // it, which in this case produced a cycle in the list.
+  // Whether two invocations of PipelinedWriteImpl() by the same thread actually
+  // allocate the writer on the same address depends on the OS and/or compiler,
+  // so it is rather hard to create a deterministic test for this.
+
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_pipelined_write = true;
+  std::vector<port::Thread> threads;
+
+  std::atomic<int> write_counter{0};
+  std::atomic<int> active_writers{0};
+  std::atomic<bool> second_write_starting{false};
+  std::atomic<bool> second_write_in_progress{false};
+  std::atomic<WriteThread::Writer*> leader{nullptr};
+  std::atomic<bool> finished_WAL_write{false};
+
+  DestroyAndReopen(options);
+
+  auto write_one_doc = [&]() {
+    int a = write_counter.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    WriteOptions wo;
+    ASSERT_OK(dbfull()->Put(wo, key, "bar"));
+    --active_writers;
+  };
+
+  auto write_two_docs = [&]() {
+    write_one_doc();
+    second_write_starting = true;
+    write_one_doc();
+  };
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
+        if (second_write_starting.load()) {
+          second_write_in_progress = true;
+          return;
+        }
+        auto* w = reinterpret_cast<WriteThread::Writer*>(arg);
+        if (w->state == WriteThread::STATE_GROUP_LEADER) {
+          active_writers++;
+          if (leader.load() == nullptr) {
+            leader.store(w);
+            while (active_writers.load() < 2) {
+              // wait for another thread to join the write_group
+            }
+          }
+        } else {
+          // we disable the memtable for all followers so that they they are
+          // removed from the write_group before enqueuing it for the memtable
+          // write
+          w->disable_memtable = true;
+          active_writers++;
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::ExitAsBatchGroupLeader:Start", [&](void* arg) {
+        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        if (wg->leader == leader && !finished_WAL_write) {
+          finished_WAL_write = true;
+          while (active_writers.load() < 3) {
+            // wait for the new writer to be enqueued
+          }
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::ExitAsBatchGroupLeader:AfterCompleteWriters",
+      [&](void* arg) {
+        auto* wg = reinterpret_cast<WriteThread::WriteGroup*>(arg);
+        if (wg->leader == leader) {
+          while (!second_write_in_progress.load()) {
+            // wait for the old follower thread to start the next write
+          }
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // start leader + one follower
+  threads.emplace_back(write_one_doc);
+  while (leader.load() == nullptr) {
+    // wait for leader
+  }
+
+  // we perform two writes in the follower, so that for the second write
+  // the thread reinserts a Writer with the same address
+  threads.emplace_back(write_two_docs);
+
+  // wait for the leader to enter ExitAsBatchGroupLeader
+  while (!finished_WAL_write.load()) {
+    // wait for write_group to have finished the WAL writes
+  }
+
+  // start another writer thread to be enqueued before the leader can
+  // complete the writers from its write_group
+  threads.emplace_back(write_one_doc);
+
+  for (auto& t : threads) {
+    t.join();
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_P(DBWriteTest, ManualWalFlushInEffect) {
   Options options = GetOptions();
   Reopen(options);
@@ -364,6 +494,51 @@ TEST_P(DBWriteTest, UnflushedPutRaceWithTrackedWalSync) {
   fault_env->DropUnsyncedFileData();
 
   Reopen(options);
+
+  // Need to close before `fault_env` goes out of scope.
+  Close();
+}
+
+TEST_P(DBWriteTest, InactiveWalFullySyncedBeforeUntracked) {
+  // Repro bug where a WAL is appended and switched after
+  // `FlushWAL(true /* sync */)`'s sync finishes and before it untracks fully
+  // synced inactive logs. Previously such a WAL would be wrongly untracked
+  // so the final append would never be synced.
+  Options options = GetOptions();
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  options.env = fault_env.get();
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "val1"));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncWAL:BeforeMarkLogsSynced:1", [this](void* /* arg */) {
+        ASSERT_OK(Put("key2", "val2"));
+        ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(db_->FlushWAL(true /* sync */));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_OK(Put("key3", "val3"));
+
+  ASSERT_OK(db_->FlushWAL(true /* sync */));
+
+  Close();
+
+  // Simulate full loss of unsynced data. This should drop nothing since we did
+  // `FlushWAL(true /* sync */)` before `Close()`.
+  fault_env->DropUnsyncedFileData();
+
+  Reopen(options);
+
+  ASSERT_EQ("val1", Get("key1"));
+  ASSERT_EQ("val2", Get("key2"));
+  ASSERT_EQ("val3", Get("key3"));
 
   // Need to close before `fault_env` goes out of scope.
   Close();

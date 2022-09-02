@@ -109,12 +109,18 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context,
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
+      if (error_handler_.IsRecoveryInProgress()) {
+        log->file()->reset_seen_error();
+      }
       io_s = log->file()->Sync(immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
         break;
       }
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
+        if (error_handler_.IsRecoveryInProgress()) {
+          log->file()->reset_seen_error();
+        }
         io_s = log->Close();
         if (!io_s.ok()) {
           break;
@@ -229,6 +235,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     mutex_.Lock();
     if (log_io_s.ok() && synced_wals.IsWalAddition()) {
       log_io_s = status_to_io_status(ApplyWALToManifest(&synced_wals));
+      TEST_SYNC_POINT_CALLBACK("DBImpl::FlushMemTableToOutputFile:CommitWal:1",
+                               nullptr);
     }
 
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
@@ -980,7 +988,7 @@ Status DBImpl::IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
   }
 
   Status s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                    &edit, &mutex_);
+                                    &edit, &mutex_, directories_.GetDbDir());
   if (!s.ok()) {
     return s;
   }
@@ -1686,8 +1694,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
           f->smallest, f->largest, f->fd.smallest_seqno, f->fd.largest_seqno,
           f->marked_for_compaction, f->temperature, f->oldest_blob_file_number,
           f->oldest_ancester_time, f->file_creation_time, f->file_checksum,
-          f->file_checksum_func_name, f->min_timestamp, f->max_timestamp,
-          f->unique_id);
+          f->file_checksum_func_name, f->unique_id);
     }
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
@@ -1853,8 +1860,7 @@ Status DBImpl::RunManualCompaction(
   // jobs drops to zero. This used to be needed to ensure that this manual
   // compaction can compact any range of keys/files. Now it is optional
   // (see `CompactRangeOptions::exclusive_manual_compaction`). The use case for
-  // `exclusive_manual_compaction=true` (the default) is unclear beyond not
-  // trusting the new code.
+  // `exclusive_manual_compaction=true` is unclear beyond not trusting the code.
   //
   // HasPendingManualCompaction() is true when at least one thread is inside
   // RunManualCompaction(), i.e. during that time no other compaction will
@@ -3314,7 +3320,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
             f->fd.largest_seqno, f->marked_for_compaction, f->temperature,
             f->oldest_blob_file_number, f->oldest_ancester_time,
             f->file_creation_time, f->file_checksum, f->file_checksum_func_name,
-            f->min_timestamp, f->max_timestamp, f->unique_id);
+            f->unique_id);
 
         ROCKS_LOG_BUFFER(
             log_buffer,

@@ -177,8 +177,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             GetContext get_context(
                 ioptions.user_comparator, ioptions.merge_operator.get(),
                 ioptions.logger, ioptions.stats, GetContext::kNotFound,
-                Slice(key), &value, nullptr, &merge_context, true,
-                &max_covering_tombstone_seq, clock);
+                Slice(key), &value, /*columns=*/nullptr, /*timestamp=*/nullptr,
+                &merge_context, true, &max_covering_tombstone_seq, clock);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);

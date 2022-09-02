@@ -67,8 +67,8 @@ FragmentedRangeTombstoneList::FragmentedRangeTombstoneList(
                         unfragmented_tombstones->value().size());
   }
   // VectorIterator implicitly sorts by key during construction.
-  auto iter = std::unique_ptr<VectorIterator>(
-      new VectorIterator(std::move(keys), std::move(values), &icmp));
+  auto iter = std::make_unique<VectorIterator>(std::move(keys),
+                                               std::move(values), &icmp);
   FragmentTombstones(std::move(iter), icmp, for_compaction, snapshots);
 }
 
@@ -433,9 +433,8 @@ FragmentedRangeTombstoneIterator::SplitBySnapshot(
       upper = snapshots[i];
     }
     if (tombstones_->ContainsRange(lower, upper)) {
-      splits.emplace(upper, std::unique_ptr<FragmentedRangeTombstoneIterator>(
-                                new FragmentedRangeTombstoneIterator(
-                                    tombstones_, *icmp_, upper, lower)));
+      splits.emplace(upper, std::make_unique<FragmentedRangeTombstoneIterator>(
+                                tombstones_, *icmp_, upper, lower));
     }
     lower = upper + 1;
   }

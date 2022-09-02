@@ -1592,7 +1592,8 @@ void InternalStats::DumpCFMapStats(
     int files = vstorage->NumLevelFiles(level);
     total_files += files;
     total_files_being_compacted += files_being_compacted[level];
-    if (comp_stats_[level].micros > 0 || files > 0) {
+    if (comp_stats_[level].micros > 0 || comp_stats_[level].cpu_micros > 0 ||
+        files > 0) {
       compaction_stats_sum->Add(comp_stats_[level]);
       total_file_size += vstorage->NumLevelBytes(level);
       uint64_t input_bytes;

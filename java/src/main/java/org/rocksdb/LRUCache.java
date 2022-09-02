@@ -16,7 +16,7 @@ public class LRUCache extends Cache {
    * @param capacity The fixed size capacity of the cache
    */
   public LRUCache(final long capacity) {
-    this(capacity, -1, false, 0.0, 1.0);
+    this(capacity, -1, false, 0.0, 0.0);
   }
 
   /**
@@ -31,7 +31,7 @@ public class LRUCache extends Cache {
    *     by hash of the key
    */
   public LRUCache(final long capacity, final int numShardBits) {
-    super(newLRUCache(capacity, numShardBits, false, 0.0, 1.0));
+    super(newLRUCache(capacity, numShardBits, false, 0.0, 0.0));
   }
 
   /**
@@ -49,7 +49,7 @@ public class LRUCache extends Cache {
    */
   public LRUCache(final long capacity, final int numShardBits,
                   final boolean strictCapacityLimit) {
-    super(newLRUCache(capacity, numShardBits, strictCapacityLimit, 0.0, 1.0));
+    super(newLRUCache(capacity, numShardBits, strictCapacityLimit, 0.0, 0.0));
   }
 
   /**
@@ -71,8 +71,7 @@ public class LRUCache extends Cache {
    */
   public LRUCache(final long capacity, final int numShardBits, final boolean strictCapacityLimit,
       final double highPriPoolRatio) {
-    super(newLRUCache(
-        capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, 1.0 - highPriPoolRatio));
+    super(newLRUCache(capacity, numShardBits, strictCapacityLimit, highPriPoolRatio, 0.0));
   }
 
   /**

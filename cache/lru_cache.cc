@@ -262,7 +262,8 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->SetInLowPriPool(false);
     high_pri_pool_usage_ += e->total_charge;
     MaintainPoolSize();
-  } else if (low_pri_pool_ratio_ > 0 && (e->IsLowPri() || e->HasHit())) {
+  } else if (low_pri_pool_ratio_ > 0 &&
+             (e->IsHighPri() || e->IsLowPri() || e->HasHit())) {
     // Insert "e" to the head of low-pri pool.
     e->next = lru_low_pri_->next;
     e->prev = lru_low_pri_;
@@ -505,11 +506,12 @@ Cache::Handle* LRUCacheShard::Lookup(
       memcpy(e->key_data, key.data(), key.size());
       e->value = nullptr;
       e->sec_handle = secondary_handle.release();
+      e->total_charge = 0;
       e->Ref();
+      e->SetIsInSecondaryCache(is_in_sec_cache);
 
       if (wait) {
         Promote(e);
-        e->SetIsInSecondaryCache(is_in_sec_cache);
         if (!e->value) {
           // The secondary cache returned a handle, but the lookup failed.
           e->Unref();
@@ -523,7 +525,6 @@ Cache::Handle* LRUCacheShard::Lookup(
         // If wait is false, we always return a handle and let the caller
         // release the handle after checking for success or failure.
         e->SetIncomplete(true);
-        e->SetIsInSecondaryCache(is_in_sec_cache);
         // This may be slightly inaccurate, if the lookup eventually fails.
         // But the probability is very low.
         PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
@@ -842,7 +843,8 @@ std::shared_ptr<Cache> NewLRUCache(
     return nullptr;
   }
   if (low_pri_pool_ratio < 0.0 || low_pri_pool_ratio > 1.0) {
-    low_pri_pool_ratio = 1.0 - high_pri_pool_ratio;
+    // Invalid high_pri_pool_ratio
+    return nullptr;
   }
   if (low_pri_pool_ratio + high_pri_pool_ratio > 1.0) {
     // Invalid high_pri_pool_ratio and low_pri_pool_ratio combination

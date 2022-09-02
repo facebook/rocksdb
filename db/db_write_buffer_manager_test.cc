@@ -780,6 +780,75 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+#ifndef ROCKSDB_LITE
+
+// Tests a `WriteBufferManager` constructed with `allow_stall == false` does not
+// thrash memtable switching when full and a CF receives multiple writes.
+// Instead, we expect to switch a CF's memtable for flush only when that CF does
+// not have any pending or running flush.
+//
+// This test uses multiple DBs each with a single CF instead of a single DB
+// with multiple CFs. That way we can control which CF is considered for switch
+// by writing to that CF's DB.
+//
+// Not supported in LITE mode due to `GetProperty()` unavailable.
+TEST_P(DBWriteBufferManagerTest, StopSwitchingMemTablesOnceFlushing) {
+  Options options = CurrentOptions();
+  options.arena_block_size = 4 << 10;   // 4KB
+  options.write_buffer_size = 1 << 20;  // 1MB
+  std::shared_ptr<Cache> cache =
+      NewLRUCache(4 << 20 /* capacity (4MB) */, 2 /* num_shard_bits */);
+  ASSERT_LT(cache->GetUsage(), 256 << 10 /* 256KB */);
+  cost_cache_ = GetParam();
+  if (cost_cache_) {
+    options.write_buffer_manager.reset(new WriteBufferManager(
+        512 << 10 /* buffer_size (512KB) */, cache, false /* allow_stall */));
+  } else {
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(512 << 10 /* buffer_size (512KB) */,
+                               nullptr /* cache */, false /* allow_stall */));
+  }
+
+  Reopen(options);
+  std::string dbname = test::PerThreadDBPath("db_shared_wbm_db");
+  DB* shared_wbm_db = nullptr;
+
+  ASSERT_OK(DestroyDB(dbname, options));
+  ASSERT_OK(DB::Open(options, dbname, &shared_wbm_db));
+
+  // The last write will make WBM need flush, but it won't flush yet.
+  ASSERT_OK(Put(Key(1), DummyString(256 << 10 /* 256KB */), WriteOptions()));
+  ASSERT_FALSE(options.write_buffer_manager->ShouldFlush());
+  ASSERT_OK(Put(Key(1), DummyString(256 << 10 /* 256KB */), WriteOptions()));
+  ASSERT_TRUE(options.write_buffer_manager->ShouldFlush());
+
+  // Flushes will be pending, not running because flush threads are blocked.
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
+
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(
+        shared_wbm_db->Put(WriteOptions(), Key(1), DummyString(1 /* len */)));
+    std::string prop;
+    ASSERT_TRUE(
+        shared_wbm_db->GetProperty("rocksdb.num-immutable-mem-table", &prop));
+    ASSERT_EQ(std::to_string(i > 0 ? 1 : 0), prop);
+    ASSERT_TRUE(
+        shared_wbm_db->GetProperty("rocksdb.mem-table-flush-pending", &prop));
+    ASSERT_EQ(std::to_string(i > 0 ? 1 : 0), prop);
+  }
+
+  // Clean up DBs.
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+  ASSERT_OK(shared_wbm_db->Close());
+  ASSERT_OK(DestroyDB(dbname, options));
+  delete shared_wbm_db;
+}
+
+#endif  // ROCKSDB_LITE
+
 INSTANTIATE_TEST_CASE_P(DBWriteBufferManagerTest, DBWriteBufferManagerTest,
                         testing::Bool());
 

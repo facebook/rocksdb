@@ -2660,8 +2660,9 @@ TEST_F(DBCompactionTest, ManualAutoRace) {
   TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
   // The auto compaction will wait until the manual compaction is registerd
   // before processing so that it will be cancelled.
-  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                                   nullptr));
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = true;
+  ASSERT_OK(dbfull()->CompactRange(cro, handles_[1], nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(1));
 
   // Eventually the cancelled compaction will be rescheduled and executed.
