@@ -22,6 +22,7 @@ struct ImmutableOptions;
 class Status;
 class FilePrefetchBuffer;
 class Slice;
+class BlobContents;
 
 // BlobSource is a class that provides universal access to blobs, regardless of
 // whether they are in the blob cache, secondary cache, or (remote) storage.
@@ -99,27 +100,31 @@ class BlobSource {
                                                blob_file_reader);
   }
 
+  inline Cache* GetBlobCache() const { return blob_cache_.get(); }
+
   bool TEST_BlobInCache(uint64_t file_number, uint64_t file_size,
-                        uint64_t offset) const;
+                        uint64_t offset, size_t* charge = nullptr) const;
 
  private:
   Status GetBlobFromCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* blob) const;
+                          CacheHandleGuard<BlobContents>* blob) const;
 
   Status PutBlobIntoCache(const Slice& cache_key,
-                          CacheHandleGuard<std::string>* cached_blob,
+                          CacheHandleGuard<BlobContents>* cached_blob,
                           PinnableSlice* blob) const;
+
+  static void PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
+                            PinnableSlice* value);
 
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
 
-  Status InsertEntryIntoCache(const Slice& key, std::string* value,
+  Status InsertEntryIntoCache(const Slice& key, BlobContents* value,
                               size_t charge, Cache::Handle** cache_handle,
                               Cache::Priority priority) const;
 
-  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t file_size,
+  inline CacheKey GetCacheKey(uint64_t file_number, uint64_t /*file_size*/,
                               uint64_t offset) const {
-    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number,
-                                      file_size);
+    OffsetableCacheKey base_cache_key(db_id_, db_session_id_, file_number);
     return base_cache_key.WithOffset(offset);
   }
 
@@ -133,6 +138,12 @@ class BlobSource {
 
   // A cache to store uncompressed blobs.
   std::shared_ptr<Cache> blob_cache_;
+
+  // The control option of how the cache tiers will be used. Currently rocksdb
+  // support block/blob cache (volatile tier) and secondary cache (this tier
+  // isn't strictly speaking a non-volatile tier since the compressed cache in
+  // this tier is in volatile memory).
+  const CacheTier lowest_used_cache_tier_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

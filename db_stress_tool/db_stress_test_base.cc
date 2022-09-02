@@ -10,6 +10,7 @@
 
 #include "util/compression.h"
 #ifdef GFLAGS
+#include "cache/clock_cache.h"
 #include "cache/fast_lru_cache.h"
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_compaction_filter.h"
@@ -114,9 +115,9 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity,
   }
 
   if (FLAGS_cache_type == "clock_cache") {
-    auto cache = NewClockCache(static_cast<size_t>(capacity), FLAGS_block_size,
-                               num_shard_bits, false /*strict_capacity_limit*/,
-                               kDefaultCacheMetadataChargePolicy);
+    auto cache = ExperimentalNewClockCache(
+        static_cast<size_t>(capacity), FLAGS_block_size, num_shard_bits,
+        false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     if (!cache) {
       fprintf(stderr, "Clock cache not supported.");
       exit(1);
@@ -269,6 +270,8 @@ bool StressTest::BuildOptionsTable() {
                         std::vector<std::string>{"0", "1M", "4M"});
     options_tbl.emplace("blob_file_starting_level",
                         std::vector<std::string>{"0", "1", "2"});
+    options_tbl.emplace("prepopulate_blob_cache",
+                        std::vector<std::string>{"kDisable", "kFlushOnly"});
   }
 
   options_table_ = std::move(options_tbl);
@@ -408,6 +411,19 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
   shared->SetVerificationFailure();
 }
 
+void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
+                                   int64_t key, Slice value_from_db,
+                                   Slice value_from_expected) const {
+  auto key_str = Key(key);
+  fprintf(stderr,
+          "Verification failed for column family %d key %s (%" PRIi64
+          "): value_from_db: %s, value_from_expected: %s, msg: %s\n",
+          cf, Slice(key_str).ToString(true).c_str(), key,
+          value_from_db.ToString(true).c_str(),
+          value_from_expected.ToString(true).c_str(), msg.c_str());
+  shared->SetVerificationFailure();
+}
+
 void StressTest::PrintStatistics() {
   if (dbstats) {
     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
@@ -416,35 +432,6 @@ void StressTest::PrintStatistics() {
     fprintf(stdout, "Secondary instances STATISTICS:\n%s\n",
             dbstats_secondaries->ToString().c_str());
   }
-}
-
-void StressTest::ReleaseOldTimestampedSnapshots(uint64_t ts) {
-#ifndef ROCKSDB_LITE
-  if (!txn_db_) {
-    return;
-  }
-  assert(txn_db_);
-  txn_db_->ReleaseTimestampedSnapshotsOlderThan(ts);
-#else
-  (void)ts;
-  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
-  exit(1);
-#endif  // ROCKSDB_LITE
-}
-
-std::pair<Status, std::shared_ptr<const Snapshot>>
-StressTest::CreateTimestampedSnapshot(uint64_t ts) {
-#ifndef ROCKSDB_LITE
-  if (!txn_db_) {
-    return std::make_pair(Status::InvalidArgument(), nullptr);
-  }
-  assert(txn_db_);
-  return txn_db_->CreateTimestampedSnapshot(ts);
-#else
-  (void)ts;
-  fprintf(stderr, "timestamped snapshots not supported in LITE mode\n");
-  exit(1);
-#endif  // ROCKSDB_LITE
 }
 
 // Currently PreloadDb has to be single-threaded.
@@ -591,6 +578,7 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
   if (!FLAGS_use_txn) {
     return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
   }
+  assert(txn_db_);
   Status s = txn->Prepare();
   std::shared_ptr<const Snapshot> timestamped_snapshot;
   if (s.ok()) {
@@ -599,9 +587,31 @@ Status StressTest::CommitTxn(Transaction* txn, ThreadState* thread) {
       uint64_t ts = db_stress_env->NowNanos();
       s = txn->CommitAndTryCreateSnapshot(/*notifier=*/nullptr, ts,
                                           &timestamped_snapshot);
+
+      std::pair<Status, std::shared_ptr<const Snapshot>> res;
+      if (thread->tid == 0) {
+        uint64_t now = db_stress_env->NowNanos();
+        res = txn_db_->CreateTimestampedSnapshot(now);
+        if (res.first.ok()) {
+          assert(res.second);
+          assert(res.second->GetTimestamp() == now);
+          if (timestamped_snapshot) {
+            assert(res.second->GetTimestamp() >
+                   timestamped_snapshot->GetTimestamp());
+          }
+        } else {
+          assert(!res.second);
+        }
+      }
     } else {
       s = txn->Commit();
     }
+  }
+  if (thread && FLAGS_create_timestamped_snapshot_one_in > 0 &&
+      thread->rand.OneInOpt(50000)) {
+    uint64_t now = db_stress_env->NowNanos();
+    constexpr uint64_t time_diff = static_cast<uint64_t>(1000) * 1000 * 1000;
+    txn_db_->ReleaseTimestampedSnapshotsOlderThan(now - time_diff);
   }
   delete txn;
   return s;
@@ -925,12 +935,19 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
-        int num_seeks = static_cast<int>(
-            std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
-                     FLAGS_ops_per_thread - i - 1));
-        rand_keys = GenerateNKeys(thread, num_seeks, i);
-        i += num_seeks - 1;
-        TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        if (!FLAGS_skip_verifydb &&
+            thread->rand.OneInOpt(
+                FLAGS_verify_iterator_with_expected_state_one_in)) {
+          TestIterateAgainstExpected(thread, read_opts, rand_column_families,
+                                     rand_keys, lock);
+        } else {
+          int num_seeks = static_cast<int>(
+              std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
+                       FLAGS_ops_per_thread - i - 1));
+          rand_keys = GenerateNKeys(thread, num_seeks, i);
+          i += num_seeks - 1;
+          TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        }
       } else {
         assert(iterate_bound <= prob_op);
         TestCustomOperations(thread, rand_column_families);
@@ -2398,11 +2415,16 @@ void StressTest::Open(SharedState* shared) {
 
   if (FLAGS_use_blob_cache) {
     fprintf(stdout,
-            "Integrated BlobDB: blob cache enabled, block and blob caches "
-            "shared: %d, blob cache size %" PRIu64
-            ", blob cache num shard bits: %d\n",
-            FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
-            FLAGS_blob_cache_numshardbits);
+            "Integrated BlobDB: blob cache enabled"
+            ", block and blob caches shared: %d",
+            FLAGS_use_shared_block_and_blob_cache);
+    if (!FLAGS_use_shared_block_and_blob_cache) {
+      fprintf(stdout,
+              ", blob cache size %" PRIu64 ", blob cache num shard bits: %d",
+              FLAGS_blob_cache_size, FLAGS_blob_cache_numshardbits);
+    }
+    fprintf(stdout, ", blob cache prepopulated: %d\n",
+            FLAGS_prepopulate_blob_cache);
   } else {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
@@ -2634,6 +2656,10 @@ void StressTest::Open(SharedState* shared) {
       txn_db_->GetAllPreparedTransactions(&trans);
       assert(trans.size() == 0);
 #endif
+    }
+    if (!s.ok()) {
+      fprintf(stderr, "Error in opening the DB [%s]\n", s.ToString().c_str());
+      fflush(stderr);
     }
     assert(s.ok());
     assert(column_families_.size() ==
@@ -2901,6 +2927,11 @@ void InitializeOptionsFromFlags(
        {/*.charged = */ FLAGS_charge_file_metadata
             ? CacheEntryRoleOptions::Decision::kEnabled
             : CacheEntryRoleOptions::Decision::kDisabled}});
+  block_based_options.cache_usage_options.options_overrides.insert(
+      {CacheEntryRole::kBlobCache,
+       {/*.charged = */ FLAGS_charge_blob_cache
+            ? CacheEntryRoleOptions::Decision::kEnabled
+            : CacheEntryRoleOptions::Decision::kDisabled}});
   block_based_options.format_version =
       static_cast<uint32_t>(FLAGS_format_version);
   block_based_options.index_block_restart_interval =
@@ -3011,6 +3042,8 @@ void InitializeOptionsFromFlags(
   options.track_and_verify_wals_in_manifest = true;
   options.verify_sst_unique_id_in_manifest =
       FLAGS_verify_sst_unique_id_in_manifest;
+  options.memtable_protection_bytes_per_key =
+      FLAGS_memtable_protection_bytes_per_key;
 
   // Integrated BlobDB
   options.enable_blob_files = FLAGS_enable_blob_files;
@@ -3042,10 +3075,27 @@ void InitializeOptionsFromFlags(
         exit(1);
       }
     }
+    switch (FLAGS_prepopulate_blob_cache) {
+      case 0:
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+        break;
+      case 1:
+        options.prepopulate_blob_cache = PrepopulateBlobCache::kFlushOnly;
+        break;
+      default:
+        fprintf(stderr, "Unknown prepopulate blob cache mode\n");
+        exit(1);
+    }
   }
 
   options.wal_compression =
       StringToCompressionType(FLAGS_wal_compression.c_str());
+
+  if (FLAGS_enable_tiered_storage) {
+    options.bottommost_temperature = Temperature::kCold;
+  }
+  options.preclude_last_level_data_seconds =
+      FLAGS_preclude_last_level_data_seconds;
 
   switch (FLAGS_rep_factory) {
     case kSkipList:

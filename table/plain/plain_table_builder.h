@@ -94,6 +94,9 @@ class PlainTableBuilder: public TableBuilder {
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
 
+  void SetSeqnoTimeTableProperties(const std::string& string,
+                                   uint64_t uint_64) override;
+
  private:
   Arena arena_;
   const ImmutableOptions& ioptions_;

@@ -764,6 +764,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     delete db_;
     db_ = nullptr;
     s = DestroyDB(dbname_, options);
+    ASSERT_OK(s);
     std::shared_ptr<mock::MockTableFactory> mock =
         std::make_shared<mock::MockTableFactory>();
     options.table_factory = mock;

@@ -32,10 +32,12 @@
 #include "db/log_writer.h"
 #include "db/logs_with_prep_tracker.h"
 #include "db/memtable_list.h"
+#include "db/periodic_task_scheduler.h"
 #include "db/post_memtable_callback.h"
 #include "db/pre_release_callback.h"
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
+#include "db/seqno_to_time_mapping.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
 #include "db/trim_history_scheduler.h"
@@ -74,10 +76,6 @@ class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
-class PeriodicWorkScheduler;
-#ifndef NDEBUG
-class PeriodicWorkTestScheduler;
-#endif  // !NDEBUG
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -117,7 +115,6 @@ class Directories {
   IOStatus Close(const IOOptions& options, IODebugContext* dbg) {
     // close all directories for all database paths
     IOStatus s = IOStatus::OK();
-    IOStatus temp_s = IOStatus::OK();
 
     // The default implementation for Close() in Directory/FSDirectory class
     // "NotSupported" status, the upper level interface should be able to
@@ -126,53 +123,35 @@ class Directories {
     // `FSDirectory::Close()` yet
 
     if (db_dir_) {
-      temp_s = db_dir_->Close(options, dbg);
-      if (!temp_s.ok()) {
-        if (temp_s.IsNotSupported()) {
-          temp_s.PermitUncheckedError();
-        } else {
-          s = temp_s;
-        }
+      IOStatus temp_s = db_dir_->Close(options, dbg);
+      if (!temp_s.ok() && !temp_s.IsNotSupported() && s.ok()) {
+        s = std::move(temp_s);
       }
     }
 
-    if (!s.ok()) {
-      return s;
-    }
+    // Attempt to close everything even if one fails
+    s.PermitUncheckedError();
 
     if (wal_dir_) {
-      s = wal_dir_->Close(options, dbg);
-      if (!temp_s.ok()) {
-        if (temp_s.IsNotSupported()) {
-          temp_s.PermitUncheckedError();
-        } else {
-          s = temp_s;
+      IOStatus temp_s = wal_dir_->Close(options, dbg);
+      if (!temp_s.ok() && !temp_s.IsNotSupported() && s.ok()) {
+        s = std::move(temp_s);
+      }
+    }
+
+    s.PermitUncheckedError();
+
+    for (auto& data_dir_ptr : data_dirs_) {
+      if (data_dir_ptr) {
+        IOStatus temp_s = data_dir_ptr->Close(options, dbg);
+        if (!temp_s.ok() && !temp_s.IsNotSupported() && s.ok()) {
+          s = std::move(temp_s);
         }
       }
     }
 
-    if (!s.ok()) {
-      return s;
-    }
-
-    if (data_dirs_.size() > 0 && s.ok()) {
-      for (auto& data_dir_ptr : data_dirs_) {
-        if (data_dir_ptr) {
-          temp_s = data_dir_ptr->Close(options, dbg);
-          if (!temp_s.ok()) {
-            if (temp_s.IsNotSupported()) {
-              temp_s.PermitUncheckedError();
-            } else {
-              return temp_s;
-            }
-          }
-        }
-      }
-    }
-
-    // Mark temp_s as checked when temp_s is still the initial status
-    // (IOStatus::OK(), not checked yet)
-    temp_s.PermitUncheckedError();
+    // Ready for caller
+    s.MustCheck();
     return s;
   }
 
@@ -255,6 +234,11 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value, std::string* timestamp) override;
+
+  using DB::GetEntity;
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override;
 
   using DB::GetMergeOperands;
   Status GetMergeOperands(const ReadOptions& options,
@@ -610,6 +594,7 @@ class DBImpl : public DB {
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
     PinnableSlice* value = nullptr;
+    PinnableWideColumns* columns = nullptr;
     std::string* timestamp = nullptr;
     bool* value_found = nullptr;
     ReadCallback* callback = nullptr;
@@ -754,12 +739,28 @@ class DBImpl : public DB {
   // the value and so will require PrepareValue() to be called before value();
   // allow_unprepared_value = false is convenient when this optimization is not
   // useful, e.g. when reading the whole column family.
+  //
+  // read_options.ignore_range_deletions determines whether range tombstones are
+  // processed in the returned interator internally, i.e., whether range
+  // tombstone covered keys are in this iterator's output.
   // @param read_options Must outlive the returned iterator.
   InternalIterator* NewInternalIterator(
-      const ReadOptions& read_options, Arena* arena,
-      RangeDelAggregator* range_del_agg, SequenceNumber sequence,
+      const ReadOptions& read_options, Arena* arena, SequenceNumber sequence,
       ColumnFamilyHandle* column_family = nullptr,
       bool allow_unprepared_value = false);
+
+  // Note: to support DB iterator refresh, memtable range tombstones in the
+  // underlying merging iterator needs to be refreshed. If db_iter is not
+  // nullptr, db_iter->SetMemtableRangetombstoneIter() is called with the
+  // memtable range tombstone iterator used by the underlying merging iterator.
+  // This range tombstone iterator can be refreshed later by db_iter.
+  // @param read_options Must outlive the returned iterator.
+  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
+                                        ColumnFamilyData* cfd,
+                                        SuperVersion* super_version,
+                                        Arena* arena, SequenceNumber sequence,
+                                        bool allow_unprepared_value,
+                                        ArenaWrappedDBIter* db_iter = nullptr);
 
   LogsWithPrepTracker* logs_with_prep_tracker() {
     return &logs_with_prep_tracker_;
@@ -883,15 +884,6 @@ class DBImpl : public DB {
 
   const WriteController& write_controller() { return write_controller_; }
 
-  // @param read_options Must outlive the returned iterator.
-  InternalIterator* NewInternalIterator(const ReadOptions& read_options,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena,
-                                        RangeDelAggregator* range_del_agg,
-                                        SequenceNumber sequence,
-                                        bool allow_unprepared_value);
-
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
   // locks can be reacquired before writing can resume.
@@ -997,6 +989,7 @@ class DBImpl : public DB {
   }
 
   void AddToLogsToFreeQueue(log::Writer* log_writer) {
+    mutex_.AssertHeld();
     logs_to_free_queue_.push_back(log_writer);
   }
 
@@ -1158,7 +1151,8 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForStatsDumpRun(std::function<void()> callback) const;
+  void TEST_WaitForPeridicTaskRun(std::function<void()> callback) const;
+  SeqnoToTimeMapping TEST_GetSeqnoToTimeMapping() const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   uint64_t TEST_GetCurrentLogNumber() const {
@@ -1172,7 +1166,7 @@ class DBImpl : public DB {
   }
 
 #ifndef ROCKSDB_LITE
-  PeriodicWorkTestScheduler* TEST_GetPeriodicWorkScheduler() const;
+  const PeriodicTaskScheduler& TEST_GetPeriodicTaskScheduler() const;
 #endif  // !ROCKSDB_LITE
 
 #endif  // NDEBUG
@@ -1185,6 +1179,9 @@ class DBImpl : public DB {
 
   // flush LOG out of application buffer
   void FlushInfoLog();
+
+  // record current sequence number to time mapping
+  void RecordSeqnoToTimeMapping();
 
   // Interface to block and signal the DB in case of stalling writes by
   // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
@@ -1293,7 +1290,7 @@ class DBImpl : public DB {
 
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
-  uint64_t max_total_in_memory_state_;
+  std::atomic<uint64_t> max_total_in_memory_state_;
 
   // The options to access storage files
   const FileOptions file_options_;
@@ -1397,7 +1394,7 @@ class DBImpl : public DB {
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
 
-  Status FlushForGetLiveFiles();
+  virtual Status FlushForGetLiveFiles();
 #endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
@@ -1643,6 +1640,15 @@ class DBImpl : public DB {
     uint64_t pre_sync_size = 0;
   };
 
+  struct LogContext {
+    explicit LogContext(bool need_sync = false)
+        : need_log_sync(need_sync), need_log_dir_sync(need_sync) {}
+    bool need_log_sync = false;
+    bool need_log_dir_sync = false;
+    log::Writer* writer = nullptr;
+    LogFileNumberSize* log_file_number_size = nullptr;
+  };
+
   // PurgeFileInfo is a structure to hold information of files to be deleted in
   // purge_files_
   struct PurgeFileInfo {
@@ -1796,7 +1802,7 @@ class DBImpl : public DB {
   void ReleaseFileNumberFromPendingOutputs(
       std::unique_ptr<std::list<uint64_t>::iterator>& v);
 
-  IOStatus SyncClosedLogs(JobContext* job_context);
+  IOStatus SyncClosedLogs(JobContext* job_context, VersionEdit* synced_wals);
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful. Then
@@ -1956,8 +1962,8 @@ class DBImpl : public DB {
   Status HandleWriteBufferManagerFlush(WriteContext* write_context);
 
   // REQUIRES: mutex locked
-  Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
-                         WriteContext* write_context);
+  Status PreprocessWrite(const WriteOptions& write_options,
+                         LogContext* log_context, WriteContext* write_context);
 
   // Merge write batches in the write group into merged_batch.
   // Returns OK if merge is successful.
@@ -2067,7 +2073,9 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
 
   // Schedule background tasks
-  Status StartPeriodicWorkScheduler();
+  Status StartPeriodicTaskScheduler();
+
+  Status RegisterRecordSeqnoTimeWorker();
 
   void PrintStatistics();
 
@@ -2094,7 +2102,8 @@ class DBImpl : public DB {
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
 
   // helper function to call after some of the logs_ were synced
-  Status MarkLogsSynced(uint64_t up_to, bool synced_dir);
+  void MarkLogsSynced(uint64_t up_to, bool synced_dir, VersionEdit* edit);
+  Status ApplyWALToManifest(VersionEdit* edit);
   // WALs with log number up to up_to are not synced successfully.
   void MarkLogsNotSynced(uint64_t up_to);
 
@@ -2261,6 +2270,8 @@ class DBImpl : public DB {
   Status IncreaseFullHistoryTsLowImpl(ColumnFamilyData* cfd,
                                       std::string ts_low);
 
+  bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
@@ -2300,8 +2311,9 @@ class DBImpl : public DB {
   // logfile_number_ is currently updated only in write_thread_, it can be read
   // from the same write_thread_ without any locks.
   uint64_t logfile_number_;
-  std::deque<uint64_t>
-      log_recycle_files_;  // a list of log files that we can recycle
+  // Log files that we can recycle. Must be protected by db mutex_.
+  std::deque<uint64_t> log_recycle_files_;
+  // Protected by log_write_mutex_.
   bool log_dir_synced_;
   // Without two_write_queues, read and writes to log_empty_ are protected by
   // mutex_. Since it is currently updated/read only in write_thread_, it can be
@@ -2315,26 +2327,93 @@ class DBImpl : public DB {
 
   bool persistent_stats_cfd_exists_ = true;
 
-  // Without two_write_queues, read and writes to alive_log_files_ are
-  // protected by mutex_. With two_write_queues_, writes
-  // are protected by locking both mutex_ and log_write_mutex_, and reads must
-  // be under either mutex_ or log_write_mutex_.
+  // alive_log_files_ is protected by mutex_ and log_write_mutex_ with details
+  // as follows:
+  // 1. read by FindObsoleteFiles() which can be called in either application
+  //    thread or RocksDB bg threads, both mutex_ and log_write_mutex_ are
+  //    held.
+  // 2. pop_front() by FindObsoleteFiles(), both mutex_ and log_write_mutex_
+  //    are held.
+  // 3. push_back() by DBImpl::Open() and DBImpl::RestoreAliveLogFiles()
+  //    (actually called by Open()), only mutex_ is held because at this point,
+  //    the DB::Open() call has not returned success to application, and the
+  //    only other thread(s) that can conflict are bg threads calling
+  //    FindObsoleteFiles() which ensure that both mutex_ and log_write_mutex_
+  //    are held when accessing alive_log_files_.
+  // 4. read by DBImpl::Open() is protected by mutex_.
+  // 5. push_back() by SwitchMemtable(). Both mutex_ and log_write_mutex_ are
+  //    held. This is done by the write group leader. Note that in the case of
+  //    two-write-queues, another WAL-only write thread can be writing to the
+  //    WAL concurrently. See 9.
+  // 6. read by SwitchWAL() with both mutex_ and log_write_mutex_ held. This is
+  //    done by write group leader.
+  // 7. read by ConcurrentWriteToWAL() by the write group leader in the case of
+  //    two-write-queues. Only log_write_mutex_ is held to protect concurrent
+  //    pop_front() by FindObsoleteFiles().
+  // 8. read by PreprocessWrite() by the write group leader. log_write_mutex_
+  //    is held to protect the data structure from concurrent pop_front() by
+  //    FindObsoleteFiles().
+  // 9. read by ConcurrentWriteToWAL() by a WAL-only write thread in the case
+  //    of two-write-queues. Only log_write_mutex_ is held. This suffices to
+  //    protect the data structure from concurrent push_back() by current
+  //    write group leader as well as pop_front() by FindObsoleteFiles().
   std::deque<LogFileNumberSize> alive_log_files_;
 
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
-  //  - push_back() is done from write_thread_ with locked mutex_ and
-  //  log_write_mutex_
-  //  - pop_front() is done from any thread with locked mutex_ and
-  //  log_write_mutex_
-  //  - reads are done with either locked mutex_ or log_write_mutex_
+  // 1. read by FindObsoleteFiles() which can be called either in application
+  //    thread or RocksDB bg threads. log_write_mutex_ is always held, while
+  //    some reads are performed without mutex_.
+  // 2. pop_front() by FindObsoleteFiles() with only log_write_mutex_ held.
+  // 3. read by DBImpl::Open() with both mutex_ and log_write_mutex_.
+  // 4. emplace_back() by DBImpl::Open() with both mutex_ and log_write_mutex.
+  //    Note that at this point, DB::Open() has not returned success to
+  //    application, thus the only other thread(s) that can conflict are bg
+  //    threads calling FindObsoleteFiles(). See 1.
+  // 5. iteration and clear() from CloseHelper() always hold log_write_mutex
+  //    and mutex_.
+  // 6. back() called by APIs FlushWAL() and LockWAL() are protected by only
+  //    log_write_mutex_. These two can be called by application threads after
+  //    DB::Open() returns success to applications.
+  // 7. read by SyncWAL(), another API, protected by only log_write_mutex_.
+  // 8. read by MarkLogsNotSynced() and MarkLogsSynced() are protected by
+  //    log_write_mutex_.
+  // 9. erase() by MarkLogsSynced() protected by log_write_mutex_.
+  // 10. read by SyncClosedLogs() protected by only log_write_mutex_. This can
+  //     happen in bg flush threads after DB::Open() returns success to
+  //     applications.
+  // 11. reads, e.g. front(), iteration, and back() called by PreprocessWrite()
+  //     holds only the log_write_mutex_. This is done by the write group
+  //     leader. A bg thread calling FindObsoleteFiles() or MarkLogsSynced()
+  //     can happen concurrently. This is fine because log_write_mutex_ is used
+  //     by all parties. See 2, 5, 9.
+  // 12. reads, empty(), back() called by SwitchMemtable() hold both mutex_ and
+  //     log_write_mutex_. This happens in the write group leader.
+  // 13. emplace_back() by SwitchMemtable() hold both mutex_ and
+  //     log_write_mutex_. This happens in the write group leader. Can conflict
+  //     with bg threads calling FindObsoleteFiles(), MarkLogsSynced(),
+  //     SyncClosedLogs(), etc. as well as application threads calling
+  //     FlushWAL(), SyncWAL(), LockWAL(). This is fine because all parties
+  //     require at least log_write_mutex_.
+  // 14. iteration called in WriteToWAL(write_group) protected by
+  //     log_write_mutex_. This is done by write group leader when
+  //     two-write-queues is disabled and write needs to sync logs.
+  // 15. back() called in ConcurrentWriteToWAL() protected by log_write_mutex_.
+  //     This can be done by the write group leader if two-write-queues is
+  //     enabled. It can also be done by another WAL-only write thread.
+  //
+  // Other observations:
   //  - back() and items with getting_synced=true are not popped,
   //  - The same thread that sets getting_synced=true will reset it.
   //  - it follows that the object referred by back() can be safely read from
-  //  the write_thread_ without using mutex
+  //  the write_thread_ without using mutex. Note that calling back() without
+  //  mutex may be unsafe because different implementations of deque::back() may
+  //  access other member variables of deque, causing undefined behaviors.
+  //  Generally, do not access stl containers without proper synchronization.
   //  - it follows that the items with getting_synced=true can be safely read
   //  from the same thread that has set getting_synced=true
   std::deque<LogWriterNumber> logs_;
+
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
   // This is the app-level state that is written to the WAL but will be used
@@ -2349,7 +2428,7 @@ class DBImpl : public DB {
   std::atomic<uint64_t> total_log_size_;
 
   // If this is non-empty, we need to delete these log files in background
-  // threads. Protected by db mutex.
+  // threads. Protected by log_write_mutex_.
   autovector<log::Writer*> logs_to_free_;
 
   bool is_snapshot_supported_;
@@ -2429,10 +2508,13 @@ class DBImpl : public DB {
   // JobContext. Current implementation tracks table and blob files only.
   std::unordered_set<uint64_t> files_grabbed_for_purge_;
 
-  // A queue to store log writers to close
+  // A queue to store log writers to close. Protected by db mutex_.
   std::deque<log::Writer*> logs_to_free_queue_;
+
   std::deque<SuperVersion*> superversions_to_free_queue_;
+
   int unscheduled_flushes_;
+
   int unscheduled_compactions_;
 
   // count how many background compactions are running or have been scheduled in
@@ -2533,10 +2615,11 @@ class DBImpl : public DB {
 
 #ifndef ROCKSDB_LITE
   // Scheduler to run DumpStats(), PersistStats(), and FlushInfoLog().
-  // Currently, it always use a global instance from
-  // PeriodicWorkScheduler::Default(). Only in unittest, it can be overrided by
-  // PeriodicWorkTestScheduler.
-  PeriodicWorkScheduler* periodic_work_scheduler_;
+  // Currently, internally it has a global timer instance for running the tasks.
+  PeriodicTaskScheduler periodic_task_scheduler_;
+
+  // It contains the implementations for each periodic task.
+  std::map<PeriodicTaskType, const PeriodicTaskFunc> periodic_task_functions_;
 #endif
 
   // When set, we use a separate queue for writes that don't write to memtable.
@@ -2581,11 +2664,16 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   bool wal_in_db_path_;
+  std::atomic<uint64_t> max_total_wal_size_;
 
   BlobFileCompletionCallback blob_callback_;
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+
+  // seqno_time_mapping_ stores the sequence number to time mapping, it's not
+  // thread safe, both read and write need db mutex hold.
+  SeqnoToTimeMapping seqno_time_mapping_;
 };
 
 class GetWithTimestampReadCallback : public ReadCallback {

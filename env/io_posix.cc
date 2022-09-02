@@ -750,14 +750,17 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
                    bytes_read, read_again);
       int32_t res = cqe->res;
       if (res >= 0) {
-        if (bytes_read == 0 && read_again) {
-          Slice tmp_slice;
-          req->status =
-              Read(req->offset + req_wrap->finished_len,
-                   req->len - req_wrap->finished_len, options, &tmp_slice,
-                   req->scratch + req_wrap->finished_len, dbg);
-          req->result =
-              Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+        if (bytes_read == 0) {
+          if (read_again) {
+            Slice tmp_slice;
+            req->status =
+                Read(req->offset + req_wrap->finished_len,
+                     req->len - req_wrap->finished_len, options, &tmp_slice,
+                     req->scratch + req_wrap->finished_len, dbg);
+            req->result =
+                Slice(req->scratch, req_wrap->finished_len + tmp_slice.size());
+          }
+          // else It means EOF so no need to do anything.
         } else if (bytes_read < req_wrap->iov.iov_len) {
           incomplete_rq_list.push_back(req_wrap);
         }
@@ -1351,8 +1354,7 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
     // but it will be nice to log these errors.
     int dummy __attribute__((__unused__));
     dummy = ftruncate(fd_, filesize_);
-#if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_PUNCH_HOLE) && \
-    !defined(TRAVIS)
+#if defined(ROCKSDB_FALLOCATE_PRESENT) && defined(FALLOC_FL_PUNCH_HOLE)
     // in some file systems, ftruncate only trims trailing space if the
     // new file size is smaller than the current size. Calling fallocate
     // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
@@ -1364,11 +1366,6 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
     //   tmpfs (since Linux 3.5)
     // We ignore error since failure of this operation does not affect
     // correctness.
-    // TRAVIS - this code does not work on TRAVIS filesystems.
-    // the FALLOC_FL_KEEP_SIZE option is expected to not change the size
-    // of the file, but it does. Simple strace report will show that.
-    // While we work with Travis-CI team to figure out if this is a
-    // quirk of Docker/AUFS, we will comment this out.
     struct stat file_stats;
     int result = fstat(fd_, &file_stats);
     // After ftruncate, we check whether ftruncate has the correct behavior.
@@ -1681,6 +1678,7 @@ IOStatus PosixDirectory::Close(const IOOptions& /*opts*/,
 IOStatus PosixDirectory::FsyncWithDirOptions(
     const IOOptions& /*opts*/, IODebugContext* /*dbg*/,
     const DirFsyncOptions& dir_fsync_options) {
+  assert(fd_ >= 0);  // Check use after close
   IOStatus s = IOStatus::OK();
 #ifndef OS_AIX
   if (is_btrfs_) {

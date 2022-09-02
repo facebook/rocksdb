@@ -95,6 +95,7 @@ function display_usage() {
   echo -e "\tUSE_SHARED_BLOCK_AND_BLOB_CACHE\t\t\tUse the same backing cache for block cache and blob cache (default: 1)"
   echo -e "\tBLOB_CACHE_SIZE\t\t\tSize of the blob cache (default: 16GB)"
   echo -e "\tBLOB_CACHE_NUMSHARDBITS\t\t\tNumber of shards for the blob cache is 2 ** blob_cache_numshardbits (default: 6)"
+  echo -e "\tPREPOPULATE_BLOB_CACHE\t\t\tPre-populate hot/warm blobs in blob cache (default: 0)"
 }
 
 if [ $# -lt 1 ]; then
@@ -191,7 +192,7 @@ if [[ $cache_index_and_filter -eq 0 ]]; then
 elif [[ $cache_index_and_filter -eq 1 ]]; then
   cache_meta_flags="\
   --cache_index_and_filter_blocks=$cache_index_and_filter \
-  --cache_high_pri_pool_ratio=0.5"
+  --cache_high_pri_pool_ratio=0.5 --cache_low_pri_pool_ratio=0"
 else
   echo CACHE_INDEX_AND_FILTER_BLOCKS was $CACHE_INDEX_AND_FILTER_BLOCKS but must be 0 or 1
   exit $EXIT_INVALID_ARGS
@@ -239,6 +240,7 @@ use_blob_cache=${USE_BLOB_CACHE:-1}
 use_shared_block_and_blob_cache=${USE_SHARED_BLOCK_AND_BLOB_CACHE:-1}
 blob_cache_size=${BLOB_CACHE_SIZE:-$(( 16 * $G ))}
 blob_cache_numshardbits=${BLOB_CACHE_NUMSHARDBITS:-6}
+prepopulate_blob_cache=${PREPOPULATE_BLOB_CACHE:-0}
 
 const_params_base="
   --db=$DB_DIR \
@@ -306,7 +308,8 @@ blob_const_params="
   --use_shared_block_and_blob_cache=$use_shared_block_and_blob_cache \
   --blob_cache_size=$blob_cache_size \
   --blob_cache_numshardbits=$blob_cache_numshardbits \
-  --undefok=use_blob_cache,use_shared_block_and_blob_cache,blob_cache_size,blob_cache_numshardbits \
+  --prepopulate_blob_cache=$prepopulate_blob_cache \
+  --undefok=use_blob_cache,use_shared_block_and_blob_cache,blob_cache_size,blob_cache_numshardbits,prepopulate_blob_cache \
 "
 
 # TODO:

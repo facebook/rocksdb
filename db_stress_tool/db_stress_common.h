@@ -141,6 +141,7 @@ DECLARE_bool(charge_compression_dictionary_building_buffer);
 DECLARE_bool(charge_filter_construction);
 DECLARE_bool(charge_table_reader);
 DECLARE_bool(charge_file_metadata);
+DECLARE_bool(charge_blob_cache);
 DECLARE_int32(top_level_index_pinning);
 DECLARE_int32(partition_pinning);
 DECLARE_int32(unpartitioned_pinning);
@@ -272,6 +273,7 @@ DECLARE_bool(use_blob_cache);
 DECLARE_bool(use_shared_block_and_blob_cache);
 DECLARE_uint64(blob_cache_size);
 DECLARE_int32(blob_cache_numshardbits);
+DECLARE_int32(prepopulate_blob_cache);
 
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
@@ -282,6 +284,7 @@ DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
 DECLARE_bool(fail_if_options_file_error);
 DECLARE_uint64(batch_protection_bytes_per_key);
+DECLARE_uint32(memtable_protection_bytes_per_key);
 
 DECLARE_uint64(user_timestamp_size);
 DECLARE_string(secondary_cache_uri);
@@ -304,6 +307,12 @@ DECLARE_bool(verify_sst_unique_id_in_manifest);
 DECLARE_int32(create_timestamped_snapshot_one_in);
 
 DECLARE_bool(allow_data_in_errors);
+
+// Tiered storage
+DECLARE_bool(enable_tiered_storage);  // set last_level_temperature
+DECLARE_int64(preclude_last_level_data_seconds);
+
+DECLARE_int32(verify_iterator_with_expected_state_one_in);
 
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;

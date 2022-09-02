@@ -11,6 +11,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// TODO: Share common structure with DBImplSecondary and DBImplReadOnly
 class CompactedDBImpl : public DBImpl {
  public:
   CompactedDBImpl(const DBOptions& options, const std::string& dbname);
@@ -126,6 +127,17 @@ class CompactedDBImpl : public DBImpl {
       ColumnFamilyHandle** /*handle*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+
+  // FIXME: some missing overrides for more "write" functions
+  // Share with DBImplReadOnly?
+
+ protected:
+#ifndef ROCKSDB_LITE
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+#endif  // !ROCKSDB_LITE
 
  private:
   friend class DB;

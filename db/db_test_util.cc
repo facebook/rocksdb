@@ -967,15 +967,13 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
-  ReadRangeDelAggregator range_del_agg(&icmp,
-                                       kMaxSequenceNumber /* upper_bound */);
   ReadOptions read_options;
   ScopedArenaIterator iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
@@ -1431,17 +1429,13 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   InternalKeyComparator icmp(options.comparator);
-  ReadRangeDelAggregator range_del_agg(&icmp,
-                                       kMaxSequenceNumber /* upper_bound */);
-  // This should be defined after range_del_agg so that it destructs the
-  // assigned iterator before it range_del_agg is already destructed.
   ReadOptions read_options;
   ScopedArenaIterator iter;
   if (cf != 0) {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(read_options, &arena, &range_del_agg,
+    iter.set(dbfull()->NewInternalIterator(read_options, &arena,
                                            kMaxSequenceNumber));
   }
   iter->SeekToFirst();
@@ -1646,11 +1640,9 @@ void DBTestBase::VerifyDBInternal(
     std::vector<std::pair<std::string, std::string>> true_data) {
   Arena arena;
   InternalKeyComparator icmp(last_options_.comparator);
-  ReadRangeDelAggregator range_del_agg(&icmp,
-                                       kMaxSequenceNumber /* upper_bound */);
   ReadOptions read_options;
-  auto iter = dbfull()->NewInternalIterator(read_options, &arena,
-                                            &range_del_agg, kMaxSequenceNumber);
+  auto iter =
+      dbfull()->NewInternalIterator(read_options, &arena, kMaxSequenceNumber);
   iter->SeekToFirst();
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());
@@ -1675,6 +1667,15 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
     result += (fileMetadata.column_family_name == column_family_name);
   }
   return result;
+}
+
+uint64_t DBTestBase::GetSstSizeHelper(Temperature temperature) {
+  std::string prop;
+  EXPECT_TRUE(dbfull()->GetProperty(
+      DB::Properties::kLiveSstFilesSizeAtTemperature +
+          std::to_string(static_cast<uint8_t>(temperature)),
+      &prop));
+  return static_cast<uint64_t>(std::atoi(prop.c_str()));
 }
 #endif  // ROCKSDB_LITE
 

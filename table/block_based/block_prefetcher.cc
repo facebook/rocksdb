@@ -23,7 +23,7 @@ void BlockPrefetcher::PrefetchIfNeeded(
     rep->CreateFilePrefetchBufferIfNotExists(
         compaction_readahead_size_, compaction_readahead_size_,
         &prefetch_buffer_, /*implicit_auto_readahead=*/false,
-        /*num_file_reads=*/0);
+        /*num_file_reads=*/0, /*num_file_reads_for_auto_readahead=*/0);
     return;
   }
 
@@ -31,7 +31,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
   if (readahead_size > 0) {
     rep->CreateFilePrefetchBufferIfNotExists(
         readahead_size, readahead_size, &prefetch_buffer_,
-        /*implicit_auto_readahead=*/false, /*num_file_reads=*/0);
+        /*implicit_auto_readahead=*/false, /*num_file_reads=*/0,
+        /*num_file_reads_for_auto_readahead=*/0);
     return;
   }
 
@@ -50,7 +51,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
         &prefetch_buffer_, /*implicit_auto_readahead=*/true,
-        /*num_file_reads=*/0);
+        /*num_file_reads=*/0,
+        rep->table_options.num_file_reads_for_auto_readahead);
     return;
   }
 
@@ -72,11 +74,10 @@ void BlockPrefetcher::PrefetchIfNeeded(
   UpdateReadPattern(offset, len);
 
   // Implicit auto readahead, which will be enabled if the number of reads
-  // reached `kMinNumFileReadsToStartAutoReadahead` (default: 2)  and scans are
-  // sequential.
+  // reached `table_options.num_file_reads_for_auto_readahead` (default: 2)  and
+  // scans are sequential.
   num_file_reads_++;
-  if (num_file_reads_ <=
-      BlockBasedTable::kMinNumFileReadsToStartAutoReadahead) {
+  if (num_file_reads_ <= rep->table_options.num_file_reads_for_auto_readahead) {
     return;
   }
 
@@ -87,7 +88,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
   if (rep->file->use_direct_io()) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_);
+        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
+        rep->table_options.num_file_reads_for_auto_readahead);
     return;
   }
 
@@ -105,7 +107,8 @@ void BlockPrefetcher::PrefetchIfNeeded(
   if (s.IsNotSupported()) {
     rep->CreateFilePrefetchBufferIfNotExists(
         initial_auto_readahead_size_, max_auto_readahead_size,
-        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_);
+        &prefetch_buffer_, /*implicit_auto_readahead=*/true, num_file_reads_,
+        rep->table_options.num_file_reads_for_auto_readahead);
     return;
   }
 

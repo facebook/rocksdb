@@ -392,11 +392,16 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
     cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
   }
 
-  if (cache_handle != nullptr) {
-    UpdateCacheHitMetrics(block_type, get_context,
-                          block_cache->GetUsage(cache_handle));
-  } else {
-    UpdateCacheMissMetrics(block_type, get_context);
+  // Avoid updating metrics here if the handle is not complete yet. This
+  // happens with MultiGet and secondary cache. So update the metrics only
+  // if its a miss, or a hit and value is ready
+  if (!cache_handle || block_cache->Value(cache_handle)) {
+    if (cache_handle != nullptr) {
+      UpdateCacheHitMetrics(block_type, get_context,
+                            block_cache->GetUsage(cache_handle));
+    } else {
+      UpdateCacheMissMetrics(block_type, get_context);
+    }
   }
 
   return cache_handle;
@@ -516,7 +521,6 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
 void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
                                         const std::string& cur_db_session_id,
                                         uint64_t cur_file_number,
-                                        uint64_t file_size,
                                         OffsetableCacheKey* out_base_cache_key,
                                         bool* out_is_stable) {
   // Use a stable cache key if sufficient data is in table properties
@@ -560,8 +564,7 @@ void BlockBasedTable::SetupBaseCacheKey(const TableProperties* properties,
 
   // Minimum block size is 5 bytes; therefore we can trim off two lower bits
   // from offsets. See GetCacheKey.
-  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num,
-                                           /*max_offset*/ file_size >> 2);
+  *out_base_cache_key = OffsetableCacheKey(db_id, db_session_id, file_num);
 }
 
 CacheKey BlockBasedTable::GetCacheKey(const OffsetableCacheKey& base_cache_key,
@@ -712,7 +715,7 @@ Status BlockBasedTable::Open(
 
   // With properties loaded, we can set up portable/stable cache keys
   SetupBaseCacheKey(rep->table_properties.get(), cur_db_session_id,
-                    cur_file_num, file_size, &rep->base_cache_key);
+                    cur_file_num, &rep->base_cache_key);
 
   rep->persistent_cache_options =
       PersistentCacheOptions(rep->table_options.persistent_cache,
@@ -2045,6 +2048,57 @@ void BlockBasedTable::FullFilterKeysMayMatch(
   }
 }
 
+Status BlockBasedTable::ApproximateKeyAnchors(const ReadOptions& read_options,
+                                              std::vector<Anchor>& anchors) {
+  // We iterator the whole index block here. More efficient implementation
+  // is possible if we push this operation into IndexReader. For example, we
+  // can directly sample from restart block entries in the index block and
+  // only read keys needed. Here we take a simple solution. Performance is
+  // likely not to be a problem. We are compacting the whole file, so all
+  // keys will be read out anyway. An extra read to index block might be
+  // a small share of the overhead. We can try to optimize if needed.
+  IndexBlockIter iiter_on_stack;
+  auto iiter = NewIndexIterator(
+      read_options, /*disable_prefix_seek=*/false, &iiter_on_stack,
+      /*get_context=*/nullptr, /*lookup_context=*/nullptr);
+  std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+  if (iiter != &iiter_on_stack) {
+    iiter_unique_ptr.reset(iiter);
+  }
+
+  // If needed the threshold could be more adaptive. For example, it can be
+  // based on size, so that a larger will be sampled to more partitions than a
+  // smaller file. The size might also need to be passed in by the caller based
+  // on total compaction size.
+  const uint64_t kMaxNumAnchors = uint64_t{128};
+  uint64_t num_blocks = this->GetTableProperties()->num_data_blocks;
+  uint64_t num_blocks_per_anchor = num_blocks / kMaxNumAnchors;
+  if (num_blocks_per_anchor == 0) {
+    num_blocks_per_anchor = 1;
+  }
+
+  uint64_t count = 0;
+  std::string last_key;
+  uint64_t range_size = 0;
+  uint64_t prev_offset = 0;
+  for (iiter->SeekToFirst(); iiter->Valid(); iiter->Next()) {
+    const BlockHandle& bh = iiter->value().handle;
+    range_size += bh.offset() + bh.size() - prev_offset;
+    prev_offset = bh.offset() + bh.size();
+    if (++count % num_blocks_per_anchor == 0) {
+      count = 0;
+      anchors.emplace_back(iiter->user_key(), range_size);
+      range_size = 0;
+    } else {
+      last_key = iiter->user_key().ToString();
+    }
+  }
+  if (count != 0) {
+    anchors.emplace_back(last_key, range_size);
+  }
+  return Status::OK();
+}
+
 Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                             GetContext* get_context,
                             const SliceTransform* prefix_extractor,
@@ -2215,6 +2269,36 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   }
 
   return s;
+}
+
+Status BlockBasedTable::MultiGetFilter(const ReadOptions& read_options,
+                                       const SliceTransform* prefix_extractor,
+                                       MultiGetRange* mget_range) {
+  if (mget_range->empty()) {
+    // Caller should ensure non-empty (performance bug)
+    assert(false);
+    return Status::OK();  // Nothing to do
+  }
+
+  FilterBlockReader* const filter = rep_->filter.get();
+  if (!filter) {
+    return Status::OK();
+  }
+
+  // First check the full filter
+  // If full filter not useful, Then go into each block
+  const bool no_io = read_options.read_tier == kBlockCacheTier;
+  uint64_t tracing_mget_id = BlockCacheTraceHelper::kReservedGetId;
+  if (mget_range->begin()->get_context) {
+    tracing_mget_id = mget_range->begin()->get_context->get_tracing_get_id();
+  }
+  BlockCacheLookupContext lookup_context{
+      TableReaderCaller::kUserMultiGet, tracing_mget_id,
+      /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
+  FullFilterKeysMayMatch(filter, mget_range, no_io, prefix_extractor,
+                         &lookup_context, read_options.rate_limiter_priority);
+
+  return Status::OK();
 }
 
 Status BlockBasedTable::Prefetch(const Slice* const begin,

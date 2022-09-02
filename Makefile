@@ -1504,6 +1504,9 @@ db_table_properties_test: $(OBJ_DIR)/db/db_table_properties_test.o $(TEST_LIBRAR
 log_write_bench: $(OBJ_DIR)/util/log_write_bench.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK) $(PROFILING_FLAGS)
 
+seqno_time_test: $(OBJ_DIR)/db/seqno_time_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 plain_table_db_test: $(OBJ_DIR)/db/plain_table_db_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1783,6 +1786,9 @@ write_unprepared_transaction_test: $(OBJ_DIR)/utilities/transactions/write_unpre
 timestamped_snapshot_test: $(OBJ_DIR)/utilities/transactions/timestamped_snapshot_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+tiered_compaction_test: $(OBJ_DIR)/db/compaction/tiered_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 sst_dump: $(OBJ_DIR)/tools/sst_dump.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1876,7 +1882,7 @@ blob_garbage_meter_test: $(OBJ_DIR)/db/blob/blob_garbage_meter_test.o $(TEST_LIB
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-periodic_work_scheduler_test: $(OBJ_DIR)/db/periodic_work_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
+periodic_task_scheduler_test: $(OBJ_DIR)/db/periodic_task_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)

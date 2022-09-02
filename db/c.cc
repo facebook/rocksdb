@@ -99,6 +99,7 @@ using ROCKSDB_NAMESPACE::Options;
 using ROCKSDB_NAMESPACE::PerfContext;
 using ROCKSDB_NAMESPACE::PerfLevel;
 using ROCKSDB_NAMESPACE::PinnableSlice;
+using ROCKSDB_NAMESPACE::PrepopulateBlobCache;
 using ROCKSDB_NAMESPACE::RandomAccessFile;
 using ROCKSDB_NAMESPACE::Range;
 using ROCKSDB_NAMESPACE::RateLimiter;
@@ -1051,6 +1052,18 @@ void rocksdb_drop_column_family(
     rocksdb_column_family_handle_t* handle,
     char** errptr) {
   SaveError(errptr, db->rep->DropColumnFamily(handle->rep));
+}
+
+uint32_t rocksdb_column_family_handle_get_id(
+    rocksdb_column_family_handle_t* handle) {
+  return handle->rep->GetID();
+}
+
+char* rocksdb_column_family_handle_get_name(
+    rocksdb_column_family_handle_t* handle, size_t* name_len) {
+  auto name = handle->rep->GetName();
+  *name_len = name.size();
+  return CopyString(name);
 }
 
 void rocksdb_column_family_handle_destroy(rocksdb_column_family_handle_t* handle) {
@@ -2605,6 +2618,11 @@ void rocksdb_block_based_options_destroy(
   delete options;
 }
 
+void rocksdb_block_based_options_set_checksum(
+    rocksdb_block_based_table_options_t* opt, char v) {
+  opt->rep.checksum = static_cast<ROCKSDB_NAMESPACE::ChecksumType>(v);
+}
+
 void rocksdb_block_based_options_set_block_size(
     rocksdb_block_based_table_options_t* options, size_t block_size) {
   options->rep.block_size = block_size;
@@ -3138,6 +3156,14 @@ int rocksdb_options_get_blob_file_starting_level(rocksdb_options_t* opt) {
 void rocksdb_options_set_blob_cache(rocksdb_options_t* opt,
                                     rocksdb_cache_t* blob_cache) {
   opt->rep.blob_cache = blob_cache->rep;
+}
+
+void rocksdb_options_set_prepopulate_blob_cache(rocksdb_options_t* opt, int t) {
+  opt->rep.prepopulate_blob_cache = static_cast<PrepopulateBlobCache>(t);
+}
+
+int rocksdb_options_get_prepopulate_blob_cache(rocksdb_options_t* opt) {
+  return static_cast<int>(opt->rep.prepopulate_blob_cache);
 }
 
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
@@ -4090,6 +4116,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->blob_checksum_time;
     case rocksdb_blob_decompress_time:
       return rep->blob_decompress_time;
+    case rocksdb_internal_range_del_reseek_count:
+      return rep->internal_range_del_reseek_count;
     default:
       break;
   }
@@ -4897,6 +4925,15 @@ void rocksdb_sstfilewriter_delete_with_ts(rocksdb_sstfilewriter_t* writer,
                                           const char* ts, size_t tslen,
                                           char** errptr) {
   SaveError(errptr, writer->rep->Delete(Slice(key, keylen), Slice(ts, tslen)));
+}
+
+void rocksdb_sstfilewriter_delete_range(rocksdb_sstfilewriter_t* writer,
+                                        const char* begin_key,
+                                        size_t begin_keylen,
+                                        const char* end_key, size_t end_keylen,
+                                        char** errptr) {
+  SaveError(errptr, writer->rep->DeleteRange(Slice(begin_key, begin_keylen),
+                                             Slice(end_key, end_keylen)));
 }
 
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,

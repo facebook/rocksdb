@@ -396,8 +396,7 @@ class BlockIter : public InternalIteratorBase<TValue> {
     assert(data_ == nullptr);  // Ensure it is called only once
     assert(num_restarts > 0);  // Ensure the param is valid
 
-    icmp_ =
-        std::make_unique<InternalKeyComparator>(raw_ucmp, false /* named */);
+    icmp_ = std::make_unique<InternalKeyComparator>(raw_ucmp);
     data_ = data;
     restarts_ = restarts;
     num_restarts_ = num_restarts;

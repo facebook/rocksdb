@@ -198,7 +198,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "block_align=true;"
       "max_auto_readahead_size=0;"
       "prepopulate_block_cache=kDisable;"
-      "initial_auto_readahead_size=0",
+      "initial_auto_readahead_size=0;"
+      "num_file_reads_for_auto_readahead=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -400,6 +401,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offsetof(struct ColumnFamilyOptions, preclude_last_level_data_seconds),
+       sizeof(uint64_t)},
       {offsetof(struct ColumnFamilyOptions, blob_cache),
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
@@ -524,10 +527,14 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
+      "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
+      "last_level_temperature=kWarm;"
+      "preclude_last_level_data_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;age_for_warm=1;};"
-      "blob_cache=1M;",
+      "blob_cache=1M;"
+      "memtable_protection_bytes_per_key=2;",
       new_options));
 
   ASSERT_NE(new_options->blob_cache.get(), nullptr);

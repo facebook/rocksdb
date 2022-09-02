@@ -214,6 +214,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->prefix_extractor = moptions.prefix_extractor;
   cf_opts->experimental_mempurge_threshold =
       moptions.experimental_mempurge_threshold;
+  cf_opts->memtable_protection_bytes_per_key =
+      moptions.memtable_protection_bytes_per_key;
 
   // Compaction related options
   cf_opts->disable_auto_compactions = moptions.disable_auto_compactions;
@@ -257,6 +259,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->blob_compaction_readahead_size =
       moptions.blob_compaction_readahead_size;
   cf_opts->blob_file_starting_level = moptions.blob_file_starting_level;
+  cf_opts->prepopulate_blob_cache = moptions.prepopulate_blob_cache;
 
   // Misc options
   cf_opts->max_sequential_skip_in_iterations =
@@ -271,7 +274,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->bottommost_compression_opts = moptions.bottommost_compression_opts;
   cf_opts->sample_for_compression = moptions.sample_for_compression;
   cf_opts->compression_per_level = moptions.compression_per_level;
-  cf_opts->bottommost_temperature = moptions.bottommost_temperature;
+  cf_opts->last_level_temperature = moptions.last_level_temperature;
+  cf_opts->bottommost_temperature = moptions.last_level_temperature;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -306,6 +310,8 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
   cf_opts->blob_cache = ioptions.blob_cache;
+  cf_opts->preclude_last_level_data_seconds =
+      ioptions.preclude_last_level_data_seconds;
 
   // TODO(yhchiang): find some way to handle the following derived options
   // * max_file_size
@@ -847,6 +853,11 @@ std::unordered_map<std::string, Temperature>
         {"kHot", Temperature::kHot},
         {"kWarm", Temperature::kWarm},
         {"kCold", Temperature::kCold}};
+
+std::unordered_map<std::string, PrepopulateBlobCache>
+    OptionsHelper::prepopulate_blob_cache_string_map = {
+        {"kDisable", PrepopulateBlobCache::kDisable},
+        {"kFlushOnly", PrepopulateBlobCache::kFlushOnly}};
 
 Status OptionTypeInfo::NextToken(const std::string& opts, char delimiter,
                                  size_t pos, size_t* end, std::string* token) {
