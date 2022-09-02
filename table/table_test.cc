@@ -41,6 +41,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
@@ -1246,7 +1247,7 @@ class FileChecksumTestHelper {
   }
   ~FileChecksumTestHelper() {}
 
-  void CreateWriteableFile() {
+  void CreateWritableFile() {
     sink_ = new test::StringSink();
     std::unique_ptr<FSWritableFile> holder(sink_);
     file_writer_.reset(new WritableFileWriter(
@@ -3035,8 +3036,8 @@ TEST_P(BlockBasedTableTest, TracingGetTest) {
     PinnableSlice value;
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, user_key, &value, nullptr,
-                           nullptr, true, nullptr, nullptr, nullptr, nullptr,
-                           nullptr, nullptr, /*tracing_get_id=*/i);
+                           nullptr, nullptr, true, nullptr, nullptr, nullptr,
+                           nullptr, nullptr, nullptr, /*tracing_get_id=*/i);
     get_perf_context()->Reset();
     ASSERT_OK(c.GetTableReader()->Get(ReadOptions(), encoded_key, &get_context,
                                       moptions.prefix_extractor.get()));
@@ -3292,7 +3293,7 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
   {
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                            GetContext::kNotFound, Slice(), nullptr, nullptr,
-                           nullptr, true, nullptr, nullptr);
+                           nullptr, nullptr, true, nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
     ASSERT_OK(reader->Get(ReadOptions(), "non-exist-key", &get_context,
                           moptions.prefix_extractor.get()));
@@ -3470,7 +3471,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   PinnableSlice value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
-                         nullptr, true, nullptr, nullptr);
+                         nullptr, nullptr, true, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), internal_key.Encode(), &get_context,
                         moptions4.prefix_extractor.get()));
   ASSERT_STREQ(value.data(), "hello");
@@ -3524,11 +3525,10 @@ TEST_P(BlockBasedTableTest, InvalidOptions) {
 }
 
 TEST_P(BlockBasedTableTest, BlockReadCountTest) {
-  // bloom_filter_type = 0 -- block-based filter (not available in public API)
   // bloom_filter_type = 1 -- full filter using use_block_based_builder=false
   // bloom_filter_type = 2 -- full filter using use_block_based_builder=true
   //                          because of API change to hide block-based filter
-  for (int bloom_filter_type = 0; bloom_filter_type <= 2; ++bloom_filter_type) {
+  for (int bloom_filter_type = 1; bloom_filter_type <= 2; ++bloom_filter_type) {
     for (int index_and_filter_in_cache = 0; index_and_filter_in_cache < 2;
          ++index_and_filter_in_cache) {
       Options options;
@@ -3537,22 +3537,8 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
       table_options.block_cache = NewLRUCache(1, 0);
       table_options.cache_index_and_filter_blocks = index_and_filter_in_cache;
-      if (bloom_filter_type == 0) {
-#ifndef ROCKSDB_LITE
-        // Use back-door way of enabling obsolete block-based Bloom
-        ASSERT_OK(FilterPolicy::CreateFromString(
-            ConfigOptions(),
-            "rocksdb.internal.DeprecatedBlockBasedBloomFilter:10",
-            &table_options.filter_policy));
-#else
-        // Skip this case in LITE build
-        continue;
-#endif
-      } else {
-        // Public API
-        table_options.filter_policy.reset(
-            NewBloomFilterPolicy(10, bloom_filter_type == 2));
-      }
+      table_options.filter_policy.reset(
+          NewBloomFilterPolicy(10, bloom_filter_type == 2));
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       std::vector<std::string> keys;
       stl_wrappers::KVMap kvmap;
@@ -3572,7 +3558,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -3598,7 +3584,7 @@ TEST_P(BlockBasedTableTest, BlockReadCountTest) {
       {
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         get_perf_context()->Reset();
         ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
@@ -3754,7 +3740,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   std::string column_family_name;
 
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
@@ -3789,7 +3775,7 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
   f.SetFileChecksumGenerator(checksum_crc32c_gen1.release());
   std::unique_ptr<TableBuilder> builder;
   builder.reset(ioptions.table_factory->NewTableBuilder(
@@ -3891,7 +3877,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   std::string column_family_name;
   int unknown_level = -1;
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
@@ -3930,7 +3916,7 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
       options.file_checksum_gen_factory->CreateFileChecksumGenerator(
           gen_context);
   FileChecksumTestHelper f(true);
-  f.CreateWriteableFile();
+  f.CreateWritableFile();
   f.SetFileChecksumGenerator(checksum_crc32c_gen1.release());
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
@@ -4062,6 +4048,57 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 }
 
+TEST_F(GeneralTableTest, ApproximateKeyAnchors) {
+  Random rnd(301);
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  std::string tmp;
+  for (int i = 1000; i < 9000; i++) {
+    c.Add(std::to_string(i), rnd.RandomString(2000));
+  }
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  InternalKeyComparator ikc(options.comparator);
+  options.compression = kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 4096;
+  const ImmutableOptions ioptions(options);
+  const MutableCFOptions moptions(options);
+  c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
+
+  std::vector<TableReader::Anchor> anchors;
+  ASSERT_OK(c.GetTableReader()->ApproximateKeyAnchors(ReadOptions(), anchors));
+  // The target is 128 anchors. But in reality it can be slightly more or fewer.
+  ASSERT_GT(anchors.size(), 120);
+  ASSERT_LT(anchors.size(), 140);
+
+  // We have around 8000 keys. With 128 anchors, in average 62.5 keys per
+  // anchor. Here we take a rough range and estimate the distance between
+  // anchors is between 50 and 100.
+  // Total data size is about 18,000,000, so each anchor range is about
+  // 140,625. We also take a rough range.
+  int prev_num = 1000;
+  // Non-last anchor
+  for (size_t i = 0; i + 1 < anchors.size(); i++) {
+    auto& anchor = anchors[i];
+    ASSERT_GT(anchor.range_size, 100000);
+    ASSERT_LT(anchor.range_size, 200000);
+
+    // Key might be shortened, so fill 0 in the end if it is the case.
+    std::string key_cpy = anchor.user_key;
+    key_cpy.append(4 - key_cpy.size(), '0');
+    int num = std::stoi(key_cpy);
+    ASSERT_GT(num - prev_num, 50);
+    ASSERT_LT(num - prev_num, 100);
+    prev_num = num;
+  }
+
+  ASSERT_EQ("8999", anchors.back().user_key);
+  ASSERT_LT(anchors.back().range_size, 200000);
+
+  c.ResetTableReader();
+}
+
 #if !defined(ROCKSDB_VALGRIND_RUN) || defined(ROCKSDB_FULL_VALGRIND_RUN)
 TEST_P(ParameterizedHarnessTest, RandomizedHarnessTest) {
   Random rnd(test::RandomSeed() + 5);
@@ -4149,7 +4186,8 @@ TEST_F(MemTableTest, Simple) {
       arena_iter_guard.set(iter);
     } else {
       iter = GetMemTable()->NewRangeTombstoneIterator(
-          ReadOptions(), kMaxSequenceNumber /* read_seq */);
+          ReadOptions(), kMaxSequenceNumber /* read_seq */,
+          false /* immutable_memtable */);
       iter_guard.reset(iter);
     }
     if (iter == nullptr) {
@@ -5111,7 +5149,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         std::string user_key = ExtractUserKey(kv.first).ToString();
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, kv.first, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kFound);
@@ -5137,7 +5175,7 @@ TEST_P(BlockBasedTableTest, DataBlockHashIndex) {
         PinnableSlice value;
         GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
-                               nullptr, true, nullptr, nullptr);
+                               nullptr, nullptr, true, nullptr, nullptr);
         ASSERT_OK(reader->Get(ro, encoded_key, &get_context,
                               moptions.prefix_extractor.get()));
         ASSERT_EQ(get_context.State(), GetContext::kNotFound);

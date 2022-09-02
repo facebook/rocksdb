@@ -39,12 +39,9 @@ Status CacheDumperImpl::SetDumpFilter(std::vector<DB*> db_list) {
       // We only want to save cache entries that are portable to another
       // DB::Open, so only save entries with stable keys.
       bool is_stable;
-      // WART: if the file is extremely large (> kMaxFileSizeStandardEncoding)
-      // then the prefix will be different. But this should not be a concern
-      // in practice because that limit is currently 4TB on a single file.
-      BlockBasedTable::SetupBaseCacheKey(
-          id->second.get(), /*cur_db_session_id*/ "", /*cur_file_num*/ 0,
-          /*file_size*/ 42, &base, &is_stable);
+      BlockBasedTable::SetupBaseCacheKey(id->second.get(),
+                                         /*cur_db_session_id*/ "",
+                                         /*cur_file_num*/ 0, &base, &is_stable);
       if (is_stable) {
         Slice prefix_slice = base.CommonPrefixSlice();
         assert(prefix_slice.size() == OffsetableCacheKey::kCommonPrefixSize);
@@ -139,11 +136,6 @@ CacheDumperImpl::DumpOneBlockCallBack() {
         block_start = (static_cast<Block*>(value))->data();
         block_len = (static_cast<Block*>(value))->size();
         break;
-      case CacheEntryRole::kDeprecatedFilterBlock:
-        type = CacheDumpUnitType::kDeprecatedFilterBlock;
-        block_start = (static_cast<BlockContents*>(value))->data.data();
-        block_len = (static_cast<BlockContents*>(value))->data.size();
-        break;
       case CacheEntryRole::kFilterBlock:
         type = CacheDumpUnitType::kFilter;
         block_start = (static_cast<ParsedFullFilterBlock*>(value))
@@ -162,6 +154,10 @@ CacheDumperImpl::DumpOneBlockCallBack() {
         type = CacheDumpUnitType::kIndex;
         block_start = (static_cast<Block*>(value))->data();
         block_len = (static_cast<Block*>(value))->size();
+        break;
+      case CacheEntryRole::kDeprecatedFilterBlock:
+        // Obsolete
+        filter_out = true;
         break;
       case CacheEntryRole::kMisc:
         filter_out = true;
@@ -322,22 +318,6 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
     // according to the block type, get the helper callback function and create
     // the corresponding block
     switch (dump_unit.type) {
-      case CacheDumpUnitType::kDeprecatedFilterBlock: {
-        helper = BlocklikeTraits<BlockContents>::GetCacheItemHelper(
-            BlockType::kDeprecatedFilter);
-        std::unique_ptr<BlockContents> block_holder;
-        block_holder.reset(BlocklikeTraits<BlockContents>::Create(
-            std::move(raw_block_contents), 0, statistics, false,
-            toptions_.filter_policy.get()));
-        // Insert the block to secondary cache.
-        // Note that, if we cannot get the correct helper callback, the block
-        // will not be inserted.
-        if (helper != nullptr) {
-          s = secondary_cache_->Insert(dump_unit.key,
-                                       (void*)(block_holder.get()), helper);
-        }
-        break;
-      }
       case CacheDumpUnitType::kFilter: {
         helper = BlocklikeTraits<ParsedFullFilterBlock>::GetCacheItemHelper(
             BlockType::kFilter);
@@ -389,6 +369,9 @@ IOStatus CacheDumpedLoaderImpl::RestoreCacheEntriesToSecondaryCache() {
         break;
       }
       case CacheDumpUnitType::kFooter:
+        break;
+      case CacheDumpUnitType::kDeprecatedFilterBlock:
+        // Obsolete
         break;
       default:
         continue;

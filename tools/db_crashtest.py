@@ -6,7 +6,6 @@ import os
 import sys
 import time
 import random
-import re
 import tempfile
 import subprocess
 import shutil
@@ -36,6 +35,7 @@ default_params = {
     # Consider larger number when backups considered more stable
     "backup_one_in": 100000,
     "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
+    "memtable_protection_bytes_per_key": lambda: random.choice([0, 1, 2, 4, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),
@@ -63,6 +63,8 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
+    "compaction_pri": random.randint(0, 4),
+    "data_block_index_type": lambda: random.choice([0, 1]),
     "delpercent": 4,
     "delrangepercent": 1,
     "destroy_db_initially": 0,
@@ -114,12 +116,12 @@ default_params = {
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
-    "cache_type": lambda: random.choice(["fast_lru_cache", "lru_cache"]),   # clock_cache is broken
+    "cache_type": lambda: random.choice(["lru_cache", "clock_cache"]),
+        # fast_lru_cache is incompatible with stress tests, because it doesn't support strict_capacity_limit == false.
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     # 999 -> use Bloom API
     "ribbon_starting_level": lambda: random.choice([random.randint(-1, 10), 999]),
-    "use_block_based_filter": lambda: random.randint(0, 1),
     "value_size_mult": 32,
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
@@ -160,9 +162,7 @@ default_params = {
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 0, 8]),
     "open_write_fault_one_in": lambda: random.choice([0, 0, 16]),
     "open_read_fault_one_in": lambda: random.choice([0, 0, 32]),
-    "sync_fault_injection": 0,
-    # TODO: reenable after investigating failure
-    # "sync_fault_injection": lambda: random.randint(0, 1),
+    "sync_fault_injection": lambda: random.randint(0, 1),
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
@@ -177,7 +177,9 @@ default_params = {
     "async_io": lambda: random.choice([0, 1]),
     "wal_compression": lambda: random.choice(["none", "zstd"]),
     "verify_sst_unique_id_in_manifest": 1,  # always do unique_id verification
-    "secondary_cache_uri": "",
+    "secondary_cache_uri":  lambda: random.choice(
+        ["", "compressed_secondary_cache://capacity=8388608"]),
+    "allow_data_in_errors": True,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -273,7 +275,8 @@ whitebox_default_params = {
 simple_default_params = {
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
-    "experimental_mempurge_threshold": lambda: 10.0*random.random(),
+    # TODO: re-enable once internal task T124324915 is fixed.
+    # "experimental_mempurge_threshold": lambda: 10.0*random.random(),
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
     "memtablerep": "skip_list",
@@ -283,6 +286,7 @@ simple_default_params = {
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": False,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
+    "verify_iterator_with_expected_state_one_in": 5  # this locks a range of keys
 }
 
 blackbox_simple_default_params = {
@@ -342,6 +346,10 @@ blob_params = {
     "blob_garbage_collection_force_threshold": lambda: random.choice([0.5, 0.75, 1.0]),
     "blob_compaction_readahead_size": lambda: random.choice([0, 1048576, 4194304]),
     "blob_file_starting_level": lambda: random.choice([0] * 4 + [1] * 3 + [2] * 2 + [3]),
+    "use_blob_cache": lambda: random.randint(0, 1),
+    "use_shared_block_and_blob_cache": lambda: random.randint(0, 1),
+    "blob_cache_size": lambda: random.choice([1048576, 2097152, 4194304, 8388608]),
+    "prepopulate_blob_cache": lambda: random.randint(0, 1),
 }
 
 ts_params = {
@@ -355,9 +363,21 @@ ts_params = {
     "use_txn": 0,
     "enable_blob_files": 0,
     "use_blob_db": 0,
-    "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
-    "use_block_based_filter": 0,
+    # TODO akanksha: Currently subcompactions is failing with user_defined_timestamp if
+    # subcompactions > 1, or
+    # compact_pri == 4 even if subcompactions is 1, there can still be multiple subcompactions.
+    # Remove this check once its fixed.
+    "subcompactions": 1,
+    "compaction_pri": random.randint(0, 3),
+}
+
+tiered_params = {
+    "enable_tiered_storage": 1,
+    "preclude_last_level_data_seconds": lambda: random.choice([3600]),
+    # only test universal compaction for now, level has known issue of
+    # endless compaction
+    "compaction_style": 1,
 }
 
 multiops_txn_default_params = {
@@ -398,6 +418,7 @@ multiops_txn_default_params = {
     "rollback_one_in":  4,
     # Re-enable once we have a compaction for MultiOpsTxnStressTest
     "enable_compaction_filter": 0,
+    "create_timestamped_snapshot_one_in": 50,
 }
 
 multiops_wc_txn_params = {
@@ -418,8 +439,8 @@ multiops_wp_txn_params = {
     "checkpoint_one_in": 0,
     # Required to be 1 in order to use commit-time-batch
     "use_only_the_last_commit_time_batch_for_recovery": 1,
-    "recycle_log_file_num": 0,
     "clear_wp_commit_cache_one_in": 10,
+    "create_timestamped_snapshot_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
@@ -462,25 +483,30 @@ def finalize_and_sanitize(src_params):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
         dest_params["ingest_external_file_one_in"] = 0
-    # File ingestion does not guarantee prefix-recoverability with WAL disabled.
-    # Ingesting a file persists data immediately that is newer than memtable
-    # data that can be lost on restart.
-    #
-    # Even if the above issue is fixed or worked around, our trace-and-replay
-    # does not trace file ingestion, so in its current form it would not recover
-    # the expected state to the correct point in time.
-    if (dest_params.get("disable_wal") == 1):
+    # Correctness testing with unsync data loss is not currently compatible
+    # with transactions
+    if (dest_params.get("use_txn") == 1):
+        dest_params["sync_fault_injection"] = 0
+    if (dest_params.get("disable_wal") == 1 or
+        dest_params.get("sync_fault_injection") == 1):
+        # File ingestion does not guarantee prefix-recoverability when unsynced
+        # data can be lost. Ingesting a file syncs data immediately that is
+        # newer than unsynced memtable data that can be lost on restart.
+        #
+        # Even if the above issue is fixed or worked around, our
+        # trace-and-replay does not trace file ingestion, so in its current form
+        # it would not recover the expected state to the correct point in time.
         dest_params["ingest_external_file_one_in"] = 0
+        # The `DbStressCompactionFilter` can apply memtable updates to SST
+        # files, which would be problematic when unsynced data can be lost in
+        # crash recoveries.
+        dest_params["enable_compaction_filter"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
     if dest_params.get("unordered_write", 0) == 1:
         dest_params["txn_write_policy"] = 1
         dest_params["allow_concurrent_memtable_write"] = 1
     if dest_params.get("disable_wal", 0) == 1:
         dest_params["atomic_flush"] = 1
-        # The `DbStressCompactionFilter` can apply memtable updates to SST
-        # files, which would be problematic without WAL since such updates are
-        # expected to be lost in crash recoveries.
-        dest_params["enable_compaction_filter"] = 0
         dest_params["sync"] = 0
         dest_params["write_fault_one_in"] = 0
     if dest_params.get("open_files", 1) != -1:
@@ -496,10 +522,6 @@ def finalize_and_sanitize(src_params):
     if dest_params["partition_filters"] == 1:
         if dest_params["index_type"] != 2:
             dest_params["partition_filters"] = 0
-        else:
-            dest_params["use_block_based_filter"] = 0
-    if dest_params["ribbon_starting_level"] < 999:
-        dest_params["use_block_based_filter"] = 0
     if dest_params.get("atomic_flush", 0) == 1:
         # disable pipelined write when atomic flush is used.
         dest_params["enable_pipelined_write"] = 0
@@ -519,8 +541,6 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("prefixpercent", 20)
         dest_params["prefixpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
-    if dest_params.get("test_batches_snapshots") == 0:
-        dest_params["batch_protection_bytes_per_key"] = 0
     if (dest_params.get("prefix_size") == -1 and
         dest_params.get("memtable_whole_key_filtering") == 0):
         dest_params["memtable_prefix_bloom_size_ratio"] = 0
@@ -571,6 +591,8 @@ def gen_cmd_params(args):
             params.update(multiops_wc_txn_params)
         elif args.write_policy == 'write_prepared':
             params.update(multiops_wp_txn_params)
+    if args.enable_tiered_storage:
+        params.update(tiered_params)
 
     # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
     # if specified on the command line; otherwise, apply BlobDB related overrides
@@ -818,6 +840,7 @@ def main():
     parser.add_argument("--test_multiops_txn", action='store_true')
     parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
+    parser.add_argument("--enable_tiered_storage", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())

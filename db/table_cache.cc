@@ -236,7 +236,8 @@ InternalIterator* TableCache::NewIterator(
     TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
     size_t max_file_size_for_l0_meta_pin,
     const InternalKey* smallest_compaction_key,
-    const InternalKey* largest_compaction_key, bool allow_unprepared_value) {
+    const InternalKey* largest_compaction_key, bool allow_unprepared_value,
+    TruncatedRangeDelIterator** range_del_iter) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -281,25 +282,40 @@ InternalIterator* TableCache::NewIterator(
       *table_reader_ptr = table_reader;
     }
   }
-  if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
-    if (range_del_agg->AddFile(fd.GetNumber())) {
-      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
-          static_cast<FragmentedRangeTombstoneIterator*>(
-              table_reader->NewRangeTombstoneIterator(options)));
-      if (range_del_iter != nullptr) {
-        s = range_del_iter->status();
+  if (s.ok() && !options.ignore_range_deletions) {
+    if (range_del_iter != nullptr) {
+      auto new_range_del_iter =
+          table_reader->NewRangeTombstoneIterator(options);
+      if (new_range_del_iter == nullptr || new_range_del_iter->empty()) {
+        delete new_range_del_iter;
+        *range_del_iter = nullptr;
+      } else {
+        *range_del_iter = new TruncatedRangeDelIterator(
+            std::unique_ptr<FragmentedRangeTombstoneIterator>(
+                new_range_del_iter),
+            &icomparator, &file_meta.smallest, &file_meta.largest);
       }
-      if (s.ok()) {
-        const InternalKey* smallest = &file_meta.smallest;
-        const InternalKey* largest = &file_meta.largest;
-        if (smallest_compaction_key != nullptr) {
-          smallest = smallest_compaction_key;
+    }
+    if (range_del_agg != nullptr) {
+      if (range_del_agg->AddFile(fd.GetNumber())) {
+        std::unique_ptr<FragmentedRangeTombstoneIterator> new_range_del_iter(
+            static_cast<FragmentedRangeTombstoneIterator*>(
+                table_reader->NewRangeTombstoneIterator(options)));
+        if (new_range_del_iter != nullptr) {
+          s = new_range_del_iter->status();
         }
-        if (largest_compaction_key != nullptr) {
-          largest = largest_compaction_key;
+        if (s.ok()) {
+          const InternalKey* smallest = &file_meta.smallest;
+          const InternalKey* largest = &file_meta.largest;
+          if (smallest_compaction_key != nullptr) {
+            smallest = smallest_compaction_key;
+          }
+          if (largest_compaction_key != nullptr) {
+            largest = largest_compaction_key;
+          }
+          range_del_agg->AddTombstones(std::move(new_range_del_iter), smallest,
+                                       largest);
         }
-        range_del_agg->AddTombstones(std::move(range_del_iter), smallest,
-                                     largest);
       }
     }
   }
@@ -501,6 +517,76 @@ Status TableCache::Get(
   return s;
 }
 
+void TableCache::UpdateRangeTombstoneSeqnums(
+    const ReadOptions& options, TableReader* t,
+    MultiGetContext::Range& table_range) {
+  std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+      t->NewRangeTombstoneIterator(options));
+  if (range_del_iter != nullptr) {
+    for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
+      SequenceNumber* max_covering_tombstone_seq =
+          iter->get_context->max_covering_tombstone_seq();
+      *max_covering_tombstone_seq = std::max(
+          *max_covering_tombstone_seq,
+          range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
+    }
+  }
+}
+
+Status TableCache::MultiGetFilter(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
+    const std::shared_ptr<const SliceTransform>& prefix_extractor,
+    HistogramImpl* file_read_hist, int level,
+    MultiGetContext::Range* mget_range, Cache::Handle** table_handle) {
+  auto& fd = file_meta.fd;
+#ifndef ROCKSDB_LITE
+  IterKey row_cache_key;
+  std::string row_cache_entry_buffer;
+
+  // Check if we need to use the row cache. If yes, then we cannot do the
+  // filtering here, since the filtering needs to happen after the row cache
+  // lookup.
+  KeyContext& first_key = *mget_range->begin();
+  if (ioptions_.row_cache && !first_key.get_context->NeedToReadSequence()) {
+    return Status::NotSupported();
+  }
+#endif  // ROCKSDB_LITE
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  MultiGetContext::Range tombstone_range(*mget_range, mget_range->begin(),
+                                         mget_range->end());
+  if (t == nullptr) {
+    s = FindTable(
+        options, file_options_, internal_comparator, fd, &handle,
+        prefix_extractor, options.read_tier == kBlockCacheTier /* no_io */,
+        true /* record_read_stats */, file_read_hist, /*skip_filters=*/false,
+        level, true /* prefetch_index_and_filter_in_cache */,
+        /*max_file_size_for_l0_meta_pin=*/0, file_meta.temperature);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+    *table_handle = handle;
+  }
+  if (s.ok()) {
+    s = t->MultiGetFilter(options, prefix_extractor.get(), mget_range);
+  }
+  if (s.ok() && !options.ignore_range_deletions) {
+    // Update the range tombstone sequence numbers for the keys here
+    // as TableCache::MultiGet may or may not be called, and even if it
+    // is, it may be called with fewer keys in the rangedue to filtering.
+    UpdateRangeTombstoneSeqnums(options, t, tombstone_range);
+  }
+  if (mget_range->empty() && handle) {
+    ReleaseHandle(handle);
+    *table_handle = nullptr;
+  }
+
+  return s;
+}
+
 Status TableCache::GetTableProperties(
     const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
@@ -524,6 +610,27 @@ Status TableCache::GetTableProperties(
   auto table = GetTableReaderFromHandle(table_handle);
   *properties = table->GetTableProperties();
   ReleaseHandle(table_handle);
+  return s;
+}
+
+Status TableCache::ApproximateKeyAnchors(
+    const ReadOptions& ro, const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& fd, std::vector<TableReader::Anchor>& anchors) {
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  if (t == nullptr) {
+    s = FindTable(ro, file_options_, internal_comparator, fd, &handle);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
+  }
+  if (s.ok() && t != nullptr) {
+    s = t->ApproximateKeyAnchors(ro, anchors);
+  }
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
   return s;
 }
 

@@ -20,6 +20,7 @@ int main() {
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/env.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -84,8 +85,8 @@ DEFINE_bool(new_builder, false,
 
 DEFINE_uint32(impl, 0,
               "Select filter implementation. Without -use_plain_table_bloom:"
-              "0 = legacy full Bloom filter, 1 = block-based Bloom filter, "
-              "2 = format_version 5 Bloom filter, 3 = Ribbon128 filter. With "
+              "0 = legacy full Bloom filter, "
+              "1 = format_version 5 Bloom filter, 2 = Ribbon128 filter. With "
               "-use_plain_table_bloom: 0 = no locality, 1 = locality.");
 
 DEFINE_bool(net_includes_hashing, false,
@@ -150,6 +151,7 @@ using ROCKSDB_NAMESPACE::Cache;
 using ROCKSDB_NAMESPACE::CacheEntryRole;
 using ROCKSDB_NAMESPACE::CacheEntryRoleOptions;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
+using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
@@ -358,13 +360,9 @@ void FilterBench::Go() {
           "-impl must currently be >= 0 and <= 1 for Plain table");
     }
   } else {
-    if (FLAGS_impl == 1) {
+    if (FLAGS_impl > 2) {
       throw std::runtime_error(
-          "Block-based filter not currently supported by filter_bench");
-    }
-    if (FLAGS_impl > 3) {
-      throw std::runtime_error(
-          "-impl must currently be 0, 2, or 3 for Block-based table");
+          "-impl must currently be >= 0 and <= 2 for Block-based table");
     }
   }
 
@@ -603,7 +601,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
 
   auto dry_run_hash_fn = DryRunNoHash;
   if (!FLAGS_net_includes_hashing) {
-    if (FLAGS_impl < 2 || FLAGS_use_plain_table_bloom) {
+    if (FLAGS_impl == 0 || FLAGS_use_plain_table_bloom) {
       dry_run_hash_fn = DryRunHash32;
     } else {
       dry_run_hash_fn = DryRunHash64;
@@ -728,11 +726,9 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
           } else {
             may_match = info.full_block_reader_->KeyMayMatch(
                 batch_slices[i],
-                /*prefix_extractor=*/nullptr,
-                /*block_offset=*/ROCKSDB_NAMESPACE::kNotValid,
                 /*no_io=*/false, /*const_ikey_ptr=*/nullptr,
                 /*get_context=*/nullptr,
-                /*lookup_context=*/nullptr);
+                /*lookup_context=*/nullptr, Env::IO_TOTAL);
           }
         } else {
           if (dry_run) {

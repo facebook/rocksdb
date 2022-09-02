@@ -50,6 +50,7 @@ public class MutableOptionsGetSetTest {
                    .setBlobFileStartingLevel(2)
                    .setArenaBlockSize(42)
                    .setMemtablePrefixBloomSizeRatio(0.17)
+                   .setExperimentalMempurgeThreshold(0.005)
                    .setMemtableWholeKeyFiltering(false)
                    .setMemtableHugePageSize(3)
                    .setMaxSuccessiveMerges(4)
@@ -73,6 +74,7 @@ public class MutableOptionsGetSetTest {
                    .setEnableBlobFiles(false)
                    .setArenaBlockSize(42)
                    .setMemtablePrefixBloomSizeRatio(0.236)
+                   .setExperimentalMempurgeThreshold(0.247)
                    .setMemtableWholeKeyFiltering(true)
                    .setMemtableHugePageSize(8)
                    .setMaxSuccessiveMerges(12)
@@ -111,6 +113,7 @@ public class MutableOptionsGetSetTest {
         assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
         assertThat(builder1.arenaBlockSize()).isEqualTo(42);
         assertThat(builder1.memtablePrefixBloomSizeRatio()).isEqualTo(0.17);
+        assertThat(builder1.experimentalMempurgeThreshold()).isEqualTo(0.005);
         assertThat(builder1.memtableWholeKeyFiltering()).isEqualTo(false);
         assertThat(builder1.memtableHugePageSize()).isEqualTo(3);
         assertThat(builder1.maxSuccessiveMerges()).isEqualTo(4);
@@ -135,6 +138,7 @@ public class MutableOptionsGetSetTest {
         assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);
         assertThat(builder2.arenaBlockSize()).isEqualTo(42);
         assertThat(builder2.memtablePrefixBloomSizeRatio()).isEqualTo(0.236);
+        assertThat(builder2.experimentalMempurgeThreshold()).isEqualTo(0.247);
         assertThat(builder2.memtableWholeKeyFiltering()).isEqualTo(true);
         assertThat(builder2.memtableHugePageSize()).isEqualTo(8);
         assertThat(builder2.maxSuccessiveMerges()).isEqualTo(12);
@@ -202,6 +206,7 @@ public class MutableOptionsGetSetTest {
                 .setBlobFileStartingLevel(3)
                 .setArenaBlockSize(42)
                 .setMemtablePrefixBloomSizeRatio(0.17)
+                .setExperimentalMempurgeThreshold(0.005)
                 .setMemtableWholeKeyFiltering(false)
                 .setMemtableHugePageSize(3)
                 .setMaxSuccessiveMerges(4)
@@ -229,6 +234,7 @@ public class MutableOptionsGetSetTest {
         assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
         assertThat(builder1.arenaBlockSize()).isEqualTo(42);
         assertThat(builder1.memtablePrefixBloomSizeRatio()).isEqualTo(0.17);
+        assertThat(builder1.experimentalMempurgeThreshold()).isEqualTo(0.005);
         assertThat(builder1.memtableWholeKeyFiltering()).isEqualTo(false);
         assertThat(builder1.memtableHugePageSize()).isEqualTo(3);
         assertThat(builder1.maxSuccessiveMerges()).isEqualTo(4);
@@ -251,6 +257,7 @@ public class MutableOptionsGetSetTest {
                 .setEnableBlobFiles(false)
                 .setArenaBlockSize(42)
                 .setMemtablePrefixBloomSizeRatio(0.236)
+                .setExperimentalMempurgeThreshold(0.247)
                 .setMemtableWholeKeyFiltering(true)
                 .setMemtableHugePageSize(8)
                 .setMaxSuccessiveMerges(12)
@@ -274,6 +281,7 @@ public class MutableOptionsGetSetTest {
         assertThat(builder2.minBlobSize()).isEqualTo(minBlobSize);
         assertThat(builder2.arenaBlockSize()).isEqualTo(42);
         assertThat(builder2.memtablePrefixBloomSizeRatio()).isEqualTo(0.236);
+        assertThat(builder2.experimentalMempurgeThreshold()).isEqualTo(0.247);
         assertThat(builder2.memtableWholeKeyFiltering()).isEqualTo(true);
         assertThat(builder2.memtableHugePageSize()).isEqualTo(8);
         assertThat(builder2.maxSuccessiveMerges()).isEqualTo(12);
@@ -324,6 +332,7 @@ public class MutableOptionsGetSetTest {
               .setBlobFileStartingLevel(4)
               .setArenaBlockSize(42)
               .setMemtablePrefixBloomSizeRatio(0.17)
+              .setExperimentalMempurgeThreshold(0.005)
               .setMemtableWholeKeyFiltering(false)
               .setMemtableHugePageSize(3)
               .setMaxSuccessiveMerges(4)
@@ -350,6 +359,7 @@ public class MutableOptionsGetSetTest {
       assertThat(builder1.minBlobSize()).isEqualTo(minBlobSize);
       assertThat(builder1.arenaBlockSize()).isEqualTo(42);
       assertThat(builder1.memtablePrefixBloomSizeRatio()).isEqualTo(0.17);
+      assertThat(builder1.experimentalMempurgeThreshold()).isEqualTo(0.005);
       assertThat(builder1.memtableWholeKeyFiltering()).isEqualTo(false);
       assertThat(builder1.memtableHugePageSize()).isEqualTo(3);
       assertThat(builder1.maxSuccessiveMerges()).isEqualTo(4);

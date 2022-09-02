@@ -88,7 +88,7 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
   Slice result;
   Status s = reader->Read(opts, rounddown_start + chunk_len, read_len, &result,
                           bufs_[index].buffer_.BufferStart() + chunk_len,
-                          nullptr, rate_limiter_priority);
+                          /*aligned_buf=*/nullptr, rate_limiter_priority);
 #ifndef NDEBUG
   if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
@@ -108,7 +108,6 @@ Status FilePrefetchBuffer::Read(const IOOptions& opts,
 
 Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
                                      RandomAccessFileReader* reader,
-                                     Env::IOPriority rate_limiter_priority,
                                      uint64_t read_len, uint64_t chunk_len,
                                      uint64_t rounddown_start, uint32_t index) {
   // callback for async read request.
@@ -120,8 +119,9 @@ Status FilePrefetchBuffer::ReadAsync(const IOOptions& opts,
   req.offset = rounddown_start + chunk_len;
   req.result = result;
   req.scratch = bufs_[index].buffer_.BufferStart() + chunk_len;
-  Status s = reader->ReadAsync(req, opts, fp, nullptr /*cb_arg*/, &io_handle_,
-                               &del_fn_, rate_limiter_priority);
+  Status s = reader->ReadAsync(req, opts, fp,
+                               /*cb_arg=*/nullptr, &io_handle_, &del_fn_,
+                               /*aligned_buf=*/nullptr);
   req.status.PermitUncheckedError();
   if (s.ok()) {
     async_read_in_progress_ = true;
@@ -282,7 +282,16 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
           bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
     offset += length;
     length = 0;
+
+    // Since async request was submitted directly by calling PrefetchAsync in
+    // last call, we don't need to prefetch further as this call is to poll the
+    // data submitted in previous call.
+    if (async_request_submitted_) {
+      return Status::OK();
+    }
   }
+
+  async_request_submitted_ = false;
 
   Status s;
   size_t prefetch_size = length + readahead_size;
@@ -364,8 +373,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
     bufs_[second].offset_ = rounddown_start2;
     assert(roundup_len2 >= chunk_len2);
     uint64_t read_len2 = static_cast<size_t>(roundup_len2 - chunk_len2);
-    ReadAsync(opts, reader, rate_limiter_priority, read_len2, chunk_len2,
-              rounddown_start2, second)
+    ReadAsync(opts, reader, read_len2, chunk_len2, rounddown_start2, second)
         .PermitUncheckedError();
   }
 
@@ -442,14 +450,10 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
   return true;
 }
 
-// TODO akanksha: Merge this function with TryReadFromCache once async
-// functionality is stable.
 bool FilePrefetchBuffer::TryReadFromCacheAsync(
     const IOOptions& opts, RandomAccessFileReader* reader, uint64_t offset,
     size_t n, Slice* result, Status* status,
     Env::IOPriority rate_limiter_priority) {
-  assert(async_io_);
-
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -503,7 +507,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
 #endif
         return false;
       }
-      prefetched = true;
+      prefetched = async_request_submitted_ ? false : true;
     } else {
       return false;
     }
@@ -519,6 +523,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
   }
+  async_request_submitted_ = false;
   return true;
 }
 
@@ -538,7 +543,8 @@ void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
   if (req.status.ok()) {
     if (req.offset + req.result.size() <=
         bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize()) {
-      // All requested bytes are already in the buffer. So no need to update.
+      // All requested bytes are already in the buffer or no data is read
+      // because of EOF. So no need to update.
       return;
     }
     if (req.offset < bufs_[index].offset_) {
@@ -554,7 +560,6 @@ void FilePrefetchBuffer::PrefetchAsyncCallback(const FSReadRequest& req,
 Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
                                          RandomAccessFileReader* reader,
                                          uint64_t offset, size_t n,
-                                         Env::IOPriority rate_limiter_priority,
                                          Slice* result) {
   assert(reader != nullptr);
   if (!enable_) {
@@ -624,8 +629,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
 
-  s = ReadAsync(opts, reader, rate_limiter_priority, read_len, chunk_len,
-                rounddown_start, second);
+  s = ReadAsync(opts, reader, read_len, chunk_len, rounddown_start, second);
 
   if (!s.ok()) {
     return s;
@@ -635,6 +639,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   // the data. It will return without polling if blocks are not sequential.
   UpdateReadPattern(offset, n, /*decrease_readaheadsize=*/false);
   prev_len_ = 0;
+  async_request_submitted_ = true;
 
   return Status::TryAgain();
 }

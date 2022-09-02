@@ -198,7 +198,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "block_align=true;"
       "max_auto_readahead_size=0;"
       "prepopulate_block_cache=kDisable;"
-      "initial_auto_readahead_size=0",
+      "initial_auto_readahead_size=0;"
+      "num_file_reads_for_auto_readahead=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -377,7 +378,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 // test is not updated accordingly.
 // After adding an option, we need to make sure it is settable by
 // GetColumnFamilyOptionsFromString() and add the option to the input
-// string passed to GetColumnFamilyOptionsFromString()in this test.
+// string passed to GetColumnFamilyOptionsFromString() in this test.
 // If it is a complicated type, you also need to add the field to
 // kColumnFamilyOptionsExcluded, and maybe add customized verification
 // for it.
@@ -400,6 +401,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       {offsetof(struct ColumnFamilyOptions,
                 table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
+      {offsetof(struct ColumnFamilyOptions, preclude_last_level_data_seconds),
+       sizeof(uint64_t)},
+      {offsetof(struct ColumnFamilyOptions, blob_cache),
+       sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
        sizeof(std::shared_ptr<MergeOperator>)},
@@ -501,6 +506,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "paranoid_file_checks=true;"
       "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"
+      "experimental_mempurge_threshold=0.0001;"
       "optimize_filters_for_hits=false;"
       "level_compaction_dynamic_level_bytes=false;"
       "inplace_update_support=false;"
@@ -521,10 +527,17 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_garbage_collection_force_threshold=0.75;"
       "blob_compaction_readahead_size=262144;"
       "blob_file_starting_level=1;"
+      "prepopulate_blob_cache=kDisable;"
       "bottommost_temperature=kWarm;"
+      "last_level_temperature=kWarm;"
+      "preclude_last_level_data_seconds=86400;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
-      "compaction=false;age_for_warm=1;};",
+      "compaction=false;age_for_warm=1;};"
+      "blob_cache=1M;"
+      "memtable_protection_bytes_per_key=2;",
       new_options));
+
+  ASSERT_NE(new_options->blob_cache.get(), nullptr);
 
   ASSERT_EQ(unset_bytes_base,
             NumUnsetBytes(new_options_ptr, sizeof(ColumnFamilyOptions),

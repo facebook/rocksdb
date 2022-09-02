@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_source.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
@@ -516,7 +517,7 @@ ColumnFamilyData::ColumnFamilyData(
     const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
     const FileOptions* file_options, ColumnFamilySet* column_family_set,
     BlockCacheTracer* const block_cache_tracer,
-    const std::shared_ptr<IOTracer>& io_tracer,
+    const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
     const std::string& db_session_id)
     : id_(id),
       name_(name),
@@ -549,7 +550,8 @@ ColumnFamilyData::ColumnFamilyData(
       prev_compaction_needed_bytes_(0),
       allow_2pc_(db_options.allow_2pc),
       last_memtable_id_(0),
-      db_paths_registered_(false) {
+      db_paths_registered_(false),
+      mempurge_used_(false) {
   if (id_ != kDummyColumnFamilyDataId) {
     // TODO(cc): RegisterDbPaths can be expensive, considering moving it
     // outside of this constructor which might be called with db mutex held.
@@ -580,6 +582,8 @@ ColumnFamilyData::ColumnFamilyData(
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
                           internal_stats_->GetBlobFileReadHist(), io_tracer));
+    blob_source_.reset(new BlobSource(ioptions(), db_id, db_session_id,
+                                      blob_file_cache_.get()));
 
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
@@ -695,19 +699,6 @@ ColumnFamilyData::~ColumnFamilyData() {
           id_, name_.c_str());
     }
   }
-
-  if (data_dirs_.size()) {  // Explicitly close data directories
-    Status s = Status::OK();
-    for (auto& data_dir_ptr : data_dirs_) {
-      if (data_dir_ptr) {
-        s = data_dir_ptr->Close(IOOptions(), nullptr);
-        if (!s.ok()) {
-          // TODO(zichen): add `Status Close()` and `CloseDirectories()
-          s.PermitUncheckedError();
-        }
-      }
-    }
-  }
 }
 
 bool ColumnFamilyData::UnrefAndTryDelete() {
@@ -782,13 +773,13 @@ namespace {
 std::unique_ptr<WriteControllerToken> SetupDelay(
     WriteController* write_controller, uint64_t compaction_needed_bytes,
     uint64_t prev_compaction_need_bytes, bool penalize_stop,
-    bool auto_comapctions_disabled) {
+    bool auto_compactions_disabled) {
   const uint64_t kMinWriteRate = 16 * 1024u;  // Minimum write rate 16KB/s.
 
   uint64_t max_write_rate = write_controller->max_delayed_write_rate();
   uint64_t write_rate = write_controller->delayed_write_rate();
 
-  if (auto_comapctions_disabled) {
+  if (auto_compactions_disabled) {
     // When auto compaction is disabled, always use the value user gave.
     write_rate = max_write_rate;
   } else if (write_controller->NeedsDelay() && max_write_rate > kMinWriteRate) {
@@ -1158,8 +1149,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
 
   auto read_seq = super_version->current->version_set()->LastSequence();
   ReadRangeDelAggregator range_del_agg(&internal_comparator_, read_seq);
-  auto* active_range_del_iter =
-      super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
+  auto* active_range_del_iter = super_version->mem->NewRangeTombstoneIterator(
+      read_opts, read_seq, false /* immutable_memtable */);
   range_del_agg.AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
   Status status;
@@ -1312,9 +1303,18 @@ void ColumnFamilyData::InstallSuperVersion(
   super_version_ = new_superversion;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
-  super_version_->write_stall_condition =
-      RecalculateWriteStallConditions(mutable_cf_options);
-
+  if (old_superversion == nullptr || old_superversion->current != current() ||
+      old_superversion->mem != mem_ ||
+      old_superversion->imm != imm_.current()) {
+    // Should not recalculate slow down condition if nothing has changed, since
+    // currently RecalculateWriteStallConditions() treats it as further slowing
+    // down is needed.
+    super_version_->write_stall_condition =
+        RecalculateWriteStallConditions(mutable_cf_options);
+  } else {
+    super_version_->write_stall_condition =
+        old_superversion->write_stall_condition;
+  }
   if (old_superversion != nullptr) {
     // Reset SuperVersions cached in thread local storage.
     // This should be done before old_superversion->Unref(). That's to ensure
@@ -1415,6 +1415,14 @@ Status ColumnFamilyData::ValidateOptions(
         "FIFO compaction only supported with max_open_files = -1.");
   }
 
+  std::vector<uint32_t> supported{0, 1, 2, 4, 8};
+  if (std::find(supported.begin(), supported.end(),
+                cf_options.memtable_protection_bytes_per_key) ==
+      supported.end()) {
+    return Status::NotSupported(
+        "Memtable per key-value checksum protection only supports 0, 1, 2, 4 "
+        "or 8 bytes per key.");
+  }
   return s;
 }
 
@@ -1504,13 +1512,14 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  WriteController* _write_controller,
                                  BlockCacheTracer* const block_cache_tracer,
                                  const std::shared_ptr<IOTracer>& io_tracer,
+                                 const std::string& db_id,
                                  const std::string& db_session_id)
     : max_column_family_(0),
       file_options_(file_options),
       dummy_cfd_(new ColumnFamilyData(
           ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
           nullptr, ColumnFamilyOptions(), *db_options, &file_options_, nullptr,
-          block_cache_tracer, io_tracer, db_session_id)),
+          block_cache_tracer, io_tracer, db_id, db_session_id)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
@@ -1519,6 +1528,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       write_controller_(_write_controller),
       block_cache_tracer_(block_cache_tracer),
       io_tracer_(io_tracer),
+      db_id_(db_id),
       db_session_id_(db_session_id) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
@@ -1586,7 +1596,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
       *db_options_, &file_options_, this, block_cache_tracer_, io_tracer_,
-      db_session_id_);
+      db_id_, db_session_id_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);

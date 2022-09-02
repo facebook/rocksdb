@@ -226,7 +226,14 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {LAST_LEVEL_READ_COUNT, "rocksdb.last.level.read.count"},
     {NON_LAST_LEVEL_READ_BYTES, "rocksdb.non.last.level.read.bytes"},
     {NON_LAST_LEVEL_READ_COUNT, "rocksdb.non.last.level.read.count"},
-    {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"}};
+    {BLOCK_CHECKSUM_COMPUTE_COUNT, "rocksdb.block.checksum.compute.count"},
+    {MULTIGET_COROUTINE_COUNT, "rocksdb.multiget.coroutine.count"},
+    {BLOB_DB_CACHE_MISS, "rocksdb.blobdb.cache.miss"},
+    {BLOB_DB_CACHE_HIT, "rocksdb.blobdb.cache.hit"},
+    {BLOB_DB_CACHE_ADD, "rocksdb.blobdb.cache.add"},
+    {BLOB_DB_CACHE_ADD_FAILURES, "rocksdb.blobdb.cache.add.failures"},
+    {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
+    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},
@@ -287,6 +294,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {POLL_WAIT_MICROS, "rocksdb.poll.wait.micros"},
     {PREFETCHED_BYTES_DISCARDED, "rocksdb.prefetched.bytes.discarded"},
     {MULTIGET_IO_BATCH_SIZE, "rocksdb.multiget.io.batch.size"},
+    {NUM_LEVEL_READ_PER_MULTIGET, "rocksdb.num.level.read.per.multiget"},
+    {ASYNC_PREFETCH_ABORT_MICROS, "rocksdb.async.prefetch.abort.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

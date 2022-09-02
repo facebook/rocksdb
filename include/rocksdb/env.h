@@ -493,6 +493,17 @@ class Env : public Customizable {
   // Wait for all threads started by StartThread to terminate.
   virtual void WaitForJoin() {}
 
+  // Reserve available background threads in the specified thread pool.
+  virtual int ReserveThreads(int /*threads_to_be_reserved*/, Priority /*pri*/) {
+    return 0;
+  }
+
+  // Release a specific number of reserved threads from the specified thread
+  // pool
+  virtual int ReleaseThreads(int /*threads_to_be_released*/, Priority /*pri*/) {
+    return 0;
+  }
+
   // Get thread pool queue length for specific thread pool.
   virtual unsigned int GetThreadPoolQueueLen(Priority /*pri*/ = LOW) const {
     return 0;
@@ -876,7 +887,7 @@ class WritableFile {
   virtual ~WritableFile();
 
   // Append data to the end of the file
-  // Note: A WriteableFile object must support either Append or
+  // Note: A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
 
@@ -1533,6 +1544,15 @@ class EnvWrapper : public Env {
   unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return target_.env->GetThreadPoolQueueLen(pri);
   }
+
+  int ReserveThreads(int threads_to_be_reserved, Priority pri) override {
+    return target_.env->ReserveThreads(threads_to_be_reserved, pri);
+  }
+
+  int ReleaseThreads(int threads_to_be_released, Priority pri) override {
+    return target_.env->ReleaseThreads(threads_to_be_released, pri);
+  }
+
   Status GetTestDirectory(std::string* path) override {
     return target_.env->GetTestDirectory(path);
   }

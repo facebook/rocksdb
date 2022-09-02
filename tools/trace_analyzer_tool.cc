@@ -101,7 +101,7 @@ DEFINE_bool(convert_to_human_readable_trace, false,
             "You can specify 'no_key' to reduce the size, if key is not "
             "needed in the next step.\n"
             "File name: <prefix>_human_readable_trace.txt\n"
-            "Format:[type_id cf_id value_size time_in_micorsec <key>].");
+            "Format:[<key> type_id cf_id value_size time_in_micorsec].");
 DEFINE_bool(output_qps_stats, false,
             "Output the query per second(qps) statistics \n"
             "For the overall qps, it will contain all qps of each query type. "

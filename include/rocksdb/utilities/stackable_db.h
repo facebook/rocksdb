@@ -85,11 +85,25 @@ class StackableDB : public DB {
     return db_->Put(options, column_family, key, ts, val);
   }
 
+  using DB::PutEntity;
+  Status PutEntity(const WriteOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   const WideColumns& columns) override {
+    return db_->PutEntity(options, column_family, key, columns);
+  }
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override {
     return db_->Get(options, column_family, key, value);
+  }
+
+  using DB::GetEntity;
+  Status GetEntity(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableWideColumns* columns) override {
+    return db_->GetEntity(options, column_family, key, columns);
   }
 
   using DB::GetMergeOperands;

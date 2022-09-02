@@ -43,8 +43,6 @@ class StressTest {
 
   void PrintStatistics();
 
-  void ReleaseOldTimestampedSnapshots(uint64_t ts);
-
  protected:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state);
@@ -154,6 +152,14 @@ class StressTest {
                              const std::vector<int>& rand_column_families,
                              const std::vector<int64_t>& rand_keys);
 
+  virtual Status TestIterateAgainstExpected(
+      ThreadState* /* thread */, const ReadOptions& /* read_opts */,
+      const std::vector<int>& /* rand_column_families */,
+      const std::vector<int64_t>& /* rand_keys */,
+      std::unique_ptr<MutexLock>& /* lock */) {
+    return Status::NotSupported();
+  }
+
   // Enum used by VerifyIterator() to identify the mode to validate.
   enum LastIterateOp {
     kLastOpSeek,
@@ -216,6 +222,10 @@ class StressTest {
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
                          int64_t key) const;
 
+  void VerificationAbort(SharedState* shared, std::string msg, int cf,
+                         int64_t key, Slice value_from_db,
+                         Slice value_from_expected) const;
+
   void PrintEnv() const;
 
   void Open(SharedState* shared);
@@ -228,6 +238,15 @@ class StressTest {
   virtual void PrepareTxnDbOptions(SharedState* /*shared*/,
                                    TransactionDBOptions& /*txn_db_opts*/) {}
 #endif
+
+  void MaybeUseOlderTimestampForPointLookup(ThreadState* thread,
+                                            std::string& ts_str,
+                                            Slice& ts_slice,
+                                            ReadOptions& read_opts);
+
+  void MaybeUseOlderTimestampForRangeScan(ThreadState* thread,
+                                          std::string& ts_str, Slice& ts_slice,
+                                          ReadOptions& read_opts);
 
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;

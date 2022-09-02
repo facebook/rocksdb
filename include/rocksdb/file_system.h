@@ -581,7 +581,7 @@ class FileSystem : public Customizable {
   // logger.
   virtual IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                              std::shared_ptr<Logger>* result,
-                             IODebugContext* dbg) = 0;
+                             IODebugContext* dbg);
 
   // Get full directory name for this db.
   virtual IOStatus GetAbsolutePath(const std::string& db_path,
@@ -762,7 +762,7 @@ struct FSReadRequest {
   // returns fewer bytes if end of file is hit (or `status` is not OK).
   size_t len;
 
-  // A buffer that MultiRead()  can optionally place data in. It can
+  // A buffer that MultiRead() can optionally place data in. It can
   // ignore this and allocate its own buffer.
   // The lifecycle of scratch will be until IO is completed.
   //
@@ -951,7 +951,7 @@ class FSWritableFile {
   virtual ~FSWritableFile() {}
 
   // Append data to the end of the file
-  // Note: A WriteableFile object must support either Append or
+  // Note: A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;

@@ -220,6 +220,7 @@ TEST_F(DBOptionsTest, SetMutableTableOptions) {
 
   ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
   Options c_opts = dbfull()->GetOptions(cfh);
+
   const auto* c_bbto =
       c_opts.table_factory->GetOptions<BlockBasedTableOptions>();
   ASSERT_NE(c_bbto, nullptr);
@@ -452,7 +453,7 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
       dbfull()->SetDBOptions({{"writable_file_max_buffer_size", "524288"}}));
   buffer_size = 512 * 1024;
   match_cnt = 0;
-  unmatch_cnt = 0;  // SetDBOptions() will create a WriteableFileWriter
+  unmatch_cnt = 0;  // SetDBOptions() will create a WritableFileWriter
 
   ASSERT_EQ(buffer_size,
             dbfull()->GetDBOptions().writable_file_max_buffer_size);

@@ -57,12 +57,12 @@ class TtlTest : public testing::Test {
     options_.max_compaction_bytes = 1;
     // compaction should take place always from level0 for determinism
     db_ttl_ = nullptr;
-    DestroyDB(dbname_, Options());
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   ~TtlTest() override {
     CloseTtl();
-    DestroyDB(dbname_, Options());
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   // Open database with TTL support when TTL not provided with db_ttl_ pointer

@@ -208,8 +208,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kString, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"experimental_mempurge_threshold",
-         {offsetof(struct ImmutableDBOptions, experimental_mempurge_threshold),
-          OptionType::kDouble, OptionVerificationType::kNormal,
+         {0, OptionType::kDouble, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
         {"is_fd_close_on_exec",
          {offsetof(struct ImmutableDBOptions, is_fd_close_on_exec),
@@ -422,12 +421,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"db_host_id",
          {offsetof(struct ImmutableDBOptions, db_host_id), OptionType::kString,
           OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
+        // Temporarily deprecated due to race conditions (examples in PR 10375).
         {"rate_limiter",
-         OptionTypeInfo::AsCustomSharedPtr<RateLimiter>(
-             offsetof(struct ImmutableDBOptions, rate_limiter),
-             OptionVerificationType::kNormal,
-             OptionTypeFlags::kCompareNever | OptionTypeFlags::kAllowNull)},
-
+         {offsetof(struct ImmutableDBOptions, rate_limiter),
+          OptionType::kUnknown, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -716,7 +714,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
-      experimental_mempurge_threshold(options.experimental_mempurge_threshold),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
@@ -847,9 +844,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    is_fd_close_on_exec);
   ROCKS_LOG_HEADER(log, "                  Options.advise_random_on_open: %d",
                    advise_random_on_open);
-  ROCKS_LOG_HEADER(
-      log, "                  Options.experimental_mempurge_threshold: %f",
-      experimental_mempurge_threshold);
   ROCKS_LOG_HEADER(
       log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
       db_write_buffer_size);

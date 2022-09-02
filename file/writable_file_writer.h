@@ -143,6 +143,7 @@ class WritableFileWriter {
   // Actually written data size can be used for truncate
   // not counting padding data
   std::atomic<uint64_t> filesize_;
+  std::atomic<uint64_t> flushed_size_;
 #ifndef ROCKSDB_LITE
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
@@ -150,6 +151,14 @@ class WritableFileWriter {
   uint64_t next_write_offset_;
 #endif  // ROCKSDB_LITE
   bool pending_sync_;
+  std::atomic<bool> seen_error_;
+#ifndef NDEBUG
+  // SyncWithoutFlush() is the function that is allowed to be called
+  // concurrently with other function. One of the concurrent call
+  // could set seen_error_, and the other one would hit assertion
+  // in debug mode.
+  std::atomic<bool> sync_without_flush_called_ = false;
+#endif  // NDEBUG
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
   RateLimiter* rate_limiter_;
@@ -180,10 +189,12 @@ class WritableFileWriter {
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
+        flushed_size_(0),
 #ifndef ROCKSDB_LITE
         next_write_offset_(0),
 #endif  // ROCKSDB_LITE
         pending_sync_(false),
+        seen_error_(false),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
@@ -259,6 +270,14 @@ class WritableFileWriter {
     return filesize_.load(std::memory_order_acquire);
   }
 
+  // Returns the size of data flushed to the underlying `FSWritableFile`.
+  // Expected to match `writable_file()->GetFileSize()`.
+  // The return value can serve as a lower-bound for the amount of data synced
+  // by a future call to `SyncWithoutFlush()`.
+  uint64_t GetFlushedSize() const {
+    return flushed_size_.load(std::memory_order_acquire);
+  }
+
   IOStatus InvalidateCache(size_t offset, size_t length) {
     return writable_file_->InvalidateCache(offset, length);
   }
@@ -277,6 +296,22 @@ class WritableFileWriter {
   std::string GetFileChecksum();
 
   const char* GetFileChecksumFuncName() const;
+
+  bool seen_error() const {
+    return seen_error_.load(std::memory_order_relaxed);
+  }
+  // For options of relaxed consistency, users might hope to continue
+  // operating on the file after an error happens.
+  void reset_seen_error() {
+    seen_error_.store(false, std::memory_order_relaxed);
+  }
+  void set_seen_error() { seen_error_.store(true, std::memory_order_relaxed); }
+
+  IOStatus AssertFalseAndGetStatusForPrevError() {
+    // This should only happen if SyncWithoutFlush() was called.
+    assert(sync_without_flush_called_);
+    return IOStatus::IOError("Writer has previous error.");
+  }
 
  private:
   // Decide the Rate Limiter priority.

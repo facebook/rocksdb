@@ -1,4 +1,5 @@
-//  Copyright (c) Meta Platforms, Inc. and its affiliates. All Rights Reserved.
+//  Copyright (c) Meta Platforms, Inc. and affiliates.
+//
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
@@ -177,9 +178,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::RetrieveMultipleBlocks)
     size_t& req_idx = req_idx_for_block[valid_batch_idx];
     size_t& req_offset = req_offset_for_block[valid_batch_idx];
     valid_batch_idx++;
-    if (mget_iter->get_context) {
-      ++(mget_iter->get_context->get_context_stats_.num_data_read);
-    }
     FSReadRequest& req = read_reqs[req_idx];
     Status s = req.status;
     if (s.ok()) {
@@ -338,7 +336,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
       TableReaderCaller::kUserMultiGet, tracing_mget_id,
       /*_get_from_user_specified_snapshot=*/read_options.snapshot != nullptr};
   FullFilterKeysMayMatch(filter, &sst_file_range, no_io, prefix_extractor,
-                         &lookup_context);
+                         &lookup_context, read_options.rate_limiter_priority);
 
   if (!sst_file_range.empty()) {
     IndexBlockIter iiter_on_stack;
@@ -487,14 +485,21 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           }
           results[i].UpdateCachedValue();
           void* val = results[i].GetValue();
+          Cache::Handle* handle = results[i].GetCacheHandle();
+          // GetContext for any key will do, as the stats will be aggregated
+          // anyway
+          GetContext* get_context = sst_file_range.begin()->get_context;
           if (!val) {
             // The async cache lookup failed - could be due to an error
             // or a false positive. We need to read the data block from
             // the SST file
             results[i].Reset();
             total_len += BlockSizeWithTrailer(block_handles[i]);
+            UpdateCacheMissMetrics(BlockType::kData, get_context);
           } else {
             block_handles[i] = BlockHandle::NullBlockHandle();
+            UpdateCacheHitMetrics(BlockType::kData, get_context,
+                                  block_cache->GetUsage(handle));
           }
         }
       }
@@ -613,15 +618,6 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           break;
         }
 
-        bool may_exist = biter->SeekForGet(key);
-        if (!may_exist) {
-          // HashSeek cannot find the key this block and the the iter is not
-          // the end of the block, i.e. cannot be in the following blocks
-          // either. In this case, the seek_key cannot be found, so we break
-          // from the top level for-loop.
-          break;
-        }
-
         // Reusing blocks complicates pinning/Cleanable, because the cache
         // entry referenced by biter can only be released once all returned
         // pinned values are released. This code previously did an extra
@@ -662,6 +658,15 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
           value_pinner = biter;
         } else {
           value_pinner = nullptr;
+        }
+
+        bool may_exist = biter->SeekForGet(key);
+        if (!may_exist) {
+          // HashSeek cannot find the key this block and the the iter is not
+          // the end of the block, i.e. cannot be in the following blocks
+          // either. In this case, the seek_key cannot be found, so we break
+          // from the top level for-loop.
+          break;
         }
 
         // Call the *saver function on each entry/block until it returns false
@@ -732,7 +737,7 @@ DEFINE_SYNC_AND_ASYNC(void, BlockBasedTable::MultiGet)
         iiter->Next();
       } while (iiter->Valid());
 
-      if (matched && filter != nullptr && !filter->IsBlockBased()) {
+      if (matched && filter != nullptr) {
         RecordTick(rep_->ioptions.stats, BLOOM_FILTER_FULL_TRUE_POSITIVE);
         PERF_COUNTER_BY_LEVEL_ADD(bloom_filter_full_true_positive, 1,
                                   rep_->level);
