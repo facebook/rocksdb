@@ -168,10 +168,12 @@ double HistogramStat::StandardDeviation() const {
       static_cast<double>(num());  // Use double to avoid integer overflow
   double cur_sum = static_cast<double>(sum());
   double cur_sum_squares = static_cast<double>(sum_squares());
-  if (cur_num == 0) return 0;
+  if (cur_num == 0.0) {
+    return 0.0;
+  }
   double variance =
       (cur_sum_squares * cur_num - cur_sum * cur_sum) / (cur_num * cur_num);
-  return std::sqrt(variance);
+  return std::sqrt(std::max(variance, 0.0));
 }
 
 std::string HistogramStat::ToString() const {

@@ -3175,6 +3175,148 @@ TEST_F(CompactionPickerTest, UniversalMarkedManualCompaction) {
   ASSERT_EQ(0U, vstorage_->FilesMarkedForCompaction().size());
 }
 
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNonLastLevel) {
+  // This test make sure size amplification compaction could still be triggered
+  // if the last sorted run is not the last level.
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(4, 90U, "100", "600", 4 * kFileSize);
+  Add(5, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // Make sure it's a size amp compaction and includes all files
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->output_level(), kLastLevel);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
+  ASSERT_EQ(compaction->input_levels(4)->num_files, 1);
+  ASSERT_EQ(compaction->input_levels(5)->num_files, 1);
+}
+
+TEST_F(CompactionPickerTest, UniversalSizeRatioTierCompactionLastLevel) {
+  // This test makes sure the size amp calculation skips the last level (L6), so
+  // size amp compaction is not triggered, instead a size ratio compaction is
+  // triggered.
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+  const int kPenultimateLevel = kLastLevel - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(5, 90U, "100", "600", 4 * kFileSize);
+  Add(6, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // Internally, size amp compaction is evaluated before size ratio compaction.
+  // Here to make sure it's size ratio compaction instead of size amp
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeRatio);
+  ASSERT_EQ(compaction->output_level(), kPenultimateLevel - 1);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
+  ASSERT_EQ(compaction->input_levels(5)->num_files, 0);
+  ASSERT_EQ(compaction->input_levels(6)->num_files, 0);
+}
+
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionNotSuport) {
+  // Tiered compaction only support level_num > 2 (otherwise the penultimate
+  // level is going to be level 0, which may make thing more complicated), so
+  // when there's only 2 level, still treating level 1 as the last level for
+  // size amp compaction
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 2;
+  const int kLastLevel = kNumLevels - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 1 * kFileSize);
+  Add(0, 101U, "200", "400", 1 * kFileSize);
+  Add(0, 90U, "100", "600", 4 * kFileSize);
+  Add(1, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // size amp compaction is still triggered even preclude_last_level is set
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->output_level(), kLastLevel);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 3);
+  ASSERT_EQ(compaction->input_levels(1)->num_files, 1);
+}
+
+TEST_F(CompactionPickerTest, UniversalSizeAmpTierCompactionLastLevel) {
+  // This test makes sure the size amp compaction for tiered storage could still
+  // be triggered, but only for non-last-level files
+  const uint64_t kFileSize = 100000;
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+  const int kPenultimateLevel = kLastLevel - 1;
+
+  ioptions_.compaction_style = kCompactionStyleUniversal;
+  ioptions_.preclude_last_level_data_seconds = 1000;
+  mutable_cf_options_.compaction_options_universal
+      .max_size_amplification_percent = 200;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(kNumLevels, kCompactionStyleUniversal);
+  Add(0, 100U, "100", "300", 3 * kFileSize);
+  Add(0, 101U, "200", "400", 2 * kFileSize);
+  Add(5, 90U, "100", "600", 2 * kFileSize);
+  Add(6, 80U, "200", "300", 2 * kFileSize);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+
+  // It's a Size Amp compaction, but doesn't include the last level file and
+  // output to the penultimate level.
+  ASSERT_EQ(compaction->compaction_reason(),
+            CompactionReason::kUniversalSizeAmplification);
+  ASSERT_EQ(compaction->output_level(), kPenultimateLevel);
+  ASSERT_EQ(compaction->input_levels(0)->num_files, 2);
+  ASSERT_EQ(compaction->input_levels(5)->num_files, 1);
+  ASSERT_EQ(compaction->input_levels(6)->num_files, 0);
+}
+
 class PerKeyPlacementCompactionPickerTest
     : public CompactionPickerTest,
       public testing::WithParamInterface<bool> {

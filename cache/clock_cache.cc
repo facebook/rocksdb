@@ -404,9 +404,9 @@ void ClockCacheShard::ApplyToSomeEntries(
     *state = index_end << (32 - length_bits);
   }
 
-  table_.ApplyToEntriesRange(
+  table_.ConstApplyToEntriesRange(
       [callback,
-       metadata_charge_policy = metadata_charge_policy_](ClockHandle* h) {
+       metadata_charge_policy = metadata_charge_policy_](const ClockHandle* h) {
         callback(h->key(), h->value, h->GetCharge(metadata_charge_policy),
                  h->deleter);
       },
@@ -616,7 +616,7 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   size_t clock_usage = 0;
 
   table_.ConstApplyToEntriesRange(
-      [&clock_usage](ClockHandle* h) {
+      [&clock_usage](const ClockHandle* h) {
         if (h->ExternalRefs() > 1) {
           // We check > 1 because we are holding an external ref.
           clock_usage += h->total_charge;
@@ -697,8 +697,10 @@ void ClockCache::DisownData() {
 std::shared_ptr<Cache> NewClockCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit, 0.5,
-                     nullptr, kDefaultToAdaptiveMutex, metadata_charge_policy);
+  return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
+                     /* high_pri_pool_ratio */ 0.5, nullptr,
+                     kDefaultToAdaptiveMutex, metadata_charge_policy,
+                     /* low_pri_pool_ratio */ 0.0);
 }
 
 std::shared_ptr<Cache> ExperimentalNewClockCache(

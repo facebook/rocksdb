@@ -13,6 +13,7 @@
 
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
+#include "rocksdb/io_status.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 
@@ -44,7 +45,12 @@ Writer::~Writer() {
   }
 }
 
-IOStatus Writer::WriteBuffer() { return dest_->Flush(); }
+IOStatus Writer::WriteBuffer() {
+  if (dest_->seen_error()) {
+    return IOStatus::IOError("Seen error. Skip writing buffer.");
+  }
+  return dest_->Flush();
+}
 
 IOStatus Writer::Close() {
   IOStatus s;

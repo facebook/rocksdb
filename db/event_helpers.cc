@@ -97,7 +97,8 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
             << "file_number" << fd.GetNumber() << "file_size"
             << fd.GetFileSize() << "file_checksum"
             << Slice(file_checksum).ToString(true) << "file_checksum_func_name"
-            << file_checksum_func_name;
+            << file_checksum_func_name << "smallest_seqno" << fd.smallest_seqno
+            << "largest_seqno" << fd.largest_seqno;
 
     // table_properties
     {

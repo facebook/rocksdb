@@ -321,6 +321,7 @@ void CompactionJob::AcquireSubcompactionResources(
               ->write_controller()
               ->NeedSpeedupCompaction())
           .max_compactions;
+  InstrumentedMutexLock l(db_mutex_);
   // Apply min function first since We need to compute the extra subcompaction
   // against compaction limits. And then try to reserve threads for extra
   // subcompactions. The actual number of reserved threads could be less than
@@ -329,7 +330,6 @@ void CompactionJob::AcquireSubcompactionResources(
       std::max(max_db_compactions - *bg_compaction_scheduled_ -
                    *bg_bottom_compaction_scheduled_,
                0);
-  db_mutex_->Lock();
   // Reservation only supports backgrdoun threads of which the priority is
   // between BOTTOM and HIGH. Need to degrade the priority to HIGH if the
   // origin thread_pri_ is higher than that. Similar to ReleaseThreads().
@@ -346,7 +346,6 @@ void CompactionJob::AcquireSubcompactionResources(
   } else {
     *bg_compaction_scheduled_ += extra_num_subcompaction_threads_reserved_;
   }
-  db_mutex_->Unlock();
 }
 
 void CompactionJob::ShrinkSubcompactionResources(uint64_t num_extra_resources) {
@@ -380,17 +379,20 @@ void CompactionJob::ReleaseSubcompactionResources() {
   if (extra_num_subcompaction_threads_reserved_ == 0) {
     return;
   }
-  // The number of reserved threads becomes larger than 0 only if the
-  // compaction prioity is round robin and there is no sufficient
-  // sub-compactions available
+  {
+    InstrumentedMutexLock l(db_mutex_);
+    // The number of reserved threads becomes larger than 0 only if the
+    // compaction prioity is round robin and there is no sufficient
+    // sub-compactions available
 
-  // The scheduled compaction must be no less than 1 + extra number
-  // subcompactions using acquired resources since this compaction job has not
-  // finished yet
-  assert(*bg_bottom_compaction_scheduled_ >=
-             1 + extra_num_subcompaction_threads_reserved_ ||
-         *bg_compaction_scheduled_ >=
-             1 + extra_num_subcompaction_threads_reserved_);
+    // The scheduled compaction must be no less than 1 + extra number
+    // subcompactions using acquired resources since this compaction job has not
+    // finished yet
+    assert(*bg_bottom_compaction_scheduled_ >=
+               1 + extra_num_subcompaction_threads_reserved_ ||
+           *bg_compaction_scheduled_ >=
+               1 + extra_num_subcompaction_threads_reserved_);
+  }
   ShrinkSubcompactionResources(extra_num_subcompaction_threads_reserved_);
 }
 
@@ -1716,13 +1718,16 @@ Status CompactionJob::OpenCompactionOutputFile(SubcompactionState* sub_compact,
                            &syncpoint_arg);
 #endif
 
-  // Pass temperature of botommost files to FileSystem.
+  // Pass temperature of the last level files to FileSystem.
   FileOptions fo_copy = file_options_;
   Temperature temperature = sub_compact->compaction->output_temperature();
-  if (temperature == Temperature::kUnknown && bottommost_level_ &&
+  // only set for the last level compaction and also it's not output to
+  // penultimate level (when preclude_last_level feature is enabled)
+  if (temperature == Temperature::kUnknown &&
+      sub_compact->compaction->is_last_level() &&
       !sub_compact->IsCurrentPenultimateLevel()) {
     temperature =
-        sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
+        sub_compact->compaction->mutable_cf_options()->last_level_temperature;
   }
   fo_copy.temperature = temperature;
 
@@ -1958,7 +1963,10 @@ void CompactionJob::LogCompaction() {
       stream.EndArray();
     }
     stream << "score" << compaction->score() << "input_data_size"
-           << compaction->CalculateTotalInputSize();
+           << compaction->CalculateTotalInputSize() << "oldest_snapshot_seqno"
+           << (existing_snapshots_.empty()
+                   ? int64_t{-1}  // Use -1 for "none"
+                   : static_cast<int64_t>(existing_snapshots_[0]));
   }
 }
 

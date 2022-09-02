@@ -905,7 +905,8 @@ struct DBOptions {
   // can be passed into multiple DBs and it will track the sum of size of all
   // the DBs. If the total size of all live memtables of all the DBs exceeds
   // a limit, a flush will be triggered in the next DB to which the next write
-  // is issued.
+  // is issued, as long as there is one or more column family not already
+  // flushing.
   //
   // If the object is only passed to one DB, the behavior is the same as
   // db_write_buffer_size. When write_buffer_manager is set, the value set will
@@ -1685,6 +1686,17 @@ struct ReadOptions {
   // Default: false
   bool async_io;
 
+  // Experimental
+  //
+  // If async_io is set, then this flag controls whether we read SST files
+  // in multiple levels asynchronously. Enabling this flag can help reduce
+  // MultiGet latency by maximizing the number of SST files read in
+  // parallel if the keys in the MultiGet batch are in different levels. It
+  // comes at the expense of slightly higher CPU overhead.
+  //
+  // Default: false
+  bool optimize_multiget_for_io;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -2082,7 +2094,8 @@ struct LiveFilesStorageInfoOptions {
   // Whether to populate FileStorageInfo::file_checksum* or leave blank
   bool include_checksum_info = false;
   // Flushes memtables if total size in bytes of live WAL files is >= this
-  // number. Default: always force a flush without checking sizes.
+  // number (and DB is not read-only).
+  // Default: always force a flush without checking sizes.
   uint64_t wal_size_for_flush = 0;
 };
 #endif  // !ROCKSDB_LITE

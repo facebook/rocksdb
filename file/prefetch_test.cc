@@ -463,6 +463,115 @@ TEST_P(PrefetchTest, ConfigureInternalAutoReadaheadSize) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
 }
+
+TEST_P(PrefetchTest, ConfigureNumFilesReadsForReadaheadSize) {
+  // First param is if the mockFS support_prefetch or not
+  bool support_prefetch =
+      std::get<0>(GetParam()) &&
+      test::IsPrefetchSupported(env_->GetFileSystem(), dbname_);
+
+  const int kNumKeys = 2000;
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), support_prefetch);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  // Second param is if directIO is enabled or not
+  bool use_direct_io = std::get<1>(GetParam());
+
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.metadata_block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.num_file_reads_for_auto_readahead = 0;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  if (use_direct_io) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
+
+  int buff_prefetch_count = 0;
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = BuildKey(0);
+  std::string end_key = BuildKey(kNumKeys - 1);
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  Close();
+  TryReopen(options);
+
+  fs->ClearPrefetchCount();
+  buff_prefetch_count = 0;
+
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    /*
+     * Reseek keys from sequential Data Blocks within same partitioned
+     * index. It will prefetch the data block at the first seek since
+     * num_file_reads_for_auto_readahead = 0. Data Block size is nearly 4076 so
+     * readahead will fetch 8 * 1024 data more initially (2 more data blocks).
+     */
+    iter->Seek(BuildKey(0));  // Prefetch data + index block since
+                              // num_file_reads_for_auto_readahead = 0.
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(BuildKey(1000));  // In buffer
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(BuildKey(1004));  // In buffer
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(BuildKey(1008));  // Prefetch Data
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(BuildKey(1011));  // In buffer
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(BuildKey(1015));  // In buffer
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(BuildKey(1019));  // In buffer
+    ASSERT_TRUE(iter->Valid());
+    // Missed 2 blocks but they are already in buffer so no reset.
+    iter->Seek(BuildKey(103));  // Already in buffer.
+    ASSERT_TRUE(iter->Valid());
+    iter->Seek(BuildKey(1033));  // Prefetch Data.
+    ASSERT_TRUE(iter->Valid());
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 4);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 4);
+      buff_prefetch_count = 0;
+    }
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
 #endif  // !ROCKSDB_LITE
 
 TEST_P(PrefetchTest, PrefetchWhenReseek) {

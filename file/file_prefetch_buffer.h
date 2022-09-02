@@ -20,6 +20,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "util/aligned_buffer.h"
+#include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -36,8 +37,6 @@ struct BufferInfo {
 // FilePrefetchBuffer is a smart buffer to store and read data from a file.
 class FilePrefetchBuffer {
  public:
-  static const int kMinNumFileReadsToStartAutoReadahead = 2;
-
   // Constructor.
   //
   // All arguments are optional.
@@ -65,8 +64,10 @@ class FilePrefetchBuffer {
   FilePrefetchBuffer(size_t readahead_size = 0, size_t max_readahead_size = 0,
                      bool enable = true, bool track_min_offset = false,
                      bool implicit_auto_readahead = false,
-                     uint64_t num_file_reads = 0, FileSystem* fs = nullptr,
-                     SystemClock* clock = nullptr, Statistics* stats = nullptr)
+                     uint64_t num_file_reads = 0,
+                     uint64_t num_file_reads_for_auto_readahead = 0,
+                     FileSystem* fs = nullptr, SystemClock* clock = nullptr,
+                     Statistics* stats = nullptr)
       : curr_(0),
         readahead_size_(readahead_size),
         initial_auto_readahead_size_(readahead_size),
@@ -77,6 +78,7 @@ class FilePrefetchBuffer {
         implicit_auto_readahead_(implicit_auto_readahead),
         prev_offset_(0),
         prev_len_(0),
+        num_file_reads_for_auto_readahead_(num_file_reads_for_auto_readahead),
         num_file_reads_(num_file_reads),
         io_handle_(nullptr),
         del_fn_(nullptr),
@@ -85,7 +87,7 @@ class FilePrefetchBuffer {
         fs_(fs),
         clock_(clock),
         stats_(stats) {
-    assert((num_file_reads_ >= kMinNumFileReadsToStartAutoReadahead + 1) ||
+    assert((num_file_reads_ >= num_file_reads_for_auto_readahead_ + 1) ||
            (num_file_reads_ == 0));
     // If async_io_ is enabled, data is asynchronously filled in second buffer
     // while curr_ is being consumed. If data is overlapping in two buffers,
@@ -98,17 +100,47 @@ class FilePrefetchBuffer {
     if (async_read_in_progress_ && fs_ != nullptr) {
       std::vector<void*> handles;
       handles.emplace_back(io_handle_);
+      StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
       Status s = fs_->AbortIO(handles);
       assert(s.ok());
     }
 
     // Prefetch buffer bytes discarded.
     uint64_t bytes_discarded = 0;
-    if (bufs_[curr_].buffer_.CurrentSize() != 0) {
-      bytes_discarded = bufs_[curr_].buffer_.CurrentSize();
-    }
-    if (bufs_[curr_ ^ 1].buffer_.CurrentSize() != 0) {
-      bytes_discarded += bufs_[curr_ ^ 1].buffer_.CurrentSize();
+    // Iterated over 2 buffers.
+    for (int i = 0; i < 2; i++) {
+      int first = i;
+      int second = i ^ 1;
+
+      if (bufs_[first].buffer_.CurrentSize() > 0) {
+        // If last block was read completely from first and some bytes in
+        // first buffer are still unconsumed.
+        if (prev_offset_ >= bufs_[first].offset_ &&
+            prev_offset_ + prev_len_ <
+                bufs_[first].offset_ + bufs_[first].buffer_.CurrentSize()) {
+          bytes_discarded += bufs_[first].buffer_.CurrentSize() -
+                             (prev_offset_ + prev_len_ - bufs_[first].offset_);
+        }
+        // If data was in second buffer and some/whole block bytes were read
+        // from second buffer.
+        else if (prev_offset_ < bufs_[first].offset_ &&
+                 bufs_[second].buffer_.CurrentSize() > 0) {
+          // If last block read was completely from different buffer, this
+          // buffer is unconsumed.
+          if (prev_offset_ + prev_len_ <= bufs_[first].offset_) {
+            bytes_discarded += bufs_[first].buffer_.CurrentSize();
+          }
+          // If last block read overlaps with this buffer and some data is
+          // still unconsumed and previous buffer (second) is not cleared.
+          else if (prev_offset_ + prev_len_ > bufs_[first].offset_ &&
+                   bufs_[first].offset_ + bufs_[first].buffer_.CurrentSize() ==
+                       bufs_[second].offset_) {
+            bytes_discarded += bufs_[first].buffer_.CurrentSize() -
+                               (/*bytes read from this buffer=*/prev_len_ -
+                                (bufs_[first].offset_ - prev_offset_));
+          }
+        }
+      }
     }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
 
@@ -203,12 +235,12 @@ class FilePrefetchBuffer {
     //   - few/no bytes are in buffer and,
     //   - block is sequential with the previous read and,
     //   - num_file_reads_ + 1 (including this read) >
-    //   kMinNumFileReadsToStartAutoReadahead
+    //   num_file_reads_for_auto_readahead_
     if (implicit_auto_readahead_ && readahead_size_ > 0) {
       if ((offset + size >
            bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) &&
           IsBlockSequential(offset) &&
-          (num_file_reads_ + 1 > kMinNumFileReadsToStartAutoReadahead)) {
+          (num_file_reads_ + 1 > num_file_reads_for_auto_readahead_)) {
         readahead_size_ =
             std::max(initial_auto_readahead_size_,
                      (readahead_size_ >= value ? readahead_size_ - value : 0));
@@ -276,7 +308,7 @@ class FilePrefetchBuffer {
     if (async_request_submitted_) {
       return true;
     }
-    if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
+    if (num_file_reads_ <= num_file_reads_for_auto_readahead_) {
       UpdateReadPattern(offset, n, false /*decrease_readaheadsize*/);
       return false;
     }
@@ -306,7 +338,9 @@ class FilePrefetchBuffer {
   bool implicit_auto_readahead_;
   uint64_t prev_offset_;
   size_t prev_len_;
-  // num_file_reads_ is only used when implicit_auto_readahead_ is set.
+  // num_file_reads_ and num_file_reads_for_auto_readahead_ is only used when
+  // implicit_auto_readahead_ is set.
+  uint64_t num_file_reads_for_auto_readahead_;
   uint64_t num_file_reads_;
 
   // io_handle_ is allocated and used by underlying file system in case of

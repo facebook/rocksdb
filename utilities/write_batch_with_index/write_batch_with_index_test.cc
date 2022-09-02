@@ -246,7 +246,7 @@ class WBWIBaseTest : public testing::Test {
         MergeOperators::CreateFromStringId("stringappend");
     options_.create_if_missing = true;
     dbname_ = test::PerThreadDBPath("write_batch_with_index_test");
-    DestroyDB(dbname_, options_);
+    EXPECT_OK(DestroyDB(dbname_, options_));
     batch_.reset(new WriteBatchWithIndex(BytewiseComparator(), 20, overwrite));
   }
 
@@ -254,7 +254,7 @@ class WBWIBaseTest : public testing::Test {
     if (db_ != nullptr) {
       ReleaseSnapshot();
       delete db_;
-      DestroyDB(dbname_, options_);
+      EXPECT_OK(DestroyDB(dbname_, options_));
     }
   }
 

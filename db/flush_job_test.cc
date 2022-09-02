@@ -242,6 +242,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   mock::SortKVVector(&inserted_keys);
 
   autovector<MemTable*> to_delete;
+  new_mem->ConstructFragmentedRangeTombstones();
   cfd->imm()->Add(new_mem, &to_delete);
   for (auto& m : to_delete) {
     delete m;
@@ -303,6 +304,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
 
   autovector<MemTable*> to_delete;
   for (auto mem : new_mems) {
+    mem->ConstructFragmentedRangeTombstones();
     cfd->imm()->Add(mem, &to_delete);
   }
 
@@ -372,7 +374,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
         ASSERT_OK(mem->Add(curr_seqno++, kTypeValue, key, value,
                            nullptr /* kv_prot_info */));
       }
-
+      mem->ConstructFragmentedRangeTombstones();
       cfd->imm()->Add(mem, &to_delete);
     }
     largest_seqs.push_back(curr_seqno - 1);
@@ -505,6 +507,7 @@ TEST_F(FlushJobTest, Snapshots) {
   mock::SortKVVector(&inserted_keys);
 
   autovector<MemTable*> to_delete;
+  new_mem->ConstructFragmentedRangeTombstones();
   cfd->imm()->Add(new_mem, &to_delete);
   for (auto& m : to_delete) {
     delete m;
@@ -559,6 +562,7 @@ TEST_F(FlushJobTest, GetRateLimiterPriorityForWrite) {
 
   autovector<MemTable*> to_delete;
   for (auto mem : new_mems) {
+    mem->ConstructFragmentedRangeTombstones();
     cfd->imm()->Add(mem, &to_delete);
   }
 
@@ -638,6 +642,7 @@ TEST_F(FlushJobTimestampTest, AllKeysExpired) {
     SequenceNumber seq = (curr_seq_++);
     AddKeyValueToMemtable(new_mem, test::EncodeInt(0), ts, seq,
                           ValueType::kTypeDeletionWithTimestamp, "");
+    new_mem->ConstructFragmentedRangeTombstones();
     cfd->imm()->Add(new_mem, &to_delete);
   }
 
@@ -690,6 +695,7 @@ TEST_F(FlushJobTimestampTest, NoKeyExpired) {
       AddKeyValueToMemtable(new_mem, test::EncodeInt(0), ts, seq,
                             ValueType::kTypeValue, "0_value");
     }
+    new_mem->ConstructFragmentedRangeTombstones();
     cfd->imm()->Add(new_mem, &to_delete);
   }
 

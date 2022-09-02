@@ -139,7 +139,6 @@ class DBIter final : public Iterator {
     iter_.Set(iter);
     iter_.iter()->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
-  ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
   bool Valid() const override {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
@@ -160,9 +159,12 @@ class DBIter final : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
+    assert(!is_blob_ || !is_wide_);
 
     if (!expose_blob_index_ && is_blob_) {
       return blob_value_;
+    } else if (is_wide_) {
+      return value_of_default_column_;
     } else if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
       // the merge operands and we should return it.
@@ -300,7 +302,17 @@ class DBIter final : public Iterator {
   // index when using the integrated BlobDB implementation.
   bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
 
+  void ResetBlobValue() {
+    is_blob_ = false;
+    blob_value_.Reset();
+  }
+
   bool SetWideColumnValueIfNeeded(const Slice& wide_columns_slice);
+
+  void ResetWideColumnValue() {
+    is_wide_ = false;
+    value_of_default_column_.clear();
+  }
 
   Status Merge(const Slice* val, const Slice& user_key);
 
@@ -326,6 +338,7 @@ class DBIter final : public Iterator {
   Slice pinned_value_;
   // for prefix seek mode to support prev()
   PinnableSlice blob_value_;
+  Slice value_of_default_column_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
@@ -356,15 +369,16 @@ class DBIter final : public Iterator {
   // prefix_extractor_ must be non-NULL if the value is false.
   const bool expect_total_order_inner_iter_;
   ReadTier read_tier_;
+  bool fill_cache_;
   bool verify_checksums_;
   // Whether the iterator is allowed to expose blob references. Set to true when
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool is_blob_;
+  bool is_wide_;
   bool arena_mode_;
   // List of operands for merge operator.
   MergeContext merge_context_;
-  ReadRangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
 #ifdef ROCKSDB_LITE

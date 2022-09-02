@@ -1272,7 +1272,7 @@ class VersionSetTestBase {
     mutex_.Lock();
     Status s =
         versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_);
+                               mutable_cf_options_, &edit, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1286,7 +1286,7 @@ class VersionSetTestBase {
     mutex_.Lock();
     Status s =
         versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, vedits, &mutex_);
+                               mutable_cf_options_, vedits, &mutex_, nullptr);
     mutex_.Unlock();
     return s;
   }
@@ -1384,8 +1384,8 @@ TEST_F(VersionSetTest, SameColumnFamilyGroupCommit) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  Status s =
-      versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists, &mutex_);
+  Status s = versions_->LogAndApply(cfds, all_mutable_cf_options, edit_lists,
+                                    &mutex_, nullptr);
   mutex_.Unlock();
   EXPECT_OK(s);
   EXPECT_EQ(kGroupSize - 1, count);
@@ -1587,7 +1587,7 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   mutex_.Lock();
   Status s =
       versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options_, &edit, &mutex_);
+                             mutable_cf_options_, &edit, &mutex_, nullptr);
   mutex_.Unlock();
 
   ASSERT_OK(s);
@@ -2194,7 +2194,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     Status s;
     mutex_.Lock();
     s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
-                               edits_, &mutex_);
+                               edits_, &mutex_, nullptr);
     mutex_.Unlock();
     ASSERT_OK(s);
     VerifyFullHistoryTsLow(*std::max_element(ts_lbs.begin(), ts_lbs.end()));
@@ -2661,7 +2661,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   mutex_.Lock();
   s = versions_->LogAndApply(cfd_to_drop,
                              *cfd_to_drop->GetLatestMutableCFOptions(),
-                             &drop_cf_edit, &mutex_);
+                             &drop_cf_edit, &mutex_, nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
 
@@ -2710,8 +2710,8 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   mutex_.Lock();
-  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists,
-                             &mutex_);
+  s = versions_->LogAndApply(cfds, mutable_cf_options_list, edit_lists, &mutex_,
+                             nullptr);
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);
@@ -3226,7 +3226,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");
       ASSERT_OK(builder->Finish());
-      fwriter->Flush();
+      ASSERT_OK(fwriter->Flush());
       uint64_t file_size = 0;
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
@@ -3526,9 +3526,15 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   // file metadata above. This results in 1 *
   // CacheReservationManagerImpl<CacheEntryRole::kFileMetadata>::GetDummyEntrySize()
   // cache reservation for file metadata.
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallCompaction:PurgedObsoleteFiles",
+        "ChargeFileMetadataTestWithParam::"
+        "PreVerifyingCacheReservationRelease"}});
+  SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
-
+  TEST_SYNC_POINT(
+      "ChargeFileMetadataTestWithParam::PreVerifyingCacheReservationRelease");
   if (charge_file_metadata == CacheEntryRoleOptions::Decision::kEnabled) {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(),
               1 * CacheReservationManagerImpl<
@@ -3536,6 +3542,7 @@ TEST_P(ChargeFileMetadataTestWithParam, Basic) {
   } else {
     EXPECT_EQ(file_metadata_charge_only_cache->GetCacheCharge(), 0);
   }
+  SyncPoint::GetInstance()->DisableProcessing();
 
   // Destroying the db will delete the remaining 1 new file metadata
   // This results in no cache reservation for file metadata.

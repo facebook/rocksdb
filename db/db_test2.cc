@@ -651,8 +651,12 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
 TEST_F(DBTest2, TestWriteBufferNoLimitWithCache) {
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
-  std::shared_ptr<Cache> cache =
-      NewLRUCache(LRUCacheOptions(10000000, 1, false, 0.0));
+  std::shared_ptr<Cache> cache = NewLRUCache(LRUCacheOptions(
+      10000000 /* capacity */, 1 /* num_shard_bits */,
+      false /* strict_capacity_limit */, 0.0 /* high_pri_pool_ratio */,
+      nullptr /* memory_allocator */, kDefaultToAdaptiveMutex,
+      kDontChargeCacheMetadata));
+
   options.write_buffer_size = 50000;  // this is never hit
   // Use a write buffer total size so that the soft limit is about
   // 105000.
@@ -6676,7 +6680,7 @@ TEST_P(RenameCurrentTest, Compaction) {
   ASSERT_EQ("d_value", Get("d"));
 }
 
-TEST_F(DBTest2, BottommostTemperature) {
+TEST_F(DBTest2, LastLevelTemperature) {
   class TestListener : public EventListener {
    public:
     void OnFileReadFinish(const FileOperationInfo& info) override {
@@ -6730,11 +6734,16 @@ TEST_F(DBTest2, BottommostTemperature) {
     port::Mutex mutex_;
   };
 
+  const int kNumLevels = 7;
+  const int kLastLevel = kNumLevels - 1;
+
   auto* listener = new TestListener();
 
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
   options.level0_file_num_compaction_trigger = 2;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = kNumLevels;
   options.statistics = CreateDBStatistics();
   options.listeners.emplace_back(listener);
   Reopen(options);
@@ -6760,7 +6769,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ColumnFamilyMetaData metadata;
   db_->GetColumnFamilyMetaData(&metadata);
   ASSERT_EQ(1, metadata.file_count);
-  SstFileMetaData meta = metadata.levels[1].files[0];
+  SstFileMetaData meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   uint64_t number;
   FileType type;
@@ -6818,7 +6827,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
@@ -6837,7 +6846,7 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
@@ -6865,13 +6874,13 @@ TEST_F(DBTest2, BottommostTemperature) {
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 
-  meta = metadata.levels[1].files[0];
+  meta = metadata.levels[kLastLevel].files[0];
   ASSERT_EQ(Temperature::kWarm, meta.temperature);
   ASSERT_TRUE(ParseFileName(meta.name, &number, &type));
   ASSERT_EQ(listener->file_temperatures.at(number), meta.temperature);
 }
 
-TEST_F(DBTest2, BottommostTemperatureUniversal) {
+TEST_F(DBTest2, LastLevelTemperatureUniversal) {
   const int kTriggerNum = 3;
   const int kNumLevels = 5;
   const int kBottommostLevel = kNumLevels - 1;
@@ -6997,7 +7006,7 @@ TEST_F(DBTest2, BottommostTemperatureUniversal) {
   ASSERT_EQ(std::atoi(prop.c_str()), 0);
 
   // Update bottommost temperature dynamically with SetOptions
-  auto s = db_->SetOptions({{"bottommost_temperature", "kCold"}});
+  auto s = db_->SetOptions({{"last_level_temperature", "kCold"}});
   ASSERT_OK(s);
   ASSERT_EQ(db_->GetOptions().bottommost_temperature, Temperature::kCold);
   db_->GetColumnFamilyMetaData(&metadata);
@@ -7097,6 +7106,9 @@ TEST_F(DBTest2, CheckpointFileTemperature) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
+  // set dynamic_level to true so the compaction would compact the data to the
+  // last level directly which will have the last_level_temperature
+  options.level_compaction_dynamic_level_bytes = true;
   options.level0_file_num_compaction_trigger = 2;
   options.env = env.get();
   Reopen(options);
@@ -7153,6 +7165,9 @@ TEST_F(DBTest2, FileTemperatureManifestFixup) {
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, test_fs));
   Options options = CurrentOptions();
   options.bottommost_temperature = Temperature::kWarm;
+  // set dynamic_level to true so the compaction would compact the data to the
+  // last level directly which will have the last_level_temperature
+  options.level_compaction_dynamic_level_bytes = true;
   options.level0_file_num_compaction_trigger = 2;
   options.env = env.get();
   std::vector<std::string> cfs = {/*"default",*/ "test1", "test2"};
