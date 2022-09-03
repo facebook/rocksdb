@@ -55,7 +55,7 @@ class InstrumentedMutex {
 
   void Lock();
 
-  void Unlock();
+  void Unlock() { mutex_.Unlock(); }
 
   void AssertHeld() {
     mutex_.AssertHeld();

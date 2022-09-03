@@ -57,30 +57,6 @@ void InstrumentedMutex::LockInternal() {
   mutex_.Lock();
 }
 
-void InstrumentedMutex::Unlock() {
-  mutex_.Unlock();
-#ifdef COERCE_CONTEXT_SWITCH
-  if (stats_code_ == DB_MUTEX_WAIT_MICROS) {
-    thread_local Random rnd(301);
-    if (rnd.OneIn(2)) {
-      // std::cout << "Sched_yield" << std::endl;
-      if (bg_cv_) {
-        // std::cout << "SignalAll: " << std::endl;
-        bg_cv_->SignalAll();
-      }
-      sched_yield();
-    }
-    uint32_t sleep_us = rnd.Uniform(11) * 1000;
-    if (bg_cv_) {
-      // std::cout << "SignalAll: " << std::endl;
-      bg_cv_->SignalAll();
-    }
-    SystemClock::Default()->SleepForMicroseconds(sleep_us);
-    // std::cout << "Sleep: " << sleep_us << std::endl;
-  }
-#endif
-}
-
 void InstrumentedCondVar::Wait() {
   PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
       db_condition_wait_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
