@@ -84,10 +84,8 @@ class CompressedSecondaryCache : public SecondaryCache {
 
  private:
   friend class CompressedSecondaryCacheTest;
-  static constexpr std::array<uint16_t, 33> malloc_bin_sizes_{
-      32,   64,   96,   128,  160,  192,  224,   256,   320,   384,   448,
-      512,  640,  768,  896,  1024, 1280, 1536,  1792,  2048,  2560,  3072,
-      3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 32768};
+  static constexpr std::array<uint16_t, 8> malloc_bin_sizes_{
+      128, 256, 512, 1024, 2048, 4096, 8192, 16384};
 
   struct CacheValueChunk {
     // TODO try "CacheAllocationPtr next;".
