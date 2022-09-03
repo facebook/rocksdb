@@ -601,11 +601,11 @@ void ClockHandleTable::EraseUnRefEntries() {
                         ClockHandle::kCounterMask;
     if (old_meta & (uint64_t{ClockHandle::kStateSharableBit}
                     << ClockHandle::kStateShift) &&
-            refcount == 0 &&
-            h.meta.compare_exchange_strong(
-                old_meta, uint64_t{ClockHandle::kStateConstruction}
-                              << ClockHandle::kStateShift),
-        std::memory_order_acquire) {
+        refcount == 0 &&
+        h.meta.compare_exchange_strong(old_meta,
+                                       uint64_t{ClockHandle::kStateConstruction}
+                                           << ClockHandle::kStateShift,
+                                       std::memory_order_acquire)) {
       // Took ownership
       h.FreeData();
       usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
