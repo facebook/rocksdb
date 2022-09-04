@@ -615,8 +615,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
-    // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
-    size_t str_size{10000};
+    // 8500 = 8169 + 233 + 98, so there should be 3 chunks after split.
+    size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
     CacheValueChunk* chunks_head =
@@ -626,9 +626,9 @@ class CompressedSecondaryCacheTest : public testing::Test {
     CacheValueChunk* current_chunk = chunks_head;
     ASSERT_EQ(current_chunk->size, 8192 - sizeof(CacheValueChunk) + 1);
     current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 1792 - sizeof(CacheValueChunk) + 1);
+    ASSERT_EQ(current_chunk->size, 256 - sizeof(CacheValueChunk) + 1);
     current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 62);
+    ASSERT_EQ(current_chunk->size, 98);
 
     sec_cache->DeletionCallback("dummy", chunks_head);
   }
@@ -693,8 +693,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
-    // 10000 = 8169 + 1769 + 62 , so there should be 3 chunks after split.
-    size_t str_size{10000};
+    // 8500 = 8169 + 233 + 98, so there should be 3 chunks after split.
+    size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
     CacheValueChunk* chunks_head =
