@@ -630,7 +630,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     current_chunk = current_chunk->next;
     ASSERT_EQ(current_chunk->size, 98);
 
-    sec_cache->DeletionCallback("dummy", chunks_head);
+    while (chunks_head != nullptr) {
+      CacheValueChunk* tmp_chunk = chunks_head;
+      chunks_head = chunks_head->next;
+      tmp_chunk->Free();
+    }
   }
 
   void MergeChunksIntoValueTest() {
@@ -672,7 +676,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string value_str{value.get(), charge};
     ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
 
-    sec_cache->DeletionCallback("dummy", chunks_head);
+    while (chunks_head != nullptr) {
+      CacheValueChunk* tmp_chunk = chunks_head;
+      chunks_head = chunks_head->next;
+      tmp_chunk->Free();
+    }
   }
 
   void SplictValueAndMergeChunksTest() {
@@ -707,7 +715,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::string value_str{value.get(), charge};
     ASSERT_EQ(strcmp(value_str.data(), str.data()), 0);
 
-    sec_cache->DeletionCallback("dummy", chunks_head);
+    while (chunks_head != nullptr) {
+      CacheValueChunk* tmp_chunk = chunks_head;
+      chunks_head = chunks_head->next;
+      tmp_chunk->Free();
+    }
   }
 
  private:
