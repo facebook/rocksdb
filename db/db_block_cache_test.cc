@@ -739,7 +739,7 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   // Verify compaction not counted
   CompactRangeOptions cro;
   // Ensure files are rewritten, not just trivially moved.
-  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
   EXPECT_EQ(kNumBlocks,
             options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
