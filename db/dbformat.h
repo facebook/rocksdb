@@ -163,15 +163,15 @@ inline void SetInternalKey(std::string* result, Slice ukey, uint64_t seqvt) {
   result->assign(ukey.data(), ukey.size());
   PutFixed64(result, seqvt);
 }
-inline void SetInternalKey(std::string* result, Slice ukey,
-                           SequenceNumber seq, ValueType vt) {
+inline void SetInternalKey(std::string* result, Slice ukey, SequenceNumber seq,
+                           ValueType vt) {
   result->assign(ukey.data(), ukey.size());
   PutFixed64(result, PackSequenceAndType(seq, vt));
 }
 
 // user code should ensure buf size is at least ukey.size() + 8
-inline void SetInternalKey(char* buf, Slice ukey,
-                           SequenceNumber seq, ValueType vt) {
+inline void SetInternalKey(char* buf, Slice ukey, SequenceNumber seq,
+                           ValueType vt) {
   memcpy(buf, ukey.data_, ukey.size_);
   auto value = PackSequenceAndType(seq, vt);
   if (port::kLittleEndian) {
