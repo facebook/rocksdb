@@ -2712,14 +2712,10 @@ jlong Java_org_rocksdb_RocksDB_getAggregatedLongProperty(JNIEnv* env, jobject,
   return 0;
 }
 
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    getApproximateSizes
- * Signature: (JJ[JB)[J
- */
-jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
-    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
-    jlongArray jrange_slice_handles, jbyte jinclude_flags) {
+static jlongArray rocksdb_approximate_sizes_helper(
+    JNIEnv* env, jlong jdb_handle, jlong jcf_handle,
+    jlongArray jrange_slice_handles,
+    ROCKSDB_NAMESPACE::SizeApproximationOptions& approx_options) {
   const jsize jlen = env->GetArrayLength(jrange_slice_handles);
   const size_t range_count = jlen / 2;
 
@@ -2749,21 +2745,8 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
 
   auto sizes = std::unique_ptr<uint64_t[]>(new uint64_t[range_count]);
 
-  ROCKSDB_NAMESPACE::DB::SizeApproximationFlags include_flags =
-      ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::NONE;
-  if (jinclude_flags & 1) {
-    include_flags =
-        ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
-  }
-  if (jinclude_flags & 2) {
-    include_flags =
-        (include_flags |
-         ROCKSDB_NAMESPACE::DB::SizeApproximationFlags::INCLUDE_FILES);
-  }
-
-  db->GetApproximateSizes(cf_handle, ranges.get(),
-                          static_cast<int>(range_count), sizes.get(),
-                          include_flags);
+  db->GetApproximateSizes(approx_options, cf_handle, ranges.get(),
+                          static_cast<int>(range_count), sizes.get());
 
   // release LongArrayElements
   env->ReleaseLongArrayElements(jrange_slice_handles, jranges, JNI_ABORT);
@@ -2789,6 +2772,36 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
   }
 
   return jresults;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getApproximateSizes
+ * Signature: (JJ[JJ)[J
+ */
+jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes__JJ_3JJ(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
+    jlongArray jrange_slice_handles, jlong japprox_options_handle) {
+  auto* approx_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(
+          japprox_options_handle);
+  return rocksdb_approximate_sizes_helper(
+      env, jdb_handle, jcf_handle, jrange_slice_handles, *approx_options);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getApproximateSizes
+ * Signature: (JJ[JB)[J
+ */
+jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes__JJ_3JB(
+    JNIEnv* env, jobject, jlong jdb_handle, jlong jcf_handle,
+    jlongArray jrange_slice_handles, jbyte jinclude_flags) {
+  ROCKSDB_NAMESPACE::SizeApproximationOptions approx_options;
+  approx_options.include_memtables = bool(jinclude_flags & 1);
+  approx_options.include_files = bool(jinclude_flags & 2);
+  return rocksdb_approximate_sizes_helper(env, jdb_handle, jcf_handle,
+                                          jrange_slice_handles, approx_options);
 }
 
 /*

@@ -3205,6 +3205,47 @@ public class RocksDB extends RocksObject {
    * if the user data compresses by a factor of ten, the returned
    * sizes will be one-tenth the size of the corresponding user data size.
    *
+   * @param ranges the ranges over which to approximate sizes
+   * @param sizeApproximationOptions options which determine how to calculate
+   *     the approximation.
+   *
+   * @return the sizes
+   */
+  public long[] getApproximateSizes(
+      final List<Range> ranges, final SizeApproximationOptions sizeApproximationOptions) {
+    return getApproximateSizes(null, ranges, sizeApproximationOptions);
+  }
+
+  /**
+   * Get the approximate file system space used by keys in each range.
+   *
+   * Note that the returned sizes measure file system space usage, so
+   * if the user data compresses by a factor of ten, the returned
+   * sizes will be one-tenth the size of the corresponding user data size.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance, or {@code null} for the default column family
+   * @param ranges the ranges over which to approximate sizes
+   * @param sizeApproximationOptions options which determine how to calculate
+   *     the approximation.
+   *
+   * @return the sizes
+   */
+  public long[] getApproximateSizes(
+      /*@Nullable*/ final ColumnFamilyHandle columnFamilyHandle, final List<Range> ranges,
+      final SizeApproximationOptions sizeApproximationOptions) {
+    return getApproximateSizes(nativeHandle_,
+        columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        toRangeSliceHandles(ranges), sizeApproximationOptions.nativeHandle_);
+  }
+
+  /**
+   * Get the approximate file system space used by keys in each range.
+   *
+   * Note that the returned sizes measure file system space usage, so
+   * if the user data compresses by a factor of ten, the returned
+   * sizes will be one-tenth the size of the corresponding user data size.
+   *
    * If {@code sizeApproximationFlags} defines whether the returned size
    * should include the recently written data in the mem-tables (if
    * the mem-table type supports it), data serialized to disk, or both.
@@ -4562,6 +4603,8 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native long getAggregatedLongProperty(final long nativeHandle,
       final String property, int propertyLength) throws RocksDBException;
+  private native long[] getApproximateSizes(final long nativeHandle, final long columnFamilyHandle,
+      final long[] rangeSliceHandles, final long sizeApproximationOptionsHandle);
   private native long[] getApproximateSizes(final long nativeHandle,
       final long columnFamilyHandle, final long[] rangeSliceHandles,
       final byte includeFlags);

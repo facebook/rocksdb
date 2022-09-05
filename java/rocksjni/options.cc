@@ -21,6 +21,7 @@
 #include "include/org_rocksdb_FlushOptions.h"
 #include "include/org_rocksdb_Options.h"
 #include "include/org_rocksdb_ReadOptions.h"
+#include "include/org_rocksdb_SizeApproximationOptions.h"
 #include "include/org_rocksdb_WriteOptions.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/convenience.h"
@@ -8684,4 +8685,105 @@ void Java_org_rocksdb_FlushOptions_disposeInternal(JNIEnv*, jobject,
   auto* flush_opt = reinterpret_cast<ROCKSDB_NAMESPACE::FlushOptions*>(jhandle);
   assert(flush_opt != nullptr);
   delete flush_opt;
+}
+
+/////////////////////////////////////////////////////////////////////
+// ROCKSDB_NAMESPACE::SizeApproximationOptions
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    newSizeApproximationOptions
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_SizeApproximationOptions_newSizeApproximationOptions(
+    JNIEnv*, jclass) {
+  auto* approx_options = new ROCKSDB_NAMESPACE::SizeApproximationOptions();
+  return GET_CPLUSPLUS_POINTER(approx_options);
+}
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    setIncludeMemtables
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_SizeApproximationOptions_setIncludeMemtables(
+    JNIEnv*, jobject, jlong jhandle, jboolean jinclude_memtables) {
+  auto* approx_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(jhandle);
+  approx_options->include_memtables = jinclude_memtables == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    includeMemtables
+ * Signature: (J)Z
+ */
+jboolean JNICALL Java_org_rocksdb_SizeApproximationOptions_includeMemtables(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* approx_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(jhandle);
+  return static_cast<jboolean>(approx_options->include_memtables);
+}
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    setIncludeFiles
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_SizeApproximationOptions_setIncludeFiles(
+    JNIEnv*, jobject, jlong jhandle, jboolean jinclude_files) {
+  auto* approx_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(jhandle);
+  approx_options->include_files = jinclude_files == JNI_TRUE;
+}
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    includeFiles
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_SizeApproximationOptions_includeFiles(JNIEnv*,
+                                                                jobject,
+                                                                jlong jhandle) {
+  auto* approx_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(jhandle);
+  return static_cast<jboolean>(approx_options->include_files);
+}
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    setFilesSizeErrorMargin
+ * Signature: (JD)V
+ */
+void Java_org_rocksdb_SizeApproximationOptions_setFilesSizeErrorMargin(
+    JNIEnv*, jobject, jlong jhandle, jdouble jfiles_size_error_margin) {
+  auto* approx_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(jhandle);
+  approx_options->files_size_error_margin =
+      static_cast<double>(jfiles_size_error_margin);
+}
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    filesSizeErrorMargin
+ * Signature: (J)D
+ */
+jdouble Java_org_rocksdb_SizeApproximationOptions_filesSizeErrorMargin(
+    JNIEnv*, jobject, jlong jhandle) {
+  auto* approx_options =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(jhandle);
+  return static_cast<jdouble>(approx_options->files_size_error_margin);
+}
+
+/*
+ * Class:     org_rocksdb_SizeApproximationOptions
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_SizeApproximationOptions_disposeInternal(JNIEnv*, jobject,
+                                                               jlong jhandle) {
+  auto* approx_opt =
+      reinterpret_cast<ROCKSDB_NAMESPACE::SizeApproximationOptions*>(jhandle);
+  assert(approx_opt != nullptr);
+  delete approx_opt;
 }

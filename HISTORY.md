@@ -121,6 +121,7 @@
 ### Java API Changes
 * Add CompactionPriority.RoundRobin.
 * Revert to using the default metadata charge policy when creating an LRU cache via the Java API.
+* Add SizeApproximationOptions for RocksDB#getApproximateSizes().
 
 ### Behavior Change
 * DBOptions::verify_sst_unique_id_in_manifest is now an on-by-default feature that verifies SST file identity whenever they are opened by a DB, rather than only at DB::Open time.

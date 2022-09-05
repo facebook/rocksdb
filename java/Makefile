@@ -61,6 +61,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.RocksEnv\
 	org.rocksdb.RocksIterator\
 	org.rocksdb.RocksMemEnv\
+	org.rocksdb.SizeApproximationOptions\
 	org.rocksdb.SkipListMemTableConfig\
 	org.rocksdb.Slice\
 	org.rocksdb.SstFileManager\
@@ -172,6 +173,7 @@ JAVA_TESTS = \
 	org.rocksdb.RocksMemEnvTest\
 	org.rocksdb.util.SizeUnitTest\
 	org.rocksdb.SecondaryDBTest\
+	org.rocksdb.SizeApproximationOptionsTest\
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
 	org.rocksdb.SstFileManagerTest\

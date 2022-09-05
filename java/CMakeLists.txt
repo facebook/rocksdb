@@ -215,6 +215,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/RocksObject.java
   src/main/java/org/rocksdb/SanityLevel.java
   src/main/java/org/rocksdb/SizeApproximationFlag.java
+  src/main/java/org/rocksdb/SizeApproximationOptions.java
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
   src/main/java/org/rocksdb/Snapshot.java
@@ -574,6 +575,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
           org.rocksdb.RocksMemEnv
           org.rocksdb.RocksMutableObject
           org.rocksdb.RocksObject
+          org.rocksdb.SizeApproximationOptions
           org.rocksdb.SkipListMemTableConfig
           org.rocksdb.Slice
           org.rocksdb.Snapshot
