@@ -250,6 +250,8 @@ option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
 option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
+  add_definitions(-DROCKSDB_PORTABLE)
+
   # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
   # is available, it is available by default.
   if(FORCE_SSE42 AND NOT MSVC)
@@ -292,7 +294,7 @@ if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 
-if (NOT PORTABLE OR FORCE_SSE42)
+if ((NOT PORTABLE OR MSVC) OR FORCE_SSE42)
   CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
