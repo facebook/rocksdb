@@ -198,6 +198,7 @@ class TestFilePartitionerFactory : public SstPartitionerFactory {
   const char* Name() const override { return "TestFilePartitionerFactory"; }
 };
 
+#ifndef ROCKSDB_LITE
 TEST_F(TimestampCompatibleCompactionTest, CompactFilesRangeCheckL0) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -322,6 +323,7 @@ TEST_F(TimestampCompatibleCompactionTest, CompactFilesRangeCheckL1) {
               static_cast<int>(compaction_job_info.input_files.size()));
   }
 }
+#endif  // !ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
 
