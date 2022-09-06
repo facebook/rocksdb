@@ -251,6 +251,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(FileTypeSet)},
       {offsetof(struct DBOptions, compaction_service),
        sizeof(std::shared_ptr<CompactionService>)},
+      {offsetof(struct DBOptions, io_trace_opts), sizeof(IOTracingOptions*)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];

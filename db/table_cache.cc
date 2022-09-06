@@ -124,12 +124,14 @@ Status TableCache::GetTableReader(
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
+
+  FileSystemPtr fs(ioptions_.fs, io_tracer_);
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
   fopts.temperature = file_temperature;
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   if (s.ok()) {
-    s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
+    s = fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
   if (s.ok()) {
     RecordTick(ioptions_.stats, NO_FILE_OPENS);
@@ -137,8 +139,7 @@ Status TableCache::GetTableReader(
     fname = Rocks2LevelTableFileName(fname);
     s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
     if (s.ok()) {
-      s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
-                                            nullptr);
+      s = fs->NewRandomAccessFile(fname, file_options, &file, nullptr);
     }
     if (s.ok()) {
       RecordTick(ioptions_.stats, NO_FILE_OPENS);
