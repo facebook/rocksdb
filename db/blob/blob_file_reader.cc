@@ -8,6 +8,7 @@
 #include <cassert>
 #include <string>
 
+#include "db/blob/blob_contents.h"
 #include "db/blob/blob_log_format.h"
 #include "file/file_prefetch_buffer.h"
 #include "file/filename.h"
@@ -65,9 +66,14 @@ Status BlobFileReader::Create(
     }
   }
 
+  MemoryAllocator* const allocator =
+      immutable_options.blob_cache
+          ? immutable_options.blob_cache->memory_allocator()
+          : nullptr;
+
   blob_file_reader->reset(
       new BlobFileReader(std::move(file_reader), file_size, compression_type,
-                         immutable_options.clock, statistics));
+                         allocator, immutable_options.clock, statistics));
 
   return Status::OK();
 }
@@ -271,11 +277,12 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
-    CompressionType compression_type, SystemClock* clock,
-    Statistics* statistics)
+    CompressionType compression_type, MemoryAllocator* allocator,
+    SystemClock* clock, Statistics* statistics)
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
       compression_type_(compression_type),
+      allocator_(allocator),
       clock_(clock),
       statistics_(statistics) {
   assert(file_reader_);
@@ -288,9 +295,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                uint64_t value_size,
                                CompressionType compression_type,
                                FilePrefetchBuffer* prefetch_buffer,
-                               PinnableSlice* value,
+                               std::unique_ptr<BlobContents>* result,
                                uint64_t* bytes_read) const {
-  assert(value);
+  assert(result);
 
   const uint64_t key_size = user_key.size();
 
@@ -361,8 +368,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   const Slice value_slice(record_slice.data() + adjustment, value_size);
 
   {
-    const Status s = UncompressBlobIfNeeded(value_slice, compression_type,
-                                            clock_, statistics_, value);
+    const Status s = UncompressBlobIfNeeded(
+        value_slice, compression_type, allocator_, clock_, statistics_, result);
     if (!s.ok()) {
       return s;
     }
@@ -491,10 +498,11 @@ void BlobFileReader::MultiGetBlob(const ReadOptions& read_options,
     }
 
     // Uncompress blob if needed
+    std::unique_ptr<BlobContents> fixme;
     Slice value_slice(record_slice.data() + adjustments[i], blob_reqs[i]->len);
-    *blob_reqs[i]->status =
-        UncompressBlobIfNeeded(value_slice, compression_type_, clock_,
-                               statistics_, blob_reqs[i]->result);
+    *blob_reqs[i]->status = UncompressBlobIfNeeded(
+        value_slice, compression_type_, allocator_, clock_, statistics_,
+        &fixme /*&blob_reqs[i]->blob_contents*/);
     if (blob_reqs[i]->status->ok()) {
       total_bytes += record_slice.size();
     }
@@ -549,15 +557,18 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
   return Status::OK();
 }
 
-Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
-                                              CompressionType compression_type,
-                                              SystemClock* clock,
-                                              Statistics* statistics,
-                                              PinnableSlice* value) {
-  assert(value);
+Status BlobFileReader::UncompressBlobIfNeeded(
+    const Slice& value_slice, CompressionType compression_type,
+    MemoryAllocator* allocator, SystemClock* clock, Statistics* statistics,
+    std::unique_ptr<BlobContents>* result) {
+  assert(result);
 
   if (compression_type == kNoCompression) {
-    SaveValue(value_slice, value);
+    CacheAllocationPtr allocation =
+        AllocateBlock(value_slice.size(), allocator);
+    memcpy(allocation.get(), value_slice.data(), value_slice.size());
+
+    *result = BlobContents::Create(std::move(allocation), value_slice.size());
 
     return Status::OK();
   }
@@ -568,7 +579,6 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
 
   size_t uncompressed_size = 0;
   constexpr uint32_t compression_format_version = 2;
-  constexpr MemoryAllocator* allocator = nullptr;
 
   CacheAllocationPtr output;
 
@@ -587,19 +597,9 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
     return Status::Corruption("Unable to uncompress blob");
   }
 
-  SaveValue(Slice(output.get(), uncompressed_size), value);
+  *result = BlobContents::Create(std::move(output), uncompressed_size);
 
   return Status::OK();
-}
-
-void BlobFileReader::SaveValue(const Slice& src, PinnableSlice* dst) {
-  assert(dst);
-
-  if (dst->IsPinned()) {
-    dst->Reset();
-  }
-
-  dst->PinSelf(src);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -6,7 +6,9 @@
 #pragma once
 
 #include <cinttypes>
+#include <memory>
 
+#include "db/blob/blob_contents.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -14,8 +16,13 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobContents;
+
 // A read Blob request structure for use in BlobSource::MultiGetBlob and
 // BlobFileReader::MultiGetBlob.
+// TODO: introduce separate classes to represent the "physical" read requests
+// handled by BlobFileReader and the "logical" read requests handled by
+// BlobSource
 struct BlobReadRequest {
   // User key to lookup the paired blob
   const Slice* user_key = nullptr;
@@ -35,6 +42,9 @@ struct BlobReadRequest {
 
   // Status of read
   Status* status = nullptr;
+
+  // Uncompressed blob value read from file
+  // std::unique_ptr<BlobContents> blob_contents;
 
   BlobReadRequest(const Slice& _user_key, uint64_t _offset, size_t _len,
                   CompressionType _compression, PinnableSlice* _result,

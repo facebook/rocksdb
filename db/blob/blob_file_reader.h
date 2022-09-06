@@ -23,7 +23,7 @@ class HistogramImpl;
 struct ReadOptions;
 class Slice;
 class FilePrefetchBuffer;
-class PinnableSlice;
+class BlobContents;
 class Statistics;
 
 class BlobFileReader {
@@ -44,7 +44,8 @@ class BlobFileReader {
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t offset, uint64_t value_size,
                  CompressionType compression_type,
-                 FilePrefetchBuffer* prefetch_buffer, PinnableSlice* value,
+                 FilePrefetchBuffer* prefetch_buffer,
+                 std::unique_ptr<BlobContents>* result,
                  uint64_t* bytes_read) const;
 
   // offsets must be sorted in ascending order by caller.
@@ -59,7 +60,8 @@ class BlobFileReader {
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
-                 SystemClock* clock, Statistics* statistics);
+                 MemoryAllocator* allocator, SystemClock* clock,
+                 Statistics* statistics);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -89,15 +91,15 @@ class BlobFileReader {
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
+                                       MemoryAllocator* allocator,
                                        SystemClock* clock,
                                        Statistics* statistics,
-                                       PinnableSlice* value);
-
-  static void SaveValue(const Slice& src, PinnableSlice* dst);
+                                       std::unique_ptr<BlobContents>* result);
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
   CompressionType compression_type_;
+  MemoryAllocator* allocator_;
   SystemClock* clock_;
   Statistics* statistics_;
 };
