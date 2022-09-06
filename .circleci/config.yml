@@ -365,7 +365,8 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly:
-    executor: linux-docker
+    machine:
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -380,7 +381,6 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - install-gflags
       - setup-folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)
       - post-steps
@@ -407,7 +407,8 @@ jobs:
       - post-steps
 
   build-linux-gcc-7-with-folly:
-    executor: linux-docker
+    machine:
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
@@ -422,7 +423,6 @@ jobs:
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get update -y && sudo apt-get install gcc-7 g++-7 libgflags-dev
       - setup-folly
       - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
       - post-steps
@@ -436,7 +436,8 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly-coroutines:
-    executor: linux-docker
+    machine:
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     environment:
       CC: gcc-10
@@ -475,7 +476,8 @@ jobs:
 
   # Ensure ASAN+UBSAN with folly, and full testsuite with clang 13
   build-linux-clang-13-asan-ubsan-with-folly:
-    executor: linux-docker
+    machine:
+      image: ubuntu-2004:202111-02
     resource_class: 2xlarge
     steps:
       - pre-steps
