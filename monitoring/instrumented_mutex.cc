@@ -5,12 +5,11 @@
 
 #include "monitoring/instrumented_mutex.h"
 
-#include <iostream>
-
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
+
 namespace ROCKSDB_NAMESPACE {
 namespace {
 #ifndef NPERF_CONTEXT
@@ -40,7 +39,6 @@ void InstrumentedMutex::LockInternal() {
   if (stats_code_ == DB_MUTEX_WAIT_MICROS) {
     thread_local Random rnd(301);
     if (rnd.OneIn(2)) {
-      // std::cout << "Sched_yield" << std::endl;
       if (bg_cv_) {
         bg_cv_->SignalAll();
       }
@@ -51,7 +49,6 @@ void InstrumentedMutex::LockInternal() {
       bg_cv_->SignalAll();
     }
     SystemClock::Default()->SleepForMicroseconds(sleep_us);
-    // std::cout << "Sleep: " << sleep_us << std::endl;
   }
 #endif
   mutex_.Lock();
