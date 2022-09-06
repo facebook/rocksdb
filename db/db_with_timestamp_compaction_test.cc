@@ -235,6 +235,8 @@ TEST_F(TimestampCompatibleCompactionTest, CompactFilesRangeCheckL0) {
       }
       input_files.emplace_back(f);
     }
+    // sorting here by name, which also happens to sort by generation date.
+    std::sort(input_files.begin(), input_files.end());
     assert(kNumFiles == input_files.size());
     std::vector<std::string> tmp;
     tmp.emplace_back(input_files[input_files.size() / 2]);
