@@ -42,8 +42,8 @@ class BlobContents {
 
   static Cache::CacheItemHelper* GetCacheItemHelper();
 
-  static Status CreateCallback(const void* buf, size_t size, void** out_obj,
-                               size_t* charge);
+  static Status CreateCallback(CacheAllocationPtr&& allocation, const void* buf,
+                               size_t size, void** out_obj, size_t* charge);
 
  private:
   BlobContents(CacheAllocationPtr&& allocation, size_t size)
