@@ -54,7 +54,7 @@ TEST_F(DBBlobBasicTest, GetBlobFromCache) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
-  co.capacity = 2048;
+  co.capacity = 2 << 20;  // 2MB
   co.num_shard_bits = 2;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   auto backing_cache = NewLRUCache(co);
@@ -122,7 +122,7 @@ TEST_F(DBBlobBasicTest, IterateBlobsFromCache) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
-  co.capacity = 2048;
+  co.capacity = 2 << 20;  // 2MB
   co.num_shard_bits = 2;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   auto backing_cache = NewLRUCache(co);
@@ -453,7 +453,7 @@ TEST_F(DBBlobBasicTest, MultiGetBlobsFromCache) {
   Options options = GetDefaultOptions();
 
   LRUCacheOptions co;
-  co.capacity = 2048;
+  co.capacity = 2 << 20;  // 2MB
   co.num_shard_bits = 2;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   auto backing_cache = NewLRUCache(co);
