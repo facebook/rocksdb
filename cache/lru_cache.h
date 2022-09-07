@@ -333,7 +333,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, double low_pri_pool_ratio,
-                bool use_compressed_secondary_cache, bool use_adaptive_mutex,
+                bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
                 int max_upper_hash_bits,
                 const std::shared_ptr<SecondaryCache>& secondary_cache);
@@ -486,9 +486,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Pointer to head of bottom-pri pool in LRU list.
   LRUHandle* lru_bottom_pri_;
-
-  // Whether the secondary cache is CompressedSecondaryCache.
-  bool use_compressed_secondary_cache_;
 
   // ------------^^^^^^^^^^^^^-----------
   // Not frequently modified data members

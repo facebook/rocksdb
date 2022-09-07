@@ -48,7 +48,6 @@ class LRUCacheTest : public testing::Test {
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
     new (cache_) LRUCacheShard(capacity, /*strict_capacity_limit=*/false,
                                high_pri_pool_ratio, low_pri_pool_ratio,
-                               /*use_compressed_secondary_cache=*/false,
                                use_adaptive_mutex, kDontChargeCacheMetadata,
                                /*max_upper_hash_bits=*/24,
                                /*secondary_cache=*/nullptr);
@@ -744,7 +743,7 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool /*erase_handle*/, bool& is_in_sec_cache) override {
+      bool /*advise_erase*/, bool& is_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
@@ -781,6 +780,8 @@ class TestSecondaryCache : public SecondaryCache {
     }
     return secondary_handle;
   }
+
+  bool SupportForceErase() const override { return false; }
 
   void Erase(const Slice& /*key*/) override {}
 

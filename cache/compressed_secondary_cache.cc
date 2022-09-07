@@ -43,13 +43,13 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
     return nullptr;
   }
 
-  if (cache_->Value(lru_handle) == nullptr) {
+  void* handle_value = cache_->Value(lru_handle);
+  if (handle_value == nullptr) {
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
     return nullptr;
   }
 
-  CacheAllocationPtr* ptr =
-      reinterpret_cast<CacheAllocationPtr*>(cache_->Value(lru_handle));
+  CacheAllocationPtr* ptr = reinterpret_cast<CacheAllocationPtr*>(handle_value);
 
   Status s;
   void* value{nullptr};
@@ -96,7 +96,7 @@ std::unique_ptr<SecondaryCacheResultHandle> CompressedSecondaryCache::Lookup(
 Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
                                         const Cache::CacheItemHelper* helper) {
   if (value == nullptr) {
-    return Status::Aborted();
+    return Status::InvalidArgument();
   }
 
   Cache::Handle* lru_handle = cache_->Lookup(key);
