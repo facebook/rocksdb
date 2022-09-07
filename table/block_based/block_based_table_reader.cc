@@ -713,7 +713,8 @@ Status BlockBasedTable::Open(
       // A crude but isolated way of reporting unverified files. This should not
       // be an ongoing concern so doesn't deserve a place in Statistics IMHO.
       static std::atomic<uint64_t> unverified_count{0};
-      auto prev_count = unverified_count.fetch_add(1, std::memory_order_relaxed);
+      auto prev_count =
+          unverified_count.fetch_add(1, std::memory_order_relaxed);
       if (prev_count == 0) {
         ROCKS_LOG_WARN(
             ioptions.logger,
