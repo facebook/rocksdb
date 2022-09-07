@@ -575,7 +575,7 @@ class PosixFileSystem : public FileSystem {
     }
   }
 
-  IOStatus GetChildren(const std::string& dir, const IOOptions& /*opts*/,
+  IOStatus GetChildren(const std::string& dir, const IOOptions& opts,
                        std::vector<std::string>* result,
                        IODebugContext* /*dbg*/) override {
     result->clear();
@@ -595,12 +595,17 @@ class PosixFileSystem : public FileSystem {
     // reset errno before calling readdir()
     errno = 0;
     struct dirent* entry;
+
+    IOOptions _opts = opts;
+    std::string value = _opts.GetProperty("list_files_only");
+
     while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
       const bool ignore =
-          entry->d_type == DT_DIR &&
-          (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0);
+          entry->d_type == DT_DIR && (strcmp(entry->d_name, ".") == 0 ||
+                                      strcmp(entry->d_name, "..") == 0 ||
+                                      strcmp(value.c_str(), "true") == 0);
       if (!ignore) {
         result->push_back(entry->d_name);
       }
