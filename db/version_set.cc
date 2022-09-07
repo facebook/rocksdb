@@ -90,6 +90,77 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+#if defined(_MSC_VER) /* Visual Studio */
+#define FORCE_INLINE __forceinline
+#elif defined(__GNUC__)
+#define FORCE_INLINE __attribute__((always_inline))
+#pragma GCC diagnostic ignored "-Wattributes"
+#else
+#define inline
+#endif
+
+static FORCE_INLINE uint64_t GetUnalignedU64(const void* ptr) noexcept {
+  uint64_t x;
+  memcpy(&x, ptr, sizeof(uint64_t));
+  return x;
+}
+
+struct BytewiseCompareInternalKey {
+  FORCE_INLINE bool operator()(Slice x, Slice y) const noexcept {
+    size_t n = std::min(x.size_, y.size_) - 8;
+    int cmp = memcmp(x.data_, y.data_, n);
+    if (0 != cmp) return cmp < 0;
+    if (x.size_ != y.size_) return x.size_ < y.size_;
+    return GetUnalignedU64(x.data_ + n) > GetUnalignedU64(y.data_ + n);
+  }
+  FORCE_INLINE bool operator()(uint64_t x, uint64_t y) const noexcept {
+    return x < y;
+  }
+};
+struct RevBytewiseCompareInternalKey {
+  FORCE_INLINE bool operator()(Slice x, Slice y) const noexcept {
+    size_t n = std::min(x.size_, y.size_) - 8;
+    int cmp = memcmp(x.data_, y.data_, n);
+    if (0 != cmp) return cmp > 0;
+    if (x.size_ != y.size_) return x.size_ > y.size_;
+    return GetUnalignedU64(x.data_ + n) > GetUnalignedU64(y.data_ + n);
+  }
+  FORCE_INLINE bool operator()(uint64_t x, uint64_t y) const noexcept {
+    return x > y;
+  }
+};
+template<class Cmp>
+size_t FindFileInRangeTmpl(const LevelFilesBrief& brief, size_t lo, size_t hi,
+                           Slice key, Cmp cmp) {
+  const uint64_t* pxcache = brief.prefix_cache;
+  const uint64_t  key_prefix = HostPrefixCache(key);
+  const FdWithKeyRange* a = brief.files;
+  size_t mid;
+  while (lo < hi) {
+    mid = (lo + hi) / 2;
+    if (cmp(pxcache[mid], key_prefix))
+      lo = mid + 1;
+    else if (cmp(key_prefix, pxcache[mid]))
+      hi = mid;
+    else
+      goto exact_search;
+  }
+  return lo;
+
+  while (lo < hi) {
+    mid = (lo + hi) / 2;
+  exact_search:
+  #ifdef __GNUC__
+    __builtin_prefetch(a[mid].largest_key.data_);
+  #endif
+    if (cmp(a[mid].largest_key, key))
+      lo = mid + 1;
+    else
+      hi = mid;
+  }
+  return lo;
+}
+
 // Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
 int FindFileInRange(const InternalKeyComparator& icmp,
@@ -97,6 +168,14 @@ int FindFileInRange(const InternalKeyComparator& icmp,
     const Slice& key,
     uint32_t left,
     uint32_t right) {
+  if (IsForwardBytewiseComparator(icmp.user_comparator())) {
+    BytewiseCompareInternalKey cmp;
+    return (int)FindFileInRangeTmpl(file_level, left, right, key, cmp);
+  }
+  else if (IsReverseBytewiseComparator(icmp.user_comparator())) {
+    RevBytewiseCompareInternalKey cmp;
+    return (int)FindFileInRangeTmpl(file_level, left, right, key, cmp);
+  }
   auto cmp = [&](const FdWithKeyRange& f, const Slice& k) -> bool {
     return icmp.InternalKeyComparator::Compare(f.largest_key, k) < 0;
   };
@@ -132,6 +211,31 @@ Status OverlapWithIterator(const Comparator* ucmp,
 
   return iter->status();
 }
+
+static FORCE_INLINE int BytewiseCompare(Slice x, Slice y) noexcept {
+  size_t n = std::min(x.size_, y.size_);
+  int cmp = memcmp(x.data_, y.data_, n);
+  if (cmp)
+    return cmp;
+  else
+    return int(x.size_ - y.size_); // ignore key len larger than 2G-1
+}
+struct ForwardBytewiseCompareUserKey {
+  FORCE_INLINE int operator()(Slice x, Slice y) const noexcept {
+    return BytewiseCompare(x, y);
+  }
+};
+struct ReverseBytewiseCompareUserKey {
+  FORCE_INLINE int operator()(Slice x, Slice y) const noexcept {
+    return BytewiseCompare(y, x);
+  }
+};
+struct VirtualFunctionCompareUserKey {
+  FORCE_INLINE int operator()(Slice x, Slice y) const noexcept {
+    return cmp->CompareWithoutTimestamp(x, y);
+  }
+  const Comparator* cmp;
+};
 
 // Class to help choose the next file to search for the particular key.
 // Searches and returns files level by level.
@@ -175,6 +279,15 @@ class FilePicker {
   int GetCurrentLevel() const { return curr_level_; }
 
   FdWithKeyRange* GetNextFile() {
+    if (IsForwardBytewiseComparator(user_comparator_))
+      return GetNextFileTmpl(ForwardBytewiseCompareUserKey());
+    else if (IsReverseBytewiseComparator(user_comparator_))
+      return GetNextFileTmpl(ReverseBytewiseCompareUserKey());
+    else
+      return GetNextFileTmpl(VirtualFunctionCompareUserKey{user_comparator_});
+  }
+  template<class Compare>
+  FdWithKeyRange* GetNextFileTmpl(Compare cmp) {
     while (!search_ended_) {  // Loops over different levels.
       while (curr_index_in_curr_level_ < curr_file_level_->num_files) {
         // Loops over all files in current level.
@@ -198,14 +311,11 @@ class FilePicker {
           // range.
           assert(curr_level_ == 0 ||
                  curr_index_in_curr_level_ == start_index_in_curr_level_ ||
-                 user_comparator_->CompareWithoutTimestamp(
-                     user_key_, ExtractUserKey(f->smallest_key)) <= 0);
+                 cmp(user_key_, ExtractUserKey(f->smallest_key)) <= 0);
 
-          int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
-              user_key_, ExtractUserKey(f->smallest_key));
+          int cmp_smallest = cmp(user_key_, ExtractUserKey(f->smallest_key));
           if (cmp_smallest >= 0) {
-            cmp_largest = user_comparator_->CompareWithoutTimestamp(
-                user_key_, ExtractUserKey(f->largest_key));
+            cmp_largest = cmp(user_key_, ExtractUserKey(f->largest_key));
           }
 
           // Setup file search bound for the next level based on the
@@ -860,11 +970,14 @@ void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
   size_t num = files.size();
   file_level->num_files = num;
   char* mem = arena->AllocateAligned(num * sizeof(FdWithKeyRange));
+  auto pxcache = (uint64_t*)arena->AllocateAligned(num * sizeof(uint64_t));
   file_level->files = new (mem)FdWithKeyRange[num];
+  file_level->prefix_cache = pxcache;
 
   for (size_t i = 0; i < num; i++) {
     Slice smallest_key = files[i]->smallest.Encode();
     Slice largest_key = files[i]->largest.Encode();
+    pxcache[i] = HostPrefixCache(largest_key);
 
     // Copy key slice to sequential memory
     size_t smallest_size = smallest_key.size();
@@ -1240,19 +1353,19 @@ void LevelIterator::Seek(const Slice& target) {
         prefix_extractor_ != nullptr && !read_options_.total_order_seek &&
         !read_options_.auto_prefix_mode &&
         file_index_ < flevel_->num_files - 1) {
-      size_t ts_sz = user_comparator_.timestamp_size();
-      Slice target_user_key_without_ts =
-          ExtractUserKeyAndStripTimestamp(target, ts_sz);
+    size_t ts_sz = user_comparator_.timestamp_size();
+    Slice target_user_key_without_ts =
+        ExtractUserKeyAndStripTimestamp(target, ts_sz);
       Slice next_file_first_user_key_without_ts =
           ExtractUserKeyAndStripTimestamp(file_smallest_key(file_index_ + 1),
                                           ts_sz);
-      if (prefix_extractor_->InDomain(target_user_key_without_ts) &&
+    if (prefix_extractor_->InDomain(target_user_key_without_ts) &&
           (!prefix_extractor_->InDomain(next_file_first_user_key_without_ts) ||
-           user_comparator_.CompareWithoutTimestamp(
-               prefix_extractor_->Transform(target_user_key_without_ts), false,
+         user_comparator_.CompareWithoutTimestamp(
+             prefix_extractor_->Transform(target_user_key_without_ts), false,
                prefix_extractor_->Transform(
                    next_file_first_user_key_without_ts),
-               false) != 0)) {
+             false) != 0)) {
         // SkipEmptyFileForward() will not advance to next file when this flag
         // is set for reason detailed below.
         //
@@ -1289,8 +1402,8 @@ void LevelIterator::Seek(const Slice& target) {
         // Next/NextAndGetResult() since it is used in SkipEmptyFileForward()
         // called in Next/NextAndGetResult().
         prefix_exhausted_ = true;
-      }
     }
+  }
 
     if (range_tombstone_iter_) {
       TrySetDeleteRangeSentinel(file_largest_key(file_index_));
@@ -1371,7 +1484,7 @@ void LevelIterator::Next() {
     // file_iter_ is at EOF already when to_return_sentinel_
     ClearSentinel();
   } else {
-    file_iter_.Next();
+  file_iter_.Next();
     if (range_tombstone_iter_) {
       TrySetDeleteRangeSentinel(file_largest_key(file_index_));
     }
@@ -1401,14 +1514,14 @@ bool LevelIterator::NextAndGetResult(IterateResult* result) {
         result->bound_check_result = IterBoundCheck::kUnknown;
         result->value_prepared = true;
       } else {
-        result->key = key();
-        result->bound_check_result = file_iter_.UpperBoundCheckResult();
-        // Ideally, we should return the real file_iter_.value_prepared but the
-        // information is not here. It would casue an extra PrepareValue()
-        // for the first key of a file.
-        result->value_prepared = !allow_unprepared_value_;
-      }
+      result->key = key();
+      result->bound_check_result = file_iter_.UpperBoundCheckResult();
+      // Ideally, we should return the real file_iter_.value_prepared but the
+      // information is not here. It would casue an extra PrepareValue()
+      // for the first key of a file.
+      result->value_prepared = !allow_unprepared_value_;
     }
+  }
   }
   return is_valid;
 }
@@ -1418,7 +1531,7 @@ void LevelIterator::Prev() {
   if (to_return_sentinel_) {
     ClearSentinel();
   } else {
-    file_iter_.Prev();
+  file_iter_.Prev();
     if (range_tombstone_iter_) {
       TrySetDeleteRangeSentinel(file_smallest_key(file_index_));
     }
@@ -1431,8 +1544,8 @@ bool LevelIterator::SkipEmptyFileForward() {
   // Pause at sentinel key
   while (!to_return_sentinel_ &&
          (file_iter_.iter() == nullptr ||
-          (!file_iter_.Valid() && file_iter_.status().ok() &&
-           file_iter_.iter()->UpperBoundCheckResult() !=
+         (!file_iter_.Valid() && file_iter_.status().ok() &&
+          file_iter_.iter()->UpperBoundCheckResult() !=
                IterBoundCheck::kOutOfBound))) {
     seen_empty_file = true;
     // Move to next file
@@ -1724,6 +1837,8 @@ Status Version::GetAggregatedTableProperties(
   }
 
   auto* new_tp = new TableProperties();
+  new_tp->column_family_id = cfd_->GetID();
+  new_tp->column_family_name = cfd_->GetName();
   for (const auto& item : props) {
     new_tp->Add(*item.second);
   }
