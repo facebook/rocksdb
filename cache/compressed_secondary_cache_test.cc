@@ -229,6 +229,14 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_NE(val2, nullptr);
     ASSERT_EQ(memcmp(val2->Buf(), item2.Buf(), item2.Size()), 0);
 
+    // Insert k1 again and a dummy handle is inserted.
+    ASSERT_OK(sec_cache->Insert("k1", &item1,
+                                &CompressedSecondaryCacheTest::helper_));
+
+    std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
+        "k1", test_item_creator, true, /*advise_erase=*/false, is_in_sec_cache);
+    ASSERT_EQ(handle1_1, nullptr);
+
     // Create Fails.
     SetFailCreate(true);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 = sec_cache->Lookup(
@@ -615,20 +623,18 @@ class CompressedSecondaryCacheTest : public testing::Test {
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
-    // 8500 = 8169 + 233 + 98, so there should be 3 chunks after split.
+    // 8500 = 8169 + 354, so there should be 2 chunks after split.
     size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
     CacheValueChunk* chunks_head =
         sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
-    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
+    ASSERT_EQ(charge, str_size + 2 * (sizeof(CacheValueChunk) - 1));
 
     CacheValueChunk* current_chunk = chunks_head;
     ASSERT_EQ(current_chunk->size, 8192 - sizeof(CacheValueChunk) + 1);
     current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 256 - sizeof(CacheValueChunk) + 1);
-    current_chunk = current_chunk->next;
-    ASSERT_EQ(current_chunk->size, 98);
+    ASSERT_EQ(current_chunk->size, 354 - sizeof(CacheValueChunk) + 1);
 
     while (chunks_head != nullptr) {
       CacheValueChunk* tmp_chunk = chunks_head;
@@ -701,13 +707,13 @@ class CompressedSecondaryCacheTest : public testing::Test {
         std::make_unique<CompressedSecondaryCache>(1000, 0, true, 0.5, 0.0,
                                                    allocator);
     Random rnd(301);
-    // 8500 = 8169 + 233 + 98, so there should be 3 chunks after split.
+    // 8500 = 8169 + 354, so there should be 2 chunks after split.
     size_t str_size{8500};
     std::string str = rnd.RandomString(static_cast<int>(str_size));
     size_t charge{0};
     CacheValueChunk* chunks_head =
         sec_cache->SplitValueIntoChunks(str, kLZ4Compression, charge);
-    ASSERT_EQ(charge, str_size + 3 * (sizeof(CacheValueChunk) - 1));
+    ASSERT_EQ(charge, str_size + 2 * (sizeof(CacheValueChunk) - 1));
 
     CacheAllocationPtr value =
         sec_cache->MergeChunksIntoValue(chunks_head, charge);

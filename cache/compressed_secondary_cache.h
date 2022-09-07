@@ -18,8 +18,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-constexpr char kCompressedSecondaryCacheName[] = "CompressedSecondaryCache";
-
 class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
  public:
   CompressedSecondaryCacheResultHandle(void* value, size_t size)
@@ -46,18 +44,22 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 
 // The CompressedSecondaryCache is a concrete implementation of
 // rocksdb::SecondaryCache.
-// When a block is firstly Lookup from CompressedSecondaryCache, we just
-// insert a dummy block into the primary cache (charging the actual size of the
-// block) and don’t erase the block from CompressedSecondaryCache. A
-// standalone handle is returned to the caller. Only if the block is hit again,
-// we erase it from CompressedSecondaryCache and add it into the primary cache.
 //
-// When a block is firstly evicted from the primary cache to
-// CompressedSecondaryCache, we just insert a dummy block (size 0) in
-// CompressedSecondaryCache. When the block is evicted again, it is treated as
-// a hot block and is inserted into CompressedSecondaryCache.
+// When a block is found from CompressedSecondaryCache::Lookup, we check whether
+// there is a dummy block with the same key in the primary cache.
+// 1. If the dummy block exits, we erase the block from
+//    CompressedSecondaryCache and insert it into the primary cache.
+// 2. If not, we just insert a dummy block into the primary cache
+//    (charging the actual size of the block) and don’t erase the block from
+//    CompressedSecondaryCache. A standalone handle is returned to the caller.
 //
-// Users can also cast a pointer to it and call methods on
+// When a block is evicted from the primary cache, we check whether
+// there is a dummy block with the same key in CompressedSecondaryCache.
+// 1. If the dummy block exits, the block is inserted into
+//    CompressedSecondaryCache.
+// 2. If not, we just insert a dummy block (size 0) in CompressedSecondaryCache.
+//
+// Users can also cast a pointer to CompressedSecondaryCache and call methods on
 // it directly, especially custom methods that may be added
 // in the future.  For example -
 // std::unique_ptr<rocksdb::SecondaryCache> cache =
@@ -77,7 +79,7 @@ class CompressedSecondaryCache : public SecondaryCache {
       uint32_t compress_format_version = 2);
   virtual ~CompressedSecondaryCache() override;
 
-  const char* Name() const override { return kCompressedSecondaryCacheName; }
+  const char* Name() const override { return "CompressedSecondaryCache"; }
 
   Status Insert(const Slice& key, void* value,
                 const Cache::CacheItemHelper* helper) override;
@@ -96,8 +98,10 @@ class CompressedSecondaryCache : public SecondaryCache {
 
  private:
   friend class CompressedSecondaryCacheTest;
-  static constexpr std::array<uint16_t, 8> malloc_bin_sizes_{
-      128, 256, 512, 1024, 2048, 4096, 8192, 16384};
+  static constexpr std::array<uint16_t, 33> malloc_bin_sizes_{
+      32,   64,   96,   128,  160,  192,  224,   256,   320,   384,   448,
+      512,  640,  768,  896,  1024, 1280, 1536,  1792,  2048,  2560,  3072,
+      3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 32768};
 
   struct CacheValueChunk {
     // TODO try "CacheAllocationPtr next;".

@@ -450,6 +450,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // holding the mutex_.
   void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
+  // Try to insert the evicted handles into the secondary cache.
+  void TryInsertIntoSecondaryCache(autovector<LRUHandle*> evicted_handles);
+
   // Initialized before use.
   size_t capacity_;
 
