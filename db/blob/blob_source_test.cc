@@ -1149,6 +1149,15 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
   auto blob_cache = options_.blob_cache;
   auto secondary_cache = lru_cache_opts_.secondary_cache;
 
+  Cache::CreateCallback create_cb = [](const void* buf, size_t size,
+                                       void** out_obj,
+                                       size_t* charge) -> Status {
+    CacheAllocationPtr allocation(new char[size]);
+
+    return BlobContents::CreateCallback(std::move(allocation), buf, size,
+                                        out_obj, charge);
+  };
+
   {
     // GetBlob
     std::vector<PinnableSlice> values(keys.size());
@@ -1196,8 +1205,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key0 should be in the secondary cache. After looking up key0 in the
       // secondary cache, it will be erased from the secondary cache.
       bool is_in_sec_cache = false;
-      auto sec_handle0 = secondary_cache->Lookup(
-          key0, &BlobContents::CreateCallback, true, is_in_sec_cache);
+      auto sec_handle0 =
+          secondary_cache->Lookup(key0, create_cb, true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
@@ -1220,8 +1229,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       blob_cache->Release(handle1);
 
       bool is_in_sec_cache = false;
-      auto sec_handle1 = secondary_cache->Lookup(
-          key1, &BlobContents::CreateCallback, true, is_in_sec_cache);
+      auto sec_handle1 =
+          secondary_cache->Lookup(key1, create_cb, true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 

@@ -71,9 +71,11 @@ Cache::CacheItemHelper* BlobContents::GetCacheItemHelper() {
   return &cache_helper;
 }
 
-Status BlobContents::CreateCallback(const void* buf, size_t size,
+Status BlobContents::CreateCallback(CacheAllocationPtr&& allocation,
+                                    const void* buf, size_t size,
                                     void** out_obj, size_t* charge) {
-  CacheAllocationPtr allocation(new char[size]);
+  assert(allocation);
+
   memcpy(allocation.get(), buf, size);
 
   std::unique_ptr<BlobContents> obj = Create(std::move(allocation), size);
