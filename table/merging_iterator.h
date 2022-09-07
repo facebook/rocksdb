@@ -9,12 +9,14 @@
 
 #pragma once
 
+#include "db/range_del_aggregator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Arena;
+class ArenaWrappedDBIter;
 class InternalKeyComparator;
 
 template <class TValue>
@@ -47,18 +49,37 @@ class MergeIteratorBuilder {
   // Add iter to the merging iterator.
   void AddIterator(InternalIterator* iter);
 
+  // Add a range tombstone iterator to underlying merge iterator.
+  // See MergingIterator::AddRangeTombstoneIterator() for more detail.
+  //
+  // If `iter_ptr` is not nullptr, *iter_ptr will be set to where the merging
+  // iterator stores `iter` when MergeIteratorBuilder::Finish() is called. This
+  // is used by level iterator to update range tombstone iters when switching to
+  // a different SST file.
+  void AddRangeTombstoneIterator(
+      TruncatedRangeDelIterator* iter,
+      TruncatedRangeDelIterator*** iter_ptr = nullptr);
+
   // Get arena used to build the merging iterator. It is called one a child
   // iterator needs to be allocated.
   Arena* GetArena() { return arena; }
 
   // Return the result merging iterator.
-  InternalIterator* Finish();
+  // If db_iter is not nullptr, then db_iter->SetMemtableRangetombstoneIter()
+  // will be called with pointer to where the merging iterator
+  // stores the memtable range tombstone iterator.
+  // This is used for DB iterator to refresh memtable range tombstones.
+  InternalIterator* Finish(ArenaWrappedDBIter* db_iter = nullptr);
 
  private:
   MergingIterator* merge_iter;
   InternalIterator* first_iter;
   bool use_merging_iter;
   Arena* arena;
+  // Used to set LevelIterator.range_tombstone_iter_.
+  // See AddRangeTombstoneIterator() implementation for more detail.
+  std::vector<std::pair<size_t, TruncatedRangeDelIterator***>>
+      range_del_iter_ptrs_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

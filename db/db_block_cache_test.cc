@@ -678,8 +678,8 @@ INSTANTIATE_TEST_CASE_P(DBBlockCacheTest1, DBBlockCacheTest1,
 TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
+  options.disable_auto_compactions = true;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  options.max_compaction_bytes = 2000;
 
   BlockBasedTableOptions table_options;
   table_options.block_cache = NewLRUCache(1 << 25, 0, false);
@@ -737,8 +737,10 @@ TEST_P(DBBlockCacheTest1, WarmCacheWithBlocksDuringFlush) {
   }
 
   // Verify compaction not counted
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
-                              /*end=*/nullptr));
+  CompactRangeOptions cro;
+  // Ensure files are rewritten, not just trivially moved.
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(db_->CompactRange(cro, /*begin=*/nullptr, /*end=*/nullptr));
   EXPECT_EQ(kNumBlocks,
             options.statistics->getTickerCount(BLOCK_CACHE_DATA_ADD));
   // Index and filter blocks are automatically warmed when the new table file

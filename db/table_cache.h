@@ -63,6 +63,11 @@ class TableCache {
   // the returned iterator.  The returned "*table_reader_ptr" object is owned
   // by the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
+  // If !options.ignore_range_deletions, and range_del_iter is non-nullptr,
+  // then range_del_iter is set to a TruncatedRangeDelIterator for range
+  // tombstones in the SST file corresponding to the specified file number. The
+  // upper/lower bounds for the TruncatedRangeDelIterator are set to the SST
+  // file's boundary.
   // @param options Must outlive the returned iterator.
   // @param range_del_agg If non-nullptr, adds range deletions to the
   //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
@@ -79,7 +84,8 @@ class TableCache {
       TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
       size_t max_file_size_for_l0_meta_pin,
       const InternalKey* smallest_compaction_key,
-      const InternalKey* largest_compaction_key, bool allow_unprepared_value);
+      const InternalKey* largest_compaction_key, bool allow_unprepared_value,
+      TruncatedRangeDelIterator** range_del_iter = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until

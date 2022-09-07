@@ -411,6 +411,19 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
   shared->SetVerificationFailure();
 }
 
+void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
+                                   int64_t key, Slice value_from_db,
+                                   Slice value_from_expected) const {
+  auto key_str = Key(key);
+  fprintf(stderr,
+          "Verification failed for column family %d key %s (%" PRIi64
+          "): value_from_db: %s, value_from_expected: %s, msg: %s\n",
+          cf, Slice(key_str).ToString(true).c_str(), key,
+          value_from_db.ToString(true).c_str(),
+          value_from_expected.ToString(true).c_str(), msg.c_str());
+  shared->SetVerificationFailure();
+}
+
 void StressTest::PrintStatistics() {
   if (dbstats) {
     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
@@ -922,12 +935,19 @@ void StressTest::OperateDb(ThreadState* thread) {
       } else if (prob_op < iterate_bound) {
         assert(delrange_bound <= prob_op);
         // OPERATION iterate
-        int num_seeks = static_cast<int>(
-            std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
-                     FLAGS_ops_per_thread - i - 1));
-        rand_keys = GenerateNKeys(thread, num_seeks, i);
-        i += num_seeks - 1;
-        TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        if (!FLAGS_skip_verifydb &&
+            thread->rand.OneInOpt(
+                FLAGS_verify_iterator_with_expected_state_one_in)) {
+          TestIterateAgainstExpected(thread, read_opts, rand_column_families,
+                                     rand_keys, lock);
+        } else {
+          int num_seeks = static_cast<int>(
+              std::min(static_cast<uint64_t>(thread->rand.Uniform(4)),
+                       FLAGS_ops_per_thread - i - 1));
+          rand_keys = GenerateNKeys(thread, num_seeks, i);
+          i += num_seeks - 1;
+          TestIterate(thread, read_opts, rand_column_families, rand_keys);
+        }
       } else {
         assert(iterate_bound <= prob_op);
         TestCustomOperations(thread, rand_column_families);
@@ -2395,14 +2415,16 @@ void StressTest::Open(SharedState* shared) {
 
   if (FLAGS_use_blob_cache) {
     fprintf(stdout,
-            "Integrated BlobDB: blob cache enabled, block and blob caches "
-            "shared: %d, blob cache size %" PRIu64
-            ", blob cache num shard bits: %d, blob cache prepopulated: %s\n",
-            FLAGS_use_shared_block_and_blob_cache, FLAGS_blob_cache_size,
-            FLAGS_blob_cache_numshardbits,
-            options_.prepopulate_blob_cache == PrepopulateBlobCache::kFlushOnly
-                ? "flush only"
-                : "disable");
+            "Integrated BlobDB: blob cache enabled"
+            ", block and blob caches shared: %d",
+            FLAGS_use_shared_block_and_blob_cache);
+    if (!FLAGS_use_shared_block_and_blob_cache) {
+      fprintf(stdout,
+              ", blob cache size %" PRIu64 ", blob cache num shard bits: %d",
+              FLAGS_blob_cache_size, FLAGS_blob_cache_numshardbits);
+    }
+    fprintf(stdout, ", blob cache prepopulated: %d\n",
+            FLAGS_prepopulate_blob_cache);
   } else {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
@@ -2634,6 +2656,10 @@ void StressTest::Open(SharedState* shared) {
       txn_db_->GetAllPreparedTransactions(&trans);
       assert(trans.size() == 0);
 #endif
+    }
+    if (!s.ok()) {
+      fprintf(stderr, "Error in opening the DB [%s]\n", s.ToString().c_str());
+      fflush(stderr);
     }
     assert(s.ok());
     assert(column_families_.size() ==

@@ -377,7 +377,7 @@ class CompactionJobTestBase : public testing::Test {
     mutex_.Lock();
     EXPECT_OK(
         versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, &edit, &mutex_));
+                               mutable_cf_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
   }
 

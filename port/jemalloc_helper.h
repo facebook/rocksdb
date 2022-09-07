@@ -21,6 +21,7 @@
 #ifdef ROCKSDB_JEMALLOC
 #ifdef __FreeBSD__
 #include <malloc_np.h>
+#define JEMALLOC_USABLE_SIZE_CONST const
 #else
 #define JEMALLOC_MANGLE
 #include <jemalloc/jemalloc.h>

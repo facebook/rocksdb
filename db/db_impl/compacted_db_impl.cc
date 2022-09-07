@@ -242,7 +242,7 @@ Status CompactedDBImpl::Open(const Options& options,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
-    s = db->StartPeriodicWorkScheduler();
+    s = db->StartPeriodicTaskScheduler();
   }
   if (s.ok()) {
     ROCKS_LOG_INFO(db->immutable_db_options_.info_log,

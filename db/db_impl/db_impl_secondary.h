@@ -71,6 +71,7 @@ class LogReaderContainer {
 // The secondary instance can be opened using `DB::OpenAsSecondary`. After
 // that, it can call `DBImplSecondary::TryCatchUpWithPrimary` to make best
 // effort attempts to catch up with the primary.
+// TODO: Share common structure with CompactedDBImpl and DBImplReadOnly
 class DBImplSecondary : public DBImpl {
  public:
   DBImplSecondary(const DBOptions& options, const std::string& dbname,
@@ -268,6 +269,13 @@ class DBImplSecondary : public DBImpl {
 #endif  // NDEBUG
 
  protected:
+#ifndef ROCKSDB_LITE
+  Status FlushForGetLiveFiles() override {
+    // No-op for read-only DB
+    return Status::OK();
+  }
+#endif  // !ROCKSDB_LITE
+
   // ColumnFamilyCollector is a write batch handler which does nothing
   // except recording unique column family IDs
   class ColumnFamilyCollector : public WriteBatch::Handler {

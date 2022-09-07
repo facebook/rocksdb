@@ -565,6 +565,9 @@ enum Histograms : uint32_t {
   // Number of levels requiring IO for MultiGet
   NUM_LEVEL_READ_PER_MULTIGET,
 
+  // Wait time for aborting async read in FilePrefetchBuffer destructor
+  ASYNC_PREFETCH_ABORT_MICROS,
+
   HISTOGRAM_ENUM_MAX,
 };
 
