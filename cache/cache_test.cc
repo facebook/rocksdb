@@ -106,6 +106,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> cache2_;
 
+  size_t estimated_value_size_ = 1;
+
   CacheTest()
       : cache_(NewCache(kCacheSize, kNumShardBits, false)),
         cache2_(NewCache(kCacheSize2, kNumShardBits2, false)) {
@@ -122,12 +124,12 @@ class CacheTest : public testing::TestWithParam<std::string> {
     }
     if (type == kClock) {
       return ExperimentalNewClockCache(
-          capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
+          capacity, estimated_value_size_, -1 /*num_shard_bits*/,
           false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     }
     if (type == kFast) {
       return NewFastLRUCache(
-          capacity, 1 /*estimated_value_size*/, -1 /*num_shard_bits*/,
+          capacity, estimated_value_size_, -1 /*num_shard_bits*/,
           false /*strict_capacity_limit*/, kDefaultCacheMetadataChargePolicy);
     }
     return nullptr;
@@ -1009,9 +1011,11 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
 }
 
 TEST_P(CacheTest, DefaultShardBits) {
-  // test1: set the flag to false. Insert more keys than capacity. See if they
-  // all go through.
+  // Prevent excessive allocation (to save time & space)
+  estimated_value_size_ = 100000;
+  // Implementations use different minimum shard sizes
   size_t min_shard_size = (GetParam() == kClock ? 32U * 1024U : 512U) * 1024U;
+
   std::shared_ptr<Cache> cache = NewCache(32U * min_shard_size);
   ShardedCache* sc = dynamic_cast<ShardedCache*>(cache.get());
   ASSERT_EQ(5, sc->GetNumShardBits());

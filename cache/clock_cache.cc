@@ -28,7 +28,7 @@ static_assert(sizeof(ClockHandle) == 64U,
 
 ClockHandleTable::ClockHandleTable(int hash_bits, bool initial_charge_metadata)
     : length_bits_(hash_bits),
-      length_bits_mask_((uint32_t{1} << length_bits_) - 1),
+      length_bits_mask_(Lower32of64((uint64_t{1} << length_bits_) - 1)),
       occupancy_limit_(static_cast<uint32_t>((uint32_t{1} << length_bits_) *
                                              kStrictLoadFactor)),
       array_(new ClockHandle[size_t{1} << length_bits_]) {
