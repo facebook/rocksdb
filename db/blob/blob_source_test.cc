@@ -1225,7 +1225,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key0's item should be in the secondary cache.
       bool is_in_sec_cache = false;
       auto sec_handle0 =
-          secondary_cache->Lookup(key0, &BlobContents::CreateCallback, true,
+          secondary_cache->Lookup(key0, create_cb, true,
                                   /*erase_handle=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
@@ -1252,7 +1252,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
       bool is_in_sec_cache = false;
       auto sec_handle1 =
-          secondary_cache->Lookup(key1, &BlobContents::CreateCallback, true,
+          secondary_cache->Lookup(key1, create_cb, true,
                                   /*erase_handle=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
