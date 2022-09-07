@@ -454,9 +454,10 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         // When the cache is over capacity and strict_capacity_limit_ is true,
         // we don't want to free the handle, since the item is already in memory
         // and the caller will most likely just read it from disk if we erase it
-        // here. So, we don't increase usage_ for this case.
-        if ((usage_ + e->total_charge) <= capacity_ &&
-            !strict_capacity_limit_) {
+        // here. So, we set e's total_charge to 0 for this case.
+        if ((usage_ + e->total_charge) > capacity_ && strict_capacity_limit_) {
+          e->total_charge = 0;
+        } else {
           usage_ += e->total_charge;
         }
       }
