@@ -3433,6 +3433,46 @@ TEST_F(CompactionPickerU64TsTest, Overlap) {
   }
 }
 
+TEST_F(CompactionPickerU64TsTest, CannotTrivialMoveUniversal) {
+  constexpr uint64_t kFileSize = 100000;
+
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.compaction_options_universal.allow_trivial_move = true;
+  NewVersionStorage(1, kCompactionStyleUniversal);
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  UpdateVersionStorageInfo();
+  // must return false when there's no files.
+  ASSERT_FALSE(universal_compaction_picker.NeedsCompaction(vstorage_.get()));
+
+  std::string ts1;
+  PutFixed64(&ts1, 9000);
+  std::string ts2;
+  PutFixed64(&ts2, 8000);
+  std::string ts3;
+  PutFixed64(&ts3, 7000);
+  std::string ts4;
+  PutFixed64(&ts4, 6000);
+
+  NewVersionStorage(3, kCompactionStyleUniversal);
+  // A compaction should be triggered and pick file 2
+  Add(1, 1U, "150", "150", kFileSize, /*path_id=*/0, /*smallest_seq=*/100,
+      /*largest_seq=*/100, /*compensated_file_size=*/kFileSize,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, ts1, ts2);
+  Add(2, 2U, "150", "150", kFileSize, /*path_id=*/0, /*smallest_seq=*/100,
+      /*largest_seq=*/100, /*compensated_file_size=*/kFileSize,
+      /*marked_for_compact=*/false, Temperature::kUnknown,
+      kUnknownOldestAncesterTime, ts3, ts4);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, mutable_db_options_, vstorage_.get(),
+          &log_buffer_));
+  assert(compaction);
+  ASSERT_TRUE(!compaction->is_trivial_move());
+}
+
 class PerKeyPlacementCompactionPickerTest
     : public CompactionPickerTest,
       public testing::WithParamInterface<bool> {
