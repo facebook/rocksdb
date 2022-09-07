@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -708,6 +709,23 @@ Status BlockBasedTable::Open(
   } else {
     TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::SkippedVerifyUniqueId",
                              nullptr);
+    if (ioptions.verify_sst_unique_id_in_manifest && ioptions.logger) {
+      // A crude but isolated way of reporting unverified files. This should not
+      // be an ongoing concern so doesn't deserve a place in Statistics IMHO.
+      static std::atomic<uint64_t> unverified_count{0};
+      auto prev_count = unverified_count.fetch_add(1, std::memory_order_relaxed);
+      if (prev_count == 0) {
+        ROCKS_LOG_WARN(
+            ioptions.logger,
+            "At least one SST file opened without unique ID to verify: %" PRIu64
+            ".sst",
+            cur_file_num);
+      } else if (prev_count % 1000 == 0) {
+        ROCKS_LOG_WARN(
+            ioptions.logger,
+            "Another ~1000 SST files opened without unique ID to verify");
+      }
+    }
   }
 
   // Set up prefix extracto as needed
