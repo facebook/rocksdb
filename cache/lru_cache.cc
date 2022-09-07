@@ -528,11 +528,11 @@ Cache::Handle* LRUCacheShard::Lookup(
   }
 
   // If handle table lookup failed or the handle is a dummy one, allocate
-  // a handle outside the mutex if we're going to lookup in the secondary cache.
+  // a handle outside the mutex if we re going to lookup in the secondary cache.
   //
   // When a block is firstly Lookup from CompressedSecondaryCache, we just
   // insert a dummy block into the primary cache (charging the actual size of
-  // the block) and don’t erase the block from CompressedSecondaryCache. A
+  // the block) and don't erase the block from CompressedSecondaryCache. A
   // standalone handle is returned to the caller. Only if the block is hit
   // again, we erase it from CompressedSecondaryCache and add it into the
   // primary cache.

@@ -50,7 +50,7 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 // 1. If the dummy block exits, we erase the block from
 //    CompressedSecondaryCache and insert it into the primary cache.
 // 2. If not, we just insert a dummy block into the primary cache
-//    (charging the actual size of the block) and don’t erase the block from
+//    (charging the actual size of the block) and don not erase the block from
 //    CompressedSecondaryCache. A standalone handle is returned to the caller.
 //
 // When a block is evicted from the primary cache, we check whether
