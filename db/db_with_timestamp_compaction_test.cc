@@ -325,53 +325,6 @@ TEST_F(TimestampCompatibleCompactionTest, CompactFilesRangeCheckL1) {
 }
 #endif  // !ROCKSDB_LITE
 
-TEST_F(TimestampCompatibleCompactionTest, LevelStyleL1TrivialMove) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.comparator = test::BytewiseComparatorWithU64TsWrapper();
-
-  constexpr int kNumFiles = 4;
-  options.level0_file_num_compaction_trigger = kNumFiles;
-
-  DestroyAndReopen(options);
-
-  constexpr int kKeysPerFile = 2;
-  const std::string user_key = "foo";
-  constexpr uint64_t start_ts = 10000;
-
-  uint64_t cur_ts = start_ts;
-
-  const auto generate_l1 = [&]() {
-    for (int k = 0; k < kNumFiles; ++k) {
-      for (int i = 0; i < kKeysPerFile; ++i) {
-        ASSERT_OK(db_->Put(WriteOptions(), user_key, Timestamp(cur_ts),
-                           "v" + std::to_string(i)));
-        ++cur_ts;
-      }
-      ASSERT_OK(db_->Flush(FlushOptions()));
-    }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    ASSERT_EQ(0, NumTableFilesAtLevel(/*level=*/0, /*cf=*/0));
-  };
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  bool called = false;
-  SyncPoint::GetInstance()->SetCallBack(
-      "LevelCompactionBuilder::TryExtendNonL0TrivialMove:NoCleanCut",
-      [&](void* /*arg*/) { called = true; });
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  generate_l1();
-  generate_l1();
-
-  ASSERT_EQ(1, NumTableFilesAtLevel(/*level=*/1, /*cf=*/0));
-  ASSERT_TRUE(called);
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
