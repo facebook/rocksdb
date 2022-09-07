@@ -444,7 +444,8 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
         CorrectOverflow(old_meta, h->meta);
         return false;
       }
-      if ((old_meta & uint64_t{ClockHandle::kStateSharableBit} << ClockHandle::kStateShift) == 0) {
+      if ((old_meta & uint64_t{ClockHandle::kStateSharableBit}
+                          << ClockHandle::kStateShift) == 0) {
         // Someone else took ownership
         return false;
       }
