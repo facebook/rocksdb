@@ -69,9 +69,13 @@ class SecondaryCache : public Customizable {
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
   // the handle is ready.
-  // The advise_erase param is a hint from the primary cache that the handle
+  //
+  // advise_erase is a hint from the primary cache indicating that the handle
   // will be cached there, so the secondary cache is advised to drop it from
-  // the cache as an optimization. It can also be safely ignored.
+  // the cache as an optimization. To use this feature, SupportForceErase()
+  // needs to return true.
+  // This hint can also be safely ignored.
+  //
   // is_in_sec_cache is to indicate whether the handle is possibly erased
   // from the secondary cache after the Lookup.
   virtual std::unique_ptr<SecondaryCacheResultHandle> Lookup(
