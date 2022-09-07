@@ -396,6 +396,7 @@ void BlobFileReader::MultiGetBlob(
   for (size_t i = 0; i < num_blobs; ++i) {
     BlobReadRequest* const req = blob_reqs[i].first;
     assert(req);
+    assert(req->user_key);
     assert(req->status);
 
     const size_t key_size = req->user_key->size();
@@ -474,6 +475,7 @@ void BlobFileReader::MultiGetBlob(
   for (size_t i = 0, j = 0; i < num_blobs; ++i) {
     BlobReadRequest* const req = blob_reqs[i].first;
     assert(req);
+    assert(req->user_key);
     assert(req->status);
 
     if (!req->status->ok()) {

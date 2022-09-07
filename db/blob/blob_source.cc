@@ -397,8 +397,11 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
         blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
-        assert(_blob_reqs[i].first->status);
-        *_blob_reqs[i].first->status = s;
+        BlobReadRequest* const req = _blob_reqs[i].first;
+        assert(req);
+        assert(req->status);
+
+        *req->status = s;
       }
       return;
     }
