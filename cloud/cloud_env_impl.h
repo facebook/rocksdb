@@ -417,6 +417,7 @@ class CloudEnvImpl : public CloudEnv {
   // Fetch the cloud manifest based on the cookie
   Status FetchCloudManifest(const std::string& local_dbname, const std::string& cookie);
   Status writeCloudManifest(CloudManifest* manifest, const std::string& fname);
+  Status FetchManifest(const std::string& local_dbname, const std::string& epoch);
   std::string generateNewEpochId();
   std::unique_ptr<CloudManifest> cloud_manifest_;
   // This runs only in tests when we want to disable cloud manifest

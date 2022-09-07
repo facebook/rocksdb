@@ -1552,6 +1552,23 @@ Status CloudEnvImpl::LoadCloudManifest(const std::string& local_dbname,
     st = LoadLocalCloudManifest(local_dbname);
   }
 
+  if (st.ok() && cloud_env_options.resync_on_open &&
+      cloud_env_options.resync_manifest_on_open) {
+    auto epoch = cloud_manifest_->GetCurrentEpoch();
+    st = FetchManifest(local_dbname, epoch);
+    if (st.IsNotFound()) {
+      // We always upload MANIFEST first before uploading CLOUDMANIFEST. So it's
+      // not expected to have CLOUDMANIFEST in s3 which points to MANIFEST file
+      // that doesn't exist.
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[CloudEnvImpl] CLOUDMANIFEST-%s points to MANIFEST-%s that doesn't "
+          "exist in s3",
+          cloud_env_options.cookie_on_open.c_str(), epoch.c_str());
+      st = Status::Corruption(
+          "CLOUDMANIFEST points to MANIFEST that doesn't exist in s3");
+    }
+  }
+
   // Do the cleanup, but don't fail if the cleanup fails.
   // We only cleanup files which don't belong to cookie_on_open. Also, we do it
   // before rolling the epoch, so that newly generated CM/M files won't be
@@ -1836,6 +1853,53 @@ Status CloudEnvImpl::FetchCloudManifest(const std::string& local_dbname, const s
   }
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "[cloud_env_impl] FetchCloudManifest: No cloud manifest");
+  return Status::NotFound();
+}
+
+Status CloudEnvImpl::FetchManifest(const std::string& local_dbname,
+                                   const std::string& epoch) {
+  auto local_manifest_file = ManifestFileWithEpoch(local_dbname, epoch);
+  if (HasDestBucket()) {
+    Status st = GetStorageProvider()->GetCloudObject(
+        GetDestBucketName(), ManifestFileWithEpoch(GetDestObjectPath(), epoch),
+        local_manifest_file);
+    if (!st.ok() && !st.IsNotFound()) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "[cloud_env_impl] FetchManifest: Failed to fetch manifest %s from "
+          "dest %s",
+          local_manifest_file.c_str(), GetDestBucketName().c_str());
+    }
+
+    if (st.ok()) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "[cloud_env_impl] FetchManifest: Fetched manifest %s from dest: %s",
+          local_manifest_file.c_str(), GetDestBucketName().c_str());
+      return st;
+    }
+  }
+
+  if (HasSrcBucket() && !SrcMatchesDest()) {
+    Status st = GetStorageProvider()->GetCloudObject(
+        GetSrcBucketName(), ManifestFileWithEpoch(GetSrcObjectPath(), epoch),
+        local_manifest_file);
+    if (!st.ok() && !st.IsNotFound()) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "[cloud_env_impl] FetchManifest: Failed to fetch manifest %s from "
+          "src %s",
+          local_manifest_file.c_str(), GetSrcBucketName().c_str());
+    }
+    if (st.ok()) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log_,
+          "[cloud_env_impl] FetchManifest: Fetched manifest %s from "
+          "src %s",
+          local_manifest_file.c_str(), GetSrcBucketName().c_str());
+
+      return st;
+    }
+  }
+
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[cloud_env_impl] FetchManifest: not manifest");
   return Status::NotFound();
 }
 

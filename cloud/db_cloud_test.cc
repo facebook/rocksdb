@@ -45,6 +45,7 @@ class CloudTest : public testing::Test {
     dbname_ = test::TmpDir() + "/db_cloud-" + test_id_;
     clone_dir_ = test::TmpDir() + "/ctest-" + test_id_;
     cloud_env_options_.TEST_Initialize("dbcloudtest.", dbname_);
+    cloud_env_options_.resync_manifest_on_open = true;
 
     options_.create_if_missing = true;
     options_.stats_dump_period_sec = 0;
@@ -1474,6 +1475,7 @@ TEST_F(CloudTest, Ephemeral) {
 // able to reinitialize instead of crash looping.
 TEST_F(CloudTest, EphemeralOnCorruptedDB) {
   cloud_env_options_.keep_local_sst_files = true;
+  cloud_env_options_.resync_on_open = true;
   options_.level0_file_num_compaction_trigger = 100;  // never compact
 
   OpenDB();
@@ -1504,7 +1506,7 @@ TEST_F(CloudTest, EphemeralOnCorruptedDB) {
   std::unique_ptr<DBCloud> clone_db;
   std::unique_ptr<CloudEnv> cenv;
   Status st = CloneDB("clone1", "", "", &clone_db, &cenv);
-  ASSERT_NOK(st);
+  ASSERT_TRUE(st.IsCorruption());
 
   // Put the MANIFEST file back
   aenv_->GetStorageProvider()->PutCloudObject(
@@ -2639,6 +2641,109 @@ TEST_F(CloudTest, FileDeletionJobsCanceledWhenCloudEnvDestructed) {
   EXPECT_NOK(aenv_->GetStorageProvider()->ExistsCloudObject(
       aenv_->GetSrcBucketName(), manifest_file_path));
   CloseDB();
+}
+
+// The failure case of opening a corrupted db which doesn't have MANIFEST file
+TEST_F(CloudTest, OpenWithManifestMissing) {
+  cloud_env_options_.resync_on_open = true;
+  cloud_env_options_.resync_manifest_on_open = true;
+  OpenDB();
+  auto epoch = GetCloudEnvImpl()->GetCloudManifest()->GetCurrentEpoch();
+  CloseDB();
+
+  // Remove the MANIFEST file from s3
+  ASSERT_OK(aenv_->GetStorageProvider()->DeleteCloudObject(
+      aenv_->GetSrcBucketName(),
+      ManifestFileWithEpoch(aenv_->GetSrcObjectPath(), epoch)));
+  DestroyDir(dbname_);
+
+  EXPECT_TRUE(checkOpen().IsCorruption());
+}
+
+// verify that ephemeral clone won't reference old sst file if it's reopened
+// after sst file deletion on durable
+// Ordering of events:
+// - open durable (epoch = 1)
+// - open ephemeral (epoch = 1, new_epoch=?)
+// - durable delete sst files
+// - reopen ephemeral (epoch = 1)
+TEST_F(CloudTest, ReopenEphemeralAfterFileDeletion) {
+  cloud_env_options_.resync_on_open = true;
+  cloud_env_options_.keep_local_sst_files = false;
+
+  auto durableDBName = dbname_;
+
+  DBCloud *durable, *ephemeral;
+  CloudEnv *durableEnv, *ephemeralEnv;
+  std::vector<ColumnFamilyHandle*> durableHandles;
+
+  auto openDurable = [&] {
+    dbname_ = durableDBName;
+
+    OpenDB(&durableHandles);
+    durable = db_;
+    db_ = nullptr;
+    durableEnv = aenv_.release();
+  };
+
+  auto openEphemeral = [&] {
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    // open ephemeral clone with force_keep_local_on_invalid_dest_bucket=false
+    // so that sst files are not kept locally
+    ASSERT_OK(CloneDB("ephemeral" /* clone_name */, "" /* dest_bucket_name */,
+                      "" /* dest_object_path */, &cloud_db, &cloud_env,
+                      false /* force_keep_local_on_invalid_dest_bucket */));
+    ephemeral = cloud_db.release();
+    ephemeralEnv = cloud_env.release();
+  };
+
+  auto closeDurable = [&] {
+    db_ = durable;
+    aenv_.reset(durableEnv);
+    CloseDB(&durableHandles);
+  };
+
+  auto closeEphemeral = [&] {
+    db_ = ephemeral;
+    aenv_.reset(ephemeralEnv);
+    CloseDB();
+  };
+
+  options_.disable_auto_compactions = true;
+  openDurable();
+
+  ASSERT_OK(durable->Put({}, "key1", "val1"));
+  ASSERT_OK(durable->Flush({}));
+
+  ASSERT_OK(durable->Put({}, "key1", "val2"));
+  ASSERT_OK(durable->Flush({}));
+
+  closeDurable();
+
+  openDurable();
+  openEphemeral();
+
+  std::vector<LiveFileMetaData> files;
+  durable->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 2);
+  // trigger compaction on durable with trivial file moves disabled, which will delete previously generated sst files
+  ASSERT_OK(
+      static_cast<DBImpl*>(durable->GetBaseDB())
+          ->TEST_CompactRange(0, nullptr, nullptr, durableHandles[0], true));
+  files.clear();
+  durable->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 1);
+
+  // reopen ephemeral
+  closeEphemeral();
+  openEphemeral();
+
+  std::string val;
+  ASSERT_OK(ephemeral->Get({}, "key1", &val));
+  EXPECT_EQ(val, "val2");
+  closeEphemeral();
+  closeDurable();
 }
 
 }  //  namespace ROCKSDB_NAMESPACE
