@@ -404,6 +404,7 @@ void BlobFileReader::MultiGetBlob(
   for (size_t i = 0; i < num_blobs; ++i) {
     BlobReadRequest* const req = blob_reqs[i].first;
     assert(req);
+    assert(req->status);
 
     const size_t key_size = req->user_key->size();
     const uint64_t offset = req->offset;
@@ -462,13 +463,14 @@ void BlobFileReader::MultiGetBlob(
     for (auto& req : read_reqs) {
       req.status.PermitUncheckedError();
     }
-    for (auto& req : blob_reqs) {
-      assert(req.first);
-      assert(req.first->status);
+    for (auto& blob_req : blob_reqs) {
+      BlobReadRequest* const req = blob_req.first;
+      assert(req);
+      assert(req->status);
 
-      if (!req.first->status->IsCorruption()) {
+      if (!req->status->IsCorruption()) {
         // Avoid overwriting corruption status.
-        *req.first->status = s;
+        *req->status = s;
       }
     }
     return;
@@ -480,8 +482,8 @@ void BlobFileReader::MultiGetBlob(
   for (size_t i = 0, j = 0; i < num_blobs; ++i) {
     BlobReadRequest* const req = blob_reqs[i].first;
     assert(req);
-
     assert(req->status);
+
     if (!req->status->ok()) {
       continue;
     }

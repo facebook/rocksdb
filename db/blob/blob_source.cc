@@ -366,8 +366,10 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
   if (no_io) {
     for (size_t i = 0; i < num_blobs; ++i) {
       if (!(cache_hit_mask & (Mask{1} << i))) {
-        assert(blob_reqs[i].status);
-        *blob_reqs[i].status =
+        BlobReadRequest& req = blob_reqs[i];
+        assert(req.status);
+
+        *req.status =
             Status::Incomplete("Cannot read blob(s): no disk I/O allowed");
       }
     }
