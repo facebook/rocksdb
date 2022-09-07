@@ -242,10 +242,14 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
       return Status::Corruption("Compression type mismatch when reading blob");
     }
 
+    MemoryAllocator* const allocator = (blob_cache_ && read_options.fill_cache)
+                                           ? blob_cache_->memory_allocator()
+                                           : nullptr;
+
     uint64_t read_size = 0;
     s = blob_file_reader.GetValue()->GetBlob(
         read_options, user_key, offset, value_size, compression_type,
-        prefetch_buffer, &blob_contents, &read_size);
+        prefetch_buffer, allocator, &blob_contents, &read_size);
     if (!s.ok()) {
       return s;
     }
@@ -401,8 +405,12 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
     assert(blob_file_reader.GetValue());
 
-    blob_file_reader.GetValue()->MultiGetBlob(read_options, _blob_reqs,
-                                              &_bytes_read);
+    MemoryAllocator* const allocator = (blob_cache_ && read_options.fill_cache)
+                                           ? blob_cache_->memory_allocator()
+                                           : nullptr;
+
+    blob_file_reader.GetValue()->MultiGetBlob(read_options, allocator,
+                                              _blob_reqs, &_bytes_read);
 
     if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put

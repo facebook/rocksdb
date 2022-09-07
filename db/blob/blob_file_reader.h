@@ -45,12 +45,13 @@ class BlobFileReader {
                  uint64_t offset, uint64_t value_size,
                  CompressionType compression_type,
                  FilePrefetchBuffer* prefetch_buffer,
+                 MemoryAllocator* allocator,
                  std::unique_ptr<BlobContents>* result,
                  uint64_t* bytes_read) const;
 
   // offsets must be sorted in ascending order by caller.
   void MultiGetBlob(
-      const ReadOptions& read_options,
+      const ReadOptions& read_options, MemoryAllocator* allocator,
       autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>&
           blob_reqs,
       uint64_t* bytes_read) const;
@@ -62,8 +63,7 @@ class BlobFileReader {
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
                  uint64_t file_size, CompressionType compression_type,
-                 MemoryAllocator* allocator, SystemClock* clock,
-                 Statistics* statistics);
+                 SystemClock* clock, Statistics* statistics);
 
   static Status OpenFile(const ImmutableOptions& immutable_options,
                          const FileOptions& file_opts,
@@ -101,7 +101,6 @@ class BlobFileReader {
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;
   CompressionType compression_type_;
-  MemoryAllocator* allocator_;
   SystemClock* clock_;
   Statistics* statistics_;
 };

@@ -66,14 +66,9 @@ Status BlobFileReader::Create(
     }
   }
 
-  MemoryAllocator* const allocator =
-      immutable_options.blob_cache
-          ? immutable_options.blob_cache->memory_allocator()
-          : nullptr;
-
   blob_file_reader->reset(
       new BlobFileReader(std::move(file_reader), file_size, compression_type,
-                         allocator, immutable_options.clock, statistics));
+                         immutable_options.clock, statistics));
 
   return Status::OK();
 }
@@ -277,12 +272,11 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
 
 BlobFileReader::BlobFileReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
-    CompressionType compression_type, MemoryAllocator* allocator,
-    SystemClock* clock, Statistics* statistics)
+    CompressionType compression_type, SystemClock* clock,
+    Statistics* statistics)
     : file_reader_(std::move(file_reader)),
       file_size_(file_size),
       compression_type_(compression_type),
-      allocator_(allocator),
       clock_(clock),
       statistics_(statistics) {
   assert(file_reader_);
@@ -290,13 +284,11 @@ BlobFileReader::BlobFileReader(
 
 BlobFileReader::~BlobFileReader() = default;
 
-Status BlobFileReader::GetBlob(const ReadOptions& read_options,
-                               const Slice& user_key, uint64_t offset,
-                               uint64_t value_size,
-                               CompressionType compression_type,
-                               FilePrefetchBuffer* prefetch_buffer,
-                               std::unique_ptr<BlobContents>* result,
-                               uint64_t* bytes_read) const {
+Status BlobFileReader::GetBlob(
+    const ReadOptions& read_options, const Slice& user_key, uint64_t offset,
+    uint64_t value_size, CompressionType compression_type,
+    FilePrefetchBuffer* prefetch_buffer, MemoryAllocator* allocator,
+    std::unique_ptr<BlobContents>* result, uint64_t* bytes_read) const {
   assert(result);
 
   const uint64_t key_size = user_key.size();
@@ -369,7 +361,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   {
     const Status s = UncompressBlobIfNeeded(
-        value_slice, compression_type, allocator_, clock_, statistics_, result);
+        value_slice, compression_type, allocator, clock_, statistics_, result);
     if (!s.ok()) {
       return s;
     }
@@ -383,7 +375,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 }
 
 void BlobFileReader::MultiGetBlob(
-    const ReadOptions& read_options,
+    const ReadOptions& read_options, MemoryAllocator* allocator,
     autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>&
         blob_reqs,
     uint64_t* bytes_read) const {
@@ -512,7 +504,7 @@ void BlobFileReader::MultiGetBlob(
     // Uncompress blob if needed
     Slice value_slice(record_slice.data() + adjustments[i], req->len);
     *req->status =
-        UncompressBlobIfNeeded(value_slice, compression_type_, allocator_,
+        UncompressBlobIfNeeded(value_slice, compression_type_, allocator,
                                clock_, statistics_, &blob_reqs[i].second);
     if (req->status->ok()) {
       total_bytes += record_slice.size();

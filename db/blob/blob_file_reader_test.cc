@@ -181,6 +181,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   read_options.verify_checksums = false;
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr MemoryAllocator* allocator = nullptr;
 
   {
     std::unique_ptr<BlobContents> value;
@@ -188,7 +189,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
     ASSERT_OK(reader->GetBlob(read_options, keys[0], blob_offsets[0],
                               blob_sizes[0], kNoCompression, prefetch_buffer,
-                              &value, &bytes_read));
+                              allocator, &value, &bytes_read));
     ASSERT_NE(value, nullptr);
     ASSERT_EQ(value->data(), blobs[0]);
     ASSERT_EQ(bytes_read, blob_sizes[0]);
@@ -209,7 +210,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
       blob_reqs.emplace_back(&requests_buf[i], std::unique_ptr<BlobContents>());
     }
 
-    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+    reader->MultiGetBlob(read_options, allocator, blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       const auto& result = blob_reqs[i].second;
@@ -230,7 +231,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
     ASSERT_OK(reader->GetBlob(read_options, keys[1], blob_offsets[1],
                               blob_sizes[1], kNoCompression, prefetch_buffer,
-                              &value, &bytes_read));
+                              allocator, &value, &bytes_read));
     ASSERT_NE(value, nullptr);
     ASSERT_EQ(value->data(), blobs[1]);
 
@@ -248,7 +249,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, keys[0], blob_offsets[0] - 1,
                               blob_sizes[0], kNoCompression, prefetch_buffer,
-                              &value, &bytes_read)
+                              allocator, &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
@@ -262,7 +263,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, keys[2], blob_offsets[2] + 1,
                               blob_sizes[2], kNoCompression, prefetch_buffer,
-                              &value, &bytes_read)
+                              allocator, &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
@@ -275,8 +276,8 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, keys[0], blob_offsets[0],
-                              blob_sizes[0], kZSTD, prefetch_buffer, &value,
-                              &bytes_read)
+                              blob_sizes[0], kZSTD, prefetch_buffer, allocator,
+                              &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
@@ -293,7 +294,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
                               blob_offsets[0] -
                                   (keys[0].size() - sizeof(shorter_key) + 1),
                               blob_sizes[0], kNoCompression, prefetch_buffer,
-                              &value, &bytes_read)
+                              allocator, &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
@@ -323,7 +324,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
       blob_reqs.emplace_back(&requests_buf[i], std::unique_ptr<BlobContents>());
     }
 
-    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+    reader->MultiGetBlob(read_options, allocator, blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       if (i == 1) {
@@ -343,7 +344,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, incorrect_key, blob_offsets[0],
                               blob_sizes[0], kNoCompression, prefetch_buffer,
-                              &value, &bytes_read)
+                              allocator, &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
@@ -368,7 +369,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
       blob_reqs.emplace_back(&requests_buf[i], std::unique_ptr<BlobContents>());
     }
 
-    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+    reader->MultiGetBlob(read_options, allocator, blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       if (i == num_blobs - 1) {
@@ -387,7 +388,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, keys[1], blob_offsets[1],
                               blob_sizes[1] + 1, kNoCompression,
-                              prefetch_buffer, &value, &bytes_read)
+                              prefetch_buffer, allocator, &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
@@ -418,7 +419,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
       blob_reqs.emplace_back(&requests_buf[i], std::unique_ptr<BlobContents>());
     }
 
-    reader->MultiGetBlob(read_options, blob_reqs, &bytes_read);
+    reader->MultiGetBlob(read_options, allocator, blob_reqs, &bytes_read);
 
     for (size_t i = 0; i < num_blobs; ++i) {
       if (i != 1) {
@@ -679,12 +680,14 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr MemoryAllocator* allocator = nullptr;
+
   std::unique_ptr<BlobContents> value;
   uint64_t bytes_read = 0;
 
   ASSERT_TRUE(reader
                   ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                            kNoCompression, prefetch_buffer, &value,
+                            kNoCompression, prefetch_buffer, allocator, &value,
                             &bytes_read)
                   .IsCorruption());
   ASSERT_EQ(value, nullptr);
@@ -735,14 +738,15 @@ TEST_F(BlobFileReaderTest, Compression) {
   read_options.verify_checksums = false;
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr MemoryAllocator* allocator = nullptr;
 
   {
     std::unique_ptr<BlobContents> value;
     uint64_t bytes_read = 0;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kSnappyCompression, prefetch_buffer, &value,
-                              &bytes_read));
+                              kSnappyCompression, prefetch_buffer, allocator,
+                              &value, &bytes_read));
     ASSERT_NE(value, nullptr);
     ASSERT_EQ(value->data(), blob);
     ASSERT_EQ(bytes_read, blob_size);
@@ -755,8 +759,8 @@ TEST_F(BlobFileReaderTest, Compression) {
     uint64_t bytes_read = 0;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kSnappyCompression, prefetch_buffer, &value,
-                              &bytes_read));
+                              kSnappyCompression, prefetch_buffer, allocator,
+                              &value, &bytes_read));
     ASSERT_NE(value, nullptr);
     ASSERT_EQ(value->data(), blob);
 
@@ -816,13 +820,15 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+  constexpr MemoryAllocator* allocator = nullptr;
+
   std::unique_ptr<BlobContents> value;
   uint64_t bytes_read = 0;
 
   ASSERT_TRUE(reader
                   ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                            kSnappyCompression, prefetch_buffer, &value,
-                            &bytes_read)
+                            kSnappyCompression, prefetch_buffer, allocator,
+                            &value, &bytes_read)
                   .IsCorruption());
   ASSERT_EQ(value, nullptr);
   ASSERT_EQ(bytes_read, 0);
@@ -903,13 +909,15 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
     ASSERT_OK(s);
 
     constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+    constexpr MemoryAllocator* allocator = nullptr;
+
     std::unique_ptr<BlobContents> value;
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                              kNoCompression, prefetch_buffer, &value,
-                              &bytes_read)
+                              kNoCompression, prefetch_buffer, allocator,
+                              &value, &bytes_read)
                     .IsIOError());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
@@ -989,13 +997,15 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
     ASSERT_OK(s);
 
     constexpr FilePrefetchBuffer* prefetch_buffer = nullptr;
+    constexpr MemoryAllocator* allocator = nullptr;
+
     std::unique_ptr<BlobContents> value;
     uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                              kNoCompression, prefetch_buffer, &value,
-                              &bytes_read)
+                              kNoCompression, prefetch_buffer, allocator,
+                              &value, &bytes_read)
                     .IsCorruption());
     ASSERT_EQ(value, nullptr);
     ASSERT_EQ(bytes_read, 0);
