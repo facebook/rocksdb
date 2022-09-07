@@ -451,12 +451,10 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         // is freed or the lru list is empty.
         EvictFromLRU(e->total_charge, &last_reference_list);
 
-        // When the cache is over capacity and strict_capacity_limit_ is true,
-        // we don't want to free the handle, since the item is already in memory
-        // and the caller will most likely just read it from disk if we erase it
-        // here. So, we set e's total_charge to 0 for this case.
         if ((usage_ + e->total_charge) > capacity_ && strict_capacity_limit_) {
-          e->total_charge = 0;
+          e->Unref();
+          e->Free();
+          e = nullptr;
         } else {
           usage_ += e->total_charge;
         }
@@ -594,14 +592,16 @@ Cache::Handle* LRUCacheShard::Lookup(
 
       if (wait) {
         Promote(e);
-        if (!e->value) {
-          // The secondary cache returned a handle, but the lookup failed.
-          e->Unref();
-          e->Free();
-          e = nullptr;
-        } else {
-          PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
-          RecordTick(stats, SECONDARY_CACHE_HITS);
+        if (e) {
+          if (!e->value) {
+            // The secondary cache returned a handle, but the lookup failed.
+            e->Unref();
+            e->Free();
+            e = nullptr;
+          } else {
+            PERF_COUNTER_ADD(secondary_cache_hit_count, 1);
+            RecordTick(stats, SECONDARY_CACHE_HITS);
+          }
         }
       } else {
         // If wait is false, we always return a handle and let the caller
