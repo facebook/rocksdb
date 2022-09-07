@@ -26,13 +26,16 @@ namespace clock_cache {
 static_assert(sizeof(ClockHandle) == 64U,
               "Expecting size / alignment with common cache line size");
 
-ClockHandleTable::ClockHandleTable(int hash_bits)
+ClockHandleTable::ClockHandleTable(int hash_bits, bool initial_charge_metadata)
     : length_bits_(hash_bits),
       length_bits_mask_((uint32_t{1} << length_bits_) - 1),
       occupancy_limit_(static_cast<uint32_t>((uint32_t{1} << length_bits_) *
                                              kStrictLoadFactor)),
       array_(new ClockHandle[size_t{1} << length_bits_]) {
-  assert(hash_bits <= 32);
+  assert(hash_bits <= 32);  // FIXME: ensure no overlap with sharding bits
+  if (initial_charge_metadata) {
+    usage_ += size_t{GetTableSize()} * sizeof(ClockHandle);
+  }
 }
 
 ClockHandleTable::~ClockHandleTable() {
@@ -675,6 +678,7 @@ void ClockHandleTable::Rollback(uint32_t hash, uint32_t probe) {
 }
 
 size_t ClockHandleTable::Evict(size_t requested_charge) {
+  // TODO: make a tuning parameter?
   constexpr uint32_t step_size = 4;
 
   int allowed_wrap_arounds = ClockHandle::kMaxCountdown;
@@ -752,11 +756,15 @@ size_t ClockHandleTable::Evict(size_t requested_charge) {
 ClockCacheShard::ClockCacheShard(
     size_t capacity, size_t estimated_value_size, bool strict_capacity_limit,
     CacheMetadataChargePolicy metadata_charge_policy)
-    : table_(
-          CalcHashBits(capacity, estimated_value_size, metadata_charge_policy)),
+    : CacheShard(metadata_charge_policy),
+      table_(
+          CalcHashBits(capacity, estimated_value_size, metadata_charge_policy),
+          /*initial_charge_metadata*/ metadata_charge_policy ==
+              kFullChargeCacheMetadata),
       capacity_(capacity),
       strict_capacity_limit_(strict_capacity_limit) {
-  set_metadata_charge_policy(metadata_charge_policy);
+  // Initial charge metadata should not exceed capacity
+  assert(table_.GetUsage() <= capacity_ || capacity_ < sizeof(ClockHandle));
 }
 
 void ClockCacheShard::EraseUnRefEntries() { table_.EraseUnRefEntries(); }
@@ -787,31 +795,32 @@ void ClockCacheShard::ApplyToSomeEntries(
   }
 
   table_.ConstApplyToEntriesRange(
-      [callback,
-       metadata_charge_policy = metadata_charge_policy_](const ClockHandle& h) {
-        callback(h.KeySlice(), h.value, h.GetCharge(metadata_charge_policy),
-                 h.deleter);
+      [callback](const ClockHandle& h) {
+        callback(h.KeySlice(), h.value, h.total_charge, h.deleter);
       },
       index_begin, index_end, false);
-}
-
-size_t ClockCacheShard::CalcEstimatedHandleCharge(
-    size_t estimated_value_size,
-    CacheMetadataChargePolicy metadata_charge_policy) {
-  return estimated_value_size +
-         ClockHandleBasicData::CalcMetaCharge(metadata_charge_policy);
 }
 
 int ClockCacheShard::CalcHashBits(
     size_t capacity, size_t estimated_value_size,
     CacheMetadataChargePolicy metadata_charge_policy) {
-  size_t handle_charge =
-      CalcEstimatedHandleCharge(estimated_value_size, metadata_charge_policy);
-  assert(handle_charge > 0);
-  uint32_t num_entries =
-      static_cast<uint32_t>(capacity / (kLoadFactor * handle_charge)) + 1;
-  assert(num_entries <= uint32_t{1} << 31);
-  return FloorLog2((num_entries << 1) - 1);
+  double average_slot_charge = estimated_value_size * kLoadFactor;
+  if (metadata_charge_policy == kFullChargeCacheMetadata) {
+    average_slot_charge += sizeof(ClockHandle);
+  }
+  assert(average_slot_charge > 0.0);
+  uint64_t num_slots =
+      static_cast<uint64_t>(capacity / average_slot_charge + 0.999999);
+
+  int hash_bits = std::min(FloorLog2((num_slots << 1) - 1), 32);
+  if (metadata_charge_policy == kFullChargeCacheMetadata) {
+    // For very small estimated value sizes, it's possible to overshoot
+    while (hash_bits > 0 &&
+           uint64_t{sizeof(ClockHandle)} << hash_bits > capacity) {
+      hash_bits--;
+    }
+  }
+  return hash_bits;
 }
 
 void ClockCacheShard::SetCapacity(size_t /*capacity*/) {
@@ -836,8 +845,7 @@ Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   proto.hash = hash;
   proto.value = value;
   proto.deleter = deleter;
-  proto.total_charge =
-      charge + ClockHandleBasicData::CalcMetaCharge(metadata_charge_policy_);
+  proto.total_charge = charge;
   Status s =
       table_.Insert(proto, reinterpret_cast<ClockHandle**>(handle), priority,
                     capacity_.load(std::memory_order_relaxed),
@@ -892,9 +900,10 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   // list, so it would need to update the pinned usage every time,
   // which creates additional synchronization costs.
   size_t table_pinned_usage = 0;
-
+  const bool charge_metadata =
+      metadata_charge_policy_ == kFullChargeCacheMetadata;
   table_.ConstApplyToEntriesRange(
-      [&table_pinned_usage](const ClockHandle& h) {
+      [&table_pinned_usage, charge_metadata](const ClockHandle& h) {
         uint64_t meta = h.meta.load(std::memory_order_relaxed);
         uint64_t refcount = ((meta >> ClockHandle::kAcquireCounterShift) -
                              (meta >> ClockHandle::kReleaseCounterShift)) &
@@ -903,6 +912,9 @@ size_t ClockCacheShard::GetPinnedUsage() const {
         assert(refcount > 0);
         if (refcount > 1) {
           table_pinned_usage += h.total_charge;
+          if (charge_metadata) {
+            table_pinned_usage += sizeof(ClockHandle);
+          }
         }
       },
       0, table_.GetTableSize(), true);
@@ -952,12 +964,7 @@ void* ClockCache::Value(Handle* handle) {
 }
 
 size_t ClockCache::GetCharge(Handle* handle) const {
-  CacheMetadataChargePolicy metadata_charge_policy = kDontChargeCacheMetadata;
-  if (num_shards_ > 0) {
-    metadata_charge_policy = shards_[0].metadata_charge_policy_;
-  }
-  return reinterpret_cast<const ClockHandle*>(handle)->GetCharge(
-      metadata_charge_policy);
+  return reinterpret_cast<const ClockHandle*>(handle)->total_charge;
 }
 
 Cache::DeleterFn ClockCache::GetDeleter(Handle* handle) const {
@@ -996,7 +1003,10 @@ std::shared_ptr<Cache> ExperimentalNewClockCache(
     return nullptr;  // The cache cannot be sharded into too many fine pieces.
   }
   if (num_shard_bits < 0) {
-    num_shard_bits = GetDefaultCacheShardBits(capacity);
+    // Use larger shard size to reduce risk of large entries clustering
+    // or skewing individual shards.
+    constexpr size_t min_shard_size = 32U * 1024U * 1024U;
+    num_shard_bits = GetDefaultCacheShardBits(capacity, min_shard_size);
   }
   return std::make_shared<clock_cache::ClockCache>(
       capacity, estimated_value_size, num_shard_bits, strict_capacity_limit,

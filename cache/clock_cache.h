@@ -55,6 +55,11 @@ class ClockCacheTest;
 // memory before discovering it is over the block cache capacity, so this
 // should not be a detectable regression in respecting memory limits, except
 // on exceptionally small caches.)
+// * More susceptible to degraded performance with combination
+//   * num_shard_bits is high (e.g. 6)
+//   * capacity small (e.g. some MBs)
+//   * some large individual entries (e.g. non-partitioned filters)
+// where individual entries occupy a large portion of their shard capacity.
 // * In some rare cases, erased or duplicated entries might not be freed
 // immediately. They will eventually be freed by eviction from further Inserts.
 // * SecondaryCache is not supported.
@@ -72,6 +77,12 @@ class ClockCacheTest;
 // evicted if currently unreferenced. Note that scoring might not be perfect
 // because entries can be referenced transiently within the cache even when
 // there are no outside references to the entry.
+//
+// Cache sharding like LRUCache is used to reduce contention on usage+eviction
+// state, though here the performance improvement from more shards is small,
+// and (as noted above) potentially detrimental if shard capacity is too close
+// to largest entry size. Here cache sharding mostly only affects cache update
+// (Insert / Erase) performance, not read performance.
 //
 // Read efficiency (hot path)
 // --------------------------
@@ -193,38 +204,6 @@ struct ClockHandleBasicData {
       (*deleter)(KeySlice(), value);
     }
   }
-
-  // Calculate the memory usage by metadata.
-  static inline size_t CalcMetaCharge(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    if (metadata_charge_policy != kFullChargeCacheMetadata) {
-      return 0;
-    } else {
-      // #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-      //       return malloc_usable_size(
-      //           const_cast<void*>(static_cast<const void*>(this)));
-      // #else
-      // TODO(Guido) malloc_usable_size only works when we call it on
-      // a pointer allocated with malloc. Because our handles are all
-      // allocated in a single shot as an array, the user can't call
-      // CalcMetaCharge (or CalcTotalCharge or GetCharge) on a handle
-      // pointer returned by the cache. Moreover, malloc_usable_size
-      // expects a heap-allocated handle, but sometimes in our code we
-      // wish to pass a stack-allocated handle (this is only a performance
-      // concern).
-      // What is the right way to compute metadata charges with pre-allocated
-      // handles?
-      return 64U;
-      // #endif
-    }
-  }
-
-  inline size_t GetCharge(
-      CacheMetadataChargePolicy metadata_charge_policy) const {
-    size_t meta_charge = CalcMetaCharge(metadata_charge_policy);
-    assert(total_charge >= meta_charge);
-    return total_charge - meta_charge;
-  }
 };
 
 struct ClockHandleMoreData : public ClockHandleBasicData {
@@ -263,6 +242,7 @@ struct ALIGN_AS(64U) ClockHandle : public ClockHandleMoreData {
   static constexpr uint8_t kHighCountdown = 3;
   static constexpr uint8_t kLowCountdown = 2;
   static constexpr uint8_t kBottomCountdown = 1;
+  // TODO: make a tuning parameter?
   static constexpr uint8_t kMaxCountdown = kHighCountdown;
 
   // TODO: doc
@@ -277,7 +257,7 @@ struct ALIGN_AS(64U) ClockHandle : public ClockHandleMoreData {
 
 class ClockHandleTable {
  public:
-  explicit ClockHandleTable(int hash_bits);
+  explicit ClockHandleTable(int hash_bits, bool initial_charge_metadata);
   ~ClockHandleTable();
 
   Status Insert(const ClockHandleMoreData& proto, ClockHandle** handle,
@@ -441,11 +421,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   friend class ClockCacheTest;
 
   ClockHandle* DetachedInsert(const ClockHandleMoreData& h);
-
-  // Returns the charge of a single handle.
-  static size_t CalcEstimatedHandleCharge(
-      size_t estimated_value_size,
-      CacheMetadataChargePolicy metadata_charge_policy);
 
   // Returns the number of bits used to hash an element in the hash
   // table.

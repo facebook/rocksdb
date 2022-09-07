@@ -671,6 +671,7 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
       << port::GetProcessID();
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
+  cache_usage = cache->GetUsage();
 }
 
 void InternalStats::CacheEntryRoleStats::EndCollection(
@@ -695,6 +696,7 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
   std::ostringstream str;
   str << "Block cache " << cache_id
       << " capacity: " << BytesToHumanString(cache_capacity)
+      << " usage: " << BytesToHumanString(cache_usage)
       << " collections: " << collection_count
       << " last_copies: " << copies_of_last_collection
       << " last_secs: " << (GetLastDurationMicros() / 1000000.0)

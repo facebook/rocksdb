@@ -20,7 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 // Single cache shard interface.
 class CacheShard {
  public:
-  CacheShard() = default;
+  CacheShard(CacheMetadataChargePolicy metadata_charge_policy)
+      : metadata_charge_policy_(metadata_charge_policy) {}
   virtual ~CacheShard() = default;
 
   using DeleterFn = Cache::DeleterFn;
@@ -57,13 +58,9 @@ class CacheShard {
       uint32_t average_entries_per_lock, uint32_t* state) = 0;
   virtual void EraseUnRefEntries() = 0;
   virtual std::string GetPrintableOptions() const { return ""; }
-  void set_metadata_charge_policy(
-      CacheMetadataChargePolicy metadata_charge_policy) {
-    metadata_charge_policy_ = metadata_charge_policy;
-  }
 
  protected:
-  CacheMetadataChargePolicy metadata_charge_policy_ = kDontChargeCacheMetadata;
+  const CacheMetadataChargePolicy metadata_charge_policy_;
 };
 
 // Generic cache interface which shards cache by hash of keys. 2^num_shard_bits
@@ -127,6 +124,8 @@ class ShardedCache : public Cache {
   std::atomic<uint64_t> last_id_;
 };
 
-extern int GetDefaultCacheShardBits(size_t capacity);
+// 512KB is traditional minimum shard size.
+int GetDefaultCacheShardBits(size_t capacity,
+                             size_t min_shard_size = 512U * 1024U);
 
 }  // namespace ROCKSDB_NAMESPACE

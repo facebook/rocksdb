@@ -560,7 +560,7 @@ DEFINE_bool(universal_incremental, false,
 DEFINE_int64(cache_size, 8 << 20,  // 8MB
              "Number of bytes to use as a cache of uncompressed data");
 
-DEFINE_int32(cache_numshardbits, 6,
+DEFINE_int32(cache_numshardbits, -1,
              "Number of shards for the block cache"
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");

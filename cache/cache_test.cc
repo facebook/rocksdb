@@ -239,7 +239,10 @@ TEST_P(CacheTest, UsageTest) {
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 0, false, kFullChargeCacheMetadata);
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(0, precise_cache->GetUsage());
+  size_t baseline_meta_usage = precise_cache->GetUsage();
+  if (type != kClock) {
+    ASSERT_EQ(0, baseline_meta_usage);
+  }
 
   size_t usage = 0;
   char value[10] = "abcdef";
@@ -258,13 +261,17 @@ TEST_P(CacheTest, UsageTest) {
                                     kv_size, DumbDeleter));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
-    ASSERT_LT(usage, precise_cache->GetUsage());
+    if (type == kClock) {
+      ASSERT_EQ(baseline_meta_usage + usage, precise_cache->GetUsage());
+    } else {
+      ASSERT_LT(usage, precise_cache->GetUsage());
+    }
   }
 
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(0, precise_cache->GetUsage());
+  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
 
   // make sure the cache will be overloaded
   for (size_t i = 1; i < kCapacity; ++i) {
@@ -284,7 +291,15 @@ TEST_P(CacheTest, UsageTest) {
   ASSERT_GT(kCapacity, cache->GetUsage());
   ASSERT_GT(kCapacity, precise_cache->GetUsage());
   ASSERT_LT(kCapacity * 0.95, cache->GetUsage());
-  ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
+  if (type != kClock) {
+    ASSERT_LT(kCapacity * 0.95, precise_cache->GetUsage());
+  } else {
+    // estimated value size of 1 is weird for clock cache, because
+    // almost all of the capacity will be used for metadata, and due to only
+    // using power of 2 table sizes, we might hit strict occupancy limit
+    // before hitting capacity limit.
+    ASSERT_LT(kCapacity * 0.80, precise_cache->GetUsage());
+  }
 }
 
 // TODO: This test takes longer than expected on ClockCache. This is
@@ -301,6 +316,10 @@ TEST_P(CacheTest, PinnedUsageTest) {
   const size_t kCapacity = 200000;
   auto cache = NewCache(kCapacity, 8, false, kDontChargeCacheMetadata);
   auto precise_cache = NewCache(kCapacity, 8, false, kFullChargeCacheMetadata);
+  size_t baseline_meta_usage = precise_cache->GetUsage();
+  if (type != kClock) {
+    ASSERT_EQ(0, baseline_meta_usage);
+  }
 
   size_t pinned_usage = 0;
   char value[10] = "abcdef";
@@ -390,7 +409,7 @@ TEST_P(CacheTest, PinnedUsageTest) {
   cache->EraseUnRefEntries();
   precise_cache->EraseUnRefEntries();
   ASSERT_EQ(0, cache->GetUsage());
-  ASSERT_EQ(0, precise_cache->GetUsage());
+  ASSERT_EQ(baseline_meta_usage, precise_cache->GetUsage());
 }
 
 TEST_P(CacheTest, HitAndMiss) {
@@ -493,7 +512,6 @@ TEST_P(CacheTest, EntriesArePinned) {
 TEST_P(CacheTest, EvictionPolicy) {
   Insert(100, 101);
   Insert(200, 201);
-
   // Frequently used entry must be kept around
   for (int i = 0; i < 2 * kCacheSize; i++) {
     Insert(1000+i, 2000+i);
@@ -521,6 +539,12 @@ TEST_P(CacheTest, ExternalRefPinsEntries) {
     // being evicted in the first kCacheSize iterations
     for (int j = 0; j < 2 * kCacheSize + 100; j++) {
       Insert(1000 + j, 2000 + j);
+    }
+    // Clock cache is even more stateful and needs more churn to evict
+    if (GetParam() == kClock) {
+      for (int j = 0; j < kCacheSize; j++) {
+        Insert(11000 + j, 11000 + j);
+      }
     }
     if (i < 2) {
       ASSERT_EQ(101, Lookup(100));
@@ -987,17 +1011,26 @@ TEST_P(CacheTest, ApplyToAllEntriesDuringResize) {
 TEST_P(CacheTest, DefaultShardBits) {
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
-  std::shared_ptr<Cache> cache = NewCache(16 * 1024L * 1024L);
+  size_t min_shard_size = (GetParam() == kClock ? 32U * 1024U : 512U) * 1024U;
+  std::shared_ptr<Cache> cache = NewCache(32U * min_shard_size);
   ShardedCache* sc = dynamic_cast<ShardedCache*>(cache.get());
   ASSERT_EQ(5, sc->GetNumShardBits());
 
-  cache = NewLRUCache(511 * 1024L, -1, true);
+  cache = NewCache(min_shard_size / 1000U * 999U);
   sc = dynamic_cast<ShardedCache*>(cache.get());
   ASSERT_EQ(0, sc->GetNumShardBits());
 
-  cache = NewLRUCache(1024L * 1024L * 1024L, -1, true);
+  cache = NewCache(3U * 1024U * 1024U * 1024U);
   sc = dynamic_cast<ShardedCache*>(cache.get());
+  // current maximum of 6
   ASSERT_EQ(6, sc->GetNumShardBits());
+
+  if constexpr (sizeof(size_t) > 4) {
+    cache = NewCache(128U * min_shard_size);
+    sc = dynamic_cast<ShardedCache*>(cache.get());
+    // current maximum of 6
+    ASSERT_EQ(6, sc->GetNumShardBits());
+  }
 }
 
 TEST_P(CacheTest, GetChargeAndDeleter) {
