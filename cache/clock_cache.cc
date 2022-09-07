@@ -444,6 +444,13 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
         CorrectOverflow(old_meta, h->meta);
         return false;
       }
+      if ((old_meta & uint64_t{ClockHandle::kStateSharableBit} << ClockHandle::kStateShift) == 0) {
+        // Someone else took ownership
+        return false;
+      }
+      // Note that there's a small chance that we release, another thread
+      // replaces this entry with another, reaches zero refs, and then we end
+      // up erasing that other entry. That's an acceptable risk / imprecision.
     } while (!h->meta.compare_exchange_weak(
         old_meta,
         uint64_t{ClockHandle::kStateConstruction} << ClockHandle::kStateShift,
