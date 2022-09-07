@@ -108,6 +108,20 @@ struct IOOptions {
   // such as NewRandomAccessFile and NewWritableFile.
   std::unordered_map<std::string, std::string> property_bag;
 
+  // Sets the property in property_bag.
+  void SetProperty(const std::string& property, const std::string& value) {
+    property_bag[property] = value;
+  }
+
+  // Returns the value of the property in the propery_bag. If property doesn't
+  // exist, it returns "Not found".
+  std::string GetProperty(const std::string& property) {
+    if (property_bag.find(property) == property_bag.end()) {
+      return "Not found";
+    }
+    return property_bag[property];
+  }
+
   // Force directory fsync, some file systems like btrfs may skip directory
   // fsync, set this to force the fsync
   bool force_dir_fsync;
@@ -119,7 +133,9 @@ struct IOOptions {
         prio(IOPriority::kIOLow),
         rate_limiter_priority(Env::IO_TOTAL),
         type(IOType::kUnknown),
-        force_dir_fsync(force_dir_fsync_) {}
+        force_dir_fsync(force_dir_fsync_) {
+    SetProperty("list_files_only", "false");
+  }
 };
 
 struct DirFsyncOptions {
