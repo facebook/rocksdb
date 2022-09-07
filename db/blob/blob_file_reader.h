@@ -49,9 +49,11 @@ class BlobFileReader {
                  uint64_t* bytes_read) const;
 
   // offsets must be sorted in ascending order by caller.
-  void MultiGetBlob(const ReadOptions& read_options,
-                    autovector<BlobReadRequest*>& blob_reqs,
-                    uint64_t* bytes_read) const;
+  void MultiGetBlob(
+      const ReadOptions& read_options,
+      autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>&
+          blob_reqs,
+      uint64_t* bytes_read) const;
 
   CompressionType GetCompressionType() const { return compression_type_; }
 

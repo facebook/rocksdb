@@ -88,12 +88,16 @@ Status BlobSource::PutBlobIntoCache(
                                         &cache_handle, Cache::Priority::BOTTOM);
   if (s.ok()) {
     blob->release();
+
     assert(cache_handle != nullptr);
     *cached_blob =
         CacheHandleGuard<BlobContents>(blob_cache_.get(), cache_handle);
 
+    assert(cached_blob->GetValue());
+
     RecordTick(statistics_, BLOB_DB_CACHE_ADD);
-    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE, (*blob)->size());
+    RecordTick(statistics_, BLOB_DB_CACHE_BYTES_WRITE,
+               cached_blob->GetValue()->size());
 
   } else {
     RecordTick(statistics_, BLOB_DB_CACHE_ADD_FAILURES);
@@ -372,12 +376,13 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
 
   {
     // Find the rest of blobs from the file since I/O is allowed.
-    autovector<BlobReadRequest*> _blob_reqs;
+    autovector<std::pair<BlobReadRequest*, std::unique_ptr<BlobContents>>>
+        _blob_reqs;
     uint64_t _bytes_read = 0;
 
     for (size_t i = 0; i < num_blobs; ++i) {
       if (!(cache_hit_mask & (Mask{1} << i))) {
-        _blob_reqs.push_back(&blob_reqs[i]);
+        _blob_reqs.emplace_back(&blob_reqs[i], std::unique_ptr<BlobContents>());
       }
     }
 
@@ -386,8 +391,8 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
         blob_file_cache_->GetBlobFileReader(file_number, &blob_file_reader);
     if (!s.ok()) {
       for (size_t i = 0; i < _blob_reqs.size(); ++i) {
-        assert(_blob_reqs[i]->status);
-        *_blob_reqs[i]->status = s;
+        assert(_blob_reqs[i].first->status);
+        *_blob_reqs[i].first->status = s;
       }
       return;
     }
@@ -397,17 +402,17 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
     blob_file_reader.GetValue()->MultiGetBlob(read_options, _blob_reqs,
                                               &_bytes_read);
 
-    /*if (blob_cache_ && read_options.fill_cache) {
+    if (blob_cache_ && read_options.fill_cache) {
       // If filling cache is allowed and a cache is configured, try to put
       // the blob(s) to the cache.
-      for (BlobReadRequest* req : _blob_reqs) {
+      for (auto& [req, blob_contents] : _blob_reqs) {
         assert(req);
 
         if (req->status->ok()) {
           CacheHandleGuard<BlobContents> blob_handle;
           const CacheKey cache_key = base_cache_key.WithOffset(req->offset);
           const Slice key = cache_key.AsSlice();
-          s = PutBlobIntoCache(key, &req->blob_contents, &blob_handle);
+          s = PutBlobIntoCache(key, &blob_contents, &blob_handle);
           if (!s.ok()) {
             *req->status = s;
           } else {
@@ -416,14 +421,14 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
         }
       }
     } else {
-      for (BlobReadRequest* req : _blob_reqs) {
+      for (const auto& [req, blob_contents] : _blob_reqs) {
         assert(req);
 
         if (req->status->ok()) {
-          CopyBlob(req->blob_contents.get(), req->result);
+          CopyBlob(blob_contents.get(), req->result);
         }
       }
-    }*/
+    }
 
     total_bytes += _bytes_read;
     if (bytes_read) {
