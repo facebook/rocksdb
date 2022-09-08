@@ -826,6 +826,7 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
 
 TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
   std::string sec_cache_uri;
+  bool sec_cache_is_compressed{true};
   if (LZ4_Supported()) {
     sec_cache_uri =
         "compressed_secondary_cache://"
@@ -836,13 +837,14 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
     sec_cache_uri =
         "compressed_secondary_cache://"
         "capacity=2048;num_shard_bits=0;compression_type=kNoCompression";
+    sec_cache_is_compressed = false;
   }
 
   std::shared_ptr<SecondaryCache> sec_cache;
   Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
                                               &sec_cache);
   EXPECT_OK(s);
-  BasicTestHelper(sec_cache, /*sec_cache_is_compressed=*/true);
+  BasicTestHelper(sec_cache, sec_cache_is_compressed);
 }
 
 #endif  // ROCKSDB_LITE
