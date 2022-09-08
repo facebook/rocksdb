@@ -39,15 +39,20 @@ PerfContext::PerfContext(const PerfContext& other) {
   block_cache_index_hit_count = other.block_cache_index_hit_count;
   block_cache_standalone_handle_count =
       other.block_cache_standalone_handle_count;
+  block_cache_real_handle_count = other.block_cache_real_handle_count;
   index_block_read_count = other.index_block_read_count;
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
   secondary_cache_hit_count = other.secondary_cache_hit_count;
-  secondary_cache_insert_real_count = other.secondary_cache_insert_real_count;
-  secondary_cache_insert_dummy_count = other.secondary_cache_insert_dummy_count;
-  secondary_cache_uncompressed_bytes = other.secondary_cache_uncompressed_bytes;
-  secondary_cache_compressed_bytes = other.secondary_cache_compressed_bytes;
+  compressed_sec_cache_insert_real_count =
+      other.compressed_sec_cache_insert_real_count;
+  compressed_sec_cache_insert_dummy_count =
+      other.compressed_sec_cache_insert_dummy_count;
+  compressed_sec_cache_uncompressed_bytes =
+      other.compressed_sec_cache_uncompressed_bytes;
+  compressed_sec_cache_compressed_bytes =
+      other.compressed_sec_cache_compressed_bytes;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -153,15 +158,20 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   block_cache_index_hit_count = other.block_cache_index_hit_count;
   block_cache_standalone_handle_count =
       other.block_cache_standalone_handle_count;
+  block_cache_real_handle_count = other.block_cache_real_handle_count;
   index_block_read_count = other.index_block_read_count;
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
   secondary_cache_hit_count = other.secondary_cache_hit_count;
-  secondary_cache_insert_real_count = other.secondary_cache_insert_real_count;
-  secondary_cache_insert_dummy_count = other.secondary_cache_insert_dummy_count;
-  secondary_cache_uncompressed_bytes = other.secondary_cache_uncompressed_bytes;
-  secondary_cache_compressed_bytes = other.secondary_cache_compressed_bytes;
+  compressed_sec_cache_insert_real_count =
+      other.compressed_sec_cache_insert_real_count;
+  compressed_sec_cache_insert_dummy_count =
+      other.compressed_sec_cache_insert_dummy_count;
+  compressed_sec_cache_uncompressed_bytes =
+      other.compressed_sec_cache_uncompressed_bytes;
+  compressed_sec_cache_compressed_bytes =
+      other.compressed_sec_cache_compressed_bytes;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -269,15 +279,20 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   block_cache_index_hit_count = other.block_cache_index_hit_count;
   block_cache_standalone_handle_count =
       other.block_cache_standalone_handle_count;
+  block_cache_real_handle_count = other.block_cache_real_handle_count;
   index_block_read_count = other.index_block_read_count;
   block_cache_filter_hit_count = other.block_cache_filter_hit_count;
   filter_block_read_count = other.filter_block_read_count;
   compression_dict_block_read_count = other.compression_dict_block_read_count;
   secondary_cache_hit_count = other.secondary_cache_hit_count;
-  secondary_cache_insert_real_count = other.secondary_cache_insert_real_count;
-  secondary_cache_insert_dummy_count = other.secondary_cache_insert_dummy_count;
-  secondary_cache_uncompressed_bytes = other.secondary_cache_uncompressed_bytes;
-  secondary_cache_compressed_bytes = other.secondary_cache_compressed_bytes;
+  compressed_sec_cache_insert_real_count =
+      other.compressed_sec_cache_insert_real_count;
+  compressed_sec_cache_insert_dummy_count =
+      other.compressed_sec_cache_insert_dummy_count;
+  compressed_sec_cache_uncompressed_bytes =
+      other.compressed_sec_cache_uncompressed_bytes;
+  compressed_sec_cache_compressed_bytes =
+      other.compressed_sec_cache_compressed_bytes;
   block_checksum_time = other.block_checksum_time;
   block_decompress_time = other.block_decompress_time;
   get_read_bytes = other.get_read_bytes;
@@ -381,15 +396,16 @@ void PerfContext::Reset() {
   block_read_time = 0;
   block_cache_index_hit_count = 0;
   block_cache_standalone_handle_count = 0;
+  block_cache_real_handle_count = 0;
   index_block_read_count = 0;
   block_cache_filter_hit_count = 0;
   filter_block_read_count = 0;
   compression_dict_block_read_count = 0;
   secondary_cache_hit_count = 0;
-  secondary_cache_insert_real_count = 0;
-  secondary_cache_insert_dummy_count = 0;
-  secondary_cache_uncompressed_bytes = 0;
-  secondary_cache_compressed_bytes = 0;
+  compressed_sec_cache_insert_real_count = 0;
+  compressed_sec_cache_insert_dummy_count = 0;
+  compressed_sec_cache_uncompressed_bytes = 0;
+  compressed_sec_cache_compressed_bytes = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
   get_read_bytes = 0;
@@ -517,15 +533,16 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_read_time);
   PERF_CONTEXT_OUTPUT(block_cache_index_hit_count);
   PERF_CONTEXT_OUTPUT(block_cache_standalone_handle_count);
+  PERF_CONTEXT_OUTPUT(block_cache_real_handle_count);
   PERF_CONTEXT_OUTPUT(index_block_read_count);
   PERF_CONTEXT_OUTPUT(block_cache_filter_hit_count);
   PERF_CONTEXT_OUTPUT(filter_block_read_count);
   PERF_CONTEXT_OUTPUT(compression_dict_block_read_count);
   PERF_CONTEXT_OUTPUT(secondary_cache_hit_count);
-  PERF_CONTEXT_OUTPUT(secondary_cache_insert_real_count);
-  PERF_CONTEXT_OUTPUT(secondary_cache_insert_dummy_count);
-  PERF_CONTEXT_OUTPUT(secondary_cache_uncompressed_bytes);
-  PERF_CONTEXT_OUTPUT(secondary_cache_compressed_bytes);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_real_count);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_insert_dummy_count);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_uncompressed_bytes);
+  PERF_CONTEXT_OUTPUT(compressed_sec_cache_compressed_bytes);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
   PERF_CONTEXT_OUTPUT(get_read_bytes);
