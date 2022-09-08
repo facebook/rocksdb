@@ -186,6 +186,12 @@ TEST_F(DBTablePropertiesTest, InvalidIgnored) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
 
+  // Corrupting the table properties corrupts the unique id.
+  // Ignore the unique id recorded in the manifest.
+  auto options = CurrentOptions();
+  options.verify_sst_unique_id_in_manifest = false;
+  Reopen(options);
+
   // Build file
   for (int i = 0; i < 10; ++i) {
     ASSERT_OK(db_->Put(WriteOptions(), std::to_string(i), "val"));

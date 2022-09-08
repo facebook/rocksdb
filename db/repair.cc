@@ -508,8 +508,8 @@ class Repairer {
                                 file_size);
     std::shared_ptr<const TableProperties> props;
     if (status.ok()) {
-      status = table_cache_->GetTableProperties(file_options_, icmp_,
-                                                t->meta.fd, &props);
+      status = table_cache_->GetTableProperties(file_options_, icmp_, t->meta,
+                                                &props);
     }
     if (status.ok()) {
       auto s =
