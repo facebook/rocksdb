@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "memory/memory_allocator.h"
+#include "monitoring/perf_context_imp.h"
 #include "util/compression.h"
 #include "util/string_util.h"
 
@@ -101,9 +102,11 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
   Cache::Handle* lru_handle = cache_->Lookup(key);
   if (lru_handle == nullptr) {
+    PERF_COUNTER_ADD(compressed_sec_cache_insert_dummy_count, 1);
     // Insert a dummy handle if the handle is evicted for the first time.
     return cache_->Insert(key, /*value=*/nullptr, /*charge=*/0,
                           DeletionCallback);
+
   } else {
     cache_->Release(lru_handle, /*erase_if_last_ref=*/false);
   }
@@ -120,6 +123,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
   std::string compressed_val;
   if (cache_options_.compression_type != kNoCompression) {
+    PERF_COUNTER_ADD(compressed_sec_cache_uncompressed_bytes, size);
     CompressionOptions compression_opts;
     CompressionContext compression_context(cache_options_.compression_type);
     uint64_t sample_for_compression{0};
@@ -137,12 +141,13 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
     val = Slice(compressed_val);
     size = compressed_val.size();
+    PERF_COUNTER_ADD(compressed_sec_cache_compressed_bytes, size);
     ptr = AllocateBlock(size, cache_options_.memory_allocator.get());
     memcpy(ptr.get(), compressed_val.data(), size);
   }
 
   CacheAllocationPtr* buf = new CacheAllocationPtr(std::move(ptr));
-
+  PERF_COUNTER_ADD(compressed_sec_cache_insert_real_count, 1);
   return cache_->Insert(key, buf, size, DeletionCallback);
 }
 
