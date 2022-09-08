@@ -178,6 +178,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
       if (!LZ4_Supported()) {
         ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
         opts.compression_type = CompressionType::kNoCompression;
+        sec_cache_is_compressed = false;
       }
     } else {
       opts.compression_type = CompressionType::kNoCompression;
@@ -284,6 +285,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
       if (!LZ4_Supported()) {
         ROCKSDB_GTEST_SKIP("This test requires LZ4 support.");
         secondary_cache_opts.compression_type = CompressionType::kNoCompression;
+        sec_cache_is_compressed = false;
       }
     } else {
       secondary_cache_opts.compression_type = CompressionType::kNoCompression;
