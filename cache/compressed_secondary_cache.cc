@@ -123,7 +123,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
   std::string compressed_val;
   if (cache_options_.compression_type != kNoCompression) {
-    PERF_COUNTER_ADD(secondary_cache_insert_uncompressed_bytes, size);
+    PERF_COUNTER_ADD(secondary_cache_uncompressed_bytes, size);
     CompressionOptions compression_opts;
     CompressionContext compression_context(cache_options_.compression_type);
     uint64_t sample_for_compression{0};
@@ -141,7 +141,7 @@ Status CompressedSecondaryCache::Insert(const Slice& key, void* value,
 
     val = Slice(compressed_val);
     size = compressed_val.size();
-    PERF_COUNTER_ADD(secondary_cache_insert_compressed_bytes, size);
+    PERF_COUNTER_ADD(secondary_cache_compressed_bytes, size);
     ptr = AllocateBlock(size, cache_options_.memory_allocator.get());
     memcpy(ptr.get(), compressed_val.data(), size);
   }

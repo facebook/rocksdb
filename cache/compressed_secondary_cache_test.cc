@@ -101,8 +101,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 1);
-    ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes, 0);
-    ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+    ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 0);
+    ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 0);
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
         "k1", test_item_creator, true, /*advise_erase=*/false, is_in_sec_cache);
@@ -117,14 +117,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_FALSE(is_in_sec_cache);
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 1);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
-                1000);
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
-                1007);
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 1000);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 1007);
     } else {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
-                0);
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 0);
     }
 
     std::unique_ptr<TestItem> val1 =
@@ -151,14 +148,11 @@ class CompressedSecondaryCacheTest : public testing::Test {
                                 &CompressedSecondaryCacheTest::helper_));
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 2);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
-                2000);
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
-                2014);
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 2000);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 2014);
     } else {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
-                0);
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 0);
     }
     std::unique_ptr<SecondaryCacheResultHandle> handle2_2 = sec_cache->Lookup(
         "k2", test_item_creator, true, /*advise_erase=*/false, is_in_sec_cache);
@@ -322,8 +316,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_OK(cache->Insert(
         "k2", item2_1, &CompressedSecondaryCacheTest::helper_, str2.length()));
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 1);
-    ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes, 0);
-    ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+    ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 0);
+    ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 0);
 
     std::string str3 = rnd.RandomString(1024);
     TestItem* item3_1 = new TestItem(str3.data(), str3.length());
@@ -347,14 +341,12 @@ class CompressedSecondaryCacheTest : public testing::Test {
         "k2", item2_2, &CompressedSecondaryCacheTest::helper_, str2.length()));
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 1);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes,
                 str1.length());
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
-                1008);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 1008);
     } else {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
-                0);
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 0);
     }
 
     // After this Insert, primary cache contains k3 and secondary cache contains
@@ -364,14 +356,12 @@ class CompressedSecondaryCacheTest : public testing::Test {
         "k3", item3_2, &CompressedSecondaryCacheTest::helper_, str3.length()));
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 2);
     if (sec_cache_is_compressed) {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes,
                 str1.length() + str2.length());
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
-                2027);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 2027);
     } else {
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
-                0);
-      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_uncompressed_bytes, 0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_compressed_bytes, 0);
     }
 
     Cache::Handle* handle;

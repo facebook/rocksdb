@@ -83,9 +83,9 @@ struct PerfContext {
   // total number of dummy handles inserted into secondary cache
   uint64_t secondary_cache_insert_dummy_count;
   // bytes for vals before compression in secondary cache
-  uint64_t secondary_cache_insert_uncompressed_bytes;
+  uint64_t secondary_cache_uncompressed_bytes;
   // bytes for vals after compression in secondary cache
-  uint64_t secondary_cache_insert_compressed_bytes;
+  uint64_t secondary_cache_compressed_bytes;
 
   uint64_t block_checksum_time;    // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
