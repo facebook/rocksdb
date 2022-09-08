@@ -108,7 +108,8 @@ class BlockBasedTable : public TableReader {
       TailPrefetchStats* tail_prefetch_stats = nullptr,
       BlockCacheTracer* const block_cache_tracer = nullptr,
       size_t max_file_size_for_l0_meta_pin = 0,
-      const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0);
+      const std::string& cur_db_session_id = "", uint64_t cur_file_num = 0,
+      UniqueId64x2 expected_unique_id = {});
 
   bool PrefixRangeMayMatch(const Slice& internal_key,
                            const ReadOptions& read_options,

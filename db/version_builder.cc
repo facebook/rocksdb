@@ -1274,7 +1274,7 @@ class VersionBuilder::Rep {
         int level = files_meta[file_idx].second;
         statuses[file_idx] = table_cache_->FindTable(
             ReadOptions(), file_options_,
-            *(base_vstorage_->InternalComparator()), file_meta->fd,
+            *(base_vstorage_->InternalComparator()), *file_meta,
             &file_meta->table_reader_handle, prefix_extractor, false /*no_io */,
             true /* record_read_stats */,
             internal_stats->GetFileReadHist(level), false, level,

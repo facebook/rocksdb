@@ -1570,6 +1570,10 @@ TEST_P(DBBlockCacheKeyTest, StableCacheKeys) {
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.env = test_env.get();
 
+  // Corrupting the table properties corrupts the unique id.
+  // Ignore the unique id recorded in the manifest.
+  options.verify_sst_unique_id_in_manifest = false;
+
   BlockBasedTableOptions table_options;
 
   int key_count = 0;

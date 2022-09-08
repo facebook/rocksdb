@@ -525,12 +525,6 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
-  if (immutable_db_options_.verify_sst_unique_id_in_manifest) {
-    s = VerifySstUniqueIdInManifest();
-    if (!s.ok()) {
-      return s;
-    }
-  }
   s = SetupDBId(read_only, recovery_ctx);
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "DB ID: %s\n", db_id_.c_str());
   if (s.ok() && !read_only) {
@@ -706,31 +700,6 @@ Status DBImpl::Recover(
     }
   }
   return s;
-}
-
-Status DBImpl::VerifySstUniqueIdInManifest() {
-  mutex_.AssertHeld();
-  ROCKS_LOG_INFO(
-      immutable_db_options_.info_log,
-      "Verifying SST unique id between MANIFEST and SST file table properties");
-  Status status;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->IsDropped()) {
-      auto version = cfd->current();
-      version->Ref();
-      mutex_.Unlock();
-      status = version->VerifySstUniqueIds();
-      mutex_.Lock();
-      version->Unref();
-      if (!status.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "SST unique id mismatch in column family \"%s\": %s",
-                       cfd->GetName().c_str(), status.ToString().c_str());
-        return status;
-      }
-    }
-  }
-  return status;
 }
 
 Status DBImpl::PersistentStatsProcessFormatVersion() {
