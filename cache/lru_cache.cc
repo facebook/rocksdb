@@ -458,6 +458,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         e->Unref();
         e->Free();
         e = nullptr;
+      } else {
+        PERF_COUNTER_ADD(block_cache_standalone_handle_count, 1);
       }
 
       // Insert a dummy handle into the primary cache. This dummy handle is

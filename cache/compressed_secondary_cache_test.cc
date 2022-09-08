@@ -85,6 +85,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
   void SetFailCreate(bool fail) { fail_create_ = fail; }
 
   void BasicTestHelper(std::shared_ptr<SecondaryCache> sec_cache) {
+    get_perf_context()->Reset();
     bool is_in_sec_cache{true};
     // Lookup an non-existent key.
     std::unique_ptr<SecondaryCacheResultHandle> handle0 = sec_cache->Lookup(
@@ -98,6 +99,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // A dummy handle is inserted if the item is inserted for the first time.
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 1);
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
         "k1", test_item_creator, true, /*advise_erase=*/false, is_in_sec_cache);
@@ -110,6 +112,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
         "k1", test_item_creator, true, /*advise_erase=*/true, is_in_sec_cache);
     ASSERT_NE(handle1_2, nullptr);
     ASSERT_FALSE(is_in_sec_cache);
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 1);
 
     std::unique_ptr<TestItem> val1 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1_2->Value()));
