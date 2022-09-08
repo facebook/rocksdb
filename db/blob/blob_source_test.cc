@@ -1062,7 +1062,8 @@ class BlobSecondaryCacheTest : public DBTestBase {
 
     secondary_cache_opts_.capacity = 8 << 20;  // 8 MB
     secondary_cache_opts_.num_shard_bits = 0;
-    secondary_cache_opts_.metadata_charge_policy = kDontChargeCacheMetadata;
+    secondary_cache_opts_.metadata_charge_policy =
+        kDefaultCacheMetadataChargePolicy;
 
     // Read blobs from the secondary cache if they are not in the primary cache
     options_.lowest_used_cache_tier = CacheTier::kNonVolatileBlockTier;
@@ -1170,6 +1171,25 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
                                   blob_offsets[0], file_size, blob_sizes[0],
                                   kNoCompression, nullptr /* prefetch_buffer */,
                                   &values[0], nullptr /* bytes_read */));
+    // Release cache handle
+    values[0].Reset();
+
+    // key0 should be evicted and key0's dummy item is inserted into secondary
+    // cache. key1 should be filled to the primary cache from the blob file.
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
+                                  blob_offsets[1], file_size, blob_sizes[1],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[1], nullptr /* bytes_read */));
+
+    // Release cache handle
+    values[1].Reset();
+
+    // key0 should be filled to the primary cache from the blob file. key1
+    // should be evicted and key1's dummy item is inserted into secondary cache.
+    ASSERT_OK(blob_source.GetBlob(read_options, keys[0], file_number,
+                                  blob_offsets[0], file_size, blob_sizes[0],
+                                  kNoCompression, nullptr /* prefetch_buffer */,
+                                  &values[0], nullptr /* bytes_read */));
     ASSERT_EQ(values[0], blobs[0]);
     ASSERT_TRUE(
         blob_source.TEST_BlobInCache(file_number, file_size, blob_offsets[0]));
@@ -1177,8 +1197,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
     // Release cache handle
     values[0].Reset();
 
-    // key0 should be demoted to the secondary cache, and key1 should be filled
-    // to the primary cache from the blob file.
+    // key0 should be evicted and is inserted into secondary cache.
+    // key1 should be filled to the primary cache from the blob file.
     ASSERT_OK(blob_source.GetBlob(read_options, keys[1], file_number,
                                   blob_offsets[1], file_size, blob_sizes[1],
                                   kNoCompression, nullptr /* prefetch_buffer */,
@@ -1202,11 +1222,11 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       auto handle0 = blob_cache->Lookup(key0, statistics);
       ASSERT_EQ(handle0, nullptr);
 
-      // key0 should be in the secondary cache. After looking up key0 in the
-      // secondary cache, it will be erased from the secondary cache.
+      // key0's item should be in the secondary cache.
       bool is_in_sec_cache = false;
       auto sec_handle0 =
-          secondary_cache->Lookup(key0, create_cb, true, is_in_sec_cache);
+          secondary_cache->Lookup(key0, create_cb, true,
+                                  /*advise_erase=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_NE(sec_handle0, nullptr);
       ASSERT_TRUE(sec_handle0->IsReady());
@@ -1215,12 +1235,14 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_EQ(value->data(), blobs[0]);
       delete value;
 
-      // key0 doesn't exist in the blob cache
+      // key0 doesn't exist in the blob cache although key0's dummy
+      // item exist in the secondary cache.
       ASSERT_FALSE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                 blob_offsets[0]));
     }
 
-    // key1 should exist in the primary cache.
+    // key1 should exists in the primary cache. key1's dummy item exists
+    // in the secondary cache.
     {
       CacheKey cache_key = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key.AsSlice();
@@ -1230,7 +1252,8 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
       bool is_in_sec_cache = false;
       auto sec_handle1 =
-          secondary_cache->Lookup(key1, create_cb, true, is_in_sec_cache);
+          secondary_cache->Lookup(key1, create_cb, true,
+                                  /*advise_erase=*/true, is_in_sec_cache);
       ASSERT_FALSE(is_in_sec_cache);
       ASSERT_EQ(sec_handle1, nullptr);
 
@@ -1240,6 +1263,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
 
     {
       // fetch key0 from the blob file to the primary cache.
+      // key1 is evicted and inserted into the secondary cache.
       ASSERT_OK(blob_source.GetBlob(
           read_options, keys[0], file_number, blob_offsets[0], file_size,
           blob_sizes[0], kNoCompression, nullptr /* prefetch_buffer */,
@@ -1259,8 +1283,7 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       ASSERT_EQ(value->data(), blobs[0]);
       blob_cache->Release(handle0);
 
-      // key1 is not in the primary cache, and it should be demoted to the
-      // secondary cache.
+      // key1 is not in the primary cache and is in the secondary cache.
       CacheKey cache_key1 = base_cache_key.WithOffset(blob_offsets[1]);
       const Slice key1 = cache_key1.AsSlice();
       auto handle1 = blob_cache->Lookup(key1, statistics);
@@ -1274,17 +1297,19 @@ TEST_F(BlobSecondaryCacheTest, GetBlobsFromSecondaryCache) {
       // key1 promotion should succeed due to the primary cache being empty. we
       // did't call secondary cache's Lookup() here, because it will remove the
       // key but it won't be able to promote the key to the primary cache.
-      // Instead we use the end-to-end blob source API to promote the key to
-      // the primary cache.
+      // Instead we use the end-to-end blob source API to read key1.
+      // In function TEST_BlobInCache, key1's dummy item is inserted into the
+      // primary cache and a standalone handle is checked by GetValue().
       ASSERT_TRUE(blob_source.TEST_BlobInCache(file_number, file_size,
                                                blob_offsets[1]));
 
-      // key1 should be in the primary cache.
+      // key1's dummy handle is in the primary cache and key1's item is still
+      // in the secondary cache. So, the primary cache's Lookup() can only
+      // get a dummy handle.
       handle1 = blob_cache->Lookup(key1, statistics);
       ASSERT_NE(handle1, nullptr);
-      value = static_cast<BlobContents*>(blob_cache->Value(handle1));
-      ASSERT_NE(value, nullptr);
-      ASSERT_EQ(value->data(), blobs[1]);
+      // handl1 is a dummy handle.
+      ASSERT_EQ(blob_cache->Value(handle1), nullptr);
       blob_cache->Release(handle1);
     }
   }

@@ -45,7 +45,21 @@ class CompressedSecondaryCacheResultHandle : public SecondaryCacheResultHandle {
 // The CompressedSecondaryCache is a concrete implementation of
 // rocksdb::SecondaryCache.
 //
-// Users can also cast a pointer to it and call methods on
+// When a block is found from CompressedSecondaryCache::Lookup, we check whether
+// there is a dummy block with the same key in the primary cache.
+// 1. If the dummy block exits, we erase the block from
+//    CompressedSecondaryCache and insert it into the primary cache.
+// 2. If not, we just insert a dummy block into the primary cache
+//    (charging the actual size of the block) and don not erase the block from
+//    CompressedSecondaryCache. A standalone handle is returned to the caller.
+//
+// When a block is evicted from the primary cache, we check whether
+// there is a dummy block with the same key in CompressedSecondaryCache.
+// 1. If the dummy block exits, the block is inserted into
+//    CompressedSecondaryCache.
+// 2. If not, we just insert a dummy block (size 0) in CompressedSecondaryCache.
+//
+// Users can also cast a pointer to CompressedSecondaryCache and call methods on
 // it directly, especially custom methods that may be added
 // in the future.  For example -
 // std::unique_ptr<rocksdb::SecondaryCache> cache =
@@ -72,7 +86,9 @@ class CompressedSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool& is_in_sec_cache) override;
+      bool advise_erase, bool& is_in_sec_cache) override;
+
+  bool SupportForceErase() const override { return true; }
 
   void Erase(const Slice& key) override;
 

@@ -1734,28 +1734,45 @@ TEST_F(DBBlobBasicTest, WarmCacheWithBlobsSecondary) {
   constexpr size_t second_blob_size = 768;
   const std::string second_blob(second_blob_size, 'b');
 
-  // First blob gets inserted into primary cache during flush
+  // First blob is inserted into primary cache during flush.
   ASSERT_OK(Put(first_key, first_blob));
   ASSERT_OK(Flush());
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
 
-  // Second blob gets inserted into primary cache during flush, first blob gets
-  // evicted to secondary cache
+  // Second blob is inserted into primary cache during flush,
+  // First blob is evicted but only a dummy handle is inserted into secondary
+  // cache.
   ASSERT_OK(Put(second_key, second_blob));
   ASSERT_OK(Flush());
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_ADD), 1);
 
-  // First blob gets promoted back to primary cache b/c of lookup, second blob
-  // gets evicted to secondary cache
+  // First blob is inserted into primary cache.
+  // Second blob is evicted but only a dummy handle is inserted into secondary
+  // cache.
+  ASSERT_EQ(Get(first_key), first_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            0);
+  // Second blob is inserted into primary cache,
+  // First blob is evicted and is inserted into secondary cache.
+  ASSERT_EQ(Get(second_key), second_blob);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 1);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 0);
+  ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
+            0);
+
+  // First blob's dummy item is inserted into primary cache b/c of lookup.
+  // Second blob is still in primary cache.
   ASSERT_EQ(Get(first_key), first_blob);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),
             1);
 
-  // Second blob gets promoted back to primary cache b/c of lookup, first blob
-  // gets evicted to secondary cache
-  ASSERT_EQ(Get(second_key), second_blob);
+  // First blob's item is inserted into primary cache b/c of lookup.
+  // Second blob is evicted and inserted into secondary cache.
+  ASSERT_EQ(Get(first_key), first_blob);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_MISS), 0);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(BLOB_DB_CACHE_HIT), 1);
   ASSERT_EQ(options.statistics->getAndResetTickerCount(SECONDARY_CACHE_HITS),

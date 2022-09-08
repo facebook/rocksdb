@@ -46,10 +46,11 @@ class LRUCacheTest : public testing::Test {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(
-        capacity, false /*strict_capcity_limit*/, high_pri_pool_ratio,
-        low_pri_pool_ratio, use_adaptive_mutex, kDontChargeCacheMetadata,
-        24 /*max_upper_hash_bits*/, nullptr /*secondary_cache*/);
+    new (cache_) LRUCacheShard(capacity, /*strict_capacity_limit=*/false,
+                               high_pri_pool_ratio, low_pri_pool_ratio,
+                               use_adaptive_mutex, kDontChargeCacheMetadata,
+                               /*max_upper_hash_bits=*/24,
+                               /*secondary_cache=*/nullptr);
   }
 
   void Insert(const std::string& key,
@@ -742,7 +743,7 @@ class TestSecondaryCache : public SecondaryCache {
 
   std::unique_ptr<SecondaryCacheResultHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool /*wait*/,
-      bool& is_in_sec_cache) override {
+      bool /*advise_erase*/, bool& is_in_sec_cache) override {
     std::string key_str = key.ToString();
     TEST_SYNC_POINT_CALLBACK("TestSecondaryCache::Lookup", &key_str);
 
@@ -779,6 +780,8 @@ class TestSecondaryCache : public SecondaryCache {
     }
     return secondary_handle;
   }
+
+  bool SupportForceErase() const override { return false; }
 
   void Erase(const Slice& /*key*/) override {}
 
@@ -960,7 +963,7 @@ TEST_F(LRUCacheSecondaryCacheTest, BasicTest) {
   TestItem* item1 = new TestItem(str1.data(), str1.length());
   ASSERT_OK(cache->Insert(k1.AsSlice(), item1,
                           &LRUCacheSecondaryCacheTest::helper_, str1.length()));
-  std::string str2 = rnd.RandomString(1020);
+  std::string str2 = rnd.RandomString(1021);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k1 should be demoted to NVM
   ASSERT_OK(cache->Insert(k2.AsSlice(), item2,
