@@ -601,6 +601,25 @@ class CloudEnv : public Env {
   virtual Status FindAllLiveFilesAndFetchManifest(
       const std::string& local_dbname, std::vector<std::string>* live_sst_files,
       std::string* manifest_file, std::string* manifest_file_version) = 0;
+    
+  // Apply cloud manifest delta to db locally
+  //
+  // It will:
+  //
+  // - Update in memory cloud manifest
+  // - Persist the changes to disk by writing new CLOUDMANIFEST-new_cookie and
+  // MANIFEST-delta.epoch files
+  virtual Status ApplyLocalCloudManifestDelta(
+    const std::string& local_dbname,
+    const std::string& new_cookie,
+    const CloudManifestDelta& delta) = 0;
+
+  // Upload local CLOUDMANIFEST-cookie file and the corresponding
+  // MANIFEST-current_epoch file to cloud
+  //
+  // REQUIRES: the file exists locally
+  virtual Status UploadLocalCloudManifestAndManifest(
+      const std::string& local_dbname, const std::string& cookie) const = 0;
 
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from

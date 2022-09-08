@@ -3251,6 +3251,8 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported in Model DB");
   }
 
+  void NewManifestOnNextUpdate() override {}
+
  private:
   class ModelIter : public Iterator {
    public:

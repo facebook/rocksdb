@@ -302,6 +302,10 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "writes in direct IO require writable_file_max_buffer_size > 0");
   }
 
+  if (db_options.flush_switch == nullptr) {
+    return Status::InvalidArgument("Flush switch is not set");
+  }
+
   return Status::OK();
 }
 

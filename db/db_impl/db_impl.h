@@ -1007,7 +1007,7 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status WaitForCompact(bool waitUnscheduled = false);
 
-  void NewManifestOnNextUpdate() {
+  virtual void NewManifestOnNextUpdate() override {
     versions_->NewManifestOnNextUpdate();
   }
 

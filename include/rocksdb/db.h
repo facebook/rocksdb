@@ -1816,6 +1816,9 @@ class DB {
 
   // Remove any pluggable compaction
   virtual void UnRegisterPluggableCompactionService() {}
+
+  // Generate new MANIFEST file during next kManifestWrite
+  virtual void NewManifestOnNextUpdate() = 0;
 };
 
 // Overloaded operators for enum class SizeApproximationFlags.

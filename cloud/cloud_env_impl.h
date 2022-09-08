@@ -279,28 +279,19 @@ class CloudEnvImpl : public CloudEnv {
 
   std::string CloudManifestFile(const std::string& dbname);
 
-  // Apply cloud manifest delta to db locally
-  //
-  // It will:
-  //
-  // - Update in memory cloud manifest
-  // - Persist the changes to disk by writing new CLOUDMANIFEST-new_cookie and
-  // MANIFEST-delta.epoch files
-  Status ApplyLocalCloudManifestDelta(
+  virtual Status ApplyLocalCloudManifestDelta(
     const std::string& local_dbname,
     const std::string& new_cookie,
-    const CloudManifestDelta& delta);
+    const CloudManifestDelta& delta) override;
 
-  // Upload local CLOUDMANIFEST-cookie file and the corresponding
-  // MANIFEST-current_epoch file to cloud
-  //
-  // REQUIRES: the file exists locally
-  Status UploadLocalCloudManifestAndManifest(const std::string& local_dbname,
-                                             const std::string& cookie);
+  virtual Status UploadLocalCloudManifestAndManifest(
+      const std::string& local_dbname,
+      const std::string& cookie) const override;
 
   // Upload local CLOUDMANIFEST-cookie file only. MANIFEST-current_epoch is not uploaded
   // REQURIES: the file exists locally
-  Status UploadLocalCloudManifest(const std::string& local_dbname, const std::string& cookie);
+  Status UploadLocalCloudManifest(const std::string& local_dbname,
+                                  const std::string& cookie) const;
 
   // Get current number of scheduled jobs in cloud scheduler
   // Used for test only

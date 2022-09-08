@@ -478,6 +478,7 @@ class ReplicationLogListener {
   virtual std::string OnReplicationLogRecord(ReplicationLogRecord record) = 0;
 };
 
+class DBImpl;
 // FlushSwitch provides a mechanism to enable flush when flush is off. Both
 // automatic flush and manual flush are affected
 //
@@ -486,10 +487,11 @@ class ReplicationLogListener {
 class FlushSwitch {
   public:
     virtual ~FlushSwitch() = default;
-
     virtual bool IsFlushOn() const = 0;
 
+  protected:
     virtual Status TurnOn() = 0;
+    friend class DBImpl;
 };
 
 // Flush is always enabled
@@ -499,6 +501,7 @@ class FlushSwitchAlwaysOn: public FlushSwitch {
       return true;
     }
 
+  protected:
     Status TurnOn() override {
       return Status::Incomplete(
           "Turning on flush for always on flush switch is not expected");
@@ -514,6 +517,7 @@ class FlushSwitchTurnOnOnce: public FlushSwitch {
       return flush_on_.load(std::memory_order_relaxed);
     }
 
+  protected:
     Status TurnOn() override {
       bool prev = flush_on_.exchange(true, std::memory_order_relaxed);
       if (prev) {

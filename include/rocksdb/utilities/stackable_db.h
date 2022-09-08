@@ -559,6 +559,10 @@ class StackableDB : public DB {
     db_->UnRegisterPluggableCompactionService();
   }
 
+  virtual void NewManifestOnNextUpdate() override {
+    db_->NewManifestOnNextUpdate();
+  }
+
 #ifndef ROCKSDB_LITE
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();

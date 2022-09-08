@@ -1959,7 +1959,7 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
 }
 
 Status CloudEnvImpl::UploadLocalCloudManifestAndManifest(
-    const std::string& local_dbname, const std::string& cookie) {
+    const std::string& local_dbname, const std::string& cookie) const {
   if (!HasDestBucket()) {
     return Status::InvalidArgument(
         "Dest bucket has to be specified when uploading manifest files");
@@ -1987,7 +1987,7 @@ Status CloudEnvImpl::UploadLocalCloudManifestAndManifest(
 }
 
 Status CloudEnvImpl::UploadLocalCloudManifest(const std::string& local_dbname,
-                                              const std::string& cookie) {
+                                              const std::string& cookie) const {
   if (!HasDestBucket()) {
     return Status::InvalidArgument(
         "Dest bucket has to be specified when uploading CloudManifest files");
@@ -2002,7 +2002,6 @@ Status CloudEnvImpl::UploadLocalCloudManifest(const std::string& local_dbname,
 
   return st;
 }
-
 
 size_t CloudEnvImpl::TEST_NumScheduledJobs() const {
   return scheduler_->TEST_NumScheduledJobs();
