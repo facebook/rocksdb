@@ -11,6 +11,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -38,8 +39,9 @@ class ClockCacheTest;
 // * Fully lock free (no waits or spins) for efficiency under high concurrency
 // * Optimized for hot path reads. For concurrency control, most Lookup() and
 // essentially all Release() are a single atomic add operation.
-// * Uses a generalized + aging variant of CLOCK eviction that outperforms LRU
-// at least on some RocksDB benchmarks.
+// * Uses a generalized + aging variant of CLOCK eviction that might outperform
+// LRU in some cases. (For background, see
+// https://en.wikipedia.org/wiki/Page_replacement_algorithm)
 // * Eviction on insertion is fully parallel and lock-free.
 //
 // Costs
@@ -417,6 +419,10 @@ class ClockHandleTable {
     return detached_usage_.load(std::memory_order_relaxed);
   }
 
+  // Acquire/release N references
+  void TEST_RefN(ClockHandle& handle, size_t n);
+  void TEST_ReleaseN(ClockHandle* handle, size_t n);
+
  private:  // functions
   // Returns x mod 2^{length_bits_}.
   uint32_t ModTableSize(uint32_t x) { return x & length_bits_mask_; }
@@ -540,6 +546,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   bool IsReady(Cache::Handle* /*handle*/) override { return true; }
 
   void Wait(Cache::Handle* /*handle*/) override {}
+
+  // Acquire/release N references
+  void TEST_RefN(Cache::Handle* handle, size_t n);
+  void TEST_ReleaseN(Cache::Handle* handle, size_t n);
 
  private:  // functions
   friend class ClockCache;

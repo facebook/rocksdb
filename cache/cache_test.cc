@@ -855,11 +855,6 @@ TEST_P(LRUCacheTest, SetStrictCapacityLimit) {
 }
 
 TEST_P(CacheTest, OverCapacity) {
-  auto type = GetParam();
-  if (type == kClock) {
-    ROCKSDB_GTEST_BYPASS("Requires LRU eviction policy.");
-    return;
-  }
   size_t n = 10;
 
   // a LRUCache with n entries and one shard only
@@ -887,23 +882,34 @@ TEST_P(CacheTest, OverCapacity) {
   for (int i = 0; i < static_cast<int>(n + 1); i++) {
     cache->Release(handles[i]);
   }
-  // Make sure eviction is triggered.
-  cache->SetCapacity(n);
 
-  // cache is under capacity now since elements were released
-  ASSERT_EQ(n, cache->GetUsage());
+  if (GetParam() == kClock) {
+    // Make sure eviction is triggered.
+    ASSERT_OK(cache->Insert(EncodeKey(-1), nullptr, 1, &deleter, &handles[0]));
 
-  // element 0 is evicted and the rest is there
-  // This is consistent with the LRU policy since the element 0
-  // was released first
-  for (int i = 0; i < static_cast<int>(n + 1); i++) {
-    std::string key = EncodeKey(i + 1);
-    auto h = cache->Lookup(key);
-    if (h) {
-      ASSERT_NE(static_cast<size_t>(i), 0U);
-      cache->Release(h);
-    } else {
-      ASSERT_EQ(static_cast<size_t>(i), 0U);
+    // cache is under capacity now since elements were released
+    ASSERT_GE(n, cache->GetUsage());
+
+    // clean up
+    cache->Release(handles[0]);
+  } else {
+    // LRUCache checks for over-capacity in Release.
+
+    // cache is exactly at capacity now with minimal eviction
+    ASSERT_EQ(n, cache->GetUsage());
+
+    // element 0 is evicted and the rest is there
+    // This is consistent with the LRU policy since the element 0
+    // was released first
+    for (int i = 0; i < static_cast<int>(n + 1); i++) {
+      std::string key = EncodeKey(i + 1);
+      auto h = cache->Lookup(key);
+      if (h) {
+        ASSERT_NE(static_cast<size_t>(i), 0U);
+        cache->Release(h);
+      } else {
+        ASSERT_EQ(static_cast<size_t>(i), 0U);
+      }
     }
   }
 }

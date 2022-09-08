@@ -558,6 +558,29 @@ void ClockHandleTable::Ref(ClockHandle& h) {
   (void)old_meta;
 }
 
+void ClockHandleTable::TEST_RefN(ClockHandle& h, size_t n) {
+  // Increment acquire counter
+  uint64_t old_meta = h.meta.fetch_add(n * ClockHandle::kAcquireIncrement,
+                                       std::memory_order_acquire);
+
+  assert((old_meta >> ClockHandle::kStateShift) &
+         ClockHandle::kStateShareableBit);
+  (void)old_meta;
+}
+
+void ClockHandleTable::TEST_ReleaseN(ClockHandle* h, size_t n) {
+  if (n > 0) {
+    // Split into n - 1 and 1 steps.
+    uint64_t old_meta = h->meta.fetch_add(
+        (n - 1) * ClockHandle::kReleaseIncrement, std::memory_order_acquire);
+    assert((old_meta >> ClockHandle::kStateShift) &
+           ClockHandle::kStateShareableBit);
+    (void)old_meta;
+
+    Release(h, /*useful*/ true, /*erase_if_last_ref*/ false);
+  }
+}
+
 void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
   uint32_t probe = 0;
   (void)FindSlot(
@@ -951,6 +974,14 @@ bool ClockCacheShard::Release(Cache::Handle* handle, bool useful,
   }
   return table_.Release(reinterpret_cast<ClockHandle*>(handle), useful,
                         erase_if_last_ref);
+}
+
+void ClockCacheShard::TEST_RefN(Cache::Handle* h, size_t n) {
+  table_.TEST_RefN(*reinterpret_cast<ClockHandle*>(h), n);
+}
+
+void ClockCacheShard::TEST_ReleaseN(Cache::Handle* h, size_t n) {
+  table_.TEST_ReleaseN(reinterpret_cast<ClockHandle*>(h), n);
 }
 
 bool ClockCacheShard::Release(Cache::Handle* handle, bool erase_if_last_ref) {

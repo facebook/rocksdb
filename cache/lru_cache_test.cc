@@ -590,7 +590,6 @@ class ClockCacheTest : public testing::Test {
   }
 #endif
 
- private:
   ClockCacheShard* shard_ = nullptr;
 };
 
@@ -674,6 +673,45 @@ TEST_F(ClockCacheTest, ClockEvictionTest) {
     EXPECT_TRUE(Lookup('k', /*use*/ false));
     EXPECT_TRUE(Lookup('l', /*use*/ false));
   }
+}
+
+void IncrementIntDeleter(const Slice& /*key*/, void* value) {
+  *reinterpret_cast<int*>(value) += 1;
+}
+
+// Testing calls to CorrectNearOverflow in Release
+TEST_F(ClockCacheTest, ClockCounterOverflowTest) {
+  NewShard(6, /*strict_capacity_limit*/ false);
+  Cache::Handle* h;
+  int deleted = 0;
+  std::string my_key(kCacheKeySize, 'x');
+  uint32_t my_hash = 42;
+  ASSERT_OK(shard_->Insert(my_key, my_hash, &deleted, 1, IncrementIntDeleter,
+                           &h, Cache::Priority::HIGH));
+
+  // Some large number outstanding
+  shard_->TEST_RefN(h, 123456789);
+  // Simulate many lookup/ref + release, plenty to overflow counters
+  for (int i = 0; i < 10000; ++i) {
+    shard_->TEST_RefN(h, 1234567);
+    shard_->TEST_ReleaseN(h, 1234567);
+  }
+  // Mark it invisible (to reach a different CorrectNearOverflow() in Release)
+  shard_->Erase(my_key, my_hash);
+  // Simulate many more lookup/ref + release (one-by-one would be too
+  // expensive for unit test)
+  for (int i = 0; i < 10000; ++i) {
+    shard_->TEST_RefN(h, 1234567);
+    shard_->TEST_ReleaseN(h, 1234567);
+  }
+  // Free all but last 1
+  shard_->TEST_ReleaseN(h, 123456789);
+  // Still alive
+  ASSERT_EQ(deleted, 0);
+  // Free last ref, which will finalize erasure
+  shard_->Release(h);
+  // Deleted
+  ASSERT_EQ(deleted, 1);
 }
 
 TEST_F(ClockCacheTest, CalcHashBitsTest) {
