@@ -58,19 +58,76 @@ ClockHandleTable::~ClockHandleTable() {
   }
 }
 
-// TODO: describe only has to be called on incrementing release counter
-inline void CorrectOverflow(uint64_t old_meta, std::atomic<uint64_t>& meta) {
-  // TODO: describe
-  constexpr uint64_t kOverflowClearBits =
-      (uint64_t{1} << (ClockHandle::kAcquireCounterShift +
-                       ClockHandle::kCounterNumBits)) |
-      (uint64_t{1} << (ClockHandle::kReleaseCounterShift +
-                       ClockHandle::kCounterNumBits));
-  constexpr uint64_t kOverflowCheckBits =
-      kOverflowClearBits | (uint64_t{8} << ClockHandle::kReleaseCounterShift);
+// If an entry doesn't receive clock updates but is repeatedly referenced &
+// released, the acquire and release counters could overflow without some
+// intervention. This is that intervention, which should be inexpensive
+// because it only incurs a simple, very predictable check. (Applying a bit
+// mask in addition to an increment to every Release likely would be
+// relatively expensive, because it's an extra atomic update.)
+//
+// We do have to assume that we never have many millions of simultaneous
+// references to a cache handle, because we cannot represent so many
+// references with the difference in counters, masked to the number of
+// counter bits. Similarly, we assume there aren't millions of threads
+// holding transient references (which might be "undone" rather than
+// released by the way).
+//
+// Consider these possible states for each counter:
+// low: less than kMaxCountdown
+// medium: kMaxCountdown to half way to overflow + kMaxCountdown
+// high: half way to overflow + kMaxCountdown, or greater
+//
+// And these possible states for the combination of counters:
+// acquire / release
+// -------   -------
+// low       low       - Normal / common, with caveats (see below)
+// medium    low       - Can happen while holding some refs
+// high      low       - Violates assumptions (too many refs)
+// low       medium    - Violates assumptions (refs underflow, etc.)
+// medium    medium    - Normal (very read heavy cache)
+// high      medium    - Can happen while holding some refs
+// low       high      - This function is supposed to prevent
+// medium    high      - Violates assumptions (refs underflow, etc.)
+// high      high      - Needs CorrectNearOverflow
+//
+// Basically, this function detects (high, high) state (inferred from
+// release alone being high) and bumps it back down to (medium, medium)
+// state with the same refcount and the same logical countdown counter
+// (everything > kMaxCountdown is logically the same). Note that bumping
+// down to (low, low) would modify the countdown counter, so is "reserved"
+// in a sense.
+//
+// If near-overflow correction is triggered here, there's no guarantee
+// that another thread hasn't freed the entry and replaced it with another.
+// Therefore, it must be the case that the correction does not affect
+// entries unless they are very old (many millions of acquire-release cycles).
+// (Our bit manipulation is indeed idempotent and only affects entries in
+// exceptional cases.) We assume a pre-empted thread will not stall that long.
+// If it did, the state could be corrupted in the (unlikely) case that the top
+// bit of the acquire counter is set but not the release counter, and thus
+// we only clear the top bit of the acquire counter on resumption. It would
+// then appear that there are too many refs and the entry would be permanently
+// pinned (which is not terrible for an exceptionally rare occurrence), unless
+// it is referenced enough (at least kMaxCountdown more times) for the release
+// counter to reach "high" state again and bumped back to "medium." (This
+// motivates only checking for release counter in high state, not both in high
+// state.)
+inline void CorrectNearOverflow(uint64_t old_meta,
+                                std::atomic<uint64_t>& meta) {
+  // We clear both top-most counter bits at the same time.
+  constexpr uint64_t kCounterTopBit = uint64_t{1}
+                                      << (ClockHandle::kCounterNumBits - 1);
+  constexpr uint64_t kClearBits =
+      (kCounterTopBit << ClockHandle::kAcquireCounterShift) |
+      (kCounterTopBit << ClockHandle::kReleaseCounterShift);
+  // A simple check that allows us to initiate clearing the top bits for
+  // a large portion of the "high" state space on release counter.
+  constexpr uint64_t kCheckBits =
+      (kCounterTopBit | (ClockHandle::kMaxCountdown + 1))
+      << ClockHandle::kReleaseCounterShift;
 
-  if (UNLIKELY(old_meta & kOverflowCheckBits)) {
-    meta.fetch_and(~kOverflowClearBits, std::memory_order_relaxed);
+  if (UNLIKELY(old_meta & kCheckBits)) {
+    meta.fetch_and(~kClearBits, std::memory_order_relaxed);
   }
 }
 
@@ -229,12 +286,13 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
             new_meta |= (initial_countdown - (handle != nullptr))
                         << ClockHandle::kReleaseCounterShift;
 
-        // Save the state transition
 #ifndef NDEBUG
+            // Save the state transition, with assertion
             old_meta = h->meta.exchange(new_meta, std::memory_order_release);
             assert(old_meta >> ClockHandle::kStateShift ==
                    ClockHandle::kStateConstruction);
 #else
+            // Save the state transition
             h->meta.store(new_meta, std::memory_order_release);
 #endif
             return true;
@@ -259,7 +317,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
                   ClockHandle::kReleaseIncrement * initial_countdown,
                   std::memory_order_acq_rel);
               // Correct for possible (but rare) overflow
-              CorrectOverflow(old_meta, h->meta);
+              CorrectNearOverflow(old_meta, h->meta);
               // Insert detached instead (only if return handle needed)
               use_detached_insert = true;
               return true;
@@ -330,7 +388,11 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
   detached_usage_.fetch_add(total_charge, std::memory_order_relaxed);
 
   *handle = h;
-  // TODO: document
+  // The OkOverwritten status is used to count "redundant" insertions into
+  // block cache. This implementation doesn't strictly check for redundant
+  // insertions, but we instead are probably interested in how many insertions
+  // didn't go into the table (instead "detached"), which could be redundant
+  // Insert or some other reason (use_detached_insert reasons above).
   return Status::OkOverwritten();
 }
 
@@ -343,10 +405,10 @@ ClockHandle* ClockHandleTable::Lookup(const CacheKeyBytes& key, uint32_t hash) {
         /*
         uint64_t old_meta = h->meta.fetch_add(ClockHandle::kAcquireIncrement,
                                      std::memory_order_acquire);
-        bool sharable = (old_meta >> (ClockHandle::kStateShift + 1)) & 1U;
+        bool Shareable = (old_meta >> (ClockHandle::kStateShift + 1)) & 1U;
         bool visible = (old_meta >> ClockHandle::kStateShift) & 1U;
         bool match = (h->key == key) & visible;
-        h->meta.fetch_sub(static_cast<uint64_t>(sharable & !match) <<
+        h->meta.fetch_sub(static_cast<uint64_t>(Shareable & !match) <<
         ClockHandle::kAcquireCounterShift, std::memory_order_release); return
         match;
         */
@@ -387,7 +449,7 @@ ClockHandle* ClockHandleTable::Lookup(const CacheKeyBytes& key, uint32_t hash) {
           // For other states, incrementing the acquire counter has no effect
           // so we don't need to undo it. Furthermore, we cannot safely undo
           // it because we did not acquire a read reference to lock the
-          // entry in a sharable state.
+          // entry in a Shareable state.
         }
         return false;
       },
@@ -418,7 +480,7 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
   }
 
   assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateSharableBit);
+         ClockHandle::kStateShareableBit);
   // No underflow
   assert(((old_meta >> ClockHandle::kAcquireCounterShift) &
           ClockHandle::kCounterMask) !=
@@ -441,10 +503,10 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       if (refcount != 0) {
         // Not last ref at some point in time during this Release call
         // Correct for possible (but rare) overflow
-        CorrectOverflow(old_meta, h->meta);
+        CorrectNearOverflow(old_meta, h->meta);
         return false;
       }
-      if ((old_meta & uint64_t{ClockHandle::kStateSharableBit}
+      if ((old_meta & uint64_t{ClockHandle::kStateShareableBit}
                           << ClockHandle::kStateShift) == 0) {
         // Someone else took ownership
         return false;
@@ -465,12 +527,13 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       delete h;
       detached_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     } else {
-      // Mark slot as empty
 #ifndef NDEBUG
+      // Mark slot as empty, with assertion
       old_meta = h->meta.exchange(0, std::memory_order_release);
       assert(old_meta >> ClockHandle::kStateShift ==
              ClockHandle::kStateConstruction);
 #else
+      // Mark slot as empty
       h->meta.store(0, std::memory_order_release);
 #endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
@@ -480,7 +543,7 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
     return true;
   } else {
     // Correct for possible (but rare) overflow
-    CorrectOverflow(old_meta, h->meta);
+    CorrectNearOverflow(old_meta, h->meta);
     return false;
   }
 }
@@ -491,7 +554,7 @@ void ClockHandleTable::Ref(ClockHandle& h) {
                                        std::memory_order_acquire);
 
   assert((old_meta >> ClockHandle::kStateShift) &
-         ClockHandle::kStateSharableBit);
+         ClockHandle::kStateShareableBit);
   (void)old_meta;
 }
 
@@ -537,12 +600,13 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
                 h->FreeData();
                 usage_.fetch_sub(h->total_charge, std::memory_order_relaxed);
                 assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
-            // Mark slot as empty
 #ifndef NDEBUG
+                // Mark slot as empty, with assertion
                 old_meta = h->meta.exchange(0, std::memory_order_release);
                 assert(old_meta >> ClockHandle::kStateShift ==
                        ClockHandle::kStateConstruction);
 #else
+                // Mark slot as empty
                 h->meta.store(0, std::memory_order_release);
 #endif
                 occupancy_.fetch_sub(1U, std::memory_order_release);
@@ -576,7 +640,7 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
 void ClockHandleTable::ConstApplyToEntriesRange(
     std::function<void(const ClockHandle&)> func, uint32_t index_begin,
     uint32_t index_end, bool apply_if_will_be_deleted) const {
-  uint64_t check_state_mask = ClockHandle::kStateSharableBit;
+  uint64_t check_state_mask = ClockHandle::kStateShareableBit;
   if (!apply_if_will_be_deleted) {
     check_state_mask |= ClockHandle::kStateVisibleBit;
   }
@@ -610,7 +674,7 @@ void ClockHandleTable::EraseUnRefEntries() {
     uint64_t refcount = ((old_meta >> ClockHandle::kAcquireCounterShift) -
                          (old_meta >> ClockHandle::kReleaseCounterShift)) &
                         ClockHandle::kCounterMask;
-    if (old_meta & (uint64_t{ClockHandle::kStateSharableBit}
+    if (old_meta & (uint64_t{ClockHandle::kStateShareableBit}
                     << ClockHandle::kStateShift) &&
         refcount == 0 &&
         h.meta.compare_exchange_strong(old_meta,
@@ -620,12 +684,13 @@ void ClockHandleTable::EraseUnRefEntries() {
       // Took ownership
       h.FreeData();
       usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
-      // Mark slot as empty
 #ifndef NDEBUG
+      // Mark slot as empty, with assertion
       old_meta = h.meta.exchange(0, std::memory_order_release);
       assert(old_meta >> ClockHandle::kStateShift ==
              ClockHandle::kStateConstruction);
 #else
+      // Mark slot as empty
       h.meta.store(0, std::memory_order_release);
 #endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
@@ -706,16 +771,16 @@ size_t ClockHandleTable::Evict(size_t requested_charge) {
       uint64_t meta = h.meta.load(std::memory_order_relaxed);
 
       uint64_t acquire_count = (meta >> ClockHandle::kAcquireCounterShift) &
-                               ClockHandle::kCounterWithOverflowMask;
+                               ClockHandle::kCounterMask;
       uint64_t release_count = (meta >> ClockHandle::kReleaseCounterShift) &
-                               ClockHandle::kCounterWithOverflowMask;
+                               ClockHandle::kCounterMask;
       if (acquire_count != release_count) {
         // Only clock update entries with no outstanding refs
         continue;
       }
       if (!(meta >> ClockHandle::kStateShift &
-            ClockHandle::kStateSharableBit)) {
-        // Only clock update sharable entries
+            ClockHandle::kStateShareableBit)) {
+        // Only clock update Shareable entries
         continue;
       }
       // ModTableSize(old_clock_pointer + i));
@@ -746,12 +811,13 @@ size_t ClockHandleTable::Evict(size_t requested_charge) {
         // TODO? Delay freeing?
         h.FreeData();
         freed_charge += h.total_charge;
-        // Mark slot as empty
 #ifndef NDEBUG
+        // Mark slot as empty, with assertion
         meta = h.meta.exchange(0, std::memory_order_release);
         assert(meta >> ClockHandle::kStateShift ==
                ClockHandle::kStateConstruction);
 #else
+        // Mark slot as empty
         h.meta.store(0, std::memory_order_release);
 #endif
         occupancy_.fetch_sub(1U, std::memory_order_relaxed);
@@ -836,8 +902,9 @@ void ClockCacheShard::SetCapacity(size_t /*capacity*/) {
 }
 
 void ClockCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
-  strict_capacity_limit_ = strict_capacity_limit;
-  // TODO: evict if setting to true and needed
+  strict_capacity_limit_.store(strict_capacity_limit,
+                               std::memory_order_relaxed);
+  // next Insert will take care of any necessary evictions
 }
 
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,

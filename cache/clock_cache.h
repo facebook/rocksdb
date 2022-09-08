@@ -47,6 +47,23 @@ class ClockCacheTest;
 // * Hash table is not resizable (for lock-free efficiency) so capacity is not
 // dynamically changeable. Rely on an estimated average value (block) size for
 // space+time efficiency.
+// * Insert usually does not (but might) overwrite a previous entry associated
+// with a cache key. This is OK for RocksDB uses of Cache.
+// * Only supports keys of exactly 16 bytes, which is what RocksDB uses.
+// * SecondaryCache is not supported.
+// * If pinned entries leave little or nothing eligible for eviction,
+// performance can degrade dramatically, because of clock eviction thrashing
+// the CPU looking for evictable entries and because Release does not
+// pro-actively delete unreferenced entries when the cache is over-full.
+// Specifically, this makes this implementation more susceptible to the
+// following combination:
+//   * num_shard_bits is high (e.g. 6)
+//   * capacity small (e.g. some MBs)
+//   * some large individual entries (e.g. non-partitioned filters)
+// where individual entries occupy a large portion of their shard capacity.
+// This should be mostly mitigated by the implementation picking a lower
+// number of cache shards than LRUCache for a given capacity (when
+// num_shard_bits is not overridden; see calls to GetDefaultCacheShardBits()).
 // * With strict_capacity_limit=false, respecting the capacity limit is not as
 // aggressive as LRUCache. The limit might be transiently exceeded by a very
 // small number of entries even when not strictly necessary, and slower to
@@ -55,17 +72,10 @@ class ClockCacheTest;
 // memory before discovering it is over the block cache capacity, so this
 // should not be a detectable regression in respecting memory limits, except
 // on exceptionally small caches.)
-// * More susceptible to degraded performance with combination
-//   * num_shard_bits is high (e.g. 6)
-//   * capacity small (e.g. some MBs)
-//   * some large individual entries (e.g. non-partitioned filters)
-// where individual entries occupy a large portion of their shard capacity.
-// * In some rare cases, erased or duplicated entries might not be freed
+// * In some cases, erased or duplicated entries might not be freed
 // immediately. They will eventually be freed by eviction from further Inserts.
-// * SecondaryCache is not supported.
-// * Insert usually does not (but might) overwrite a previous entry associated
-// with a cache key. This is OK for RocksDB uses of Cache.
-// * Only supports keys of exactly 16 bytes, which is what RocksDB uses.
+// * Internal metadata can overflow if the number of simultaneous references
+// to a cache handle reaches many millions.
 //
 // High-level eviction algorithm
 // -----------------------------
@@ -156,13 +166,111 @@ class ClockCacheTest;
 //
 // Insert
 // ------
-// TODO
+// If Insert were to guarantee replacing an existing entry for a key, there
+// would be complications for concurrency and efficiency. First, consider how
+// many probes to get to an entry. To ensure Lookup never waits and
+// availability of a key is uninterrupted, we would need to use a different
+// slot for a new entry for the same key. This means it is most likely in a
+// later probing position than the old version, which should soon be removed.
+// (Also, an entry is too big to replace atomically, even if no current refs.)
 //
+// However, overwrite capability is not really needed by RocksDB. Also, we
+// know from our "redundant" stats that overwrites are very rare for the block
+// cache, so we should not spend much to make them effective.
 //
-// Erase/Release
-// -------------
-// TODO
+// So instead we Insert as soon as we find an empty slot in the probing
+// sequence without seeing an existing (visible) entry for the same key. This
+// way we only insert if we can improve the probing performance, and we don't
+// need to probe beyond our insert position, assuming we are willing to let
+// the previous entry for the same key die of old age (eventual eviction from
+// not being used). We can reach a similar state with concurrent insertions,
+// where one will pass over the other while it is "under construction."
+// This temporary duplication is acceptable for RocksDB block cache because
+// we know redundant insertion is rare.
 //
+// Another problem to solve is what to return to the caller when we find an
+// existing entry whose probing position we cannot improve on, or when the
+// table occupancy limit has been reached. If strict_capacity_limit=false,
+// we must never fail Insert, and if a Handle* is provided, we have to return
+// a usable Cache handle on success. The solution to this (typically rare)
+// problem is "detached" handles, which are usable by the caller but not
+// actually available for Lookup in the Cache. Detached handles are allocated
+// independently on the heap and specially marked so that they are freed on
+// the heap when their last reference is released.
+//
+// Usage on capacity
+// -----------------
+// Insert takes different approaches to usage tracking depending on
+// strict_capacity_limit setting. If true, we enforce a kind of strong
+// consistency where compare-exchange is used to ensure the usage number never
+// exceeds its limit, and provide threads with an authoritative signal on how
+// much "usage" they have taken ownership of. With strict_capacity_limit=false,
+// we use a kind of "eventual consistency" where all threads Inserting to the
+// same cache shard might race on reserving the same space, but the
+// over-commitment will be worked out in later insertions. It is kind of a
+// dance because we don't want threads racing each other too much on paying
+// down the over-commitment (with eviction) either.
+//
+// Eviction
+// --------
+// A key part of Insert is evicting some entries currently unreferenced to
+// make room for new entries. The high-level eviction algorithm is described
+// above, but the details are also interesting. A key part is parallelizing
+// eviction with a single CLOCK pointer. This works by each thread working on
+// eviction pre-emptively incrementing the CLOCK pointer, and then CLOCK-
+// updating or evicting the incremented-over slot(s). To reduce contention at
+// the cost of possibly evicting too much, each thread increments the clock
+// pointer by 4, so commits to updating at least 4 slots per batch. As
+// described above, a CLOCK update will decrement the "countdown" of
+// unreferenced entries, or evict unreferenced entries with zero countdown.
+// Referenced entries are not updated, because we (presumably) don't want
+// long-referenced entries to age while referenced. Note however that we
+// cannot distinguish transiently referenced entries from cache user
+// references, so some CLOCK updates might be somewhat arbitrarily skipped.
+// This is OK as long as it is rare enough that eviction order is still
+// pretty good.
+//
+// There is no synchronization on the completion of the CLOCK updates, so it
+// is theoretically possible for another thread to cycle back around and have
+// two threads racing on CLOCK updates to the same slot. Thus, we cannot rely
+// on any implied exclusivity to make the updates or eviction more efficient.
+// These updates use an opportunistic compare-exchange (no loop), where a
+// racing thread might cause the update to be skipped without retry, but in
+// such case the update is likely not needed because the most likely update
+// to an entry is that it has become referenced. (TODO: test efficiency of
+// avoiding compare-exchange loop)
+//
+// Release
+// -------
+// In the common case, Release is a simple atomic increment of the release
+// counter. There is a simple overflow check that only does another atomic
+// update in extremely rare cases, so costs almost nothing.
+//
+// If the Release specifies "not useful", we can instead decrement the
+// acquire counter, which returns to the same CLOCK state as before Lookup
+// or Ref.
+//
+// Adding a check for over-full cache on every release to zero-refs would
+// likely be somewhat expensive, increasing read contention on cache shard
+// metadata. Instead we are less aggressive about deleting entries right
+// away in those cases.
+//
+// However Release tries to immediately delete entries reaching zero refs
+// if (a) erase_if_last_ref is set by the caller, or (b) the entry is already
+// marked invisible. Both of these are checks on values already in CPU
+// registers so do not increase cross-CPU contention when not applicable.
+// When applicable, they use a compare-exchange loop to take exclusive
+// ownership of the slot for freeing the entry. These are rare cases
+// that should not usually affect performance.
+//
+// Erase
+// -----
+// Searches for an entry like Lookup but moves it to Invisible state if found.
+// This state transition is with bit operations so is idempotent and safely
+// done while only holding a shared "read" reference. Like Release, it makes
+// a best effort to immediately release an Invisible entry that reaches zero
+// refs, but there are some corner cases where it will only be freed by the
+// clock eviction process.
 
 // ----------------------------------------------------------------------- //
 
@@ -213,39 +321,56 @@ struct ClockHandleMoreData : public ClockHandleBasicData {
 // Target size to be exactly a common cache line size (see static_assert in
 // clock_cache.cc)
 struct ALIGN_AS(64U) ClockHandle : public ClockHandleMoreData {
-  static constexpr uint8_t kCounterNumBits = 29;
+  // Constants for handling the atomic `meta` word, which tracks most of the
+  // state of the handle. The meta word looks like this:
+  // low bits                                                     high bits
+  // -----------------------------------------------------------------------
+  // | acquire counter          | release counter           | state marker |
+  // -----------------------------------------------------------------------
+
+  // For reading or updating counters in meta word.
+  static constexpr uint8_t kCounterNumBits = 30;
   static constexpr uint64_t kCounterMask = (uint64_t{1} << kCounterNumBits) - 1;
-  static constexpr uint8_t kCounterWithOverflowNumBits = kCounterNumBits + 1;
-  static constexpr uint64_t kCounterWithOverflowMask =
-      (uint64_t{1} << kCounterWithOverflowNumBits) - 1;
 
   static constexpr uint8_t kAcquireCounterShift = 0;
   static constexpr uint64_t kAcquireIncrement = uint64_t{1}
                                                 << kAcquireCounterShift;
-  static constexpr uint8_t kReleaseCounterShift = kCounterWithOverflowNumBits;
+  static constexpr uint8_t kReleaseCounterShift = kCounterNumBits;
   static constexpr uint64_t kReleaseIncrement = uint64_t{1}
                                                 << kReleaseCounterShift;
 
-  static constexpr uint8_t kStateShift = 2U * kCounterWithOverflowNumBits;
+  // For reading or updating the state marker in meta word
+  static constexpr uint8_t kStateShift = 2U * kCounterNumBits;
 
+  // Bits contribution to state marker.
+  // Occupied means any state other than empty
   static constexpr uint8_t kStateOccupiedBit = 0b100;
-  static constexpr uint8_t kStateSharableBit = 0b010;
+  // Shareable means the entry is reference counted (visible or invisible)
+  // (only set if also occupied)
+  static constexpr uint8_t kStateShareableBit = 0b010;
+  // Visible is only set if also shareable
   static constexpr uint8_t kStateVisibleBit = 0b001;
 
+  // Complete state markers (not shifted into full word)
   static constexpr uint8_t kStateEmpty = 0b000;
   static constexpr uint8_t kStateConstruction = kStateOccupiedBit;
   static constexpr uint8_t kStateInvisible =
-      kStateOccupiedBit | kStateSharableBit;
+      kStateOccupiedBit | kStateShareableBit;
   static constexpr uint8_t kStateVisible =
-      kStateOccupiedBit | kStateSharableBit | kStateVisibleBit;
+      kStateOccupiedBit | kStateShareableBit | kStateVisibleBit;
 
+  // Constants for initializing the countdown clock. (Countdown clock is only
+  // in effect with zero refs, acquire counter == release counter, and in that
+  // case the countdown clock == both of those counters.)
   static constexpr uint8_t kHighCountdown = 3;
   static constexpr uint8_t kLowCountdown = 2;
   static constexpr uint8_t kBottomCountdown = 1;
-  // TODO: make a tuning parameter?
+  // During clock update, treat any countdown clock value greater than this
+  // value the same as this value.
   static constexpr uint8_t kMaxCountdown = kHighCountdown;
+  // TODO: make these coundown values tuning parameters for eviction?
 
-  // TODO: doc
+  // See above
   std::atomic<uint64_t> meta{};
   // The number of elements that hash to this slot or a lower one, but wind
   // up in this slot or a higher one.
