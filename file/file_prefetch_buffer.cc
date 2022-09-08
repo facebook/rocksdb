@@ -24,8 +24,8 @@ namespace ROCKSDB_NAMESPACE {
 
 void FilePrefetchBuffer::CalculateOffsetAndLen(size_t alignment,
                                                uint64_t offset,
-                                               size_t roundup_len, size_t index,
-                                               bool refit_tail,
+                                               size_t roundup_len,
+                                               uint32_t index, bool refit_tail,
                                                uint64_t& chunk_len) {
   uint64_t chunk_offset_in_buffer = 0;
   bool copy_data_to_new_buffer = false;
@@ -33,9 +33,7 @@ void FilePrefetchBuffer::CalculateOffsetAndLen(size_t alignment,
   // If only a few bytes exist -- reuse them & read only what is really needed.
   //     This is typically the case of incremental reading of data.
   // If no bytes exist in buffer -- full pread.
-  if (bufs_[index].buffer_.CurrentSize() > 0 &&
-      offset >= bufs_[index].offset_ &&
-      offset <= bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize()) {
+  if (DoesBufferContainData(index) && IsOffsetInBuffer(offset, index)) {
     // Only a few requested bytes are in the buffer. memmove those chunk of
     // bytes to the beginning, and memcpy them back into the new buffer if a
     // new buffer is created.
@@ -174,8 +172,7 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
   }
   uint64_t copy_offset = (offset - bufs_[src].offset_);
   size_t copy_len = 0;
-  if (offset + length <=
-      bufs_[src].offset_ + bufs_[src].buffer_.CurrentSize()) {
+  if (IsDataBlockInBuffer(offset, length, src)) {
     // All the bytes are in src.
     copy_len = length;
   } else {
@@ -204,21 +201,20 @@ void FilePrefetchBuffer::CopyDataToBuffer(uint32_t src, uint64_t& offset,
 void FilePrefetchBuffer::AbortIOIfNeeded(uint64_t offset) {
   uint32_t second = curr_ ^ 1;
   std::vector<void*> handles;
-  std::vector<uint32_t> buf_pos;
-  if (bufs_[curr_].async_read_in_progress_ &&
-      bufs_[curr_].io_handle_ != nullptr &&
-      offset >= bufs_[curr_].offset_ + bufs_[curr_].async_req_len_) {
+  autovector<uint32_t> buf_pos;
+  if (IsBufferOutdatedWithAsyncProgress(offset, curr_)) {
     handles.emplace_back(bufs_[curr_].io_handle_);
     buf_pos.emplace_back(curr_);
   }
-  if (bufs_[second].async_read_in_progress_ &&
-      bufs_[second].io_handle_ != nullptr &&
-      offset >= bufs_[second].offset_ + bufs_[second].async_req_len_) {
+  if (IsBufferOutdatedWithAsyncProgress(offset, second)) {
     handles.emplace_back(bufs_[second].io_handle_);
     buf_pos.emplace_back(second);
   }
-  Status s = fs_->AbortIO(handles);
-  assert(s.ok());
+  if (!handles.empty()) {
+    StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
+    Status s = fs_->AbortIO(handles);
+    assert(s.ok());
+  }
 
   for (auto& pos : buf_pos) {
     // Release io_handle.
@@ -245,23 +241,17 @@ void FilePrefetchBuffer::AbortIOIfNeeded(uint64_t offset) {
 // buffer.
 void FilePrefetchBuffer::UpdateBuffersIfNeeded(uint64_t offset) {
   uint32_t second = curr_ ^ 1;
-  if (!bufs_[curr_].async_read_in_progress_ &&
-      bufs_[curr_].buffer_.CurrentSize() > 0 &&
-      offset >= bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
+  if (IsBufferOutdated(offset, curr_)) {
     bufs_[curr_].buffer_.Clear();
   }
-  if (!bufs_[second].async_read_in_progress_ &&
-      bufs_[second].buffer_.CurrentSize() > 0 &&
-      offset >= bufs_[second].offset_ + bufs_[second].buffer_.CurrentSize()) {
+  if (IsBufferOutdated(offset, second)) {
     bufs_[second].buffer_.Clear();
   }
 
   // If data starts from second buffer, make it curr_. Second buffer can be
   // either partial filled or full.
-  if (!bufs_[second].async_read_in_progress_ &&
-      bufs_[second].buffer_.CurrentSize() > 0 &&
-      offset >= bufs_[second].offset_ &&
-      offset < bufs_[second].offset_ + bufs_[second].buffer_.CurrentSize()) {
+  if (!bufs_[second].async_read_in_progress_ && DoesBufferContainData(second) &&
+      IsOffsetInBuffer(offset, second)) {
     // Clear the curr_ as buffers have been swapped and curr_ contains the
     // outdated data and switch the buffers.
     if (!bufs_[curr_].async_read_in_progress_) {
@@ -334,7 +324,7 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
   // 1. Abort IO and swap buffers if needed to point curr_ to first buffer with
   // data.
   {
-    if (!async_request_submitted_) {
+    if (!explicit_prefetch_submitted_) {
       AbortIOIfNeeded(offset);
     }
     UpdateBuffersIfNeeded(offset);
@@ -343,15 +333,13 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
 
   // 2. If data is overlapping over two buffers, copy the data from curr_ and
   // call ReadAsync on curr_.
-  if (!bufs_[curr_].async_read_in_progress_ &&
-      bufs_[curr_].buffer_.CurrentSize() > 0 &&
-      offset >= bufs_[curr_].offset_ &&
-      offset < bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize() &&
+  if (!bufs_[curr_].async_read_in_progress_ && DoesBufferContainData(curr_) &&
+      IsOffsetInBuffer(offset, curr_) &&
       (/*Data extends over curr_ buffer and second buffer either has data or in
          process of population=*/
        (offset + length > bufs_[second].offset_) &&
        (bufs_[second].async_read_in_progress_ ||
-        bufs_[second].buffer_.CurrentSize() > 0))) {
+        DoesBufferContainData(second)))) {
     // Allocate new buffer to third buffer;
     bufs_[2].buffer_.Clear();
     bufs_[2].buffer_.Alignment(alignment);
@@ -390,11 +378,8 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
   // 3. Call Poll only if data is needed for the second buffer.
   //    - Return if whole data is in curr_ and second buffer in progress.
   //    - If second buffer is empty, it will go for ReadAsync for second buffer.
-  if (!bufs_[curr_].async_read_in_progress_ &&
-      bufs_[curr_].buffer_.CurrentSize() > 0 &&
-      offset >= bufs_[curr_].offset_ &&
-      offset + length <=
-          bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
+  if (!bufs_[curr_].async_read_in_progress_ && DoesBufferContainData(curr_) &&
+      IsDataBlockInBuffer(offset, length, curr_)) {
     // Whole data is in curr_.
     UpdateBuffersIfNeeded(offset);
     second = curr_ ^ 1;
@@ -414,16 +399,15 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
   // 4. After polling and swapping buffers, if all the requested bytes are in
   // curr_, it will only go for async prefetching.
   // copy_to_third_buffer is a special case so it will be handled separately.
-  if (!copy_to_third_buffer && bufs_[curr_].buffer_.CurrentSize() > 0 &&
-      offset + length <=
-          bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
+  if (!copy_to_third_buffer && DoesBufferContainData(curr_) &&
+      IsDataBlockInBuffer(offset, length, curr_)) {
     offset += length;
     length = 0;
 
     // Since async request was submitted directly by calling PrefetchAsync in
     // last call, we don't need to prefetch further as this call is to poll
     // the data submitted in previous call.
-    if (async_request_submitted_) {
+    if (explicit_prefetch_submitted_) {
       return s;
     }
   }
@@ -580,11 +564,11 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   // In case of async_io, offset can be less than bufs_[curr_].offset_ because
   // of reads not sequential and PrefetchAsync can be called for any block and
   // RocksDB will call TryReadFromCacheAsync after PrefetchAsync to Poll for
-  // requested bytes which is maintained by async_request_submitted_.
+  // requested bytes which is maintained by explicit_prefetch_submitted_.
   // prev_len_ can be 0 in case of first request.
-  if (!(async_request_submitted_ && prev_len_ == 0) &&
+  if (!(explicit_prefetch_submitted_ && prev_len_ == 0) &&
       offset < bufs_[curr_].offset_) {
-    async_request_submitted_ = false;
+    explicit_prefetch_submitted_ = false;
     return false;
   }
 
@@ -597,7 +581,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   TEST_SYNC_POINT_CALLBACK("FilePrefetchBuffer::TryReadFromCache",
                            &readahead_size_);
 
-  if (async_request_submitted_ ||
+  if (explicit_prefetch_submitted_ ||
       (bufs_[curr_].async_read_in_progress_ ||
        offset + n >
            bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize())) {
@@ -626,7 +610,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
 #endif
         return false;
       }
-      prefetched = async_request_submitted_ ? false : true;
+      prefetched = explicit_prefetch_submitted_ ? false : true;
     } else {
       return false;
     }
@@ -643,7 +627,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
   }
-  async_request_submitted_ = false;
+  explicit_prefetch_submitted_ = false;
   return true;
 }
 
@@ -688,7 +672,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   TEST_SYNC_POINT("FilePrefetchBuffer::PrefetchAsync:Start");
 
   num_file_reads_ = 0;
-  async_request_submitted_ = false;
+  explicit_prefetch_submitted_ = false;
   uint32_t second = curr_ ^ 1;
   bool is_eligible_for_prefetching = false;
   if (readahead_size_ > 0 &&
@@ -699,45 +683,42 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   // 1. Cancel any pending async read to make code simpler as buffers can be out
   // of sync.
-  {
-    std::vector<void*> handles;
-    for (uint32_t i = 0; i < 2; i++) {
-      if (bufs_[i].async_read_in_progress_ && bufs_[i].io_handle_ != nullptr) {
-        handles.emplace_back(bufs_[i].io_handle_);
-      }
+  std::vector<void*> handles;
+  for (uint32_t i = 0; i < 2; i++) {
+    if (bufs_[i].async_read_in_progress_ && bufs_[i].io_handle_ != nullptr) {
+      handles.emplace_back(bufs_[i].io_handle_);
     }
+  }
+  if (!handles.empty()) {
+    StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
     Status s = fs_->AbortIO(handles);
     assert(s.ok());
+  }
 
-    // Release io_handle.
-    if (bufs_[curr_].io_handle_ != nullptr && bufs_[curr_].del_fn_ != nullptr) {
-      bufs_[curr_].del_fn_(bufs_[curr_].io_handle_);
-      bufs_[curr_].io_handle_ = nullptr;
-      bufs_[curr_].del_fn_ = nullptr;
-      bufs_[curr_].async_read_in_progress_ = false;
-    }
+  // Release io_handle.
+  if (bufs_[curr_].io_handle_ != nullptr && bufs_[curr_].del_fn_ != nullptr) {
+    bufs_[curr_].del_fn_(bufs_[curr_].io_handle_);
+    bufs_[curr_].io_handle_ = nullptr;
+    bufs_[curr_].del_fn_ = nullptr;
+    bufs_[curr_].async_read_in_progress_ = false;
+  }
 
-    if (bufs_[second].io_handle_ != nullptr &&
-        bufs_[second].del_fn_ != nullptr) {
-      bufs_[second].del_fn_(bufs_[second].io_handle_);
-      bufs_[second].io_handle_ = nullptr;
-      bufs_[second].del_fn_ = nullptr;
-      bufs_[second].async_read_in_progress_ = false;
-    }
+  if (bufs_[second].io_handle_ != nullptr && bufs_[second].del_fn_ != nullptr) {
+    bufs_[second].del_fn_(bufs_[second].io_handle_);
+    bufs_[second].io_handle_ = nullptr;
+    bufs_[second].del_fn_ = nullptr;
+    bufs_[second].async_read_in_progress_ = false;
   }
 
   // 2. Clear outdated data.
-  {
-    UpdateBuffersIfNeeded(offset);
-    second = curr_ ^ 1;
-    // Since PrefetchAsync can be called on non sequential reads. So offset can
-    // be less than curr_ buffers' offset. In that case also it clears both
-    // buffers.
-    if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
-        offset < bufs_[curr_].offset_) {
-      bufs_[curr_].buffer_.Clear();
-      bufs_[second].buffer_.Clear();
-    }
+  UpdateBuffersIfNeeded(offset);
+  second = curr_ ^ 1;
+  // Since PrefetchAsync can be called on non sequential reads. So offset can
+  // be less than curr_ buffers' offset. In that case also it clears both
+  // buffers.
+  if (DoesBufferContainData(curr_) && !IsOffsetInBuffer(offset, curr_)) {
+    bufs_[curr_].buffer_.Clear();
+    bufs_[second].buffer_.Clear();
   }
 
   UpdateReadPattern(offset, n, /*decrease_readaheadsize=*/false);
@@ -745,9 +726,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   bool data_found = false;
 
   // 3. If curr_ has full data.
-  if (bufs_[curr_].buffer_.CurrentSize() > 0 &&
-      offset >= bufs_[curr_].offset_ &&
-      offset + n <= bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize()) {
+  if (DoesBufferContainData(curr_) && IsDataBlockInBuffer(offset, n, curr_)) {
     uint64_t offset_in_buffer = offset - bufs_[curr_].offset_;
     *result = Slice(bufs_[curr_].buffer_.BufferStart() + offset_in_buffer, n);
     data_found = true;
@@ -757,8 +736,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
     // 3.1 If second also has some data or is not eligible for prefetching,
     // return.
-    if (!is_eligible_for_prefetching ||
-        bufs_[second].buffer_.CurrentSize() > 0) {
+    if (!is_eligible_for_prefetching || DoesBufferContainData(second)) {
       return Status::OK();
     }
   } else {
@@ -803,7 +781,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   }
 
   if (is_eligible_for_prefetching) {
-    if (bufs_[curr_].buffer_.CurrentSize() > 0) {
+    if (DoesBufferContainData(curr_)) {
       rounddown_start2 =
           bufs_[curr_].offset_ + bufs_[curr_].buffer_.CurrentSize();
     } else {
@@ -828,7 +806,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
     if (!s.ok()) {
       return s;
     }
-    async_request_submitted_ = true;
+    explicit_prefetch_submitted_ = true;
     prev_len_ = 0;
   }
   if (read_len2) {

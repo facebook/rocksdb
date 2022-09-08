@@ -20,11 +20,12 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "util/aligned_buffer.h"
+#include "util/autovector.h"
 #include "util/stop_watch.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-#define DEAFULT_DECREMENT 8 * 1024
+#define DEFAULT_DECREMENT 8 * 1024
 
 struct IOOptions;
 class RandomAccessFileReader;
@@ -95,7 +96,7 @@ class FilePrefetchBuffer {
         prev_len_(0),
         num_file_reads_for_auto_readahead_(num_file_reads_for_auto_readahead),
         num_file_reads_(num_file_reads),
-        async_request_submitted_(false),
+        explicit_prefetch_submitted_(false),
         fs_(fs),
         clock_(clock),
         stats_(stats) {
@@ -120,9 +121,11 @@ class FilePrefetchBuffer {
           handles.emplace_back(bufs_[i].io_handle_);
         }
       }
-      StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
-      Status s = fs_->AbortIO(handles);
-      assert(s.ok());
+      if (!handles.empty()) {
+        StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
+        Status s = fs_->AbortIO(handles);
+        assert(s.ok());
+      }
     }
 
     // Prefetch buffer bytes discarded.
@@ -132,7 +135,7 @@ class FilePrefetchBuffer {
       int first = i;
       int second = i ^ 1;
 
-      if (bufs_[first].buffer_.CurrentSize() > 0) {
+      if (DoesBufferContainData(first)) {
         // If last block was read completely from first and some bytes in
         // first buffer are still unconsumed.
         if (prev_offset_ >= bufs_[first].offset_ &&
@@ -144,7 +147,7 @@ class FilePrefetchBuffer {
         // If data was in second buffer and some/whole block bytes were read
         // from second buffer.
         else if (prev_offset_ < bufs_[first].offset_ &&
-                 bufs_[second].buffer_.CurrentSize() > 0) {
+                 !DoesBufferContainData(second)) {
           // If last block read was completely from different buffer, this
           // buffer is unconsumed.
           if (prev_offset_ + prev_len_ <= bufs_[first].offset_) {
@@ -245,7 +248,7 @@ class FilePrefetchBuffer {
   }
 
   void DecreaseReadAheadIfEligible(uint64_t offset, size_t size,
-                                   size_t value = DEAFULT_DECREMENT) {
+                                   size_t value = DEFAULT_DECREMENT) {
     // Decrease the readahead_size if
     // - its enabled internally by RocksDB (implicit_auto_readahead_) and,
     // - readahead_size is greater than 0 and,
@@ -277,8 +280,8 @@ class FilePrefetchBuffer {
   // and data present in buffer_. It also allocates new buffer or refit tail if
   // required.
   void CalculateOffsetAndLen(size_t alignment, uint64_t offset,
-                             size_t roundup_len, size_t index, bool refit_tail,
-                             uint64_t& chunk_len);
+                             size_t roundup_len, uint32_t index,
+                             bool refit_tail, uint64_t& chunk_len);
 
   void AbortIOIfNeeded(uint64_t offset);
 
@@ -329,7 +332,7 @@ class FilePrefetchBuffer {
     // Since async request was submitted in last call directly by calling
     // PrefetchAsync, it skips num_file_reads_ check as this call is to poll the
     // data submitted in previous call.
-    if (async_request_submitted_) {
+    if (explicit_prefetch_submitted_) {
       return true;
     }
     if (num_file_reads_ <= num_file_reads_for_auto_readahead_) {
@@ -337,6 +340,30 @@ class FilePrefetchBuffer {
       return false;
     }
     return true;
+  }
+
+  // Helper functions.
+  bool IsDataBlockInBuffer(uint64_t offset, size_t length, uint32_t index) {
+    return (offset >= bufs_[index].offset_ &&
+            offset + length <=
+                bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize());
+  }
+  bool IsOffsetInBuffer(uint64_t offset, uint32_t index) {
+    return (offset >= bufs_[index].offset_ &&
+            offset < bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize());
+  }
+  bool DoesBufferContainData(uint32_t index) {
+    return bufs_[index].buffer_.CurrentSize() > 0;
+  }
+  bool IsBufferOutdated(uint64_t offset, uint32_t index) {
+    return (
+        !bufs_[index].async_read_in_progress_ && DoesBufferContainData(index) &&
+        offset >= bufs_[index].offset_ + bufs_[index].buffer_.CurrentSize());
+  }
+  bool IsBufferOutdatedWithAsyncProgress(uint64_t offset, uint32_t index) {
+    return (bufs_[index].async_read_in_progress_ &&
+            bufs_[index].io_handle_ != nullptr &&
+            offset >= bufs_[index].offset_ + bufs_[index].async_req_len_);
   }
 
   std::vector<BufferInfo> bufs_;
@@ -369,11 +396,11 @@ class FilePrefetchBuffer {
   uint64_t num_file_reads_for_auto_readahead_;
   uint64_t num_file_reads_;
 
-  // If async_request_submitted_ is set then it indicates RocksDB called
+  // If explicit_prefetch_submitted_ is set then it indicates RocksDB called
   // PrefetchAsync to submit request. It needs to call TryReadFromCacheAsync to
   // poll the submitted request without checking if data is sequential and
   // num_file_reads_.
-  bool async_request_submitted_;
+  bool explicit_prefetch_submitted_;
 
   FileSystem* fs_;
   SystemClock* clock_;
