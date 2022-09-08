@@ -147,12 +147,22 @@ void BlobSource::PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
   cached_blob->TransferTo(value);
 }
 
-void BlobSource::CopyBlob(const BlobContents* blob, PinnableSlice* value) {
-  assert(blob);
+void BlobSource::PinOwnedBlob(std::unique_ptr<BlobContents>* owned_blob,
+                              PinnableSlice* value) {
+  assert(owned_blob);
+  assert(*owned_blob);
   assert(value);
 
+  BlobContents* const blob = owned_blob->release();
+  assert(blob);
+
   value->Reset();
-  value->PinSelf(blob->data());
+  value->PinSlice(
+      blob->data(),
+      [](void* arg1, void* /* arg2 */) {
+        delete static_cast<BlobContents*>(arg1);
+      },
+      blob, nullptr);
 }
 
 Status BlobSource::InsertEntryIntoCache(const Slice& key, BlobContents* value,
@@ -269,7 +279,7 @@ Status BlobSource::GetBlob(const ReadOptions& read_options,
 
     PinCachedBlob(&blob_handle, value);
   } else {
-    CopyBlob(blob_contents.get(), value);
+    PinOwnedBlob(&blob_contents, value);
   }
 
   assert(s.ok());
@@ -434,11 +444,11 @@ void BlobSource::MultiGetBlobFromOneFile(const ReadOptions& read_options,
         }
       }
     } else {
-      for (const auto& [req, blob_contents] : _blob_reqs) {
+      for (auto& [req, blob_contents] : _blob_reqs) {
         assert(req);
 
         if (req->status->ok()) {
-          CopyBlob(blob_contents.get(), req->result);
+          PinOwnedBlob(&blob_contents, req->result);
         }
       }
     }

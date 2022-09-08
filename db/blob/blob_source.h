@@ -117,7 +117,8 @@ class BlobSource {
   static void PinCachedBlob(CacheHandleGuard<BlobContents>* cached_blob,
                             PinnableSlice* value);
 
-  static void CopyBlob(const BlobContents* blob, PinnableSlice* value);
+  static void PinOwnedBlob(std::unique_ptr<BlobContents>* owned_blob,
+                           PinnableSlice* value);
 
   Cache::Handle* GetEntryFromCache(const Slice& key) const;
 
