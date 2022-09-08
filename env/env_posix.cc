@@ -115,14 +115,14 @@ static int g_daylight_active = [] {
 }();
 
 void nolocks_localtime(struct tm* tmp, time_t t, time_t tz, int dst) {
-  const time_t secs_min = 60;
-  const time_t secs_hour = 3600;
-  const time_t secs_day = 3600 * 24;
+  const int secs_min = 60;
+  const int secs_hour = 3600;
+  const int secs_day = 3600 * 24;
 
   t -= tz;                       /* Adjust for timezone. */
   t += 3600 * dst;               /* Adjust for daylight time. */
-  time_t days = t / secs_day;    /* Days passed since epoch. */
-  time_t seconds = t % secs_day; /* Remaining seconds. */
+  int days = int(t / secs_day);    /* Days passed since epoch. */
+  int seconds = int(t % secs_day); /* Remaining seconds. */
 
   tmp->tm_isdst = dst;
   tmp->tm_hour = seconds / secs_hour;
@@ -138,7 +138,7 @@ void nolocks_localtime(struct tm* tmp, time_t t, time_t tz, int dst) {
   tmp->tm_year = 1970;
   while (1) {
     /* Leap years have one day more. */
-    time_t days_this_year = 365 + is_leap_year(tmp->tm_year);
+    int days_this_year = 365 + is_leap_year(tmp->tm_year);
     if (days_this_year > days) break;
     days -= days_this_year;
     tmp->tm_year++;
