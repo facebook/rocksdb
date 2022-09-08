@@ -163,6 +163,9 @@ class Compaction {
   // Maximum size of files to build during this compaction.
   uint64_t max_output_file_size() const { return max_output_file_size_; }
 
+  // Target output file size for this compaction
+  uint64_t target_output_file_size() const { return target_output_file_size_; }
+
   // What compression for output
   CompressionType output_compression() const { return output_compression_; }
 
@@ -412,6 +415,7 @@ class Compaction {
 
   const int start_level_;   // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
+  uint64_t target_output_file_size_;
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
   uint32_t max_subcompactions_;

@@ -322,5 +322,36 @@ void MockTableFactory::AssertLatestFile(const KVVector& file_contents) {
   }
 }
 
+void MockTableFactory::AssertLatestFiles(
+    const std::vector<KVVector>& files_contents) {
+  ASSERT_GE(file_system_.files.size(), files_contents.size());
+  auto it = file_system_.files.rbegin();
+  for (auto expect = files_contents.rbegin(); expect != files_contents.rend();
+       expect++, it++) {
+    ASSERT_TRUE(it != file_system_.files.rend());
+    if (*expect != it->second) {
+      std::cout << "Wrong content! Content of file, expect:" << std::endl;
+      for (const auto& kv : *expect) {
+        ParsedInternalKey ikey;
+        std::string key, value;
+        std::tie(key, value) = kv;
+        ASSERT_OK(ParseInternalKey(Slice(key), &ikey, true /* log_err_key */));
+        std::cout << ikey.DebugString(true, false) << " -> " << value
+                  << std::endl;
+      }
+      std::cout << "actual:" << std::endl;
+      for (const auto& kv : it->second) {
+        ParsedInternalKey ikey;
+        std::string key, value;
+        std::tie(key, value) = kv;
+        ASSERT_OK(ParseInternalKey(Slice(key), &ikey, true /* log_err_key */));
+        std::cout << ikey.DebugString(true, false) << " -> " << value
+                  << std::endl;
+      }
+      FAIL();
+    }
+  }
+}
+
 }  // namespace mock
 }  // namespace ROCKSDB_NAMESPACE

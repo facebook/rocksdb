@@ -76,6 +76,7 @@ class MockTableFactory : public TableFactory {
   // contents are equal to file_contents
   void AssertSingleFile(const KVVector& file_contents);
   void AssertLatestFile(const KVVector& file_contents);
+  void AssertLatestFiles(const std::vector<KVVector>& files_contents);
 
  private:
   Status GetAndWriteNextID(WritableFileWriter* file, uint32_t* id) const;
