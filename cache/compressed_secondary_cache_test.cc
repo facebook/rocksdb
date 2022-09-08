@@ -84,7 +84,8 @@ class CompressedSecondaryCacheTest : public testing::Test {
 
   void SetFailCreate(bool fail) { fail_create_ = fail; }
 
-  void BasicTestHelper(std::shared_ptr<SecondaryCache> sec_cache) {
+  void BasicTestHelper(std::shared_ptr<SecondaryCache> sec_cache,
+                       bool sec_cache_is_compressed) {
     get_perf_context()->Reset();
     bool is_in_sec_cache{true};
     // Lookup an non-existent key.
@@ -100,12 +101,14 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 1);
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes, 0);
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
 
     std::unique_ptr<SecondaryCacheResultHandle> handle1_1 = sec_cache->Lookup(
         "k1", test_item_creator, true, /*advise_erase=*/false, is_in_sec_cache);
     ASSERT_EQ(handle1_1, nullptr);
 
-    // Insert and Lookup the item k1 for the second time.
+    // Insert and Lookup the item k1 for the second time and advise erasing it.
     ASSERT_OK(sec_cache->Insert("k1", &item1,
                                 &CompressedSecondaryCacheTest::helper_));
     std::unique_ptr<SecondaryCacheResultHandle> handle1_2 = sec_cache->Lookup(
@@ -113,6 +116,16 @@ class CompressedSecondaryCacheTest : public testing::Test {
     ASSERT_NE(handle1_2, nullptr);
     ASSERT_FALSE(is_in_sec_cache);
     ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 1);
+    if (sec_cache_is_compressed) {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                1000);
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
+                1007);
+    } else {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+    }
 
     std::unique_ptr<TestItem> val1 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle1_2->Value()));
@@ -129,15 +142,27 @@ class CompressedSecondaryCacheTest : public testing::Test {
     TestItem item2(str2.data(), str2.length());
     ASSERT_OK(sec_cache->Insert("k2", &item2,
                                 &CompressedSecondaryCacheTest::helper_));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 2);
     std::unique_ptr<SecondaryCacheResultHandle> handle2_1 = sec_cache->Lookup(
         "k2", test_item_creator, true, /*advise_erase=*/false, is_in_sec_cache);
     ASSERT_EQ(handle2_1, nullptr);
 
     ASSERT_OK(sec_cache->Insert("k2", &item2,
                                 &CompressedSecondaryCacheTest::helper_));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 2);
+    if (sec_cache_is_compressed) {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                2000);
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
+                2014);
+    } else {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+    }
     std::unique_ptr<SecondaryCacheResultHandle> handle2_2 = sec_cache->Lookup(
         "k2", test_item_creator, true, /*advise_erase=*/false, is_in_sec_cache);
-    ASSERT_EQ(handle2_1, nullptr);
+    ASSERT_NE(handle2_2, nullptr);
     std::unique_ptr<TestItem> val2 =
         std::unique_ptr<TestItem>(static_cast<TestItem*>(handle2_2->Value()));
     ASSERT_NE(val2, nullptr);
@@ -180,7 +205,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::shared_ptr<SecondaryCache> sec_cache =
         NewCompressedSecondaryCache(opts);
 
-    BasicTestHelper(sec_cache);
+    BasicTestHelper(sec_cache, sec_cache_is_compressed);
   }
 
   void FailsTest(bool sec_cache_is_compressed) {
@@ -283,6 +308,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
     std::shared_ptr<Cache> cache = NewLRUCache(lru_cache_opts);
     std::shared_ptr<Statistics> stats = CreateDBStatistics();
 
+    get_perf_context()->Reset();
     Random rnd(301);
     std::string str1 = rnd.RandomString(1001);
     TestItem* item1_1 = new TestItem(str1.data(), str1.length());
@@ -295,6 +321,9 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // k1's dummy item.
     ASSERT_OK(cache->Insert(
         "k2", item2_1, &CompressedSecondaryCacheTest::helper_, str2.length()));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 1);
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes, 0);
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
 
     std::string str3 = rnd.RandomString(1024);
     TestItem* item3_1 = new TestItem(str3.data(), str3.length());
@@ -302,24 +331,48 @@ class CompressedSecondaryCacheTest : public testing::Test {
     // k1's dummy item and k2's dummy item.
     ASSERT_OK(cache->Insert(
         "k3", item3_1, &CompressedSecondaryCacheTest::helper_, str3.length()));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 2);
 
     // After this Insert, primary cache contains k1 and secondary cache contains
     // k1's dummy item, k2's dummy item, and k3's dummy item.
     TestItem* item1_2 = new TestItem(str1.data(), str1.length());
     ASSERT_OK(cache->Insert(
         "k1", item1_2, &CompressedSecondaryCacheTest::helper_, str1.length()));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_dummy_count, 3);
 
     // After this Insert, primary cache contains k2 and secondary cache contains
     // k1's item, k2's dummy item, and k3's dummy item.
     TestItem* item2_2 = new TestItem(str2.data(), str2.length());
     ASSERT_OK(cache->Insert(
         "k2", item2_2, &CompressedSecondaryCacheTest::helper_, str2.length()));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 1);
+    if (sec_cache_is_compressed) {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                str1.length());
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
+                1008);
+    } else {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+    }
 
     // After this Insert, primary cache contains k3 and secondary cache contains
     // k1's item and k2's item.
     TestItem* item3_2 = new TestItem(str3.data(), str3.length());
     ASSERT_OK(cache->Insert(
         "k3", item3_2, &CompressedSecondaryCacheTest::helper_, str3.length()));
+    ASSERT_EQ(get_perf_context()->secondary_cache_insert_real_count, 2);
+    if (sec_cache_is_compressed) {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                str1.length() + str2.length());
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes,
+                2027);
+    } else {
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_uncompressed_bytes,
+                0);
+      ASSERT_EQ(get_perf_context()->secondary_cache_insert_compressed_bytes, 0);
+    }
 
     Cache::Handle* handle;
     handle = cache->Lookup("k3", &CompressedSecondaryCacheTest::helper_,
@@ -343,6 +396,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
     ASSERT_NE(handle, nullptr);
+    ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 1);
     TestItem* val1_1 = static_cast<TestItem*>(cache->Value(handle));
     ASSERT_NE(val1_1, nullptr);
     ASSERT_EQ(memcmp(val1_1->Buf(), str1.data(), str1.size()), 0);
@@ -354,6 +408,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
     ASSERT_NE(handle, nullptr);
+    ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 1);
     cache->Release(handle);
 
     // k2 is still in secondary cache.
@@ -361,6 +416,7 @@ class CompressedSecondaryCacheTest : public testing::Test {
                            test_item_creator, Cache::Priority::LOW, true,
                            stats.get());
     ASSERT_NE(handle, nullptr);
+    ASSERT_EQ(get_perf_context()->block_cache_standalone_handle_count, 2);
     cache->Release(handle);
 
     cache.reset();
@@ -773,7 +829,7 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithNoCompression) {
   Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
                                               &sec_cache);
   EXPECT_OK(s);
-  BasicTestHelper(sec_cache);
+  BasicTestHelper(sec_cache, /*sec_cache_is_compressed=*/false);
 }
 
 TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
@@ -794,7 +850,7 @@ TEST_F(CompressedSecondaryCacheTest, BasicTestFromStringWithCompression) {
   Status s = SecondaryCache::CreateFromString(ConfigOptions(), sec_cache_uri,
                                               &sec_cache);
   EXPECT_OK(s);
-  BasicTestHelper(sec_cache);
+  BasicTestHelper(sec_cache, /*sec_cache_is_compressed=*/true);
 }
 
 #endif  // ROCKSDB_LITE
