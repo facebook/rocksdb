@@ -141,6 +141,9 @@ Status CompactionOutputs::AddToOutput(
   if (compaction_->output_level() != 0 &&
       current_output_file_size_ >= compaction_->max_output_file_size()) {
     pending_close_ = true;
+  } else if (!pending_close_ && builder_->NeedSplit()) {
+    // Table builder is hinting we should create new SST file
+    pending_close_ = true;
   }
 
   if (partitioner_) {

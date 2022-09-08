@@ -103,6 +103,8 @@ class IndexBuilder {
 
   virtual bool seperator_is_key_plus_seq() { return true; }
 
+  virtual bool NeedSplit() const { return false; }
+
  protected:
   const InternalKeyComparator* comparator_;
   // Set after ::Finish is called
@@ -125,7 +127,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
       const int index_block_restart_interval, const uint32_t format_version,
       const bool use_value_delta_encoding,
       BlockBasedTableOptions::IndexShorteningMode shortening_mode,
-      bool include_first_key)
+      bool include_first_key, uint64_t max_index_size)
       : IndexBuilder(comparator),
         index_block_builder_(index_block_restart_interval,
                              true /*use_delta_encoding*/,
@@ -135,7 +137,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
                                          use_value_delta_encoding),
         use_value_delta_encoding_(use_value_delta_encoding),
         include_first_key_(include_first_key),
-        shortening_mode_(shortening_mode) {
+        shortening_mode_(shortening_mode),
+        max_index_size_(max_index_size) {
     // Making the default true will disable the feature for old versions
     seperator_is_key_plus_seq_ = (format_version <= 2);
   }
@@ -214,6 +217,10 @@ class ShortenedIndexBuilder : public IndexBuilder {
     return seperator_is_key_plus_seq_;
   }
 
+  virtual bool NeedSplit() const override {
+    return index_block_builder_.CurrentSizeEstimate() > max_index_size_;
+  }
+
   // Changes *key to a short string >= *key.
   //
   static void FindShortestInternalKeySeparator(const Comparator& comparator,
@@ -234,6 +241,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   BlockBasedTableOptions::IndexShorteningMode shortening_mode_;
   BlockHandle last_encoded_handle_ = BlockHandle::NullBlockHandle();
   std::string current_block_first_internal_key_;
+  const uint64_t max_index_size_;
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -274,7 +282,8 @@ class HashIndexBuilder : public IndexBuilder {
       : IndexBuilder(comparator),
         primary_index_builder_(comparator, index_block_restart_interval,
                                format_version, use_value_delta_encoding,
-                               shortening_mode, /* include_first_key */ false),
+                               shortening_mode, /* include_first_key */ false,
+                               ULLONG_MAX),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
@@ -399,6 +408,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
   size_t TopLevelIndexSize(uint64_t) const { return top_level_index_size_; }
   size_t NumPartitions() const;
 
+  virtual bool NeedSplit() const override;
+
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters
     if (cut_filter_block) {
@@ -451,5 +462,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
   BlockHandle last_encoded_handle_;
+  uint64_t current_index_size_;
+  uint64_t current_top_level_index_raw_key_size_;
 };
 }  // namespace ROCKSDB_NAMESPACE
