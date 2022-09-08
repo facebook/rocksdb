@@ -662,9 +662,14 @@ bool LevelCompactionBuilder::TryExtendNonL0TrivialMove(int start_index) {
         break;
       }
       if (i < static_cast<int>(level_files.size()) - 1 &&
-          compaction_picker_->icmp()->user_comparator()->Compare(
-              next_file->largest.user_key(),
-              level_files[i + 1]->smallest.user_key()) == 0) {
+          compaction_picker_->icmp()
+                  ->user_comparator()
+                  ->CompareWithoutTimestamp(
+                      next_file->largest.user_key(),
+                      level_files[i + 1]->smallest.user_key()) == 0) {
+        TEST_SYNC_POINT_CALLBACK(
+            "LevelCompactionBuilder::TryExtendNonL0TrivialMove:NoCleanCut",
+            nullptr);
         // Not a clean up after adding the next file. Skip.
         break;
       }
