@@ -2430,6 +2430,12 @@ void StressTest::Open(SharedState* shared) {
     fprintf(stdout, "Integrated BlobDB: blob cache disabled\n");
   }
 
+  if (FLAGS_preserve_unverified_changes && FLAGS_reopen != 0) {
+    fprintf(stderr,
+            "Reopen DB is incompatible with preserving unverified changes\n");
+    exit(1);
+  }
+
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
   Status s;
