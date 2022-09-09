@@ -591,7 +591,7 @@ def gen_cmd_params(args):
             params.update(multiops_wc_txn_params)
         elif args.write_policy == 'write_prepared':
             params.update(multiops_wp_txn_params)
-    if args.enable_tiered_storage:
+    if args.test_tiered_storage:
         params.update(tiered_params)
 
     # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
@@ -616,7 +616,8 @@ def gen_cmd(params, unknown_params):
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
                          'test_best_efforts_recovery', 'enable_ts',
-                         'test_multiops_txn', 'write_policy', 'stress_cmd'])
+                         'test_multiops_txn', 'write_policy', 'stress_cmd',
+                         'test_tiered_storage'])
         and v is not None] + unknown_params
     return cmd
 
@@ -840,7 +841,7 @@ def main():
     parser.add_argument("--test_multiops_txn", action='store_true')
     parser.add_argument("--write_policy", choices=["write_committed", "write_prepared"])
     parser.add_argument("--stress_cmd")
-    parser.add_argument("--enable_tiered_storage", action='store_true')
+    parser.add_argument("--test_tiered_storage", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
@@ -852,7 +853,11 @@ def main():
                       + list(ts_params.items())
                       + list(multiops_txn_default_params.items())
                       + list(multiops_wc_txn_params.items())
-                      + list(multiops_wp_txn_params.items()))
+                      + list(multiops_wp_txn_params.items())
+                      + list(best_efforts_recovery_params.items())
+                      + list(cf_consistency_params.items())
+                      + list(tiered_params.items())
+                      + list(txn_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
