@@ -1007,8 +1007,12 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status WaitForCompact(bool waitUnscheduled = false);
 
-  virtual void NewManifestOnNextUpdate() override {
+  void NewManifestOnNextUpdate() override {
     versions_->NewManifestOnNextUpdate();
+  }
+
+  uint64_t GetNextFileNumber() const override {
+    return versions_->current_next_file_number();
   }
 
 #ifndef NDEBUG

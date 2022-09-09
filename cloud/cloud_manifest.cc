@@ -120,6 +120,12 @@ Status CloudManifest::CreateForEmptyDatabase(
   return Status::OK();
 }
 
+std::unique_ptr<CloudManifest> CloudManifest::clone() const {
+  ReadLock lck(&mutex_);
+  return std::unique_ptr<CloudManifest>(
+      new CloudManifest(pastEpochs_, currentEpoch_));
+}
+
 // Serialization format is quite simple:
 //
 // Header: (current_format_version: varint) (number_of_records: varint)

@@ -1051,7 +1051,7 @@ Status CloudEnvImpl::CreateNewIdentityFile(const std::string& dbid,
 }
 
 Status CloudEnvImpl::writeCloudManifest(CloudManifest* manifest,
-                                        const std::string& fname) {
+                                        const std::string& fname) const {
   Env* local_env = GetBaseEnv();
   // Write to tmp file and atomically rename later. This helps if we crash
   // mid-write :)
@@ -1937,56 +1937,35 @@ Status CloudEnvImpl::RollNewEpoch(const std::string& local_dbname) {
   // To make sure `RollNewEpoch` is backwards compatible, we don't change
   // the cookie when applying CM delta
   auto newCookie = cloud_env_options.new_cookie_on_open;
+  auto cloudManifestDelta = CloudManifestDelta{maxFileNumber, newEpoch};
 
-  st = ApplyLocalCloudManifestDelta(
-      local_dbname,
-      newCookie,
-      CloudManifestDelta{maxFileNumber, newEpoch});
-  if (!st.ok()) {
-    return st;
+  st = RollNewCookie(local_dbname, newCookie, cloudManifestDelta);
+  if (st.ok()) {
+    // Apply the delta to our in-memory state, too.
+    st = ApplyCloudManifestDelta(cloudManifestDelta);
   }
 
-  // TODO(igor): Compact cloud manifest by looking at live files in the database
-  // and removing epochs that don't contain any live files.
-
-  if (HasDestBucket()) {
-    st = UploadLocalCloudManifestAndManifest(local_dbname, newCookie);
-    if (!st.ok()) {
-      return st;
-    }
-  }
-  return Status::OK();
+  return st;
 }
 
-Status CloudEnvImpl::UploadLocalCloudManifestAndManifest(
-    const std::string& local_dbname, const std::string& cookie) const {
+Status CloudEnvImpl::UploadManifest(
+    const std::string& local_dbname, const std::string& epoch) const {
   if (!HasDestBucket()) {
     return Status::InvalidArgument(
         "Dest bucket has to be specified when uploading manifest files");
   }
 
-  std::string current_epoch = cloud_manifest_->GetCurrentEpoch();
-  // We have to upload the manifest file first. Otherwise, if the process
-  // crashed in the middle, we'll endup with a CLOUDMANIFEST file pointing to
-  // MANIFEST file which doesn't exist in s3
   auto st = GetStorageProvider()->PutCloudObject(
-      ManifestFileWithEpoch(local_dbname, current_epoch), GetDestBucketName(),
-      ManifestFileWithEpoch(GetDestObjectPath(), current_epoch));
-  if (!st.ok()) {
-    return st;
-  }
+      ManifestFileWithEpoch(local_dbname, epoch), GetDestBucketName(),
+      ManifestFileWithEpoch(GetDestObjectPath(), epoch));
 
   TEST_SYNC_POINT_CALLBACK(
-      "CloudEnvImpl::UploadLocalCloudManifestAndManifest:AfterUploadManifest",
+      "CloudEnvImpl::UploadManifest:AfterUploadManifest",
       &st);
-  if (!st.ok()) {
-    return st;
-  }
-
-  return UploadLocalCloudManifest(local_dbname, cookie);
+  return st;
 }
 
-Status CloudEnvImpl::UploadLocalCloudManifest(const std::string& local_dbname,
+Status CloudEnvImpl::UploadCloudManifest(const std::string& local_dbname,
                                               const std::string& cookie) const {
   if (!HasDestBucket()) {
     return Status::InvalidArgument(
@@ -2007,41 +1986,67 @@ size_t CloudEnvImpl::TEST_NumScheduledJobs() const {
   return scheduler_->TEST_NumScheduledJobs();
 };
 
-Status CloudEnvImpl::ApplyLocalCloudManifestDelta(const std::string& local_dbname,
-    const std::string& new_cookie,
-    const CloudManifestDelta& delta) {
+Status CloudEnvImpl::ApplyCloudManifestDelta(const CloudManifestDelta& delta) {
+  cloud_manifest_->AddEpoch(delta.file_num, delta.epoch);
+  return Status::OK();
+}
+
+Status CloudEnvImpl::RollNewCookie(const std::string& local_dbname,
+                                   const std::string& cookie,
+                                   const CloudManifestDelta& delta) const {
+  auto newCloudManifest = cloud_manifest_->clone();
   Status st;
-  std::string old_epoch = cloud_manifest_->GetCurrentEpoch();
+  std::string old_epoch = newCloudManifest->GetCurrentEpoch();
   const auto& fs = GetBaseEnv()->GetFileSystem();
   Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "Rolling new CLOUDMANIFEST from file number %lu, renaming MANIFEST-%s to "
       "MANIFEST-%s, new cookie: %s",
       delta.file_num, old_epoch.c_str(), delta.epoch.c_str(),
-      new_cookie.c_str());
+      cookie.c_str());
   // ManifestFileWithEpoch(local_dbname, oldEpoch) should exist locally.
   // We have to move our old manifest to the new filename.
   // However, we don't move here, we copy. If we moved and crashed immediately
   // after (before writing CLOUDMANIFEST), we'd corrupt our database. The old
   // MANIFEST file will be cleaned up in DeleteInvisibleFiles().
   st = CopyFile(fs.get(), ManifestFileWithEpoch(local_dbname, old_epoch),
-                     ManifestFileWithEpoch(local_dbname, delta.epoch),
-                     0 /* size */, true /* use_fsync */,
-                     nullptr /* io_tracer */, Temperature::kUnknown);
+                ManifestFileWithEpoch(local_dbname, delta.epoch), 0 /* size */,
+                true /* use_fsync */, nullptr /* io_tracer */,
+                Temperature::kUnknown);
   if (!st.ok()) {
     return st;
   }
 
-  cloud_manifest_->AddEpoch(delta.file_num, delta.epoch);
+  // TODO(igor): Compact cloud manifest by looking at live files in the database
+  // and removing epochs that don't contain any live files.
+  newCloudManifest->AddEpoch(delta.file_num, delta.epoch);
 
   TEST_SYNC_POINT_CALLBACK(
-      "CloudEnvImpl::ApplyLocalCloudManifestDelta:AfterManifestCopy", &st);
+      "CloudEnvImpl::RollNewCookie:AfterManifestCopy", &st);
   if (!st.ok()) {
     return st;
   }
 
-  // Dump cloud_manifest into the CLOUDMANIFEST-new_cookie file
-  return writeCloudManifest(GetCloudManifest(),
-                            MakeCloudManifestFile(local_dbname, new_cookie));
+  // Dump cloud_manifest into the CLOUDMANIFEST-cookie file
+  st = writeCloudManifest(newCloudManifest.get(),
+                          MakeCloudManifestFile(local_dbname, cookie));
+  if (!st.ok()) {
+    return st;
+  }
+
+  if (HasDestBucket()) {
+    // We have to upload the manifest file first. Otherwise, if the process
+    // crashed in the middle, we'll endup with a CLOUDMANIFEST file pointing to
+    // MANIFEST file which doesn't exist in s3
+    st = UploadManifest(local_dbname, delta.epoch);
+    if (!st.ok()) {
+      return st;
+    }
+    st = UploadCloudManifest(local_dbname, cookie);
+    if (!st.ok()) {
+      return st;
+    }
+  }
+  return Status::OK();
 }
 
 // All db in a bucket are stored in path /.rockset/dbid/<dbid>

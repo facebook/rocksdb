@@ -279,19 +279,23 @@ class CloudEnvImpl : public CloudEnv {
 
   std::string CloudManifestFile(const std::string& dbname);
 
-  virtual Status ApplyLocalCloudManifestDelta(
-    const std::string& local_dbname,
-    const std::string& new_cookie,
-    const CloudManifestDelta& delta) override;
+  // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
+  // on-disk state.
+  Status ApplyCloudManifestDelta(const CloudManifestDelta& delta) override;
 
-  virtual Status UploadLocalCloudManifestAndManifest(
-      const std::string& local_dbname,
-      const std::string& cookie) const override;
+  // See comments in the parent class
+  Status RollNewCookie(const std::string& local_dbname,
+                       const std::string& cookie,
+                       const CloudManifestDelta& delta) const override;
 
-  // Upload local CLOUDMANIFEST-cookie file only. MANIFEST-current_epoch is not uploaded
+  // Upload MANIFEST-epoch  to the cloud
+  Status UploadManifest(const std::string& local_dbname,
+                        const std::string& epoch) const;
+
+  // Upload local CLOUDMANIFEST-cookie file only.
   // REQURIES: the file exists locally
-  Status UploadLocalCloudManifest(const std::string& local_dbname,
-                                  const std::string& cookie) const;
+  Status UploadCloudManifest(const std::string& local_dbname,
+                             const std::string& cookie) const;
 
   // Get current number of scheduled jobs in cloud scheduler
   // Used for test only
@@ -407,7 +411,8 @@ class CloudEnvImpl : public CloudEnv {
            const std::string& msg);
   // Fetch the cloud manifest based on the cookie
   Status FetchCloudManifest(const std::string& local_dbname, const std::string& cookie);
-  Status writeCloudManifest(CloudManifest* manifest, const std::string& fname);
+  Status writeCloudManifest(CloudManifest* manifest,
+                            const std::string& fname) const;
   Status FetchManifest(const std::string& local_dbname, const std::string& epoch);
   std::string generateNewEpochId();
   std::unique_ptr<CloudManifest> cloud_manifest_;

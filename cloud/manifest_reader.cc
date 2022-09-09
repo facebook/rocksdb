@@ -129,7 +129,9 @@ Status LocalManifestReader::GetLiveFilesFromFileReader(
   }
 
   for (auto& [cf_id, live_files] : cf_live_files) {
-    for (auto& [level, level_live_files]: live_files) {
+    for (auto& [level, level_live_files] : live_files) {
+      (void)cf_id;
+      (void)level;
       list->insert(level_live_files.begin(), level_live_files.end());
     }
   }

@@ -1983,7 +1983,7 @@ TEST_F(CloudTest, NonEmptyCookieTest) {
 }
 
 // Verify that live sst files are the same after applying cloud manifest delta
-TEST_F(CloudTest, LiveFilesConsistentAfterApplyLocalCloudManifestDeltaTest) {
+TEST_F(CloudTest, LiveFilesConsistentAfterApplyCloudManifestDeltaTest) {
   cloud_env_options_.cookie_on_open = "1";
   cloud_env_options_.new_cookie_on_open = "1";
   OpenDB();
@@ -1997,9 +1997,9 @@ TEST_F(CloudTest, LiveFilesConsistentAfterApplyLocalCloudManifestDeltaTest) {
 
   std::string new_cookie = "2";
   std::string new_epoch = "dca7f3e19212c4b3";
-  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
-      dbname_, new_cookie,
-      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
+  auto delta = CloudManifestDelta{GetDBImpl()->GetNextFileNumber(), new_epoch};
+  ASSERT_OK(GetCloudEnvImpl()->RollNewCookie(dbname_, new_cookie, delta));
+  ASSERT_OK(GetCloudEnvImpl()->ApplyCloudManifestDelta(delta));
 
   std::vector<std::string> live_sst_files2;
   std::string manifest_file2;
@@ -2012,7 +2012,7 @@ TEST_F(CloudTest, LiveFilesConsistentAfterApplyLocalCloudManifestDeltaTest) {
 }
 
 
-// After calling `ApplyLocalCloudManifestDelta`, writes should be persisted in
+// After calling `ApplyCloudManifestDelta`, writes should be persisted in
 // sst files only visible in new Manifest
 TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
   cloud_env_options_.cookie_on_open = "1";
@@ -2023,11 +2023,10 @@ TEST_F(CloudTest, WriteAfterUpdateCloudManifestArePersistedInNewEpoch) {
 
   std::string new_cookie = "2";
   std::string new_epoch = "dca7f3e19212c4b3";
-  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
-      dbname_, new_cookie,
-      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
-  ASSERT_OK(GetCloudEnvImpl()->UploadLocalCloudManifestAndManifest(dbname_, new_cookie));
 
+  auto delta = CloudManifestDelta{GetDBImpl()->GetNextFileNumber(), new_epoch};
+  ASSERT_OK(GetCloudEnvImpl()->RollNewCookie(dbname_, new_cookie, delta));
+  ASSERT_OK(GetCloudEnvImpl()->ApplyCloudManifestDelta(delta));
   GetDBImpl()->NewManifestOnNextUpdate();
 
   // following writes are not visible for old cookie
@@ -2076,10 +2075,10 @@ TEST_F(CloudTest, CMSwitchCrashInMiddleTest) {
   cloud_env_options_.cookie_on_open = "1";
 
   SyncPoint::GetInstance()->SetCallBack(
-      "CloudEnvImpl::ApplyLocalCloudManifestDelta:AfterManifestCopy",
+      "CloudEnvImpl::RollNewCookie:AfterManifestCopy",
       [](void* arg) {
         // Simulate the case of crash in the middle of
-        // ApplyLocalCloudManifestDelta
+        // RollNewCookie
         *reinterpret_cast<Status*>(arg) = Status::Aborted("Aborted");
       });
 
@@ -2092,9 +2091,9 @@ TEST_F(CloudTest, CMSwitchCrashInMiddleTest) {
   std::string new_cookie = "2";
   std::string new_epoch = "dca7f3e19212c4b3";
 
-  ASSERT_NOK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
+  ASSERT_NOK(GetCloudEnvImpl()->RollNewCookie(
       dbname_, new_cookie,
-      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
+      CloudManifestDelta{GetDBImpl()->GetNextFileNumber(), new_epoch}));
 
   CloseDB();
 
@@ -2105,20 +2104,16 @@ TEST_F(CloudTest, CMSwitchCrashInMiddleTest) {
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->SetCallBack(
-      "CloudEnvImpl::UploadLocalCloudManifestAndManifest:AfterUploadManifest",
-      [](void* arg) {
+      "CloudEnvImpl::UploadManifest:AfterUploadManifest", [](void* arg) {
         // Simulate the case of crashing in the middle of
-        // UploadLocalCloudManifest
+        // UploadManifest
         *reinterpret_cast<Status*>(arg) = Status::Aborted("Aborted");
       });
   SyncPoint::GetInstance()->EnableProcessing();
   OpenDB();
 
-  ASSERT_OK(GetCloudEnvImpl()->ApplyLocalCloudManifestDelta(
-      dbname_, new_cookie,
-      CloudManifestDelta{GetDBImpl()->TEST_Current_Next_FileNo(), new_epoch}));
-
-  ASSERT_NOK(GetCloudEnvImpl()->UploadLocalCloudManifestAndManifest(dbname_, new_cookie));
+  auto delta = CloudManifestDelta{GetDBImpl()->GetNextFileNumber(), new_epoch};
+  ASSERT_NOK(GetCloudEnvImpl()->RollNewCookie(dbname_, new_cookie, delta));
 
   ASSERT_NOK(GetCloudEnvImpl()->GetStorageProvider()->ExistsCloudObject(
       GetCloudEnvImpl()->GetDestBucketName(),

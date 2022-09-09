@@ -41,6 +41,8 @@ class CloudManifest {
   static Status CreateForEmptyDatabase(
       std::string currentEpoch, std::unique_ptr<CloudManifest>* manifest);
 
+  std::unique_ptr<CloudManifest> clone() const;
+
   Status WriteToLog(std::unique_ptr<WritableFileWriter> log);
 
   // Add an epoch that starts with startFileNumber and is identified by epochId.
@@ -59,7 +61,7 @@ class CloudManifest {
       : pastEpochs_(std::move(pastEpochs)),
         currentEpoch_(std::move(currentEpoch)) {}
 
-  port::RWMutex mutex_;
+  mutable port::RWMutex mutex_;
 
   // sorted
   // a set of (fileNumber, epochId) where fileNumber is the last file number

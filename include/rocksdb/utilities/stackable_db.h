@@ -563,6 +563,10 @@ class StackableDB : public DB {
     db_->NewManifestOnNextUpdate();
   }
 
+  uint64_t GetNextFileNumber() const override {
+    return db_->GetNextFileNumber();
+  }
+
 #ifndef ROCKSDB_LITE
   Status TryCatchUpWithPrimary() override {
     return db_->TryCatchUpWithPrimary();

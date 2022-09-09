@@ -497,7 +497,7 @@ class CloudEnv : public Env {
   static const char* kAws() { return "aws"; }
   virtual const char* Name() const { return "cloud-env"; }
   // Returns the underlying env
-  Env* GetBaseEnv() { return base_env_; }
+  Env* GetBaseEnv() const { return base_env_; }
   virtual Status PreloadCloudManifest(const std::string& local_dbname) = 0;
   // This method will migrate the database that is using pure RocksDB into
   // RocksDB-Cloud. Call this before opening the database with RocksDB-Cloud.
@@ -601,25 +601,20 @@ class CloudEnv : public Env {
   virtual Status FindAllLiveFilesAndFetchManifest(
       const std::string& local_dbname, std::vector<std::string>* live_sst_files,
       std::string* manifest_file, std::string* manifest_file_version) = 0;
-    
-  // Apply cloud manifest delta to db locally
-  //
-  // It will:
-  //
-  // - Update in memory cloud manifest
-  // - Persist the changes to disk by writing new CLOUDMANIFEST-new_cookie and
-  // MANIFEST-delta.epoch files
-  virtual Status ApplyLocalCloudManifestDelta(
-    const std::string& local_dbname,
-    const std::string& new_cookie,
-    const CloudManifestDelta& delta) = 0;
 
-  // Upload local CLOUDMANIFEST-cookie file and the corresponding
-  // MANIFEST-current_epoch file to cloud
-  //
-  // REQUIRES: the file exists locally
-  virtual Status UploadLocalCloudManifestAndManifest(
-      const std::string& local_dbname, const std::string& cookie) const = 0;
+  // Apply cloud manifest delta to in-memory cloud manifest. Does not change the
+  // on-disk state.
+  virtual Status ApplyCloudManifestDelta(const CloudManifestDelta& delta) = 0;
+
+  // This function does several things:
+  // * Writes CLOUDMANIFEST-cookie file based on existing in-memory
+  // CLOUDMANIFEST and provided CloudManifestDelta.
+  // * Copies MANIFEST-epoch into MANIFEST-delta.epoch
+  // * Uploads both CLOUDMANIFEST-cookie and MANIFEST-delta.epoch into cloud
+  // storage (if dest bucket is given).
+  virtual Status RollNewCookie(const std::string& local_dbname,
+                               const std::string& cookie,
+                               const CloudManifestDelta& delta) const = 0;
 
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from

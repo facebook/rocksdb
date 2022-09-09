@@ -192,7 +192,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     // This is a new database, upload the CLOUDMANIFEST after all MANIFEST file
     // was already uploaded. It is at this point we consider the database
     // committed in the cloud.
-    st = cenv->UploadLocalCloudManifest(
+    st = cenv->UploadCloudManifest(
         local_dbname, cenv->GetCloudEnvOptions().new_cookie_on_open);
   }
 
