@@ -632,5 +632,11 @@ extern std::string GetNowNanos();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);
+
+Status DeleteFilesInDirectory(const std::string& dirname);
+Status SaveFilesInDirectory(
+    const std::string& src_dirname, const std::string& dst_dirname);
+Status DestroyUnverifiedSubdir(const std::string& dirname);
+Status InitUnverifiedSubdir(const std::string& dirname);
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS
