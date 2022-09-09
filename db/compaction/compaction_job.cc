@@ -1133,7 +1133,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   std::unique_ptr<InternalIterator> trim_history_iter;
-  if (cfd->user_comparator()->timestamp_size() > 0 && !trim_ts_.empty()) {
+  if (ts_sz > 0 && !trim_ts_.empty()) {
     trim_history_iter = std::make_unique<HistoryTrimmingIterator>(
         input, cfd->user_comparator(), trim_ts_);
     input = trim_history_iter.get();
