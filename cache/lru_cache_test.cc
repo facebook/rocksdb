@@ -728,12 +728,16 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   int deleted = 0;
   std::string key1(kCacheKeySize, 'x');
   std::string key2(kCacheKeySize, 'y');
+  std::string key3(kCacheKeySize, 'z');
   uint32_t my_hash = 42;
   Cache::Handle* h1;
   ASSERT_OK(shard_->Insert(key1, my_hash, &deleted, 1, IncrementIntDeleter, &h1,
                            Cache::Priority::HIGH));
   Cache::Handle* h2;
   ASSERT_OK(shard_->Insert(key2, my_hash, &deleted, 1, IncrementIntDeleter, &h2,
+                           Cache::Priority::HIGH));
+  Cache::Handle* h3;
+  ASSERT_OK(shard_->Insert(key3, my_hash, &deleted, 1, IncrementIntDeleter, &h3,
                            Cache::Priority::HIGH));
 
   // Can repeatedly lookup+release despite the hash collision
@@ -745,6 +749,10 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
 
     tmp_h = shard_->Lookup(key2, my_hash);
     ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, my_hash);
+    ASSERT_EQ(h3, tmp_h);
     ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
   }
 
@@ -758,10 +766,14 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   tmp_h = shard_->Lookup(key1, my_hash);
   ASSERT_EQ(nullptr, tmp_h);
 
-  // Can still find h2
+  // Can still find h2, h3
   for (bool erase_if_last_ref : {true, false}) {  // but not last ref
     tmp_h = shard_->Lookup(key2, my_hash);
     ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, my_hash);
+    ASSERT_EQ(h3, tmp_h);
     ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
   }
 
@@ -772,10 +784,14 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   ASSERT_EQ(deleted, 1);
   h1 = nullptr;
 
-  // Can still find h2
+  // Can still find h2, h3
   for (bool erase_if_last_ref : {true, false}) {  // but not last ref
     tmp_h = shard_->Lookup(key2, my_hash);
     ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key3, my_hash);
+    ASSERT_EQ(h3, tmp_h);
     ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
   }
 
@@ -795,6 +811,27 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   // h2 deleted
   ASSERT_EQ(deleted, 2);
   tmp_h = shard_->Lookup(key2, my_hash);
+  ASSERT_EQ(nullptr, tmp_h);
+
+  // Can still find h3
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key3, my_hash);
+    ASSERT_EQ(h3, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Release last ref on h3, without erase
+  ASSERT_FALSE(shard_->Release(h3, /*erase_if_last_ref*/ false));
+
+  // h3 still not deleted (unreferenced in cache)
+  ASSERT_EQ(deleted, 2);
+
+  // Explicit erase
+  shard_->Erase(key3, my_hash);
+
+  // h3 deleted
+  ASSERT_EQ(deleted, 3);
+  tmp_h = shard_->Lookup(key3, my_hash);
   ASSERT_EQ(nullptr, tmp_h);
 }
 

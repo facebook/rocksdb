@@ -450,10 +450,9 @@ class ClockHandleTable {
                                std::function<void(ClockHandle*)> update,
                                uint32_t& probe);
 
-  // After a failed FindSlot call (i.e., with answer -1) in
-  // FindAvailableSlot, this function fixes all displacements
-  // starting from the 0-th probe, until the given probe.
-  void Rollback(uint32_t hash, uint32_t probe);
+  // Re-decrement all displacements in probe path starting from beginning
+  // until (not including) the given handle
+  void Rollback(uint32_t hash, const ClockHandle* h);
 
  private:  // data
   // Number of hash bits used for table index.

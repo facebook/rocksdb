@@ -50,8 +50,11 @@ ClockHandleTable::~ClockHandleTable() {
       case ClockHandle::kStateInvisible:  // rare but possible
       case ClockHandle::kStateVisible:
         h.FreeData();
+#ifndef NDEBUG
+        Rollback(h.hash, &h);
         usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
         occupancy_.fetch_sub(1U, std::memory_order_relaxed);
+#endif
         break;
       // otherwise
       default:
@@ -59,6 +62,12 @@ ClockHandleTable::~ClockHandleTable() {
         break;
     }
   }
+
+#ifndef NDEBUG
+  for (uint32_t i = 0; i < GetTableSize(); i++) {
+    assert(array_[i].displacements.load() == 0);
+  }
+#endif
 
   assert(usage_.load() == 0 ||
          usage_.load() == size_t{GetTableSize()} * sizeof(ClockHandle));
@@ -403,7 +412,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
       return Status::OK();
     }
     // Roll back table insertion
-    Rollback(proto.hash, probe);
+    Rollback(proto.hash, e);
     revert_occupancy_fn();
     // Maybe fall back on detached insert
     if (handle == nullptr) {
@@ -571,6 +580,7 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       delete h;
       detached_usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     } else {
+      uint32_t hash = h->hash;
 #ifndef NDEBUG
       // Mark slot as empty, with assertion
       old_meta = h->meta.exchange(0, std::memory_order_release);
@@ -581,6 +591,7 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
       h->meta.store(0, std::memory_order_release);
 #endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
+      Rollback(hash, h);
     }
     usage_.fetch_sub(total_charge, std::memory_order_relaxed);
     assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
@@ -663,6 +674,7 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
                              old_meta, uint64_t{ClockHandle::kStateConstruction}
                                            << ClockHandle::kStateShift)) {
                 // Took ownership
+                assert(hash == h->hash);
                 // TODO? Delay freeing?
                 h->FreeData();
                 usage_.fetch_sub(h->total_charge, std::memory_order_relaxed);
@@ -677,6 +689,7 @@ void ClockHandleTable::Erase(const CacheKeyBytes& key, uint32_t hash) {
                 h->meta.store(0, std::memory_order_release);
 #endif
                 occupancy_.fetch_sub(1U, std::memory_order_release);
+                Rollback(hash, h);
                 break;
               }
             }
@@ -749,6 +762,7 @@ void ClockHandleTable::EraseUnRefEntries() {
                                            << ClockHandle::kStateShift,
                                        std::memory_order_acquire)) {
       // Took ownership
+      uint32_t hash = h.hash;
       h.FreeData();
       usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
 #ifndef NDEBUG
@@ -761,6 +775,7 @@ void ClockHandleTable::EraseUnRefEntries() {
       h.meta.store(0, std::memory_order_release);
 #endif
       occupancy_.fetch_sub(1U, std::memory_order_release);
+      Rollback(hash, &h);
     }
   }
 }
@@ -808,10 +823,10 @@ ClockHandle* ClockHandleTable::FindSlot(
   return nullptr;
 }
 
-void ClockHandleTable::Rollback(uint32_t hash, uint32_t probe) {
+void ClockHandleTable::Rollback(uint32_t hash, const ClockHandle* h) {
   uint32_t current = ModTableSize(Remix1(hash));
   uint32_t increment = Remix2(hash) | 1U;
-  for (uint32_t i = 0; i < probe; i++) {
+  for (uint32_t i = 0; &array_[current] != h; i++) {
     array_[current].displacements.fetch_sub(1, std::memory_order_relaxed);
     current = ModTableSize(current + increment);
   }
@@ -875,6 +890,7 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
                   << ClockHandle::kStateShift,
               std::memory_order_acquire)) {
         // Took ownership
+        uint32_t hash = h.hash;
         // TODO? Delay freeing?
         h.FreeData();
         *freed_charge += h.total_charge;
@@ -888,6 +904,7 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
         h.meta.store(0, std::memory_order_release);
 #endif
         *freed_count += 1;
+        Rollback(hash, &h);
       }
     }
   } while (*freed_charge < requested_charge);
