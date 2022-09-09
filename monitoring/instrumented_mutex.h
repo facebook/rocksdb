@@ -20,38 +20,27 @@ class InstrumentedCondVar;
 class InstrumentedMutex {
  public:
   explicit InstrumentedMutex(bool adaptive = false)
-      : mutex_(adaptive),
-        stats_(nullptr),
-        clock_(nullptr),
-        stats_code_(0),
-        bg_cv_(nullptr) {
-#ifndef COERCE_CONTEXT_SWITCH
-    (void)bg_cv_;
-#endif
-  }
+      : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
 
   explicit InstrumentedMutex(SystemClock* clock, bool adaptive = false)
-      : mutex_(adaptive),
-        stats_(nullptr),
-        clock_(clock),
-        stats_code_(0),
-        bg_cv_(nullptr) {
-#ifndef COERCE_CONTEXT_SWITCH
-    (void)bg_cv_;
-#endif
-  }
+      : mutex_(adaptive), stats_(nullptr), clock_(clock), stats_code_(0) {}
 
   InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
-                    bool adaptive = false, InstrumentedCondVar* bg_cv = nullptr)
+                    bool adaptive = false)
+      : mutex_(adaptive),
+        stats_(stats),
+        clock_(clock),
+        stats_code_(stats_code) {}
+
+#ifdef COERCE_CONTEXT_SWITCH
+  InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
+                    InstrumentedCondVar* bg_cv, bool adaptive = false)
       : mutex_(adaptive),
         stats_(stats),
         clock_(clock),
         stats_code_(stats_code),
-        bg_cv_(bg_cv) {
-#ifndef COERCE_CONTEXT_SWITCH
-    (void)bg_cv_;
+        bg_cv_(bg_cv) {}
 #endif
-  }
 
   void Lock();
 
@@ -68,7 +57,9 @@ class InstrumentedMutex {
   Statistics* stats_;
   SystemClock* clock_;
   int stats_code_;
-  InstrumentedCondVar* bg_cv_;
+#ifdef COERCE_CONTEXT_SWITCH
+  InstrumentedCondVar* bg_cv_ = nullptr;
+#endif
 };
 
 class ALIGN_AS(CACHE_LINE_SIZE) CacheAlignedInstrumentedMutex
