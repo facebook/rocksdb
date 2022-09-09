@@ -1035,4 +1035,13 @@ DEFINE_int32(verify_iterator_with_expected_state_one_in, 0,
              "chance that the iterator is verified against the expected state "
              "file, instead of comparing keys between two iterators.");
 
+DEFINE_uint64(readahead_size, 0, "Iterator readahead size");
+DEFINE_uint64(initial_auto_readahead_size, 0,
+              "Initial auto readahead size for prefetching during Iteration");
+DEFINE_uint64(max_auto_readahead_size, 0,
+              "Max auto readahead size for prefetching during Iteration");
+DEFINE_uint64(
+    num_file_reads_for_auto_readahead, 0,
+    "Num of sequential reads to enable auto prefetching during Iteration");
+
 #endif  // GFLAGS

@@ -180,6 +180,10 @@ default_params = {
     "secondary_cache_uri":  lambda: random.choice(
         ["", "compressed_secondary_cache://capacity=8388608"]),
     "allow_data_in_errors": True,
+    "readahead_size": lambda: random.choice([0, 16384, 524288]),
+    "initial_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
+    "max_auto_readahead_size": lambda: random.choice([0, 16384, 524288]),
+    "num_file_reads_for_auto_readahead": lambda: random.choice([0, 1, 2]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
