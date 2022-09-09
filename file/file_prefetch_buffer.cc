@@ -764,7 +764,7 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   // - If curr_ is filled.
   //   - prefetch_size on second.
   // Calculate length and offsets for reading.
-  if (bufs_[curr_].buffer_.CurrentSize() == 0) {
+  if (!DoesBufferContainData(curr_)) {
     // Prefetch full data + prefetch_size in curr_.
     rounddown_start1 = Rounddown(offset_to_read, alignment);
     roundup_end1 = Roundup(offset_to_read + n + prefetch_size, alignment);
