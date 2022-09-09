@@ -18,6 +18,7 @@
 * Add a new stat rocksdb.async.prefetch.abort.micros to measure time spent waiting for async prefetch reads to abort
 * Add `rocksdb_writebatch_update_timestamps`, `rocksdb_writebatch_wi_update_timestamps` in C API.
 * Add `rocksdb_iter_refresh` in C API.
+* Add `rocksdb_writebatch_create_with_params`, `rocksdb_writebatch_wi_create_with_params` to create WB and WBWI with all options in C API
 
 ### Java API Changes
 * Add CompactionPriority.RoundRobin.
