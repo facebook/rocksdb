@@ -34,13 +34,19 @@ class StressTest {
   // The initialization work is split into two parts to avoid a circular
   // dependency with `SharedState`.
   virtual void FinishInitDb(SharedState*);
-
-  void TrackExpectedState(SharedState* shared);
-
+#ifndef ROCKSDB_LITE
+  Status GetInitialTrackedContents(
+      std::list<WriteBatch*>* initial_tracked_contents);
+#endif
+  void TrackExpectedState(
+      SharedState* shared,
+      const std::list<WriteBatch*>& initial_tracked_contents = {});
   void OperateDb(ThreadState* thread);
   virtual void VerifyDb(ThreadState* thread) const = 0;
   virtual void ContinuouslyVerifyDb(ThreadState* /*thread*/) const = 0;
-
+#ifndef ROCKSDB_LITE
+  void ProcessRecoveredPreparedTxns();
+#endif
   void PrintStatistics();
 
  protected:

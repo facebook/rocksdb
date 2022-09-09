@@ -141,9 +141,20 @@ bool RunStressTest(StressTest* stress) {
       }
     }
 
+    std::list<WriteBatch*> initial_tracked_contents;
+#ifndef ROCKSDB_LITE
+    stress->GetInitialTrackedContents(&initial_tracked_contents);
+#endif
     // This is after the verification step to avoid making all those `Get()`s
     // and `MultiGet()`s contend on the DB-wide trace mutex.
-    stress->TrackExpectedState(&shared);
+    stress->TrackExpectedState(&shared, initial_tracked_contents);
+#ifndef ROCKSDB_LITE
+    if (FLAGS_use_txn &&
+        FLAGS_txn_write_policy ==
+            static_cast<uint64_t>(TxnDBWritePolicy::WRITE_COMMITTED)) {
+      stress->ProcessRecoveredPreparedTxns();
+    }
+#endif
 
     now = clock->NowMicros();
     fprintf(stdout, "%s Starting database operations\n",

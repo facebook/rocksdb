@@ -254,7 +254,8 @@ Status FileExpectedStateManager::Open() {
 }
 
 #ifndef ROCKSDB_LITE
-Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
+Status FileExpectedStateManager::SaveAtAndAfter(
+    DB* db, const std::list<WriteBatch*>& initial_tracked_contents) {
   SequenceNumber seqno = db->GetLatestSequenceNumber();
 
   std::string state_filename = std::to_string(seqno) + kStateFilenameSuffix;
@@ -303,7 +304,8 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
     trace_opts.filter |= kTraceFilterIteratorSeek;
     trace_opts.filter |= kTraceFilterIteratorSeekForPrev;
     trace_opts.preserve_write_order = true;
-    s = db->StartTrace(trace_opts, std::move(trace_writer));
+    s = db->StartTrace(trace_opts, std::move(trace_writer),
+                       initial_tracked_contents);
   }
 
   // Delete old state/trace files. Deletion order does not matter since we only
@@ -322,7 +324,9 @@ Status FileExpectedStateManager::SaveAtAndAfter(DB* db) {
   return s;
 }
 #else   // ROCKSDB_LITE
-Status FileExpectedStateManager::SaveAtAndAfter(DB* /* db */) {
+Status FileExpectedStateManager::SaveAtAndAfter(
+    DB* /* db */,
+    const std::list<WriteBatch*>& /* initial_tracked_contents */) {
   return Status::NotSupported();
 }
 #endif  // ROCKSDB_LITE
@@ -514,6 +518,17 @@ class ExpectedStateTraceRecordHandler : public TraceRecord::Handler,
     xid_to_buffered_writes_.erase(xid_str);
 
     return s;
+  }
+
+  Status MarkRollback(const Slice& xid) override {
+    std::string xid_str = xid.ToString();
+    assert(xid_to_buffered_writes_.find(xid_str) !=
+           xid_to_buffered_writes_.end());
+    assert(xid_to_buffered_writes_.at(xid_str));
+
+    xid_to_buffered_writes_.erase(xid_str);
+
+    return Status::OK();
   }
 
  private:

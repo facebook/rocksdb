@@ -422,9 +422,11 @@ class StackableDB : public DB {
   Status EndIOTrace() override { return db_->EndIOTrace(); }
 
   using DB::StartTrace;
-  Status StartTrace(const TraceOptions& options,
-                    std::unique_ptr<TraceWriter>&& trace_writer) override {
-    return db_->StartTrace(options, std::move(trace_writer));
+  Status StartTrace(
+      const TraceOptions& options, std::unique_ptr<TraceWriter>&& trace_writer,
+      const std::list<WriteBatch*>& initial_traced_contents = {}) override {
+    return db_->StartTrace(options, std::move(trace_writer),
+                           initial_traced_contents);
   }
 
   using DB::EndTrace;

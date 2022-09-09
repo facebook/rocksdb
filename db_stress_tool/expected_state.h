@@ -133,14 +133,16 @@ class ExpectedStateManager {
   virtual Status Open() = 0;
 
   // Saves expected values for the current state of `db` and begins tracking
-  // changes. Following a successful `SaveAtAndAfter()`, `Restore()` can be
+  // changes on top of `initial_tracked_contents`.
+  // Following a successful `SaveAtAndAfter()`, `Restore()` can be
   // called on the same DB, as long as its state does not roll back to before
   // its current state.
   //
   // Requires external locking preventing concurrent execution with any other
   // member function. Furthermore, `db` must not be mutated while this function
   // is executing.
-  virtual Status SaveAtAndAfter(DB* db) = 0;
+  virtual Status SaveAtAndAfter(
+      DB* db, const std::list<WriteBatch*>& initial_tracked_contents) = 0;
 
   // Returns true if at least one state of historical expected values can be
   // restored.
@@ -223,7 +225,9 @@ class FileExpectedStateManager : public ExpectedStateManager {
   // "<current seqno>.state", and starts a trace in "<current seqno>.trace".
   // Due to using external files, a following `Restore()` can happen even
   // from a different process.
-  Status SaveAtAndAfter(DB* db) override;
+  Status SaveAtAndAfter(
+      DB* db,
+      const std::list<WriteBatch*>& initial_tracked_contents = {}) override;
 
   // See `ExpectedStateManager::HasHistory()` API doc.
   bool HasHistory() override;
@@ -264,7 +268,9 @@ class AnonExpectedStateManager : public ExpectedStateManager {
   //
   // This implementation returns `Status::NotSupported` since we do not
   // currently have a need to keep history of expected state within a process.
-  Status SaveAtAndAfter(DB* /* db */) override {
+  Status SaveAtAndAfter(
+      DB* /* db */,
+      const std::list<WriteBatch*>& /* initial_tracked_contents */) override {
     return Status::NotSupported();
   }
 
