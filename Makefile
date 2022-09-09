@@ -191,7 +191,8 @@ ifeq ($(USE_LTO), 1)
 endif
 
 # `COERCE_CONTEXT_SWITCH=1` will inject spurious wakeup and
-# random length of sleep at critical points (e.g, before acquring db mutex) in RocksDB.
+# random length of sleep or context switch at critical
+# points (e.g, before acquring db mutex) in RocksDB.
 # In this way, it coerces as many excution orders as possible in the hope of
 # exposing the problematic excution order
 COERCE_CONTEXT_SWITCH ?= 0
