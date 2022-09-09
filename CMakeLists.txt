@@ -587,10 +587,10 @@ include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
 if(USE_COROUTINES)
-	if(USE_FOLLY OR USE_FOLLY_LITE)
-		message(FATAL_ERROR "Please specify exactly one of USE_COROUTINES,"
+  if(USE_FOLLY OR USE_FOLLY_LITE)
+    message(FATAL_ERROR "Please specify exactly one of USE_COROUTINES,"
     " USE_FOLLY, and USE_FOLLY_LITE")
-	endif()
+  endif()
   set(CMAKE_CXX_STANDARD 20)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines -Wno-maybe-uninitialized")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated")
