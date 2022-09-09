@@ -190,7 +190,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     }
     if (need_evict_charge > 0) {
       size_t evicted_charge = 0;
-      size_t evicted_count = 0;
+      uint32_t evicted_count = 0;
       Evict(need_evict_charge, &evicted_charge, &evicted_count);
       occupancy_.fetch_sub(evicted_count, std::memory_order_relaxed);
       if (LIKELY(evicted_charge > need_evict_charge)) {
@@ -250,7 +250,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
       need_evict_charge = 1;
     }
     size_t evicted_charge = 0;
-    size_t evicted_count = 0;
+    uint32_t evicted_count = 0;
     if (need_evict_charge > 0) {
       Evict(need_evict_charge, &evicted_charge, &evicted_count);
       // Deal with potential occupancy deficit
@@ -833,7 +833,7 @@ void ClockHandleTable::Rollback(uint32_t hash, const ClockHandle* h) {
 }
 
 void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
-                             size_t* freed_count) {
+                             uint32_t* freed_count) {
   // TODO: make a tuning parameter?
   constexpr uint32_t step_size = 4;
 
