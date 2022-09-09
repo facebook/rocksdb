@@ -1240,7 +1240,7 @@ DEFINE_uint64(
     num_file_reads_for_auto_readahead,
     ROCKSDB_NAMESPACE::BlockBasedTableOptions()
         .num_file_reads_for_auto_readahead,
-    "Rocksdb implicit readahead starts at if reads are sequential and "
+    "Rocksdb implicit readahead is enabled if reads are sequential and "
     "num_file_reads_for_auto_readahead indicates after how many sequential "
     "reads into that file internal auto prefetching should be start.");
 
