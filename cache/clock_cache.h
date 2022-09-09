@@ -430,7 +430,8 @@ class ClockHandleTable {
   // Runs the clock eviction algorithm trying to reclaim at least
   // requested_charge. Returns how much is evicted, which could be less
   // if it appears impossible to evict the requested amount without blocking.
-  size_t Evict(size_t requested_charge);
+  void Evict(size_t requested_charge, size_t* freed_charge,
+             size_t* freed_count);
 
   // Returns the first slot in the probe sequence, starting from the given
   // probe number, with a handle e such that match(e) is true. At every

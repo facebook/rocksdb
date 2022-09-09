@@ -47,8 +47,11 @@ ClockHandleTable::~ClockHandleTable() {
       case ClockHandle::kStateEmpty:
         // noop
         break;
+      case ClockHandle::kStateInvisible:  // rare but possible
       case ClockHandle::kStateVisible:
         h.FreeData();
+        usage_.fetch_sub(h.total_charge, std::memory_order_relaxed);
+        occupancy_.fetch_sub(1U, std::memory_order_relaxed);
         break;
       // otherwise
       default:
@@ -56,6 +59,10 @@ ClockHandleTable::~ClockHandleTable() {
         break;
     }
   }
+
+  assert(usage_.load() == 0 ||
+         usage_.load() == size_t{GetTableSize()} * sizeof(ClockHandle));
+  assert(occupancy_ == 0);
 }
 
 // If an entry doesn't receive clock updates but is repeatedly referenced &
@@ -134,33 +141,23 @@ inline void CorrectNearOverflow(uint64_t old_meta,
 Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
                                 ClockHandle** handle, Cache::Priority priority,
                                 size_t capacity, bool strict_capacity_limit) {
-  // Do we have the available occupancy?
-  bool use_detached_insert = false;
+  // Do we have the available occupancy? Optimistically assume we do
+  // and deal with it if we don't.
   uint32_t old_occupancy = occupancy_.fetch_add(1, std::memory_order_relaxed);
   auto revert_occupancy_fn = [&]() {
     occupancy_.fetch_sub(1, std::memory_order_relaxed);
   };
-  if (UNLIKELY(old_occupancy >= occupancy_limit_)) {
-    // FIXME: use eviction instead
-    revert_occupancy_fn();
-    if (handle == nullptr) {
-      // Don't insert the entry but still return ok, as if the entry inserted
-      // into cache and evicted immediately.
-      proto.FreeData();
-      return Status::OK();
-    } else {
-      use_detached_insert = true;
-    }
-  }
+  // Whether we over-committed and need an eviction to make up for it
+  bool need_evict_for_occupancy = old_occupancy >= occupancy_limit_;
 
   // Usage/capacity handling is somewhat different depending on
-  // strict_capacity_limit.
+  // strict_capacity_limit, but mostly pessimistic.
+  bool use_detached_insert = false;
   const size_t total_charge = proto.total_charge;
   if (strict_capacity_limit) {
     if (total_charge > capacity) {
-      if (!use_detached_insert) {
-        revert_occupancy_fn();
-      }
+      assert(!use_detached_insert);
+      revert_occupancy_fn();
       return Status::MemoryLimit(
           "Cache entry too large for a single cache shard: " +
           std::to_string(total_charge) + " > " + std::to_string(capacity));
@@ -176,28 +173,45 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     } else {
       new_usage = old_usage;
     }
-    size_t need_evict_amount = old_usage + total_charge - new_usage;
-    if (need_evict_amount > 0) {
-      size_t evicted = Evict(need_evict_amount);
-      if (LIKELY(evicted > need_evict_amount)) {
+    // How much do we need to evict then?
+    size_t need_evict_charge = old_usage + total_charge - new_usage;
+    if (UNLIKELY(need_evict_for_occupancy) && need_evict_charge == 0) {
+      // Require at least 1 eviction.
+      need_evict_charge = 1;
+    }
+    if (need_evict_charge > 0) {
+      size_t evicted_charge = 0;
+      size_t evicted_count = 0;
+      Evict(need_evict_charge, &evicted_charge, &evicted_count);
+      occupancy_.fetch_sub(evicted_count, std::memory_order_relaxed);
+      if (LIKELY(evicted_charge > need_evict_charge)) {
+        assert(evicted_count > 0);
         // Evicted more than enough
-        usage_.fetch_sub(evicted - need_evict_amount,
+        usage_.fetch_sub(evicted_charge - need_evict_charge,
                          std::memory_order_relaxed);
-      } else if (evicted < need_evict_amount) {
+      } else if (evicted_charge < need_evict_charge) {
         // Roll back to old usage minus evicted
-        usage_.fetch_sub(evicted + (new_usage - old_usage),
+        usage_.fetch_sub(evicted_charge + (new_usage - old_usage),
                          std::memory_order_relaxed);
-        if (!use_detached_insert) {
-          revert_occupancy_fn();
+        assert(!use_detached_insert);
+        revert_occupancy_fn();
+        if (UNLIKELY(need_evict_for_occupancy) && evicted_count == 0) {
+          return Status::MemoryLimit(
+              "Insert failed because unable to evict entries to stay within "
+              "table occupancy limit.");
+        } else {
+          return Status::MemoryLimit(
+              "Insert failed because unable to evict entries to stay within "
+              "capacity limit.");
         }
-        return Status::MemoryLimit(
-            "Insert failed because the total charge has exceeded the "
-            "capacity.");
       }
+      // If we needed to evict something and we are proceeding, we must have
+      // evicted something.
+      assert(evicted_count > 0);
     }
   } else {
-    // TODO: move this after insert?
-    // !strict_capacity_limit
+    // Case strict_capacity_limit == false
+
     // For simplicity, we consider that either the cache can accept the insert
     // with no evictions, or we must evict enough to make (at least) enough
     // space. It could lead to unnecessary failures or excessive evictions in
@@ -208,25 +222,53 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
     // portion of the shard capacity. This can have the side benefit of
     // involving fewer threads in eviction.
     size_t old_usage = usage_.load(std::memory_order_relaxed);
+    size_t need_evict_charge;
     if (old_usage + total_charge <= capacity || total_charge > old_usage) {
       // Good enough for me (might run over with a race)
-      usage_.fetch_add(total_charge, std::memory_order_relaxed);
-      assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
+      need_evict_charge = 0;
     } else {
       // Try to evict enough space, and maybe some extra
-      size_t extra = 0;
+      need_evict_charge = total_charge;
       if (old_usage > capacity) {
         // Not too much to avoid thundering herd while avoiding strict
         // synchronization
-        extra = std::min(capacity / 1024, total_charge) + 1;
+        need_evict_charge += std::min(capacity / 1024, total_charge) + 1;
       }
-      size_t evicted = Evict(total_charge + extra);
-      usage_.fetch_add(total_charge - evicted, std::memory_order_relaxed);
-      assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
     }
+    if (UNLIKELY(need_evict_for_occupancy) && need_evict_charge == 0) {
+      // Special case: require at least 1 eviction if we only have to
+      // deal with occupancy
+      need_evict_charge = 1;
+    }
+    size_t evicted_charge = 0;
+    size_t evicted_count = 0;
+    if (need_evict_charge > 0) {
+      Evict(need_evict_charge, &evicted_charge, &evicted_count);
+      // Deal with potential occupancy deficit
+      if (UNLIKELY(need_evict_for_occupancy) && evicted_count == 0) {
+        assert(evicted_charge == 0);
+        revert_occupancy_fn();
+        if (handle == nullptr) {
+          // Don't insert the entry but still return ok, as if the entry
+          // inserted into cache and evicted immediately.
+          proto.FreeData();
+          return Status::OK();
+        } else {
+          use_detached_insert = true;
+        }
+      } else {
+        // Update occupancy for evictions
+        occupancy_.fetch_sub(evicted_count, std::memory_order_relaxed);
+      }
+    }
+    // Track new usage even if we weren't able to evict enough
+    usage_.fetch_add(total_charge - evicted_charge, std::memory_order_relaxed);
+    // No underflow
+    assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
   }
   auto revert_usage_fn = [&]() {
     usage_.fetch_sub(total_charge, std::memory_order_relaxed);
+    // No underflow
     assert(usage_.load(std::memory_order_relaxed) < SIZE_MAX / 2);
   };
 
@@ -340,6 +382,7 @@ Status ClockHandleTable::Insert(const ClockHandleMoreData& proto,
             // so we don't need to undo it.
             // Slot not usable / touchable now.
           }
+          (void)old_meta;
           return false;
         },
         [&](ClockHandle* /*h*/) { return false; },
@@ -451,6 +494,7 @@ ClockHandle* ClockHandleTable::Lookup(const CacheKeyBytes& key, uint32_t hash) {
           // it because we did not acquire a read reference to lock the
           // entry in a Shareable state.
         }
+        (void)old_meta;
         return false;
       },
       [&](ClockHandle* h) {
@@ -506,8 +550,8 @@ bool ClockHandleTable::Release(ClockHandle* h, bool useful,
         CorrectNearOverflow(old_meta, h->meta);
         return false;
       }
-      if ((old_meta & uint64_t{ClockHandle::kStateShareableBit}
-                          << ClockHandle::kStateShift) == 0) {
+      if ((old_meta & (uint64_t{ClockHandle::kStateShareableBit}
+                       << ClockHandle::kStateShift)) == 0) {
         // Someone else took ownership
         return false;
       }
@@ -773,12 +817,12 @@ void ClockHandleTable::Rollback(uint32_t hash, uint32_t probe) {
   }
 }
 
-size_t ClockHandleTable::Evict(size_t requested_charge) {
+void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
+                             size_t* freed_count) {
   // TODO: make a tuning parameter?
   constexpr uint32_t step_size = 4;
 
   int allowed_wrap_arounds = ClockHandle::kMaxCountdown;
-  size_t freed_charge = 0;
   do {
     uint32_t old_clock_pointer =
         clock_pointer_.fetch_add(step_size, std::memory_order_relaxed);
@@ -786,7 +830,7 @@ size_t ClockHandleTable::Evict(size_t requested_charge) {
     allowed_wrap_arounds -= (ModTableSize(old_clock_pointer) >
                              ModTableSize(old_clock_pointer + step_size));
     if (UNLIKELY(allowed_wrap_arounds < 0)) {
-      return freed_charge;
+      return;
     }
 
     for (uint32_t i = 0; i < step_size; i++) {
@@ -833,7 +877,7 @@ size_t ClockHandleTable::Evict(size_t requested_charge) {
         // Took ownership
         // TODO? Delay freeing?
         h.FreeData();
-        freed_charge += h.total_charge;
+        *freed_charge += h.total_charge;
 #ifndef NDEBUG
         // Mark slot as empty, with assertion
         meta = h.meta.exchange(0, std::memory_order_release);
@@ -843,11 +887,10 @@ size_t ClockHandleTable::Evict(size_t requested_charge) {
         // Mark slot as empty
         h.meta.store(0, std::memory_order_release);
 #endif
-        occupancy_.fetch_sub(1U, std::memory_order_relaxed);
+        *freed_count += 1;
       }
     }
-  } while (freed_charge < requested_charge);
-  return freed_charge;
+  } while (*freed_charge < requested_charge);
 }
 
 ClockCacheShard::ClockCacheShard(
@@ -993,7 +1036,7 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
     return;
   }
   auto key_bytes = reinterpret_cast<const CacheKeyBytes*>(key.data());
-  return table_.Erase(*key_bytes, hash);
+  table_.Erase(*key_bytes, hash);
 }
 
 size_t ClockCacheShard::GetUsage() const { return table_.GetUsage(); }

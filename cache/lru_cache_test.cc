@@ -593,7 +593,7 @@ class ClockCacheTest : public testing::Test {
   ClockCacheShard* shard_ = nullptr;
 };
 
-TEST_F(ClockCacheTest, Validate) {
+TEST_F(ClockCacheTest, Misc) {
   NewShard(3);
   EXPECT_OK(InsertWithLen('a', 16));
   EXPECT_NOK(InsertWithLen('b', 15));
@@ -602,6 +602,13 @@ TEST_F(ClockCacheTest, Validate) {
   EXPECT_NOK(InsertWithLen('d', 1000));
   EXPECT_NOK(InsertWithLen('e', 11));
   EXPECT_NOK(InsertWithLen('f', 0));
+
+  // Some of this is motivated by code coverage
+  std::string wrong_size_key(15, 'x');
+  EXPECT_FALSE(Lookup(wrong_size_key));
+  EXPECT_FALSE(shard_->Ref(nullptr));
+  EXPECT_FALSE(shard_->Release(nullptr));
+  shard_->Erase(wrong_size_key, /*hash*/ 42);  // no-op
 }
 
 TEST_F(ClockCacheTest, ClockEvictionTest) {
@@ -712,6 +719,83 @@ TEST_F(ClockCacheTest, ClockCounterOverflowTest) {
   shard_->Release(h);
   // Deleted
   ASSERT_EQ(deleted, 1);
+}
+
+// This test is mostly to exercise some corner case logic, by forcing two
+// keys to have the same hash, and more
+TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
+  NewShard(6, /*strict_capacity_limit*/ false);
+  int deleted = 0;
+  std::string key1(kCacheKeySize, 'x');
+  std::string key2(kCacheKeySize, 'y');
+  uint32_t my_hash = 42;
+  Cache::Handle* h1;
+  ASSERT_OK(shard_->Insert(key1, my_hash, &deleted, 1, IncrementIntDeleter, &h1,
+                           Cache::Priority::HIGH));
+  Cache::Handle* h2;
+  ASSERT_OK(shard_->Insert(key2, my_hash, &deleted, 1, IncrementIntDeleter, &h2,
+                           Cache::Priority::HIGH));
+
+  // Can repeatedly lookup+release despite the hash collision
+  Cache::Handle* tmp_h;
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key1, my_hash);
+    ASSERT_EQ(h1, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+
+    tmp_h = shard_->Lookup(key2, my_hash);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Make h1 invisible
+  shard_->Erase(key1, my_hash);
+
+  // All still alive
+  ASSERT_EQ(deleted, 0);
+
+  // Invisible to Lookup
+  tmp_h = shard_->Lookup(key1, my_hash);
+  ASSERT_EQ(nullptr, tmp_h);
+
+  // Can still find h2
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key2, my_hash);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Release last ref on h1
+  ASSERT_TRUE(shard_->Release(h1, /*erase_if_last_ref*/ false));
+
+  // h1 deleted
+  ASSERT_EQ(deleted, 1);
+  h1 = nullptr;
+
+  // Can still find h2
+  for (bool erase_if_last_ref : {true, false}) {  // but not last ref
+    tmp_h = shard_->Lookup(key2, my_hash);
+    ASSERT_EQ(h2, tmp_h);
+    ASSERT_FALSE(shard_->Release(tmp_h, erase_if_last_ref));
+  }
+
+  // Release last ref on h2
+  ASSERT_FALSE(shard_->Release(h2, /*erase_if_last_ref*/ false));
+
+  // h2 still not deleted (unreferenced in cache)
+  ASSERT_EQ(deleted, 1);
+
+  // Can still find it
+  tmp_h = shard_->Lookup(key2, my_hash);
+  ASSERT_EQ(h2, tmp_h);
+
+  // Release last ref on h2, with erase
+  ASSERT_TRUE(shard_->Release(h2, /*erase_if_last_ref*/ true));
+
+  // h2 deleted
+  ASSERT_EQ(deleted, 2);
+  tmp_h = shard_->Lookup(key2, my_hash);
+  ASSERT_EQ(nullptr, tmp_h);
 }
 
 TEST_F(ClockCacheTest, CalcHashBitsTest) {
