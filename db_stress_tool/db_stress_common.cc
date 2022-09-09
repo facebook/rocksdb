@@ -355,8 +355,8 @@ Status DeleteFilesInDirectory(const std::string& dirname) {
   return s;
 }
 
-Status SaveFilesInDirectory(
-    const std::string& src_dirname, const std::string& dst_dirname) {
+Status SaveFilesInDirectory(const std::string& src_dirname,
+                            const std::string& dst_dirname) {
   std::vector<std::string> filenames;
   Status s = Env::Default()->GetChildren(src_dirname, &filenames);
   for (size_t i = 0; s.ok() && i < filenames.size(); ++i) {
@@ -367,7 +367,7 @@ Status SaveFilesInDirectory(
         continue;
       }
       s = Env::Default()->LinkFile(src_dirname + "/" + filenames[i],
-                                  dst_dirname + "/" + filenames[i]);
+                                   dst_dirname + "/" + filenames[i]);
     }
   }
   return s;

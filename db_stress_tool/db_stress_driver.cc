@@ -61,8 +61,7 @@ bool RunStressTest(StressTest* stress) {
 
   SharedState shared(db_stress_env, stress);
 
-  if (shared.ShouldVerifyAtBeginning() &&
-      FLAGS_preserve_unverified_changes) {
+  if (shared.ShouldVerifyAtBeginning() && FLAGS_preserve_unverified_changes) {
     Status s = InitUnverifiedSubdir(FLAGS_db);
     if (s.ok() && !FLAGS_expected_values_dir.empty()) {
       s = InitUnverifiedSubdir(FLAGS_expected_values_dir);
