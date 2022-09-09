@@ -573,7 +573,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
     assert(IsFragmentedRangeTombstonesConstructed());
     return new FragmentedRangeTombstoneIterator(
         fragmented_range_tombstone_list_.get(), comparator_.comparator,
-        read_seq);
+        read_seq, read_options.timestamp);
   }
 
   // takes current cache
@@ -596,8 +596,10 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIteratorInternal(
     cache->reader_mutex.unlock();
   }
 
-  return new FragmentedRangeTombstoneIterator(cache, comparator_.comparator,
-                                              read_seq);
+  auto* fragmented_iter = new FragmentedRangeTombstoneIterator(
+      cache, comparator_.comparator, read_seq,
+      read_options.timestamp);
+  return fragmented_iter;
 }
 
 void MemTable::ConstructFragmentedRangeTombstones() {
@@ -607,7 +609,6 @@ void MemTable::ConstructFragmentedRangeTombstones() {
     auto* unfragmented_iter =
         new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
                              true /* use_range_del_table */);
-
     fragmented_range_tombstone_list_ =
         std::make_unique<FragmentedRangeTombstoneList>(
             std::unique_ptr<InternalIterator>(unfragmented_iter),
@@ -978,8 +979,12 @@ static bool SaveValue(void* arg, const char* entry) {
     }
 
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
-         type == kTypeWideColumnEntity) &&
+         type == kTypeWideColumnEntity || type == kTypeDeletion ||
+         type == kTypeSingleDeletion || type == kTypeDeletionWithTimestamp) &&
         max_covering_tombstone_seq > seq) {
+      // Note that deletion types are also considered, this is for the case
+      // when we need to return timestamp to user. If a range tombstone has a
+      // higher seqno than point tombstone, its timestamp should be returned.
       type = kTypeRangeDeletion;
     }
     switch (type) {
@@ -1139,9 +1144,17 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                                 GetInternalKeySeqno(key.internal_key()),
                                 immutable_memtable));
   if (range_del_iter != nullptr) {
-    *max_covering_tombstone_seq =
-        std::max(*max_covering_tombstone_seq,
-                 range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
+    SequenceNumber covering_seq =
+        range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key());
+    if (covering_seq > *max_covering_tombstone_seq) {
+      *max_covering_tombstone_seq = covering_seq;
+      if (timestamp) {
+        // Will be overwritten in SaveValue() if there is a point key with
+        // a higher seqno.
+        timestamp->assign(range_del_iter->timestamp().data(),
+                          range_del_iter->timestamp().size());
+      }
+    }
   }
 
   bool found_final_value = false;
@@ -1272,9 +1285,17 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           NewRangeTombstoneIteratorInternal(
               read_options, GetInternalKeySeqno(iter->lkey->internal_key()),
               immutable_memtable));
-      iter->max_covering_tombstone_seq = std::max(
-          iter->max_covering_tombstone_seq,
-          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
+      SequenceNumber covering_seq =
+          range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key());
+      if (covering_seq > iter->max_covering_tombstone_seq) {
+        iter->max_covering_tombstone_seq = covering_seq;
+        if (iter->timestamp) {
+          // Will be overwritten in SaveValue() if there is a point key with
+          // a higher seqno.
+          iter->timestamp->assign(range_del_iter->timestamp().data(),
+                                  range_del_iter->timestamp().size());
+        }
+      }
     }
     SequenceNumber dummy_seq;
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,

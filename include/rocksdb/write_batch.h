@@ -150,12 +150,8 @@ class WriteBatch : public WriteBatchBase {
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) override {
     return DeleteRange(nullptr, begin_key, end_key);
   }
-  Status DeleteRange(ColumnFamilyHandle* /*column_family*/,
-                     const Slice& /*begin_key*/, const Slice& /*end_key*/,
-                     const Slice& /*ts*/) override {
-    return Status::NotSupported(
-        "DeleteRange does not support user-defined timestamp");
-  }
+  Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key, const Slice& ts) override;
 
   // variant that takes SliceParts
   Status DeleteRange(ColumnFamilyHandle* column_family,

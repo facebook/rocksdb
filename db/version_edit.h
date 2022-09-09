@@ -254,10 +254,11 @@ struct FileMetaData {
   void UpdateBoundariesForRange(const InternalKey& start,
                                 const InternalKey& end, SequenceNumber seqno,
                                 const InternalKeyComparator& icmp) {
-    if (smallest.size() == 0 || icmp.Compare(start, smallest) < 0) {
+    if (smallest.size() == 0 ||
+        icmp.CompareWithoutTimestamp(start, smallest) < 0) {
       smallest = start;
     }
-    if (largest.size() == 0 || icmp.Compare(largest, end) < 0) {
+    if (largest.size() == 0 || icmp.CompareWithoutTimestamp(largest, end) < 0) {
       largest = end;
     }
     fd.smallest_seqno = std::min(fd.smallest_seqno, seqno);

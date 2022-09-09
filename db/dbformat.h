@@ -256,6 +256,7 @@ class InternalKeyComparator
   virtual ~InternalKeyComparator() {}
 
   int Compare(const Slice& a, const Slice& b) const override;
+  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const;
 
   bool Equal(const Slice& a, const Slice& b) const {
     // TODO Use user_comparator_.Equal(). Perhaps compare seqno before
@@ -271,7 +272,11 @@ class InternalKeyComparator
   }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
+  // assumes a.user_key and b.user_key both contain timestamp
+  int CompareWithoutTimestamp(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
+  int CompareWithoutTimestamp(const ParsedInternalKey& a,
+                              const ParsedInternalKey& b) const;
   // In this `Compare()` overload, the sequence numbers provided in
   // `a_global_seqno` and `b_global_seqno` override the sequence numbers in `a`
   // and `b`, respectively. To disable sequence number override(s), provide the
@@ -289,6 +294,10 @@ class InternalKey {
   InternalKey() {}  // Leave rep_ as empty to indicate it is invalid
   InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
     AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
+  }
+  InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t, Slice ts) {
+    AppendInternalKeyWithDifferentTimestamp(
+        &rep_, ParsedInternalKey(_user_key, s, t), ts);
   }
 
   // sets the internal key to be bigger or equal to all internal keys with this
@@ -347,6 +356,16 @@ class InternalKey {
 inline int InternalKeyComparator::Compare(const InternalKey& a,
                                           const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
+}
+
+inline int InternalKeyComparator::CompareWithoutTimestamp(
+    const InternalKey& a, const InternalKey& b) const {
+  ParsedInternalKey a_pik, b_pik;
+  ParseInternalKey(a.Encode(), &a_pik, false /* log_err */)
+      .PermitUncheckedError();
+  ParseInternalKey(b.Encode(), &b_pik, false /* log_err */)
+      .PermitUncheckedError();
+  return CompareWithoutTimestamp(a_pik, b_pik);
 }
 
 inline Status ParseInternalKey(const Slice& internal_key,
@@ -671,15 +690,35 @@ extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 
 // When user call DeleteRange() to delete a range of keys,
 // we will store a serialized RangeTombstone in MemTable and SST.
-// the struct here is a easy-understood form
+// the struct here is an easy-understood form
 // start/end_key_ is the start/end user key of the range to be deleted
 struct RangeTombstone {
   Slice start_key_;
   Slice end_key_;
   SequenceNumber seq_;
+  Slice ts_;
+  std::string pinned_start_key_;
+  std::string pinned_end_key_;
+
   RangeTombstone() = default;
   RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
       : start_key_(sk), end_key_(ek), seq_(sn) {}
+
+  // User-defined timestamp is enabled, sk and ek should be user key
+  // with timestamp, `ts` will be used to replace the timestamp in `sk` and
+  // `ek`.
+  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts)
+      : seq_(sn), ts_(ts) {
+    assert(!ts.empty());
+    pinned_start_key_.reserve(sk.size());
+    pinned_start_key_.append(sk.data(), sk.size() - ts.size());
+    pinned_start_key_.append(ts.data(), ts.size());
+    pinned_end_key_.reserve(ek.size());
+    pinned_end_key_.append(ek.data(), ek.size() - ts.size());
+    pinned_end_key_.append(ts.data(), ts.size());
+    start_key_ = pinned_start_key_;
+    end_key_ = pinned_end_key_;
+  }
 
   RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
     start_key_ = parsed_key.user_key;
@@ -690,8 +729,7 @@ struct RangeTombstone {
   // be careful to use Serialize(), allocates new memory
   std::pair<InternalKey, Slice> Serialize() const {
     auto key = InternalKey(start_key_, seq_, kTypeRangeDeletion);
-    Slice value = end_key_;
-    return std::make_pair(std::move(key), std::move(value));
+    return std::make_pair(std::move(key), end_key_);
   }
 
   // be careful to use SerializeKey(), allocates new memory
@@ -718,6 +756,28 @@ inline int InternalKeyComparator::Compare(const Slice& akey,
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
+  if (r == 0) {
+    const uint64_t anum =
+        DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes);
+    const uint64_t bnum =
+        DecodeFixed64(bkey.data() + bkey.size() - kNumInternalBytes);
+    if (anum > bnum) {
+      r = -1;
+    } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+inline int InternalKeyComparator::CompareWithoutTimestamp(
+    const Slice& akey, const Slice& bkey) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_.CompareWithoutTimestamp(ExtractUserKey(akey),
+                                                   ExtractUserKey(bkey));
   if (r == 0) {
     const uint64_t anum =
         DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes);

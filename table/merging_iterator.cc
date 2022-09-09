@@ -89,7 +89,7 @@ class MinHeapItemComparator {
   MinHeapItemComparator(const InternalKeyComparator* comparator)
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
-    return comparator_->Compare(a->key(), b->key()) > 0;
+    return comparator_->CompareWithoutTimestamp(a->key(), b->key()) > 0;
   }
 
  private:
@@ -101,7 +101,7 @@ class MaxHeapItemComparator {
   MaxHeapItemComparator(const InternalKeyComparator* comparator)
       : comparator_(comparator) {}
   bool operator()(HeapItem* a, HeapItem* b) const {
-    return comparator_->Compare(a->key(), b->key()) < 0;
+    return comparator_->CompareWithoutTimestamp(a->key(), b->key()) < 0;
   }
 
  private:
@@ -676,8 +676,9 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
           // number than current_search_key. Correctness is not affected as this
           // tombstone end key will be popped during FindNextVisibleKey().
           InsertRangeTombstoneToMinHeap(
-              level, comparator_->Compare(range_tombstone_iter->start_key(),
-                                          pik) > 0 /* start_key */);
+              level,
+              comparator_->CompareWithoutTimestamp(
+                  range_tombstone_iter->start_key(), pik) > 0 /* start_key */);
           // current_search_key < end_key guaranteed by the Seek() and Valid()
           // calls above. Only interested in user key coverage since older
           // sorted runs must have smaller sequence numbers than this range
@@ -685,7 +686,7 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
           //
           // TODO: range_tombstone_iter->Seek() finds the max covering
           //  sequence number, can make it cheaper by not looking for max.
-          if (comparator_->user_comparator()->Compare(
+          if (comparator_->user_comparator()->CompareWithoutTimestamp(
                   range_tombstone_iter->start_key().user_key,
                   current_search_key.GetUserKey()) <= 0) {
             // Since range_tombstone_iter->Valid(), seqno should be valid, so
@@ -697,8 +698,22 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
             // is not the same as the original target, it should not affect
             // correctness. Besides, in most cases, range tombstone start and
             // end key should have the same prefix?
-            current_search_key.SetInternalKey(
-                range_tombstone_iter->end_key().user_key, kMaxSequenceNumber);
+            if (comparator_->user_comparator()->timestamp_size()) {
+              // TruncatedRangeDelIterator::end_key() does not guarantee correct
+              // timestamp, so we call timestamp() here which gives the max
+              // timestamp of this range tombstone fragment in its level.
+              // Strictly speaking, this is not needed, since current_search_key
+              // is used to Seek into older levels so any timestamp from this
+              // level returned by end_key() should suffice. Calling timestamp()
+              // just to be safe.
+              Slice ts = range_tombstone_iter->timestamp();
+              current_search_key.SetInternalKey(
+                  range_tombstone_iter->end_key().user_key, kMaxSequenceNumber,
+                  kValueTypeForSeek, &ts);
+            } else {
+              current_search_key.SetInternalKey(
+                  range_tombstone_iter->end_key().user_key, kMaxSequenceNumber);
+            }
           }
         }
       }
@@ -808,22 +823,28 @@ bool MergingIterator::SkipNextDeleted() {
   for (auto& i : active_) {
     if (i < current->level) {
       // range tombstone is from a newer level, definitely covers
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
-      assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
-             0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 range_tombstone_iters_[i]->start_key(), pik) <= 0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 pik, range_tombstone_iters_[i]->end_key()) < 0);
       std::string target;
-      AppendInternalKey(&target, range_tombstone_iters_[i]->end_key());
+      if (comparator_->user_comparator()->timestamp_size()) {
+        AppendInternalKeyWithDifferentTimestamp(
+            &target, range_tombstone_iters_[i]->end_key(),
+            range_tombstone_iters_[i]->timestamp());
+      } else {
+        AppendInternalKey(&target, range_tombstone_iters_[i]->end_key());
+      }
       SeekImpl(target, current->level, true);
       return true /* current key deleted */;
     } else if (i == current->level) {
       // range tombstone is from the same level as current, check sequence
       // number. By `active_` we know current key is between start key and end
       // key.
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
-      assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
-             0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 range_tombstone_iters_[i]->start_key(), pik) <= 0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 pik, range_tombstone_iters_[i]->end_key()) < 0);
       if (pik.sequence < range_tombstone_iters_[current->level]->seq()) {
         // covered by range tombstone
         current->iter.Next();
@@ -910,19 +931,27 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
         range_tombstone_iter->SeekForPrev(current_search_key.GetUserKey());
         if (range_tombstone_iter->Valid()) {
           InsertRangeTombstoneToMaxHeap(
-              level, comparator_->Compare(range_tombstone_iter->end_key(),
-                                          pik) <= 0 /* end_key */);
+              level,
+              comparator_->CompareWithoutTimestamp(
+                  range_tombstone_iter->end_key(), pik) <= 0 /* end_key */);
           // start key <= current_search_key guaranteed by the Seek() call above
           // Only interested in user key coverage since older sorted runs must
           // have smaller sequence numbers than this tombstone.
-          if (comparator_->user_comparator()->Compare(
+          if (comparator_->user_comparator()->CompareWithoutTimestamp(
                   current_search_key.GetUserKey(),
                   range_tombstone_iter->end_key().user_key) < 0) {
             range_tombstone_reseek = true;
             // covered by this range tombstone
-            current_search_key.SetInternalKey(
-                range_tombstone_iter->start_key().user_key, kMaxSequenceNumber,
-                kValueTypeForSeekForPrev);
+            if (comparator_->user_comparator()->timestamp_size()) {
+              Slice ts = range_tombstone_iter->timestamp();
+              current_search_key.SetInternalKey(
+                  range_tombstone_iter->start_key().user_key,
+                  kMaxSequenceNumber, kValueTypeForSeekForPrev, &ts);
+            } else {
+              current_search_key.SetInternalKey(
+                  range_tombstone_iter->start_key().user_key,
+                  kMaxSequenceNumber, kValueTypeForSeekForPrev);
+            }
           }
         }
       }
@@ -1018,12 +1047,18 @@ bool MergingIterator::SkipPrevDeleted() {
   for (auto& i : active_) {
     if (i < current->level) {
       // range tombstone is from a newer level, definitely covers
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
-      assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
-             0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 range_tombstone_iters_[i]->start_key(), pik) <= 0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 pik, range_tombstone_iters_[i]->end_key()) < 0);
       std::string target;
-      AppendInternalKey(&target, range_tombstone_iters_[i]->start_key());
+      if (comparator_->user_comparator()->timestamp_size()) {
+        AppendInternalKeyWithDifferentTimestamp(
+            &target, range_tombstone_iters_[i]->start_key(),
+            range_tombstone_iters_[i]->timestamp());
+      } else {
+        AppendInternalKey(&target, range_tombstone_iters_[i]->start_key());
+      }
       // This is different from SkipNextDeleted() which does reseek at sorted
       // runs
       // >= level (instead of i+1 here). With min heap, if level L is at top of
@@ -1036,10 +1071,10 @@ bool MergingIterator::SkipPrevDeleted() {
       return true /* current key deleted */;
     } else if (i == current->level) {
       // By `active_` we know current key is between start key and end key.
-      assert(comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                  pik) <= 0);
-      assert(comparator_->Compare(pik, range_tombstone_iters_[i]->end_key()) <
-             0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 range_tombstone_iters_[i]->start_key(), pik) <= 0);
+      assert(comparator_->CompareWithoutTimestamp(
+                 pik, range_tombstone_iters_[i]->end_key()) < 0);
       if (pik.sequence < range_tombstone_iters_[current->level]->seq()) {
         current->iter.Prev();
         if (current->iter.Valid()) {
@@ -1132,14 +1167,15 @@ void MergingIterator::SwitchToForward() {
         // key. We could have a range tombstone with end_key covering user_key,
         // but still is smaller than target. This happens when the range
         // tombstone is truncated at iter.largest_.
-        while (iter->Valid() &&
-               comparator_->Compare(iter->end_key(), pik) <= 0) {
+        while (iter->Valid() && comparator_->CompareWithoutTimestamp(
+                                    iter->end_key(), pik) <= 0) {
           iter->Next();
         }
         if (range_tombstone_iters_[i]->Valid()) {
           InsertRangeTombstoneToMinHeap(
-              i, comparator_->Compare(range_tombstone_iters_[i]->start_key(),
-                                      pik) > 0 /* start_key */);
+              i, comparator_->CompareWithoutTimestamp(
+                     range_tombstone_iters_[i]->start_key(), pik) >
+                     0 /* start_key */);
         }
       }
     }
@@ -1183,13 +1219,14 @@ void MergingIterator::SwitchToBackward() {
       // in InsertRangeTombstoneToMaxHeap() we change op_type to be the smallest
       // op_type.
       while (iter->Valid() &&
-             comparator_->Compare(iter->start_key(), pik) > 0) {
+             comparator_->CompareWithoutTimestamp(iter->start_key(), pik) > 0) {
         iter->Prev();
       }
       if (iter->Valid()) {
         InsertRangeTombstoneToMaxHeap(
-            i, comparator_->Compare(range_tombstone_iters_[i]->end_key(),
-                                    pik) <= 0 /* end_key */);
+            i,
+            comparator_->CompareWithoutTimestamp(
+                range_tombstone_iters_[i]->end_key(), pik) <= 0 /* end_key */);
       }
     }
   }

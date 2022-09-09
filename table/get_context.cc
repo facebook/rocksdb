@@ -263,9 +263,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     auto type = parsed_key.type;
     // Key matches. Process it
     if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex ||
-         type == kTypeWideColumnEntity) &&
+         type == kTypeWideColumnEntity || type == kTypeDeletion ||
+         type == kTypeDeletionWithTimestamp || type == kTypeSingleDeletion) &&
         max_covering_tombstone_seq_ != nullptr &&
         *max_covering_tombstone_seq_ > parsed_key.sequence) {
+      // Note that deletion types are also considered, this is for the case
+      // when we need to return timestamp to user. If a range tombstone has a
+      // higher seqno than point tombstone, its timestamp should be returned.
       type = kTypeRangeDeletion;
     }
     switch (type) {

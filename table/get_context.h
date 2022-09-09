@@ -148,6 +148,8 @@ class GetContext {
     return max_covering_tombstone_seq_;
   }
 
+  std::string* timestamp() { return timestamp_; }
+
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
   // If a non-null string is passed, all the SaveValue calls will be

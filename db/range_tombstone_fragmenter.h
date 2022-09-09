@@ -40,12 +40,18 @@ struct FragmentedRangeTombstoneList {
           end_key(end),
           seq_start_idx(start_idx),
           seq_end_idx(end_idx) {}
-
+    // start_key and end_key contain timestamp if enabled, this is only
+    // to make comparisons cleaner. The effective timestamps for this range tombstone
+    // is in tombstone_timestamps_.
     Slice start_key;
     Slice end_key;
+    // sequence numbers for this range tombstone are in tombstone_seqs_[seq_start_idx, seq_end_idx).
+    // If user-defined timestamp is enabled, timestamps are in tombstone_timestamps_[seq_start_idx, seq_end_idx),
+    // and maps to the sequence number at the same index.
     size_t seq_start_idx;
     size_t seq_end_idx;
   };
+  // Assumes key() and value() from the input iterator both contain timestamp if enabled.
   FragmentedRangeTombstoneList(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       const InternalKeyComparator& icmp, bool for_compaction = false,
@@ -61,6 +67,10 @@ struct FragmentedRangeTombstoneList {
 
   std::vector<SequenceNumber>::const_iterator seq_iter(size_t idx) const {
     return std::next(tombstone_seqs_.begin(), idx);
+  }
+
+  std::vector<Slice>::const_iterator ts_iter(size_t idx) const {
+    return std::next(tombstone_timestamps_.begin(), idx);
   }
 
   std::vector<SequenceNumber>::const_iterator seq_begin() const {
@@ -89,6 +99,12 @@ struct FragmentedRangeTombstoneList {
   // Given an ordered range tombstone iterator unfragmented_tombstones,
   // "fragment" the tombstones into non-overlapping pieces, and store them in
   // tombstones_ and tombstone_seqs_.
+  // Each "non-overlapping piece" is a RangeTombstoneStack, which contains
+  // start_key, end_key, and indices that points to a sequence numbers and timestamps.
+  // If for_compaction is true, then snapshots should be provided for the
+  // compaction. Range tombstone fragments are dropped if they are not visible
+  // in any snapshot and user-defined timestamp is not enabled. That is, for each snapshot stripe [lower, upper], the
+  // range tombstone fragment with largest seqno in [lower, upper] is preserved, and all the other range tombstones are dropped.
   void FragmentTombstones(
       std::unique_ptr<InternalIterator> unfragmented_tombstones,
       const InternalKeyComparator& icmp, bool for_compaction,
@@ -96,6 +112,8 @@ struct FragmentedRangeTombstoneList {
 
   std::vector<RangeTombstoneStack> tombstones_;
   std::vector<SequenceNumber> tombstone_seqs_;
+  // slices point to timestamps from end keys which are pinned in pinned_slices_
+  std::vector<Slice> tombstone_timestamps_;
   std::set<SequenceNumber> seq_set_;
   std::list<std::string> pinned_slices_;
   PinnedIteratorsManager pinned_iters_mgr_;
@@ -117,15 +135,15 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   FragmentedRangeTombstoneIterator(
       const FragmentedRangeTombstoneList* tombstones,
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
-      SequenceNumber lower_bound = 0);
+      const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
   FragmentedRangeTombstoneIterator(
       const std::shared_ptr<const FragmentedRangeTombstoneList>& tombstones,
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
-      SequenceNumber lower_bound = 0);
+      const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
   FragmentedRangeTombstoneIterator(
       const std::shared_ptr<FragmentedRangeTombstoneListCache>& tombstones,
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
-      SequenceNumber lower_bound = 0);
+      const Slice* ts_upper_bound = nullptr, SequenceNumber lower_bound = 0);
 
   void SeekToFirst() override;
   void SeekToLast() override;
@@ -172,11 +190,28 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   }
 
   RangeTombstone Tombstone() const {
+    assert(Valid());
+    if (icmp_->user_comparator()->timestamp_size()) {
+      return RangeTombstone(start_key(), end_key(), seq(), timestamp());
+    }
     return RangeTombstone(start_key(), end_key(), seq());
   }
+  // Note that start_key() and end_key() are not guaranteed to have the
+  // correct timestamp. User can call timestamp() to get the correct timestamp().
   Slice start_key() const { return pos_->start_key; }
   Slice end_key() const { return pos_->end_key; }
   SequenceNumber seq() const { return *seq_pos_; }
+  Slice timestamp() const {
+    // seqno and timestamp are stored in the same order in tombstones_.
+    return *tombstones_->ts_iter(seq_pos_ -
+                                 tombstones_->seq_iter(pos_->seq_start_idx));
+  }
+  // Current use case is by CompactionRangeDelAggregator to set
+  // full_history_ts_low_.
+  void SetTimestampUpperBound(const Slice* ts_upper_bound) {
+    ts_upper_bound_ = ts_upper_bound;
+  }
+
   ParsedInternalKey parsed_start_key() const {
     return ParsedInternalKey(pos_->start_key, kMaxSequenceNumber,
                              kTypeRangeDeletion);
@@ -186,6 +221,9 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
                              kTypeRangeDeletion);
   }
 
+  // Return the max sequence number of a range tombstone that covers
+  // the given user key.
+  // If there is no covering tombstone, then 0 is returned.
   SequenceNumber MaxCoveringTombstoneSeqnum(const Slice& user_key);
 
   // Splits the iterator into n+1 iterators (where n is the number of
@@ -218,15 +256,15 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
     bool operator()(const RangeTombstoneStack& a,
                     const RangeTombstoneStack& b) const {
-      return cmp->Compare(a.start_key, b.start_key) < 0;
+      return cmp->CompareWithoutTimestamp(a.start_key, b.start_key) < 0;
     }
 
     bool operator()(const RangeTombstoneStack& a, const Slice& b) const {
-      return cmp->Compare(a.start_key, b) < 0;
+      return cmp->CompareWithoutTimestamp(a.start_key, b) < 0;
     }
 
     bool operator()(const Slice& a, const RangeTombstoneStack& b) const {
-      return cmp->Compare(a, b.start_key) < 0;
+      return cmp->CompareWithoutTimestamp(a, b.start_key) < 0;
     }
 
     const Comparator* cmp;
@@ -237,15 +275,15 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
 
     bool operator()(const RangeTombstoneStack& a,
                     const RangeTombstoneStack& b) const {
-      return cmp->Compare(a.end_key, b.end_key) < 0;
+      return cmp->CompareWithoutTimestamp(a.end_key, b.end_key) < 0;
     }
 
     bool operator()(const RangeTombstoneStack& a, const Slice& b) const {
-      return cmp->Compare(a.end_key, b) < 0;
+      return cmp->CompareWithoutTimestamp(a.end_key, b) < 0;
     }
 
     bool operator()(const Slice& a, const RangeTombstoneStack& b) const {
-      return cmp->Compare(a, b.end_key) < 0;
+      return cmp->CompareWithoutTimestamp(a, b.end_key) < 0;
     }
 
     const Comparator* cmp;
@@ -277,11 +315,18 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   const FragmentedRangeTombstoneList* tombstones_;
   SequenceNumber upper_bound_;
   SequenceNumber lower_bound_;
+  // Only consider timestamps <= ts_upper_bound_.
+  const Slice* ts_upper_bound_;
   std::vector<RangeTombstoneStack>::const_iterator pos_;
   std::vector<SequenceNumber>::const_iterator seq_pos_;
   mutable std::vector<RangeTombstoneStack>::const_iterator pinned_pos_;
   mutable std::vector<SequenceNumber>::const_iterator pinned_seq_pos_;
   mutable InternalKey current_start_key_;
+
+  // Check the current RangeTombstoneStack `pos_` against timestamp
+  // upper bound `ts_upper_bound_` and sequence number upper bound `upper_bound_`. Update the sequence number (and timestamp) pointer
+  // `seq_pos_` to the first valid index satisfying both bounds.
+  inline void SetMaxVisibleSeqAndTimestamp();
 };
 
 }  // namespace ROCKSDB_NAMESPACE

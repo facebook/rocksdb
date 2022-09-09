@@ -59,19 +59,27 @@ class TruncatedRangeDelIterator {
 
   ParsedInternalKey start_key() const {
     return (smallest_ == nullptr ||
-            icmp_->Compare(*smallest_, iter_->parsed_start_key()) <= 0)
+            icmp_->CompareWithoutTimestamp(*smallest_,
+                                           iter_->parsed_start_key()) <= 0)
                ? iter_->parsed_start_key()
                : *smallest_;
   }
 
   ParsedInternalKey end_key() const {
-    return (largest_ == nullptr ||
-            icmp_->Compare(iter_->parsed_end_key(), *largest_) <= 0)
+    return (largest_ == nullptr || icmp_->CompareWithoutTimestamp(
+                                       iter_->parsed_end_key(), *largest_) <= 0)
                ? iter_->parsed_end_key()
                : *largest_;
   }
 
   SequenceNumber seq() const { return iter_->seq(); }
+  Slice timestamp() const {
+    assert(icmp_->user_comparator()->timestamp_size());
+    return iter_->timestamp();
+  }
+  void SetTimestampUpperBound(const Slice* ts_upper_bound) {
+    iter_->SetTimestampUpperBound(ts_upper_bound);
+  }
 
   std::map<SequenceNumber, std::unique_ptr<TruncatedRangeDelIterator>>
   SplitBySnapshot(const std::vector<SequenceNumber>& snapshots);
@@ -103,7 +111,7 @@ struct StartKeyMinComparator {
 
   bool operator()(const TruncatedRangeDelIterator* a,
                   const TruncatedRangeDelIterator* b) const {
-    return icmp->Compare(a->start_key(), b->start_key()) > 0;
+    return icmp->CompareWithoutTimestamp(a->start_key(), b->start_key()) > 0;
   }
 
   const InternalKeyComparator* icmp;
@@ -135,7 +143,8 @@ class ForwardRangeDelIterator {
 
     bool operator()(const ActiveSeqSet::const_iterator& a,
                     const ActiveSeqSet::const_iterator& b) const {
-      return icmp->Compare((*a)->end_key(), (*b)->end_key()) > 0;
+      return icmp->CompareWithoutTimestamp((*a)->end_key(), (*b)->end_key()) >
+             0;
     }
 
     const InternalKeyComparator* icmp;
@@ -148,7 +157,7 @@ class ForwardRangeDelIterator {
       // either of the heaps.
       return;
     }
-    int cmp = icmp_->Compare(parsed, iter->start_key());
+    int cmp = icmp_->CompareWithoutTimestamp(parsed, iter->start_key());
     if (cmp < 0) {
       PushInactiveIter(iter);
     } else {
@@ -212,7 +221,7 @@ class ReverseRangeDelIterator {
 
     bool operator()(const TruncatedRangeDelIterator* a,
                     const TruncatedRangeDelIterator* b) const {
-      return icmp->Compare(a->end_key(), b->end_key()) < 0;
+      return icmp->CompareWithoutTimestamp(a->end_key(), b->end_key()) < 0;
     }
 
     const InternalKeyComparator* icmp;
@@ -222,7 +231,8 @@ class ReverseRangeDelIterator {
 
     bool operator()(const ActiveSeqSet::const_iterator& a,
                     const ActiveSeqSet::const_iterator& b) const {
-      return icmp->Compare((*a)->start_key(), (*b)->start_key()) < 0;
+      return icmp->CompareWithoutTimestamp((*a)->start_key(),
+                                           (*b)->start_key()) < 0;
     }
 
     const InternalKeyComparator* icmp;
@@ -233,7 +243,7 @@ class ReverseRangeDelIterator {
     if (!iter->Valid()) {
       // The iterator has been fully consumed, so we don't need to add it to
       // either of the heaps.
-    } else if (icmp_->Compare(iter->end_key(), parsed) <= 0) {
+    } else if (icmp_->CompareWithoutTimestamp(iter->end_key(), parsed) <= 0) {
       PushInactiveIter(iter);
     } else {
       PushActiveIter(iter);
@@ -332,6 +342,9 @@ class RangeDelAggregator {
       }
     }
 
+    // If user-defined timestamp is enabled, `start` and `end` are user keys
+    // with timestamp. IsRangeOverlappped returns whether there is an
+    // overlapping range tombstone based on user key without timestamp.
     bool IsRangeOverlapped(const Slice& start, const Slice& end);
 
    private:
@@ -395,8 +408,25 @@ class ReadRangeDelAggregator final : public RangeDelAggregator {
 class CompactionRangeDelAggregator : public RangeDelAggregator {
  public:
   CompactionRangeDelAggregator(const InternalKeyComparator* icmp,
-                               const std::vector<SequenceNumber>& snapshots)
-      : RangeDelAggregator(icmp), snapshots_(&snapshots) {}
+                               const std::vector<SequenceNumber>& snapshots,
+                               const std::string* full_history_ts_low = nullptr,
+                               const std::string* trim_ts = nullptr)
+      : RangeDelAggregator(icmp), snapshots_(&snapshots) {
+    if (full_history_ts_low) {
+      ts_upper_bound_ = *full_history_ts_low;
+    }
+    if (trim_ts) {
+      trim_ts_ = *trim_ts;
+      // Range tombstone newer than `trim_ts` or `full_history_ts_low` should
+      // not be considered in ShouldDelete().
+      if (ts_upper_bound_.empty()) {
+        ts_upper_bound_ = trim_ts_;
+      } else if (!trim_ts_.empty() && icmp->user_comparator()->CompareTimestamp(
+                     trim_ts_, ts_upper_bound_) < 0) {
+        ts_upper_bound_ = trim_ts_;
+      }
+    }
+  }
   ~CompactionRangeDelAggregator() override {}
 
   void AddTombstones(
@@ -442,6 +472,9 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
   std::map<SequenceNumber, StripeRep> reps_;
 
   const std::vector<SequenceNumber>* snapshots_;
+  // min over full_history_ts_low and trim_ts_
+  Slice ts_upper_bound_{};
+  Slice trim_ts_{};
 };
 
 }  // namespace ROCKSDB_NAMESPACE
