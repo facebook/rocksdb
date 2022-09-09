@@ -422,7 +422,7 @@ class CompactionRangeDelAggregator : public RangeDelAggregator {
       if (ts_upper_bound_.empty()) {
         ts_upper_bound_ = trim_ts_;
       } else if (!trim_ts_.empty() && icmp->user_comparator()->CompareTimestamp(
-                     trim_ts_, ts_upper_bound_) < 0) {
+                                          trim_ts_, ts_upper_bound_) < 0) {
         ts_upper_bound_ = trim_ts_;
       }
     }

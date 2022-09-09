@@ -147,9 +147,9 @@ void FragmentedRangeTombstoneList::FragmentTombstones(
       size_t start_idx = tombstone_seqs_.size();
       size_t end_idx = start_idx + seqnums_to_flush.size();
 
-      // If user-defined timestamp is enabled, we should not drop tombstones from
-      // any snapshot stripe. Garbage collection of range tombstones happens in
-      // CompactionOutputs::AddRangeDels().
+      // If user-defined timestamp is enabled, we should not drop tombstones
+      // from any snapshot stripe. Garbage collection of range tombstones
+      // happens in CompactionOutputs::AddRangeDels().
       if (for_compaction && ts_sz == 0) {
         // Drop all tombstone seqnums that are not preserved by a snapshot.
         SequenceNumber next_snapshot = kMaxSequenceNumber;
@@ -318,8 +318,8 @@ void FragmentedRangeTombstoneIterator::SetMaxVisibleSeqAndTimestamp() {
     auto ts_idx = ts_pos - tombstones_->ts_iter(pos_->seq_start_idx);
     auto seq_idx = seq_pos_ - tombstones_->seq_iter(pos_->seq_start_idx);
     if (seq_idx < ts_idx) {
-      // seq and ts are ordered in non-increasing order. Only updates seq_pos_ to
-      // a larger index for smaller sequence number and timestamp.
+      // seq and ts are ordered in non-increasing order. Only updates seq_pos_
+      // to a larger index for smaller sequence number and timestamp.
       seq_pos_ = tombstones_->seq_iter(pos_->seq_start_idx + ts_idx);
     }
   }

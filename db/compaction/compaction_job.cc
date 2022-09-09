@@ -1035,8 +1035,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   NotifyOnSubcompactionBegin(sub_compact);
 
   auto range_del_agg = std::make_unique<CompactionRangeDelAggregator>(
-      &cfd->internal_comparator(), existing_snapshots_,
-      &full_history_ts_low_, &trim_ts_);
+      &cfd->internal_comparator(), existing_snapshots_, &full_history_ts_low_,
+      &trim_ts_);
 
   // TODO: since we already use C++17, should use
   // std::optional<const Slice> instead.

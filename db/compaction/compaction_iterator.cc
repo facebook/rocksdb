@@ -916,9 +916,10 @@ void CompactionIterator::NextFromInput() {
       // 2. different snapshot stripe
       // If user-defined timestamp is enabled, we consider keys for GC if they
       // are below history_ts_low_. CompactionRangeDelAggregator::ShouldDelete()
-      // only considers range deletions that are at or below history_ts_low_ and trim_ts_. We drop keys here
-      // that are below history_ts_low_ and are covered by a range tombstone
-      // that is at or below history_ts_low_ and trim_ts.
+      // only considers range deletions that are at or below history_ts_low_ and
+      // trim_ts_. We drop keys here that are below history_ts_low_ and are
+      // covered by a range tombstone that is at or below history_ts_low_ and
+      // trim_ts.
       bool should_delete = false;
       if (!timestamp_size_ || cmp_with_history_ts_low_ < 0) {
         should_delete = range_del_agg_->ShouldDelete(

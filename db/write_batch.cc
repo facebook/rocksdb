@@ -2354,7 +2354,8 @@ class MemTableInserter : public WriteBatch::Handler {
             cfd->GetName());
       }
       // Timestamp is only in begin_key.
-      int cmp = cfd->user_comparator()->CompareWithoutTimestamp(begin_key, end_key);
+      int cmp =
+          cfd->user_comparator()->CompareWithoutTimestamp(begin_key, end_key);
       if (cmp > 0) {
         // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
         ret_status.PermitUncheckedError();

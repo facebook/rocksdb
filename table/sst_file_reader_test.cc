@@ -399,12 +399,17 @@ TEST_F(SstFileReaderTimestampTest, BasicDeleteRange) {
   std::string ts = EncodeAsUint64(2);
   Slice ts_slice = ts;
   read_options.timestamp = &ts_slice;
-  FragmentedRangeTombstoneIterator* iter = reader.NewRangeTombstoneIterator(read_options);
+  FragmentedRangeTombstoneIterator* iter =
+      reader.NewRangeTombstoneIterator(read_options);
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
-  ASSERT_EQ(StripTimestampFromUserKey(iter->start_key(), EncodeAsUint64(1).size()), "key1");
-  ASSERT_EQ(StripTimestampFromUserKey(iter->end_key(), EncodeAsUint64(1).size()), "key2");
+  ASSERT_EQ(
+      StripTimestampFromUserKey(iter->start_key(), EncodeAsUint64(1).size()),
+      "key1");
+  ASSERT_EQ(
+      StripTimestampFromUserKey(iter->end_key(), EncodeAsUint64(1).size()),
+      "key2");
   ASSERT_EQ(iter->timestamp(), EncodeAsUint64(1));
   iter->Next();
   ASSERT_FALSE(iter->Valid());

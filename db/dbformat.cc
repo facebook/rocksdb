@@ -140,9 +140,9 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
 int InternalKeyComparator::CompareWithoutTimestamp(
     const ParsedInternalKey& a, const ParsedInternalKey& b) const {
   // Order by:
-  //    increasing user key (according to user-supplied comparator), excluding timestamp
-  //    decreasing sequence number
-  //    decreasing type (though sequence# should be enough to disambiguate)
+  //    increasing user key (according to user-supplied comparator), excluding
+  //    timestamp decreasing sequence number decreasing type (though sequence#
+  //    should be enough to disambiguate)
   int r = user_comparator_.CompareWithoutTimestamp(a.user_key, b.user_key);
   if (r == 0) {
     if (a.sequence > b.sequence) {

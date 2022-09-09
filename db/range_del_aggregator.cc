@@ -379,11 +379,12 @@ void CompactionRangeDelAggregator::AddTombstones(
     }
     assert(it != reps_.end());
     // ts_upper_bound is used to bound ShouldDelete() to only consider
-    // range tombstones under full_history_ts_low_ and trim_ts_. Keys covered by range
-    // tombstones that are above full_history_ts_low_ should not be dropped
-    // prematurely: user may read with a timestamp between the range tombstone
-    // and the covered key. Note that we cannot set timestamp upperbound on the original `input_iter` since `input_iter`s are
-    // later used in CompactionRangeDelAggregator::NewIterator to output range
+    // range tombstones under full_history_ts_low_ and trim_ts_. Keys covered by
+    // range tombstones that are above full_history_ts_low_ should not be
+    // dropped prematurely: user may read with a timestamp between the range
+    // tombstone and the covered key. Note that we cannot set timestamp
+    // upperbound on the original `input_iter` since `input_iter`s are later
+    // used in CompactionRangeDelAggregator::NewIterator to output range
     // tombstones for persistence. We do not want to only persist range
     // tombstones with timestamp lower than ts_upper_bound.
     split_iter.second->SetTimestampUpperBound(ts_upper_bound);
@@ -406,8 +407,8 @@ namespace {
 // `children`. lower_bound and upper_bound on user key can be
 // optionally specified. Range tombstones that ends before lower_bound or starts
 // after upper_bound are excluded.
-// If user-defined timestamp is enabled, lower_bound and upper_bound should contain
-// timestamp, but comparison is done without timestamps.
+// If user-defined timestamp is enabled, lower_bound and upper_bound should
+// contain timestamp, but comparison is done without timestamps.
 class TruncatedRangeDelMergingIter : public InternalIterator {
  public:
   TruncatedRangeDelMergingIter(

@@ -86,7 +86,8 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
   return res;
 }
 
-FragmentedRangeTombstoneIterator* SstFileReader::NewRangeTombstoneIterator(const ReadOptions& options) {
+FragmentedRangeTombstoneIterator* SstFileReader::NewRangeTombstoneIterator(
+    const ReadOptions& options) {
   auto r = rep_.get();
   return r->table_reader->NewRangeTombstoneIterator(options);
 }

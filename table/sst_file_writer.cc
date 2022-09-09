@@ -380,10 +380,10 @@ Status SstFileWriter::DeleteRange(const Slice& begin_key,
   return rep_->DeleteRange(begin_key, end_key);
 }
 
-Status SstFileWriter::DeleteRange(const Slice& begin_key, const Slice& end_key, const Slice& timestamp) {
+Status SstFileWriter::DeleteRange(const Slice& begin_key, const Slice& end_key,
+                                  const Slice& timestamp) {
   return rep_->DeleteRange(begin_key, end_key, timestamp);
 }
-
 
 Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   Rep* r = rep_.get();

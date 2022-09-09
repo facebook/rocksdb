@@ -437,10 +437,11 @@ Status CompactionOutputs::AddRangeDels(
     }
 
     // Garbage collection for range tombstones.
-    // If user-defined timestamp is enabled, range tombstones are dropped if they are at bottommost_level, below full_history_ts_low
-    // and not visible in any snapshot.
-    // trim_ts_ is passed to the constructor for range_del_agg_, and range_del_agg_
-    // internally drops tombstones above trim_ts_.
+    // If user-defined timestamp is enabled, range tombstones are dropped if
+    // they are at bottommost_level, below full_history_ts_low and not visible
+    // in any snapshot. trim_ts_ is passed to the constructor for
+    // range_del_agg_, and range_del_agg_ internally drops tombstones above
+    // trim_ts_.
     if (bottommost_level && tombstone.seq_ <= earliest_snapshot &&
         (ucmp->timestamp_size() == 0 ||
          (!full_history_ts_low.empty() &&
