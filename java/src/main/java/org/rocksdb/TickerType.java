@@ -836,6 +836,36 @@ public enum TickerType {
      */
     BLOB_DB_CACHE_BYTES_WRITE((byte) -0x34),
 
+    /**
+     * # of real handles lookup from sec cache and inserted into primary cache.
+     */
+    BLOCK_CACHE_REAL_HANDLE_COUNT((byte) -0x35),
+
+    /**
+     * # of standalone handles lookup from secondary cache.
+     */
+    BLOCK_CACHE_STANDALONE_HANDLE_COUNT((byte) -0x36),
+
+    /**
+     * # of real handles inserted into secondary cache.
+     */
+    COMPRESSED_SEC_CACHE_INSERT_REAL_COUNT((byte) -0x37),
+
+    /**
+     * # of dummy handles inserted into secondary cache.
+     */
+    COMPRESSED_SEC_CACHE_INSERT_DUMMY_COUNT((byte) -0x38),
+
+    /**
+     * bytes for vals before compression in secondary cache.
+     */
+    COMPRESSED_SEC_CACHE_UNCOMPRESSED_BYTES((byte) -0x39),
+
+    /**
+     * bytes for vals after compression in secondary cache
+     */
+    COMPRESSED_SEC_CACHE_COMPRESSED_BYTES((byte) -0x3A),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

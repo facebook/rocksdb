@@ -5104,6 +5104,18 @@ class TickerTypeJni {
         return -0x33;
       case ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE:
         return -0x34;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_REAL_HANDLE_COUNT:
+        return -0x35;
+      case ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_STANDALONE_HANDLE_COUNT:
+        return -0x36;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SEC_CACHE_INSERT_REAL_COUNT:
+        return -0x37;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SEC_CACHE_INSERT_DUMMY_COUNT:
+        return -0x38;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SEC_CACHE_UNCOMPRESSED_BYTES:
+        return -0x39;
+      case ROCKSDB_NAMESPACE::Tickers::COMPRESSED_SEC_CACHE_COMPRESSED_BYTES:
+        return -0x3A;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep
@@ -5487,6 +5499,22 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_READ;
       case -0x34:
         return ROCKSDB_NAMESPACE::Tickers::BLOB_DB_CACHE_BYTES_WRITE;
+      case -0x35:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_REAL_HANDLE_COUNT;
+      case -0x36:
+        return ROCKSDB_NAMESPACE::Tickers::BLOCK_CACHE_STANDALONE_HANDLE_COUNT;
+      case -0x37:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SEC_CACHE_INSERT_REAL_COUNT;
+      case -0x38:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SEC_CACHE_INSERT_DUMMY_COUNT;
+      case -0x39:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SEC_CACHE_UNCOMPRESSED_BYTES;
+      case -0x3A:
+        return ROCKSDB_NAMESPACE::Tickers::
+            COMPRESSED_SEC_CACHE_COMPRESSED_BYTES;
       case 0x5F:
         // 0x5F was the max value in the initial copy of tickers to Java.
         // Since these values are exposed directly to Java clients, we keep

@@ -233,7 +233,18 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_CACHE_ADD, "rocksdb.blobdb.cache.add"},
     {BLOB_DB_CACHE_ADD_FAILURES, "rocksdb.blobdb.cache.add.failures"},
     {BLOB_DB_CACHE_BYTES_READ, "rocksdb.blobdb.cache.bytes.read"},
-    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"}};
+    {BLOB_DB_CACHE_BYTES_WRITE, "rocksdb.blobdb.cache.bytes.write"},
+    {BLOCK_CACHE_REAL_HANDLE_COUNT, "rocksdb.block.cache.real.handle.count"},
+    {BLOCK_CACHE_STANDALONE_HANDLE_COUNT,
+     "rocksdb.block.cache.standalone.handle.count"},
+    {COMPRESSED_SEC_CACHE_INSERT_REAL_COUNT,
+     "rocksdb.compressed.sec.cache.insert.real.count"},
+    {COMPRESSED_SEC_CACHE_INSERT_DUMMY_COUNT,
+     "rocksdb.compressed.sec.cache.insert.dummy.count"},
+    {COMPRESSED_SEC_CACHE_UNCOMPRESSED_BYTES,
+     "rocksdb.compressed.sec.cache.uncompressed.bytes"},
+    {COMPRESSED_SEC_CACHE_COMPRESSED_BYTES,
+     "rocksdb.compressed.sec.cache.compressed.bytes"}};
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET, "rocksdb.db.get.micros"},

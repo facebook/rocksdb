@@ -448,6 +448,19 @@ enum Tickers : uint32_t {
   // # of bytes written into blob cache.
   BLOB_DB_CACHE_BYTES_WRITE,
 
+  // # of real handles lookup from sec cache and inserted into primary cache.
+  BLOCK_CACHE_REAL_HANDLE_COUNT,
+  // # of standalone handles lookup from secondary cache.
+  BLOCK_CACHE_STANDALONE_HANDLE_COUNT,
+  // # of real handles inserted into secondary cache.
+  COMPRESSED_SEC_CACHE_INSERT_REAL_COUNT,
+  // # of dummy handles inserted into secondary cache.
+  COMPRESSED_SEC_CACHE_INSERT_DUMMY_COUNT,
+  // bytes for vals before compression in secondary cache.
+  COMPRESSED_SEC_CACHE_UNCOMPRESSED_BYTES,
+  // bytes for vals after compression in secondary cache.
+  COMPRESSED_SEC_CACHE_COMPRESSED_BYTES,
+
   TICKER_ENUM_MAX
 };
 

@@ -386,9 +386,20 @@ Cache::Handle* BlockBasedTable::GetEntryFromCache(
     const Cache::CacheItemHelper* cache_helper,
     const Cache::CreateCallback& create_cb, Cache::Priority priority) const {
   Cache::Handle* cache_handle = nullptr;
+
   if (cache_tier == CacheTier::kNonVolatileBlockTier) {
+    SetPerfLevel(kEnableCount);
+    PerfContext* perf_ctx = get_perf_context();
+    perf_ctx->Reset();
+
     cache_handle = block_cache->Lookup(key, cache_helper, create_cb, priority,
                                        wait, rep_->ioptions.statistics.get());
+
+    RecordTick(rep_->ioptions.stats, BLOCK_CACHE_REAL_HANDLE_COUNT,
+               perf_ctx->block_cache_real_handle_count);
+    RecordTick(rep_->ioptions.stats, BLOCK_CACHE_STANDALONE_HANDLE_COUNT,
+               perf_ctx->block_cache_standalone_handle_count);
+
   } else {
     cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
   }
@@ -416,8 +427,21 @@ Status BlockBasedTable::InsertEntryToCache(
     Cache::Handle** cache_handle, Cache::Priority priority) const {
   Status s = Status::OK();
   if (cache_tier == CacheTier::kNonVolatileBlockTier) {
+    SetPerfLevel(kEnableCount);
+    PerfContext* perf_ctx = get_perf_context();
+    perf_ctx->Reset();
+
     s = block_cache->Insert(key, block_holder.get(), cache_helper, charge,
                             cache_handle, priority);
+
+    RecordTick(rep_->ioptions.stats, COMPRESSED_SEC_CACHE_INSERT_REAL_COUNT,
+               perf_ctx->compressed_sec_cache_insert_real_count);
+    RecordTick(rep_->ioptions.stats, COMPRESSED_SEC_CACHE_INSERT_DUMMY_COUNT,
+               perf_ctx->compressed_sec_cache_insert_dummy_count);
+    RecordTick(rep_->ioptions.stats, COMPRESSED_SEC_CACHE_UNCOMPRESSED_BYTES,
+               perf_ctx->compressed_sec_cache_uncompressed_bytes);
+    RecordTick(rep_->ioptions.stats, COMPRESSED_SEC_CACHE_COMPRESSED_BYTES,
+               perf_ctx->compressed_sec_cache_compressed_bytes);
   } else {
     s = block_cache->Insert(key, block_holder.get(), charge,
                             cache_helper->del_cb, cache_handle, priority);
