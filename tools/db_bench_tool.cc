@@ -1236,6 +1236,14 @@ DEFINE_uint64(
     "BlockBasedTableOptions.initial_auto_readahead_size and doubles on every "
     "additional read upto max_auto_readahead_size");
 
+DEFINE_uint64(
+    num_file_reads_for_auto_readahead,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+        .num_file_reads_for_auto_readahead,
+    "Rocksdb implicit readahead is enabled if reads are sequential and "
+    "num_file_reads_for_auto_readahead indicates after how many sequential "
+    "reads into that file internal auto prefetching should be start.");
+
 static enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);
@@ -4372,6 +4380,8 @@ class Benchmark {
           FLAGS_max_auto_readahead_size;
       block_based_options.initial_auto_readahead_size =
           FLAGS_initial_auto_readahead_size;
+      block_based_options.num_file_reads_for_auto_readahead =
+          FLAGS_num_file_reads_for_auto_readahead;
       BlockBasedTableOptions::PrepopulateBlockCache prepopulate_block_cache =
           block_based_options.prepopulate_block_cache;
       switch (FLAGS_prepopulate_block_cache) {
