@@ -254,7 +254,7 @@ void CompactionJob::Prepare() {
       // timestamp part).
       assert(i == 0 || i == boundaries_.size() ||
              cfd->user_comparator()->CompareWithoutTimestamp(
-                 boundaries_[i - 1], true, boundaries_[i], true) < 0);
+                 boundaries_[i - 1], boundaries_[i]) < 0);
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
@@ -486,8 +486,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
   std::sort(
       all_anchors.begin(), all_anchors.end(),
       [cfd_comparator](TableReader::Anchor& a, TableReader::Anchor& b) -> bool {
-        return cfd_comparator->CompareWithoutTimestamp(a.user_key, true,
-                                                       b.user_key, true) < 0;
+        return cfd_comparator->CompareWithoutTimestamp(a.user_key, b.user_key) <
+               0;
       });
 
   // Remove duplicated entries from boundaries.
@@ -496,7 +496,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
                   [cfd_comparator](TableReader::Anchor& a,
                                    TableReader::Anchor& b) -> bool {
                     return cfd_comparator->CompareWithoutTimestamp(
-                               a.user_key, true, b.user_key, true) == 0;
+                               a.user_key, b.user_key) == 0;
                   }),
       all_anchors.end());
 
@@ -1085,13 +1085,34 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Slice start_slice;
   Slice end_slice;
 
+  static constexpr char kMaxTs[] =
+      "\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff";
+  Slice ts_slice;
+  std::string max_ts;
+  if (ts_sz > 0) {
+    if (ts_sz <= strlen(kMaxTs)) {
+      ts_slice = Slice(kMaxTs, ts_sz);
+    } else {
+      max_ts = std::string(ts_sz, '\xff');
+      ts_slice = Slice(max_ts);
+    }
+  }
+
   if (start.has_value()) {
     start_ikey.SetInternalKey(start.value(), kMaxSequenceNumber,
                               kValueTypeForSeek);
+    if (ts_sz > 0) {
+      start_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
+                                   &ts_slice);
+    }
     start_slice = start_ikey.GetInternalKey();
   }
   if (end.has_value()) {
     end_ikey.SetInternalKey(end.value(), kMaxSequenceNumber, kValueTypeForSeek);
+    if (ts_sz > 0) {
+      end_ikey.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeek,
+                                 &ts_slice);
+    }
     end_slice = end_ikey.GetInternalKey();
   }
 
