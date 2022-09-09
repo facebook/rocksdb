@@ -365,12 +365,10 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
@@ -407,12 +405,10 @@ jobs:
       - post-steps
 
   build-linux-gcc-7-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
@@ -436,15 +432,13 @@ jobs:
       - post-steps
 
   build-linux-cmake-with-folly-coroutines:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     environment:
       CC: gcc-10
       CXX: g++-10
     steps:
       - pre-steps
-      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: (mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
@@ -476,12 +470,10 @@ jobs:
 
   # Ensure ASAN+UBSAN with folly, and full testsuite with clang 13
   build-linux-clang-13-asan-ubsan-with-folly:
-    machine:
-      image: ubuntu-2004:202111-02
+    executor: linux-docker
     resource_class: 2xlarge
     steps:
       - pre-steps
-      - upgrade-cmake
       - setup-folly
       - build-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
