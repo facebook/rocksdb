@@ -78,7 +78,7 @@ blackbox_crash_test_with_multiops_wp_txn: $(DB_STRESS_CMD)
 	$(CRASHTEST_PY) --test_multiops_txn --write_policy write_prepared blackbox $(CRASH_TEST_EXT_ARGS)
 
 blackbox_crash_test_with_tiered_storage: $(DB_STRESS_CMD)
-	$(CRASHTEST_PY) --enable_tiered_storage blackbox $(CRASH_TEST_EXT_ARGS)
+	$(CRASHTEST_PY) --test_tiered_storage blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -103,5 +103,5 @@ whitebox_crash_test_with_ts: $(DB_STRESS_CMD)
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 whitebox_crash_test_with_tiered_storage: $(DB_STRESS_CMD)
-	$(CRASHTEST_PY) --enable_tiered_storage whitebox --random_kill_odd \
+	$(CRASHTEST_PY) --test_tiered_storage whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)

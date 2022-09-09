@@ -458,6 +458,8 @@ void LRUCacheShard::Promote(LRUHandle* e) {
         e->Unref();
         e->Free();
         e = nullptr;
+      } else {
+        PERF_COUNTER_ADD(block_cache_standalone_handle_count, 1);
       }
 
       // Insert a dummy handle into the primary cache. This dummy handle is
@@ -477,6 +479,9 @@ void LRUCacheShard::Promote(LRUHandle* e) {
       // and the caller will most likely just read it from disk if we erase it
       // here.
       s = InsertItem(e, &handle, /*free_handle_on_fail=*/false);
+      if (s.ok()) {
+        PERF_COUNTER_ADD(block_cache_real_handle_count, 1);
+      }
     }
 
     if (!s.ok()) {
