@@ -401,12 +401,16 @@ Status DestroyUnverifiedSubdir(const std::string& dirname) {
   }
 
   const std::string kUnverifiedDirname = dirname + "/unverified";
-  s = Env::Default()->FileExists(kUnverifiedDirname);
+  if (s.ok()) {
+    s = Env::Default()->FileExists(kUnverifiedDirname);
+  }
   if (s.IsNotFound()) {
     return Status::OK();
   }
 
-  s = DeleteFilesInDirectory(kUnverifiedDirname);
+  if (s.ok()) {
+    s = DeleteFilesInDirectory(kUnverifiedDirname);
+  }
   if (s.ok()) {
     s = Env::Default()->DeleteDir(kUnverifiedDirname);
   }
