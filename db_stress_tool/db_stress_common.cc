@@ -360,7 +360,7 @@ Status SaveFilesInDirectory(const std::string& src_dirname,
   std::vector<std::string> filenames;
   Status s = Env::Default()->GetChildren(src_dirname, &filenames);
   for (size_t i = 0; s.ok() && i < filenames.size(); ++i) {
-    bool is_dir;
+    bool is_dir = false;
     s = Env::Default()->IsDirectory(src_dirname + "/" + filenames[i], &is_dir);
     if (s.ok()) {
       if (is_dir) {
