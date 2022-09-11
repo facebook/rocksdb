@@ -168,11 +168,7 @@ class FilePrefetchBuffer {
 
     for (uint32_t i = 0; i < 2; i++) {
       // Release io_handle.
-      if (bufs_[i].io_handle_ != nullptr && bufs_[i].del_fn_ != nullptr) {
-        bufs_[i].del_fn_(bufs_[i].io_handle_);
-        bufs_[i].io_handle_ = nullptr;
-        bufs_[i].del_fn_ = nullptr;
-      }
+      DestroyAndClearIOHandle(i);
     }
     RecordInHistogram(stats_, PREFETCHED_BYTES_DISCARDED, bytes_discarded);
   }
@@ -285,6 +281,8 @@ class FilePrefetchBuffer {
 
   void AbortIOIfNeeded(uint64_t offset);
 
+  void AbortAllIOs();
+
   void UpdateBuffersIfNeeded(uint64_t offset);
 
   // It calls Poll API if any there is any pending asynchronous request. It then
@@ -364,6 +362,15 @@ class FilePrefetchBuffer {
     return (bufs_[index].async_read_in_progress_ &&
             bufs_[index].io_handle_ != nullptr &&
             offset >= bufs_[index].offset_ + bufs_[index].async_req_len_);
+  }
+
+  void DestroyAndClearIOHandle(uint32_t index) {
+    if (bufs_[index].io_handle_ != nullptr && bufs_[index].del_fn_ != nullptr) {
+      bufs_[index].del_fn_(bufs_[index].io_handle_);
+      bufs_[index].io_handle_ = nullptr;
+      bufs_[index].del_fn_ = nullptr;
+    }
+    bufs_[index].async_read_in_progress_ = false;
   }
 
   std::vector<BufferInfo> bufs_;

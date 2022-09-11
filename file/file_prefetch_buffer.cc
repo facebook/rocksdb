@@ -218,11 +218,7 @@ void FilePrefetchBuffer::AbortIOIfNeeded(uint64_t offset) {
 
   for (auto& pos : buf_pos) {
     // Release io_handle.
-    if (bufs_[pos].io_handle_ != nullptr && bufs_[pos].del_fn_ != nullptr) {
-      bufs_[pos].del_fn_(bufs_[pos].io_handle_);
-      bufs_[pos].io_handle_ = nullptr;
-      bufs_[pos].del_fn_ = nullptr;
-    }
+    DestroyAndClearIOHandle(pos);
   }
 
   if (bufs_[second].io_handle_ == nullptr) {
@@ -233,6 +229,30 @@ void FilePrefetchBuffer::AbortIOIfNeeded(uint64_t offset) {
       bufs_[curr_].async_read_in_progress_) {
     bufs_[curr_].async_read_in_progress_ = false;
     curr_ = curr_ ^ 1;
+  }
+}
+
+void FilePrefetchBuffer::AbortAllIOs() {
+  uint32_t second = curr_ ^ 1;
+  std::vector<void*> handles;
+  for (uint32_t i = 0; i < 2; i++) {
+    if (bufs_[i].async_read_in_progress_ && bufs_[i].io_handle_ != nullptr) {
+      handles.emplace_back(bufs_[i].io_handle_);
+    }
+  }
+  if (!handles.empty()) {
+    StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
+    Status s = fs_->AbortIO(handles);
+    assert(s.ok());
+  }
+
+  // Release io_handles.
+  if (bufs_[curr_].io_handle_ != nullptr && bufs_[curr_].del_fn_ != nullptr) {
+    DestroyAndClearIOHandle(curr_);
+  }
+
+  if (bufs_[second].io_handle_ != nullptr && bufs_[second].del_fn_ != nullptr) {
+    DestroyAndClearIOHandle(second);
   }
 }
 
@@ -275,12 +295,7 @@ void FilePrefetchBuffer::PollAndUpdateBuffersIfNeeded(uint64_t offset) {
 
     // Reset and Release io_handle after the Poll API as request has been
     // completed.
-    bufs_[curr_].async_read_in_progress_ = false;
-    if (bufs_[curr_].io_handle_ != nullptr && bufs_[curr_].del_fn_ != nullptr) {
-      bufs_[curr_].del_fn_(bufs_[curr_].io_handle_);
-      bufs_[curr_].io_handle_ = nullptr;
-      bufs_[curr_].del_fn_ = nullptr;
-    }
+    DestroyAndClearIOHandle(curr_);
   }
   UpdateBuffersIfNeeded(offset);
 }
@@ -369,6 +384,8 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
       uint64_t read_len = static_cast<size_t>(roundup_len - chunk_len);
       s = ReadAsync(opts, reader, read_len, rounddown_start, curr_);
       if (!s.ok()) {
+        DestroyAndClearIOHandle(curr_);
+        bufs_[curr_].buffer_.Clear();
         return s;
       }
     }
@@ -472,14 +489,29 @@ Status FilePrefetchBuffer::PrefetchAsyncInternal(
     bufs_[second].offset_ = rounddown_start2;
     assert(roundup_len2 >= chunk_len2);
     uint64_t read_len2 = static_cast<size_t>(roundup_len2 - chunk_len2);
-    ReadAsync(opts, reader, read_len2, rounddown_start2, second)
-        .PermitUncheckedError();
+    Status tmp_s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
+    if (!tmp_s.ok()) {
+      DestroyAndClearIOHandle(second);
+      bufs_[second].buffer_.Clear();
+    }
   }
 
   if (read_len1 > 0) {
     s = Read(opts, reader, rate_limiter_priority, read_len1, chunk_len1,
              rounddown_start1, curr_);
     if (!s.ok()) {
+      if (bufs_[second].io_handle_ != nullptr) {
+        std::vector<void*> handles;
+        handles.emplace_back(bufs_[second].io_handle_);
+        {
+          StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
+          Status status = fs_->AbortIO(handles);
+          assert(status.ok());
+        }
+      }
+      DestroyAndClearIOHandle(second);
+      bufs_[second].buffer_.Clear();
+      bufs_[curr_].buffer_.Clear();
       return s;
     }
   }
@@ -561,14 +593,18 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
     return false;
   }
 
-  // In case of async_io, offset can be less than bufs_[curr_].offset_ because
-  // of reads not sequential and PrefetchAsync can be called for any block and
-  // RocksDB will call TryReadFromCacheAsync after PrefetchAsync to Poll for
-  // requested bytes which is maintained by explicit_prefetch_submitted_.
-  // prev_len_ can be 0 in case of first request.
-  if (!(explicit_prefetch_submitted_ && prev_len_ == 0) &&
-      offset < bufs_[curr_].offset_) {
-    explicit_prefetch_submitted_ = false;
+  if (explicit_prefetch_submitted_) {
+    if (prev_offset_ != offset) {
+      // Random offset called. So abort the IOs.
+      AbortAllIOs();
+      bufs_[curr_].buffer_.Clear();
+      bufs_[curr_ ^ 1].buffer_.Clear();
+      explicit_prefetch_submitted_ = false;
+      return false;
+    }
+  }
+
+  if (!explicit_prefetch_submitted_ && offset < bufs_[curr_].offset_) {
     return false;
   }
 
@@ -601,6 +637,7 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
       // readahead_size_/2 will be prefetched asynchronously.
       s = PrefetchAsyncInternal(opts, reader, offset, n, readahead_size_ / 2,
                                 rate_limiter_priority, copy_to_third_buffer);
+      explicit_prefetch_submitted_ = false;
       if (!s.ok()) {
         if (status) {
           *status = s;
@@ -627,7 +664,6 @@ bool FilePrefetchBuffer::TryReadFromCacheAsync(
   if (prefetched) {
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
   }
-  explicit_prefetch_submitted_ = false;
   return true;
 }
 
@@ -673,7 +709,6 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   num_file_reads_ = 0;
   explicit_prefetch_submitted_ = false;
-  uint32_t second = curr_ ^ 1;
   bool is_eligible_for_prefetching = false;
   if (readahead_size_ > 0 &&
       (!implicit_auto_readahead_ ||
@@ -683,36 +718,11 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
 
   // 1. Cancel any pending async read to make code simpler as buffers can be out
   // of sync.
-  std::vector<void*> handles;
-  for (uint32_t i = 0; i < 2; i++) {
-    if (bufs_[i].async_read_in_progress_ && bufs_[i].io_handle_ != nullptr) {
-      handles.emplace_back(bufs_[i].io_handle_);
-    }
-  }
-  if (!handles.empty()) {
-    StopWatch sw(clock_, stats_, ASYNC_PREFETCH_ABORT_MICROS);
-    Status s = fs_->AbortIO(handles);
-    assert(s.ok());
-  }
-
-  // Release io_handle.
-  if (bufs_[curr_].io_handle_ != nullptr && bufs_[curr_].del_fn_ != nullptr) {
-    bufs_[curr_].del_fn_(bufs_[curr_].io_handle_);
-    bufs_[curr_].io_handle_ = nullptr;
-    bufs_[curr_].del_fn_ = nullptr;
-    bufs_[curr_].async_read_in_progress_ = false;
-  }
-
-  if (bufs_[second].io_handle_ != nullptr && bufs_[second].del_fn_ != nullptr) {
-    bufs_[second].del_fn_(bufs_[second].io_handle_);
-    bufs_[second].io_handle_ = nullptr;
-    bufs_[second].del_fn_ = nullptr;
-    bufs_[second].async_read_in_progress_ = false;
-  }
+  AbortAllIOs();
 
   // 2. Clear outdated data.
   UpdateBuffersIfNeeded(offset);
-  second = curr_ ^ 1;
+  uint32_t second = curr_ ^ 1;
   // Since PrefetchAsync can be called on non sequential reads. So offset can
   // be less than curr_ buffers' offset. In that case also it clears both
   // buffers.
@@ -804,6 +814,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   if (read_len1) {
     s = ReadAsync(opts, reader, read_len1, rounddown_start1, curr_);
     if (!s.ok()) {
+      DestroyAndClearIOHandle(curr_);
+      bufs_[curr_].buffer_.Clear();
       return s;
     }
     explicit_prefetch_submitted_ = true;
@@ -812,6 +824,8 @@ Status FilePrefetchBuffer::PrefetchAsync(const IOOptions& opts,
   if (read_len2) {
     s = ReadAsync(opts, reader, read_len2, rounddown_start2, second);
     if (!s.ok()) {
+      DestroyAndClearIOHandle(second);
+      bufs_[second].buffer_.Clear();
       return s;
     }
     readahead_size_ = std::min(max_readahead_size_, readahead_size_ * 2);
