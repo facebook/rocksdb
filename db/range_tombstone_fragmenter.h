@@ -33,6 +33,10 @@ struct FragmentedRangeTombstoneList {
   // start and end at the same user keys but have different sequence numbers.
   // The members seq_start_idx and seq_end_idx are intended to be parameters to
   // seq_iter().
+  // If user-defined timestamp is enabled, `start` and `end` should be user keys
+  // with timestamp, and the timestamps are set to max timestamp to be returned
+  // by parsed_start_key()/parsed_end_key(). seq_start_idx and seq_end_idx will
+  // also be used as parameters to ts_iter().
   struct RangeTombstoneStack {
     RangeTombstoneStack(const Slice& start, const Slice& end, size_t start_idx,
                         size_t end_idx)
@@ -45,10 +49,6 @@ struct FragmentedRangeTombstoneList {
     // tombstone is in tombstone_timestamps_.
     Slice start_key;
     Slice end_key;
-    // sequence numbers for this range tombstone are in
-    // tombstone_seqs_[seq_start_idx, seq_end_idx). If user-defined timestamp is
-    // enabled, timestamps are in tombstone_timestamps_[seq_start_idx,
-    // seq_end_idx), and maps to the sequence number at the same index.
     size_t seq_start_idx;
     size_t seq_end_idx;
   };
@@ -116,7 +116,6 @@ struct FragmentedRangeTombstoneList {
 
   std::vector<RangeTombstoneStack> tombstones_;
   std::vector<SequenceNumber> tombstone_seqs_;
-  // slices point to timestamps from end keys which are pinned in pinned_slices_
   std::vector<Slice> tombstone_timestamps_;
   std::set<SequenceNumber> seq_set_;
   std::list<std::string> pinned_slices_;
@@ -176,6 +175,8 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   void TopPrev();
 
   bool Valid() const override;
+  // Note that key() and value() do not return correct timestamp.
+  // Caller should call timestamp() to get the current timestamp.
   Slice key() const override {
     MaybePinKey();
     return current_start_key_.Encode();
@@ -207,9 +208,8 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   Slice end_key() const { return pos_->end_key; }
   SequenceNumber seq() const { return *seq_pos_; }
   Slice timestamp() const {
-    // seqno and timestamp are stored in the same order in tombstones_.
-    return *tombstones_->ts_iter(seq_pos_ -
-                                 tombstones_->seq_iter(pos_->seq_start_idx));
+    // seqno and timestamp are stored in the same order.
+    return *tombstones_->ts_iter(seq_pos_ - tombstones_->seq_begin());
   }
   // Current use case is by CompactionRangeDelAggregator to set
   // full_history_ts_low_.
@@ -331,7 +331,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   // Check the current RangeTombstoneStack `pos_` against timestamp
   // upper bound `ts_upper_bound_` and sequence number upper bound
   // `upper_bound_`. Update the sequence number (and timestamp) pointer
-  // `seq_pos_` to the first valid index satisfying both bounds.
+  // `seq_pos_` to the first valid position satisfying both bounds.
   inline void SetMaxVisibleSeqAndTimestamp();
 };
 

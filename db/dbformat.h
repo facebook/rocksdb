@@ -182,6 +182,11 @@ extern void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
 extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                       size_t ts_sz);
 
+// `key` is a user key with timestamp. Append the user key without timestamp
+// and the maximal timestamp to *result.
+extern void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                          size_t ts_sz);
+
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //
@@ -333,9 +338,22 @@ class InternalKey {
     SetFrom(ParsedInternalKey(_user_key, s, t));
   }
 
+  void Set(const Slice& _user_key, SequenceNumber s, ValueType t,
+           const Slice& ts) {
+    ParsedInternalKey pik = ParsedInternalKey(_user_key, s, t);
+    // Should not call pik.SetTimestamp() directly as it overwrites the buffer
+    // containing _user_key.
+    SetFrom(pik, ts);
+  }
+
   void SetFrom(const ParsedInternalKey& p) {
     rep_.clear();
     AppendInternalKey(&rep_, p);
+  }
+
+  void SetFrom(const ParsedInternalKey& p, const Slice& ts) {
+    rep_.clear();
+    AppendInternalKeyWithDifferentTimestamp(&rep_, p, ts);
   }
 
   void Clear() { rep_.clear(); }
@@ -537,7 +555,7 @@ class IterKey {
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
-  // user_key does not have timestamp.
+  // ts is appended to user_key if provided.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
@@ -705,7 +723,7 @@ struct RangeTombstone {
       : start_key_(sk), end_key_(ek), seq_(sn) {}
 
   // User-defined timestamp is enabled, sk and ek should be user key
-  // with timestamp, `ts` will be used to replace the timestamp in `sk` and
+  // with timestamp, `ts` will replace the timestamps in `sk` and
   // `ek`.
   RangeTombstone(Slice sk, Slice ek, SequenceNumber sn, Slice ts)
       : seq_(sn), ts_(ts) {
@@ -847,6 +865,20 @@ struct ParsedInternalKeyComparator {
   bool operator()(const ParsedInternalKey& a,
                   const ParsedInternalKey& b) const {
     return cmp->Compare(a, b) < 0;
+  }
+
+  const InternalKeyComparator* cmp;
+};
+
+// Wrap InternalKeyComparator as a comparator class for ParsedInternalKey.
+struct ParsedInternalKeyComparatorWithoutTimestamp {
+  explicit ParsedInternalKeyComparatorWithoutTimestamp(
+      const InternalKeyComparator* c)
+      : cmp(c) {}
+
+  bool operator()(const ParsedInternalKey& a,
+                  const ParsedInternalKey& b) const {
+    return cmp->CompareWithoutTimestamp(a, b) < 0;
   }
 
   const InternalKeyComparator* cmp;

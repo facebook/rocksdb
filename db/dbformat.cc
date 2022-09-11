@@ -88,6 +88,14 @@ void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
   result->append(kTsMax.data(), ts_sz);
 }
 
+void AppendUserKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                   size_t ts_sz) {
+  assert(ts_sz > 0);
+  const std::string kTsMax(ts_sz, static_cast<unsigned char>(0xff));
+  result->append(key.data(), key.size() - ts_sz);
+  result->append(kTsMax.data(), ts_sz);
+}
+
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   std::string result = "'";
   if (log_err_key) {
@@ -141,7 +149,8 @@ int InternalKeyComparator::CompareWithoutTimestamp(
     const ParsedInternalKey& a, const ParsedInternalKey& b) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator), excluding
-  //    timestamp decreasing sequence number decreasing type (though sequence#
+  //    timestamp
+  //    decreasing sequence number decreasing type (though sequence#
   //    should be enough to disambiguate)
   int r = user_comparator_.CompareWithoutTimestamp(a.user_key, b.user_key);
   if (r == 0) {

@@ -613,7 +613,7 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::NotFound(), "",
                     Timestamp(7, 0));
   Close();
-  // Trim data whose timestamp > Timestamp(4, 0), read(k1, ts(7)) <- v2
+  // Trim data whose timestamp > Timestamp(6, 0), read(k1, ts(7)) <- v2
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(6, 0)));
   check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::OK(), "v2",
@@ -692,7 +692,7 @@ INSTANTIATE_TEST_CASE_P(
         BlockBasedTableOptions::IndexType::kHashSearch,
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey));
-// TODO: adapt this into DELETER RANGE test
+
 TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;

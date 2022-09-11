@@ -609,6 +609,7 @@ void MemTable::ConstructFragmentedRangeTombstones() {
     auto* unfragmented_iter =
         new MemTableIterator(*this, ReadOptions(), nullptr /* arena */,
                              true /* use_range_del_table */);
+
     fragmented_range_tombstone_list_ =
         std::make_unique<FragmentedRangeTombstoneList>(
             std::unique_ptr<InternalIterator>(unfragmented_iter),

@@ -698,22 +698,13 @@ void MergingIterator::SeekImpl(const Slice& target, size_t starting_level,
             // is not the same as the original target, it should not affect
             // correctness. Besides, in most cases, range tombstone start and
             // end key should have the same prefix?
-            if (comparator_->user_comparator()->timestamp_size()) {
-              // TruncatedRangeDelIterator::end_key() does not guarantee correct
-              // timestamp, so we call timestamp() here which gives the max
-              // timestamp of this range tombstone fragment in its level.
-              // Strictly speaking, this is not needed, since current_search_key
-              // is used to Seek into older levels so any timestamp from this
-              // level returned by end_key() should suffice. Calling timestamp()
-              // just to be safe.
-              Slice ts = range_tombstone_iter->timestamp();
-              current_search_key.SetInternalKey(
-                  range_tombstone_iter->end_key().user_key, kMaxSequenceNumber,
-                  kValueTypeForSeek, &ts);
-            } else {
-              current_search_key.SetInternalKey(
-                  range_tombstone_iter->end_key().user_key, kMaxSequenceNumber);
-            }
+            // If range_tombstone_iter->end_key() is truncated to its largest_
+            // boundary, the timestamp in user_key will not be max timestamp,
+            // but the timestamp of `range_tombstone_iter.largest_`. This should
+            // be fine here as current_search_key is used to Seek into lower
+            // levels.
+            current_search_key.SetInternalKey(
+                range_tombstone_iter->end_key().user_key, kMaxSequenceNumber);
           }
         }
       }
@@ -828,13 +819,7 @@ bool MergingIterator::SkipNextDeleted() {
       assert(comparator_->CompareWithoutTimestamp(
                  pik, range_tombstone_iters_[i]->end_key()) < 0);
       std::string target;
-      if (comparator_->user_comparator()->timestamp_size()) {
-        AppendInternalKeyWithDifferentTimestamp(
-            &target, range_tombstone_iters_[i]->end_key(),
-            range_tombstone_iters_[i]->timestamp());
-      } else {
-        AppendInternalKey(&target, range_tombstone_iters_[i]->end_key());
-      }
+      AppendInternalKey(&target, range_tombstone_iters_[i]->end_key());
       SeekImpl(target, current->level, true);
       return true /* current key deleted */;
     } else if (i == current->level) {
@@ -941,17 +926,9 @@ void MergingIterator::SeekForPrevImpl(const Slice& target,
                   current_search_key.GetUserKey(),
                   range_tombstone_iter->end_key().user_key) < 0) {
             range_tombstone_reseek = true;
-            // covered by this range tombstone
-            if (comparator_->user_comparator()->timestamp_size()) {
-              Slice ts = range_tombstone_iter->timestamp();
-              current_search_key.SetInternalKey(
-                  range_tombstone_iter->start_key().user_key,
-                  kMaxSequenceNumber, kValueTypeForSeekForPrev, &ts);
-            } else {
-              current_search_key.SetInternalKey(
-                  range_tombstone_iter->start_key().user_key,
-                  kMaxSequenceNumber, kValueTypeForSeekForPrev);
-            }
+            current_search_key.SetInternalKey(
+                range_tombstone_iter->start_key().user_key, kMaxSequenceNumber,
+                kValueTypeForSeekForPrev);
           }
         }
       }
@@ -1017,10 +994,6 @@ bool MergingIterator::SkipPrevDeleted() {
     return true /* current key deleted */;
   }
   if (current->iter.IsDeleteRangeSentinelKey()) {
-    // Different from SkipNextDeleted(): range tombstone start key is before
-    // file boundary due to op_type set in SetTombstoneKey().
-    assert(ExtractValueType(current->iter.key()) != kTypeRangeDeletion ||
-           active_.count(current->level));
     // LevelIterator enters a new SST file
     current->iter.Prev();
     if (current->iter.Valid()) {
@@ -1052,20 +1025,13 @@ bool MergingIterator::SkipPrevDeleted() {
       assert(comparator_->CompareWithoutTimestamp(
                  pik, range_tombstone_iters_[i]->end_key()) < 0);
       std::string target;
-      if (comparator_->user_comparator()->timestamp_size()) {
-        AppendInternalKeyWithDifferentTimestamp(
-            &target, range_tombstone_iters_[i]->start_key(),
-            range_tombstone_iters_[i]->timestamp());
-      } else {
-        AppendInternalKey(&target, range_tombstone_iters_[i]->start_key());
-      }
+      AppendInternalKey(&target, range_tombstone_iters_[i]->start_key());
       // This is different from SkipNextDeleted() which does reseek at sorted
-      // runs
-      // >= level (instead of i+1 here). With min heap, if level L is at top of
-      // the heap, then levels <L all have internal keys > level L's current
-      // internal key, which means levels <L are already at a different user
-      // key. With max heap, if level L is at top of the heap, then levels <L
-      // all have internal keys smaller than level L's current internal key,
+      // runs >= level (instead of i+1 here). With min heap, if level L is at
+      // top of the heap, then levels <L all have internal keys > level L's
+      // current internal key, which means levels <L are already at a different
+      // user key. With max heap, if level L is at top of the heap, then levels
+      // <L all have internal keys smaller than level L's current internal key,
       // which might still be the same user key.
       SeekForPrevImpl(target, i + 1, true);
       return true /* current key deleted */;

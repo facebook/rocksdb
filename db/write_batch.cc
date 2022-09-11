@@ -2353,7 +2353,6 @@ class MemTableInserter : public WriteBatch::Handler {
             cfd->ioptions()->table_factory->Name() + " in CF " +
             cfd->GetName());
       }
-      // Timestamp is only in begin_key.
       int cmp =
           cfd->user_comparator()->CompareWithoutTimestamp(begin_key, end_key);
       if (cmp > 0) {
