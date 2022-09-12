@@ -854,7 +854,7 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
 
   for (;;) {
     for (uint32_t i = 0; i < step_size; i++) {
-      ClockHandle& h = array_[ModTableSize(old_clock_pointer + i)];
+      ClockHandle& h = array_[ModTableSize(Lower32of64(old_clock_pointer + i))];
       uint64_t meta = h.meta.load(std::memory_order_relaxed);
 
       uint64_t acquire_count = (meta >> ClockHandle::kAcquireCounterShift) &
