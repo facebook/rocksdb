@@ -1044,4 +1044,12 @@ DEFINE_uint64(
     num_file_reads_for_auto_readahead, 0,
     "Num of sequential reads to enable auto prefetching during Iteration");
 
+DEFINE_bool(
+    preserve_unverified_changes, false,
+    "DB files of the current run will all be preserved in `FLAGS_db`. DB files "
+    "from the last run will be preserved in `FLAGS_db/unverified` until the "
+    "first verification succeeds. Expected state files from the last run will "
+    "be preserved similarly under `FLAGS_expected_values_dir/unverified` when "
+    "`--expected_values_dir` is nonempty.");
+
 #endif  // GFLAGS
