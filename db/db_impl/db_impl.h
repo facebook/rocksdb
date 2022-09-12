@@ -558,9 +558,9 @@ class DBImpl : public DB {
                       initial_traced_contents);
   };
 
-  virtual Status StartTrace(
-      const TraceOptions& options, std::unique_ptr<TraceWriter>&& trace_writer,
-      const std::list<WriteBatch*>& initial_traced_contents);
+  Status StartTrace(const TraceOptions& options,
+                    std::unique_ptr<TraceWriter>&& trace_writer,
+                    const std::list<WriteBatch*>& initial_traced_contents);
 
   using DB::EndTrace;
   virtual Status EndTrace() override;

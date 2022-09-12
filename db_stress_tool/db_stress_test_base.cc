@@ -8,8 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 
-#include <string>
-
 #include "util/compression.h"
 #ifdef GFLAGS
 #include "cache/fast_lru_cache.h"
