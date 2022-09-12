@@ -425,15 +425,7 @@ class StackableDB : public DB {
   Status StartTrace(const TraceOptions& options,
                     std::unique_ptr<TraceWriter>&& trace_writer) override {
     std::list<WriteBatch*> initial_traced_contents;
-    return db_->StartTrace(options, std::move(trace_writer),
-                           initial_traced_contents);
-  }
-
-  virtual Status StartTrace(
-      const TraceOptions& options, std::unique_ptr<TraceWriter>&& trace_writer,
-      const std::list<WriteBatch*>& initial_traced_contents) override {
-    return db_->StartTrace(options, std::move(trace_writer),
-                           initial_traced_contents);
+    return db_->StartTrace(options, std::move(trace_writer));
   }
 
   using DB::EndTrace;

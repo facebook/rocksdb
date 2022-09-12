@@ -1731,13 +1731,6 @@ class DB {
     return Status::NotSupported("StartTrace() is not implemented.");
   }
 
-  virtual Status StartTrace(
-      const TraceOptions& /*options*/,
-      std::unique_ptr<TraceWriter>&& /*trace_writer*/,
-      const std::list<WriteBatch*>& /* initial_traced_contents */) {
-    return Status::NotSupported("StartTrace() is not implemented.");
-  }
-
   virtual Status EndTrace() {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
