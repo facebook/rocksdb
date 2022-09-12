@@ -1045,7 +1045,7 @@ if(USE_FOLLY_LITE)
     third-party/folly/folly/synchronization/AtomicNotification.cpp
     third-party/folly/folly/synchronization/DistributedMutex.cpp
     third-party/folly/folly/synchronization/ParkingLot.cpp)
-	include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
+  include_directories(${PROJECT_SOURCE_DIR}/third-party/folly)
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
   list(APPEND THIRDPARTY_LIBS glog)
 endif()
