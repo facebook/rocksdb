@@ -19,6 +19,7 @@
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
+#include "file/random_access_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
@@ -194,13 +195,15 @@ class MockTestFileSystem : public FileSystemWrapper {
   Env::IOPriority write_io_priority_;
 };
 
+enum TableTypeForTest : uint8_t { kMockTable = 0, kBlockBasedTable = 1 };
+
 }  // namespace
 
 class CompactionJobTestBase : public testing::Test {
  protected:
   CompactionJobTestBase(std::string dbname, const Comparator* ucmp,
                         std::function<std::string(uint64_t)> encode_u64_ts,
-                        bool test_io_priority)
+                        bool test_io_priority, TableTypeForTest table_type)
       : dbname_(std::move(dbname)),
         ucmp_(ucmp),
         db_options_(),
@@ -217,7 +220,8 @@ class CompactionJobTestBase : public testing::Test {
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_),
         encode_u64_ts_(std::move(encode_u64_ts)),
-        test_io_priority_(test_io_priority) {
+        test_io_priority_(test_io_priority),
+        table_type_(table_type) {
     Env* base_env = Env::Default();
     EXPECT_OK(
         test::CreateEnvFromSystem(ConfigOptions(), &base_env, &env_guard_));
@@ -232,11 +236,13 @@ class CompactionJobTestBase : public testing::Test {
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
     cf_options_.comparator = ucmp_;
-    if (test_io_priority_) {
+    if (table_type_ == TableTypeForTest::kBlockBasedTable) {
       BlockBasedTableOptions table_options;
       cf_options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
-    } else {
+    } else if (table_type_ == TableTypeForTest::kMockTable) {
       cf_options_.table_factory = mock_table_factory_;
+    } else {
+      assert(false);
     }
   }
 
@@ -358,13 +364,15 @@ class CompactionJobTestBase : public testing::Test {
 
     uint64_t file_number = versions_->NewFileNumber();
 
-    uint64_t file_size;
-    if (test_io_priority_) {
+    uint64_t file_size = 0;
+    if (table_type_ == TableTypeForTest::kBlockBasedTable) {
       CreateTable(GenerateFileName(file_number), contents, file_size);
-    } else {
+    } else if (table_type_ == TableTypeForTest::kMockTable) {
       file_size = 10;
       EXPECT_OK(mock_table_factory_->CreateMockTable(
           env_, GenerateFileName(file_number), std::move(contents)));
+    } else {
+      assert(false);
     }
 
     VersionEdit edit;
@@ -379,6 +387,62 @@ class CompactionJobTestBase : public testing::Test {
         versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
                                mutable_cf_options_, &edit, &mutex_, nullptr));
     mutex_.Unlock();
+  }
+
+  void VerifyTable(int output_level, const mock::KVVector& expected_results,
+                   uint64_t expected_oldest_blob_file_number) {
+    if (expected_results.empty()) {
+      ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
+      return;
+    }
+
+    auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+    ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
+    if (table_type_ == TableTypeForTest::kMockTable) {
+      mock_table_factory_->AssertLatestFile(expected_results);
+    } else {
+      assert(table_type_ == TableTypeForTest::kBlockBasedTable);
+    }
+
+    auto output_files =
+        cfd->current()->storage_info()->LevelFiles(output_level);
+    ASSERT_EQ(output_files.size(), 1);
+    const FileMetaData* const output_file = output_files[0];
+    ASSERT_EQ(output_file->oldest_blob_file_number,
+              expected_oldest_blob_file_number);
+
+    if (table_type_ == TableTypeForTest::kMockTable) {
+      return;
+    }
+
+    std::string file_name = GenerateFileName(output_file->fd.GetNumber());
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<RandomAccessFileReader> freader;
+    IOStatus ios = RandomAccessFileReader::Create(fs, file_name, FileOptions(),
+                                                  &freader, nullptr);
+    ASSERT_OK(ios);
+    std::unique_ptr<TableReader> table_reader;
+    uint64_t file_size = output_file->fd.GetFileSize();
+    ReadOptions read_opts;
+    Status s = cf_options_.table_factory->NewTableReader(
+        read_opts,
+        TableReaderOptions(*cfd->ioptions(), nullptr, FileOptions(),
+                           cfd_->internal_comparator()),
+        std::move(freader), file_size, &table_reader, false);
+    ASSERT_OK(s);
+    assert(table_reader);
+    std::unique_ptr<InternalIterator> iiter(table_reader->NewIterator(
+        read_opts, nullptr, nullptr, true, TableReaderCaller::kUncategorized));
+    assert(iiter);
+
+    mock::KVVector from_db;
+    for (iiter->SeekToFirst(); iiter->Valid(); iiter->Next()) {
+      const Slice key = iiter->key();
+      const Slice value = iiter->value();
+      from_db.emplace_back(
+          make_pair(key.ToString(false), value.ToString(false)));
+    }
+    ASSERT_EQ(expected_results, from_db);
   }
 
   void SetLastSequence(const SequenceNumber sequence_number) {
@@ -564,18 +628,8 @@ class CompactionJobTestBase : public testing::Test {
       ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
       ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
 
-      if (expected_results.empty()) {
-        ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
-      } else {
-        ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
-        mock_table_factory_->AssertLatestFile(expected_results);
-
-        auto output_files =
-            cfd->current()->storage_info()->LevelFiles(output_level);
-        ASSERT_EQ(output_files.size(), 1);
-        ASSERT_EQ(output_files[0]->oldest_blob_file_number,
+      VerifyTable(output_level, expected_results,
                   expected_oldest_blob_file_number);
-      }
     }
 
     if (check_get_priority) {
@@ -635,8 +689,9 @@ class CompactionJobTestBase : public testing::Test {
   ErrorHandler error_handler_;
   std::string full_history_ts_low_;
   const std::function<std::string(uint64_t)> encode_u64_ts_;
-  bool test_io_priority_;
+  const bool test_io_priority_;
   std::function<void(Compaction& comp)> verify_per_key_placement_;
+  const TableTypeForTest table_type_ = kMockTable;
 };
 
 // TODO(icanadi) Make it simpler once we mock out VersionSet
@@ -645,7 +700,8 @@ class CompactionJobTest : public CompactionJobTestBase {
   CompactionJobTest()
       : CompactionJobTestBase(
             test::PerThreadDBPath("compaction_job_test"), BytewiseComparator(),
-            [](uint64_t /*ts*/) { return ""; }, false) {}
+            [](uint64_t /*ts*/) { return ""; }, /*test_io_priority=*/false,
+            TableTypeForTest::kMockTable) {}
 };
 
 TEST_F(CompactionJobTest, Simple) {
@@ -1609,7 +1665,8 @@ class CompactionJobTimestampTest : public CompactionJobTestBase {
   CompactionJobTimestampTest()
       : CompactionJobTestBase(test::PerThreadDBPath("compaction_job_ts_test"),
                               test::BytewiseComparatorWithU64TsWrapper(),
-                              test::EncodeInt, false) {}
+                              test::EncodeInt, /*test_io_priority=*/false,
+                              TableTypeForTest::kMockTable) {}
 };
 
 TEST_F(CompactionJobTimestampTest, GCDisabled) {
@@ -1725,6 +1782,43 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
   RunCompaction({files}, expected_results);
 }
 
+class CompactionJobTimestampTestWithBbTable : public CompactionJobTestBase {
+ public:
+  // Block-based table is needed if we want to test subcompaction partitioning
+  // with anchors.
+  explicit CompactionJobTimestampTestWithBbTable()
+      : CompactionJobTestBase(
+            test::PerThreadDBPath("compaction_job_ts_bbt_test"),
+            test::BytewiseComparatorWithU64TsWrapper(), test::EncodeInt,
+            /*test_io_priority=*/false, TableTypeForTest::kBlockBasedTable) {}
+};
+
+TEST_F(CompactionJobTimestampTestWithBbTable, SubcompactionAnchor) {
+  NewDB();
+
+  auto file1 =
+      mock::MakeMockFile({{KeyStr("a", 5, ValueType::kTypeValue, 50), "a5"},
+                          {KeyStr("b", 6, ValueType::kTypeValue, 49), "b6"}});
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile(
+      {{KeyStr("a", 3, ValueType::kTypeValue, 48), "a3"},
+       {KeyStr("a", 2, ValueType::kTypeValue, 46), "a2"},
+       {KeyStr("b", 4, ValueType::kTypeDeletionWithTimestamp, 47), ""}});
+  AddMockFile(file2);
+
+  SetLastSequence(6);
+
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 5, ValueType::kTypeValue, 50), "a5"},
+                          {KeyStr("a", 0, ValueType::kTypeValue, 0), "a3"},
+                          {KeyStr("b", 6, ValueType::kTypeValue, 49), "b6"}});
+  const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
+
+  full_history_ts_low_ = encode_u64_ts_(49);
+  RunCompaction({files}, expected_results);
+}
+
 // The io priority of the compaction reads and writes are different from
 // other DB reads and writes. To prepare the compaction input files, use the
 // default filesystem from Env. To test the io priority of the compaction
@@ -1734,7 +1828,8 @@ class CompactionJobIOPriorityTest : public CompactionJobTestBase {
   CompactionJobIOPriorityTest()
       : CompactionJobTestBase(
             test::PerThreadDBPath("compaction_job_io_priority_test"),
-            BytewiseComparator(), [](uint64_t /*ts*/) { return ""; }, true) {}
+            BytewiseComparator(), [](uint64_t /*ts*/) { return ""; },
+            /*test_io_priority=*/true, TableTypeForTest::kBlockBasedTable) {}
 };
 
 TEST_F(CompactionJobIOPriorityTest, WriteControllerStateNormal) {
