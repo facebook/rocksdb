@@ -1510,6 +1510,11 @@ namespace {
     table_options.index_type =
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    std::shared_ptr<RateLimiter> rate_limiter;
+    rate_limiter.reset(NewGenericRateLimiter(
+        1 << 25 /* rate_bytes_per_sec */, 100 * 1000 /* refill_period_us */,
+        10 /* fairness */, RateLimiter::Mode::kReadsOnly));
+    options.rate_limiter = rate_limiter;
 
     Status s = TryReopen(options);
     if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
@@ -1558,6 +1563,7 @@ namespace {
     {
       ASSERT_OK(options.statistics->Reset());
       get_perf_context()->Reset();
+      ro.rate_limiter_priority = Env::IO_USER;
 
       auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ro));
       int num_keys = 0;
@@ -1581,6 +1587,7 @@ namespace {
         // won't submit async requests.
         if (read_async_called) {
           ASSERT_GT(async_read_bytes.count, 0);
+          ASSERT_GT(rate_limiter->GetTotalRequests(Env::IO_USER), 0);
         } else {
           ASSERT_EQ(async_read_bytes.count, 0);
         }

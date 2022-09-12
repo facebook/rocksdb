@@ -3492,6 +3492,17 @@ TEST_F(TestAsyncRead, ReadAsync) {
     std::unique_ptr<FSRandomAccessFile> file;
     ASSERT_OK(fs->NewRandomAccessFile(fname, FileOptions(), &file, nullptr));
 
+    std::unique_ptr<RandomAccessFileReader> reader;
+
+    std::shared_ptr<RateLimiter> rate_limiter;
+    rate_limiter.reset(NewGenericRateLimiter(
+        40000 /* rate_bytes_per_sec */, 100 * 1000 /* refill_period_us */,
+        10 /* fairness */, RateLimiter::Mode::kReadsOnly));
+
+    reader.reset(new RandomAccessFileReader(
+        std::move(file), fname, env_->GetSystemClock().get(), nullptr, nullptr,
+        0, nullptr, rate_limiter.get()));
+
     IOOptions opts;
     std::vector<void*> io_handles(kNumSectors);
     std::vector<FSReadRequest> reqs(kNumSectors);
@@ -3521,11 +3532,18 @@ TEST_F(TestAsyncRead, ReadAsync) {
         };
 
     // Submit asynchronous read requests.
+
+    const int64_t prev_total_rl_req = rate_limiter->GetTotalRequests();
+
     for (size_t i = 0; i < kNumSectors; i++) {
       void* cb_arg = static_cast<void*>(&(vals[i]));
-      ASSERT_OK(file->ReadAsync(reqs[i], opts, callback, cb_arg,
-                                &(io_handles[i]), &del_fn, nullptr));
+      ASSERT_OK(reader->ReadAsync(reqs[i], opts, Env::IO_USER, callback, cb_arg,
+                                  &(io_handles[i]), &del_fn, nullptr));
     }
+
+    const int64_t cur_total_rl_req =
+        rate_limiter->GetTotalRequests(Env::IO_USER);
+    ASSERT_GT(cur_total_rl_req - prev_total_rl_req, 0);
 
     // Poll for the submitted requests.
     fs->Poll(io_handles, kNumSectors);
