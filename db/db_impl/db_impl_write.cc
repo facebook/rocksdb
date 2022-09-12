@@ -1095,8 +1095,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     status = SwitchWAL(write_context);
   }
 
-  if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush() &&
-               immutable_db_options_.flush_switch->IsFlushOn())) {
+  if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
     // thread is writing to another DB with the same write buffer, they may also
@@ -1479,10 +1478,15 @@ void DBImpl::AssignAtomicFlushSeq(const autovector<ColumnFamilyData*>& cfds) {
 Status DBImpl::SwitchWAL(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
-  if (!immutable_db_options_.flush_switch->IsFlushOn()) {
-    return Status::Incomplete("flush disabled while switch wal");
-  }
   Status status;
+
+  // If WAL is supported, we should never disable flush
+  if (auto cfd_flush_disabled = GetAnyCFWithAutoFlushDisabled()) {
+    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                    "SwitchWAL called for CF: %d when flush disabled",
+                    cfd_flush_disabled->GetID());
+    return Status::Incomplete("flush disabled");
+  }
 
   if (alive_log_files_.begin()->getting_flushed) {
     return status;
@@ -1584,7 +1588,6 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
 Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
-  assert(immutable_db_options_.flush_switch->IsFlushOn());
   Status status;
 
   // Before a new memtable is added in SwitchMemtable(),
@@ -1883,9 +1886,16 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
 }
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
-  assert(immutable_db_options_.flush_switch->IsFlushOn());
   autovector<ColumnFamilyData*> cfds;
   if (immutable_db_options_.atomic_flush) {
+    if (auto cfd_auto_flush_disabled = GetAnyCFWithAutoFlushDisabled()) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "ScheduleFlushes won't be triggered since atomic_flush enabled "
+          "and CF: %d has auto flush disabled",
+          cfd_auto_flush_disabled->GetID());
+      return Status::OK();
+    }
     SelectColumnFamiliesForAtomicFlush(&cfds);
     for (auto cfd : cfds) {
       cfd->Ref();
@@ -1898,6 +1908,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
     }
     MaybeFlushStatsCF(&cfds);
   }
+
   Status status;
   WriteThread::Writer nonmem_w;
   if (two_write_queues_) {

@@ -1276,12 +1276,6 @@ class DB {
   virtual Status GetPersistedReplicationSequence(std::string* out) = 0;
   // Returns latest ManifestUpdateSequence.
   virtual Status GetManifestUpdateSequence(uint64_t* out) = 0;
-  // Enable flush if it's disabled. Both automatic flush and manual flush will
-  // be affected
-  //
-  // REQUIRES: flush is disabled before enabling. Otherwise, error status will
-  // be returned
-  virtual Status TurnOnFlush() = 0;
 
   // Dynamically change column family options or table factory options in a
   // running DB, for the specified column family. Only options internally

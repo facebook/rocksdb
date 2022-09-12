@@ -318,6 +318,13 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory = nullptr;
 
+  // Disable automatic flush(exceed `write_buffer_size` limit). Manual flush
+  // (including exceeding `db_write_buffer_size` limit) can still be issued
+  //
+  // Dynamically changeable through SetOptions() API
+  // Default: false, auto flush is enabled
+  bool disable_auto_flush = false;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -476,58 +483,6 @@ class ReplicationLogListener {
   // the database needs to re-apply all replication log records since
   // DB::GetPersistedReplicationSequence() (non-inclusive).
   virtual std::string OnReplicationLogRecord(ReplicationLogRecord record) = 0;
-};
-
-class DBImpl;
-// FlushSwitch provides a mechanism to enable flush when flush is off. Both
-// automatic flush and manual flush are affected
-//
-// Once flush is enabled, it can never be disabled, which is guaranteed by the
-// FlushSwitch interface
-class FlushSwitch {
-  public:
-    virtual ~FlushSwitch() = default;
-    virtual bool IsFlushOn() const = 0;
-
-  protected:
-    virtual Status TurnOn() = 0;
-    friend class DBImpl;
-};
-
-// Flush is always enabled
-class FlushSwitchAlwaysOn: public FlushSwitch {
-  public:
-    bool IsFlushOn() const override {
-      return true;
-    }
-
-  protected:
-    Status TurnOn() override {
-      return Status::Incomplete(
-          "Turning on flush for always on flush switch is not expected");
-    }
-};
-
-// A flush switch that's initially off, and can be turned on.
-// But it can never be turned off
-class FlushSwitchTurnOnOnce: public FlushSwitch {
-  public:
-    FlushSwitchTurnOnOnce(): flush_on_(false) {}
-    bool IsFlushOn() const override {
-      return flush_on_.load(std::memory_order_relaxed);
-    }
-
-  protected:
-    Status TurnOn() override {
-      bool prev = flush_on_.exchange(true, std::memory_order_relaxed);
-      if (prev) {
-        return Status::Incomplete("Turning on flush multiple times");
-      } else {
-        return Status::OK();
-      }
-    }
-  private:
-    std::atomic_bool flush_on_;
 };
 
 struct DBOptions {
@@ -1483,13 +1438,6 @@ struct DBOptions {
   // of the contract leads to undefined behaviors with high possibility of data
   // inconsistency, e.g. deleted old data become visible again, etc.
   bool enforce_single_del_contracts = true;
-
-  // FlushSwitch allows turning on flush if it's disabled initially.
-  // Use `FlushSwitchTurnOnOnce` if you want to disable flush when opening db
-  // and then turn it on sometime later.
-  //
-  // Default: flush is always enabled.
-  std::shared_ptr<FlushSwitch> flush_switch = std::make_shared<FlushSwitchAlwaysOn>();
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

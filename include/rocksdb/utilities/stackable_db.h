@@ -489,9 +489,6 @@ class StackableDB : public DB {
   Status GetManifestUpdateSequence(uint64_t* out) override {
     return db_->GetManifestUpdateSequence(out);
   }
-  Status TurnOnFlush() override {
-    return db_->TurnOnFlush();
-  }
 
   using DB::SetOptions;
   virtual Status SetOptions(ColumnFamilyHandle* column_family_handle,

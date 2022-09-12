@@ -58,7 +58,6 @@ struct ImmutableMemTableOptions {
   MergeOperator* merge_operator;
   Logger* info_log;
   bool allow_data_in_errors;
-  std::shared_ptr<FlushSwitch> flush_switch;
 };
 
 // Batched counters to updated when inserting keys in one write batch.
@@ -510,6 +509,9 @@ class MemTable {
   // Returns a heuristic flush decision
   bool ShouldFlushNow();
 
+  // Enable auto flush if it's previously disabled
+  void EnableAutoFlush();
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -593,6 +595,8 @@ class MemTable {
   // keep track of memory usage in table_, arena_, and range_del_table_.
   // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
+
+  std::atomic_bool disable_auto_flush_;
 
 #ifndef ROCKSDB_LITE
   // Flush job info of the current memtable.

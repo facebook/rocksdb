@@ -500,6 +500,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
                      name, value, addr);
                }
              })},
+        {"disable_auto_flush",
+         {offsetof(struct MutableCFOptions, disable_auto_flush),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}}
         // End special case properties
 };
 
@@ -1069,6 +1073,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_compaction_readahead_size);
 
   ROCKS_LOG_INFO(log, "                   bottommost_temperature: %d",
+                 static_cast<int>(bottommost_temperature));
+  ROCKS_LOG_INFO(log, "                           disable_flush: %d",
                  static_cast<int>(bottommost_temperature));
 }
 

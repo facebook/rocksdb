@@ -1293,6 +1293,13 @@ void ColumnFamilyData::InstallSuperVersion(
         mutable_cf_options.write_buffer_size) {
       mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
     }
+    if (old_superversion->mutable_cf_options.disable_auto_flush != mutable_cf_options.disable_auto_flush) {
+      assert(!mutable_cf_options.disable_auto_flush);
+      ROCKS_LOG_INFO(ioptions_.info_log, "Enabling auto flush for column family: %s",
+                     GetName().c_str());
+      mem_->EnableAutoFlush();
+    }
+
     if (old_superversion->write_stall_condition !=
         new_superversion->write_stall_condition) {
       sv_context->PushWriteStallNotification(
@@ -1397,6 +1404,15 @@ Status ColumnFamilyData::SetOptions(
                                            &cf_opts);
   if (s.ok()) {
     s = ValidateOptions(db_opts, cf_opts);
+  }
+  if (s.ok()) {
+    // Disabling flush on running db is not supported due to bunch of checks we
+    // added to catch unexpected flush. But it's easy to support it later if we
+    // want to
+    if (!mutable_cf_options_.disable_auto_flush && cf_opts.disable_auto_flush) {
+      s = Status::NotSupported(
+          "Disabling flush on running db is not supported");
+    }
   }
   if (s.ok()) {
     mutable_cf_options_ = MutableCFOptions(cf_opts);

@@ -2791,13 +2791,13 @@ TEST_P(DBAtomicFlushTest, BgThreadNoWaitAfterManifestError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_F(DBFlushTest, DisableFlushWhenExceedDBWriteBufferSize) {
-    // case1 : write buffer full
+// Disable auto flush shouldn't affect how WriteBufferManager works
+TEST_F(DBFlushTest, DisableAutoFlushWhenExceedDBWriteBufferSize) {
     Options options;
-    options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
     options.env = env_;
     options.db_write_buffer_size = 100;
     options.write_buffer_size = 10 << 20;
+    options.disable_auto_flush = true;
     Reopen(options);
 
     auto versions = dbfull()->GetVersionSet();
@@ -2805,32 +2805,25 @@ TEST_F(DBFlushTest, DisableFlushWhenExceedDBWriteBufferSize) {
 
     // The db_write_buffer_size is so small that each Put will trigger write
     // buffer full handling
+    // 
+    // Flush won't be triggered since memtable is empty
     ASSERT_OK(Put("k1", "v1"));
-    ASSERT_OK(Put("k2", "v2"));
-    PinnableSlice value;
-    ASSERT_OK(Get("k1", &value));
-    EXPECT_EQ(value.ToString(), "v1");
-    ASSERT_OK(Get("k2", &value));
-    EXPECT_EQ(value.ToString(), "v2");
 
-    EXPECT_EQ(mem_id,
-              versions->GetColumnFamilySet()->GetDefault()->mem()->GetID());
-    ASSERT_OK(db_->TurnOnFlush());
-    // This write will trigger `HandleWriteBufferManagerFlush`
-    ASSERT_OK(Put("k3", "v3"));
+    // flush triggered this time
+    ASSERT_OK(Put("k2", "v2"));
     EXPECT_NE(mem_id,
               versions->GetColumnFamilySet()->GetDefault()->mem()->GetID());
     Close();
 }
 
-TEST_F(DBFlushTest, DisableFlushWhenSwitchWAL) {
-  // case2 : SwitchWAL
+// When WAL is supported, auto flush should never be disabled
+TEST_F(DBFlushTest, DisableAutoFlushWhenSwitchWAL) {
   Options options;
-  options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
   options.env = env_;
   options.db_write_buffer_size = 0;
   options.write_buffer_size = 10 << 20;
   options.max_total_wal_size = 1;
+  options.disable_auto_flush = true;
   Reopen(options);
   // switchWAL will only be triggered with more than 1 CF
   CreateColumnFamilies({"cf1"}, options);
@@ -2838,7 +2831,9 @@ TEST_F(DBFlushTest, DisableFlushWhenSwitchWAL) {
   auto versions = dbfull()->GetVersionSet();
   auto default_cf = versions->GetColumnFamilySet()
                 ->GetDefault();
+  auto cf1 = versions->GetColumnFamilySet()->GetColumnFamily("cf1");
   auto mem_table_id = default_cf->mem()->GetID();
+  auto cf1_memtable_id = cf1->mem()->GetID();
 
   // This write will cause log size to exceed limit
   EXPECT_OK(Put("k1", "v1"));
@@ -2852,35 +2847,43 @@ TEST_F(DBFlushTest, DisableFlushWhenSwitchWAL) {
   PinnableSlice value;
   EXPECT_NOK(Get("k2", &value));
 
-  ASSERT_OK(db_->TurnOnFlush());
+  ASSERT_OK(db_->SetOptions({{"disable_auto_flush", "false"}}));
 
-  // this write will trigger SwitchWAL
+  // this write will trigger SwitchWAL, but since CF1 still has flush
+  // disabled, switchWAL is not triggered
+  EXPECT_NOK(Put("k2", "v2"));
+
+  EXPECT_EQ(mem_table_id, default_cf->mem()->GetID());
+
+  // update cf1 disable_flush setting
+  ASSERT_OK(db_->SetOptions(handles_[0], {{"disable_auto_flush", "false"}}));
+
+  // this write will trigger SwitchWAL and flush
   EXPECT_OK(Put("k2", "v2"));
 
   EXPECT_NE(mem_table_id, default_cf->mem()->GetID());
+  // cf1 is also flushed since the log number is old enough 
+  EXPECT_NE(cf1_memtable_id, cf1->mem()->GetID());
 
   Close();
 }
 
-TEST_F(DBFlushTest, DisableFlushWhenManualFlush) {
-  // case3 : manual flush
+// Manual flush can still be issued when diable_auto_flush = true
+TEST_F(DBFlushTest, DisableAutoFlushWhenManualFlush) {
   Options options;
-  options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
   options.env = env_;
+  options.disable_auto_flush = true;
   Reopen(options);
   ASSERT_OK(Put("k1", "v1"));
-  EXPECT_NOK(Flush({}));
-
-  ASSERT_OK(db_->TurnOnFlush());
-
   EXPECT_OK(Flush({}));
   Close();
 }
 
-TEST_F(DBFlushTest, DisableFlushWhenExceedWriteBufferSize) {
-  // case4 : single memtable size limit
+// When auto flush disabled, memtables won't be flushed even when
+// the size exceeds write_buffer_size limit
+TEST_F(DBFlushTest, DisableAutoFlushWhenExceedWriteBufferSize) {
   Options options;
-  options.flush_switch = std::make_shared<FlushSwitchTurnOnOnce>();
+  options.disable_auto_flush = true;
   options.env = env_;
   // minimum write buffer size we can set is 65536
   options.write_buffer_size = 65536;
@@ -2900,18 +2903,152 @@ TEST_F(DBFlushTest, DisableFlushWhenExceedWriteBufferSize) {
   EXPECT_EQ(mem_table_id, default_cf->mem()->GetID());
 
   // Turn on flush
-  ASSERT_OK(db_->TurnOnFlush());
+  ASSERT_OK(db_->SetOptions({{"disable_auto_flush", "false"}}));
 
   // this write should update the flush state and schedule work in flush scheduler
   ASSERT_OK(Put("new_k1", "new_v1"));
 
-  // this should will cause the flush to be scheduled
+  // this write will cause the flush to be scheduled
   ASSERT_OK(Put("new_k2", "new_v2"));
 
   // verify that memtable is switched
   EXPECT_NE(mem_table_id, default_cf->mem()->GetID());
 
   Close();
+}
+
+// Test the case of disable auto flush when there are multiple CFs and
+// atomic_flush=true
+TEST_F(DBFlushTest, DisableAutoFlushMultiCFAndAtomicFlush) {
+  auto triggerRandomWrites = [this](uint32_t handle_idx, size_t num_keys) {
+    for (size_t i = 0; i < num_keys; i++) {
+      ASSERT_OK(Put(handle_idx, "k" + std::to_string(i), "v" + std::to_string(i)));
+    }
+  };
+
+  Options options;
+  options.disable_auto_flush = true;
+  options.env = env_;
+
+  options.write_buffer_size = 65536;
+  options.atomic_flush = true;
+  Reopen(options);
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+  auto versions = dbfull()->GetVersionSet();
+  auto cf1 = versions->GetColumnFamilySet()->GetColumnFamily("cf1");
+  auto cf2 = versions->GetColumnFamilySet()->GetColumnFamily("cf2");
+
+  auto getCurrentMemtableIds = [cf1, cf2]() {
+    return std::make_pair<>(cf1->mem()->GetID(), cf2->mem()->GetID());
+  };
+  auto memtable_ids = getCurrentMemtableIds();
+  triggerRandomWrites(0 /* cf1 */, 2000);
+  triggerRandomWrites(1 /* cf2 */, 2000);
+
+  // Double check memtables are not switched
+  EXPECT_EQ(memtable_ids, getCurrentMemtableIds());
+
+  // Turn on flush for default_cf and cf1
+  ASSERT_OK(db_->SetOptions({{"disable_auto_flush", "false"}}));
+  ASSERT_OK(db_->SetOptions(handles_[0], {{"disable_auto_flush", "false"}}));
+
+  // this write should update the flush state for cf1 and schedule work in flush scheduler
+  ASSERT_OK(Put(0 /* cf1 */, "new_k1", "new_v1"));
+
+  // this write will trigger `ScheduleFlushes`, but since cf2 has flush disabled,
+  // atomic flush still won't be triggered
+  ASSERT_OK(Put(0 /* cf1 */, "new_k2", "new_v2"));
+
+  // cf1 has been put into flush_scheduler queue, so the flush state has been
+  // cleared
+  EXPECT_FALSE(cf1->mem()->ShouldScheduleFlush());
+  EXPECT_TRUE(cf1->mem()->ShouldFlushNow());
+  // cf2's flush state is not even updated yet. Of course, it won't be in
+  // flush_scheduler queue
+  EXPECT_FALSE(cf2->mem()->ShouldScheduleFlush());
+  EXPECT_TRUE(cf2->mem()->ShouldFlushNow());
+
+  // enable auto flush for cf2
+  ASSERT_OK(db_->SetOptions(handles_[1], {{"disable_auto_flush", "false"}}));
+
+  // This write will trigger `ScheduleFlushes` again. cf1 is in flush_scheduler,
+  // cf2 is not, but since atomic_flush = true, all non-empty CFs will be flushed
+  ASSERT_OK(Put(0 /* cf1 */, "new_k3", "new_v3"));
+
+  // double check that both CFs are flushed
+  EXPECT_GT(cf1->mem()->GetID(), memtable_ids.first);
+  EXPECT_GT(cf2->mem()->GetID(), memtable_ids.second);
+  EXPECT_FALSE(cf1->mem()->ShouldFlushNow());
+  EXPECT_FALSE(cf2->mem()->ShouldFlushNow());
+
+  Close();
+}
+
+// Test the case of disable auto flush when there are multiple CFs and
+// atomic_flush=false
+TEST_F(DBFlushTest, DisableAutoFlushMultiCF) {
+  auto triggerRandomWrites = [this](uint32_t handle_idx, size_t num_keys) {
+    for (size_t i = 0; i < num_keys; i++) {
+      ASSERT_OK(Put(handle_idx, "k" + std::to_string(i), "v" + std::to_string(i)));
+    }
+  };
+
+  Options options;
+  options.disable_auto_flush = true;
+  options.env = env_;
+
+  options.write_buffer_size = 65536;
+  options.atomic_flush = false;
+  Reopen(options);
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+  auto versions = dbfull()->GetVersionSet();
+  auto cf1 = versions->GetColumnFamilySet()->GetColumnFamily("cf1");
+  auto cf2 = versions->GetColumnFamilySet()->GetColumnFamily("cf2");
+
+  auto getCurrentMemtableIds = [cf1, cf2]() {
+    return std::make_pair<>(cf1->mem()->GetID(), cf2->mem()->GetID());
+  };
+  auto memtable_ids = getCurrentMemtableIds();
+  triggerRandomWrites(0 /* cf1 */, 2000);
+  triggerRandomWrites(1 /* cf2 */, 2000);
+
+  // Double check memtables are not switched
+  EXPECT_EQ(memtable_ids, getCurrentMemtableIds());
+
+  // Turn on flush for default_cf and cf1
+  ASSERT_OK(db_->SetOptions({{"disable_auto_flush", "false"}}));
+  ASSERT_OK(db_->SetOptions(handles_[0], {{"disable_auto_flush", "false"}}));
+
+  // this write should update the flush state for cf1 and schedule work in flush scheduler
+  ASSERT_OK(Put(0 /* cf1 */, "new_k1", "new_v1"));
+
+  // this write will trigger `ScheduleFlushes` for cf1 so cf1 memtable will be flushed
+  ASSERT_OK(Put(0 /* cf1 */, "new_k2", "new_v2"));
+
+  // double check that cf1 is flushed while cf2 is not
+  EXPECT_GT(cf1->mem()->GetID(), memtable_ids.first);
+  EXPECT_EQ(cf2->mem()->GetID(), memtable_ids.second);
+
+  memtable_ids = getCurrentMemtableIds();
+
+  // enable auto flush for cf2
+  ASSERT_OK(db_->SetOptions(handles_[1], {{"disable_auto_flush", "false"}}));
+
+  // this write should update the flush state for cf2 and schedule work in flush scheduler
+  ASSERT_OK(Put(1 /* cf2 */, "new_k1", "new_v1"));
+
+  // this write will trigger `ScheduleFlushes` for cf2 so cf2 memtable will be flushed
+  ASSERT_OK(Put(1 /* cf2 */, "new_k2", "new_v2"));
+
+  // double check that cf2 is flushed while cf1 is not
+  EXPECT_EQ(cf1->mem()->GetID(), memtable_ids.first);
+  EXPECT_GT(cf2->mem()->GetID(), memtable_ids.second);
+
+  Close();
+}
+
+TEST_F(DBFlushTest, DisableAutoFlushOnRunningDB) {
+  EXPECT_NOK(db_->SetOptions({{"disable_auto_flush", "true"}}));
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,

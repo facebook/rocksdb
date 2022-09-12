@@ -1981,11 +1981,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
   assert(!immutable_db_options_.replication_log_listener);
-  if (!immutable_db_options_.flush_switch->IsFlushOn()) {
-    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                    "FlushMemtables called when flush disabled");
-    return Status::Incomplete("flush disabled");
-  }
+
   Status s;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -2124,12 +2120,6 @@ Status DBImpl::AtomicFlushMemTables(
     const autovector<ColumnFamilyData*>& column_family_datas,
     const FlushOptions& flush_options, FlushReason flush_reason,
     bool writes_stopped) {
-  if (!immutable_db_options_.flush_switch->IsFlushOn()) {
-    ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                    "AtomicFlushMemtables called when flush disabled");
-    return Status::Incomplete("Flush disabled");
-  }
-
   Status s;
   if (!flush_options.allow_write_stall) {
     int num_cfs_to_flush = 0;
@@ -2163,8 +2153,8 @@ Status DBImpl::AtomicFlushMemTables(
     WaitForPendingWrites();
 
     if (immutable_db_options_.replication_log_listener) {
-      // If replication_log_listener is installed the only thing we are allowed
-      // to do is flush all column families.
+      // If replication_log_listener is installed the only thing we are
+      // allowed to do is flush all column families.
       SelectColumnFamiliesForAtomicFlush(&cfds);
     } else {
       for (auto cfd : column_family_datas) {
@@ -2613,12 +2603,6 @@ ColumnFamilyData* DBImpl::PickCompactionFromQueue(
 void DBImpl::SchedulePendingFlush(const FlushRequest& flush_req,
                                   FlushReason flush_reason) {
   mutex_.AssertHeld();
-  // If flush is disabled at this time, we must have missed some code path
-  // to check whether flush is enabled
-  // NOTE: this assert check is based on the assumption that we never disable
-  // flush on a running db. Otherwise, this check might fail if some flush is
-  // scheduled right before we disable flush.
-  assert(immutable_db_options_.flush_switch->IsFlushOn());
   if (flush_req.empty()) {
     return;
   }

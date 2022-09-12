@@ -306,7 +306,10 @@ DB* ReplicationTest::openFollower(Options options) {
 
   options.env = &follower_env_;
   options.disable_auto_compactions = true;
-  options.write_buffer_size = 100 << 20;
+  // write buffer size of follower is much smaller than leader to help verify
+  // that disable_auto_flush works as expected
+  options.write_buffer_size = 10 << 10;
+  options.disable_auto_flush = true;
 
   std::vector<ColumnFamilyDescriptor> column_families;
   for (auto& name : cf_names) {

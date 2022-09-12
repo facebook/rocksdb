@@ -1281,10 +1281,6 @@ Status DBImpl::GetManifestUpdateSequence(uint64_t* out) {
   return Status::OK();
 }
 
-Status DBImpl::TurnOnFlush() {
-  return immutable_db_options_.flush_switch->TurnOn();
-}
-
 Status DBImpl::SetOptions(
     ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {
@@ -5582,5 +5578,14 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   }
 }
 #endif  // ROCKSDB_LITE
+
+ColumnFamilyData* DBImpl::GetAnyCFWithAutoFlushDisabled() const {
+  for (auto cfd: *versions_->GetColumnFamilySet()) {
+    if (!cfd->IsDropped() && cfd->GetLatestMutableCFOptions()->disable_auto_flush) {
+      return cfd;
+    }
+  }
+  return nullptr;
+}
 
 }  // namespace ROCKSDB_NAMESPACE
