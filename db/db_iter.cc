@@ -215,22 +215,24 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   return true;
 }
 
-bool DBIter::SetWideColumnValueIfNeeded(Slice wide_columns_slice) {
-  assert(!is_blob_);
-  assert(blob_value_.empty());
+bool DBIter::SetWideColumnValue(Slice slice, ValueType value_type) {
   assert(!is_wide_);
   assert(wide_columns_.empty());
 
-  const Status s =
-      WideColumnSerialization::Deserialize(wide_columns_slice, wide_columns_);
+  if (value_type == kTypeWideColumnEntity) {
+    const Status s = WideColumnSerialization::Deserialize(slice, wide_columns_);
 
-  if (!s.ok()) {
-    status_ = s;
-    valid_ = false;
-    return false;
+    if (!s.ok()) {
+      status_ = s;
+      valid_ = false;
+      return false;
+    }
+
+    is_wide_ = true;
+    return true;
   }
 
-  is_wide_ = true;
+  wide_columns_.emplace_back(kDefaultWideColumnName, value());
   return true;
 }
 
@@ -379,10 +381,10 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
                   return false;
                 }
-              } else if (ikey_.type == kTypeWideColumnEntity) {
-                if (!SetWideColumnValueIfNeeded(iter_.value())) {
-                  return false;
-                }
+              }
+
+              if (!SetWideColumnValue(iter_.value(), ikey_.type)) {
+                return false;
               }
 
               valid_ = true;
@@ -395,11 +397,12 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
                   return false;
                 }
-              } else if (ikey_.type == kTypeWideColumnEntity) {
-                if (!SetWideColumnValueIfNeeded(iter_.value())) {
-                  return false;
-                }
               }
+
+              if (!SetWideColumnValue(iter_.value(), ikey_.type)) {
+                return false;
+              }
+
               valid_ = true;
               return true;
             }
@@ -556,6 +559,9 @@ bool DBIter::MergeValuesNewToOld() {
       if (!s.ok()) {
         return false;
       }
+
+      wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
       // iter_ is positioned after put
       iter_.Next();
       if (!iter_.status().ok()) {
@@ -592,6 +598,8 @@ bool DBIter::MergeValuesNewToOld() {
       assert(!is_wide_);
       assert(wide_columns_.empty());
 
+      wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
       // iter_ is positioned after put
       iter_.Next();
       if (!iter_.status().ok()) {
@@ -627,6 +635,9 @@ bool DBIter::MergeValuesNewToOld() {
   if (!s.ok()) {
     return false;
   }
+
+  wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
   assert(status_.ok());
   return true;
 }
@@ -979,6 +990,9 @@ bool DBIter::FindValueForCurrentKey() {
         if (!s.ok()) {
           return false;
         }
+
+        wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
         return true;
       } else if (last_not_merge_type == kTypeBlobIndex) {
         if (expose_blob_index_) {
@@ -1001,6 +1015,8 @@ bool DBIter::FindValueForCurrentKey() {
         assert(!is_wide_);
         assert(wide_columns_.empty());
 
+        wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
         // TODO: support wide-column entities
@@ -1014,6 +1030,9 @@ bool DBIter::FindValueForCurrentKey() {
         if (!s.ok()) {
           return false;
         }
+
+        wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
         return true;
       }
       break;
@@ -1022,16 +1041,27 @@ bool DBIter::FindValueForCurrentKey() {
       if (timestamp_lb_ != nullptr) {
         saved_key_.SetInternalKey(saved_ikey_);
       }
+
+      if (!SetWideColumnValue(pinned_value_, kTypeValue)) {
+        return false;
+      }
+
       break;
     case kTypeBlobIndex:
       if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
-      break;
-    case kTypeWideColumnEntity:
-      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
+
+      if (!SetWideColumnValue(pinned_value_, kTypeBlobIndex)) {
         return false;
       }
+
+      break;
+    case kTypeWideColumnEntity:
+      if (!SetWideColumnValue(pinned_value_, kTypeWideColumnEntity)) {
+        return false;
+      }
+
       break;
     default:
       valid_ = false;
@@ -1139,10 +1169,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
         return false;
       }
-    } else if (ikey_.type == kTypeWideColumnEntity) {
-      if (!SetWideColumnValueIfNeeded(pinned_value_)) {
-        return false;
-      }
+    }
+
+    if (!SetWideColumnValue(pinned_value_, ikey.type)) {
+      return false;
     }
 
     if (timestamp_lb_ != nullptr) {
@@ -1190,6 +1220,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       if (!s.ok()) {
         return false;
       }
+
+      wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
       return true;
     } else if (ikey.type == kTypeMerge) {
       merge_context_.PushOperand(
@@ -1216,6 +1249,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       assert(!is_wide_);
       assert(wide_columns_.empty());
 
+      wide_columns_.emplace_back(kDefaultWideColumnName, value());
+
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {
       // TODO: support wide-column entities
@@ -1236,6 +1271,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (!s.ok()) {
     return false;
   }
+
+  wide_columns_.emplace_back(kDefaultWideColumnName, value());
 
   // Make sure we leave iter_ in a good state. If it's valid and we don't care
   // about prefixes, that's already good enough. Otherwise it needs to be

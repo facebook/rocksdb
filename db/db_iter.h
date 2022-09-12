@@ -159,7 +159,7 @@ class DBIter final : public Iterator {
     }
   }
   Slice value() const override {
-    assert(valid_);
+    // assert(valid_);  // FIXME
     assert(!is_blob_ || !is_wide_);
 
     if (is_wide_) {
@@ -320,7 +320,7 @@ class DBIter final : public Iterator {
     blob_value_.Reset();
   }
 
-  bool SetWideColumnValueIfNeeded(Slice wide_columns_slice);
+  bool SetWideColumnValue(Slice slice, ValueType value_type);
 
   void ResetWideColumnValue() {
     is_wide_ = false;
