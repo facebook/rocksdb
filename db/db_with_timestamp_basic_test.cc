@@ -613,7 +613,7 @@ TEST_F(DBBasicTestWithTimestamp, TrimHistoryTest) {
   check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::NotFound(), "",
                     Timestamp(7, 0));
   Close();
-  // Trim data whose timestamp > Timestamp(6, 0), read(k1, ts(7)) <- v2
+  // Trim data whose timestamp > Timestamp(6], 0), read(k1, ts(7)) <- v2
   ASSERT_OK(DB::OpenAndTrimHistory(db_options, dbname_, column_families,
                                    &handles_, &db_, Timestamp(6, 0)));
   check_value_by_ts(db_, "k1", Timestamp(8, 0), Status::OK(), "v2",
@@ -3563,13 +3563,13 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
   const Snapshot* before_tombstone = nullptr;
   const Snapshot* after_tombstone = nullptr;
   for (int i = 0; i < kNum; ++i) {
-    db_->Put(WriteOptions(), Key1(i), Timestamp(i, 0),
-             "val" + std::to_string(i));
+    ASSERT_OK(db_->Put(WriteOptions(), Key1(i), Timestamp(i, 0),
+                       "val" + std::to_string(i)));
     if (i == kRangeBegin) {
       before_tombstone = db_->GetSnapshot();
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
-                       Key1(kRangeBegin), Key1(kRangeEnd),
-                       Timestamp(kRangeBegin, 0));
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 Key1(kRangeBegin), Key1(kRangeEnd),
+                                 Timestamp(kRangeBegin, 0)));
     }
     if (i == kNum / 2) {
       ASSERT_OK(Flush());
@@ -3585,9 +3585,9 @@ TEST_F(DBBasicTestWithTimestamp, DeleteRangeGetIteratorWithSnapshot) {
   read_opts.snapshot = before_tombstone;
   std::vector<Status> expected_status = {
       Status::OK(), Status::NotFound(), Status::NotFound(), Status::NotFound()};
-  std::vector<std::string> expected_values{kNum};
+  std::vector<std::string> expected_values{static_cast<uint64_t>(kNum)};
   expected_values[0] = "val" + std::to_string(0);
-  std::vector<std::string> expected_timestamps{kNum};
+  std::vector<std::string> expected_timestamps{static_cast<uint64_t>(kNum)};
   expected_timestamps[0] = Timestamp(0, 0);
 
   size_t batch_size = kNum;

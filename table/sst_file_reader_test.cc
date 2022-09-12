@@ -414,6 +414,8 @@ TEST_F(SstFileReaderTimestampTest, BasicDeleteRange) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
+
+  delete iter;
 }
 
 TEST_F(SstFileReaderTimestampTest, TimestampsOutOfOrder) {
