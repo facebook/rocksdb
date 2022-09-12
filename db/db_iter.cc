@@ -179,7 +179,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   assert(!is_blob_);
   assert(blob_value_.empty());
   assert(!is_wide_);
-  assert(value_of_default_column_.empty());
+  assert(wide_columns_.empty());
 
   if (expose_blob_index_) {  // Stacked BlobDB implementation
     is_blob_ = true;
@@ -215,16 +215,14 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   return true;
 }
 
-bool DBIter::SetWideColumnValueIfNeeded(const Slice& wide_columns_slice) {
+bool DBIter::SetWideColumnValueIfNeeded(Slice wide_columns_slice) {
   assert(!is_blob_);
   assert(blob_value_.empty());
   assert(!is_wide_);
-  assert(value_of_default_column_.empty());
+  assert(wide_columns_.empty());
 
-  Slice wide_columns_copy = wide_columns_slice;
-
-  const Status s = WideColumnSerialization::GetValueOfDefaultColumn(
-      wide_columns_copy, value_of_default_column_);
+  const Status s =
+      WideColumnSerialization::Deserialize(wide_columns_slice, wide_columns_);
 
   if (!s.ok()) {
     status_ = s;
@@ -285,7 +283,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
   assert(!is_blob_);
   assert(blob_value_.empty());
   assert(!is_wide_);
-  assert(value_of_default_column_.empty());
+  assert(wide_columns_.empty());
 
   do {
     // Will update is_key_seqnum_zero_ as soon as we parsed the current key
@@ -592,7 +590,7 @@ bool DBIter::MergeValuesNewToOld() {
 
       ResetBlobValue();
       assert(!is_wide_);
-      assert(value_of_default_column_.empty());
+      assert(wide_columns_.empty());
 
       // iter_ is positioned after put
       iter_.Next();
@@ -960,7 +958,7 @@ bool DBIter::FindValueForCurrentKey() {
   assert(!is_blob_);
   assert(blob_value_.empty());
   assert(!is_wide_);
-  assert(value_of_default_column_.empty());
+  assert(wide_columns_.empty());
 
   switch (last_key_entry_type) {
     case kTypeDeletion:
@@ -1001,7 +999,7 @@ bool DBIter::FindValueForCurrentKey() {
 
         ResetBlobValue();
         assert(!is_wide_);
-        assert(value_of_default_column_.empty());
+        assert(wide_columns_.empty());
 
         return true;
       } else if (last_not_merge_type == kTypeWideColumnEntity) {
@@ -1081,7 +1079,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   assert(!is_blob_);
   assert(blob_value_.empty());
   assert(!is_wide_);
-  assert(value_of_default_column_.empty());
+  assert(wide_columns_.empty());
 
   while (true) {
     if (!iter_.Valid()) {
@@ -1216,7 +1214,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
       ResetBlobValue();
       assert(!is_wide_);
-      assert(value_of_default_column_.empty());
+      assert(wide_columns_.empty());
 
       return true;
     } else if (ikey.type == kTypeWideColumnEntity) {

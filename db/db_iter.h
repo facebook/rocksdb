@@ -17,6 +17,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/wide_columns.h"
 #include "table/iterator_wrapper.h"
 #include "util/autovector.h"
 
@@ -161,10 +162,15 @@ class DBIter final : public Iterator {
     assert(valid_);
     assert(!is_blob_ || !is_wide_);
 
-    if (!expose_blob_index_ && is_blob_) {
+    if (is_wide_) {
+      if (wide_columns_.empty() ||
+          wide_columns_[0].name() != kDefaultWideColumnName) {
+        return Slice();
+      }
+
+      return wide_columns_[0].value();
+    } else if (!expose_blob_index_ && is_blob_) {
       return blob_value_;
-    } else if (is_wide_) {
-      return value_of_default_column_;
     } else if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
       // the merge operands and we should return it.
@@ -175,6 +181,13 @@ class DBIter final : public Iterator {
       return iter_.value();
     }
   }
+
+  const WideColumns& columns() const override {
+    assert(valid_);
+
+    return wide_columns_;
+  }
+
   Status status() const override {
     if (status_.ok()) {
       return iter_.status();
@@ -307,11 +320,11 @@ class DBIter final : public Iterator {
     blob_value_.Reset();
   }
 
-  bool SetWideColumnValueIfNeeded(const Slice& wide_columns_slice);
+  bool SetWideColumnValueIfNeeded(Slice wide_columns_slice);
 
   void ResetWideColumnValue() {
     is_wide_ = false;
-    value_of_default_column_.clear();
+    wide_columns_.clear();
   }
 
   Status Merge(const Slice* val, const Slice& user_key);
@@ -338,7 +351,7 @@ class DBIter final : public Iterator {
   Slice pinned_value_;
   // for prefix seek mode to support prev()
   PinnableSlice blob_value_;
-  Slice value_of_default_column_;
+  WideColumns wide_columns_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
