@@ -474,7 +474,7 @@ class ClockHandleTable {
 
   ALIGN_AS(CACHE_LINE_SIZE)
   // Clock algorithm sweep pointer.
-  std::atomic<uint32_t> clock_pointer_{};
+  std::atomic<uint64_t> clock_pointer_{};
 
   ALIGN_AS(CACHE_LINE_SIZE)
   // Number of elements in the table.

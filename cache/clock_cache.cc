@@ -834,20 +834,25 @@ void ClockHandleTable::Rollback(uint32_t hash, const ClockHandle* h) {
 
 void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
                              uint32_t* freed_count) {
+  // precondition
+  assert(requested_charge > 0);
+
   // TODO: make a tuning parameter?
   constexpr uint32_t step_size = 4;
 
-  int allowed_wrap_arounds = ClockHandle::kMaxCountdown;
-  do {
-    uint32_t old_clock_pointer =
-        clock_pointer_.fetch_add(step_size, std::memory_order_relaxed);
+  // First (concurrent) increment clock pointer
+  uint64_t old_clock_pointer =
+      clock_pointer_.fetch_add(step_size, std::memory_order_relaxed);
 
-    allowed_wrap_arounds -= (ModTableSize(old_clock_pointer) >
-                             ModTableSize(old_clock_pointer + step_size));
-    if (UNLIKELY(allowed_wrap_arounds < 0)) {
-      return;
-    }
+  // Cap the eviction effort at this thread (along with those operating in
+  // parallel) circling through the whole structure kMaxCountdown times.
+  // In other words, this eviction run must find something/anything that is
+  // unreferenced at start of and during the eviction run that isn't reclimed
+  // by a concurrent eviction run.
+  uint64_t max_clock_pointer =
+      old_clock_pointer + (ClockHandle::kMaxCountdown << length_bits_);
 
+  for (;;) {
     for (uint32_t i = 0; i < step_size; i++) {
       ClockHandle& h = array_[ModTableSize(old_clock_pointer + i)];
       uint64_t meta = h.meta.load(std::memory_order_relaxed);
@@ -907,7 +912,19 @@ void ClockHandleTable::Evict(size_t requested_charge, size_t* freed_charge,
         Rollback(hash, &h);
       }
     }
-  } while (*freed_charge < requested_charge);
+
+    // Loop exit condition
+    if (*freed_charge >= requested_charge) {
+      return;
+    }
+    if (old_clock_pointer >= max_clock_pointer) {
+      return;
+    }
+
+    // Advance clock pointer (concurrently)
+    old_clock_pointer =
+        clock_pointer_.fetch_add(step_size, std::memory_order_relaxed);
+  }
 }
 
 ClockCacheShard::ClockCacheShard(
