@@ -72,6 +72,14 @@ commands:
           path: /tmp/core_dumps
           when: on_fail
 
+  upgrade-cmake:
+    steps:
+      - run:
+          name: Upgrade cmake
+          command: |
+            sudo apt remove --purge cmake
+            sudo snap install cmake --classic
+
   install-gflags:
     steps:
       - run:
@@ -92,6 +100,13 @@ commands:
           name: Checkout folly sources
           command: |
             make checkout_folly
+
+  build-folly:
+    steps:
+      - run:
+          name: Build folly and dependencies
+          command: |
+            make build_folly
 
   build-for-benchmarks:
     steps:
@@ -158,7 +173,7 @@ executors:
       # to run the CI image environment locally:
       #  $ docker run --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -it zjay437/rocksdb:0.5 bash
       # option `--cap-add=SYS_PTRACE --security-opt seccomp=unconfined` is used to enable gdb to attach an existing process
-      - image: zjay437/rocksdb:0.5
+      - image: zjay437/rocksdb:0.6
 
 jobs:
   build-macos:
@@ -355,7 +370,17 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
-      - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 .. && make V=1 -j20 && ctest -j20)
+      - build-folly
+      - run: (mkdir build && cd build && cmake -DUSE_FOLLY=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
+      - post-steps
+
+  build-linux-cmake-with-folly-lite-no-test:
+    executor: linux-docker
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - setup-folly
+      - run: (mkdir build && cd build && cmake -DUSE_FOLLY_LITE=1 -DWITH_GFLAGS=1 .. && make V=1 -j20)
       - post-steps
 
   build-linux-cmake-with-benchmark:
@@ -385,7 +410,17 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
+      - build-folly
       - run: USE_FOLLY=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 check
+      - post-steps
+
+  build-linux-gcc-7-with-folly-lite-no-test:
+    executor: linux-docker
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - setup-folly
+      - run: USE_FOLLY_LITE=1 CC=gcc-7 CXX=g++-7 V=1 make -j32 all
       - post-steps
 
   build-linux-gcc-8-no_test_run:
@@ -394,6 +429,19 @@ jobs:
     steps:
       - pre-steps
       - run: CC=gcc-8 CXX=g++-8 V=1 make -j32 all
+      - post-steps
+
+  build-linux-cmake-with-folly-coroutines:
+    executor: linux-docker
+    resource_class: 2xlarge
+    environment:
+      CC: gcc-10
+      CXX: g++-10
+    steps:
+      - pre-steps
+      - setup-folly
+      - build-folly
+      - run: (mkdir build && cd build && cmake -DUSE_COROUTINES=1 -DWITH_GFLAGS=1 -DROCKSDB_BUILD_SHARED=0 .. && make V=1 -j20 && ctest -j20)
       - post-steps
 
   build-linux-gcc-10-cxx20-no_test_run:
@@ -427,6 +475,7 @@ jobs:
     steps:
       - pre-steps
       - setup-folly
+      - build-folly
       - run: CC=clang-13 CXX=clang++-13 USE_CLANG=1 USE_FOLLY=1 COMPILE_WITH_UBSAN=1 COMPILE_WITH_ASAN=1 make -j32 check
       - post-steps
 
@@ -777,7 +826,10 @@ workflows:
     jobs:
       - build-linux
       - build-linux-cmake-with-folly
+      - build-linux-cmake-with-folly-lite-no-test
       - build-linux-gcc-7-with-folly
+      - build-linux-gcc-7-with-folly-lite-no-test
+      - build-linux-cmake-with-folly-coroutines
       - build-linux-cmake-with-benchmark
       - build-linux-encrypted_env-no_compression
       - build-linux-lite
