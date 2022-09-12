@@ -165,8 +165,13 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.stats),
+#ifdef COERCE_CONTEXT_SWITCH
+      mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS, &bg_cv_,
+             immutable_db_options_.use_adaptive_mutex),
+#else   // COERCE_CONTEXT_SWITCH
       mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
+#endif  // COERCE_CONTEXT_SWITCH
       default_cf_handle_(nullptr),
       error_handler_(this, immutable_db_options_, &mutex_),
       event_logger_(immutable_db_options_.info_log.get()),
