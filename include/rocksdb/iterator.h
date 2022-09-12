@@ -19,9 +19,11 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/wide_columns.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -83,6 +85,15 @@ class Iterator : public Cleanable {
   // the iterator.
   // REQUIRES: Valid()
   virtual Slice value() const = 0;
+
+  // Return the wide columns for the current entry.  The underlying storage for
+  // the returned structure is valid only until the next modification of the
+  // iterator.
+  // REQUIRES: Valid()
+  virtual const WideColumns& columns() const {
+    assert(false);
+    return kNoWideColumns;
+  }
 
   // If an error has occurred, return it.  Else return an ok status.
   // If non-blocking IO is requested and this operation cannot be
