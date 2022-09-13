@@ -21,6 +21,7 @@
 #include "db/version_set.h"
 #include "file/random_access_file_reader.h"
 #include "file/writable_file_writer.h"
+#include "options/options_helper.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -503,6 +504,13 @@ class CompactionJobTestBase : public testing::Test {
   void NewDB() {
     EXPECT_OK(DestroyDB(dbname_, Options()));
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+
+    std::shared_ptr<Logger> info_log;
+    DBOptions db_opts = BuildDBOptions(db_options_, mutable_db_options_);
+    Status s = CreateLoggerFromOptions(dbname_, db_opts, &info_log);
+    ASSERT_OK(s);
+    db_options_.info_log = info_log;
+
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
@@ -519,9 +527,9 @@ class CompactionJobTestBase : public testing::Test {
     const std::string manifest = DescriptorFileName(dbname_, 1);
     std::unique_ptr<WritableFileWriter> file_writer;
     const auto& fs = env_->GetFileSystem();
-    Status s = WritableFileWriter::Create(
-        fs, manifest, fs->OptimizeForManifestWrite(env_options_), &file_writer,
-        nullptr);
+    s = WritableFileWriter::Create(fs, manifest,
+                                   fs->OptimizeForManifestWrite(env_options_),
+                                   &file_writer, nullptr);
 
     ASSERT_OK(s);
     {
@@ -569,7 +577,8 @@ class CompactionJobTestBase : public testing::Test {
       uint64_t expected_oldest_blob_file_number = kInvalidBlobFileNumber,
       bool check_get_priority = false,
       Env::IOPriority read_io_priority = Env::IO_TOTAL,
-      Env::IOPriority write_io_priority = Env::IO_TOTAL) {
+      Env::IOPriority write_io_priority = Env::IO_TOTAL,
+      int max_subcompactions = 0) {
     // For compaction, set fs as MockTestFileSystem to check the io_priority.
     if (test_io_priority_) {
       db_options_.fs.reset(
@@ -595,9 +604,10 @@ class CompactionJobTestBase : public testing::Test {
         *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
         compaction_input_files, output_level, 1024 * 1024, 10 * 1024 * 1024, 0,
         kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts,
-        Temperature::kUnknown, 0, {}, true);
+        Temperature::kUnknown, max_subcompactions, {}, true);
     compaction.SetInputVersion(cfd->current());
 
+    assert(db_options_.info_log);
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
     mutex_.Lock();
     EventLogger event_logger(db_options_.info_log.get());
@@ -627,6 +637,7 @@ class CompactionJobTestBase : public testing::Test {
     ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
     ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
+    log_buffer.FlushBufferToLog();
 
     if (verify) {
       ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
@@ -1827,17 +1838,19 @@ class CompactionJobTimestampTestWithBbTable : public CompactionJobTestBase {
 };
 
 TEST_F(CompactionJobTimestampTestWithBbTable, SubcompactionAnchor) {
+  cf_options_.target_file_size_base = 20;
+  mutable_cf_options_.target_file_size_base = 20;
   NewDB();
 
   const std::vector<std::string> keys = {
       KeyStr("a", 20, ValueType::kTypeValue, 200),
-      KeyStr("a", 19, ValueType::kTypeValue, 190),
-      KeyStr("a", 18, ValueType::kTypeValue, 180),
-      KeyStr("a", 17, ValueType::kTypeValue, 170),
-      KeyStr("a", 16, ValueType::kTypeValue, 160),
-      KeyStr("a", 15, ValueType::kTypeValue, 150)};
-  const std::vector<std::string> values = {"a20", "a19", "a18",
-                                           "a17", "a16", "a15"};
+      KeyStr("b", 21, ValueType::kTypeValue, 210),
+      KeyStr("b", 18, ValueType::kTypeValue, 180),
+      KeyStr("c", 17, ValueType::kTypeValue, 170),
+      KeyStr("c", 16, ValueType::kTypeValue, 160),
+      KeyStr("c", 15, ValueType::kTypeValue, 150)};
+  const std::vector<std::string> values = {"a20", "b21", "b18",
+                                           "c17", "c16", "c15"};
 
   constexpr int input_level = 1;
 
@@ -1860,7 +1873,13 @@ TEST_F(CompactionJobTimestampTestWithBbTable, SubcompactionAnchor) {
                                               {keys[5], values[5]}});
   const auto& files = cfd_->current()->storage_info()->LevelFiles(input_level);
 
-  RunCompaction({files}, {input_level}, expected_results);
+  constexpr int output_level = 2;
+  constexpr int max_subcompactions = 4;
+  RunCompaction({files}, {input_level}, expected_results, /*snapshots=*/{},
+                /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
+                output_level, /*verify=*/true, kInvalidBlobFileNumber,
+                /*check_get_priority=*/false, Env::IO_TOTAL, Env::IO_TOTAL,
+                max_subcompactions);
 }
 
 // The io priority of the compaction reads and writes are different from
