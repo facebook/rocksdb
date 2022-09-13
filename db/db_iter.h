@@ -162,24 +162,12 @@ class DBIter final : public Iterator {
     assert(valid_);
     assert(!is_blob_ || !is_wide_);
 
-    if (is_wide_) {
-      if (wide_columns_.empty() ||
-          wide_columns_[0].name() != kDefaultWideColumnName) {
-        return Slice();
-      }
-
-      return wide_columns_[0].value();
-    } else if (!expose_blob_index_ && is_blob_) {
-      return blob_value_;
-    } else if (current_entry_is_merged_) {
-      // If pinned_value_ is set then the result of merge operator is one of
-      // the merge operands and we should return it.
-      return pinned_value_.data() ? pinned_value_ : saved_value_;
-    } else if (direction_ == kReverse) {
-      return pinned_value_;
-    } else {
-      return iter_.value();
+    if (wide_columns_.empty() ||
+        wide_columns_[0].name() != kDefaultWideColumnName) {
+      return Slice();
     }
+
+    return wide_columns_[0].value();
   }
 
   const WideColumns& columns() const override {
