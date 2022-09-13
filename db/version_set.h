@@ -1021,8 +1021,9 @@ class Version {
                       autovector<FilePickerMultiGet, 4>& batches,
                       std::deque<size_t>& waiting,
                       std::deque<size_t>& to_process,
-                      unsigned int& num_tasks_queued, uint64_t& num_filter_read,
-                      uint64_t& num_index_read, uint64_t& num_sst_read);
+                      unsigned int& num_tasks_queued,
+                      std::unordered_map<int,
+                          std::tuple<uint64_t, uint64_t, uint64_t>>& mget_stats);
 #endif
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
