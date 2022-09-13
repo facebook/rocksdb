@@ -160,7 +160,6 @@ class DBIter final : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
-    assert(!is_blob_ || !is_wide_);
 
     if (wide_columns_.empty() ||
         wide_columns_[0].name() != kDefaultWideColumnName) {
@@ -309,7 +308,6 @@ class DBIter final : public Iterator {
   }
 
   void SetWideColumnValueFromPlain(const Slice& slice) {
-    assert(!is_wide_);
     assert(wide_columns_.empty());
 
     wide_columns_.emplace_back(kDefaultWideColumnName, slice);
@@ -318,7 +316,6 @@ class DBIter final : public Iterator {
   bool SetWideColumnValueFromEntity(Slice slice);
 
   void ResetWideColumnValue() {
-    is_wide_ = false;
     wide_columns_.clear();
   }
 
@@ -383,7 +380,6 @@ class DBIter final : public Iterator {
   // the stacked BlobDB implementation is used, false otherwise.
   bool expose_blob_index_;
   bool is_blob_;
-  bool is_wide_;
   bool arena_mode_;
   // List of operands for merge operator.
   MergeContext merge_context_;
