@@ -38,6 +38,9 @@ TEST_F(DBWideBasicTest, PutEntity) {
   constexpr char third_value[] = "baz";
 
   auto verify = [&]() {
+    const WideColumns expected_third_columns{
+        {kDefaultWideColumnName, third_value}};
+
     {
       PinnableSlice result;
       ASSERT_OK(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), first_key,
@@ -78,8 +81,7 @@ TEST_F(DBWideBasicTest, PutEntity) {
       ASSERT_OK(db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(),
                                third_key, &result));
 
-      const WideColumns expected_columns{{kDefaultWideColumnName, third_value}};
-      ASSERT_EQ(result.columns(), expected_columns);
+      ASSERT_EQ(result.columns(), expected_third_columns);
     }
 
     {
@@ -110,18 +112,21 @@ TEST_F(DBWideBasicTest, PutEntity) {
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), first_key);
       ASSERT_EQ(iter->value(), first_value_of_default_column);
+      ASSERT_EQ(iter->columns(), first_columns);
 
       iter->Next();
       ASSERT_TRUE(iter->Valid());
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), second_key);
       ASSERT_TRUE(iter->value().empty());
+      ASSERT_EQ(iter->columns(), second_columns);
 
       iter->Next();
       ASSERT_TRUE(iter->Valid());
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), third_key);
       ASSERT_EQ(iter->value(), third_value);
+      ASSERT_EQ(iter->columns(), expected_third_columns);
 
       iter->Next();
       ASSERT_FALSE(iter->Valid());
@@ -132,18 +137,21 @@ TEST_F(DBWideBasicTest, PutEntity) {
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), third_key);
       ASSERT_EQ(iter->value(), third_value);
+      ASSERT_EQ(iter->columns(), expected_third_columns);
 
       iter->Prev();
       ASSERT_TRUE(iter->Valid());
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), second_key);
       ASSERT_TRUE(iter->value().empty());
+      ASSERT_EQ(iter->columns(), second_columns);
 
       iter->Prev();
       ASSERT_TRUE(iter->Valid());
       ASSERT_OK(iter->status());
       ASSERT_EQ(iter->key(), first_key);
       ASSERT_EQ(iter->value(), first_value_of_default_column);
+      ASSERT_EQ(iter->columns(), first_columns);
 
       iter->Prev();
       ASSERT_FALSE(iter->Valid());
