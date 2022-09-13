@@ -2695,6 +2695,21 @@ void StressTest::Open(SharedState* shared) {
     exit(1);
 #endif
   }
+
+  if (FLAGS_preserve_unverified_changes) {
+    // Up until now, no live file should have become obsolete due to these
+    // options. After `DisableFileDeletions()` we can reenable auto compactions
+    // since, even if live files become obsolete, they won't be deleted.
+    assert(options_.avoid_flush_during_recovery);
+    assert(options_.disable_auto_compactions);
+    if (s.ok()) {
+      s = db_->DisableFileDeletions();
+    }
+    if (s.ok()) {
+      s = db_->EnableAutoCompaction(column_families_);
+    }
+  }
+
   if (!s.ok()) {
     fprintf(stderr, "open error: %s\n", s.ToString().c_str());
     exit(1);
@@ -3207,6 +3222,20 @@ void InitializeOptionsGeneral(
               status.ToString().c_str());
       exit(1);
     }
+  }
+
+  if (FLAGS_preserve_unverified_changes) {
+    if (!options.avoid_flush_during_recovery) {
+      fprintf(stderr,
+              "WARNING: flipping `avoid_flush_during_recovery` to true for "
+              "`preserve_unverified_changes` to keep all files\n");
+      options.avoid_flush_during_recovery = true;
+    }
+    // Together with `avoid_flush_during_recovery == true`, this will prevent
+    // live files from becoming obsolete and deleted between `DB::Open()` and
+    // `DisableFileDeletions()` due to flush or compaction. We do not need to
+    // warn the user since we will reenable compaction soon.
+    options.disable_auto_compactions = true;
   }
 
   options.table_properties_collector_factories.emplace_back(
