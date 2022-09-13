@@ -161,12 +161,7 @@ class DBIter final : public Iterator {
   Slice value() const override {
     assert(valid_);
 
-    if (wide_columns_.empty() ||
-        wide_columns_[0].name() != kDefaultWideColumnName) {
-      return Slice();
-    }
-
-    return wide_columns_[0].value();
+    return value_;
   }
 
   const WideColumns& columns() const override {
@@ -307,15 +302,18 @@ class DBIter final : public Iterator {
     blob_value_.Reset();
   }
 
-  void SetWideColumnValueFromPlain(const Slice& slice) {
+  void SetValueAndColumnsFromPlain(const Slice& slice) {
+    assert(value_.empty());
     assert(wide_columns_.empty());
 
+    value_ = slice;
     wide_columns_.emplace_back(kDefaultWideColumnName, slice);
   }
 
-  bool SetWideColumnValueFromEntity(Slice slice);
+  bool SetValueAndColumnsFromEntity(Slice slice);
 
-  void ResetWideColumnValue() {
+  void ResetValueAndColumns() {
+    value_.clear();
     wide_columns_.clear();
   }
 
@@ -343,6 +341,9 @@ class DBIter final : public Iterator {
   Slice pinned_value_;
   // for prefix seek mode to support prev()
   PinnableSlice blob_value_;
+  // Value of the default column
+  Slice value_;
+  // All columns (i.e. name-value pairs)
   WideColumns wide_columns_;
   Statistics* statistics_;
   uint64_t max_skip_;
