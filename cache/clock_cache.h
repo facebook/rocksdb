@@ -291,13 +291,13 @@ class ClockCacheTest;
 // Since space cost is dominated by the values (the LSM blocks),
 // overprovisioning the table with metadata only increases the total cache space
 // usage by a tiny fraction.
-constexpr double kLoadFactor = 0.35;
+constexpr double kLoadFactor = 0.7;
 
 // The user can exceed kLoadFactor if the sizes of the inserted values don't
 // match estimated_value_size, or in some rare cases with
 // strict_capacity_limit == false. To avoid degenerate performance, we set a
 // strict upper bound on the load factor.
-constexpr double kStrictLoadFactor = 0.7;
+constexpr double kStrictLoadFactor = 0.84;
 
 using CacheKeyBytes = std::array<char, kCacheKeySize>;
 
@@ -411,9 +411,11 @@ class ClockHandleTable {
 
   uint32_t GetOccupancyLimit() const { return occupancy_limit_; }
 
-  uint32_t GetOccupancy() const { return occupancy_; }
+  uint32_t GetOccupancy() const {
+    return occupancy_.load(std::memory_order_relaxed);
+  }
 
-  size_t GetUsage() const { return usage_; }
+  size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
 
   size_t GetDetachedUsage() const {
     return detached_usage_.load(std::memory_order_relaxed);
@@ -518,6 +520,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) ClockCacheShard final : public CacheShard {
   size_t GetUsage() const override;
 
   size_t GetPinnedUsage() const override;
+
+  size_t GetOccupancyCount() const override;
+
+  size_t GetTableAddressCount() const override;
 
   void ApplyToSomeEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,

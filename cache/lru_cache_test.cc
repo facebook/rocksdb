@@ -835,72 +835,40 @@ TEST_F(ClockCacheTest, CollidingInsertEraseTest) {
   ASSERT_EQ(nullptr, tmp_h);
 }
 
-TEST_F(ClockCacheTest, CalcHashBitsTest) {
-#if 0  // FIXME
-  size_t capacity;
-  size_t estimated_value_size;
-  double max_occupancy;
-  int hash_bits;
-  CacheMetadataChargePolicy metadata_charge_policy;
+// This uses the public API to effectively test CalcHashBits etc.
+TEST_F(ClockCacheTest, TableSizesTest) {
+  for (size_t est_val_size : {1U, 5U, 123U, 2345U, 345678U}) {
+    SCOPED_TRACE("est_val_size = " + std::to_string(est_val_size));
+    for (double est_count : {1.1, 2.2, 511.9, 512.1, 2345.0}) {
+      SCOPED_TRACE("est_count = " + std::to_string(est_count));
+      size_t capacity = static_cast<size_t>(est_val_size * est_count);
+      // kDontChargeCacheMetadata
+      auto cache = ExperimentalNewClockCache(
+          capacity, est_val_size, /*num shard_bits*/ -1,
+          /*strict_capacity_limit*/ false, kDontChargeCacheMetadata);
+      // Table sizes are currently only powers of two
+      EXPECT_GE(cache->GetTableAddressCount(), est_count / kLoadFactor);
+      EXPECT_LE(cache->GetTableAddressCount(), est_count / kLoadFactor * 2.0);
+      EXPECT_EQ(cache->GetUsage(), 0);
 
-  // Vary the cache capacity, fix the element charge.
-  for (int i = 0; i < 2048; i++) {
-    capacity = i;
-    estimated_value_size = 0;
-    metadata_charge_policy = kFullChargeCacheMetadata;
-    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
-                                     metadata_charge_policy);
-    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                    metadata_charge_policy);
-    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
+      // kFullChargeMetaData
+      // Because table sizes are currently only powers of two, sizes get
+      // really weird when metadata is a huge portion of capacity. For example,
+      // doubling the table size could cut by 90% the space available to
+      // values. Therefore, we omit those weird cases for now.
+      if (est_val_size >= 512) {
+        cache = ExperimentalNewClockCache(
+            capacity, est_val_size, /*num shard_bits*/ -1,
+            /*strict_capacity_limit*/ false, kFullChargeCacheMetadata);
+        double est_count_after_meta =
+            (capacity - cache->GetUsage()) * 1.0 / est_val_size;
+        EXPECT_GE(cache->GetTableAddressCount(),
+                  est_count_after_meta / kLoadFactor);
+        EXPECT_LE(cache->GetTableAddressCount(),
+                  est_count_after_meta / kLoadFactor * 2.0);
+      }
+    }
   }
-
-  // Fix the cache capacity, vary the element charge.
-  for (int i = 0; i < 1024; i++) {
-    capacity = 1024;
-    estimated_value_size = i;
-    metadata_charge_policy = kFullChargeCacheMetadata;
-    max_occupancy = CalcMaxOccupancy(capacity, estimated_value_size,
-                                     metadata_charge_policy);
-    hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                    metadata_charge_policy);
-    EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
-  }
-
-  // Zero-capacity cache, and only values have charge.
-  capacity = 0;
-  estimated_value_size = 1;
-  metadata_charge_policy = kDontChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
-
-  // Zero-capacity cache, and only metadata has charge.
-  capacity = 0;
-  estimated_value_size = 0;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
-
-  // Small cache, large elements.
-  capacity = 1024;
-  estimated_value_size = 8192;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, 0 /* max_occupancy */));
-
-  // Large capacity.
-  capacity = 31924172;
-  estimated_value_size = 8192;
-  metadata_charge_policy = kFullChargeCacheMetadata;
-  max_occupancy =
-      CalcMaxOccupancy(capacity, estimated_value_size, metadata_charge_policy);
-  hash_bits = CalcHashBitsWrapper(capacity, estimated_value_size,
-                                  metadata_charge_policy);
-  EXPECT_TRUE(TableSizeIsAppropriate(hash_bits, max_occupancy));
-#endif
 }
 
 }  // namespace clock_cache

@@ -230,4 +230,21 @@ int ShardedCache::GetNumShardBits() const { return BitsSetToOne(shard_mask_); }
 
 uint32_t ShardedCache::GetNumShards() const { return shard_mask_ + 1; }
 
+size_t ShardedCache::GetOccupancyCount() const {
+  size_t oc = 0;
+  uint32_t num_shards = GetNumShards();
+  for (uint32_t s = 0; s < num_shards; s++) {
+    oc += GetShard(s)->GetOccupancyCount();
+  }
+  return oc;
+}
+size_t ShardedCache::GetTableAddressCount() const {
+  size_t tac = 0;
+  uint32_t num_shards = GetNumShards();
+  for (uint32_t s = 0; s < num_shards; s++) {
+    tac += GetShard(s)->GetTableAddressCount();
+  }
+  return tac;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

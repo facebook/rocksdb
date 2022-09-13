@@ -672,6 +672,8 @@ void InternalStats::CacheEntryRoleStats::BeginCollection(
   cache_id = str.str();
   cache_capacity = cache->GetCapacity();
   cache_usage = cache->GetUsage();
+  table_size = cache->GetTableAddressCount();
+  occupancy = cache->GetOccupancyCount();
 }
 
 void InternalStats::CacheEntryRoleStats::EndCollection(
@@ -697,6 +699,7 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
   str << "Block cache " << cache_id
       << " capacity: " << BytesToHumanString(cache_capacity)
       << " usage: " << BytesToHumanString(cache_usage)
+      << " table_size: " << table_size << " occupancy: " << occupancy
       << " collections: " << collection_count
       << " last_copies: " << copies_of_last_collection
       << " last_secs: " << (GetLastDurationMicros() / 1000000.0)

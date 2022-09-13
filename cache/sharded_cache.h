@@ -48,6 +48,8 @@ class CacheShard {
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;
   virtual size_t GetPinnedUsage() const = 0;
+  virtual size_t GetOccupancyCount() const = 0;
+  virtual size_t GetTableAddressCount() const = 0;
   // Handles iterating over roughly `average_entries_per_lock` entries, using
   // `state` to somehow record where it last ended up. Caller initially uses
   // *state == 0 and implementation sets *state = UINT32_MAX to indicate
@@ -103,6 +105,8 @@ class ShardedCache : public Cache {
   virtual size_t GetUsage() const override;
   virtual size_t GetUsage(Handle* handle) const override;
   virtual size_t GetPinnedUsage() const override;
+  virtual size_t GetOccupancyCount() const override;
+  virtual size_t GetTableAddressCount() const override;
   virtual void ApplyToAllEntries(
       const std::function<void(const Slice& key, void* value, size_t charge,
                                DeleterFn deleter)>& callback,

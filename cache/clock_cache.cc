@@ -1105,6 +1105,14 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   return table_pinned_usage + table_.GetDetachedUsage();
 }
 
+size_t ClockCacheShard::GetOccupancyCount() const {
+  return table_.GetOccupancy();
+}
+
+size_t ClockCacheShard::GetTableAddressCount() const {
+  return table_.GetTableSize();
+}
+
 ClockCache::ClockCache(size_t capacity, size_t estimated_value_size,
                        int num_shard_bits, bool strict_capacity_limit,
                        CacheMetadataChargePolicy metadata_charge_policy)

@@ -525,6 +525,16 @@ size_t LRUCacheShard::GetPinnedUsage() const {
   return usage_ - lru_usage_;
 }
 
+size_t LRUCacheShard::GetOccupancyCount() const {
+  DMutexLock l(mutex_);
+  return table_.GetOccupancy();
+}
+
+size_t LRUCacheShard::GetTableAddressCount() const {
+  DMutexLock l(mutex_);
+  return table_.GetTableSize();
+}
+
 std::string LRUCacheShard::GetPrintableOptions() const { return std::string{}; }
 
 LRUCache::LRUCache(size_t capacity, size_t estimated_value_size,
