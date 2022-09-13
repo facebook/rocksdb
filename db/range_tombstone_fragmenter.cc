@@ -252,8 +252,7 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
 }
 
 FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
-    const std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>>&
-        tombstones_cache,
+    const std::shared_ptr<FragmentedRangeTombstoneListCache>& tombstones_cache,
     const InternalKeyComparator& icmp, SequenceNumber _upper_bound,
     SequenceNumber _lower_bound)
     : tombstone_start_cmp_(icmp.user_comparator()),
@@ -261,7 +260,7 @@ FragmentedRangeTombstoneIterator::FragmentedRangeTombstoneIterator(
       icmp_(&icmp),
       ucmp_(icmp.user_comparator()),
       tombstones_cache_ref_(tombstones_cache),
-      tombstones_((*tombstones_cache_ref_)->tombstones.get()),
+      tombstones_(tombstones_cache_ref_->tombstones.get()),
       upper_bound_(_upper_bound),
       lower_bound_(_lower_bound) {
   assert(tombstones_ != nullptr);

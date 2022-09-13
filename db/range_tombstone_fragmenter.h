@@ -123,8 +123,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
       SequenceNumber lower_bound = 0);
   FragmentedRangeTombstoneIterator(
-      const std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>>&
-          tombstones,
+      const std::shared_ptr<FragmentedRangeTombstoneListCache>& tombstones,
       const InternalKeyComparator& icmp, SequenceNumber upper_bound,
       SequenceNumber lower_bound = 0);
 
@@ -274,8 +273,7 @@ class FragmentedRangeTombstoneIterator : public InternalIterator {
   const InternalKeyComparator* icmp_;
   const Comparator* ucmp_;
   std::shared_ptr<const FragmentedRangeTombstoneList> tombstones_ref_;
-  std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>>
-      tombstones_cache_ref_;
+  std::shared_ptr<FragmentedRangeTombstoneListCache> tombstones_cache_ref_;
   const FragmentedRangeTombstoneList* tombstones_;
   SequenceNumber upper_bound_;
   SequenceNumber lower_bound_;

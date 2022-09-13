@@ -538,8 +538,7 @@ class MemTable {
 
   // makes sure there is a single range tombstone writer to invalidate cache
   std::mutex range_del_mutex_;
-  CoreLocalArray<
-      std::shared_ptr<std::shared_ptr<FragmentedRangeTombstoneListCache>>>
+  CoreLocalArray<std::shared_ptr<FragmentedRangeTombstoneListCache>>
       cached_range_tombstone_;
 
  private:
