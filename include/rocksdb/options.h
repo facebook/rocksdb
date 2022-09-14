@@ -1680,6 +1680,16 @@ struct ReadOptions {
   // Default: `Env::IO_TOTAL`.
   Env::IOPriority rate_limiter_priority = Env::IO_TOTAL;
 
+  // Enable block per key-value checksum protection.
+  //
+  // When a data block is read from sst, it will be suffixed by an array of
+  // checksums.
+  // This option determines the size of such checksums.
+  //
+  // Default: 0 (no protection)
+  // Supported values: 0, 1, 2, 4, 8.
+  uint32_t block_protection_bytes_per_key = 0;
+
   // Experimental
   //
   // If async_io is enabled, RocksDB will prefetch some of data asynchronously.

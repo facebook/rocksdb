@@ -192,7 +192,8 @@ class Block {
                                  SequenceNumber global_seqno,
                                  DataBlockIter* iter = nullptr,
                                  Statistics* stats = nullptr,
-                                 bool block_contents_pinned = false);
+                                 bool block_contents_pinned = false,
+                                 uint32_t block_protection_bytes_per_key = 0);
 
   // Returns an MetaBlockIter for iterating over blocks containing metadata
   // (like Properties blocks).  Unlike data blocks, the keys for these blocks
@@ -492,23 +493,27 @@ class DataBlockIter final : public BlockIter<Slice> {
   DataBlockIter(const Comparator* raw_ucmp, const char* data, uint32_t restarts,
                 uint32_t num_restarts, SequenceNumber global_seqno,
                 BlockReadAmpBitmap* read_amp_bitmap, bool block_contents_pinned,
-                DataBlockHashIndex* data_block_hash_index)
+                DataBlockHashIndex* data_block_hash_index,
+                uint32_t block_protection_bytes_per_key)
       : DataBlockIter() {
     Initialize(raw_ucmp, data, restarts, num_restarts, global_seqno,
-               read_amp_bitmap, block_contents_pinned, data_block_hash_index);
+               read_amp_bitmap, block_contents_pinned, data_block_hash_index,
+               block_protection_bytes_per_key);
   }
   void Initialize(const Comparator* raw_ucmp, const char* data,
                   uint32_t restarts, uint32_t num_restarts,
                   SequenceNumber global_seqno,
                   BlockReadAmpBitmap* read_amp_bitmap,
                   bool block_contents_pinned,
-                  DataBlockHashIndex* data_block_hash_index) {
+                  DataBlockHashIndex* data_block_hash_index,
+                  uint32_t block_protection_bytes_per_key) {
     InitializeBase(raw_ucmp, data, restarts, num_restarts, global_seqno,
                    block_contents_pinned);
     raw_key_.SetIsUserKey(false);
     read_amp_bitmap_ = read_amp_bitmap;
     last_bitmap_offset_ = current_ + 1;
     data_block_hash_index_ = data_block_hash_index;
+    block_protection_bytes_per_key_ = block_protection_bytes_per_key;
   }
 
   Slice value() const override {
@@ -579,6 +584,7 @@ class DataBlockIter final : public BlockIter<Slice> {
   std::string prev_entries_keys_buff_;
   std::vector<CachedPrevEntry> prev_entries_;
   int32_t prev_entries_idx_ = -1;
+  uint32_t block_protection_bytes_per_key_ = 0;
 
   DataBlockHashIndex* data_block_hash_index_;
 

@@ -39,6 +39,7 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit_handler.h"
+#include "rocksdb/options.h"
 #if USE_COROUTINES
 #include "folly/experimental/coro/BlockingWait.h"
 #include "folly/experimental/coro/Collect.h"
@@ -2219,7 +2220,7 @@ void Version::MultiGetBlob(
   }
 }
 
-void Version::Get(const ReadOptions& read_options, const LookupKey& k,
+void Version::Get(const ReadOptions& read_opts, const LookupKey& k,
                   PinnableSlice* value, PinnableWideColumns* columns,
                   std::string* timestamp, Status* status,
                   MergeContext* merge_context,
@@ -2242,6 +2243,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       vset_->block_cache_tracer_->is_tracing_enabled()) {
     tracing_get_id = vset_->block_cache_tracer_->NextGetId();
   }
+
+  ReadOptions read_options = read_opts;
+  read_options.block_protection_bytes_per_key =
+      mutable_cf_options_.block_protection_bytes_per_key;
 
   // Note: the old StackableDB-based BlobDB passes in
   // GetImplOptions::is_blob_index; for the integrated BlobDB implementation, we
@@ -2400,9 +2405,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
 }
 
-void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
+void Version::MultiGet(const ReadOptions& read_opts, MultiGetRange* range,
                        ReadCallback* callback) {
   PinnedIteratorsManager pinned_iters_mgr;
+  ReadOptions read_options = read_opts;
+  read_options.block_protection_bytes_per_key =
+      mutable_cf_options_.block_protection_bytes_per_key;
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -6447,6 +6455,9 @@ InternalIterator* VersionSet::MakeInputIterator(
     const std::optional<const Slice>& start,
     const std::optional<const Slice>& end) {
   auto cfd = c->column_family_data();
+  ReadOptions read_opts = read_options;
+  read_opts.block_protection_bytes_per_key =
+      cfd->GetCurrentMutableCFOptions()->block_protection_bytes_per_key;
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
@@ -6476,9 +6487,8 @@ InternalIterator* VersionSet::MakeInputIterator(
           }
 
           list[num++] = cfd->table_cache()->NewIterator(
-              read_options, file_options_compactions,
-              cfd->internal_comparator(), fmd, range_del_agg,
-              c->mutable_cf_options()->prefix_extractor,
+              read_opts, file_options_compactions, cfd->internal_comparator(),
+              fmd, range_del_agg, c->mutable_cf_options()->prefix_extractor,
               /*table_reader_ptr=*/nullptr,
               /*file_read_hist=*/nullptr, TableReaderCaller::kCompaction,
               /*arena=*/nullptr,
@@ -6492,7 +6502,7 @@ InternalIterator* VersionSet::MakeInputIterator(
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = new LevelIterator(
-            cfd->table_cache(), read_options, file_options_compactions,
+            cfd->table_cache(), read_opts, file_options_compactions,
             cfd->internal_comparator(), c->input_levels(which),
             c->mutable_cf_options()->prefix_extractor,
             /*should_sample=*/false,

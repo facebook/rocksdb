@@ -1552,7 +1552,8 @@ InternalIteratorBase<IndexValue>* BlockBasedTable::NewIndexIterator(
 template <>
 DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
-    DataBlockIter* input_iter, bool block_contents_pinned) {
+    DataBlockIter* input_iter, bool block_contents_pinned,
+    uint32_t block_protection_bytes_per_key) {
   return block->NewDataIterator(rep->internal_comparator.user_comparator(),
                                 rep->get_global_seqno(block_type), input_iter,
                                 rep->ioptions.stats, block_contents_pinned);
@@ -1561,7 +1562,8 @@ DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
 template <>
 IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
     const Rep* rep, Block* block, BlockType block_type,
-    IndexBlockIter* input_iter, bool block_contents_pinned) {
+    IndexBlockIter* input_iter, bool block_contents_pinned,
+    uint32_t /*block_protection_bytes_per_key*/) {
   return block->NewIndexIterator(
       rep->internal_comparator.user_comparator(),
       rep->get_global_seqno(block_type), input_iter, rep->ioptions.stats,
