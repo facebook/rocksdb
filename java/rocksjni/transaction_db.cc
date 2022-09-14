@@ -67,12 +67,6 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
   }
 
   const jsize len_cols = env->GetArrayLength(jcolumn_names);
-  if (env->EnsureLocalCapacity(len_cols) != 0) {
-    // out of memory
-    env->ReleaseStringUTFChars(jdb_path, db_path);
-    return nullptr;
-  }
-
   jlong* jco = env->GetLongArrayElements(jcolumn_options_handles, nullptr);
   if (jco == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -99,14 +93,6 @@ jlongArray Java_org_rocksdb_TransactionDB_open__JJLjava_lang_String_2_3_3B_3J(
     }
 
     const int jcf_name_len = env->GetArrayLength(jcn_ba);
-    if (env->EnsureLocalCapacity(jcf_name_len) != 0) {
-      // out of memory
-      env->ReleaseByteArrayElements(jcn_ba, jcf_name, JNI_ABORT);
-      env->DeleteLocalRef(jcn);
-      env->ReleaseLongArrayElements(jcolumn_options_handles, jco, JNI_ABORT);
-      env->ReleaseStringUTFChars(jdb_path, db_path);
-      return nullptr;
-    }
     const std::string cf_name(reinterpret_cast<char*>(jcf_name), jcf_name_len);
     const ROCKSDB_NAMESPACE::ColumnFamilyOptions* cf_options =
         reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jco[i]);

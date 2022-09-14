@@ -6,8 +6,10 @@ package org.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -18,29 +20,23 @@ import org.junit.runners.Parameterized;
 public class MultiGetManyKeysTest {
   @Parameterized.Parameters
   public static List<Integer> data() {
-    return Arrays.asList(3, 250, 60000, 70000, 150000, 750000);
+    return Arrays.asList(2, 3, 250, 60000, 70000, 150000, 750000);
   }
 
   @Rule public TemporaryFolder dbFolder = new TemporaryFolder();
 
-  private final int keySize;
+  private final int numKeys;
 
-  public MultiGetManyKeysTest(final Integer keySize) {
-    this.keySize = keySize;
+  public MultiGetManyKeysTest(final Integer numKeys) {
+    this.numKeys = numKeys;
   }
 
   /**
-   * Test for https://github.com/facebook/rocksdb/issues/8039
+   * Test for <a link="https://github.com/facebook/rocksdb/issues/8039">multiGet problem</a>
    */
   @Test
   public void multiGetAsListLarge() throws RocksDBException {
-    final Random rand = new Random();
-    final List<byte[]> keys = new ArrayList<>();
-    for (int i = 0; i < keySize; i++) {
-      final byte[] key = new byte[4];
-      rand.nextBytes(key);
-      keys.add(key);
-    }
+    final List<byte[]> keys = generateRandomKeys(numKeys);
 
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
@@ -53,18 +49,153 @@ public class MultiGetManyKeysTest {
   public void multiGetAsListCheckResults() throws RocksDBException {
     try (final Options opt = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath())) {
-      final List<byte[]> keys = new ArrayList<>();
-      for (int i = 0; i < keySize; i++) {
-        byte[] key = ("key" + i + ":").getBytes();
-        keys.add(key);
-        db.put(key, ("value" + i + ":").getBytes());
+      final List<byte[]> keys = generateOrderedKeys(numKeys);
+      final List<byte[]> entries = generateOrderedValues(numKeys);
+      for (int i = 0; i < numKeys; i++) {
+        db.put(keys.get(i), entries.get(i));
       }
 
       final List<byte[]> values = db.multiGetAsList(keys);
       assertThat(values.size()).isEqualTo(keys.size());
-      for (int i = 0; i < keySize; i++) {
-        assertThat(values.get(i)).isEqualTo(("value" + i + ":").getBytes());
+      for (int i = 0; i < numKeys; i++) {
+        assertThat(values.get(i)).isEqualTo(entries.get(i));
       }
     }
+  }
+
+  /**
+   * Test for <a link="https://github.com/facebook/rocksdb/issues/9006">transactional multiGet
+   * problem</a>
+   */
+  @Test
+  public void multiGetAsListLargeTransactional() throws RocksDBException {
+    final List<byte[]> keys = generateRandomKeys(numKeys);
+
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+         final TransactionDB txnDB =
+             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
+      try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
+        final List<byte[]> values = transaction.multiGetAsList(new ReadOptions(), keys);
+        assertThat(values.size()).isEqualTo(keys.size());
+      }
+    }
+  }
+
+  @Test
+  public void multiGetAsListLargeTransactionalCheckResults() throws RocksDBException {
+    final List<byte[]> keys = generateOrderedKeys(numKeys);
+
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+         final TransactionDB txnDB =
+             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
+      try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
+        final List<byte[]> entries = generateOrderedValues(numKeys);
+        for (int i = 0; i < numKeys; i++) {
+          transaction.put(keys.get(i), entries.get(i));
+        }
+        final List<byte[]> values = transaction.multiGetAsList(new ReadOptions(), keys);
+        assertThat(values.size()).isEqualTo(keys.size());
+        for (int i = 0; i < numKeys; i++) {
+          assertThat(values.get(i)).isEqualTo(entries.get(i));
+        }
+      }
+    }
+  }
+
+  /**
+   * Test for <a link="https://github.com/facebook/rocksdb/issues/9006">transactional multiGet
+   * problem</a>
+   */
+  @Test
+  public void multiGetForUpdateAsListLargeTransactional() throws RocksDBException {
+    final List<byte[]> keys = generateRandomKeys(numKeys);
+
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+         final TransactionDB txnDB =
+             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath())) {
+      try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
+        final List<byte[]> values = transaction.multiGetForUpdateAsList(new ReadOptions(), keys);
+        assertThat(values.size()).isEqualTo(keys.size());
+      }
+    }
+  }
+
+  /**
+   * Test for <a link="https://github.com/facebook/rocksdb/issues/9006">transactional multiGet
+   * problem</a>
+   */
+  @Test
+  public void multiGetAsListLargeTransactionalCF() throws RocksDBException {
+    final List<byte[]> keys = generateRandomKeys(numKeys);
+
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+         final TransactionDB txnDB =
+             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath());
+         final ColumnFamilyHandle columnFamilyHandle =
+             txnDB.createColumnFamily(new ColumnFamilyDescriptor("cfTest".getBytes()))) {
+      List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>(numKeys);
+      for (int i = 0; i < numKeys; i++) columnFamilyHandles.add(columnFamilyHandle);
+      try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
+        final List<byte[]> values =
+            transaction.multiGetAsList(new ReadOptions(), columnFamilyHandles, keys);
+        assertThat(values.size()).isEqualTo(keys.size());
+      }
+    }
+  }
+
+  /**
+   * Test for <a link="https://github.com/facebook/rocksdb/issues/9006">transactional multiGet
+   * problem</a>
+   */
+  @Test
+  public void multiGetForUpdateAsListLargeTransactionalCF() throws RocksDBException {
+    final List<byte[]> keys = generateRandomKeys(numKeys);
+
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final TransactionDBOptions txnDbOptions = new TransactionDBOptions();
+         final TransactionDB txnDB =
+             TransactionDB.open(options, txnDbOptions, dbFolder.getRoot().getAbsolutePath());
+         final ColumnFamilyHandle columnFamilyHandle =
+             txnDB.createColumnFamily(new ColumnFamilyDescriptor("cfTest".getBytes()))) {
+      List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>(numKeys);
+      for (int i = 0; i < numKeys; i++) columnFamilyHandles.add(columnFamilyHandle);
+      try (final Transaction transaction = txnDB.beginTransaction(new WriteOptions())) {
+        final List<byte[]> values =
+            transaction.multiGetForUpdateAsList(new ReadOptions(), columnFamilyHandles, keys);
+        assertThat(values.size()).isEqualTo(keys.size());
+      }
+    }
+  }
+
+  private List<byte[]> generateRandomKeys(final int numKeys) {
+    final Random rand = new Random();
+    final List<byte[]> keys = new ArrayList<>();
+    for (int i = 0; i < numKeys; i++) {
+      final byte[] key = new byte[4];
+      rand.nextBytes(key);
+      keys.add(key);
+    }
+    return keys;
+  }
+
+  private List<byte[]> generateOrderedKeys(final int numKeys) {
+    final List<byte[]> keys = new ArrayList<>();
+    for (int i = 0; i < numKeys; i++) {
+      byte[] key = ("key" + i + ":").getBytes();
+      keys.add(key);
+    }
+    return keys;
+  }
+  private List<byte[]> generateOrderedValues(final int numKeys) {
+    final List<byte[]> keys = new ArrayList<>();
+    for (int i = 0; i < numKeys; i++) {
+      byte[] key = ("value" + i + ":").getBytes();
+      keys.add(key);
+    }
+    return keys;
   }
 }

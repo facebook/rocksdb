@@ -63,12 +63,6 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> column_families;
   const jsize len_cols = env->GetArrayLength(jcolumn_names);
   if (len_cols > 0) {
-    if (env->EnsureLocalCapacity(len_cols) != 0) {
-      // out of memory
-      env->ReleaseStringUTFChars(jdb_path, db_path);
-      return nullptr;
-    }
-
     jlong* jco = env->GetLongArrayElements(jcolumn_options_handles, nullptr);
     if (jco == nullptr) {
       // exception thrown: OutOfMemoryError
@@ -87,14 +81,6 @@ Java_org_rocksdb_OptimisticTransactionDB_open__JLjava_lang_String_2_3_3B_3J(
 
       const jbyteArray jcn_ba = reinterpret_cast<jbyteArray>(jcn);
       const jsize jcf_name_len = env->GetArrayLength(jcn_ba);
-      if (env->EnsureLocalCapacity(jcf_name_len) != 0) {
-        // out of memory
-        env->DeleteLocalRef(jcn);
-        env->ReleaseLongArrayElements(jcolumn_options_handles, jco, JNI_ABORT);
-        env->ReleaseStringUTFChars(jdb_path, db_path);
-        return nullptr;
-      }
-
       jbyte* jcf_name = env->GetByteArrayElements(jcn_ba, nullptr);
       if (jcf_name == nullptr) {
         // exception thrown: OutOfMemoryError
