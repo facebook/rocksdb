@@ -1027,7 +1027,7 @@ struct AdvancedColumnFamilyOptions {
   // Enable memtable per key-value checksum protection.
   //
   // Each entry in memtable will be suffixed by a per key-value checksum.
-  // This options determines the size of such checksums.
+  // This option determines the size of such checksums.
   //
   // It is suggested to turn on write batch per key-value
   // checksum protection together with this option, so that the checksum
@@ -1038,6 +1038,16 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0 (no protection)
   // Supported values: 0, 1, 2, 4, 8.
   uint32_t memtable_protection_bytes_per_key = 0;
+
+  // Enable block per key-value checksum protection.
+  //
+  // When a data block is read from sst, it will be suffixed by an array of
+  // checksums.
+  // This option determines the size of such checksums.
+  //
+  // Default: 0 (no protection)
+  // Supported values: 0, 1, 2, 4, 8.
+  uint32_t block_protection_bytes_per_key = 0;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

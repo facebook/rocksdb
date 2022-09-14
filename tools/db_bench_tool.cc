@@ -1733,8 +1733,13 @@ DEFINE_uint32(
     memtable_protection_bytes_per_key, 0,
     "Enable memtable per key-value checksum protection. "
     "Each entry in memtable will be suffixed by a per key-value checksum. "
-    "This options determines the size of such checksums. "
+    "This option determines the size of such checksums. "
     "Supported values: 0, 1, 2, 4, 8.");
+
+DEFINE_uint32(block_protection_bytes_per_key, 0,
+              "Enable block per key-value checksum protection. "
+              "This option determines the size of such checksums. "
+              "Supported values: 0, 1, 2, 4, 8.");
 
 DEFINE_bool(build_info, false,
             "Print the build info via GetRocksBuildInfoAsString");
@@ -4663,6 +4668,8 @@ class Benchmark {
 #endif  // ROCKSDB_LITE
     options.memtable_protection_bytes_per_key =
         FLAGS_memtable_protection_bytes_per_key;
+    options.block_protection_bytes_per_key =
+        FLAGS_block_protection_bytes_per_key;
   }
 
   void InitializeOptionsGeneral(Options* opts) {

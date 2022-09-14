@@ -164,6 +164,7 @@ struct MutableCFOptions {
                                    : options.last_level_temperature),
         memtable_protection_bytes_per_key(
             options.memtable_protection_bytes_per_key),
+        block_protection_bytes_per_key(options.block_protection_bytes_per_key),
         sample_for_compression(
             options.sample_for_compression),  // TODO: is 0 fine here?
         compression_per_level(options.compression_per_level) {
@@ -213,6 +214,7 @@ struct MutableCFOptions {
         bottommost_compression(kDisableCompressionOption),
         last_level_temperature(Temperature::kUnknown),
         memtable_protection_bytes_per_key(0),
+        block_protection_bytes_per_key(0),
         sample_for_compression(0) {}
 
   explicit MutableCFOptions(const Options& options);
@@ -302,6 +304,7 @@ struct MutableCFOptions {
   CompressionOptions bottommost_compression_opts;
   Temperature last_level_temperature;
   uint32_t memtable_protection_bytes_per_key;
+  uint32_t block_protection_bytes_per_key;
 
   uint64_t sample_for_compression;
   std::vector<CompressionType> compression_per_level;
